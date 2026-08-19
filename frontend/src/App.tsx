@@ -7,7 +7,16 @@ import Dashboard from './pages/dashboard/Dashboard';
 import Products from './pages/products/Products';
 import Customers from './pages/customers/Customers';
 import SalesOrders from './pages/sales/SalesOrders';
-import Inventory from './pages/inventory/Inventory';
+import {
+  Inventory,
+  InventoryPolicyManagement,
+  BatchManagement,
+  StockAdjustmentManagement,
+  StockTransferManagement,
+  ReservationManagement,
+  StockLedgerView,
+  InventoryReports,
+} from './pages/inventory';
 import Production from './pages/production/Production';
 import {
   CompanyManagement,
@@ -49,7 +58,14 @@ const App: React.FC = () => {
                 <Route path="/products/*" element={<Products />} />
                 <Route path="/customers/*" element={<Customers />} />
                 <Route path="/sales/*" element={<SalesOrders />} />
-                <Route path="/inventory/*" element={<Inventory />} />
+                <Route path="/inventory" element={<Inventory />} />
+                <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
+                <Route path="/inventory/batches" element={<BatchManagement />} />
+                <Route path="/inventory/adjustments" element={<StockAdjustmentManagement />} />
+                <Route path="/inventory/transfers" element={<StockTransferManagement />} />
+                <Route path="/inventory/reservations" element={<ReservationManagement />} />
+                <Route path="/inventory/ledger" element={<StockLedgerView />} />
+                <Route path="/inventory/reports" element={<InventoryReports />} />
                 <Route path="/production/*" element={<Production />} />
                 <Route path="/organization/companies" element={<CompanyManagement />} />
                 <Route path="/organization/branches" element={<BranchManagement />} />

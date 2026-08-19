@@ -22,6 +22,8 @@ import {
   TagsOutlined,
   CalculatorOutlined,
   SwapOutlined,
+  EditOutlined,
+  BarChartOutlined,
   BugOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -142,9 +144,19 @@ const menuItems: MenuProps['items'] = [
     label: 'Sales',
   },
   {
-    key: '/inventory',
+    key: 'inventory',
     icon: <InboxOutlined />,
     label: 'Inventory',
+    children: [
+      { key: '/inventory', icon: <InboxOutlined />, label: 'Overview' },
+      { key: '/inventory/policies', icon: <SafetyOutlined />, label: 'Inventory Policies' },
+      { key: '/inventory/batches', icon: <AppstoreOutlined />, label: 'Batch Tracking' },
+      { key: '/inventory/adjustments', icon: <EditOutlined />, label: 'Stock Adjustments' },
+      { key: '/inventory/transfers', icon: <SwapOutlined />, label: 'Stock Transfers' },
+      { key: '/inventory/reservations', icon: <SafetyCertificateOutlined />, label: 'Reservations' },
+      { key: '/inventory/ledger', icon: <DatabaseOutlined />, label: 'Stock Ledger' },
+      { key: '/inventory/reports', icon: <BarChartOutlined />, label: 'Reports' },
+    ],
   },
   {
     key: '/production',
