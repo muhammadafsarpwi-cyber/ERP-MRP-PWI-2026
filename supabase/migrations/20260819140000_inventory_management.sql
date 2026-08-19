@@ -320,7 +320,7 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
     reference_type VARCHAR(50),
     reference_id UUID,
     status VARCHAR(20) DEFAULT 'ACTIVE'
-        CHECK (status IN ('ACTIVE', 'CONSUMED', 'CANCELLED')),
+        CHECK (status IN ('ACTIVE', 'CONSUMED', 'RELEASED', 'CANCELLED')),
     expires_at TIMESTAMPTZ
 );
 

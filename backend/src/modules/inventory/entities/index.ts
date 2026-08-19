@@ -7,3 +7,4 @@ export { StockAdjustmentLine } from './stock-adjustment-line.entity';
 export { StockTransfer } from './stock-transfer.entity';
 export { StockTransferLine } from './stock-transfer-line.entity';
 export { InventoryReservation } from './inventory-reservation.entity';
+export { SerialNumber } from './serial-number.entity';

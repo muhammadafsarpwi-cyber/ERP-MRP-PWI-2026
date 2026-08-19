@@ -113,7 +113,7 @@ export class InventoryReservationService {
       throw new BadRequestException(`Can only release reservations in ACTIVE status`);
     }
 
-    reservation.status = 'CANCELLED';
+    reservation.status = 'RELEASED';
     reservation.updatedBy = userId || null;
     await this.repo.save(reservation);
 

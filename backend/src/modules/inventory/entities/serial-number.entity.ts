@@ -1,14 +1,30 @@
-import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { Entity, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Company } from '../../organization/entities/company.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { WarehouseLocation } from '../../organization/entities/warehouse-location.entity';
-import { Uom } from '../../item/entities/uom.entity';
 import { Batch } from './batch.entity';
 
-@Entity('inventory_balances')
-export class InventoryBalance extends BaseEntity {
+@Entity('serial_numbers')
+export class SerialNumber {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp with time zone' })
+  updatedAt: Date;
+
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy: string | null;
+
+  @Column({ name: 'updated_by', type: 'uuid', nullable: true })
+  updatedBy: string | null;
+
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
+
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 
@@ -37,6 +53,9 @@ export class InventoryBalance extends BaseEntity {
   @JoinColumn({ name: 'location_id' })
   location: WarehouseLocation;
 
+  @Column({ name: 'serial_number', type: 'varchar', length: 100 })
+  serialNumber: string;
+
   @Column({ name: 'batch_id', type: 'uuid', nullable: true })
   batchId: string | null;
 
@@ -44,22 +63,15 @@ export class InventoryBalance extends BaseEntity {
   @JoinColumn({ name: 'batch_id' })
   batch: Batch;
 
-  @Column({ name: 'uom_id', type: 'uuid' })
-  uomId: string;
-
-  @ManyToOne(() => Uom)
-  @JoinColumn({ name: 'uom_id' })
-  uom: Uom;
-
-  @Column({ name: 'on_hand', type: 'decimal', precision: 15, scale: 4, default: 0 })
-  onHand: number;
-
-  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
-  reserved: number;
-
-  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
-  available: number;
-
-  @Column({ type: 'varchar', length: 20, default: 'ACTIVE' })
+  @Column({ type: 'varchar', length: 20, default: 'IN_STOCK' })
   status: string;
+
+  @Column({ name: 'reference_type', type: 'varchar', length: 50, nullable: true })
+  referenceType: string | null;
+
+  @Column({ name: 'reference_id', type: 'uuid', nullable: true })
+  referenceId: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes: string | null;
 }

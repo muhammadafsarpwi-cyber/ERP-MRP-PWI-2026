@@ -172,12 +172,14 @@ export class StockLedgerService {
       .select([
         'ledger.itemId AS "itemId"',
         'item.itemCode AS "itemCode"',
-        'itemName.itemName AS "itemName"',
+        'item.name AS "itemName"',
         'COALESCE(SUM(CASE WHEN ledger.direction = \'IN\' THEN ledger.quantity ELSE 0 END), 0) AS "totalIn"',
         'COALESCE(SUM(CASE WHEN ledger.direction = \'OUT\' THEN ledger.quantity ELSE 0 END), 0) AS "totalOut"',
+        'COALESCE(SUM(CASE WHEN ledger.direction = \'IN\' THEN ledger.quantity ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN ledger.direction = \'OUT\' THEN ledger.quantity ELSE 0 END), 0) AS "balance"',
       ])
       .groupBy('ledger.itemId')
-      .addGroupBy('item.itemCode');
+      .addGroupBy('item.itemCode')
+      .addGroupBy('item.name');
 
     qb.where('ledger.companyId = :companyId', { companyId });
     if (warehouseId) {

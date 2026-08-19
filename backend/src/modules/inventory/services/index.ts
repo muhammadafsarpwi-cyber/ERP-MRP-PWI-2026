@@ -5,3 +5,5 @@ export { StockLedgerService } from './stock-ledger.service';
 export { StockAdjustmentService } from './stock-adjustment.service';
 export { StockTransferService } from './stock-transfer.service';
 export { InventoryReservationService } from './inventory-reservation.service';
+export { OpeningStockService } from './opening-stock.service';
+export { SerialNumberService } from './serial-number.service';

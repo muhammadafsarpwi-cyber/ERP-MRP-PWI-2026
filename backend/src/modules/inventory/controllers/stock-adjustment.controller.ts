@@ -127,4 +127,15 @@ export class StockAdjustmentController {
     const adjustment = await this.stockAdjustmentService.cancel(id);
     return { success: true, data: adjustment, message: 'Stock adjustment cancelled' };
   }
+
+  @Patch(':id/reject')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('inventory.adjustment.approve')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reject stock adjustment back to draft' })
+  @ApiParam({ name: 'id' })
+  async reject(@Param('id') id: string) {
+    const adjustment = await this.stockAdjustmentService.reject(id);
+    return { success: true, data: adjustment, message: 'Stock adjustment rejected back to draft' };
+  }
 }

@@ -5,3 +5,5 @@ export { StockAdjustmentController } from './stock-adjustment.controller';
 export { StockTransferController } from './stock-transfer.controller';
 export { InventoryReservationController } from './inventory-reservation.controller';
 export { StockReportController } from './stock-report.controller';
+export { OpeningStockController } from './opening-stock.controller';
+export { SerialNumberController } from './serial-number.controller';
