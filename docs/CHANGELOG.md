@@ -8,6 +8,8 @@
 | ERP-00002 | 2026-08-18 | Company & Organization Module | Approved | M01 | R00 | Implemented |
 | ERP-00002-R01 | 2026-08-18 | Supabase DB & Division/Section Structure | Approved | M01 | R01 | Implemented |
 | ERP-00003 | 2026-08-18 | Users, Roles, Permissions & Access Control | Approved | M02 | R00 | Implemented |
+| ERP-00004 | 2026-08-19 | Item Master & UOM Module | Approved | M03 | R00 | Implemented |
+| ERP-00005 | 2026-08-19 | Inventory & Warehouse Management | Approved | M06 | R07 | Completed |
 
 ## 2. ERP Instructions
 
@@ -62,6 +64,39 @@
   - Organization module permissions seed data
   - Supabase migration for all auth tables
 
+### ERP-00004: Item Master & UOM Module
+- **Date**: 2026-08-19
+- **Status**: Approved
+- **Description**: Implementation of Items, UOM, UOM Conversions, Item Categories, Item Attributes, Item Barcodes, Item Specifications, and Item Documents
+- **Scope**: Item Master module (M03)
+- **Implementation**: Completed
+
+### ERP-00005: Inventory & Warehouse Management
+- **Date**: 2026-08-19
+- **Status**: Approved
+- **Description**: Full Inventory & Warehouse Management module including Stock Ledger, Inventory Balances, Policies, Opening Stock, Adjustments, Transfers, Reservations, Batch/Lot Tracking, Serial Number Tracking, and Inventory Reports
+- **Scope**: Inventory & Warehouse module (M06)
+- **Implementation**: Completed (R07 — Final Acceptance)
+- **Revisions**:
+  - R01: Migration syntax fix (COALESCE UNIQUE constraint)
+  - R02: Duplicate trigger fix (idempotent migration)
+  - R05: Serial number trigger idempotency
+  - R06: E2E bug fixes (onHand mapping, RELEASED constraint, permissions)
+  - R07: Final acceptance audit (46/46 E2E, all verification PASS)
+- **Key Changes**:
+  - 9 database tables (stock_ledger, inventory_balances, inventory_reservations, stock_adjustments, stock_adjustment_lines, stock_transfers, stock_transfer_lines, batches, serial_numbers)
+  - 8 update_updated_at triggers
+  - 20 inventory permissions
+  - 9 backend entities, 5 DTO sets, 7+2 services, 7+2 controllers
+  - 9 frontend pages (8 functional + index)
+  - Full workflow support: create→submit→approve→post with ledger/balance updates
+  - Reservations with release/cancel and stock impact
+  - Batch/Lot and Serial Number tracking
+  - Opening Stock posting
+  - Inventory Reports (stock summary, ledger view)
+  - Supabase PostgreSQL with version-controlled migrations
+  - JWT auth + permission-based guards on all inventory endpoints
+
 ## 3. Implementation Status by Module
 
 ### Phase 1: Foundation
@@ -69,14 +104,14 @@
 |--------|--------|-------|
 | M01: Company & Organization | Implemented | Complete with CRUD, hierarchy, Division, Section, validation, Supabase migrations |
 | M02: Users, Roles & Permissions | Implemented | Complete with CRUD, authorization, Supabase Auth integration |
-| M03: Products & Item Master | Architecture Ready | Pending Implementation |
+| M03: Products & Item Master | Implemented | Complete with CRUD, attributes, UOM, barcodes, categories, specifications |
 | M04: Customers & CRM | Architecture Ready | Pending Implementation |
 
 ### Phase 2: Core Transactions
 | Module | Status | Notes |
 |--------|--------|-------|
 | M05: Sales | Architecture Ready | Pending Implementation |
-| M06: Inventory & Warehouse | Architecture Ready | Pending Implementation |
+| M06: Inventory & Warehouse | Implemented | Complete: 9 entities, 20 permissions, 8 pages, full E2E (46/46 tests), Supabase verified |
 | M07: Purchasing / Procurement | Architecture Ready | Pending Implementation |
 
 ### Phase 3: Manufacturing
@@ -134,6 +169,8 @@
 | 1.1 | 2026-08-18 | ERP Team | ERP-00002: Company & Organization Module |
 | 1.2 | 2026-08-18 | ERP Team | ERP-00002-R01: Supabase DB & Division/Section Structure |
 | 1.3 | 2026-08-18 | ERP Team | ERP-00003: Users, Roles, Permissions & Access Control |
+| 1.4 | 2026-08-19 | ERP Team | ERP-00004: Item Master & UOM Module |
+| 1.5 | 2026-08-19 | ERP Team | ERP-00005: Inventory & Warehouse Management (R07 Final Acceptance) |
 
 ## 5. Next Steps
 
