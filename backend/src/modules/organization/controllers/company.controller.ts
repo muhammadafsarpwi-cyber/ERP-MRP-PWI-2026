@@ -30,7 +30,7 @@ export class CompanyController {
     @Query('search') search?: string,
     @Query('status') status?: CompanyStatus,
   ) {
-    const result = await this.companyService.findAll({ page, limit, search, status });
+    const result = await this.companyService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status });
     return { success: true, ...result };
   }
 

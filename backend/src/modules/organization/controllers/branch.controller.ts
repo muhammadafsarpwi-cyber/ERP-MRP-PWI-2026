@@ -32,7 +32,7 @@ export class BranchController {
     @Query('status') status?: BranchStatus,
     @Query('companyId') companyId?: string,
   ) {
-    const result = await this.branchService.findAll({ page, limit, search, status, companyId });
+    const result = await this.branchService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId });
     return { success: true, ...result };
   }
 

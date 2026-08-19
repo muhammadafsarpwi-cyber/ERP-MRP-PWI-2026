@@ -35,7 +35,7 @@ export class WarehouseLocationController {
     @Query('parentLocationId') parentLocationId?: string,
   ) {
     const result = await this.locationService.findAll({
-      page, limit, search, status, warehouseId, parentLocationId,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, status, warehouseId, parentLocationId,
     });
     return { success: true, ...result };
   }

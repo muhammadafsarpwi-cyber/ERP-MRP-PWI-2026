@@ -32,7 +32,7 @@ export class PermissionController {
     @Query('resource') resource?: string,
     @Query('action') action?: string,
   ) {
-    const result = await this.permissionService.findAll({ page, limit, search, status, module, resource, action });
+    const result = await this.permissionService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status, module, resource, action });
     return { success: true, ...result };
   }
 

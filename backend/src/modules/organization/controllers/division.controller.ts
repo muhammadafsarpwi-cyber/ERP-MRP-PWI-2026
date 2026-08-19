@@ -32,7 +32,7 @@ export class DivisionController {
     @Query('status') status?: DivisionStatus,
     @Query('companyId') companyId?: string,
   ) {
-    const result = await this.divisionService.findAll({ page, limit, search, status, companyId });
+    const result = await this.divisionService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId });
     return { success: true, ...result };
   }
 

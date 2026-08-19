@@ -34,7 +34,7 @@ export class BusinessUnitController {
     @Query('companyId') companyId?: string,
     @Query('branchId') branchId?: string,
   ) {
-    const result = await this.businessUnitService.findAll({ page, limit, search, status, companyId, branchId });
+    const result = await this.businessUnitService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId, branchId });
     return { success: true, ...result };
   }
 

@@ -43,7 +43,7 @@ export class DepartmentController {
     @Query('parentDepartmentId') parentDepartmentId?: string,
   ) {
     const result = await this.departmentService.findAll({
-      page, limit, search, status, companyId, branchId, businessUnitId, divisionId, sectionId, parentDepartmentId,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId, branchId, businessUnitId, divisionId, sectionId, parentDepartmentId,
     });
     return { success: true, ...result };
   }

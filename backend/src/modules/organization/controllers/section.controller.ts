@@ -34,7 +34,7 @@ export class SectionController {
     @Query('companyId') companyId?: string,
     @Query('divisionId') divisionId?: string,
   ) {
-    const result = await this.sectionService.findAll({ page, limit, search, status, companyId, divisionId });
+    const result = await this.sectionService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId, divisionId });
     return { success: true, ...result };
   }
 

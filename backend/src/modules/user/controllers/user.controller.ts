@@ -39,7 +39,7 @@ export class UserController {
     @Query('status') status?: ErpUserStatus,
     @Query('companyId') companyId?: string,
   ) {
-    const result = await this.userService.findAll({ page, limit, search, status, companyId });
+    const result = await this.userService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId });
     return { success: true, ...result };
   }
 

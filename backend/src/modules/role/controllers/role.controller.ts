@@ -37,7 +37,7 @@ export class RoleController {
     @Query('search') search?: string,
     @Query('status') status?: RoleStatus,
   ) {
-    const result = await this.roleService.findAll({ page, limit, search, status });
+    const result = await this.roleService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status });
     return { success: true, ...result };
   }
 

@@ -54,3 +54,12 @@ temp/
 # Storage
 storage/*
 !storage/.gitkeep
+
+# Test/utility scripts and tokens (not for production)
+backend/test_token.txt
+backend/gen_token.js
+backend/test-api.js
+backend/test_crud.js
+backend/_check_*.js
+backend/_verify_*.js
+backend/tsconfig.tsbuildinfo

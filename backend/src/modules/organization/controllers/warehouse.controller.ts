@@ -39,7 +39,7 @@ export class WarehouseController {
     @Query('warehouseType') warehouseType?: WarehouseType,
   ) {
     const result = await this.warehouseService.findAll({
-      page, limit, search, status, companyId, branchId, businessUnitId, warehouseType,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId, branchId, businessUnitId, warehouseType,
     });
     return { success: true, ...result };
   }
