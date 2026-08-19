@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Table, Button, Space, Tag, Modal, Form, Input, message, Popconfirm, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -26,7 +26,7 @@ const CompanyManagement: React.FC = () => {
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [form] = Form.useForm();
 
-  const fetchCompanies = async (pageNum: number = 1) => {
+  const fetchCompanies = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const response = await apiService.get<{ data: Company[]; total: number }>('/companies', {
@@ -40,11 +40,11 @@ const CompanyManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchCompanies(page);
-  }, [page]);
+  }, [page, fetchCompanies]);
 
   const handleCreate = () => {
     setEditingCompany(null);

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card, Tree } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined, ApartmentOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, CheckCircleOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 
@@ -60,7 +60,7 @@ const DepartmentManagement: React.FC = () => {
   const [viewMode, setViewMode] = useState<'table' | 'tree'>('table');
   const [form] = Form.useForm();
 
-  const fetchDepartments = async (pageNum: number = 1) => {
+  const fetchDepartments = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const params: any = { page: pageNum, limit: 20 };
@@ -75,9 +75,9 @@ const DepartmentManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterCompanyId, filterDivisionId, filterSectionId]);
 
-  const fetchHierarchy = async () => {
+  const fetchHierarchy = useCallback(async () => {
     try {
       const params: any = {};
       if (filterCompanyId) params.companyId = filterCompanyId;
@@ -86,18 +86,18 @@ const DepartmentManagement: React.FC = () => {
     } catch (error) {
       message.error('Failed to fetch department hierarchy');
     }
-  };
+  }, [filterCompanyId]);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
     } catch (error) {
       message.error('Failed to fetch companies');
     }
-  };
+  }, []);
 
-  const fetchDivisions = async (companyId?: string) => {
+  const fetchDivisions = useCallback(async (companyId?: string) => {
     try {
       const params: any = { limit: 100 };
       if (companyId) params.companyId = companyId;
@@ -106,9 +106,9 @@ const DepartmentManagement: React.FC = () => {
     } catch (error) {
       message.error('Failed to fetch divisions');
     }
-  };
+  }, []);
 
-  const fetchSections = async (divisionId?: string) => {
+  const fetchSections = useCallback(async (divisionId?: string) => {
     try {
       const params: any = { limit: 100 };
       if (divisionId) params.divisionId = divisionId;
@@ -117,14 +117,14 @@ const DepartmentManagement: React.FC = () => {
     } catch (error) {
       message.error('Failed to fetch sections');
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDepartments(page);
     fetchHierarchy();
     fetchCompanies();
     fetchDivisions();
-  }, [page]);
+  }, [page, fetchDepartments, fetchHierarchy, fetchCompanies, fetchDivisions]);
 
   useEffect(() => {
     if (filterCompanyId) {
@@ -132,20 +132,20 @@ const DepartmentManagement: React.FC = () => {
       setFilterDivisionId(undefined);
       setFilterSectionId(undefined);
     }
-  }, [filterCompanyId]);
+  }, [filterCompanyId, fetchDivisions]);
 
   useEffect(() => {
     if (filterDivisionId) {
       fetchSections(filterDivisionId);
       setFilterSectionId(undefined);
     }
-  }, [filterDivisionId]);
+  }, [filterDivisionId, fetchSections]);
 
   useEffect(() => {
     fetchDepartments(1);
     fetchHierarchy();
     setPage(1);
-  }, [filterCompanyId, filterDivisionId, filterSectionId]);
+  }, [filterCompanyId, filterDivisionId, filterSectionId, fetchDepartments, fetchHierarchy]);
 
   const handleCreate = () => {
     setEditingDepartment(null);

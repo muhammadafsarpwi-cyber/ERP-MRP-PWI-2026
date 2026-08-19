@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Tag, Typography, Space, Spin } from 'antd';
+import { Card, Row, Col, Tag, Typography, Space } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -63,7 +63,6 @@ const DevelopmentStatus: React.FC = () => {
   const [backendStatus, setBackendStatus] = useState<ServiceStatus>({ status: 'CHECKING' });
   const [dbStatus, setDbStatus] = useState<ServiceStatus>({ status: 'CHECKING' });
   const [supabaseStatus, setSupabaseStatus] = useState<ServiceStatus>({ status: 'CHECKING' });
-  const [apiUrl, setApiUrl] = useState<string>(API_URL);
 
   useEffect(() => {
     const checkBackend = async () => {
@@ -175,7 +174,7 @@ const DevelopmentStatus: React.FC = () => {
           <Col xs={24} sm={12}>
             <Space direction="vertical" size="small">
               <Text strong>Backend API:</Text>
-              <Text copyable>{apiUrl}</Text>
+              <Text copyable>{API_URL}</Text>
             </Space>
           </Col>
           <Col xs={24} sm={12}>

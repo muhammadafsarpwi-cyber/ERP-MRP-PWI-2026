@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card, Tabs, Transfer } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined, UserOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card } from 'antd';
+import { PlusOutlined, EditOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 
@@ -39,13 +39,12 @@ const UserManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [roleModalVisible, setRoleModalVisible] = useState(false);
-  const [scopeModalVisible, setScopeModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<ErpUser | null>(null);
   const [selectedUser, setSelectedUser] = useState<ErpUser | null>(null);
   const [form] = Form.useForm();
   const [roleForm] = Form.useForm();
 
-  const fetchUsers = async (pageNum: number = 1) => {
+  const fetchUsers = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const response = await apiService.get<{ data: ErpUser[]; total: number }>('/admin/users', { page: pageNum, limit: 20 });
@@ -56,18 +55,18 @@ const UserManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchRoles = async () => {
+  const fetchRoles = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Role[] }>('/admin/roles', { limit: 100 });
       setRoles(response.data);
     } catch (error) {
       message.error('Failed to fetch roles');
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchUsers(page); fetchRoles(); }, [page]);
+  useEffect(() => { fetchUsers(page); fetchRoles(); }, [page, fetchUsers, fetchRoles]);
 
   const handleCreate = () => {
     setEditingUser(null);

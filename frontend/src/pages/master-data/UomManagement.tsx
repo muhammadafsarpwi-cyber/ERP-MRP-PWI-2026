@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, InputNumber, message, Popconfirm, Card,
 } from 'antd';
@@ -35,7 +35,7 @@ const UomManagement: React.FC = () => {
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
 
-  const fetchUoms = async (pageNum: number = 1) => {
+  const fetchUoms = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const params: any = { page: pageNum, limit: pageSize };
@@ -49,11 +49,11 @@ const UomManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search, filterType, pageSize]);
 
   useEffect(() => {
     fetchUoms(page);
-  }, [page, search, filterType]);
+  }, [page, fetchUoms]);
 
   const handleCreate = () => {
     setEditingUom(null);

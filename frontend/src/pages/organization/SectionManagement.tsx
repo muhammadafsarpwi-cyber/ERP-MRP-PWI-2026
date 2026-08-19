@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -42,7 +42,7 @@ const SectionManagement: React.FC = () => {
   const [editingSection, setEditingSection] = useState<Section | null>(null);
   const [form] = Form.useForm();
 
-  const fetchSections = async (pageNum: number = 1) => {
+  const fetchSections = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const params: any = { page: pageNum, limit: 20 };
@@ -55,18 +55,18 @@ const SectionManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedCompanyId]);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
     } catch (error) {
       message.error('Failed to fetch companies');
     }
-  };
+  }, []);
 
-  const fetchDivisions = async (companyId?: string) => {
+  const fetchDivisions = useCallback(async (companyId?: string) => {
     try {
       const params: any = { limit: 100 };
       if (companyId) params.companyId = companyId;
@@ -75,19 +75,19 @@ const SectionManagement: React.FC = () => {
     } catch (error) {
       message.error('Failed to fetch divisions');
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchSections(page);
     fetchCompanies();
     fetchDivisions();
-  }, [page]);
+  }, [page, fetchSections, fetchCompanies, fetchDivisions]);
 
   useEffect(() => {
     if (selectedCompanyId) {
       fetchDivisions(selectedCompanyId);
     }
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, fetchDivisions]);
 
   const handleCreate = () => {
     setEditingSection(null);

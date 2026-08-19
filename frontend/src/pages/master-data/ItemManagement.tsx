@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card,
-  InputNumber, Switch, Tabs, Row, Col, Divider,
+  InputNumber, Switch, Tabs, Row, Col,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -92,7 +92,7 @@ const ItemManagement: React.FC = () => {
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [pageSize] = useState(20);
 
-  const fetchItems = async (pageNum: number = 1) => {
+  const fetchItems = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const params: any = { page: pageNum, limit: pageSize };
@@ -108,7 +108,7 @@ const ItemManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search, filterStatus, filterItemType, filterCategory, pageSize]);
 
   const fetchDropdowns = async () => {
     try {
@@ -129,7 +129,7 @@ const ItemManagement: React.FC = () => {
 
   useEffect(() => {
     fetchItems(page);
-  }, [page, search, filterStatus, filterItemType, filterCategory]);
+  }, [page, fetchItems]);
 
   const handleCreate = () => {
     setEditingItem(null);

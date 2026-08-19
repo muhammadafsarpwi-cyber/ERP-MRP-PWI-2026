@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card, Tree } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -36,7 +36,7 @@ const LocationManagement: React.FC = () => {
   const [viewMode, setViewMode] = useState<'table' | 'tree'>('table');
   const [form] = Form.useForm();
 
-  const fetchLocations = async (pageNum: number = 1) => {
+  const fetchLocations = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const params: any = { page: pageNum, limit: 20 };
@@ -51,9 +51,9 @@ const LocationManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedWarehouse]);
 
-  const fetchHierarchy = async () => {
+  const fetchHierarchy = useCallback(async () => {
     if (!selectedWarehouse) return;
     try {
       const response = await apiService.get<{ data: WarehouseLocation[] }>(`/warehouse-locations/hierarchy/${selectedWarehouse}`);
@@ -61,27 +61,27 @@ const LocationManagement: React.FC = () => {
     } catch (error) {
       message.error('Failed to fetch location hierarchy');
     }
-  };
+  }, [selectedWarehouse]);
 
-  const fetchWarehouses = async () => {
+  const fetchWarehouses = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Warehouse[] }>('/warehouses', { limit: 100 });
       setWarehouses(response.data);
     } catch (error) {
       message.error('Failed to fetch warehouses');
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchWarehouses();
-  }, []);
+  }, [fetchWarehouses]);
 
   useEffect(() => {
     fetchLocations(page);
     if (selectedWarehouse) {
       fetchHierarchy();
     }
-  }, [page, selectedWarehouse]);
+  }, [page, selectedWarehouse, fetchLocations, fetchHierarchy]);
 
   const handleCreate = () => {
     setEditingLocation(null);

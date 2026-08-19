@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Tag, Card, Input, Select, Space, Button } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Table, Tag, Card, Input, Select, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 
@@ -23,7 +23,7 @@ const PermissionManagement: React.FC = () => {
   const [filterModule, setFilterModule] = useState<string | undefined>();
   const [search, setSearch] = useState('');
 
-  const fetchPermissions = async (pageNum: number = 1) => {
+  const fetchPermissions = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const params: any = { page: pageNum, limit: 50 };
@@ -37,18 +37,18 @@ const PermissionManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterModule, search]);
 
-  const fetchModules = async () => {
+  const fetchModules = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: string[] }>('/admin/permissions/modules');
       setModules(response.data);
     } catch (error) {
       console.error('Failed to fetch modules');
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchPermissions(page); fetchModules(); }, [page, filterModule, search]);
+  useEffect(() => { fetchPermissions(page); fetchModules(); }, [page, fetchPermissions, fetchModules]);
 
   const actionColors: Record<string, string> = {
     VIEW: 'blue',

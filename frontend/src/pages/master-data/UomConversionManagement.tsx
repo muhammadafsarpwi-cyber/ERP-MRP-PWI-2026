@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Select, InputNumber, message, Popconfirm, Card,
 } from 'antd';
@@ -38,7 +38,7 @@ const UomConversionManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [pageSize] = useState(20);
 
-  const fetchConversions = async (pageNum: number = 1) => {
+  const fetchConversions = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const response = await apiService.get<{ data: UomConversion[]; total: number }>('/master-data/uom-conversions', {
@@ -52,24 +52,24 @@ const UomConversionManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pageSize]);
 
-  const fetchUoms = async () => {
+  const fetchUoms = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 });
       setUoms(response.data);
     } catch (error) {
       message.error('Failed to fetch UOMs');
     }
-  };
-
-  useEffect(() => {
-    fetchUoms();
   }, []);
 
   useEffect(() => {
+    fetchUoms();
+  }, [fetchUoms]);
+
+  useEffect(() => {
     fetchConversions(page);
-  }, [page]);
+  }, [page, fetchConversions]);
 
   const handleCreate = () => {
     setEditingConversion(null);

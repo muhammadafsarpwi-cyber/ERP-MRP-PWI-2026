@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card, TreeSelect,
+  Table, Button, Space, Tag, Modal, Form, Input, message, Popconfirm, Card, TreeSelect,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -40,7 +40,6 @@ const buildTreeData = (data: Category[]): CategoryTree[] =>
 
 const CategoryManagement: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
-  const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -51,7 +50,7 @@ const CategoryManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [pageSize] = useState(20);
 
-  const fetchCategories = async (pageNum: number = 1) => {
+  const fetchCategories = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const params: any = { page: pageNum, limit: pageSize };
@@ -64,25 +63,24 @@ const CategoryManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search, pageSize]);
 
-  const fetchHierarchy = async () => {
+  const fetchHierarchy = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Category[] }>('/master-data/categories/hierarchy');
-      setAllCategories(response.data);
       setCategoryTree(buildTreeData(response.data));
     } catch (error) {
       message.error('Failed to fetch category hierarchy');
     }
-  };
-
-  useEffect(() => {
-    fetchHierarchy();
   }, []);
 
   useEffect(() => {
+    fetchHierarchy();
+  }, [fetchHierarchy]);
+
+  useEffect(() => {
     fetchCategories(page);
-  }, [page, search]);
+  }, [page, fetchCategories]);
 
   const handleCreate = () => {
     setEditingCategory(null);
