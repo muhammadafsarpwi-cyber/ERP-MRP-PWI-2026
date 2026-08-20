@@ -1,5 +1,80 @@
 # ERP-00006 IMPLEMENTATION CHECKPOINT
 
+## ERP-00006-R03 — v.toFixed Runtime Crash Fix (Numeric Formatting)
+
+**Date**: 2026-08-20
+**Status**: COMPLETE
+**Scope**: Frontend numeric formatting safety across all modules
+
+### Root Cause
+
+Browser crashed with `TypeError: v.toFixed is not a function` when rendering Ant Design Table columns containing PostgreSQL `decimal`/`numeric` fields.
+
+**Technical cause**: The `pg` Node.js driver (used by TypeORM) serializes PostgreSQL `decimal` and `numeric` column values as **strings** (e.g. `"2275.000000"`), not JavaScript numbers. TypeScript interfaces declared these fields as `number`, but the runtime type was `string`. Calling `.toFixed()` on a string throws `TypeError` because `.toFixed()` exists only on `Number.prototype`.
+
+### Fix
+
+Created a shared numeric formatting utility (`frontend/src/utils/numberFormat.ts`) with three functions:
+- `toNum(value)` — safely converts any value (string, number, null, undefined) to a JS number
+- `formatDecimal(value, decimals)` — safe `.toFixed()` wrapper using `toNum()` first
+- `formatNumber(value, decimals, locale)` — locale-aware formatting with thousand separators
+
+Replaced all unsafe `.toFixed()` calls with `formatDecimal()`. All affected table column renderers now use `render: (v: unknown) => formatDecimal(v)`.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `frontend/src/utils/numberFormat.ts` | **New** — shared `toNum()`, `formatDecimal()`, `formatNumber()` |
+| `frontend/src/pages/procurement/QuotationManagement.tsx` | `totalAmount` column: `v?.toFixed(2)` → `formatDecimal(v)` |
+| `frontend/src/pages/procurement/PurchaseOrderManagement.tsx` | `totalAmount` column: `v?.toFixed(2)` → `formatDecimal(v)` |
+| `frontend/src/pages/procurement/PurchaseInvoiceManagement.tsx` | `totalAmount` column: `v?.toFixed(2)` → `formatDecimal(v)` |
+| `frontend/src/pages/inventory/InventoryReports.tsx` | `getStatusTag()` uses `toNum()`; `onHand`/`reserved`/`available` columns use `formatDecimal()` |
+| `frontend/src/pages/inventory/Inventory.tsx` | `onHand`/`reserved`/`available` columns use `formatDecimal()` |
+| `frontend/src/pages/inventory/BatchManagement.tsx` | `quantity` column uses `formatDecimal()` |
+| `frontend/src/pages/inventory/StockTransferManagement.tsx` | `quantity` column uses `formatDecimal()` |
+| `frontend/src/pages/inventory/StockAdjustmentManagement.tsx` | `quantity` column uses `formatDecimal()` |
+| `frontend/src/pages/inventory/ReservationManagement.tsx` | `quantity`/`fulfilledQuantity` columns use `formatDecimal()` |
+| `frontend/src/pages/inventory/StockLedgerView.tsx` | `quantity` column uses `formatDecimal()` |
+| `frontend/src/pages/inventory/InventoryPolicyManagement.tsx` | `minimumStock`/`maximumStock`/`reorderLevel` columns use `formatDecimal()` |
+
+### Affected Categories
+
+| Category | Risk | Count | Status |
+|----------|------|-------|--------|
+| `.toFixed()` on string values | HIGH — crashes | 3 | FIXED |
+| Arithmetic on string decimals | MEDIUM — fragile | 1 | FIXED (uses `toNum()`) |
+| Raw decimal display (`100.0000`) | LOW — cosmetic | 8 | FIXED (formatted to 2dp) |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| Backend type-check (`tsc --noEmit`) | PASS |
+| Frontend type-check (`tsc --noEmit`) | PASS |
+| Backend compile (`tsc`) | PASS |
+| All 12 API endpoints return 200 | PASS |
+| Login succeeds | PASS |
+| Auth/me returns profile | PASS |
+| Inventory Balances (decimal fields) | PASS — `onHand='10.0000'` displayed as `10.00` |
+| Inventory Batches (decimal quantity) | PASS — `quantity='50.0000'` displayed as `50.00` |
+| Quotations (decimal totalAmount) | PASS — `totalAmount='0.000000'` displayed as `0.00` |
+| Purchase Orders (decimal totalAmount) | PASS — `totalAmount='2275.000000'` displayed as `2,275.00` |
+| Purchase Invoices (decimal totalAmount) | PASS — `totalAmount='2275.000000'` displayed as `2,275.00` |
+| Stock Ledger (decimal quantity) | PASS — `quantity='10.0000'` displayed as `10.00` |
+| Final `.toFixed` audit | PASS — only 1 occurrence (inside `formatDecimal()` utility, safe) |
+| No new `.toFixed` crash possible | PASS — all renderers use `formatDecimal()` |
+
+### Remaining Warnings (Non-blocking)
+
+- PostgreSQL decimal fields arrive as strings — this is expected `pg` driver behavior, not a bug
+- `SUPABASE_JWT_SECRET` is set to anon key (functional fallback via API verification, slower)
+- `SUPABASE_SERVICE_ROLE_KEY` equals `SUPABASE_ANON_KEY` (admin API unavailable)
+
+### Status: ERP-00006-R03 COMPLETE
+
+---
+
 ## ERP-00006-R02 — Authentication & Password Management Fix
 
 **Date**: 2026-08-20

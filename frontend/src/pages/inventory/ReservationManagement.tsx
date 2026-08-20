@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 const STATUS_OPTIONS = ['ACTIVE', 'PARTIAL', 'FULFILLED', 'CANCELLED'];
 
@@ -125,8 +126,8 @@ const ReservationManagement: React.FC = () => {
     { title: 'Reservation #', dataIndex: 'reservationNumber', key: 'reservationNumber', width: 170 },
     { title: 'Item', dataIndex: 'itemName', key: 'itemName', ellipsis: true },
     { title: 'Warehouse', dataIndex: 'warehouseName', key: 'warehouseName', width: 150 },
-    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' },
-    { title: 'Fulfilled', dataIndex: 'fulfilledQuantity', key: 'fulfilledQuantity', width: 90, align: 'right' },
+    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
+    { title: 'Fulfilled', dataIndex: 'fulfilledQuantity', key: 'fulfilledQuantity', width: 90, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70 },
     { title: 'Ref Type', dataIndex: 'referenceType', key: 'referenceType', width: 120 },
     { title: 'Ref Number', dataIndex: 'referenceNumber', key: 'referenceNumber', width: 130 },

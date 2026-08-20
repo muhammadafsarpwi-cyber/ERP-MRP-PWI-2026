@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 interface Quotation {
   id: string;
@@ -100,7 +101,7 @@ const QuotationManagement: React.FC = () => {
     { title: 'RFQ', dataIndex: 'rfqCode', key: 'rfqCode', width: 120 },
     { title: 'Date', dataIndex: 'quotationDate', key: 'quotationDate', width: 110 },
     { title: 'Valid Until', dataIndex: 'validUntil', key: 'validUntil', width: 110 },
-    { title: 'Total', dataIndex: 'totalAmount', key: 'totalAmount', width: 120, render: (v: number) => v?.toFixed(2) },
+    { title: 'Total', dataIndex: 'totalAmount', key: 'totalAmount', width: 120, render: (v: unknown) => formatDecimal(v) },
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 120,
       render: (status: string) => <Tag color={statusColorMap[status]}>{status}</Tag>,

@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 const STATUS_OPTIONS = ['ACTIVE', 'EXPIRED', 'CONSUMED', 'QUARANTINE'];
 
@@ -122,7 +123,7 @@ const BatchManagement: React.FC = () => {
     { title: 'Batch Number', dataIndex: 'batchNumber', key: 'batchNumber', width: 150 },
     { title: 'Item', dataIndex: 'itemName', key: 'itemName', ellipsis: true },
     { title: 'Warehouse', dataIndex: 'warehouseName', key: 'warehouseName', width: 150 },
-    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' },
+    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70 },
     {
       title: 'Mfg Date', dataIndex: 'manufacturingDate', key: 'manufacturingDate', width: 120,

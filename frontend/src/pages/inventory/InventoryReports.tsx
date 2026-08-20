@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Card, Select, Tag, Typography, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { toNum, formatDecimal } from '../../utils/numberFormat';
 
 interface StockBalance {
   id: string;
@@ -18,10 +19,12 @@ interface WarehouseOption {
   name: string;
 }
 
-const getStatusTag = (onHand: number, reserved: number) => {
-  const available = onHand - reserved;
+const getStatusTag = (onHand: unknown, reserved: unknown) => {
+  const oh = toNum(onHand);
+  const res = toNum(reserved);
+  const available = oh - res;
   if (available <= 0) return <Tag color="red">Critical</Tag>;
-  if (available < onHand * 0.2) return <Tag color="orange">Low</Tag>;
+  if (available < oh * 0.2) return <Tag color="orange">Low</Tag>;
   return <Tag color="green">Healthy</Tag>;
 };
 
@@ -80,9 +83,9 @@ const InventoryReports: React.FC = () => {
       title: 'Warehouse', key: 'warehouseName', width: 150,
       render: (_, r) => r.warehouse?.name || '-',
     },
-    { title: 'On Hand', dataIndex: 'onHand', key: 'onHand', width: 100, align: 'right' },
-    { title: 'Reserved', dataIndex: 'reserved', key: 'reserved', width: 100, align: 'right' },
-    { title: 'Available', dataIndex: 'available', key: 'available', width: 100, align: 'right' },
+    { title: 'On Hand', dataIndex: 'onHand', key: 'onHand', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
+    { title: 'Reserved', dataIndex: 'reserved', key: 'reserved', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
+    { title: 'Available', dataIndex: 'available', key: 'available', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
     { title: 'UOM', key: 'uomCode', width: 80, render: (_, r) => r.uom?.code || '-' },
     {
       title: 'Status', key: 'status', width: 100,

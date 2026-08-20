@@ -13,6 +13,7 @@
 | ERP-00006 | 2026-08-19 | Procurement Module | Approved | M07 | R00 | Code Complete |
 | ERP-00006-R01 | 2026-08-20 | Local Dev Environment Recovery + Standards | Approved | DevOps | R01 | Completed |
 | ERP-00006-R02 | 2026-08-20 | Authentication & Password Management Fix | Approved | Auth, Security | R02 | Completed |
+| ERP-00006-R03 | 2026-08-20 | v.toFixed Runtime Crash Fix (Numeric Formatting) | Approved | Frontend | R03 | Completed |
 
 ## 2. ERP Instructions
 
@@ -104,6 +105,21 @@
   - Development credentials documented (docs/DEVELOPMENT_CREDENTIALS.md)
   - Backend build fix (deleteOutDir + incremental conflict)
   - README.md and DEPLOYMENT.md updated
+
+### ERP-00006-R03: v.toFixed Runtime Crash Fix (Numeric Formatting)
+- **Date**: 2026-08-20
+- **Status**: Approved
+- **Description**: Root-cause fix for `TypeError: v.toFixed is not a function` browser crash across all numeric table columns
+- **Scope**: Frontend numeric formatting
+- **Implementation**: Completed
+- **Root Cause**: PostgreSQL `decimal`/`numeric` fields returned as strings by the `pg` driver; `.toFixed()` called on strings throws TypeError
+- **Fix**: Created shared `formatDecimal()` / `toNum()` utility; replaced all unsafe `.toFixed()` calls; added render functions to all raw decimal columns
+- **Key Changes**:
+  - New `frontend/src/utils/numberFormat.ts` with `toNum()`, `formatDecimal()`, `formatNumber()`
+  - Fixed 3 HIGH-risk crashes in procurement pages (totalAmount columns)
+  - Fixed MEDIUM-risk arithmetic fragility in InventoryReports (getStatusTag)
+  - Fixed 8 LOW-risk raw decimal displays across 7 inventory pages
+  - 12 table column renderers now use safe formatting
 
 ### ERP-00006-R02: Authentication & Password Management Fix
 - **Date**: 2026-08-20
@@ -220,6 +236,7 @@
 | 1.6 | 2026-08-19 | ERP Team | ERP-00006: Procurement Module (Code Complete, 42/42 E2E) |
 | 1.7 | 2026-08-20 | ERP Team | ERP-00006-R01: Local Dev Environment Recovery + Standards |
 | 1.8 | 2026-08-20 | ERP Team | ERP-00006-R02: Authentication & Password Management Fix |
+| 1.9 | 2026-08-20 | ERP Team | ERP-00006-R03: v.toFixed Runtime Crash Fix (Numeric Formatting) |
 
 ## 5. Next Steps
 

@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 const ADJUSTMENT_TYPES = [
   { value: 'ADJUSTMENT_IN', label: 'Adjustment In' },
@@ -132,7 +133,7 @@ const StockAdjustmentManagement: React.FC = () => {
       title: 'Type', dataIndex: 'adjustmentType', key: 'adjustmentType', width: 140,
       render: (v: string) => <Tag color={v === 'ADJUSTMENT_IN' ? 'green' : 'red'}>{ADJUSTMENT_TYPES.find(t => t.value === v)?.label || v}</Tag>,
     },
-    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' },
+    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70 },
     { title: 'Reason', dataIndex: 'reason', key: 'reason', ellipsis: true },
     {

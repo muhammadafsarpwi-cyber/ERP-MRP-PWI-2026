@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined, SendOutlined, CheckOutlined, StopOutlined, CloseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 interface PurchaseOrder {
   id: string;
@@ -100,7 +101,7 @@ const PurchaseOrderManagement: React.FC = () => {
     { title: 'Supplier', dataIndex: 'supplierName', key: 'supplierName', width: 150 },
     { title: 'Order Date', dataIndex: 'orderDate', key: 'orderDate', width: 110 },
     { title: 'Delivery Date', dataIndex: 'expectedDeliveryDate', key: 'expectedDeliveryDate', width: 120 },
-    { title: 'Total', dataIndex: 'totalAmount', key: 'totalAmount', width: 120, render: (v: number) => v?.toFixed(2) },
+    { title: 'Total', dataIndex: 'totalAmount', key: 'totalAmount', width: 120, render: (v: unknown) => formatDecimal(v) },
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 150,
       render: (status: string) => <Tag color={statusColorMap[status]}>{status}</Tag>,

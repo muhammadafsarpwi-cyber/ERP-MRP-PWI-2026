@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 const STATUS_OPTIONS = ['DRAFT', 'PENDING', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED'];
 
@@ -126,7 +127,7 @@ const StockTransferManagement: React.FC = () => {
     { title: 'Item', dataIndex: 'itemName', key: 'itemName', ellipsis: true },
     { title: 'From Warehouse', dataIndex: 'fromWarehouseName', key: 'fromWarehouseName', width: 150 },
     { title: 'To Warehouse', dataIndex: 'toWarehouseName', key: 'toWarehouseName', width: 150 },
-    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' },
+    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70 },
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 110,

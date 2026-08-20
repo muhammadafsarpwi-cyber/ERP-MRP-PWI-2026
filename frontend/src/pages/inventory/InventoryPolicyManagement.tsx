@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 const TRACKING_TYPES = [
   { value: 'NONE', label: 'None' },
@@ -173,9 +174,9 @@ const InventoryPolicyManagement: React.FC = () => {
   const columns: ColumnsType<InventoryPolicy> = [
     { title: 'Item', dataIndex: 'itemName', key: 'itemName', ellipsis: true },
     { title: 'Warehouse', dataIndex: 'warehouseName', key: 'warehouseName', width: 150 },
-    { title: 'Min Stock', dataIndex: 'minimumStock', key: 'minimumStock', width: 100, align: 'right' },
-    { title: 'Max Stock', dataIndex: 'maximumStock', key: 'maximumStock', width: 100, align: 'right' },
-    { title: 'Reorder Level', dataIndex: 'reorderLevel', key: 'reorderLevel', width: 110, align: 'right' },
+    { title: 'Min Stock', dataIndex: 'minimumStock', key: 'minimumStock', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
+    { title: 'Max Stock', dataIndex: 'maximumStock', key: 'maximumStock', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
+    { title: 'Reorder Level', dataIndex: 'reorderLevel', key: 'reorderLevel', width: 110, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
     {
       title: 'Tracking Type', dataIndex: 'trackingType', key: 'trackingType', width: 120,
       render: (v: string) => TRACKING_TYPES.find(t => t.value === v)?.label || v,

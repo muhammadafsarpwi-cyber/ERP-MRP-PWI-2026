@@ -3,6 +3,7 @@ import { Table, Card, Space, Select, DatePicker, Button, Tag } from 'antd';
 import { SearchOutlined, DownloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 const { RangePicker } = DatePicker;
 
@@ -131,7 +132,7 @@ const StockLedgerView: React.FC = () => {
         <span style={{ color: v === 'IN' ? '#52c41a' : '#f5222d', fontWeight: 600 }}>{v}</span>
       ),
     },
-    { title: 'Quantity', dataIndex: 'quantity', key: 'quantity', width: 100, align: 'right' },
+    { title: 'Quantity', dataIndex: 'quantity', key: 'quantity', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
     { title: 'UOM', dataIndex: ['uom', 'code'], key: 'uomCode', width: 80 },
     { title: 'Reference Type', dataIndex: 'referenceType', key: 'referenceType', width: 130 },
     { title: 'Reference Number', dataIndex: 'referenceNumber', key: 'referenceNumber', width: 150 },

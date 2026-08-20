@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, SearchOutlined, CheckOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 interface PurchaseInvoice {
   id: string;
@@ -97,7 +98,7 @@ const PurchaseInvoiceManagement: React.FC = () => {
     { title: 'PO', dataIndex: 'poCode', key: 'poCode', width: 120 },
     { title: 'Supplier', dataIndex: 'supplierName', key: 'supplierName', width: 150 },
     { title: 'Date', dataIndex: 'invoiceDate', key: 'invoiceDate', width: 110 },
-    { title: 'Total', dataIndex: 'totalAmount', key: 'totalAmount', width: 120, render: (v: number) => v?.toFixed(2) },
+    { title: 'Total', dataIndex: 'totalAmount', key: 'totalAmount', width: 120, render: (v: unknown) => formatDecimal(v) },
     {
       title: 'Payment', dataIndex: 'paymentStatus', key: 'paymentStatus', width: 100,
       render: (s: string) => <Tag color={paymentStatusColorMap[s]}>{s}</Tag>,

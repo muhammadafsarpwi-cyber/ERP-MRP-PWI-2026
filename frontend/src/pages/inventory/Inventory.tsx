@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Typography, Card, Row, Col, Statistic, Table, Tag } from 'antd';
 import { InboxOutlined, AlertOutlined, SwapOutlined, BarChartOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 
 interface StockBalance {
   id: string;
@@ -67,9 +68,9 @@ const Inventory: React.FC = () => {
           columns={[
             { title: 'Item', dataIndex: ['item', 'name'], key: 'itemName' },
             { title: 'Warehouse', dataIndex: ['warehouse', 'name'], key: 'warehouseName' },
-            { title: 'On Hand', dataIndex: 'onHand', key: 'onHand' },
-            { title: 'Reserved', dataIndex: 'reserved', key: 'reserved' },
-            { title: 'Available', dataIndex: 'available', key: 'available' },
+            { title: 'On Hand', dataIndex: 'onHand', key: 'onHand', render: (v: unknown) => formatDecimal(v) },
+            { title: 'Reserved', dataIndex: 'reserved', key: 'reserved', render: (v: unknown) => formatDecimal(v) },
+            { title: 'Available', dataIndex: 'available', key: 'available', render: (v: unknown) => formatDecimal(v) },
             { title: 'UOM', dataIndex: ['uom', 'code'], key: 'uomCode' },
           ]}
         />
