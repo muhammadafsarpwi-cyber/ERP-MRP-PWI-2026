@@ -17,7 +17,6 @@ class ApiService {
   }
 
   private setupInterceptors() {
-    // Request interceptor
     this.api.interceptors.request.use(
       (config) => {
         const token = localStorage.getItem('token');
@@ -31,13 +30,18 @@ class ApiService {
       }
     );
 
-    // Response interceptor
     this.api.interceptors.response.use(
       (response: AxiosResponse) => response,
       (error: AxiosError) => {
         if (error.response?.status === 401) {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
+          const currentPath = window.location.pathname;
+          const publicPaths = ['/login', '/forgot-password', '/reset-password'];
+          if (!publicPaths.includes(currentPath)) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('erp_user');
+            window.location.href = '/login';
+          }
         }
         return Promise.reject(error);
       }

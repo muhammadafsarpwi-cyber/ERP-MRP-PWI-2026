@@ -31,96 +31,71 @@ A production-grade, open-source Manufacturing ERP system for managing the comple
 
 ### Prerequisites
 
-- Node.js 20+ (or any compatible version)
-- Docker & Docker Compose (optional, for database)
+- Node.js 20+ (any compatible version)
+- PowerShell 5.1+ (Windows)
 
-### Local Development Setup
+### Quick Start
 
-#### 1. Install Dependencies
+The fastest way to start the full development environment:
 
-```bash
-# Backend
-cd backend
-npm install
+```powershell
+# Start both backend and frontend
+.\scripts\start-dev.ps1
 
-# Frontend (in a separate terminal)
-cd frontend
-npm install --legacy-peer-deps
+# Stop both services
+.\scripts\stop-dev.ps1
 ```
 
-#### 2. Configure Environment
+The startup script:
+- Detects existing processes to avoid duplicates
+- Starts backend on port 3001 and frontend on port 3000
+- Verifies HTTP health with bounded timeouts
+- Saves PIDs for clean shutdown
 
-Backend `.env` (copy from `.env.example` and configure):
-```bash
-cd backend
-cp .env.example .env
-# Edit .env with your database settings
+Options:
+```powershell
+# Start only backend
+.\scripts\start-dev.ps1 -SkipFrontend
+
+# Start only frontend
+.\scripts\start-dev.ps1 -SkipBackend
+
+# Force stop (bypass graceful shutdown)
+.\scripts\stop-dev.ps1 -Force
 ```
 
-Frontend `.env` (already configured for local development):
-```
-REACT_APP_API_URL=http://localhost:3001/api/v1
-```
+### Manual Start (Alternative)
 
-#### 3. Start Services
-
-**Option A: Local development (without Docker)**
-```bash
+```powershell
 # Terminal 1 — Backend
 cd backend
+npm install
 npm run start:dev
 
 # Terminal 2 — Frontend
 cd frontend
+npm install --legacy-peer-deps
 npm start
 ```
 
-**Option B: Docker (for database only)**
-```bash
-# Start PostgreSQL
-docker-compose up -d postgres
-
-# Then start backend and frontend as above
-```
-
-**Option C: Full Docker stack**
-```bash
-docker-compose up -d
-```
-
-#### 4. Open in Browser
+### URLs
 
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:3001/api/v1
 - **Swagger Docs**: http://localhost:3001/api/docs
 - **Health Check**: http://localhost:3001/api/v1/health
 
-### Database Configuration
+### Database
 
-The backend connects to PostgreSQL via the `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, and `DB_DATABASE` environment variables. If PostgreSQL is not reachable, the backend starts in **offline mode** (health endpoints respond but database operations are unavailable).
+The backend connects to PostgreSQL via environment variables in `backend/.env`. The default configuration uses Supabase pooler. If PostgreSQL is unreachable, the backend starts in offline mode (health endpoints respond but database operations are unavailable).
 
-#### Supabase Configuration
+### Login
 
-For Supabase-hosted database, set these in `backend/.env`:
-```env
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-supabase-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
-SUPABASE_JWT_SECRET=your-supabase-jwt-secret
-```
+Authentication uses Supabase Auth. See [docs/DEVELOPMENT_CREDENTIALS.md](docs/DEVELOPMENT_CREDENTIALS.md) for development login setup.
 
 ### Development Status Page
 
-In development mode, a **Development Status** page is available at:
-- **URL**: http://localhost:3000/development/status
-- **Menu**: Development > Development Status (visible only in development mode)
-
-This page shows:
-- Frontend connection status
-- Backend connection status
-- Database connection status
-- Supabase configuration status
-- Project information
+In development mode, navigate to http://localhost:3000/development/status for system status.
 
 ### Hot Reload
 
@@ -138,12 +113,13 @@ erp-mrp-pwi-2026/
 │   │   ├── config/           # Configuration
 │   │   ├── modules/          # Feature modules
 │   │   │   ├── auth/         # Authentication
-│   │   │   ├── users/        # User management
+│   │   │   ├── user/         # User management
 │   │   │   ├── products/     # Product management
 │   │   │   ├── customers/    # Customer management
 │   │   │   ├── sales/        # Sales management
 │   │   │   ├── inventory/    # Inventory management
 │   │   │   ├── production/   # Production management
+│   │   │   ├── procurement/  # Procurement management
 │   │   │   └── ...
 │   │   ├── app.module.ts
 │   │   └── main.ts
@@ -157,9 +133,16 @@ erp-mrp-pwi-2026/
 │   │   ├── types/           # TypeScript types
 │   │   └── utils/           # Utility functions
 │   └── ...
+├── scripts/                    # Development scripts
+│   ├── start-dev.ps1         # Start dev environment
+│   └── stop-dev.ps1          # Stop dev environment
+├── supabase/                  # Database migrations
+│   ├── migrations/           # Version-controlled migrations
+│   └── README.md             # Migration and seed data docs
 ├── docs/                      # Documentation
+│   ├── DEVELOPMENT_CREDENTIALS.md  # Dev login setup
+│   ├── DEPLOYMENT.md          # Deployment guide
 │   ├── architecture/        # Architecture docs
-│   ├── modules/            # Module documentation
 │   └── api/                # API documentation
 └── docker-compose.yml        # Docker configuration
 ```
@@ -169,6 +152,9 @@ erp-mrp-pwi-2026/
 - [Architecture](docs/architecture/ARCHITECTURE.md)
 - [Module Boundaries](docs/architecture/MODULES.md)
 - [Database Design](docs/architecture/DATABASE.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [Development Credentials](docs/DEVELOPMENT_CREDENTIALS.md)
+- [Supabase Migrations](supabase/README.md)
 
 ## Development
 

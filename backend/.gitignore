@@ -46,3 +46,15 @@ lerna-debug.log*
 # Storage
 /storage/*
 !/storage/.gitkeep
+
+# Dev utility scripts (contain credentials or DB access)
+test-*.js
+run-procurement-migration.js
+create-dev-user.js
+check-*.js
+verify-all-logins.js
+diagnose-trigger.js
+fix-identity.js
+supabase-admin.js
+supabase-auth.js
+supabase-test.js

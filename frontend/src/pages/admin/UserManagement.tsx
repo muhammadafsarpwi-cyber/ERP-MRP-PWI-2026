@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card } from 'antd';
-import { PlusOutlined, EditOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card, Alert } from 'antd';
+import { PlusOutlined, EditOutlined, CheckCircleOutlined, CloseCircleOutlined, KeyOutlined, EyeInvisibleOutlined, EyeTwoTone } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 
@@ -39,10 +39,13 @@ const UserManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [roleModalVisible, setRoleModalVisible] = useState(false);
+  const [resetModalVisible, setResetModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<ErpUser | null>(null);
   const [selectedUser, setSelectedUser] = useState<ErpUser | null>(null);
+  const [resetUser, setResetUser] = useState<ErpUser | null>(null);
   const [form] = Form.useForm();
   const [roleForm] = Form.useForm();
+  const [resetForm] = Form.useForm();
 
   const fetchUsers = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -131,6 +134,28 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const handleResetPassword = async () => {
+    try {
+      const values = await resetForm.validateFields();
+      if (resetUser) {
+        await apiService.post(`/admin/users/${resetUser.id}/reset-password`, {
+          newPassword: values.newPassword,
+        });
+        message.success(`Password reset for ${resetUser.email}`);
+        setResetModalVisible(false);
+        resetForm.resetFields();
+      }
+    } catch (error) {
+      message.error('Failed to reset password');
+    }
+  };
+
+  const openResetPasswordModal = (user: ErpUser) => {
+    setResetUser(user);
+    resetForm.resetFields();
+    setResetModalVisible(true);
+  };
+
   const openRoleModal = (user: ErpUser) => {
     setSelectedUser(user);
     roleForm.setFieldsValue({ roleIds: user.userRoles?.map(ur => ur.roleId) || [] });
@@ -151,6 +176,9 @@ const UserManagement: React.FC = () => {
         <Space size="small">
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
           <Button type="link" onClick={() => openRoleModal(record)}>Roles</Button>
+          <Popconfirm title="Reset this user's password?" onConfirm={() => openResetPasswordModal(record)}>
+            <Button type="link" icon={<KeyOutlined />} />
+          </Popconfirm>
           {record.status === 'ACTIVE' ? (
             <Popconfirm title="Deactivate?" onConfirm={() => handleDeactivate(record.id)}>
               <Button type="link" danger icon={<CloseCircleOutlined />} />
@@ -192,6 +220,65 @@ const UserManagement: React.FC = () => {
             <Select mode="multiple" placeholder="Select roles">
               {roles.map(r => <Select.Option key={r.id} value={r.id}>{r.roleCode} - {r.name}</Select.Option>)}
             </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`Reset Password - ${resetUser?.displayName}`}
+        open={resetModalVisible}
+        onOk={handleResetPassword}
+        onCancel={() => setResetModalVisible(false)}
+        okText="Reset Password"
+        okButtonProps={{ danger: true }}
+        width={480}
+      >
+        <Alert
+          message="This will set a new password for the user. The old password will no longer work."
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={resetForm} layout="vertical">
+          <Form.Item
+            name="newPassword"
+            label="New Password"
+            rules={[
+              { required: true, message: 'Please enter a new password' },
+              { min: 8, message: 'Password must be at least 8 characters' },
+              {
+                pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/,
+                message: 'Must contain uppercase, lowercase, and a number',
+              },
+            ]}
+          >
+            <Input.Password
+              placeholder="New password"
+              size="large"
+              iconRender={(visible) => visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />}
+            />
+          </Form.Item>
+          <Form.Item
+            name="confirmPassword"
+            label="Confirm Password"
+            dependencies={['newPassword']}
+            rules={[
+              { required: true, message: 'Please confirm the password' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('newPassword') === value) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('Passwords do not match'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password
+              placeholder="Confirm new password"
+              size="large"
+              iconRender={(visible) => visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />}
+            />
           </Form.Item>
         </Form>
       </Modal>

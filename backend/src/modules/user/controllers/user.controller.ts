@@ -1,7 +1,9 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ErpUserService } from '../services/erp-user.service';
+import { AuthService } from '../../auth/services/auth.service';
 import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto } from '../dto/user.dto';
+import { AdminResetPasswordDto } from '../../auth/dto/auth.dto';
 import { ErpUserStatus } from '../entities';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
@@ -11,7 +13,10 @@ import { PermissionGuard, RequirePermission } from '../../auth/guards/permission
 @UseGuards(SupabaseJwtGuard)
 @ApiBearerAuth()
 export class UserController {
-  constructor(private readonly userService: ErpUserService) {}
+  constructor(
+    private readonly userService: ErpUserService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Post()
   @UseGuards(PermissionGuard)
@@ -136,5 +141,16 @@ export class UserController {
   async setDefaultContext(@Param('id') id: string, @Body() dto: SetDefaultContextDto) {
     const user = await this.userService.setDefaultContext(id, dto);
     return { success: true, data: user, message: 'Default context set successfully' };
+  }
+
+  @Post(':id/reset-password')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('admin.users.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Admin: reset a user password' })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  @ApiResponse({ status: 200, description: 'Password reset email sent to user' })
+  async resetUserPassword(@Param('id') id: string, @Body() dto: AdminResetPasswordDto) {
+    return this.authService.adminResetPassword(id, dto.newPassword);
   }
 }

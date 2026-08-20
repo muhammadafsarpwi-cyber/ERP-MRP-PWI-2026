@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { Layout, Menu, Avatar, Dropdown, Space } from 'antd';
 import {
   DashboardOutlined,
-  ShopOutlined,
   UserOutlined,
   ShoppingCartOutlined,
   InboxOutlined,
-  SettingOutlined,
   LogoutOutlined,
   BankOutlined,
   BranchesOutlined,
@@ -25,6 +23,7 @@ import {
   EditOutlined,
   BarChartOutlined,
   BugOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
@@ -129,19 +128,19 @@ const menuItems: MenuProps['items'] = [
     ],
   },
   {
-    key: '/products',
-    icon: <ShopOutlined />,
-    label: 'Products',
-  },
-  {
-    key: '/customers',
-    icon: <UserOutlined />,
-    label: 'Customers',
-  },
-  {
-    key: '/sales',
+    key: 'procurement',
     icon: <ShoppingCartOutlined />,
-    label: 'Sales',
+    label: 'Procurement',
+    children: [
+      { key: '/procurement/suppliers', icon: <BankOutlined />, label: 'Suppliers' },
+      { key: '/procurement/requisitions', icon: <EditOutlined />, label: 'Purchase Requisitions' },
+      { key: '/procurement/rfqs', icon: <SwapOutlined />, label: 'Request for Quotations' },
+      { key: '/procurement/quotations', icon: <AppstoreOutlined />, label: 'Quotations' },
+      { key: '/procurement/orders', icon: <ShoppingCartOutlined />, label: 'Purchase Orders' },
+      { key: '/procurement/receipts', icon: <InboxOutlined />, label: 'Goods Receipts' },
+      { key: '/procurement/returns', icon: <SwapOutlined />, label: 'Purchase Returns' },
+      { key: '/procurement/invoices', icon: <CalculatorOutlined />, label: 'Invoices' },
+    ],
   },
   {
     key: 'inventory',
@@ -157,16 +156,6 @@ const menuItems: MenuProps['items'] = [
       { key: '/inventory/ledger', icon: <DatabaseOutlined />, label: 'Stock Ledger' },
       { key: '/inventory/reports', icon: <BarChartOutlined />, label: 'Reports' },
     ],
-  },
-  {
-    key: '/production',
-    icon: <SettingOutlined />,
-    label: 'Production',
-  },
-  {
-    key: '/settings',
-    icon: <SettingOutlined />,
-    label: 'Settings',
   },
   ...(process.env.NODE_ENV !== 'production'
     ? [
@@ -193,6 +182,14 @@ const userMenuItems: MenuProps['items'] = [
     label: 'Profile',
   },
   {
+    key: 'change-password',
+    icon: <LockOutlined />,
+    label: 'Change Password',
+  },
+  {
+    type: 'divider',
+  },
+  {
     key: 'logout',
     icon: <LogoutOutlined />,
     label: 'Logout',
@@ -205,8 +202,19 @@ interface MainLayoutProps {
 
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [userName, setUserName] = useState('Admin User');
   const navigate = useNavigate();
   const location = useLocation();
+
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem('erp_user');
+      if (stored) {
+        const user = JSON.parse(stored);
+        setUserName(user.firstName || user.displayName || user.email || 'Admin User');
+      }
+    } catch {}
+  }, []);
 
   const handleMenuClick = (info: { key: string }) => {
     navigate(info.key);
@@ -215,7 +223,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const handleUserMenuClick: MenuProps['onClick'] = (info) => {
     if (info.key === 'logout') {
       localStorage.removeItem('token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('erp_user');
       navigate('/login');
+    } else if (info.key === 'change-password') {
+      navigate('/change-password');
     }
   };
 
@@ -245,7 +257,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }}>
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} />
-              <span>Admin User</span>
+              <span>{userName}</span>
             </Space>
           </Dropdown>
         </Header>

@@ -63,3 +63,12 @@ backend/test_crud.js
 backend/_check_*.js
 backend/_verify_*.js
 backend/tsconfig.tsbuildinfo
+
+# Dev utility scripts (contain credentials or DB access)
+backend/test-*.js
+backend/run-procurement-migration.js
+backend/create-dev-user.js
+backend/check-*.js
+backend/verify-all-logins.js
+backend/diagnose-trigger.js
+backend/fix-identity.js

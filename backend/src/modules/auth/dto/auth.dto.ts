@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, IsOptional } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, IsOptional, MinLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class InviteUserDto {
@@ -33,4 +33,61 @@ export class LoginDto {
   @IsString()
   @IsNotEmpty()
   password: string;
+}
+
+export class ForgotPasswordDto {
+  @ApiProperty({ description: 'Email address to send password reset link' })
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+}
+
+export class ResetPasswordDto {
+  @ApiProperty({ description: 'Password reset token from email link' })
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+
+  @ApiProperty({ description: 'New password (min 8 chars, must include uppercase, lowercase, number)' })
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, {
+    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+  })
+  password: string;
+
+  @ApiProperty({ description: 'Confirm new password' })
+  @IsString()
+  @IsNotEmpty()
+  confirmPassword: string;
+}
+
+export class ChangePasswordDto {
+  @ApiProperty({ description: 'Current password' })
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+
+  @ApiProperty({ description: 'New password (min 8 chars, must include uppercase, lowercase, number)' })
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, {
+    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+  })
+  newPassword: string;
+
+  @ApiProperty({ description: 'Confirm new password' })
+  @IsString()
+  @IsNotEmpty()
+  confirmPassword: string;
+}
+
+export class AdminResetPasswordDto {
+  @ApiProperty({ description: 'New password to set for the user' })
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, {
+    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+  })
+  newPassword: string;
 }

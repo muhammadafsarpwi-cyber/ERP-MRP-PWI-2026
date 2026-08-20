@@ -8,59 +8,54 @@ This document covers the deployment process for the ERP system in various enviro
 
 ### 2.0 Local Development (Quick Start)
 
-This is the recommended way to develop locally without full Docker infrastructure.
+This is the recommended way to develop locally.
 
 **Prerequisites:**
 - Node.js 20+ (any compatible version)
-- PostgreSQL 16 (optional — backend starts in offline mode if unavailable)
+- PowerShell 5.1+ (Windows)
 
-**Start backend:**
-```bash
+**Start all services:**
+```powershell
+.\scripts\start-dev.ps1
+```
+
+This starts both backend (port 3001) and frontend (port 3000), detects existing processes to avoid duplicates, and verifies HTTP health with bounded timeouts.
+
+**Stop all services:**
+```powershell
+.\scripts\stop-dev.ps1
+```
+
+**Options:**
+```powershell
+# Start only backend
+.\scripts\start-dev.ps1 -SkipFrontend
+
+# Start only frontend
+.\scripts\start-dev.ps1 -SkipBackend
+
+# Force stop (bypass graceful shutdown)
+.\scripts\stop-dev.ps1 -Force
+```
+
+**URLs:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:3001/api/v1
+- API docs: http://localhost:3001/api/docs
+- Health check: http://localhost:3001/api/v1/health
+- Development Status: http://localhost:3000/development/status
+
+**Manual start (alternative):**
+```powershell
+# Terminal 1 — Backend
 cd backend
 npm install
 npm run start:dev
-```
-Backend runs at http://localhost:3001
-API docs at http://localhost:3001/api/docs
-Health check at http://localhost:3001/api/v1/health
 
-**Start frontend:**
-```bash
+# Terminal 2 — Frontend
 cd frontend
 npm install --legacy-peer-deps
 npm start
-```
-Frontend runs at http://localhost:3000 with hot reload.
-
-**Development Status page:**
-Navigate to http://localhost:3000/development/status to see system status.
-
-The backend gracefully degrades when PostgreSQL is unavailable — health endpoints respond, but database operations return errors. The Development Status page reflects the actual connection state.
-
-**Backend environment variables (backend/.env):**
-```env
-NODE_ENV=development
-PORT=3001
-FRONTEND_URL=http://localhost:3000
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
-DB_DATABASE=erp_database
-DB_SYNCHRONIZE=false
-DB_LOGGING=true
-JWT_SECRET=dev-jwt-secret-not-for-production
-
-# Supabase (optional — for cloud database)
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-supabase-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
-SUPABASE_JWT_SECRET=your-supabase-jwt-secret
-```
-
-**Frontend environment variables (frontend/.env):**
-```
-REACT_APP_API_URL=http://localhost:3001/api/v1
 ```
 
 ### 2.1 Development Environment (Docker)
