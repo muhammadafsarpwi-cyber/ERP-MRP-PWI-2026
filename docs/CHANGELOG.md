@@ -14,6 +14,7 @@
 | ERP-00006-R01 | 2026-08-20 | Local Dev Environment Recovery + Standards | Approved | DevOps | R01 | Completed |
 | ERP-00006-R02 | 2026-08-20 | Authentication & Password Management Fix | Approved | Auth, Security | R02 | Completed |
 | ERP-00006-R03 | 2026-08-20 | v.toFixed Runtime Crash Fix (Numeric Formatting) | Approved | Frontend | R03 | Completed |
+| ERP-00007 | 2026-08-20 | Customers & CRM Module (M04) | Approved | M04 | R00 | Completed |
 
 ## 2. ERP Instructions
 
@@ -121,6 +122,30 @@
   - Fixed 8 LOW-risk raw decimal displays across 7 inventory pages
   - 12 table column renderers now use safe formatting
 
+### ERP-00007: Customers & CRM Module (M04)
+- **Date**: 2026-08-20
+- **Status**: Approved
+- **Description**: Full-stack Customers & CRM module — database migration, NestJS backend API, React frontend UI, permissions, demo data, E2E verification
+- **Scope**: M04 (Customers & CRM)
+- **Implementation**: Completed
+- **Key Changes**:
+  - 3 database tables: `customers`, `customer_contacts`, `customer_addresses`
+  - 12 customer-specific permissions (CRUD for customer, contact, address)
+  - 10 demo customers seeded (Pakistani/international, 5 types, 4 tiers)
+  - 11 REST endpoints with permission guards
+  - Full CRUD: create, read, update, soft delete, search/filter
+  - Contact management: add, update, remove, primary flag
+  - Address management: add, update, remove, billing/shipping, default flag
+  - Frontend: table view, create/edit modal, detail view with 3 tabs (Info, Contacts, Addresses)
+  - 26 unit tests (CustomerService), 113 total backend tests
+  - 32/32 E2E API tests verified against live Supabase PostgreSQL
+  - Migration fully idempotent (ON CONFLICT DO NOTHING)
+- **Migration Idempotency Audit**:
+  - Customer migration: 10 seed INSERTs fixed with `ON CONFLICT (customer_code, company_id) DO NOTHING`
+  - `initial_organization_schema.sql`: 8 triggers fixed (added `DROP TRIGGER IF EXISTS` guards)
+  - `item_master.sql`: 9 triggers fixed + 3 constraints wrapped in idempotent DO blocks
+  - All 7 migration files verified: rerun against live DB with zero errors
+
 ### ERP-00006-R02: Authentication & Password Management Fix
 - **Date**: 2026-08-20
 - **Status**: Approved
@@ -167,7 +192,7 @@
 | M01: Company & Organization | Implemented | Complete with CRUD, hierarchy, Division, Section, validation, Supabase migrations |
 | M02: Users, Roles & Permissions | Implemented | Complete with CRUD, authorization, Supabase Auth integration |
 | M03: Products & Item Master | Implemented | Complete with CRUD, attributes, UOM, barcodes, categories, specifications |
-| M04: Customers & CRM | Architecture Ready | Pending Implementation |
+| M04: Customers & CRM | Implemented | Complete: 3 tables, 12 permissions, 11 API endpoints, 10 demo customers, 32/32 E2E, migration idempotent |
 
 ### Phase 2: Core Transactions
 | Module | Status | Notes |
@@ -237,13 +262,13 @@
 | 1.7 | 2026-08-20 | ERP Team | ERP-00006-R01: Local Dev Environment Recovery + Standards |
 | 1.8 | 2026-08-20 | ERP Team | ERP-00006-R02: Authentication & Password Management Fix |
 | 1.9 | 2026-08-20 | ERP Team | ERP-00006-R03: v.toFixed Runtime Crash Fix (Numeric Formatting) |
+| 1.10 | 2026-08-20 | ERP Team | ERP-00007: Customers & CRM Module (M04) - Full Stack Implementation |
 
 ## 5. Next Steps
 
-1. Seed demo data for ERP-00006 procurement tables
-2. Re-run ERP-00006 E2E tests with live database
-3. Begin M05: Sales module implementation
-4. Follow module implementation sequence as defined in architecture
+1. Begin M05: Sales module implementation (depends on M04 Customers)
+2. Seed demo data for ERP-00006 procurement tables
+3. Follow module implementation sequence as defined in architecture
 
 ## 6. Notes
 

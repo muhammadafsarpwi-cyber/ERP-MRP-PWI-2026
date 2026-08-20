@@ -150,8 +150,15 @@ CREATE TABLE IF NOT EXISTS items (
 );
 
 -- Company-scoped unique constraints for items
-ALTER TABLE items ADD CONSTRAINT uq_items_item_code_company UNIQUE (item_code, company_id);
-ALTER TABLE items ADD CONSTRAINT uq_items_sku_company UNIQUE (sku, company_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_items_item_code_company') THEN
+    ALTER TABLE items ADD CONSTRAINT uq_items_item_code_company UNIQUE (item_code, company_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_items_sku_company') THEN
+    ALTER TABLE items ADD CONSTRAINT uq_items_sku_company UNIQUE (sku, company_id);
+  END IF;
+END $$;
 
 -- Indexes for items
 CREATE INDEX IF NOT EXISTS idx_items_company_id ON items(company_id);
@@ -188,7 +195,12 @@ CREATE TABLE IF NOT EXISTS item_barcodes (
 );
 
 -- Unique constraint: one barcode globally
-ALTER TABLE item_barcodes ADD CONSTRAINT uq_item_barcodes_barcode UNIQUE (barcode);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_item_barcodes_barcode') THEN
+    ALTER TABLE item_barcodes ADD CONSTRAINT uq_item_barcodes_barcode UNIQUE (barcode);
+  END IF;
+END $$;
 
 -- Indexes for item_barcodes
 CREATE INDEX IF NOT EXISTS idx_item_barcodes_item_id ON item_barcodes(item_id);
@@ -408,12 +420,21 @@ ON CONFLICT (from_uom_id, to_uom_id) DO NOTHING;
 -- =====================================================
 -- TRIGGERS: Auto-update updated_at timestamp
 -- =====================================================
+DROP TRIGGER IF EXISTS update_uoms_updated_at ON uoms;
 CREATE TRIGGER update_uoms_updated_at BEFORE UPDATE ON uoms FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_uom_conversions_updated_at ON uom_conversions;
 CREATE TRIGGER update_uom_conversions_updated_at BEFORE UPDATE ON uom_conversions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_item_categories_updated_at ON item_categories;
 CREATE TRIGGER update_item_categories_updated_at BEFORE UPDATE ON item_categories FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_items_updated_at ON items;
 CREATE TRIGGER update_items_updated_at BEFORE UPDATE ON items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_item_barcodes_updated_at ON item_barcodes;
 CREATE TRIGGER update_item_barcodes_updated_at BEFORE UPDATE ON item_barcodes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_item_attribute_definitions_updated_at ON item_attribute_definitions;
 CREATE TRIGGER update_item_attribute_definitions_updated_at BEFORE UPDATE ON item_attribute_definitions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_item_attribute_values_updated_at ON item_attribute_values;
 CREATE TRIGGER update_item_attribute_values_updated_at BEFORE UPDATE ON item_attribute_values FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_item_specifications_updated_at ON item_specifications;
 CREATE TRIGGER update_item_specifications_updated_at BEFORE UPDATE ON item_specifications FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_item_documents_updated_at ON item_documents;
 CREATE TRIGGER update_item_documents_updated_at BEFORE UPDATE ON item_documents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

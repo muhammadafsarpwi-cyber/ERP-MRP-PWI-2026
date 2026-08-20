@@ -10,11 +10,11 @@ The ERP system consists of 34 modules organized into 7 implementation phases. Ea
 |----|-------------|-------|--------|--------------|
 | M01 | Company & Organization | 1 | Implemented | None |
 | M02 | Users, Roles & Permissions | 1 | Implemented | M01 |
-| M03 | Products & Item Master | 1 | Planned | M01 |
-| M04 | Customers & CRM | 1 | Planned | M01, M03 |
+| M03 | Products & Item Master | 1 | Implemented | M01 |
+| M04 | Customers & CRM | 1 | Implemented | M01, M03 |
 | M05 | Sales | 2 | Planned | M01, M03, M04 |
-| M06 | Inventory & Warehouse | 2 | Planned | M01, M03 |
-| M07 | Purchasing / Procurement | 2 | Planned | M01, M03, M06 |
+| M06 | Inventory & Warehouse | 2 | Implemented | M01, M03 |
+| M07 | Purchasing / Procurement | 2 | Implemented | M01, M03, M06 |
 | M08 | Bill of Materials | 3 | Planned | M03 |
 | M09 | Production Planning | 3 | Planned | M03, M06, M08 |
 | M10 | Production / Manufacturing | 3 | Planned | M03, M06, M08, M09 |

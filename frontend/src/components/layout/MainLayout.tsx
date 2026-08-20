@@ -128,6 +128,14 @@ const menuItems: MenuProps['items'] = [
     ],
   },
   {
+    key: 'customers',
+    icon: <TeamOutlined />,
+    label: 'Customers',
+    children: [
+      { key: '/customers', icon: <TeamOutlined />, label: 'Customer List' },
+    ],
+  },
+  {
     key: 'procurement',
     icon: <ShoppingCartOutlined />,
     label: 'Procurement',

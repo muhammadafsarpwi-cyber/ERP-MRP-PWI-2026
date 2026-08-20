@@ -9,7 +9,7 @@ import ResetPassword from './pages/auth/ResetPassword';
 import ChangePassword from './pages/auth/ChangePassword';
 import Dashboard from './pages/dashboard/Dashboard';
 import Products from './pages/products/Products';
-import Customers from './pages/customers/Customers';
+import { CustomerManagement } from './pages/customers';
 import SalesOrders from './pages/sales/SalesOrders';
 import {
   Inventory,
@@ -74,7 +74,7 @@ const App: React.FC = () => {
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/change-password" element={<ChangePassword />} />
                   <Route path="/products/*" element={<Products />} />
-                  <Route path="/customers/*" element={<Customers />} />
+                  <Route path="/customers" element={<CustomerManagement />} />
                   <Route path="/sales/*" element={<SalesOrders />} />
                   <Route path="/inventory" element={<Inventory />} />
                   <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
