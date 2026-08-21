@@ -57,8 +57,10 @@ export class DepartmentService {
     divisionId?: string;
     sectionId?: string;
     parentDepartmentId?: string;
+    centralizedOnly?: boolean;
+    productionOnly?: boolean;
   }): Promise<{ data: Department[]; total: number }> {
-    const { page = 1, limit = 20, search, status, companyId, branchId, businessUnitId, divisionId, sectionId, parentDepartmentId } = options || {};
+    const { page = 1, limit = 20, search, status, companyId, branchId, businessUnitId, divisionId, sectionId, parentDepartmentId, centralizedOnly, productionOnly } = options || {};
 
     const queryBuilder = this.departmentRepository.createQueryBuilder('dept');
     queryBuilder.leftJoinAndSelect('dept.company', 'company');
@@ -67,6 +69,8 @@ export class DepartmentService {
     queryBuilder.leftJoinAndSelect('dept.division', 'division');
     queryBuilder.leftJoinAndSelect('dept.section', 'section');
     queryBuilder.leftJoinAndSelect('dept.parentDepartment', 'parentDepartment');
+    queryBuilder.leftJoinAndSelect('dept.divisionScopes', 'divisionScopes');
+    queryBuilder.leftJoinAndSelect('divisionScopes.division', 'scopeDivision');
 
     if (search) {
       queryBuilder.where(
@@ -103,6 +107,14 @@ export class DepartmentService {
       queryBuilder.andWhere('dept.parentDepartmentId = :parentDepartmentId', { parentDepartmentId });
     }
 
+    if (centralizedOnly) {
+      queryBuilder.andWhere('dept.divisionId IS NULL');
+    }
+
+    if (productionOnly) {
+      queryBuilder.andWhere('dept.divisionId IS NOT NULL');
+    }
+
     queryBuilder.orderBy('dept.name', 'ASC');
     queryBuilder.skip((page - 1) * limit);
     queryBuilder.take(limit);
@@ -115,7 +127,7 @@ export class DepartmentService {
   async findOne(id: string): Promise<Department> {
     const department = await this.departmentRepository.findOne({
       where: { id },
-      relations: ['company', 'branch', 'businessUnit', 'division', 'section', 'parentDepartment', 'children'],
+      relations: ['company', 'branch', 'businessUnit', 'division', 'section', 'parentDepartment', 'children', 'divisionScopes', 'divisionScopes.division'],
     });
 
     if (!department) {
@@ -131,6 +143,8 @@ export class DepartmentService {
     queryBuilder.leftJoinAndSelect('children.children', 'grandChildren');
     queryBuilder.leftJoinAndSelect('dept.division', 'division');
     queryBuilder.leftJoinAndSelect('dept.section', 'section');
+    queryBuilder.leftJoinAndSelect('dept.divisionScopes', 'divisionScopes');
+    queryBuilder.leftJoinAndSelect('divisionScopes.division', 'scopeDivision');
 
     if (companyId) {
       queryBuilder.where('dept.companyId = :companyId', { companyId });

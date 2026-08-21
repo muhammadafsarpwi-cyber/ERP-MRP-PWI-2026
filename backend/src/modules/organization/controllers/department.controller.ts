@@ -30,6 +30,8 @@ export class DepartmentController {
   @ApiQuery({ name: 'divisionId', required: false, type: String })
   @ApiQuery({ name: 'sectionId', required: false, type: String })
   @ApiQuery({ name: 'parentDepartmentId', required: false, type: String })
+  @ApiQuery({ name: 'centralizedOnly', required: false, type: Boolean, description: 'Filter to centralized (company-level) departments only' })
+  @ApiQuery({ name: 'productionOnly', required: false, type: Boolean, description: 'Filter to production-scoped (division-level) departments only' })
   async findAll(
     @Query('page') page?: number,
     @Query('limit') limit?: number,
@@ -41,9 +43,13 @@ export class DepartmentController {
     @Query('divisionId') divisionId?: string,
     @Query('sectionId') sectionId?: string,
     @Query('parentDepartmentId') parentDepartmentId?: string,
+    @Query('centralizedOnly') centralizedOnly?: string,
+    @Query('productionOnly') productionOnly?: string,
   ) {
     const result = await this.departmentService.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId, branchId, businessUnitId, divisionId, sectionId, parentDepartmentId,
+      centralizedOnly: centralizedOnly === 'true',
+      productionOnly: productionOnly === 'true',
     });
     return { success: true, ...result };
   }

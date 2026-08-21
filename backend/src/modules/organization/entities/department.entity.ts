@@ -5,6 +5,7 @@ import { Branch } from './branch.entity';
 import { BusinessUnit } from './business-unit.entity';
 import { Division } from './division.entity';
 import { Section } from './section.entity';
+import { DepartmentDivisionScope } from './department-division-scope.entity';
 
 export enum DepartmentStatus {
   ACTIVE = 'ACTIVE',
@@ -69,4 +70,7 @@ export class Department extends BaseEntity {
 
   @Column({ type: 'varchar', length: 20, default: DepartmentStatus.ACTIVE })
   status: DepartmentStatus;
+
+  @OneToMany(() => DepartmentDivisionScope, (scope) => scope.department)
+  divisionScopes: DepartmentDivisionScope[];
 }

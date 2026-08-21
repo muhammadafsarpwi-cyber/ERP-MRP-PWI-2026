@@ -2,6 +2,7 @@ export { CompanyController } from './company.controller';
 export { BranchController } from './branch.controller';
 export { BusinessUnitController } from './business-unit.controller';
 export { DepartmentController } from './department.controller';
+export { DepartmentDivisionScopeController } from './department-division-scope.controller';
 export { DivisionController } from './division.controller';
 export { SectionController } from './section.controller';
 export { WarehouseController } from './warehouse.controller';

@@ -1,0 +1,1 @@
+[31m[Nest] 20692  - [39m21/08/2026, 11:15:35 pm [31m  ERROR[39m [38;5;3m[SupabaseAuthService] [39m[31mSUPABASE_JWT_SECRET appears to be a JWT token (anon key), not the HS256 signing secret. Set it to the JWT Secret from Supabase Dashboard > Settings > API > JWT Secret. Falling back to Supabase API for token verification.[39m

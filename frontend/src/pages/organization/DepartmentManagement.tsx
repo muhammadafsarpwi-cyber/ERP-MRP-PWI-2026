@@ -21,8 +21,16 @@ interface Department {
   division?: Division;
   section?: Section;
   children?: Department[];
+  divisionScopes?: DivisionScope[];
   status: string;
   createdAt: string;
+}
+
+interface DivisionScope {
+  id: string;
+  departmentId: string;
+  divisionId: string;
+  division?: Division;
 }
 
 interface Company {
@@ -52,6 +60,7 @@ const DepartmentManagement: React.FC = () => {
   const [filterCompanyId, setFilterCompanyId] = useState<string | undefined>();
   const [filterDivisionId, setFilterDivisionId] = useState<string | undefined>();
   const [filterSectionId, setFilterSectionId] = useState<string | undefined>();
+  const [filterType, setFilterType] = useState<'all' | 'centralized' | 'production'>('all');
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -63,10 +72,12 @@ const DepartmentManagement: React.FC = () => {
   const fetchDepartments = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
-      const params: any = { page: pageNum, limit: 20 };
+      const params: any = { page: pageNum, limit: 50 };
       if (filterCompanyId) params.companyId = filterCompanyId;
       if (filterDivisionId) params.divisionId = filterDivisionId;
       if (filterSectionId) params.sectionId = filterSectionId;
+      if (filterType === 'centralized') params.centralizedOnly = 'true';
+      if (filterType === 'production') params.productionOnly = 'true';
       const response = await apiService.get<{ data: Department[]; total: number }>('/departments', params);
       setDepartments(response.data);
       setTotal(response.total);
@@ -75,7 +86,7 @@ const DepartmentManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filterCompanyId, filterDivisionId, filterSectionId]);
+  }, [filterCompanyId, filterDivisionId, filterSectionId, filterType]);
 
   const fetchHierarchy = useCallback(async () => {
     try {
@@ -99,7 +110,7 @@ const DepartmentManagement: React.FC = () => {
 
   const fetchDivisions = useCallback(async (companyId?: string) => {
     try {
-      const params: any = { limit: 100 };
+      const params: any = { limit: 100, status: 'ACTIVE' };
       if (companyId) params.companyId = companyId;
       const response = await apiService.get<{ data: Division[] }>('/divisions', params);
       setDivisions(response.data);
@@ -145,7 +156,7 @@ const DepartmentManagement: React.FC = () => {
     fetchDepartments(1);
     fetchHierarchy();
     setPage(1);
-  }, [filterCompanyId, filterDivisionId, filterSectionId, fetchDepartments, fetchHierarchy]);
+  }, [filterCompanyId, filterDivisionId, filterSectionId, filterType, fetchDepartments, fetchHierarchy]);
 
   const handleCreate = () => {
     setEditingDepartment(null);
@@ -234,9 +245,26 @@ const DepartmentManagement: React.FC = () => {
       key: 'name',
     },
     {
+      title: 'Type',
+      key: 'type',
+      render: (_, record) => (
+        <Tag color={record.divisionId ? 'blue' : 'purple'}>
+          {record.divisionId ? 'Production' : 'Centralized'}
+        </Tag>
+      ),
+    },
+    {
       title: 'Division',
       key: 'division',
-      render: (_, record) => record.division?.name || '-',
+      render: (_, record) => {
+        if (record.division?.name) return record.division.name;
+        if (record.divisionScopes && record.divisionScopes.length > 0) {
+          return record.divisionScopes
+            .map((s) => s.division?.name || s.divisionId)
+            .join(', ');
+        }
+        return '-';
+      },
     },
     {
       title: 'Section',
@@ -313,6 +341,17 @@ const DepartmentManagement: React.FC = () => {
               {company.legalName}
             </Select.Option>
           ))}
+        </Select>
+        <Select
+          placeholder="Department type"
+          allowClear
+          style={{ width: 160 }}
+          value={filterType}
+          onChange={(v) => setFilterType(v || 'all')}
+        >
+          <Select.Option value="all">All Types</Select.Option>
+          <Select.Option value="centralized">Centralized</Select.Option>
+          <Select.Option value="production">Production</Select.Option>
         </Select>
         <Select
           placeholder="Filter by division"

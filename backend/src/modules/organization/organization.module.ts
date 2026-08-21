@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Company, Branch, BusinessUnit, Department, Division, Section, Warehouse, WarehouseLocation } from './entities';
-import { CompanyService, BranchService, BusinessUnitService, DepartmentService, DivisionService, SectionService, WarehouseService, WarehouseLocationService } from './services';
-import { CompanyController, BranchController, BusinessUnitController, DepartmentController, DivisionController, SectionController, WarehouseController, WarehouseLocationController } from './controllers';
+import { Company, Branch, BusinessUnit, Department, DepartmentDivisionScope, Division, Section, Warehouse, WarehouseLocation } from './entities';
+import { CompanyService, BranchService, BusinessUnitService, DepartmentService, DepartmentDivisionScopeService, DivisionService, SectionService, WarehouseService, WarehouseLocationService } from './services';
+import { CompanyController, BranchController, BusinessUnitController, DepartmentController, DepartmentDivisionScopeController, DivisionController, SectionController, WarehouseController, WarehouseLocationController } from './controllers';
 
 @Module({
   imports: [
@@ -11,6 +11,7 @@ import { CompanyController, BranchController, BusinessUnitController, Department
       Branch,
       BusinessUnit,
       Department,
+      DepartmentDivisionScope,
       Division,
       Section,
       Warehouse,
@@ -22,6 +23,7 @@ import { CompanyController, BranchController, BusinessUnitController, Department
     BranchController,
     BusinessUnitController,
     DepartmentController,
+    DepartmentDivisionScopeController,
     DivisionController,
     SectionController,
     WarehouseController,
@@ -32,6 +34,7 @@ import { CompanyController, BranchController, BusinessUnitController, Department
     BranchService,
     BusinessUnitService,
     DepartmentService,
+    DepartmentDivisionScopeService,
     DivisionService,
     SectionService,
     WarehouseService,
@@ -42,6 +45,7 @@ import { CompanyController, BranchController, BusinessUnitController, Department
     BranchService,
     BusinessUnitService,
     DepartmentService,
+    DepartmentDivisionScopeService,
     DivisionService,
     SectionService,
     WarehouseService,

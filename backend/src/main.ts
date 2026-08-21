@@ -3,44 +3,9 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import { OfflineModule } from './offline.module';
-import * as net from 'net';
-
-function checkDatabase(host: string, port: number, timeout = 3000): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    const timer = setTimeout(() => {
-      socket.destroy();
-      resolve(false);
-    }, timeout);
-    socket.connect(port, host, () => {
-      clearTimeout(timer);
-      socket.destroy();
-      resolve(true);
-    });
-    socket.on('error', () => {
-      clearTimeout(timer);
-      resolve(false);
-    });
-  });
-}
 
 async function bootstrap() {
-  const dbHost = process.env.DB_HOST || 'localhost';
-  const dbPort = parseInt(process.env.DB_PORT || '5432', 10);
-
-  const dbAvailable = await checkDatabase(dbHost, dbPort, 10000);
-
-  let app: any;
-
-  if (dbAvailable) {
-    console.log(`[DB] PostgreSQL reachable at ${dbHost}:${dbPort}`);
-    app = await NestFactory.create(AppModule);
-    console.log('[DB] Database connection established');
-  } else {
-    console.warn(`[DB] PostgreSQL not reachable at ${dbHost}:${dbPort} - starting in offline mode`);
-    app = await NestFactory.create(OfflineModule);
-  }
+  const app = await NestFactory.create(AppModule);
 
   // Global prefix
   app.setGlobalPrefix('api/v1');
@@ -87,6 +52,5 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
   console.log(`Application is running on: http://localhost:${port}`);
   console.log(`API Documentation: http://localhost:${port}/api/docs`);
-  console.log(`Database status: ${dbAvailable ? 'CONNECTED' : 'OFFLINE'}`);
 }
 bootstrap();

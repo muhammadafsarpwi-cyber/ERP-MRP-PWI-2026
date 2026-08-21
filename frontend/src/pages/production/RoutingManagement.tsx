@@ -1,7 +1,7 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
-  InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Divider, Descriptions, Layout,
+  InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Descriptions, Layout,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, ArrowLeftOutlined,
@@ -11,7 +11,7 @@ import apiService from '../../services/api';
 import { formatDecimal, toNum } from '../../utils/numberFormat';
 
 const { Content } = Layout;
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 interface RoutingOperation {
   id: string;
@@ -95,7 +95,6 @@ const RoutingManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
 
-  const filteredSections = Form.useWatch('divisionId', form);
   const opFilteredSections = Form.useWatch('divisionId', opForm);
 
   const fetchRoutings = useCallback(async () => {
@@ -127,11 +126,6 @@ const RoutingManagement: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchRoutings(); fetchLookupData(); }, [fetchRoutings, fetchLookupData]);
-
-  const filteredSectionsList = sections.filter(s => !filteredSections || s.divisionId === filteredSections);
-  const filteredDepartmentsList = departments.filter(d =>
-    (!filteredSections || d.sectionId) && (!filteredSections || filteredSectionsList.some(s => s.id === d.sectionId))
-  );
 
   const opFilteredSectionsList = sections.filter(s => !opFilteredSections || s.divisionId === opFilteredSections);
   const opFilteredDepartmentsList = departments.filter(d =>
@@ -275,12 +269,6 @@ const RoutingManagement: React.FC = () => {
     } catch { message.error('Failed to remove operation'); }
   };
 
-  const handleViewChange = async (routing: Routing) => {
-    try {
-      const res = await apiService.get<{ data: Routing }>(`/production/routings/${routing.id}`);
-      setSelectedRouting(res.data);
-    } catch {}
-  };
 
   const columns: ColumnsType<Routing> = [
     { title: 'Code', dataIndex: 'routingCode', key: 'routingCode', width: 120 },
