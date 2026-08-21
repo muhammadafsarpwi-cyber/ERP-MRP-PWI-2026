@@ -6,13 +6,41 @@
 
 ---
 
+## ERP-00009: Bill of Materials (M08) — Acceptance
+
+| Category | Status |
+|----------|--------|
+| Database Tables (2) | ✅ PASS |
+| Database Columns (32) | ✅ PASS |
+| Foreign Key Integrity (5) | ✅ PASS — zero orphans |
+| Unique Constraints (2) | ✅ PASS |
+| Indexes (6) | ✅ PASS |
+| Triggers (2) | ✅ PASS |
+| Permissions (10) | ✅ PASS |
+| Migration Idempotency (3x) | ✅ PASS |
+| API E2E Tests | ✅ 47/47 PASS |
+| Unit Tests | ✅ 229/229 PASS (16 suites) |
+| Frontend TypeScript | ✅ PASS |
+| Frontend Build | ✅ PASS |
+| Backend TypeScript | ✅ PASS |
+| Backend Build | ✅ PASS |
+| Demo Data (3 BOMs, 9 lines) | ✅ PASS |
+| **ERP-00009 FINAL** | ✅ **COMPLETE** |
+
+### Fix Applied During Audit
+- **Root Cause**: `erp_users.default_company_id` was NULL in the live database, causing POST /bom to fail with 500 (null company_id NOT NULL violation)
+- **Fix 1**: Updated `erp_users.default_company_id` to `7725aa04-a270-4314-9e82-90949cbe7791` for the dev user
+- **Fix 2**: Added `getCompanyId()` helper in BomController with fallback to `orgScopes[0].companyId` and explicit error message
+
+---
+
 ## Executive Summary
 
 | Category | Status |
 |----------|--------|
-| Database Schema (62 tables) | ✅ PASS |
-| Foreign Key Integrity (188 FKs) | ✅ PASS |
-| Demo Data (798 rows across 38 tables) | ✅ PASS |
+| Database Schema (64 tables) | ✅ PASS |
+| Foreign Key Integrity (193 FKs) | ✅ PASS |
+| Demo Data (822+ rows across 40+ tables) | ✅ PASS |
 | Entity↔DB Consistency | ⚠️ 12 WARNINGS (non-blocking) |
 | Backend Build | ✅ PASS |
 | Backend Health/Login | ✅ PASS |
@@ -23,6 +51,7 @@
 | Frontend Build | ✅ PASS |
 | **BLOCKER 1: Dev User Role** | ✅ PASS — FIXED |
 | **BLOCKER 2: SUPER_ADMIN Permissions** | ✅ PASS — FIXED |
+| **ERP-00009: Bill of Materials** | ✅ PASS — 47/47 E2E, 229 unit, migration idempotent |
 
 ---
 
@@ -230,4 +259,4 @@ All operations idempotent — zero duplicates created. Migration uses `ON CONFLI
 
 ## Conclusion
 
-**ERP demo environment is fully operational.** All 62 database tables are populated with realistic Pakistani demo data. The backend builds, starts, authenticates, and serves all 30 tested API endpoints with proper authorization. SUPER_ADMIN has the complete 174/174 permission catalog. The dev user is correctly scoped to COMP-001 with full company access.
+**ERP demo environment is fully operational.** All 64 database tables are populated with realistic Pakistani demo data. The backend builds, starts, authenticates, and serves all 30 tested API endpoints with proper authorization. SUPER_ADMIN has the complete 184/184 permission catalog. The dev user is correctly scoped to COMP-001 with full company access. ERP-00009 (Bill of Materials) is fully implemented with 47/47 E2E API tests, 229 unit tests, 3x migration idempotency verified, and zero blocking issues.

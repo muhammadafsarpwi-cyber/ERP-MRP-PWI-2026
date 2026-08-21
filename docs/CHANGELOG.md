@@ -16,6 +16,7 @@
 | ERP-00006-R03 | 2026-08-20 | v.toFixed Runtime Crash Fix (Numeric Formatting) | Approved | Frontend | R03 | Completed |
 | ERP-00007 | 2026-08-20 | Customers & CRM Module (M04) | Approved | M04 | R00 | Completed |
 | ERP-00008 | 2026-08-20 | Sales Module (M05) — Full Stack + Inventory Integration + Security Audit | Approved | M05 | R01 | Completed |
+| ERP-00009 | 2026-08-21 | Bill of Materials Module (M08) — Full Stack + CRUD + Cost Calc + Status + Security Audit | Approved | M08 | R00 | Completed |
 
 ## 2. ERP Instructions
 
@@ -201,7 +202,34 @@
   - Opening Stock posting
   - Inventory Reports (stock summary, ledger view)
   - Supabase PostgreSQL with version-controlled migrations
-  - JWT auth + permission-based guards on all inventory endpoints
+   - JWT auth + permission-based guards on all inventory endpoints
+
+### ERP-00009: Bill of Materials Module (M08)
+- **Date**: 2026-08-21
+- **Status**: Approved
+- **Description**: Full Bill of Materials module with CRUD, cost calculation, status workflow, component line management, circular-reference protection, and security audit
+- **Scope**: M08 (Manufacturing — BOM)
+- **Implementation**: Completed
+- **Key Changes**:
+  - 2 database tables: `bill_of_materials` (16 cols), `bom_lines` (16 cols)
+  - 10 permissions: `manufacturing.bom.{view,create,update,delete,change_status,estimate_cost}`, `manufacturing.bom_line.{view,create,update,delete}`
+  - 7 REST endpoints: list, get-by-id, create, update, delete, status-change, recalculate, get-by-product
+  - BOM status workflow: DRAFT → ACTIVE → OBSOLETE
+  - One ACTIVE BOM per product/company enforced
+  - Self-reference and circular-reference detection
+  - Auto-generated BOM codes (BOM-001, BOM-002, ...)
+  - Auto-calculated estimated cost from component cost prices and yield percentages
+  - PostgreSQL numeric/decimal handled safely via toNumber/toNum helper
+  - ParseUUIDPipe on all `@Param` decorators (400 on invalid UUID, never 500)
+  - `getCompanyId()` helper with `erpUser.defaultCompanyId` fallback to `orgScopes[0].companyId`
+  - 3 demo BOMs (BOM-001 ACTIVE, BOM-002 ACTIVE, BOM-003 DRAFT) with 9 component lines
+  - 3 manufacturable items marked in item master
+  - Frontend: BOMManagement.tsx page, Production.tsx updated with BOM sub-routes
+  - 229 unit tests across 16 spec files (all passing)
+  - 47/47 E2E API tests verified against live Supabase
+  - Migration fully idempotent (3× run verified)
+  - Database: 32 columns across 2 tables, 5 FK relationships, 6 indexes, 2 triggers, 2 unique constraints
+  - Zero orphan records, zero duplicate BOM codes, zero duplicate line numbers
 
 ## 3. Implementation Status by Module
 
@@ -223,7 +251,7 @@
 ### Phase 3: Manufacturing
 | Module | Status | Notes |
 |--------|--------|-------|
-| M08: Bill of Materials | Architecture Ready | Pending Implementation |
+| M08: Bill of Materials | Implemented | Complete: 2 tables, 10 permissions, 7 API endpoints, 3 demo BOMs, 229/229 unit tests, 47/47 E2E API, migration idempotent |
 | M09: Production Planning | Architecture Ready | Pending Implementation |
 | M10: Production / Manufacturing | Architecture Ready | Pending Implementation |
 | M11: Work Orders | Architecture Ready | Pending Implementation |

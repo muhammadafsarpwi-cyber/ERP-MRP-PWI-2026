@@ -14,6 +14,8 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { ProcurementModule } from './modules/procurement/procurement.module';
 import { CustomerModule } from './modules/customer/customer.module';
 import { SalesModule } from './modules/sales/sales.module';
+import { BomModule } from './modules/bom/bom.module';
+import { ProductionRoutingModule } from './modules/production-routing/production-routing.module';
 import * as net from 'net';
 
 function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promise<boolean> {
@@ -75,6 +77,8 @@ function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promis
     ProcurementModule,
     CustomerModule,
     SalesModule,
+    BomModule,
+    ProductionRoutingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

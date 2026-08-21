@@ -24,6 +24,8 @@ import {
   BarChartOutlined,
   BugOutlined,
   LockOutlined,
+  BuildOutlined,
+  ClusterOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
@@ -175,6 +177,15 @@ const menuItems: MenuProps['items'] = [
       { key: '/inventory/reservations', icon: <SafetyCertificateOutlined />, label: 'Reservations' },
       { key: '/inventory/ledger', icon: <DatabaseOutlined />, label: 'Stock Ledger' },
       { key: '/inventory/reports', icon: <BarChartOutlined />, label: 'Reports' },
+    ],
+  },
+  {
+    key: 'production',
+    icon: <BuildOutlined />,
+    label: 'Production',
+    children: [
+      { key: '/production/bom', icon: <ClusterOutlined />, label: 'Bill of Materials' },
+      { key: '/production/routings', icon: <ApartmentOutlined />, label: 'Routing' },
     ],
   },
   ...(process.env.NODE_ENV !== 'production'

@@ -1,11 +1,17 @@
 import React from 'react';
-import { Typography } from 'antd';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import BomManagement from './BOMManagement';
+import RoutingManagement from './RoutingManagement';
 
 const Production: React.FC = () => (
-  <div>
-    <Typography.Title level={2}>Production</Typography.Title>
-    <Typography.Text>Coming soon</Typography.Text>
-  </div>
+  <Routes>
+    <Route index element={<Navigate to="/production/bom" replace />} />
+    <Route path="bom" element={<BomManagement />} />
+    <Route path="bom/:id" element={<BomManagement />} />
+    <Route path="routings" element={<RoutingManagement />} />
+    <Route path="routings/:id" element={<RoutingManagement />} />
+    <Route path="*" element={<Navigate to="/production/bom" replace />} />
+  </Routes>
 );
 
 export default Production;

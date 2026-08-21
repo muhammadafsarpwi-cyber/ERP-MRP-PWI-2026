@@ -135,6 +135,12 @@ export class Item extends BaseEntity {
   @Column({ name: 'lead_time_days', type: 'integer', nullable: true })
   leadTimeDays: number | null;
 
+  @Column({ name: 'cost_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  costPrice: number | null;
+
+  @Column({ name: 'selling_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  sellingPrice: number | null;
+
   @OneToMany(() => ItemBarcode, (barcode) => barcode.item)
   barcodes: ItemBarcode[];
 

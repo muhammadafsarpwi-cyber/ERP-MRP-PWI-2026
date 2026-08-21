@@ -40,6 +40,8 @@ describe('ItemService', () => {
     reorderLevel: 50,
     safetyStockLevel: 20,
     leadTimeDays: 7,
+    costPrice: 100,
+    sellingPrice: 200,
     createdAt: new Date(),
     updatedAt: new Date(),
     createdBy: 'user-001',
