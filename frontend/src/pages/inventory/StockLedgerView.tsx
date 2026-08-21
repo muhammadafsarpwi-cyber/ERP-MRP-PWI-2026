@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Card, Space, Select, DatePicker, Button, Tag } from 'antd';
-import { SearchOutlined, DownloadOutlined } from '@ant-design/icons';
+import { DownloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
@@ -61,7 +61,7 @@ const StockLedgerView: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
 
-  const [search, setSearch] = useState('');
+  const [search] = useState('');
   const [filterWarehouse, setFilterWarehouse] = useState<string | undefined>(undefined);
   const [filterTxType, setFilterTxType] = useState<string | undefined>(undefined);
   const [filterDirection, setFilterDirection] = useState<string | undefined>(undefined);

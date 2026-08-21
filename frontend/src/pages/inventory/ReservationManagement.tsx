@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
   InputNumber, Row, Col,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';

@@ -1,0 +1,2931 @@
+{
+  "generatedAt": "2026-08-21T04:37:22.416Z",
+  "connection": {
+    "host": "aws-1-ap-northeast-1.pooler.supabase.com",
+    "port": 5432,
+    "database": "postgres",
+    "user": "postgres.gnvobiwlzezostzjpqvu"
+  },
+  "schemaCheck": {
+    "existingSchemas": [
+      "erp_sales",
+      "public"
+    ],
+    "erpSalesExists": true
+  },
+  "tables": {
+    "erp_sales": [
+      {
+        "name": "customers",
+        "rowCount": 10,
+        "error": null
+      },
+      {
+        "name": "quotation_items",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "quotations",
+        "rowCount": 10,
+        "error": null
+      },
+      {
+        "name": "sales_deliveries",
+        "rowCount": 10,
+        "error": null
+      },
+      {
+        "name": "sales_delivery_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "sales_invoices",
+        "rowCount": 10,
+        "error": null
+      },
+      {
+        "name": "sales_order_items",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "sales_orders",
+        "rowCount": 10,
+        "error": null
+      },
+      {
+        "name": "sales_return_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "sales_returns",
+        "rowCount": 10,
+        "error": null
+      }
+    ],
+    "public": [
+      {
+        "name": "batches",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "branches",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "business_units",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "companies",
+        "rowCount": 1,
+        "error": null
+      },
+      {
+        "name": "customer_addresses",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "customer_contacts",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "customers",
+        "rowCount": 10,
+        "error": null
+      },
+      {
+        "name": "departments",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "divisions",
+        "rowCount": 5,
+        "error": null
+      },
+      {
+        "name": "erp_users",
+        "rowCount": 1,
+        "error": null
+      },
+      {
+        "name": "goods_receipt_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "goods_receipts",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "inventory_balances",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "inventory_policies",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "inventory_reservations",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "item_attribute_definitions",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "item_attribute_values",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "item_barcodes",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "item_categories",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "item_documents",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "item_specifications",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "items",
+        "rowCount": 3,
+        "error": null
+      },
+      {
+        "name": "permissions",
+        "rowCount": 174,
+        "error": null
+      },
+      {
+        "name": "purchase_invoice_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "purchase_invoices",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "purchase_order_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "purchase_orders",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "purchase_requisition_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "purchase_requisitions",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "purchase_return_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "purchase_returns",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "quotation_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "quotations",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "request_for_quotations",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "rfq_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "role_permissions",
+        "rowCount": 248,
+        "error": null
+      },
+      {
+        "name": "roles",
+        "rowCount": 11,
+        "error": null
+      },
+      {
+        "name": "sections",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "serial_numbers",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "stock_adjustment_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "stock_adjustments",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "stock_ledger",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "stock_transfer_lines",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "stock_transfers",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "supplier_items",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "suppliers",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "uom_conversions",
+        "rowCount": 12,
+        "error": null
+      },
+      {
+        "name": "uoms",
+        "rowCount": 22,
+        "error": null
+      },
+      {
+        "name": "user_organization_scopes",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "user_roles",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "warehouse_locations",
+        "rowCount": 0,
+        "error": null
+      },
+      {
+        "name": "warehouses",
+        "rowCount": 1,
+        "error": null
+      }
+    ]
+  },
+  "tableDetails": {
+    "erp_sales.customers": {
+      "rowCount": 10,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "customer_code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "company_name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "contact_person",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "email",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "phone",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "mobile",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "billing_address",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "shipping_address",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "city",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "state",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "country",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "postal_code",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "tax_id",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "credit_limit",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "credit_days",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "currency",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "customer_type",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "4ca4b449-07af-4f00-a007-6842d9f9c39f",
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "customer_code": "SC-0001",
+        "company_name": "Engineering Solutions Ltd",
+        "contact_person": "Ali Raza",
+        "email": "ali.raza@engsol.pk",
+        "phone": "+92-21-34567890",
+        "mobile": null,
+        "billing_address": null,
+        "shipping_address": null,
+        "city": "Karachi",
+        "state": null,
+        "country": "Pakistan",
+        "postal_code": null,
+        "tax_id": null,
+        "credit_limit": "500000.00",
+        "credit_days": 30,
+        "currency": "PKR",
+        "customer_type": "B2B",
+        "status": "Active",
+        "is_active": true,
+        "created_at": "2026-08-21T02:49:26.575Z",
+        "updated_at": "2026-08-21T02:49:26.575Z",
+        "created_by": null,
+        "updated_by": null
+      }
+    },
+    "erp_sales.quotations": {
+      "rowCount": 10,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "quotation_number",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "customer_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "quotation_date",
+          "type": "date",
+          "nullable": true
+        },
+        {
+          "name": "valid_until",
+          "type": "date",
+          "nullable": true
+        },
+        {
+          "name": "currency",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "subtotal",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "discount_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "tax_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "total_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "sales_rep_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "d6ce2286-a8d0-4458-a993-94c2b665bfd2",
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "quotation_number": "QT-2026-00001",
+        "customer_id": "4ca4b449-07af-4f00-a007-6842d9f9c39f",
+        "quotation_date": "2026-06-30T19:00:00.000Z",
+        "valid_until": "2026-07-31T19:00:00.000Z",
+        "currency": "PKR",
+        "subtotal": "250000.0000",
+        "discount_amount": "12500.0000",
+        "tax_amount": "45000.0000",
+        "total_amount": "282500.0000",
+        "status": "Accepted",
+        "notes": "Bulk order for engineering parts",
+        "sales_rep_id": null,
+        "created_at": "2026-08-21T02:49:26.575Z",
+        "updated_at": "2026-08-21T02:49:26.575Z",
+        "created_by": null
+      }
+    },
+    "erp_sales.sales_deliveries": {
+      "rowCount": 10,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "delivery_number",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "sales_order_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "customer_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "delivery_date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "expected_date",
+          "type": "date",
+          "nullable": true
+        },
+        {
+          "name": "warehouse_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "ship_to_address",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "carrier",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "tracking_number",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "subtotal",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "tax_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "total_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "received_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "c329d99f-fbbc-454a-b440-cf2b645f3672",
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "delivery_number": "DN-2026-00001",
+        "sales_order_id": "6ca3952e-367e-48ac-b5a4-c83caac3f9d1",
+        "customer_id": "4ca4b449-07af-4f00-a007-6842d9f9c39f",
+        "delivery_date": "2026-07-17T19:00:00.000Z",
+        "expected_date": null,
+        "warehouse_id": "aa9fedcb-27ac-47d2-a963-40d01c2594bc",
+        "ship_to_address": null,
+        "carrier": null,
+        "tracking_number": null,
+        "subtotal": "250000.0000",
+        "tax_amount": "45000.0000",
+        "total_amount": "295000.0000",
+        "status": "Delivered",
+        "notes": "First delivery completed",
+        "received_by": null,
+        "received_at": null,
+        "created_at": "2026-08-21T02:49:26.575Z",
+        "updated_at": "2026-08-21T02:49:26.575Z",
+        "created_by": null,
+        "updated_by": null
+      }
+    },
+    "erp_sales.sales_invoices": {
+      "rowCount": 10,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "invoice_no",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "sales_order_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "customer_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "invoice_date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "due_date",
+          "type": "date",
+          "nullable": true
+        },
+        {
+          "name": "subtotal",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "discount_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "tax_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "total_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "paid_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "balance",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "0258b5ea-ec83-4f15-a05c-58f4a145c2c1",
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "invoice_no": "SI-2026-00001",
+        "sales_order_id": "6ca3952e-367e-48ac-b5a4-c83caac3f9d1",
+        "customer_id": "4ca4b449-07af-4f00-a007-6842d9f9c39f",
+        "invoice_date": "2026-07-19T19:00:00.000Z",
+        "due_date": "2026-08-18T19:00:00.000Z",
+        "subtotal": "250000.0000",
+        "discount_amount": "12500.0000",
+        "tax_amount": "45000.0000",
+        "total_amount": "282500.0000",
+        "paid_amount": "282500.0000",
+        "balance": null,
+        "status": "Paid",
+        "created_at": "2026-08-21T02:49:26.575Z",
+        "updated_at": "2026-08-21T02:49:26.575Z",
+        "created_by": null
+      }
+    },
+    "erp_sales.sales_orders": {
+      "rowCount": 10,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "order_number",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "customer_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "quotation_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "order_date",
+          "type": "date",
+          "nullable": true
+        },
+        {
+          "name": "delivery_date",
+          "type": "date",
+          "nullable": true
+        },
+        {
+          "name": "ship_to_address",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "bill_to_address",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "currency",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "subtotal",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "discount_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "tax_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "freight_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "total_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "payment_term_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "sales_rep_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "6ca3952e-367e-48ac-b5a4-c83caac3f9d1",
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "order_number": "SO-2026-00001",
+        "customer_id": "4ca4b449-07af-4f00-a007-6842d9f9c39f",
+        "quotation_id": null,
+        "order_date": "2026-07-02T19:00:00.000Z",
+        "delivery_date": "2026-07-19T19:00:00.000Z",
+        "ship_to_address": null,
+        "bill_to_address": null,
+        "currency": "PKR",
+        "subtotal": "250000.0000",
+        "discount_amount": "12500.0000",
+        "tax_amount": "45000.0000",
+        "freight_amount": "0.0000",
+        "total_amount": "282500.0000",
+        "status": "Confirmed",
+        "payment_term_id": null,
+        "sales_rep_id": null,
+        "notes": "Confirmed order from QT-001",
+        "created_at": "2026-08-21T02:49:26.575Z",
+        "updated_at": "2026-08-21T02:49:26.575Z",
+        "created_by": null,
+        "updated_by": null
+      }
+    },
+    "erp_sales.sales_returns": {
+      "rowCount": 10,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "return_number",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "sales_order_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "sales_invoice_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "customer_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "return_date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "subtotal",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "tax_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "total_amount",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "approved_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "approved_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "4dc0923c-7aa0-44bd-b296-2a20a079461c",
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "return_number": "SR-2026-00001",
+        "sales_order_id": "883eeadb-413c-464c-8bf1-126dc7a76b39",
+        "sales_invoice_id": "61159cab-0a16-479c-b339-e0d8f3597009",
+        "customer_id": "c290a547-01f3-4369-bda2-18d3565d7462",
+        "return_date": "2026-08-01T19:00:00.000Z",
+        "reason": "Defective item - 2 units",
+        "subtotal": "5000.0000",
+        "tax_amount": "900.0000",
+        "total_amount": "5900.0000",
+        "status": "Received",
+        "notes": "2 defective widgets returned",
+        "approved_by": null,
+        "approved_at": null,
+        "created_at": "2026-08-21T02:49:26.575Z",
+        "updated_at": "2026-08-21T02:49:26.575Z",
+        "created_by": null,
+        "updated_by": null
+      }
+    },
+    "public.companies": {
+      "rowCount": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "legal_name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "trade_name",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "company_code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "registration_number",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "tax_registration_number",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "email",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "phone",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "website",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "address_line1",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "address_line2",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "city",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "state_province",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "postal_code",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "country",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "base_currency",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "fiscal_year_start",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "timezone",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "date_format",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "number_format",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "logo_url",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "created_at": "2026-08-21T02:12:27.736Z",
+        "updated_at": "2026-08-21T02:12:27.736Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "legal_name": "Default Company",
+        "trade_name": "Default Company",
+        "company_code": "COMP-001",
+        "registration_number": null,
+        "tax_registration_number": null,
+        "email": null,
+        "phone": null,
+        "website": null,
+        "address_line1": null,
+        "address_line2": null,
+        "city": null,
+        "state_province": null,
+        "postal_code": null,
+        "country": null,
+        "base_currency": "USD",
+        "fiscal_year_start": "01-01",
+        "timezone": "UTC",
+        "date_format": "YYYY-MM-DD",
+        "number_format": "#,##0.00",
+        "logo_url": null,
+        "status": "ACTIVE"
+      }
+    },
+    "public.customers": {
+      "rowCount": 10,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "customer_code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "short_name",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "customer_type",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "contact_person",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "email",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "phone",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "fax",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "website",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "tax_number",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "registration_number",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "address_line1",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "address_line2",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "city",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "state",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "postal_code",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "country",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "currency_code",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "payment_terms",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "credit_limit",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "credit_days",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "discount_percent",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "customer_tier",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "lead_source",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "assigned_to",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "last_contact_date",
+          "type": "date",
+          "nullable": true
+        },
+        {
+          "name": "next_follow_up_date",
+          "type": "date",
+          "nullable": true
+        },
+        {
+          "name": "total_orders",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "total_revenue",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "7e632eb2-6dae-44a0-96b3-b7ff022b6cc9",
+        "created_at": "2026-08-21T02:19:43.484Z",
+        "updated_at": "2026-08-21T02:19:43.484Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "customer_code": "CUST-0001",
+        "name": "Engineering Solutions Ltd",
+        "short_name": "EngSol",
+        "customer_type": "CORPORATE",
+        "contact_person": "Ali Raza",
+        "email": "ali.raza@engsol.pk",
+        "phone": "+92-21-34567890",
+        "fax": null,
+        "website": null,
+        "tax_number": null,
+        "registration_number": null,
+        "address_line1": null,
+        "address_line2": null,
+        "city": "Karachi",
+        "state": "Sindh",
+        "postal_code": null,
+        "country": "Pakistan",
+        "currency_code": "PKR",
+        "payment_terms": "NET30",
+        "credit_limit": "500000.0000",
+        "credit_days": 30,
+        "discount_percent": "5.00",
+        "customer_tier": "GOLD",
+        "lead_source": "REFERRAL",
+        "assigned_to": null,
+        "last_contact_date": null,
+        "next_follow_up_date": null,
+        "total_orders": 0,
+        "total_revenue": "0.0000",
+        "notes": null,
+        "status": "ACTIVE"
+      }
+    },
+    "public.divisions": {
+      "rowCount": 5,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "division_code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "50824516-9c24-4122-86e7-c8e6fa1c5869",
+        "created_at": "2026-08-21T02:12:27.736Z",
+        "updated_at": "2026-08-21T02:12:27.736Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "division_code": "DIV-001",
+        "name": "Division 1",
+        "description": "Initial division - please configure through administration",
+        "status": "ACTIVE"
+      }
+    },
+    "public.erp_users": {
+      "rowCount": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "auth_user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "employee_id",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "username",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "display_name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "first_name",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "last_name",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "email",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "phone",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "avatar_url",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "default_company_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "default_division_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "default_section_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "default_department_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "last_login_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "b197d6d1-4911-429c-b0b8-3cc440e433ce",
+        "created_at": "2026-08-21T04:10:07.499Z",
+        "updated_at": "2026-08-21T04:10:08.026Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "auth_user_id": "36e816a9-b7a9-4e9d-9fb9-0c20270aec89",
+        "employee_id": null,
+        "username": "muhammadafsarpwi",
+        "display_name": "muhammadafsarpwi@gmail.com",
+        "first_name": null,
+        "last_name": null,
+        "email": "muhammadafsarpwi@gmail.com",
+        "phone": null,
+        "avatar_url": null,
+        "default_company_id": null,
+        "default_division_id": null,
+        "default_section_id": null,
+        "default_department_id": null,
+        "status": "ACTIVE",
+        "last_login_at": "2026-08-21T04:10:08.940Z"
+      }
+    },
+    "public.items": {
+      "rowCount": 3,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "item_code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "sku",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "short_name",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "item_type",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "barcode",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "manufacturer_part_number",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "brand",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "model",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "category_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "base_uom_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "purchase_uom_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "sales_uom_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "track_inventory",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "batch_tracked",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "serial_tracked",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "expiry_tracked",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "is_purchasable",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "is_sellable",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "is_manufacturable",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "is_stock_item",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "minimum_stock_level",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "maximum_stock_level",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "reorder_level",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "safety_stock_level",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "lead_time_days",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "weight",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "weight_uom_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "length",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "width",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "height",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "dimension_uom_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "volume",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "volume_uom_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "cost_price",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "selling_price",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "currency",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "tax_rate",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "image_url",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "search_keywords",
+          "type": "text",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "079c0ac6-1f62-49f4-8f58-1bdec1c828fe",
+        "created_at": "2026-08-21T02:49:26.575Z",
+        "updated_at": "2026-08-21T02:49:26.575Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "item_code": "SLD-0001",
+        "sku": null,
+        "name": "Industrial Widget",
+        "short_name": null,
+        "description": null,
+        "item_type": "OTHER",
+        "status": "ACTIVE",
+        "barcode": null,
+        "manufacturer_part_number": null,
+        "brand": null,
+        "model": null,
+        "category_id": null,
+        "base_uom_id": "a6d4c30b-f644-4be0-aa1b-19ba55495789",
+        "purchase_uom_id": null,
+        "sales_uom_id": null,
+        "track_inventory": true,
+        "batch_tracked": false,
+        "serial_tracked": false,
+        "expiry_tracked": false,
+        "is_purchasable": false,
+        "is_sellable": true,
+        "is_manufacturable": false,
+        "is_stock_item": false,
+        "minimum_stock_level": null,
+        "maximum_stock_level": null,
+        "reorder_level": null,
+        "safety_stock_level": null,
+        "lead_time_days": null,
+        "weight": null,
+        "weight_uom_id": null,
+        "length": null,
+        "width": null,
+        "height": null,
+        "dimension_uom_id": null,
+        "volume": null,
+        "volume_uom_id": null,
+        "cost_price": null,
+        "selling_price": "2500.0000",
+        "currency": "USD",
+        "tax_rate": null,
+        "image_url": null,
+        "notes": null,
+        "search_keywords": null
+      }
+    },
+    "public.permissions": {
+      "rowCount": 174,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "permission_code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "module",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "resource",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "b23f7dd5-04db-4df3-a505-c0a0c7d00ee7",
+        "created_at": "2026-08-21T02:13:25.405Z",
+        "updated_at": "2026-08-21T02:13:25.405Z",
+        "is_active": true,
+        "permission_code": "company.view",
+        "name": "View Company",
+        "module": "organization",
+        "resource": "company",
+        "action": "VIEW",
+        "description": "View company details",
+        "status": "ACTIVE",
+        "created_by": null,
+        "updated_by": null
+      }
+    },
+    "public.role_permissions": {
+      "rowCount": 248,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "role_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "permission_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "732fd89b-a347-42df-b9a2-7d750c0d553c",
+        "created_at": "2026-08-21T02:13:25.405Z",
+        "updated_at": "2026-08-21T02:13:25.405Z",
+        "created_by": null,
+        "role_id": "c37e82cb-5242-4987-a92a-3edb208da6f4",
+        "permission_id": "b23f7dd5-04db-4df3-a505-c0a0c7d00ee7",
+        "status": "ACTIVE",
+        "is_active": true,
+        "updated_by": null
+      }
+    },
+    "public.roles": {
+      "rowCount": 11,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "role_code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "is_system_role",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "c37e82cb-5242-4987-a92a-3edb208da6f4",
+        "created_at": "2026-08-21T02:13:25.405Z",
+        "updated_at": "2026-08-21T02:13:25.405Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "role_code": "SUPER_ADMIN",
+        "name": "Super Administrator",
+        "description": "Full system access with all permissions",
+        "is_system_role": true,
+        "status": "ACTIVE"
+      }
+    },
+    "public.uom_conversions": {
+      "rowCount": 12,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "from_uom_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "to_uom_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "conversion_factor",
+          "type": "numeric",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "9a3cf0ac-a73c-418a-8de3-8b2861e3bc6c",
+        "created_at": "2026-08-21T02:13:34.311Z",
+        "updated_at": "2026-08-21T02:13:34.311Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "from_uom_id": "52a2a811-b692-497e-9467-10a06b66043b",
+        "to_uom_id": "6eca249a-4daf-45d8-877f-42e1a2b55ac8",
+        "conversion_factor": "1000.00000000",
+        "status": "ACTIVE"
+      }
+    },
+    "public.uoms": {
+      "rowCount": 22,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "symbol",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "uom_type",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "decimal_precision",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "base_uom_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "conversion_factor",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "a6d4c30b-f644-4be0-aa1b-19ba55495789",
+        "created_at": "2026-08-21T02:13:34.311Z",
+        "updated_at": "2026-08-21T02:13:34.311Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "code": "EA",
+        "name": "Each",
+        "symbol": "ea",
+        "uom_type": "COUNT",
+        "decimal_precision": 0,
+        "base_uom_id": null,
+        "conversion_factor": null,
+        "status": "ACTIVE",
+        "company_id": null
+      }
+    },
+    "public.warehouses": {
+      "rowCount": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "company_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "branch_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "business_unit_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "warehouse_code",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_type",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "address",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "city",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "country",
+          "type": "character varying",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "character varying",
+          "nullable": true
+        }
+      ],
+      "sampleRow": {
+        "id": "aa9fedcb-27ac-47d2-a963-40d01c2594bc",
+        "created_at": "2026-08-21T02:49:26.575Z",
+        "updated_at": "2026-08-21T02:49:26.575Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "company_id": "7725aa04-a270-4314-9e82-90949cbe7791",
+        "branch_id": null,
+        "business_unit_id": null,
+        "warehouse_code": "WH-MAIN-001",
+        "name": "Main Warehouse",
+        "warehouse_type": "GENERAL",
+        "address": null,
+        "city": null,
+        "country": null,
+        "status": "ACTIVE"
+      }
+    }
+  },
+  "specificChecks": {
+    "erp_users": {
+      "table": "public.erp_users",
+      "rowCount": 1
+    },
+    "branches": {
+      "table": "public.branches",
+      "rowCount": 0
+    },
+    "sections": {
+      "table": "public.sections",
+      "rowCount": 0
+    },
+    "departments": {
+      "table": "public.departments",
+      "rowCount": 0
+    },
+    "business_units": {
+      "table": "public.business_units",
+      "rowCount": 0
+    },
+    "warehouse_locations": {
+      "table": "public.warehouse_locations",
+      "rowCount": 0
+    },
+    "item_categories": {
+      "table": "public.item_categories",
+      "rowCount": 0
+    },
+    "customers": [
+      {
+        "table": "erp_sales.customers",
+        "rowCount": 10
+      },
+      {
+        "table": "public.customer_addresses",
+        "rowCount": 0
+      },
+      {
+        "table": "public.customer_contacts",
+        "rowCount": 0
+      },
+      {
+        "table": "public.customers",
+        "rowCount": 10
+      }
+    ],
+    "customerHasContactsAndAddresses": {
+      "contactsTable": "public.customer_contacts (0)",
+      "addressesTable": "public.customer_addresses (0)"
+    },
+    "suppliers": [
+      {
+        "table": "public.supplier_items",
+        "rowCount": 0
+      },
+      {
+        "table": "public.suppliers",
+        "rowCount": 0
+      }
+    ],
+    "procurement": [
+      {
+        "table": "public.goods_receipt_lines",
+        "rowCount": 0
+      },
+      {
+        "table": "public.goods_receipts",
+        "rowCount": 0
+      },
+      {
+        "table": "public.purchase_invoice_lines",
+        "rowCount": 0
+      },
+      {
+        "table": "public.purchase_invoices",
+        "rowCount": 0
+      },
+      {
+        "table": "public.purchase_order_lines",
+        "rowCount": 0
+      },
+      {
+        "table": "public.purchase_orders",
+        "rowCount": 0
+      },
+      {
+        "table": "public.purchase_requisition_lines",
+        "rowCount": 0
+      },
+      {
+        "table": "public.purchase_requisitions",
+        "rowCount": 0
+      },
+      {
+        "table": "public.purchase_return_lines",
+        "rowCount": 0
+      },
+      {
+        "table": "public.purchase_returns",
+        "rowCount": 0
+      },
+      {
+        "table": "public.rfq_lines",
+        "rowCount": 0
+      }
+    ],
+    "inventory": [
+      {
+        "table": "public.batches",
+        "rowCount": 0
+      },
+      {
+        "table": "public.inventory_balances",
+        "rowCount": 0
+      },
+      {
+        "table": "public.inventory_policies",
+        "rowCount": 0
+      },
+      {
+        "table": "public.inventory_reservations",
+        "rowCount": 0
+      },
+      {
+        "table": "public.serial_numbers",
+        "rowCount": 0
+      },
+      {
+        "table": "public.stock_adjustment_lines",
+        "rowCount": 0
+      },
+      {
+        "table": "public.stock_adjustments",
+        "rowCount": 0
+      },
+      {
+        "table": "public.stock_ledger",
+        "rowCount": 0
+      },
+      {
+        "table": "public.stock_transfer_lines",
+        "rowCount": 0
+      },
+      {
+        "table": "public.stock_transfers",
+        "rowCount": 0
+      }
+    ],
+    "erpSales": {
+      "quotation": {
+        "documents": [
+          {
+            "table": "quotations",
+            "rowCount": 10
+          }
+        ],
+        "lineItems": [
+          {
+            "table": "quotation_items",
+            "rowCount": 0
+          }
+        ]
+      },
+      "order": {
+        "documents": [
+          {
+            "table": "sales_orders",
+            "rowCount": 10
+          }
+        ],
+        "lineItems": [
+          {
+            "table": "sales_order_items",
+            "rowCount": 0
+          }
+        ]
+      },
+      "delivery": {
+        "documents": [],
+        "lineItems": [
+          {
+            "table": "sales_delivery_lines",
+            "rowCount": 0
+          }
+        ]
+      },
+      "invoice": {
+        "documents": [
+          {
+            "table": "sales_invoices",
+            "rowCount": 10
+          }
+        ],
+        "lineItems": []
+      },
+      "return": {
+        "documents": [
+          {
+            "table": "sales_returns",
+            "rowCount": 10
+          }
+        ],
+        "lineItems": [
+          {
+            "table": "sales_return_lines",
+            "rowCount": 0
+          }
+        ]
+      }
+    }
+  },
+  "devUser": {
+    "table": "public.erp_users",
+    "totalUsers": 1,
+    "matchedDevRow": {
+      "id": "b197d6d1-4911-429c-b0b8-3cc440e433ce",
+      "created_at": "2026-08-21T04:10:07.499Z",
+      "updated_at": "2026-08-21T04:10:08.026Z",
+      "created_by": null,
+      "updated_by": null,
+      "is_active": true,
+      "auth_user_id": "36e816a9-b7a9-4e9d-9fb9-0c20270aec89",
+      "employee_id": null,
+      "username": "muhammadafsarpwi",
+      "display_name": "muhammadafsarpwi@gmail.com",
+      "first_name": null,
+      "last_name": null,
+      "email": "muhammadafsarpwi@gmail.com",
+      "phone": null,
+      "avatar_url": null,
+      "default_company_id": null,
+      "default_division_id": null,
+      "default_section_id": null,
+      "default_department_id": null,
+      "status": "ACTIVE",
+      "last_login_at": "2026-08-21T04:10:08.940Z"
+    },
+    "allUsers": [
+      {
+        "id": "b197d6d1-4911-429c-b0b8-3cc440e433ce",
+        "created_at": "2026-08-21T04:10:07.499Z",
+        "updated_at": "2026-08-21T04:10:08.026Z",
+        "created_by": null,
+        "updated_by": null,
+        "is_active": true,
+        "auth_user_id": "36e816a9-b7a9-4e9d-9fb9-0c20270aec89",
+        "employee_id": null,
+        "username": "muhammadafsarpwi",
+        "display_name": "muhammadafsarpwi@gmail.com",
+        "first_name": null,
+        "last_name": null,
+        "email": "muhammadafsarpwi@gmail.com",
+        "phone": null,
+        "avatar_url": null,
+        "default_company_id": null,
+        "default_division_id": null,
+        "default_section_id": null,
+        "default_department_id": null,
+        "status": "ACTIVE",
+        "last_login_at": "2026-08-21T04:10:08.940Z"
+      }
+    ]
+  },
+  "permissionCounts": {
+    "permissions": {
+      "table": "public.permissions",
+      "rowCount": 174
+    },
+    "role_permissions": {
+      "table": "public.role_permissions",
+      "rowCount": 248
+    }
+  },
+  "seedingSummary": {
+    "coreOrg": [
+      {
+        "expected": "business_units",
+        "actual": "public.business_units",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "departments",
+        "actual": "public.departments",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "sections",
+        "actual": "public.sections",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "branches",
+        "actual": "public.branches",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "warehouse_locations",
+        "actual": "public.warehouse_locations",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "item_categories",
+        "actual": "public.item_categories",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "erp_users",
+        "actual": "public.erp_users",
+        "status": "HAS_DATA"
+      }
+    ],
+    "customers": [
+      {
+        "expected": "customers",
+        "actual": "erp_sales.customers",
+        "status": "HAS_DATA"
+      },
+      {
+        "expected": "customer_contacts",
+        "actual": "public.customer_contacts",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "customer_addresses",
+        "actual": "public.customer_addresses",
+        "status": "EMPTY"
+      }
+    ],
+    "suppliers": [
+      {
+        "expected": "suppliers",
+        "actual": "public.suppliers",
+        "status": "EMPTY"
+      }
+    ],
+    "procurement": [
+      {
+        "expected": "purchase_requisitions",
+        "actual": "public.purchase_requisitions",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "purchase_orders",
+        "actual": "public.purchase_orders",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "purchase_order_items",
+        "status": "MISSING"
+      }
+    ],
+    "inventory": [
+      {
+        "expected": "batches",
+        "actual": "public.batches",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "inventory_balances",
+        "actual": "public.inventory_balances",
+        "status": "EMPTY"
+      }
+    ],
+    "sales": [
+      {
+        "expected": "quotations",
+        "actual": "erp_sales.quotations",
+        "status": "HAS_DATA"
+      },
+      {
+        "expected": "quotation_items",
+        "actual": "erp_sales.quotation_items",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "sales_orders",
+        "actual": "erp_sales.sales_orders",
+        "status": "HAS_DATA"
+      },
+      {
+        "expected": "sales_order_items",
+        "actual": "erp_sales.sales_order_items",
+        "status": "EMPTY"
+      },
+      {
+        "expected": "deliveries",
+        "actual": "erp_sales.sales_deliveries",
+        "status": "HAS_DATA (name differs)"
+      },
+      {
+        "expected": "delivery_items",
+        "status": "MISSING"
+      },
+      {
+        "expected": "invoices",
+        "actual": "erp_sales.sales_invoices",
+        "status": "HAS_DATA (name differs)"
+      },
+      {
+        "expected": "invoice_items",
+        "status": "MISSING"
+      },
+      {
+        "expected": "sales_returns",
+        "actual": "erp_sales.sales_returns",
+        "status": "HAS_DATA"
+      },
+      {
+        "expected": "sales_return_items",
+        "status": "MISSING"
+      }
+    ]
+  }
+}

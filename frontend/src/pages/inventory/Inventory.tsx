@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Card, Row, Col, Statistic, Table, Tag } from 'antd';
+import { Typography, Card, Row, Col, Statistic, Table } from 'antd';
 import { InboxOutlined, AlertOutlined, SwapOutlined, BarChartOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';

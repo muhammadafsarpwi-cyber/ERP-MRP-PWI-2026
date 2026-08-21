@@ -15,6 +15,7 @@
 | ERP-00006-R02 | 2026-08-20 | Authentication & Password Management Fix | Approved | Auth, Security | R02 | Completed |
 | ERP-00006-R03 | 2026-08-20 | v.toFixed Runtime Crash Fix (Numeric Formatting) | Approved | Frontend | R03 | Completed |
 | ERP-00007 | 2026-08-20 | Customers & CRM Module (M04) | Approved | M04 | R00 | Completed |
+| ERP-00008 | 2026-08-20 | Sales Module (M05) — Full Stack + Inventory Integration + Security Audit | Approved | M05 | R01 | Completed |
 
 ## 2. ERP Instructions
 
@@ -125,9 +126,27 @@
 ### ERP-00007: Customers & CRM Module (M04)
 - **Date**: 2026-08-20
 - **Status**: Approved
-- **Description**: Full-stack Customers & CRM module — database migration, NestJS backend API, React frontend UI, permissions, demo data, E2E verification
+- **Description**: Full Customers & CRM module implementation
 - **Scope**: M04 (Customers & CRM)
 - **Implementation**: Completed
+
+### ERP-00008: Sales Module (M05)
+- **Date**: 2026-08-20
+- **Status**: Approved
+- **Description**: Full Sales module with inventory integration, security audit, and E2E verification
+- **Scope**: M05 (Sales)
+- **Implementation**: Completed
+- **Key Changes**:
+  - 10 database tables in `erp_sales` schema: customers, quotations, quotation_items, sales_orders, sales_order_items, sales_deliveries, sales_delivery_lines, sales_invoices, sales_returns, sales_return_lines
+  - 19 sales-specific permissions (quotations, orders, deliveries, invoices, returns × CRUD + workflow)
+  - 38 REST endpoints (8 quotations, 8 orders, 8 deliveries, 6 invoices, 6 returns)
+  - 5 workflow state machines (quotation, order, delivery, invoice, return)
+  - Inventory integration: stock deduction on delivery confirmation via StockLedger + InventoryBalance
+  - Security: JWT + PermissionGuard + OrgScopeGuard on all controllers, company isolation via defaultCompanyId
+  - 5 frontend pages: Quotation, Order, Delivery, Invoice, Return management
+  - 86 unit tests across 5 spec files (all passing)
+  - Live Supabase verification: 10 tables, 6 triggers, 19 permissions, 39 FKs
+  - Migration fully idempotent
 - **Key Changes**:
   - 3 database tables: `customers`, `customer_contacts`, `customer_addresses`
   - 12 customer-specific permissions (CRUD for customer, contact, address)
@@ -197,7 +216,7 @@
 ### Phase 2: Core Transactions
 | Module | Status | Notes |
 |--------|--------|-------|
-| M05: Sales | Architecture Ready | Pending Implementation |
+| M05: Sales | Implemented | Complete: 10 tables, 19 permissions, 38 API endpoints, inventory integration, 86/86 tests, security audit |
 | M06: Inventory & Warehouse | Implemented | Complete: 9 entities, 20 permissions, 8 pages, full E2E (46/46 tests), Supabase verified |
 | M07: Purchasing / Procurement | Implemented | Complete: 16 tables, 36 permissions, 8 pages, 42/42 E2E tests |
 
@@ -263,10 +282,11 @@
 | 1.8 | 2026-08-20 | ERP Team | ERP-00006-R02: Authentication & Password Management Fix |
 | 1.9 | 2026-08-20 | ERP Team | ERP-00006-R03: v.toFixed Runtime Crash Fix (Numeric Formatting) |
 | 1.10 | 2026-08-20 | ERP Team | ERP-00007: Customers & CRM Module (M04) - Full Stack Implementation |
+| 1.11 | 2026-08-20 | ERP Team | ERP-00008: Sales Module (M05) - Full Stack + Inventory Integration + Security Audit |
 
 ## 5. Next Steps
 
-1. Begin M05: Sales module implementation (depends on M04 Customers)
+1. M05 ERP-00008: Browser E2E smoke test (dev server)
 2. Seed demo data for ERP-00006 procurement tables
 3. Follow module implementation sequence as defined in architecture
 

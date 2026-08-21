@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
-  InputNumber, Row, Col, Rate, Descriptions, DatePicker, Tabs, List, Badge, Typography,
+  InputNumber, Row, Col, Descriptions, DatePicker, Tabs, List, Badge,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined, EyeOutlined,

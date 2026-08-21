@@ -3,7 +3,7 @@ import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
   Row, Col,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, CheckOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, CheckOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 

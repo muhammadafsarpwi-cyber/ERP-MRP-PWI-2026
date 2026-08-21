@@ -23,11 +23,14 @@ export const databaseConfig = (
     synchronize: configService.get<string>('DB_SYNCHRONIZE', 'false') === 'true',
     logging: configService.get<string>('DB_LOGGING', 'false') === 'true',
     migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
+    connectTimeoutMS: 30000,
+    retryAttempts: 5,
+    retryDelay: 2000,
+    keepConnectionAlive: true,
     extra: {
       ssl: sslConfig,
+      max: 10,
+      idleTimeoutMillis: 30000,
     },
-    connectTimeoutMS: 15000,
-    retryAttempts: 3,
-    retryDelay: 2000,
   };
 };

@@ -136,6 +136,18 @@ const menuItems: MenuProps['items'] = [
     ],
   },
   {
+    key: 'sales',
+    icon: <ShoppingCartOutlined />,
+    label: 'Sales',
+    children: [
+      { key: '/sales/quotations', icon: <AppstoreOutlined />, label: 'Quotations' },
+      { key: '/sales/orders', icon: <ShoppingCartOutlined />, label: 'Sales Orders' },
+      { key: '/sales/deliveries', icon: <InboxOutlined />, label: 'Deliveries' },
+      { key: '/sales/invoices', icon: <CalculatorOutlined />, label: 'Invoices' },
+      { key: '/sales/returns', icon: <SwapOutlined />, label: 'Sales Returns' },
+    ],
+  },
+  {
     key: 'procurement',
     icon: <ShoppingCartOutlined />,
     label: 'Procurement',

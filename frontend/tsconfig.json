@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es5",
+    "target": "ES2015",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
@@ -10,20 +10,11 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "module": "esnext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx",
-    "baseUrl": "src",
-    "paths": {
-      "@components/*": ["components/*"],
-      "@pages/*": ["pages/*"],
-      "@services/*": ["services/*"],
-      "@stores/*": ["stores/*"],
-      "@utils/*": ["utils/*"],
-      "@types/*": ["types/*"]
-    }
+    "jsx": "react-jsx"
   },
   "include": ["src"]
 }

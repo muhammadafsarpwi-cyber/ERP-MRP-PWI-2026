@@ -10,7 +10,13 @@ import ChangePassword from './pages/auth/ChangePassword';
 import Dashboard from './pages/dashboard/Dashboard';
 import Products from './pages/products/Products';
 import { CustomerManagement } from './pages/customers';
-import SalesOrders from './pages/sales/SalesOrders';
+import {
+  SalesQuotationManagement,
+  SalesOrderManagement,
+  SalesDeliveryManagement,
+  SalesInvoiceManagement,
+  SalesReturnManagement,
+} from './pages/sales';
 import {
   Inventory,
   InventoryPolicyManagement,
@@ -75,7 +81,11 @@ const App: React.FC = () => {
                   <Route path="/change-password" element={<ChangePassword />} />
                   <Route path="/products/*" element={<Products />} />
                   <Route path="/customers" element={<CustomerManagement />} />
-                  <Route path="/sales/*" element={<SalesOrders />} />
+                  <Route path="/sales/quotations" element={<SalesQuotationManagement />} />
+                  <Route path="/sales/orders" element={<SalesOrderManagement />} />
+                  <Route path="/sales/deliveries" element={<SalesDeliveryManagement />} />
+                  <Route path="/sales/invoices" element={<SalesInvoiceManagement />} />
+                  <Route path="/sales/returns" element={<SalesReturnManagement />} />
                   <Route path="/inventory" element={<Inventory />} />
                   <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
                   <Route path="/inventory/batches" element={<BatchManagement />} />
