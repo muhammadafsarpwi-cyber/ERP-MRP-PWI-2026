@@ -127,6 +127,11 @@ const menuItems: MenuProps['items'] = [
         icon: <SwapOutlined />,
         label: 'UOM Conversions',
       },
+      {
+        key: '/master-data/machines',
+        icon: <BuildOutlined />,
+        label: 'Machine Master',
+      },
     ],
   },
   {
@@ -184,6 +189,7 @@ const menuItems: MenuProps['items'] = [
     icon: <BuildOutlined />,
     label: 'Production',
     children: [
+      { key: '/production/entries', icon: <EditOutlined />, label: 'Daily Production Entry' },
       { key: '/production/bom', icon: <ClusterOutlined />, label: 'Bill of Materials' },
       { key: '/production/routings', icon: <ApartmentOutlined />, label: 'Routing' },
     ],

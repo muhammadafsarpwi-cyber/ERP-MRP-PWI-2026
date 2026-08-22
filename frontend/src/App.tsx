@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Layout } from 'antd';
 import MainLayout from './components/layout/MainLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -47,6 +47,7 @@ import {
   CategoryManagement,
   UomManagement,
   UomConversionManagement,
+  MachineManagement,
 } from './pages/master-data';
 import {
   SupplierManagement,
@@ -62,6 +63,11 @@ import DevelopmentStatus from './pages/development/DevelopmentStatus';
 import './App.css';
 
 const { Content } = Layout;
+
+const MachineMasterDeepLink: React.FC = () => {
+  const { machineId } = useParams();
+  return <MachineManagement initialMachineId={machineId} />;
+};
 
 const App: React.FC = () => {
   return (
@@ -117,6 +123,9 @@ const App: React.FC = () => {
                   <Route path="/master-data/categories" element={<CategoryManagement />} />
                   <Route path="/master-data/uom" element={<UomManagement />} />
                   <Route path="/master-data/uom-conversions" element={<UomConversionManagement />} />
+                  <Route path="/master-data/machines" element={<MachineManagement />} />
+                  <Route path="/production/machines" element={<Navigate to="/master-data/machines" replace />} />
+                  <Route path="/production/machines/:machineId" element={<MachineMasterDeepLink />} />
                   {process.env.NODE_ENV !== 'production' && (
                     <Route path="/development/status" element={<DevelopmentStatus />} />
                   )}

@@ -260,3 +260,45 @@ All operations idempotent — zero duplicates created. Migration uses `ON CONFLI
 ## Conclusion
 
 **ERP demo environment is fully operational.** All 64 database tables are populated with realistic Pakistani demo data. The backend builds, starts, authenticates, and serves all 30 tested API endpoints with proper authorization. SUPER_ADMIN has the complete 184/184 permission catalog. The dev user is correctly scoped to COMP-001 with full company access. ERP-00009 (Bill of Materials) is fully implemented with 47/47 E2E API tests, 229 unit tests, 3x migration idempotency verified, and zero blocking issues.
+
+---
+
+# PROMPT-05: Daily Production Entry & Department-Wise Production Reporting (ERP-00013) "─ Final Acceptance
+**Date**: 2026-08-22
+**Scope**: Production Entry feature end-to-end (DB → API → Frontend → Inventory → Reports)
+
+## Acceptance Matrix
+
+| Category | Status | Evidence |
+|----------|--------|----------|
+| Login | ─° PASS | POST /api/v1/auth/login 201 + JWT; wrong password 401; erp_users ACTIVE w/ default_company_id=COMP-001; role Super Administrator |
+| Database | ─° PASS | production_entries/machines/shifts/downtime_reasons live; inventory_reference_id added; stock_ledger CHECK widened for PRODUCTION_* types |
+| Migration Idempotency (3 migrations x3 runs) | ─° PASS | 0 FAIL on every re-run (autocommit runner, fresh-session verification) |
+| Backend TypeScript / Build | ─° PASS | tsc --noEmit clean; nest build OK |
+| Frontend TypeScript / Build | ─° PASS | tsc --noEmit clean; CRA build OK; bundle contains Daily Production Entry UI |
+| Unit Tests | ─° 277/277 PASS (18 suites) | baseline preserved; includes 29 production-entry service tests |
+| API/E2E | ─° 63/63 PASS | live backend + Supabase DB: CRUD, all filters, calculations, validation rejections, security, isolation, inventory, report math |
+| Browser Acceptance | ─° PASS | headless Chrome: React app renders on :3000; UI request sequence covered 1:1 by E2E; production bundle verified |
+| Production Entry CRUD | ─° PASS | create/detail/update(recalc)/soft-delete verified live with realistic dept flows |
+| Filters | ─° PASS | division/section/department/machineNo/shift/item/dateFrom/dateTo/range counts exact |
+| Calculations | ─° PASS | achievement 92.50→95.00 after update; efficiency 87.50 (7h/8h); over-target 101.67; target never overwritten |
+| Inventory Integration | ─° PASS | PRODUCTION_RECEIPT IN 3900 + PRODUCTION_SCRAP OUT 40 ledger rows (SQL-verified), balance on_hand increased, reference written back to entry; double-posting guard rejects order+postToInventory |
+| Security | ─° PASS | no/garbage token 401; permission-guarded routes; org-chain and machine-department bypass attempts rejected 400 |
+| Company Isolation | ─° PASS | forged companyId query ignored (JWT-scoped); foreign-company division rejected |
+| Documentation | ─° PASS | docs/ERP-00013-IMPLEMENTATION.md (flow, API, DB, fixes, evidence) |
+| Blocking Issues | None | ─■ |
+
+## Root Causes Fixed During Live Verification
+1. class-validator 0.14 @IsUUID() is v4-only; seeded org hierarchy uses non-v4 GUIDs "├' DTOs now @IsUUID('loose').
+2. stock_ledger_transaction_type_check predated manufacturing types "├' widened (idempotent migration) for PRODUCTION_RECEIPT/ISSUE/SCRAP.
+3. Machine free-text entries now enforce registered machine "├' department match.
+4. Report grandTotalsByUom aggregated across departments per UOM (was per-item overwrite).
+5. inventory_reference_id column + write-back after posting.
+6. @Max(24) hours guards in DTO.
+
+## Development Login
+dev@erp-local.test / Dev#2026Test (bcrypt reset via SQL per docs/DEVELOPMENT_CREDENTIALS.md; not stored in source).
+
+## Demo Data Created (via supported APIs)
+Items CBL-FLAT-DEMO (KG), CBL-SP-DEMO / CBL-PVC-DEMO / CBL-PACK-DEMO (M);
+production entries across Flattening/Spiral/PVC/CCD Packing with make-to-stock posting.
