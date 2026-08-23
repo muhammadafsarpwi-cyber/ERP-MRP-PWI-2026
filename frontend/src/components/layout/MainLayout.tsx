@@ -26,184 +26,547 @@ import {
   LockOutlined,
   BuildOutlined,
   ClusterOutlined,
+  AimOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
+import ThemeSettingsButton from './ThemeCustomizer';
+import NotificationBell from './NotificationBell';
+import './sidebar-nav.css';
+import { useThemeStore } from '../../theme/themeStore';
 
 const { Header, Sider, Content } = Layout;
+
+const NavIcon: React.FC<{ color: string; children: React.ReactNode }> = ({ color, children }) => (
+  <span
+    className="erp-nav-icon"
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      lineHeight: 0,
+      color,
+      background: 'transparent',
+      flex: 'none',
+    }}
+  >
+    {children}
+  </span>
+);
+
+const ICON_COLORS = {
+  dashboard: '#93A6FF',
+  organization: '#C3A9FF',
+  adminGroup: '#FF8F8A',
+  users: '#7BDC9E',
+  roles: '#84BCFF',
+  permissions: '#F6C86B',
+  masterData: '#79D5EC',
+  customers: '#7BDC9E',
+  sales: '#82CBF0',
+  procurement: '#FFAE7E',
+  inventory: '#74DECF',
+  analytics: '#79D5EC',
+  production: '#F6CE7A',
+  development: '#F09BE3',
+  settings: '#BFC9D6',
+};
 
 const menuItems: MenuProps['items'] = [
   {
     key: '/dashboard',
-    icon: <DashboardOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.dashboard}>
+        <DashboardOutlined />
+      </NavIcon>
+    ),
     label: 'Dashboard',
   },
   {
     key: 'organization',
-    icon: <BankOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.organization}>
+        <BankOutlined />
+      </NavIcon>
+    ),
     label: 'Organization',
     children: [
       {
         key: '/organization/companies',
-        icon: <BankOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.organization}>
+            <BankOutlined />
+          </NavIcon>
+        ),
         label: 'Companies',
       },
       {
         key: '/organization/branches',
-        icon: <BranchesOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.organization}>
+            <BranchesOutlined />
+          </NavIcon>
+        ),
         label: 'Branches',
       },
       {
         key: '/organization/divisions',
-        icon: <ApartmentOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.organization}>
+            <ApartmentOutlined />
+          </NavIcon>
+        ),
         label: 'Divisions',
       },
       {
         key: '/organization/sections',
-        icon: <ApartmentOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.organization}>
+            <ApartmentOutlined />
+          </NavIcon>
+        ),
         label: 'Sections',
       },
       {
         key: '/organization/departments',
-        icon: <ApartmentOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.organization}>
+            <ApartmentOutlined />
+          </NavIcon>
+        ),
         label: 'Departments',
       },
       {
         key: '/organization/warehouses',
-        icon: <HomeOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.organization}>
+            <HomeOutlined />
+          </NavIcon>
+        ),
         label: 'Warehouses',
       },
       {
         key: '/organization/locations',
-        icon: <EnvironmentOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.organization}>
+            <EnvironmentOutlined />
+          </NavIcon>
+        ),
         label: 'Warehouse Locations',
       },
     ],
   },
   {
     key: 'admin',
-    icon: <SafetyOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.adminGroup}>
+        <SafetyOutlined />
+      </NavIcon>
+    ),
     label: 'Administration',
     children: [
       {
         key: '/admin/users',
-        icon: <TeamOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.users}>
+            <TeamOutlined />
+          </NavIcon>
+        ),
         label: 'Users',
       },
       {
         key: '/admin/roles',
-        icon: <SafetyCertificateOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.roles}>
+            <SafetyCertificateOutlined />
+          </NavIcon>
+        ),
         label: 'Roles',
       },
       {
         key: '/admin/permissions',
-        icon: <KeyOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.permissions}>
+            <KeyOutlined />
+          </NavIcon>
+        ),
         label: 'Permissions',
       },
     ],
   },
   {
     key: 'master-data',
-    icon: <DatabaseOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.masterData}>
+        <DatabaseOutlined />
+      </NavIcon>
+    ),
     label: 'Master Data',
     children: [
       {
         key: '/master-data/items',
-        icon: <TagsOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.masterData}>
+            <TagsOutlined />
+          </NavIcon>
+        ),
         label: 'Products & Items',
       },
       {
         key: '/master-data/categories',
-        icon: <AppstoreOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.masterData}>
+            <AppstoreOutlined />
+          </NavIcon>
+        ),
         label: 'Item Categories',
       },
       {
         key: '/master-data/uom',
-        icon: <CalculatorOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.masterData}>
+            <CalculatorOutlined />
+          </NavIcon>
+        ),
         label: 'Units of Measure',
       },
       {
         key: '/master-data/uom-conversions',
-        icon: <SwapOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.masterData}>
+            <SwapOutlined />
+          </NavIcon>
+        ),
         label: 'UOM Conversions',
       },
       {
         key: '/master-data/machines',
-        icon: <BuildOutlined />,
+        icon: (
+          <NavIcon color={ICON_COLORS.masterData}>
+            <BuildOutlined />
+          </NavIcon>
+        ),
         label: 'Machine Master',
       },
     ],
   },
   {
     key: 'customers',
-    icon: <TeamOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.customers}>
+        <TeamOutlined />
+      </NavIcon>
+    ),
     label: 'Customers',
     children: [
-      { key: '/customers', icon: <TeamOutlined />, label: 'Customer List' },
+      {
+        key: '/customers',
+        icon: (
+          <NavIcon color={ICON_COLORS.customers}>
+            <TeamOutlined />
+          </NavIcon>
+        ),
+        label: 'Customer List',
+      },
     ],
   },
   {
     key: 'sales',
-    icon: <ShoppingCartOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.sales}>
+        <ShoppingCartOutlined />
+      </NavIcon>
+    ),
     label: 'Sales',
     children: [
-      { key: '/sales/quotations', icon: <AppstoreOutlined />, label: 'Quotations' },
-      { key: '/sales/orders', icon: <ShoppingCartOutlined />, label: 'Sales Orders' },
-      { key: '/sales/deliveries', icon: <InboxOutlined />, label: 'Deliveries' },
-      { key: '/sales/invoices', icon: <CalculatorOutlined />, label: 'Invoices' },
-      { key: '/sales/returns', icon: <SwapOutlined />, label: 'Sales Returns' },
+      {
+        key: '/sales/quotations',
+        icon: (
+          <NavIcon color={ICON_COLORS.sales}>
+            <AppstoreOutlined />
+          </NavIcon>
+        ),
+        label: 'Quotations',
+      },
+      {
+        key: '/sales/orders',
+        icon: (
+          <NavIcon color={ICON_COLORS.sales}>
+            <ShoppingCartOutlined />
+          </NavIcon>
+        ),
+        label: 'Sales Orders',
+      },
+      {
+        key: '/sales/deliveries',
+        icon: (
+          <NavIcon color={ICON_COLORS.sales}>
+            <InboxOutlined />
+          </NavIcon>
+        ),
+        label: 'Deliveries',
+      },
+      {
+        key: '/sales/invoices',
+        icon: (
+          <NavIcon color={ICON_COLORS.sales}>
+            <CalculatorOutlined />
+          </NavIcon>
+        ),
+        label: 'Invoices',
+      },
+      {
+        key: '/sales/returns',
+        icon: (
+          <NavIcon color={ICON_COLORS.sales}>
+            <SwapOutlined />
+          </NavIcon>
+        ),
+        label: 'Sales Returns',
+      },
     ],
   },
   {
     key: 'procurement',
-    icon: <ShoppingCartOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.procurement}>
+        <ShoppingCartOutlined />
+      </NavIcon>
+    ),
     label: 'Procurement',
     children: [
-      { key: '/procurement/suppliers', icon: <BankOutlined />, label: 'Suppliers' },
-      { key: '/procurement/requisitions', icon: <EditOutlined />, label: 'Purchase Requisitions' },
-      { key: '/procurement/rfqs', icon: <SwapOutlined />, label: 'Request for Quotations' },
-      { key: '/procurement/quotations', icon: <AppstoreOutlined />, label: 'Quotations' },
-      { key: '/procurement/orders', icon: <ShoppingCartOutlined />, label: 'Purchase Orders' },
-      { key: '/procurement/receipts', icon: <InboxOutlined />, label: 'Goods Receipts' },
-      { key: '/procurement/returns', icon: <SwapOutlined />, label: 'Purchase Returns' },
-      { key: '/procurement/invoices', icon: <CalculatorOutlined />, label: 'Invoices' },
+      {
+        key: '/procurement/suppliers',
+        icon: (
+          <NavIcon color={ICON_COLORS.procurement}>
+            <BankOutlined />
+          </NavIcon>
+        ),
+        label: 'Suppliers',
+      },
+      {
+        key: '/procurement/requisitions',
+        icon: (
+          <NavIcon color={ICON_COLORS.procurement}>
+            <EditOutlined />
+          </NavIcon>
+        ),
+        label: 'Purchase Requisitions',
+      },
+      {
+        key: '/procurement/rfqs',
+        icon: (
+          <NavIcon color={ICON_COLORS.procurement}>
+            <SwapOutlined />
+          </NavIcon>
+        ),
+        label: 'Request for Quotations',
+      },
+      {
+        key: '/procurement/quotations',
+        icon: (
+          <NavIcon color={ICON_COLORS.procurement}>
+            <AppstoreOutlined />
+          </NavIcon>
+        ),
+        label: 'Quotations',
+      },
+      {
+        key: '/procurement/orders',
+        icon: (
+          <NavIcon color={ICON_COLORS.procurement}>
+            <ShoppingCartOutlined />
+          </NavIcon>
+        ),
+        label: 'Purchase Orders',
+      },
+      {
+        key: '/procurement/receipts',
+        icon: (
+          <NavIcon color={ICON_COLORS.procurement}>
+            <InboxOutlined />
+          </NavIcon>
+        ),
+        label: 'Goods Receipts',
+      },
+      {
+        key: '/procurement/returns',
+        icon: (
+          <NavIcon color={ICON_COLORS.procurement}>
+            <SwapOutlined />
+          </NavIcon>
+        ),
+        label: 'Purchase Returns',
+      },
+      {
+        key: '/procurement/invoices',
+        icon: (
+          <NavIcon color={ICON_COLORS.procurement}>
+            <CalculatorOutlined />
+          </NavIcon>
+        ),
+        label: 'Invoices',
+      },
     ],
   },
   {
     key: 'inventory',
-    icon: <InboxOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.inventory}>
+        <InboxOutlined />
+      </NavIcon>
+    ),
     label: 'Inventory',
     children: [
-      { key: '/inventory', icon: <InboxOutlined />, label: 'Overview' },
-      { key: '/inventory/policies', icon: <SafetyOutlined />, label: 'Inventory Policies' },
-      { key: '/inventory/batches', icon: <AppstoreOutlined />, label: 'Batch Tracking' },
-      { key: '/inventory/adjustments', icon: <EditOutlined />, label: 'Stock Adjustments' },
-      { key: '/inventory/transfers', icon: <SwapOutlined />, label: 'Stock Transfers' },
-      { key: '/inventory/reservations', icon: <SafetyCertificateOutlined />, label: 'Reservations' },
-      { key: '/inventory/ledger', icon: <DatabaseOutlined />, label: 'Stock Ledger' },
-      { key: '/inventory/reports', icon: <BarChartOutlined />, label: 'Reports' },
+      {
+        key: '/inventory',
+        icon: (
+          <NavIcon color={ICON_COLORS.inventory}>
+            <InboxOutlined />
+          </NavIcon>
+        ),
+        label: 'Overview',
+      },
+      {
+        key: '/inventory/policies',
+        icon: (
+          <NavIcon color={ICON_COLORS.inventory}>
+            <SafetyOutlined />
+          </NavIcon>
+        ),
+        label: 'Inventory Policies',
+      },
+      {
+        key: '/inventory/batches',
+        icon: (
+          <NavIcon color={ICON_COLORS.inventory}>
+            <AppstoreOutlined />
+          </NavIcon>
+        ),
+        label: 'Batch Tracking',
+      },
+      {
+        key: '/inventory/adjustments',
+        icon: (
+          <NavIcon color={ICON_COLORS.inventory}>
+            <EditOutlined />
+          </NavIcon>
+        ),
+        label: 'Stock Adjustments',
+      },
+      {
+        key: '/inventory/transfers',
+        icon: (
+          <NavIcon color={ICON_COLORS.inventory}>
+            <SwapOutlined />
+          </NavIcon>
+        ),
+        label: 'Stock Transfers',
+      },
+      {
+        key: '/inventory/reservations',
+        icon: (
+          <NavIcon color={ICON_COLORS.inventory}>
+            <SafetyCertificateOutlined />
+          </NavIcon>
+        ),
+        label: 'Reservations',
+      },
+      {
+        key: '/inventory/ledger',
+        icon: (
+          <NavIcon color={ICON_COLORS.inventory}>
+            <DatabaseOutlined />
+          </NavIcon>
+        ),
+        label: 'Stock Ledger',
+      },
+      {
+        key: '/inventory/reports',
+        icon: (
+          <NavIcon color={ICON_COLORS.analytics}>
+            <BarChartOutlined />
+          </NavIcon>
+        ),
+        label: 'Reports',
+      },
     ],
   },
   {
     key: 'production',
-    icon: <BuildOutlined />,
+    icon: (
+      <NavIcon color={ICON_COLORS.production}>
+        <BuildOutlined />
+      </NavIcon>
+    ),
     label: 'Production',
     children: [
-      { key: '/production/entries', icon: <EditOutlined />, label: 'Daily Production Entry' },
-      { key: '/production/bom', icon: <ClusterOutlined />, label: 'Bill of Materials' },
-      { key: '/production/routings', icon: <ApartmentOutlined />, label: 'Routing' },
+      {
+        key: '/production/entries',
+        icon: (
+          <NavIcon color={ICON_COLORS.production}>
+            <EditOutlined />
+          </NavIcon>
+        ),
+        label: 'Daily Production Entry',
+      },
+      {
+        key: '/production/bom',
+        icon: (
+          <NavIcon color={ICON_COLORS.production}>
+            <ClusterOutlined />
+          </NavIcon>
+        ),
+        label: 'Bill of Materials',
+      },
+      {
+        key: '/production/routings',
+        icon: (
+          <NavIcon color={ICON_COLORS.production}>
+            <ApartmentOutlined />
+          </NavIcon>
+        ),
+        label: 'Routing',
+      },
+      {
+        key: '/production/targets',
+        icon: (
+          <NavIcon color={ICON_COLORS.production}>
+            <AimOutlined />
+          </NavIcon>
+        ),
+        label: 'Machine Targets',
+      },
     ],
+  },
+  {
+    key: '/settings',
+    icon: (
+      <NavIcon color={ICON_COLORS.settings}>
+        <SettingOutlined />
+      </NavIcon>
+    ),
+    label: 'Settings',
   },
   ...(process.env.NODE_ENV !== 'production'
     ? [
         {
           key: 'development',
-          icon: <BugOutlined />,
+          icon: (
+            <NavIcon color={ICON_COLORS.development}>
+              <BugOutlined />
+            </NavIcon>
+          ),
           label: 'Development',
           children: [
             {
               key: '/development/status',
-              icon: <BugOutlined />,
+              icon: (
+                <NavIcon color={ICON_COLORS.development}>
+                  <BugOutlined />
+                </NavIcon>
+              ),
               label: 'Development Status',
             },
           ],
@@ -239,11 +602,91 @@ interface MainLayoutProps {
 
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const closeTimerRef = React.useRef<number | null>(null);
   const [userName, setUserName] = useState('Admin User');
   const navigate = useNavigate();
   const location = useLocation();
 
+  const canHover = React.useMemo(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return true;
+    return (
+      window.matchMedia('(any-hover: hover)').matches ||
+      window.matchMedia('(hover: hover)').matches
+    );
+  }, []);
+
+  const effectivelyCollapsed = collapsed && !hoverOpen;
+
+  const handleManualCollapse = (value: boolean, type?: 'clickTrigger' | 'responsive') => {
+    if (type === 'clickTrigger') {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+      setHoverOpen(false);
+    }
+    setCollapsed(value);
+  };
+
+  const openHoverSidebar = () => {
+    if (!canHover) return;
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setHoverOpen(true);
+  };
+
+  const scheduleCloseHoverSidebar = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setHoverOpen(false);
+    }, 250);
+  };
+
+  React.useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const pageTitle = React.useMemo(() => {
+    const findLabel = (items: MenuProps['items']): string | undefined => {
+      for (const item of items ?? []) {
+        if (!item) continue;
+        const candidate = item as {
+          key?: React.Key;
+          label?: React.ReactNode;
+          children?: MenuProps['items'];
+        };
+        if (candidate.children) {
+          const nested = findLabel(candidate.children);
+          if (nested) return nested;
+        }
+        if (candidate.key === location.pathname) {
+          return typeof candidate.label === 'string' ? candidate.label : undefined;
+        }
+      }
+      return undefined;
+    };
+    const fromMenu = findLabel(menuItems);
+    if (fromMenu) return fromMenu;
+    const segment = location.pathname.split('/').filter(Boolean).pop();
+    if (!segment) return 'Dashboard';
+    return segment
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }, [location.pathname]);
+
   React.useEffect(() => {
+    useThemeStore.getState().initializeForUser();
     try {
       const stored = localStorage.getItem('erp_user');
       if (stored) {
@@ -272,14 +715,54 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     <Layout style={{ minHeight: '100vh' }}>
       <Sider
         collapsible
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
+        collapsed={effectivelyCollapsed}
+        onCollapse={handleManualCollapse}
+        onMouseEnter={openHoverSidebar}
+        onMouseLeave={scheduleCloseHoverSidebar}
         style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0 }}
       >
-        <div style={{ height: 32, margin: 16, background: 'rgba(255, 255, 255, 0.2)', borderRadius: 6 }}>
-          <h2 style={{ color: 'white', textAlign: 'center', lineHeight: '32px', margin: 0 }}>
-            {collapsed ? 'ERP' : 'ERP System'}
-          </h2>
+        <div
+          style={{
+            minHeight: 32,
+            margin: 16,
+            padding: '4px 8px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            borderRadius: 6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',
+            flexWrap: 'nowrap',
+            gap: 14,
+            overflow: 'hidden',
+          }}
+        >
+          <img
+            src={`${process.env.PUBLIC_URL}/logo.png`}
+            alt="Company logo"
+            style={{
+              display: 'block',
+              flex: 'none',
+              height: effectivelyCollapsed ? 24 : 30,
+              width: effectivelyCollapsed ? 24 : 30,
+              objectFit: 'contain',
+            }}
+          />
+          {!effectivelyCollapsed && (
+            <span
+              style={{
+                color: '#fff',
+                fontSize: 15,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                marginLeft: 4,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              ERP System
+            </span>
+          )}
         </div>
         <Menu
           theme="dark"
@@ -289,8 +772,44 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           onClick={handleMenuClick}
         />
       </Sider>
-      <Layout style={{ marginLeft: collapsed ? 80 : 200, transition: 'margin-left 0.2s' }}>
-        <Header style={{ padding: '0 24px', background: '#fff', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+      <Layout
+        style={{
+          marginLeft: effectivelyCollapsed ? 80 : 200,
+          transition: 'margin-left 0.2s',
+        }}
+      >
+        <Header
+          className="erp-app-header"
+          style={{
+            padding: '0 24px',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: 12,
+            position: 'fixed',
+            top: 0,
+            left: effectivelyCollapsed ? 80 : 200,
+            right: 0,
+            zIndex: 10,
+            transition: 'left 0.2s',
+          }}
+        >
+          <span
+            style={{
+              marginRight: 'auto',
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: 16,
+              fontWeight: 600,
+              color: 'var(--theme-text)',
+            }}
+          >
+            {pageTitle}
+          </span>
+          <NotificationBell />
+          <ThemeSettingsButton />
           <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }}>
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} />
@@ -298,7 +817,15 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             </Space>
           </Dropdown>
         </Header>
-        <Content style={{ margin: '24px 16px', padding: 24, background: '#fff', minHeight: 280 }}>
+        <Content
+          className="erp-app-content"
+          style={{
+            margin: '88px 16px 24px',
+            padding: 24,
+            borderRadius: 8,
+            minHeight: 280,
+          }}
+        >
           {children}
         </Content>
       </Layout>

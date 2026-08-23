@@ -40,9 +40,11 @@ export class CreateProductionEntryDto {
   @IsUUID('loose')
   machineId?: string | null;
 
+  /** Optional when machineId is provided — resolved from the machine master */
+  @IsOptional()
   @IsString()
   @MaxLength(50)
-  machineNo!: string;
+  machineNo?: string | null;
 
   @IsString()
   @MaxLength(255)
@@ -62,12 +64,20 @@ export class CreateProductionEntryDto {
   itemId!: string;
 
   /** Must be valid for the item (base UOM or convertible via uom_conversions) */
+  /** Optional when a machine-linked target governs the entry (its UOM wins) */
+  @IsOptional()
   @IsUUID('loose')
-  uomId!: string;
+  uomId?: string | null;
 
+  /**
+   * Required ONLY when the entry has no machine-linked target. When machineId
+   * is set, the target is auto-resolved from the Machine Target Master and
+   * manual values are rejected server-side.
+   */
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 4 })
   @IsPositive()
-  targetQuantity!: number;
+  targetQuantity?: number;
 
   @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
@@ -230,4 +240,30 @@ export class CreateMachineDto {
   @IsOptional()
   @IsString()
   description?: string | null;
+}
+
+/**
+ * Query for the per-machine entry-availability pre-check (duplicate prevention UX).
+ * Returns every machine in the selected organizational scope flagged as
+ * ENTERED / ENTRY_REQUIRED for the given production date + shift.
+ */
+export class MachineEntryStatusQueryDto {
+  /** Production date (YYYY-MM-DD) */
+  @IsDateString({}, { message: 'entryDate must be a valid date (YYYY-MM-DD)' })
+  entryDate!: string;
+
+  @IsUUID('loose')
+  shiftId!: string;
+
+  @IsOptional()
+  @IsUUID('loose')
+  divisionId?: string;
+
+  @IsOptional()
+  @IsUUID('loose')
+  sectionId?: string;
+
+  @IsOptional()
+  @IsUUID('loose')
+  departmentId?: string;
 }

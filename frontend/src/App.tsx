@@ -60,6 +60,7 @@ import {
   PurchaseInvoiceManagement,
 } from './pages/procurement';
 import DevelopmentStatus from './pages/development/DevelopmentStatus';
+import Settings from './pages/settings';
 import './App.css';
 
 const { Content } = Layout;
@@ -84,6 +85,7 @@ const App: React.FC = () => {
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/settings" element={<Settings />} />
                   <Route path="/change-password" element={<ChangePassword />} />
                   <Route path="/products/*" element={<Products />} />
                   <Route path="/customers" element={<CustomerManagement />} />

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Customer, CustomerContact, CustomerAddress } from '../entities';
 import { CreateCustomerDto, CreateCustomerContactDto, CreateCustomerAddressDto, CustomerFilterDto } from '../dto';
+import { NotificationsService } from '../../notification/notifications.service';
 
 @Injectable()
 export class CustomerService {
@@ -15,6 +16,7 @@ export class CustomerService {
     private readonly contactRepo: Repository<CustomerContact>,
     @InjectRepository(CustomerAddress)
     private readonly addressRepo: Repository<CustomerAddress>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(dto: CreateCustomerDto, userId?: string): Promise<Customer> {
@@ -30,7 +32,18 @@ export class CustomerService {
       createdBy: userId || null,
       updatedBy: userId || null,
     });
-    return this.repo.save(customer);
+    const saved = await this.repo.save(customer);
+
+    await this.notificationsService.notifyActiveUsers({
+      type: 'customer.created',
+      title: 'New customer created',
+      message: `${saved.name} (${saved.customerCode}) was added to customers`,
+      entityType: 'customer',
+      entityId: saved.id,
+      actorAuthUserId: userId || null,
+    });
+
+    return saved;
   }
 
   async findAll(filter: CustomerFilterDto): Promise<{ data: Customer[]; total: number }> {

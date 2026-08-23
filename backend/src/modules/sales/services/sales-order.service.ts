@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesOrder, SalesOrderItem, SalesCustomer } from '../entities';
+import { NotificationsService } from '../../notification/notifications.service';
 
 @Injectable()
 export class SalesOrderService {
@@ -14,6 +15,7 @@ export class SalesOrderService {
     private readonly itemRepo: Repository<SalesOrderItem>,
     @InjectRepository(SalesCustomer)
     private readonly customerRepo: Repository<SalesCustomer>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(dto: any, userId?: string): Promise<SalesOrder> {
@@ -73,6 +75,15 @@ export class SalesOrderService {
       saved.totalAmount = Number(subtotal) - Number(saved.discountAmount || 0) + Number(saved.taxAmount || 0) + Number(saved.freightAmount || 0);
       await this.repo.save(saved);
     }
+
+    await this.notificationsService.notifyActiveUsers({
+      type: 'sales_order.created',
+      title: 'New sales order created',
+      message: `Order ${saved.orderNumber} for ${customer?.companyName || 'a customer'} was created`,
+      entityType: 'sales_order',
+      entityId: saved.id,
+      actorAuthUserId: userId || null,
+    });
 
     return this.findOne(saved.id);
   }

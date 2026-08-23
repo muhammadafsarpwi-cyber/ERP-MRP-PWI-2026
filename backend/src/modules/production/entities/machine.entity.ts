@@ -87,8 +87,9 @@ export class Machine extends BaseEntity {
   @Column({ name: 'serial_number', type: 'varchar', length: 255, nullable: true })
   serialNumber: string | null;
 
+  /** Canonical numeric capacity — physical column capacity DECIMAL(19,4) */
   @Column({ type: 'numeric', precision: 19, scale: 4, nullable: true })
-  capacity: string | null;
+  capacity: number | null;
 
   @Column({ name: 'power_rating', type: 'varchar', length: 100, nullable: true })
   powerRating: string | null;

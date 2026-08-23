@@ -26,7 +26,8 @@ interface StatusResponse {
   supabase?: { status: string; url?: string };
 }
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api/v1';
+const API_URL =
+  process.env.REACT_APP_API_URL || `http://${window.location.hostname}:3001/api/v1`;
 
 const StatusIndicator: React.FC<{ label: string; icon: React.ReactNode; serviceStatus: ServiceStatus }> = ({
   label,

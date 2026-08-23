@@ -4,7 +4,7 @@ import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
   message, Typography, Divider, Switch, Alert, Spin, AutoComplete,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, LockOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { toNum } from '../../../utils/numberFormat';
@@ -45,6 +45,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const [loadingEntry, setLoadingEntry] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
 
+  // Machine pre-selected on the availability screen (Step 1): context is locked
+  // so the operator cannot drift into a duplicate date/shift/machine combination.
+  const qMachineId = mode === 'create' ? searchParams.get('machineId') : null;
+  const lockedContext = !!qMachineId;
+
   // watched values
   const divisionId = Form.useWatch('divisionId', form);
   const sectionId = Form.useWatch('sectionId', form);
@@ -71,6 +76,34 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Prefill the locked context coming from the machine-selection step
+  useEffect(() => {
+    if (mode !== 'create') return;
+    const patch: Record<string, unknown> = {};
+    const qDate = searchParams.get('entryDate');
+    const qShift = searchParams.get('shiftId');
+    const qDivision = searchParams.get('divisionId');
+    const qSection = searchParams.get('sectionId');
+    const qDepartment = searchParams.get('departmentId');
+    if (qDate) patch.entryDate = dayjs(qDate);
+    if (qShift) patch.shiftId = qShift;
+    if (qDivision) patch.divisionId = qDivision;
+    if (qSection) patch.sectionId = qSection;
+    if (qDepartment) patch.departmentId = qDepartment;
+    if (Object.keys(patch).length > 0) form.setFieldsValue(patch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Resolve the pre-selected machine's code once its department list is loaded
+  useEffect(() => {
+    if (!lockedContext || lookups.machines.length === 0) return;
+    const m = lookups.machines.find((x) => x.id === qMachineId);
+    if (m && form.getFieldValue('machineNo') !== m.machineCode) {
+      form.setFieldValue('machineNo', m.machineCode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookups.machines]);
 
   useEffect(() => {
     if (!id) return;
@@ -162,13 +195,27 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       const payload: Record<string, unknown> = { ...values };
       payload.entryDate = values.entryDate ? (values.entryDate as dayjs.Dayjs).format('YYYY-MM-DD') : undefined;
       delete payload.__computed;
+      // allowClear on the reason Select yields undefined; send null so clearing persists
+      payload.downtimeReasonId = (values.downtimeReasonId as string | undefined) ?? null;
       if (payload.productionOrderId === undefined) delete payload.productionOrderId;
       if (payload.productionOrderOperationId === undefined) delete payload.productionOrderOperationId;
 
       if (mode === 'create') {
         const res = await apiService.post<{ success: boolean; data: { id: string; machineNo?: string } }>('/production/entries', payload);
         message.success(`Production entry ${res.data?.machineNo ? `for ${res.data.machineNo}` : ''} saved`);
-        navigate(`/production/entries/${res.data.id}`);
+        if (lockedContext) {
+          // Return to the availability screen so the operator sees this machine
+          // flip from "Entry Required" to "Already Entered" immediately.
+          const qs = new URLSearchParams();
+          qs.set('entryDate', String(payload.entryDate ?? ''));
+          qs.set('shiftId', String(payload.shiftId ?? ''));
+          qs.set('divisionId', String(payload.divisionId ?? ''));
+          qs.set('sectionId', String(payload.sectionId ?? ''));
+          qs.set('departmentId', String(payload.departmentId ?? ''));
+          navigate(`/production/entries/select?${qs.toString()}`);
+        } else {
+          navigate(`/production/entries/${res.data.id}`);
+        }
       } else if (id) {
         await apiService.put(`/production/entries/${id}`, payload);
         message.success('Production entry updated');
@@ -183,7 +230,19 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     } finally {
       setSaving(false);
     }
-  }, [mode, id, navigate]);
+  }, [mode, id, navigate, lockedContext]);
+
+  const changeSelection = () => {
+    const qs = new URLSearchParams();
+    const d = form.getFieldValue('entryDate') as dayjs.Dayjs | undefined;
+    if (d) qs.set('entryDate', d.format('YYYY-MM-DD'));
+    if (shiftId) qs.set('shiftId', shiftId);
+    if (divisionId) qs.set('divisionId', divisionId);
+    if (sectionId) qs.set('sectionId', sectionId);
+    if (departmentId) qs.set('departmentId', departmentId);
+    const s = qs.toString();
+    navigate(`/production/entries/select${s ? `?${s}` : ''}`);
+  };
 
   const sectionsFiltered = lookups.sectionsForDivision(divisionId);
   const departmentsFiltered = lookups.departmentsForSection(sectionId);
@@ -211,9 +270,25 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         <Row gutter={16}>
           <Col span={8}>
             <Card title="Department Context" size="small">
+              {lockedContext && (
+                <Alert
+                  type="success" showIcon icon={<LockOutlined />} style={{ marginBottom: 12 }}
+                  message="Machine verified available for this date & shift"
+                  description={
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Context was locked by the machine-selection step, so a duplicate entry for this
+                        date / shift / machine cannot be created here.
+                      </Text>
+                      <Button size="small" onClick={changeSelection}>Change Selection</Button>
+                    </Space>
+                  }
+                />
+              )}
               <Form.Item name="divisionId" label="Division" rules={[{ required: true, message: 'Division is required' }]}>
                 <Select
                   showSearch optionFilterProp="label" placeholder="Select Division"
+                  disabled={lockedContext}
                   options={lookups.divisions.map((d) => ({ value: d.id, label: `${d.divisionCode} — ${d.name}` }))}
                   onChange={() => { form.setFieldsValue({ sectionId: undefined, departmentId: undefined }); }}
                 />
@@ -221,7 +296,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               <Form.Item name="sectionId" label="Section" rules={[{ required: true, message: 'Section is required' }]}>
                 <Select
                   showSearch optionFilterProp="label" placeholder="Select Section"
-                  disabled={!divisionId}
+                  disabled={!divisionId || lockedContext}
                   options={sectionsFiltered.map((s) => ({ value: s.id, label: s.name }))}
                   onChange={() => { form.setFieldsValue({ departmentId: undefined }); }}
                 />
@@ -229,12 +304,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               <Form.Item name="departmentId" label="Department" rules={[{ required: true, message: 'Department is required' }]}>
                 <Select
                   showSearch optionFilterProp="label" placeholder="Select Department"
-                  disabled={!sectionId}
+                  disabled={!sectionId || lockedContext}
                   options={departmentsFiltered.map((d) => ({ value: d.id, label: d.name }))}
                 />
               </Form.Item>
               <Form.Item name="entryDate" label="Date" initialValue={dayjs()} rules={[{ required: true, message: 'Date is required' }]}>
-                <DatePicker style={{ width: '100%' }} />
+                <DatePicker style={{ width: '100%' }} disabled={lockedContext} />
               </Form.Item>
             </Card>
 
@@ -304,6 +379,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               <Form.Item name="shiftId" label="Shift" rules={[{ required: true, message: 'Shift is required' }]}>
                 <Select
                   showSearch optionFilterProp="label" placeholder="Select Shift"
+                  disabled={lockedContext}
                   options={lookups.shifts.map((s) => ({
                     value: s.id,
                     label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''}) · planned ${s.plannedHours}h`,
@@ -318,13 +394,20 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <AutoComplete
                   options={machinesForDept.map((m) => ({ value: m.machineCode, label: `${m.machineCode}${m.machineCode !== m.name ? ` — ${m.name}` : ''}` }))}
                   placeholder="Select or type machine no."
+                  disabled={lockedContext}
                   filterOption={(input, option) => (option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
                 />
               </Form.Item>
               <Text type="secondary" style={{ display: 'block', marginTop: -14, marginBottom: 10 }}>
-                {machinesForDept.length > 0
-                  ? `${machinesForDept.length} registered machine(s) in this department`
-                  : 'No registered machines for this department — you may type any machine identifier'}
+                {lockedContext ? (
+                  <Text style={{ fontSize: 12, color: 'var(--theme-success)' }}>
+                    Pre-selected from the availability list for this date & shift
+                  </Text>
+                ) : machinesForDept.length > 0 ? (
+                  `${machinesForDept.length} registered machine(s) in this department`
+                ) : (
+                  'No registered machines for this department — you may type any machine identifier'
+                )}
               </Text>
               <Form.Item name="operatorName" label="Operator Name" rules={[{ required: true, message: 'Operator name is required' }]}>
                 <Input maxLength={120} placeholder="Operator on duty" />
@@ -355,7 +438,19 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={12}>
                   <Form.Item name="downtimeReasonId" label="Downtime Reason">
                     <Select
-                      allowClear placeholder="Reason"
+                      allowClear showSearch optionFilterProp="label"
+                      loading={lookups.downtimeReasonsLoading}
+                      placeholder={lookups.downtimeReasonsLoading ? 'Loading reasons…' : 'Reason'}
+                      notFoundContent={
+                        lookups.downtimeReasonsFailed ? (
+                          <Space direction="vertical" size={0}>
+                            <Text type="secondary">Failed to load downtime reasons.</Text>
+                            <Button type="link" size="small" onClick={() => void lookups.loadDowntimeReasons()}>Retry</Button>
+                          </Space>
+                        ) : (
+                          'No active downtime reasons configured'
+                        )
+                      }
                       options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
                     />
                   </Form.Item>
@@ -465,7 +560,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 };
 
 const StatisticMini: React.FC<{ label: string; value: number | null; hint: string }> = ({ label, value, hint }) => (
-  <div style={{ background: '#fafafa', borderRadius: 6, padding: '8px 12px' }}>
+  <div style={{ background: 'var(--theme-surface-alt)', borderRadius: 6, padding: '8px 12px' }}>
     <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>
     <div style={{ fontSize: 22, fontWeight: 600 }}>
       {value === null ? '—' : `${value.toFixed(2)}%`}

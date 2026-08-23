@@ -1,0 +1,18 @@
+/* Horizontal gap between each sidebar navigation icon and its label.
+   Scoped to the sidebar Menu only; does not affect any other icon. */
+.ant-menu-item > .erp-nav-icon,
+.ant-menu-submenu-title > .erp-nav-icon {
+  margin-right: 10px;
+}
+
+/* Fully collapsed (80px) sidebar: drop the gap so the icon stays centered */
+.ant-menu-inline-collapsed .ant-menu-item > .erp-nav-icon,
+.ant-menu-inline-collapsed .ant-menu-submenu-title > .erp-nav-icon {
+  margin-right: 0;
+}
+
+/* Fully collapsed sidebar: remove label text entirely (antd only clips it,
+   which can leave partial letter slivers). Popup flyouts keep their labels. */
+.ant-menu-inline-collapsed .ant-menu-title-content {
+  display: none;
+}

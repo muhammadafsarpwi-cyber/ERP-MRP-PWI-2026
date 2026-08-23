@@ -18,6 +18,10 @@ import { Division, Section, Department } from '../../organization/entities';
 import { ProductionOrder, ProductionOrderOperation } from '../entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+import {
+  MachineTargetService,
+  calculateProratedTarget,
+} from '../../machine-target/services/machine-target.service';
 
 const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
 
@@ -48,6 +52,7 @@ export class ProductionEntryService {
     private readonly productionOrderOperationRepo: Repository<ProductionOrderOperation>,
     private readonly stockLedgerService: StockLedgerService,
     private readonly inventoryBalanceService: InventoryBalanceService,
+    private readonly machineTargetService: MachineTargetService,
   ) {}
 
   // ─── Queries ────────────────────────────────────────────────────────────────
@@ -368,7 +373,8 @@ export class ProductionEntryService {
       updatedBy: userId ?? null,
     });
     const saved = await this.machineRepo.save(machine);
-    saved.qrPayload = `machine:${saved.id}`;
+    // Canonical stable deep-link payload (same as MachineService.create)
+    saved.qrPayload = `/production/machines/${saved.id}`;
     return this.machineRepo.save(saved);
   }
 
@@ -386,9 +392,150 @@ export class ProductionEntryService {
     });
   }
 
+  /**
+   * Duplicate-prevention UX: for a production date + shift combination, flag
+   * every machine in the organizational scope as ENTERED or ENTRY_REQUIRED.
+   * Purely advisory — the authoritative guard remains assertNoDuplicate()
+   * (service) plus the partial unique index uq_prod_entries_unique_submission
+   * (database). Matching is by machine_no (the same denormalized value the
+   * duplicate check uses), case-insensitive.
+   */
+  async getMachineEntryStatus(
+    companyId: string,
+    filters: {
+      entryDate: string;
+      shiftId: string;
+      divisionId?: string;
+      sectionId?: string;
+      departmentId?: string;
+    },
+  ): Promise<{
+    data: Array<{
+      id: string;
+      systemCode: string;
+      machineCode: string;
+      name: string;
+      status: 'ENTERED' | 'ENTRY_REQUIRED';
+      entryCount: number;
+      divisionId: string | null;
+      sectionId: string | null;
+      departmentId: string | null;
+      departmentName: string | null;
+      entries: Array<{
+        id: string;
+        itemId: string;
+        itemName: string | null;
+        targetQuantity: number;
+        actualQuantity: number;
+      }>;
+    }>;
+    meta: {
+      totalMachines: number;
+      enteredCount: number;
+      entryRequiredCount: number;
+      entryDate: string;
+      shiftId: string;
+    };
+  }> {
+    const { entryDate, shiftId, divisionId, sectionId, departmentId } = filters;
+
+    const shift = await this.shiftRepo.findOne({
+      where: { id: shiftId, companyId, isActive: true },
+    });
+    if (!shift) {
+      throw new BadRequestException(`Shift '${shiftId}' not found for this company`);
+    }
+
+    const machinesQb = this.machineRepo
+      .createQueryBuilder('m')
+      .leftJoinAndSelect('m.department', 'department')
+      .where('m.companyId = :companyId', { companyId })
+      .andWhere('m.isActive = true');
+    if (divisionId) machinesQb.andWhere('m.divisionId = :divisionId', { divisionId });
+    if (sectionId) machinesQb.andWhere('m.sectionId = :sectionId', { sectionId });
+    if (departmentId) machinesQb.andWhere('m.departmentId = :departmentId', { departmentId });
+    machinesQb.orderBy('m.machineCode', 'ASC');
+    const machines = await machinesQb.getMany();
+
+    const entriesQb = this.entryRepo
+      .createQueryBuilder('pe')
+      .leftJoin('pe.item', 'item')
+      .select([
+        'pe.id',
+        'pe.machineNo',
+        'pe.itemId',
+        'pe.targetQuantity',
+        'pe.actualQuantity',
+        'item.name',
+      ])
+      .where('pe.companyId = :companyId', { companyId })
+      .andWhere('pe.isActive = true')
+      .andWhere('pe.entryDate = :entryDate', { entryDate })
+      .andWhere('pe.shiftId = :shiftId', { shiftId });
+    if (divisionId) entriesQb.andWhere('pe.divisionId = :divisionId', { divisionId });
+    if (sectionId) entriesQb.andWhere('pe.sectionId = :sectionId', { sectionId });
+    if (departmentId) entriesQb.andWhere('pe.departmentId = :departmentId', { departmentId });
+    const entries = await entriesQb.getMany();
+
+    const entriesByMachineNo = new Map<string, ProductionEntry[]>();
+    for (const e of entries) {
+      const key = (e.machineNo ?? '').trim().toLowerCase();
+      if (!key) continue;
+      const bucket = entriesByMachineNo.get(key);
+      if (bucket) bucket.push(e);
+      else entriesByMachineNo.set(key, [e]);
+    }
+
+    const data = machines.map((m) => {
+      const machineEntries = entriesByMachineNo.get(m.machineCode.trim().toLowerCase()) ?? [];
+      return {
+        id: m.id,
+        systemCode: m.machineId,
+        machineCode: m.machineCode,
+        name: m.name,
+        status: (machineEntries.length > 0 ? 'ENTERED' : 'ENTRY_REQUIRED') as 'ENTERED' | 'ENTRY_REQUIRED',
+        entryCount: machineEntries.length,
+        divisionId: m.divisionId,
+        sectionId: m.sectionId,
+        departmentId: m.departmentId,
+        departmentName: m.department?.name ?? null,
+        entries: machineEntries.map((e) => ({
+          id: e.id,
+          itemId: e.itemId,
+          itemName: (e.item as { name?: string } | null)?.name ?? null,
+          targetQuantity: Number(e.targetQuantity),
+          actualQuantity: Number(e.actualQuantity),
+        })),
+      };
+    });
+
+    const enteredCount = data.filter((d) => d.status === 'ENTERED').length;
+    return {
+      data,
+      meta: {
+        totalMachines: data.length,
+        enteredCount,
+        entryRequiredCount: data.length - enteredCount,
+        entryDate,
+        shiftId,
+      },
+    };
+  }
+
   // ─── Commands ───────────────────────────────────────────────────────────────
 
   async create(dto: CreateProductionEntryDto, companyId: string, userId?: string): Promise<ProductionEntry> {
+    // ERP-00016: resolve the machine target FIRST so the final UOM/target feed
+    // the standard validations (target governs the entry UOM when linked).
+    const mt = await this.resolveMachineTarget(companyId, {
+      machineId: dto.machineId ?? null,
+      shiftId: dto.shiftId,
+      entryDate: dto.entryDate,
+      workingHours: dto.runningHours,
+      requestedUomId: dto.uomId ?? null,
+      manualTargetQuantity: dto.targetQuantity,
+    });
+
     const resolved = await this.validateAndResolve(companyId, {
       divisionId: dto.divisionId,
       sectionId: dto.sectionId,
@@ -396,20 +543,20 @@ export class ProductionEntryService {
       entryDate: dto.entryDate,
       shiftId: dto.shiftId,
       machineId: dto.machineId ?? null,
-      machineNo: dto.machineNo,
+      machineNo: dto.machineNo ?? null,
       itemId: dto.itemId,
-      uomId: dto.uomId,
+      uomId: mt ? mt.uomId : (dto.uomId as string),
       productionOrderId: dto.productionOrderId ?? null,
       productionOrderOperationId: dto.productionOrderOperationId ?? null,
       downtimeReasonId: dto.downtimeReasonId ?? null,
-      targetQuantity: dto.targetQuantity,
+      targetQuantity: mt ? mt.calculatedTarget : (dto.targetQuantity as number),
       actualQuantity: dto.actualQuantity,
       scrapQuantity: dto.scrapQuantity,
       runningHours: dto.runningHours,
       downtimeHours: dto.downtimeHours,
       postToInventory: dto.postToInventory ?? false,
       warehouseId: dto.warehouseId ?? null,
-    });
+    }, { uomExempt: !!mt });
 
     await this.assertNoDuplicate(companyId, dto.departmentId, dto.entryDate, dto.shiftId, resolved.machineNo, dto.itemId);
 
@@ -428,10 +575,16 @@ export class ProductionEntryService {
       supervisorName: dto.supervisorName?.trim() ?? null,
       coilSize: dto.coilSize?.trim() ?? null,
       itemId: dto.itemId,
-      uomId: dto.uomId,
-      targetQuantity: dto.targetQuantity,
+      uomId: mt ? mt.uomId : (dto.uomId as string),
+      targetQuantity: mt ? mt.calculatedTarget : (dto.targetQuantity as number),
+      machineTargetId: mt?.machineTargetId ?? null,
+      standardHours: mt?.standardHours ?? null,
+      calculatedTarget: mt?.calculatedTarget ?? null,
       actualQuantity: dto.actualQuantity,
-      achievementPercentage: this.computeAchievement(dto.actualQuantity, dto.targetQuantity),
+      achievementPercentage: this.computeAchievement(
+        dto.actualQuantity,
+        mt ? mt.calculatedTarget : (dto.targetQuantity as number),
+      ),
       efficiencyPercentage: this.computeEfficiency(dto.runningHours, resolved.plannedHours),
       runningHours: dto.runningHours,
       downtimeHours: dto.downtimeHours,
@@ -475,7 +628,21 @@ export class ProductionEntryService {
       downtimeHours: dto.downtimeHours ?? Number(entry.downtimeHours),
     };
 
-    const resolved = await this.validateAndResolve(companyId, merged);
+    // ERP-00016: re-resolve the target when machine/shift/date/hours changed.
+    const mt = await this.resolveMachineTarget(companyId, {
+      machineId: merged.machineId,
+      shiftId: merged.shiftId,
+      entryDate: merged.entryDate,
+      workingHours: merged.runningHours,
+      requestedUomId: merged.uomId,
+      manualTargetQuantity: dto.targetQuantity,
+    });
+    if (mt) {
+      merged.uomId = mt.uomId;
+      merged.targetQuantity = mt.calculatedTarget;
+    }
+
+    const resolved = await this.validateAndResolve(companyId, merged, { uomExempt: !!mt });
 
     const duplicateExcluding = await this.entryRepo
       .createQueryBuilder('pe')
@@ -500,6 +667,9 @@ export class ProductionEntryService {
       operatorName: dto.operatorName?.trim() ?? entry.operatorName,
       supervisorName: dto.supervisorName !== undefined ? (dto.supervisorName?.trim() ?? null) : entry.supervisorName,
       coilSize: dto.coilSize !== undefined ? (dto.coilSize?.trim() ?? null) : entry.coilSize,
+      machineTargetId: mt?.machineTargetId ?? null,
+      standardHours: mt?.standardHours ?? null,
+      calculatedTarget: mt?.calculatedTarget ?? null,
       achievementPercentage: this.computeAchievement(merged.actualQuantity, merged.targetQuantity),
       efficiencyPercentage: this.computeEfficiency(merged.runningHours, resolved.plannedHours),
       downtimeReasonText: dto.downtimeReason !== undefined ? (dto.downtimeReason ?? null) : entry.downtimeReasonText,
@@ -519,6 +689,75 @@ export class ProductionEntryService {
 
   // ─── Validation & resolution ────────────────────────────────────────────────
 
+  /**
+   * ERP-00016: resolve the applicable Machine Target for a production entry.
+   * Returns null when no machine is linked (legacy manual-target flow).
+   * When a machine IS linked the target is authoritative:
+   *  - no configured target → clear business error (never silently zero)
+   *  - user-supplied targetQuantity → rejected (auto-calculated instead)
+   *  - incompatible UOM → rejected
+   */
+  private async resolveMachineTarget(
+    companyId: string,
+    v: {
+      machineId: string | null;
+      shiftId: string;
+      entryDate: string;
+      workingHours: number;
+      requestedUomId?: string | null;
+      manualTargetQuantity?: number | null;
+    },
+  ): Promise<{
+    machineTargetId: string;
+    uomId: string;
+    uomCode: string;
+    standardHours: number;
+    standardTarget: number;
+    calculatedTarget: number;
+    usedGeneralFallback: boolean;
+  } | null> {
+    if (!v.machineId) return null;
+
+    const resolution = await this.machineTargetService.resolveEffectiveEntity(
+      companyId,
+      v.machineId,
+      v.shiftId,
+      v.entryDate,
+      true,
+    );
+    if (!resolution.target) {
+      throw new BadRequestException('No active target is configured for this machine and shift.');
+    }
+    const t = resolution.target;
+    const calculated = calculateProratedTarget(t.targetQuantity, t.standardHours, v.workingHours);
+
+    if (
+      v.manualTargetQuantity !== undefined &&
+      v.manualTargetQuantity !== null &&
+      Number(v.manualTargetQuantity) !== calculated
+    ) {
+      throw new BadRequestException(
+        'targetQuantity is auto-resolved from the Machine Target Master and must not be entered manually',
+      );
+    }
+    if (v.requestedUomId && v.requestedUomId !== t.uomId) {
+      const uomCode = (t as any).uom?.code ?? t.uomId;
+      throw new BadRequestException(
+        `Incompatible UOM for this entry: machine target is configured in '${uomCode}'`,
+      );
+    }
+
+    return {
+      machineTargetId: t.id,
+      uomId: t.uomId,
+      uomCode: (t as any).uom?.code ?? '',
+      standardHours: Number(t.standardHours),
+      standardTarget: Number(t.targetQuantity),
+      calculatedTarget: calculated,
+      usedGeneralFallback: resolution.usedGeneralFallback,
+    };
+  }
+
   private async validateAndResolve(companyId: string, v: {
     divisionId: string;
     sectionId: string;
@@ -526,9 +765,9 @@ export class ProductionEntryService {
     entryDate: string;
     shiftId: string;
     machineId: string | null;
-    machineNo: string;
+    machineNo: string | null;
     itemId: string;
-    uomId: string;
+    uomId: string | null;
     productionOrderId: string | null;
     productionOrderOperationId: string | null;
     downtimeReasonId: string | null;
@@ -539,8 +778,13 @@ export class ProductionEntryService {
     downtimeHours: number;
     postToInventory?: boolean;
     warehouseId?: string | null;
-  }): Promise<{ machineNo: string; plannedHours: number; shouldPostInventory: boolean; warehouseId: string | null }> {
+  }, opts?: { uomExempt?: boolean }): Promise<{ machineNo: string; plannedHours: number; shouldPostInventory: boolean; warehouseId: string | null }> {
     // Numeric guards (DTO covers create; update merges raw values)
+    if (v.targetQuantity === undefined || v.targetQuantity === null) {
+      throw new BadRequestException(
+        'targetQuantity is required when the entry is not linked to a machine with a configured target',
+      );
+    }
     if (!(v.targetQuantity > 0)) throw new BadRequestException('targetQuantity must be greater than 0');
     if (!(v.actualQuantity >= 0)) throw new BadRequestException('actualQuantity must be >= 0');
     if (!(v.scrapQuantity >= 0)) throw new BadRequestException('scrapQuantity must be >= 0');
@@ -566,11 +810,13 @@ export class ProductionEntryService {
 
     // Machine: resolve machine_no from master when linked
     let machineNo = v.machineNo?.trim();
-    if (!machineNo) throw new BadRequestException('machineNo is required');
     if (v.machineId) {
       const machine = await this.machineRepo.findOne({ where: { id: v.machineId, companyId } });
       if (!machine || !machine.isActive) throw new NotFoundException(`Machine with ID '${v.machineId}' not found in this company`);
-      if (machine.machineCode !== machineNo) {
+      if (!machineNo) {
+        // ERP-00016: derive from the master — clients only need to pick the machine
+        machineNo = machine.machineCode;
+      } else if (machine.machineCode !== machineNo) {
         throw new BadRequestException(`machineNo '${machineNo}' does not match machine '${machine.machineCode}' selected from the machine master`);
       }
       if (machine.departmentId && machine.departmentId !== v.departmentId) {
@@ -578,6 +824,7 @@ export class ProductionEntryService {
         throw new BadRequestException(`Machine '${machine.machineCode}' belongs to department '${machineDept?.name ?? machine.departmentId}', not the selected department`);
       }
     } else {
+      if (!machineNo) throw new BadRequestException('machineId or machineNo is required');
       // Free-text machine number: if it matches a registered machine of this
       // company, it must belong to the selected department.
       const registered = await this.machineRepo
@@ -596,8 +843,18 @@ export class ProductionEntryService {
     if (!item) throw new NotFoundException(`Item with ID '${v.itemId}' not found in this company`);
     if (item.status !== 'ACTIVE') throw new BadRequestException(`Item '${item.itemCode}' is not ACTIVE`);
 
-    // UOM: item-driven validity (base UOM or defined conversion path)
-    await this.assertUomValidForItem(item, v.uomId);
+    // UOM: item-driven validity (base UOM or defined conversion path).
+    // Exempt when a machine target governs the entry — the target's UOM is
+    // authoritative in that case.
+    if (opts?.uomExempt) {
+      // target UOM already applied upstream
+    } else if (!v.uomId) {
+      throw new BadRequestException(
+        'uomId is required when the entry is not linked to a machine with a configured target',
+      );
+    } else {
+      await this.assertUomValidForItem(item, v.uomId);
+    }
 
     // Optional Production Order linkage
     if (v.productionOrderId) {

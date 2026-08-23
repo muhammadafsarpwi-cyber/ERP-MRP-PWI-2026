@@ -19,7 +19,12 @@ import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { ProductionEntryService } from '../services';
-import { CreateProductionEntryDto, UpdateProductionEntryDto, CreateMachineDto } from '../dto';
+import {
+  CreateProductionEntryDto,
+  UpdateProductionEntryDto,
+  CreateMachineDto,
+  MachineEntryStatusQueryDto,
+} from '../dto';
 
 @ApiTags('production/entries')
 @Controller('production')
@@ -116,6 +121,25 @@ export class ProductionEntryController {
     const result = await this.entryService.getReport(companyId, {
       divisionId, sectionId, departmentId, dateFrom, dateTo, shiftId, machineNo, itemId, productionOrderId,
     });
+    return { success: true, ...result };
+  }
+
+  @Get('entries/machine-status')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.view')
+  @ApiQuery({ name: 'entryDate', required: true, description: 'Production date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'shiftId', required: true })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiQuery({ name: 'sectionId', required: false })
+  @ApiQuery({ name: 'departmentId', required: false })
+  @ApiOperation({
+    summary:
+      'Per-machine entry availability for a date + shift (duplicate pre-check: ENTERED vs ENTRY_REQUIRED)',
+  })
+  async machineStatus(@Req() req: any, @Query() query: MachineEntryStatusQueryDto) {
+    const companyId = this.getCompanyId(req);
+    const result = await this.entryService.getMachineEntryStatus(companyId, query);
     return { success: true, ...result };
   }
 

@@ -45,7 +45,7 @@ const Inventory: React.FC = () => {
         </Col>
         <Col span={6}>
           <Card>
-            <Statistic title="Stock Alerts" value={0} prefix={<AlertOutlined />} valueStyle={{ color: '#cf1322' }} />
+            <Statistic title="Stock Alerts" value={0} prefix={<AlertOutlined />} valueStyle={{ color: 'var(--theme-danger)' }} />
           </Card>
         </Col>
         <Col span={6}>

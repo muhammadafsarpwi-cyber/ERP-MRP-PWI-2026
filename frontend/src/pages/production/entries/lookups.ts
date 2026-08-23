@@ -34,6 +34,8 @@ export function useLookups() {
   const [shifts, setShifts] = useState<ShiftLk[]>([]);
   const [machines, setMachines] = useState<MachineLk[]>([]);
   const [downtimeReasons, setDowntimeReasons] = useState<DowntimeReasonLk[]>([]);
+  const [downtimeReasonsLoading, setDowntimeReasonsLoading] = useState(true);
+  const [downtimeReasonsFailed, setDowntimeReasonsFailed] = useState(false);
   const [productionOrders, setProductionOrders] = useState<ProductionOrderLk[]>([]);
 
   useEffect(() => {
@@ -57,6 +59,27 @@ export function useLookups() {
       setShifts(shf);
       setProductionOrders(po);
     })();
+  }, []);
+
+  /** Active downtime reasons from the downtime_reasons table (single source of truth). */
+  const loadDowntimeReasons = async (): Promise<DowntimeReasonLk[]> => {
+    setDowntimeReasonsLoading(true);
+    try {
+      const res = await apiService.get<ListResponse<DowntimeReasonLk>>('/production/downtime-reasons');
+      setDowntimeReasons((res.data || []) as DowntimeReasonLk[]);
+      setDowntimeReasonsFailed(false);
+      return (res.data || []) as DowntimeReasonLk[];
+    } catch {
+      setDowntimeReasonsFailed(true);
+      return [];
+    } finally {
+      setDowntimeReasonsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadDowntimeReasons();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadMachines = async (departmentId?: string) => {
@@ -86,6 +109,7 @@ export function useLookups() {
   return {
     divisions, sections, departments, items, uoms, uomConversions,
     shifts, machines, downtimeReasons, productionOrders,
+    downtimeReasonsLoading, downtimeReasonsFailed, loadDowntimeReasons,
     loadMachines, sectionsForDivision, departmentsForSection, validUomsForItem,
   };
 }

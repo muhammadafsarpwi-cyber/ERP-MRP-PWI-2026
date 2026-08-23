@@ -62,6 +62,7 @@ export class MachineService {
       machineType,
       criticality,
       search,
+      machineId,
       sortBy,
       sortDir = 'ASC',
     } = filters || {};
@@ -80,6 +81,9 @@ export class MachineService {
     if (status) qb.andWhere('m.status = :status', { status });
     if (criticality) qb.andWhere('m.criticality = :criticality', { criticality });
     if (machineType) qb.andWhere('m.machineType ILIKE :machineType', { machineType: `%${machineType}%` });
+    if (machineId) {
+      qb.andWhere('m.machineId ILIKE :machineId', { machineId: `${machineId}%` });
+    }
     if (search) {
       qb.andWhere(
         '(m.machineCode ILIKE :search OR m.name ILIKE :search OR m.machineNumber ILIKE :search OR m.serialNumber ILIKE :search OR m.manufacturer ILIKE :search OR m.machineId ILIKE :search)',
@@ -88,6 +92,7 @@ export class MachineService {
     }
 
     const sortMap: Record<string, string> = {
+      machineId: 'm.machineId',
       machineCode: 'm.machineCode',
       name: 'm.name',
       machineType: 'm.machineType',
@@ -142,7 +147,8 @@ export class MachineService {
       model: dto.model?.trim() || null,
       manufacturer: dto.manufacturer?.trim() || null,
       serialNumber: dto.serialNumber?.trim() || null,
-      capacity: dto.capacity?.trim() || null,
+      // Canonical numeric capacity (DECIMAL(19,4)) – never a free-text string
+      capacity: dto.capacity ?? null,
       powerRating: dto.powerRating?.trim() || null,
       installationDate: dto.installationDate || null,
       warrantyExpiryDate: dto.warrantyExpiryDate || null,
@@ -199,7 +205,7 @@ export class MachineService {
     if (dto.model !== undefined) machine.model = dto.model?.trim() || null;
     if (dto.manufacturer !== undefined) machine.manufacturer = dto.manufacturer?.trim() || null;
     if (dto.serialNumber !== undefined) machine.serialNumber = dto.serialNumber?.trim() || null;
-    if (dto.capacity !== undefined) machine.capacity = dto.capacity?.trim() || null;
+    if (dto.capacity !== undefined) machine.capacity = dto.capacity ?? null;
     if (dto.powerRating !== undefined) machine.powerRating = dto.powerRating?.trim() || null;
     if (dto.installationDate !== undefined) machine.installationDate = dto.installationDate || null;
     if (dto.warrantyExpiryDate !== undefined) machine.warrantyExpiryDate = dto.warrantyExpiryDate || null;

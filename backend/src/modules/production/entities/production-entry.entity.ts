@@ -121,6 +121,19 @@ export class ProductionEntry extends BaseEntity {
   @Column({ name: 'target_quantity', type: 'decimal', precision: 19, scale: 4 })
   targetQuantity: number;
 
+  // ERP-00016 target snapshot: which Machine Target produced these numbers.
+  // (FK fk_production_entries_machine_target → machine_targets.id; kept as a
+  // plain column to avoid a cross-module entity import cycle.)
+  @Column({ name: 'machine_target_id', type: 'uuid', nullable: true })
+  machineTargetId: string | null;
+
+  @Column({ name: 'standard_hours', type: 'decimal', precision: 6, scale: 2, nullable: true })
+  standardHours: number | null;
+
+  /** calculated_target = target × running_hours / standard_hours at entry time */
+  @Column({ name: 'calculated_target', type: 'decimal', precision: 19, scale: 4, nullable: true })
+  calculatedTarget: number | null;
+
   @Column({ name: 'actual_quantity', type: 'decimal', precision: 19, scale: 4, default: 0 })
   actualQuantity: number;
 

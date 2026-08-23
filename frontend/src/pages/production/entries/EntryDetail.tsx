@@ -104,7 +104,7 @@ const EntryDetail: React.FC = () => {
               <Descriptions.Item label="Running Hours">{formatNumber(entry.runningHours, 2)}</Descriptions.Item>
               <Descriptions.Item
                 label="Downtime Hours"
-                contentStyle={toNum(entry.downtimeHours) > 0 ? { background: '#fff7e6' } : undefined}
+                contentStyle={toNum(entry.downtimeHours) > 0 ? { background: 'var(--theme-warning-soft)' } : undefined}
               >
                 {formatNumber(entry.downtimeHours, 2)}
                 {entry.downtimeReasonText ? ` (${entry.downtimeReasonText})` : ''}
@@ -145,7 +145,7 @@ const EntryDetail: React.FC = () => {
           <Card size="small">
             <div style={{ textAlign: 'center', padding: '12px 0' }}>
               <Text type="secondary">Achievement vs Target</Text>
-              <div style={{ fontSize: 40, fontWeight: 700, color: pctColor(ach) === 'green' ? '#3f8600' : '#cf1322' }}>
+              <div style={{ fontSize: 40, fontWeight: 700, color: pctColor(ach) === 'green' ? 'var(--theme-success)' : 'var(--theme-danger)' }}>
                 {ach.toFixed(1)}%
               </div>
               <Divider />

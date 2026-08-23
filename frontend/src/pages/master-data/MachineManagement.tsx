@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, DatePicker, message,
-  Popconfirm, Card, Drawer, Descriptions, AutoComplete, Dropdown,
+  Popconfirm, Card, Drawer, Descriptions, AutoComplete, Dropdown, InputNumber,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, ReloadOutlined, QrcodeOutlined,
@@ -18,6 +18,7 @@ interface DepartmentLk extends OrgItem { departmentCode: string; divisionId: str
 
 interface Machine {
   id: string;
+  machineId?: string | null;
   machineCode: string;
   machineNumber?: string | null;
   name: string;
@@ -71,6 +72,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('ASC');
 
   const [search, setSearch] = useState('');
+  const [fMachineId, setFMachineId] = useState<string>('');
   const [fDivision, setFDivision] = useState<string | undefined>();
   const [fSection, setFSection] = useState<string | undefined>();
   const [fDepartment, setFDepartment] = useState<string | undefined>();
@@ -96,7 +98,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     if (initialMachineId) {
       (async () => {
         try {
-          const m = await apiService.get<Machine>(`/machines/${initialMachineId}`);
+          // /machines/qr/:key resolves UUID, machine code AND system Machine ID (MCH###)
+          const m = await apiService.get<Machine>(`/machines/qr/${initialMachineId}`);
           setDetail(m);
         } catch {
           message.warning('Machine not found for the scanned QR link');
@@ -110,6 +113,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     try {
       const params: any = { page: pageNum, limit: pageSize, sortBy, sortDir };
       if (search) params.search = search;
+      if (fMachineId) params.machineId = fMachineId;
       if (fDivision) params.divisionId = fDivision;
       if (fSection) params.sectionId = fSection;
       if (fDepartment) params.departmentId = fDepartment;
@@ -123,7 +127,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, sortBy, sortDir, search, fDivision, fSection, fDepartment, fStatus, fCriticality]);
+  }, [page, pageSize, sortBy, sortDir, search, fMachineId, fDivision, fSection, fDepartment, fStatus, fCriticality]);
 
   useEffect(() => { fetchMachines(page); }, [page, pageSize, fetchMachines]);
 
@@ -177,6 +181,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         installationDate: values.installationDate ? values.installationDate.format('YYYY-MM-DD') : null,
         warrantyExpiryDate: values.warrantyExpiryDate ? values.warrantyExpiryDate.format('YYYY-MM-DD') : null,
       };
+      // Machine ID is system-generated (MCH###): never client-editable
+      delete payload.machineId;
       setSaving(true);
       if (editing) {
         await apiService.patch(`/machines/${editing.id}`, payload);
@@ -236,7 +242,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       img{width:280px;height:280px} h2{margin:8px 0 2px} p{margin:2px 0;color:#444}</style></head>
       <body>
         <h2>${machine.name}</h2>
-        <p><b>${machine.machineCode}</b>${machine.machineNumber ? ' · #' + machine.machineNumber : ''}</p>
+        <p><b>${machine.machineId ?? ''}</b> · <b>${machine.machineCode}</b>${machine.machineNumber ? ' · #' + machine.machineNumber : ''}</p>
         ${machine.location ? `<p>${machine.location}</p>` : ''}
         <img src="${dataUrl}" alt="QR" />
         <p style="font-size:11px;color:#888">${qrModal.url || qrModal.payload}</p>
@@ -247,6 +253,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
 
   const resetFilters = () => {
     setSearch('');
+    setFMachineId('');
     setFDivision(undefined);
     setFSection(undefined);
     setFDepartment(undefined);
@@ -259,16 +266,27 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
 
   const columns: ColumnsType<Machine> = [
     {
+      title: 'Machine ID',
+      dataIndex: 'machineId',
+      sorter: true,
+      width: 110,
+      render: (mid: string | null | undefined) => (
+        <code style={{ fontWeight: 600 }}>{mid ?? '—'}</code>
+      ),
+    },
+    {
       title: 'Code',
       dataIndex: 'machineCode',
       sorter: true,
       width: 120,
-      render: (_: any, m: Machine) => (
-        <Space size={4}>
-          <b>{m.machineCode}</b>
-          {m.machineNumber && <span style={{ color: '#999' }}>#{m.machineNumber}</span>}
-        </Space>
-      ),
+      render: (code: string) => <b>{code}</b>,
+    },
+    {
+      title: 'Machine No.',
+      dataIndex: 'machineNumber',
+      width: 110,
+      ellipsis: true,
+      render: (n: string | null | undefined) => n ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
     },
     {
       title: 'Name',
@@ -278,7 +296,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       render: (_: any, m: Machine) => (
         <div>
           <div>{m.name}</div>
-          {m.machineType && <span style={{ color: '#888', fontSize: 12 }}>{m.machineType}</span>}
+          {m.machineType && <span style={{ color: 'var(--theme-text-muted)', fontSize: 12 }}>{m.machineType}</span>}
         </div>
       ),
     },
@@ -286,19 +304,19 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       title: 'Division',
       width: 130,
       ellipsis: true,
-      render: (_: any, m: Machine) => m.division?.name ?? <span style={{ color: '#bbb' }}>—</span>,
+      render: (_: any, m: Machine) => m.division?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
     },
     {
       title: 'Section',
       width: 130,
       ellipsis: true,
-      render: (_: any, m: Machine) => m.section?.name ?? <span style={{ color: '#bbb' }}>—</span>,
+      render: (_: any, m: Machine) => m.section?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
     },
     {
       title: 'Department',
       width: 150,
       ellipsis: true,
-      render: (_: any, m: Machine) => m.department?.name ?? <span style={{ color: '#bbb' }}>—</span>,
+      render: (_: any, m: Machine) => m.department?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
     },
     { title: 'Location', dataIndex: 'location', width: 140 },
     {
@@ -307,7 +325,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       render: (_: any, m: Machine) => (
         <div style={{ fontSize: 12 }}>
           <div>{m.manufacturer ?? '—'}</div>
-          <span style={{ color: '#888' }}>{m.model ?? ''}</span>
+          <span style={{ color: 'var(--theme-text-muted)' }}>{m.model ?? ''}</span>
         </div>
       ),
     },
@@ -374,10 +392,18 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           <Input
             allowClear
             prefix={<SearchOutlined />}
-            placeholder="Search code, name, serial, manufacturer…"
+            placeholder="Search Machine ID, code, name, serial…"
             style={{ width: 260 }}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="Machine ID (e.g. MCH001)"
+            style={{ width: 190 }}
+            value={fMachineId}
+            onChange={(e) => { setFMachineId(e.target.value); setPage(1); }}
           />
           <Select
             allowClear placeholder="Division" style={{ width: 180 }} value={fDivision}
@@ -431,7 +457,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         onChange={(_pg, _flt, sorter: any) => {
           if (sorter && sorter.field) {
             const map: Record<string, string> = {
-              machineCode: 'machineCode', name: 'name', criticality: 'criticality', status: 'status',
+              machineId: 'machineId', machineCode: 'machineCode', name: 'name', criticality: 'criticality', status: 'status',
             };
             const col = map[sorter.field] || 'machineCode';
             setSortBy(col);
@@ -451,6 +477,14 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         destroyOnClose
       >
         <Form form={form} layout="vertical">
+          <Form.Item label="Machine ID" style={{ marginBottom: 8 }}>
+            <Input
+              value={editing?.machineId ?? ''}
+              placeholder="Auto-generated on save (MCH###)"
+              disabled
+              style={{ maxWidth: 200, fontWeight: 600 }}
+            />
+          </Form.Item>
           <Space size={16} style={{ display: 'flex' }}>
             <Form.Item
               name="machineCode" label="Machine Code"
@@ -523,8 +557,17 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
             </Form.Item>
           </Space>
           <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item name="capacity" label="Capacity" style={{ flex: 1, minWidth: 180 }}>
-              <Input placeholder="e.g. 120 pcs/min" maxLength={100} />
+            <Form.Item
+              name="capacity" label="Capacity"
+              tooltip="Numeric capacity (up to 4 decimals); unit goes in Power Rating / Description"
+              style={{ flex: 1, minWidth: 180 }}
+            >
+              <InputNumber
+                placeholder="e.g. 120"
+                min={0}
+                step={0.0001}
+                style={{ width: '100%' }}
+              />
             </Form.Item>
             <Form.Item name="powerRating" label="Power Rating" style={{ flex: 1, minWidth: 140 }}>
               <Input placeholder="e.g. 15 kW" maxLength={60} />
@@ -574,6 +617,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       >
         {detail && (
           <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="Machine ID">
+              <code style={{ fontWeight: 600 }}>{detail.machineId ?? '—'}</code>
+            </Descriptions.Item>
             <Descriptions.Item label="Machine Code">{detail.machineCode}</Descriptions.Item>
             <Descriptions.Item label="Machine Number">{detail.machineNumber ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="Name">{detail.name}</Descriptions.Item>
@@ -618,15 +664,15 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           {qrModal.machine && (
             <>
               <h3 style={{ marginBottom: 4 }}>{qrModal.machine.name}</h3>
-              <p style={{ color: '#666', marginTop: 0 }}>
-                {qrModal.machine.machineCode}
+              <p style={{ color: 'var(--theme-text-muted)', marginTop: 0 }}>
+                <b>{qrModal.machine.machineId}</b> · {qrModal.machine.machineCode}
                 {qrModal.machine.location ? ` · ${qrModal.machine.location}` : ''}
               </p>
             </>
           )}
           {qrModal.dataUrl && <img src={qrModal.dataUrl} alt="Machine QR" style={{ width: 260, height: 260 }} />}
           <p style={{ marginTop: 8 }}>
-            <code style={{ fontSize: 11, color: '#888' }}>{qrModal.url || qrModal.payload}</code>
+            <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{qrModal.url || qrModal.payload}</code>
           </p>
         </div>
       </Modal>

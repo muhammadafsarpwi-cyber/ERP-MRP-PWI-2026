@@ -7,6 +7,7 @@ import { Item, UomConversion } from '../../item/entities';
 import { Division, Section, Department } from '../../organization/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+import { MachineTargetService } from '../../machine-target/services/machine-target.service';
 
 const COMPANY = '7725aa04-a270-4314-9e82-90949cbe7791';
 
@@ -104,6 +105,12 @@ beforeEach(async () => {
       { provide: getRepositoryToken(ProductionOrderOperation), useValue: productionOrderOperationRepo },
       { provide: StockLedgerService, useValue: stockLedgerService },
       { provide: InventoryBalanceService, useValue: balanceService },
+      {
+        provide: MachineTargetService,
+        useValue: {
+          resolveEffectiveEntity: jest.fn().mockResolvedValue({ target: null, usedGeneralFallback: false }),
+        },
+      },
     ],
   }).compile();
 
@@ -365,5 +372,92 @@ describe('ProductionEntryService — update & delete', () => {
   it('remove enforces company isolation', async () => {
     entryRepo.findOne.mockResolvedValue(null);
     await expect(service.remove('e-other-company', COMPANY)).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('ProductionEntryService — machine entry status (duplicate pre-check)', () => {
+  const machines = [
+    { id: 'm-uuid-1', machineId: 'MCH001', machineCode: 'SR-01', name: 'Spiral 1', isActive: true, divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1', department: { id: 'dept-1', name: 'Spiral' } },
+    { id: 'm-uuid-2', machineId: 'MCH002', machineCode: 'SR-02', name: 'Spiral 2', isActive: true, divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1', department: { id: 'dept-1', name: 'Spiral' } },
+    { id: 'm-uuid-3', machineId: 'MCH003', machineCode: 'BL-01', name: 'Barrel 1', isActive: true, divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-2', department: { id: 'dept-2', name: 'Plating' } },
+  ];
+
+  const mockQbs = (entryRows: any[]) => {
+    const machineQb = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(machines),
+    };
+    const entryQb = {
+      leftJoin: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(entryRows),
+    };
+    machineRepo.createQueryBuilder.mockReturnValue(machineQb);
+    entryRepo.createQueryBuilder.mockReturnValue(entryQb);
+    return { machineQb, entryQb };
+  };
+
+  it('flags machines with an active entry as ENTERED and the rest ENTRY_REQUIRED with correct counts', async () => {
+    const rows = [
+      { id: 'e1', machineNo: 'SR-01', itemId: 'item-1', targetQuantity: '100', actualQuantity: '80', item: { name: 'Cable A' } },
+    ];
+    mockQbs(rows);
+
+    const res = await service.getMachineEntryStatus(COMPANY, { entryDate: '2026-08-23', shiftId: 'shift-1' });
+
+    expect(res.data).toHaveLength(3);
+    expect(res.data.find((m) => m.machineCode === 'SR-01')!.status).toBe('ENTERED');
+    expect(res.data.find((m) => m.machineCode === 'SR-01')!.entryCount).toBe(1);
+    expect(res.data.find((m) => m.machineCode === 'SR-01')!.entries[0].itemName).toBe('Cable A');
+    expect(res.data.find((m) => m.machineCode === 'SR-02')!.status).toBe('ENTRY_REQUIRED');
+    expect(res.data.find((m) => m.machineCode === 'BL-01')!.status).toBe('ENTRY_REQUIRED');
+    expect(res.meta).toEqual({
+      totalMachines: 3, enteredCount: 1, entryRequiredCount: 2,
+      entryDate: '2026-08-23', shiftId: 'shift-1',
+    });
+  });
+
+  it('matches machine_no case-insensitively and groups multiple entries per machine', async () => {
+    const rows = [
+      { id: 'e1', machineNo: 'sr-02', itemId: 'item-1', targetQuantity: '10', actualQuantity: '5', item: null },
+      { id: 'e2', machineNo: 'SR-02', itemId: 'item-2', targetQuantity: '20', actualQuantity: '9', item: null },
+    ];
+    mockQbs(rows);
+
+    const res = await service.getMachineEntryStatus(COMPANY, { entryDate: '2026-08-23', shiftId: 'shift-1' });
+
+    const sr2 = res.data.find((m) => m.machineCode === 'SR-02')!;
+    expect(sr2.status).toBe('ENTERED');
+    expect(sr2.entryCount).toBe(2);
+    expect(sr2.entries.map((e) => e.id)).toEqual(['e1', 'e2']);
+  });
+
+  it('applies organizational filters to both machines and entries queries', async () => {
+    const { entryQb } = mockQbs([]);
+
+    await service.getMachineEntryStatus(COMPANY, {
+      entryDate: '2026-08-23', shiftId: 'shift-1',
+      divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1',
+    });
+
+    const entryAndWheres = entryQb.andWhere.mock.calls.map((c) => c[0] as string);
+    expect(entryAndWheres.some((s) => s.includes('pe.divisionId'))).toBe(true);
+    expect(entryAndWheres.some((s) => s.includes('pe.sectionId'))).toBe(true);
+    expect(entryAndWheres.some((s) => s.includes('pe.departmentId'))).toBe(true);
+    expect(entryAndWheres.some((s) => s.includes('pe.entryDate'))).toBe(true);
+    expect(entryAndWheres.some((s) => s.includes('pe.shiftId'))).toBe(true);
+  });
+
+  it('rejects an unknown shift for this company', async () => {
+    shiftRepo.findOne.mockResolvedValue(null);
+    mockQbs([]);
+    await expect(
+      service.getMachineEntryStatus(COMPANY, { entryDate: '2026-08-23', shiftId: 'shift-x' }),
+    ).rejects.toThrow(BadRequestException);
   });
 });

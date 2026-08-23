@@ -4,6 +4,7 @@ import { Repository, Not, IsNull } from 'typeorm';
 import { ErpUser, ErpUserStatus, UserRole, UserRoleStatus, UserOrganizationScope, ScopeLevel, OrgScopeStatus } from '../entities';
 import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto } from '../dto/user.dto';
 import { SupabaseUser } from '../../auth/interfaces/supabase-user.interface';
+import { NotificationsService } from '../../notification/notifications.service';
 
 @Injectable()
 export class ErpUserService {
@@ -16,6 +17,7 @@ export class ErpUserService {
     private readonly userRoleRepository: Repository<UserRole>,
     @InjectRepository(UserOrganizationScope)
     private readonly orgScopeRepository: Repository<UserOrganizationScope>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findByAuthUserId(authUserId: string): Promise<ErpUser | null> {
@@ -57,7 +59,18 @@ export class ErpUserService {
       updatedBy: userId,
     });
 
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+
+    await this.notificationsService.notifyActiveUsers({
+      type: 'user.created',
+      title: 'New user added',
+      message: `${saved.displayName || saved.email} was registered as a user`,
+      entityType: 'user',
+      entityId: saved.id,
+      actorAuthUserId: userId || null,
+    });
+
+    return saved;
   }
 
   async findAll(options?: {

@@ -23,8 +23,19 @@ async function bootstrap() {
   );
 
   // CORS
+  // Allow the configured frontend URL plus same-host LAN access (dev):
+  // any private/loopback host serving the frontend on port 3000.
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const lanFrontendPattern =
+    /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):3000$/;
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      if (!origin || origin === frontendUrl || lanFrontendPattern.test(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });

@@ -5,6 +5,7 @@ import {
   IsUUID,
   IsIn,
   IsInt,
+  IsNumber,
   Min,
   Matches,
   IsNotEmpty,
@@ -72,10 +73,12 @@ export class CreateMachineDto {
   @MaxLength(120)
   serialNumber?: string | null;
 
+  /** Canonical numeric capacity (DECIMAL(19,4)); unit belongs in powerRating/description */
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  capacity?: string | null;
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 4 }, { message: 'capacity must be a number (up to 4 decimals)' })
+  @Min(0)
+  capacity?: number | null;
 
   @IsOptional()
   @IsString()
@@ -153,10 +156,12 @@ export class UpdateMachineDto {
   @MaxLength(120)
   serialNumber?: string | null;
 
+  /** Canonical numeric capacity (DECIMAL(19,4)); unit belongs in powerRating/description */
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  capacity?: string | null;
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 4 }, { message: 'capacity must be a number (up to 4 decimals)' })
+  @Min(0)
+  capacity?: number | null;
 
   @IsOptional()
   @IsString()
@@ -223,6 +228,12 @@ export class MachineQueryDto {
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  /** Dedicated Machine ID filter (system-generated MCH###, prefix match) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  machineId?: string;
 
   @IsOptional()
   @IsString()

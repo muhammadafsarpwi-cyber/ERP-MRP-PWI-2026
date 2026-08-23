@@ -225,7 +225,7 @@ const EntryList: React.FC = () => {
       render: (_t: unknown, d: ReportDept) => (
         <div>
           {d.items.map((g) => (
-            <div key={`${g.itemId}-${g.uomCode}`} style={{ padding: '4px 0', borderBottom: '1px dashed #eee' }}>
+            <div key={`${g.itemId}-${g.uomCode}`} style={{ padding: '4px 0', borderBottom: '1px dashed var(--theme-border)' }}>
               <Text strong>{g.itemCode}</Text> — {g.itemName}{' '}
               <Tag>{g.uomCode}</Tag>
               <Text>Target {formatNumber(g.targetQuantity, 0)} · Actual {formatNumber(g.actualQuantity, 0)}</Text>{' '}
@@ -321,13 +321,17 @@ const EntryList: React.FC = () => {
               <Button icon={<ReloadOutlined />} onClick={handleReset}>Reset</Button>
               <Button
                 type="primary" ghost icon={<PlusOutlined />}
-                onClick={() =>
-                  navigate(
-                    fDepartment
-                      ? `/production/entries/new?divisionId=${fDivision}&sectionId=${fSection}&departmentId=${fDepartment}`
-                      : '/production/entries/new',
-                  )
-                }
+                onClick={() => {
+                  // Step 1 of the flow: machine availability screen (duplicate pre-check).
+                  const qs = new URLSearchParams();
+                  if (fDivision) qs.set('divisionId', fDivision);
+                  if (fSection) qs.set('sectionId', fSection);
+                  if (fDepartment) qs.set('departmentId', fDepartment);
+                  if (dateRange[0]) qs.set('entryDate', dateRange[0].format('YYYY-MM-DD'));
+                  if (fShift) qs.set('shiftId', fShift);
+                  const s = qs.toString();
+                  navigate(`/production/entries/select${s ? `?${s}` : ''}`);
+                }}
               >
                 Add Production Entry
               </Button>
@@ -354,7 +358,7 @@ const EntryList: React.FC = () => {
                         title="Achievement (this page)"
                         value={summary.ach ?? 0}
                         precision={2} suffix="%"
-                        valueStyle={{ color: summary.ach === null ? undefined : pctColor(summary.ach) === 'green' ? '#3f8600' : '#cf1322' }}
+                        valueStyle={{ color: summary.ach === null ? undefined : pctColor(summary.ach) === 'green' ? 'var(--theme-success)' : 'var(--theme-danger)' }}
                       />
                     </Col>
                   </Row>

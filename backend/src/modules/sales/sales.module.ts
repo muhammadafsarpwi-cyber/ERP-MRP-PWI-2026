@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+﻿import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   SalesCustomer,
@@ -22,6 +22,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { NotificationsModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
     forwardRef(() => InventoryModule),
+    NotificationsModule,
   ],
   controllers: [
     SalesQuotationController,

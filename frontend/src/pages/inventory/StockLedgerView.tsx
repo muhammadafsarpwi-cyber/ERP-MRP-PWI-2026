@@ -129,7 +129,7 @@ const StockLedgerView: React.FC = () => {
     {
       title: 'Direction', dataIndex: 'direction', key: 'direction', width: 90,
       render: (v: string) => (
-        <span style={{ color: v === 'IN' ? '#52c41a' : '#f5222d', fontWeight: 600 }}>{v}</span>
+        <span style={{ color: v === 'IN' ? 'var(--theme-success)' : 'var(--theme-danger)', fontWeight: 600 }}>{v}</span>
       ),
     },
     { title: 'Quantity', dataIndex: 'quantity', key: 'quantity', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
