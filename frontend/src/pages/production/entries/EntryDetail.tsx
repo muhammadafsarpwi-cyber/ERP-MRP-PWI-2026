@@ -7,6 +7,7 @@ import { ArrowLeftOutlined, EditOutlined, DeleteOutlined } from '@ant-design/ico
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
+import KpiPercentage from '../../../components/kpi/KpiPercentage';
 
 const { Title, Text } = Typography;
 
@@ -63,7 +64,6 @@ const EntryDetail: React.FC = () => {
   if (loading) return <Card><Spin style={{ width: '100%', marginTop: 80 }} /></Card>;
   if (!entry) return <Card>Entry not found.</Card>;
 
-  const pctColor = (v: number) => (v >= 100 ? 'green' : v >= 90 ? 'orange' : 'red');
   const ach = toNum(entry.achievementPercentage);
   const eff = toNum(entry.efficiencyPercentage);
 
@@ -110,10 +110,10 @@ const EntryDetail: React.FC = () => {
                 {entry.downtimeReasonText ? ` (${entry.downtimeReasonText})` : ''}
               </Descriptions.Item>
               <Descriptions.Item label="Achievement %">
-                <Tag color={pctColor(ach)}>{ach.toFixed(2)}%</Tag>
+                <KpiPercentage value={ach} />
               </Descriptions.Item>
               <Descriptions.Item label="Efficiency %">
-                <Tag color={pctColor(eff)}>{eff.toFixed(2)}%</Tag>
+                <KpiPercentage value={eff} />
               </Descriptions.Item>
             </Descriptions>
           </Card>
@@ -145,12 +145,14 @@ const EntryDetail: React.FC = () => {
           <Card size="small">
             <div style={{ textAlign: 'center', padding: '12px 0' }}>
               <Text type="secondary">Achievement vs Target</Text>
-              <div style={{ fontSize: 40, fontWeight: 700, color: pctColor(ach) === 'green' ? 'var(--theme-success)' : 'var(--theme-danger)' }}>
-                {ach.toFixed(1)}%
+              <div>
+                <KpiPercentage value={ach} fontSize={40} fontWeight={700} />
               </div>
               <Divider />
               <Text type="secondary">Efficiency</Text>
-              <div style={{ fontSize: 28, fontWeight: 600 }}>{eff.toFixed(1)}%</div>
+              <div>
+                <KpiPercentage value={eff} fontSize={28} fontWeight={600} />
+              </div>
               <div style={{ marginTop: 4 }}>
                 <Text type="secondary">
                   {formatNumber(entry.actualQuantity, 0)} of {formatNumber(entry.targetQuantity, 0)} {entry.uom?.code} produced

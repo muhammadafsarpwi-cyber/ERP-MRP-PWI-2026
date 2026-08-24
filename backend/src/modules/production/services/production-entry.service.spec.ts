@@ -203,6 +203,19 @@ describe('ProductionEntryService — validation', () => {
     await expect(service.create({ ...validDto(), downtimeHours: -1 } as any, COMPANY)).rejects.toThrow(BadRequestException);
   });
 
+  it('rejects downtime exceeding the shift planned hours (13h downtime on an 8h shift)', async () => {
+    makeOrgMocks();
+    await expect(
+      service.create({ ...validDto(), runningHours: 0, downtimeHours: 9 } as any, COMPANY),
+    ).rejects.toThrow(/cannot exceed the selected shift's planned hours/);
+  });
+
+  it('accepts downtime equal to the shift planned hours boundary (running becomes 0)', async () => {
+    makeOrgMocks();
+    const saved = await service.create({ ...validDto(), runningHours: 0, downtimeHours: 8 } as any, COMPANY);
+    expect(saved.efficiencyPercentage).toBe(0);
+  });
+
   it('rejects duplicate submission for same dept/date/shift/machine/item', async () => {
     makeOrgMocks();
     entryRepo.findOne.mockImplementation(async (opts: { where: { itemId?: string } }) =>

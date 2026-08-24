@@ -13,6 +13,7 @@ import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import { useLookups, Department, ShiftLk } from './lookups';
+import KpiPercentage, { kpiIndicator } from '../../../components/kpi/KpiPercentage';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -68,7 +69,7 @@ interface ReportResponse {
   grandTotalsByUom: ReportDept['totalsByUom'];
 }
 
-const pctColor = (v: number) => (v >= 100 ? 'green' : v >= 90 ? 'orange' : 'red');
+/** Visual-only KPI threshold presentation is centralized in components/kpi. */
 
 const EntryList: React.FC = () => {
   const navigate = useNavigate();
@@ -151,6 +152,8 @@ const EntryList: React.FC = () => {
     return { target, actual, scrap, ach: target > 0 ? Math.round((actual / target) * 10000) / 100 : null };
   }, [rows]);
 
+  const achIndicator = kpiIndicator(summary.ach);
+
   const columns: ColumnsType<ProductionEntryRow> = [
     { title: 'Sr', width: 48, render: (_t, _r, i) => (page - 1) * pageSize + i + 1 },
     { title: 'Date', dataIndex: 'entryDate', width: 100, sorter: true, render: (d: string) => d?.slice(0, 10) },
@@ -176,11 +179,11 @@ const EntryList: React.FC = () => {
     { title: 'UOM', width: 70, render: (_t, r) => r.uom?.code ?? '' },
     {
       title: 'Eff %', align: 'right', width: 90,
-      render: (_t, r) => <Tag color={pctColor(toNum(r.efficiencyPercentage))}>{toNum(r.efficiencyPercentage).toFixed(2)}%</Tag>,
+      render: (_t, r) => <KpiPercentage value={toNum(r.efficiencyPercentage)} />,
     },
     {
       title: 'Achv %', align: 'right', width: 95,
-      render: (_t, r) => <Tag color={pctColor(toNum(r.achievementPercentage))}>{toNum(r.achievementPercentage).toFixed(2)}%</Tag>,
+      render: (_t, r) => <KpiPercentage value={toNum(r.achievementPercentage)} />,
     },
     { title: 'Run Hrs', align: 'right', width: 85, render: (_t, r) => formatNumber(r.runningHours, 2) },
     {
@@ -230,10 +233,16 @@ const EntryList: React.FC = () => {
               <Tag>{g.uomCode}</Tag>
               <Text>Target {formatNumber(g.targetQuantity, 0)} · Actual {formatNumber(g.actualQuantity, 0)}</Text>{' '}
               {g.achievementPercentage !== null && (
-                <Tag color={pctColor(g.achievementPercentage)}>Achv {g.achievementPercentage.toFixed(2)}%</Tag>
+                <span style={{ marginRight: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Achv </Text>
+                  <KpiPercentage value={g.achievementPercentage} fontSize={12} fontWeight={400} />
+                </span>
               )}
               {g.efficiencyPercentage !== null && (
-                <Tag color={pctColor(g.efficiencyPercentage)}>Eff {g.efficiencyPercentage.toFixed(2)}%</Tag>
+                <span>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Eff </Text>
+                  <KpiPercentage value={g.efficiencyPercentage} fontSize={12} fontWeight={400} />
+                </span>
               )}
               <Text type="secondary">
                 Run {formatNumber(g.runningHours, 1)}h · Down {formatNumber(g.downtimeHours, 1)}h · Scrap {formatNumber(g.scrapQuantity, 0)}
@@ -251,7 +260,7 @@ const EntryList: React.FC = () => {
             <div key={t.uomCode} style={{ padding: '2px 0' }}>
               <Text strong>{t.uomCode}: </Text>
               <Text>T {formatNumber(t.targetQuantity, 0)} / A {formatNumber(t.actualQuantity, 0)}</Text>{' '}
-              {t.achievementPercentage !== null && <Tag color={pctColor(t.achievementPercentage)}>{t.achievementPercentage.toFixed(2)}%</Tag>}
+              {t.achievementPercentage !== null && <KpiPercentage value={t.achievementPercentage} fontSize={12} fontWeight={400} />}
             </div>
           ))}
         </div>
@@ -357,9 +366,16 @@ const EntryList: React.FC = () => {
                       <Statistic
                         title="Achievement (this page)"
                         value={summary.ach ?? 0}
-                        precision={2} suffix="%"
-                        valueStyle={{ color: summary.ach === null ? undefined : pctColor(summary.ach) === 'green' ? 'var(--theme-success)' : 'var(--theme-danger)' }}
+                        precision={2}
+                        prefix={achIndicator ? <achIndicator.Icon aria-label={achIndicator.label} /> : undefined}
+                        suffix="%"
+                        valueStyle={{ color: achIndicator?.color }}
                       />
+                      {achIndicator && (
+                        <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                          {achIndicator.label}
+                        </Text>
+                      )}
                     </Col>
                   </Row>
                 </Card>

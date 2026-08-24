@@ -890,7 +890,15 @@ export class ProductionEntryService {
       shouldPostInventory = true;
     }
 
+    // Planned hours come from the Shift master (ERP-00013). When the shift row
+    // carries planned hours they are authoritative: downtime can never exceed
+    // them (12h shift cannot have 13h of downtime).
     const plannedHours = await this.resolvePlannedHoursById(companyId, v.shiftId, v.runningHours, v.downtimeHours);
+    if (plannedHours > 0 && v.downtimeHours > plannedHours) {
+      throw new BadRequestException(
+        `downtimeHours (${v.downtimeHours}) cannot exceed the selected shift's planned hours (${plannedHours})`,
+      );
+    }
     return { machineNo, plannedHours, shouldPostInventory, warehouseId: v.warehouseId ?? null };
   }
 

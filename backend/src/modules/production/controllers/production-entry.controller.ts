@@ -19,6 +19,8 @@ import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { ProductionEntryService } from '../services';
+import { MachineTargetService } from '../../machine-target/services/machine-target.service';
+import { ResolveMachineTargetQueryDto } from '../../machine-target/dto';
 import {
   CreateProductionEntryDto,
   UpdateProductionEntryDto,
@@ -31,7 +33,10 @@ import {
 @UseGuards(SupabaseJwtGuard, OrgScopeGuard)
 @ApiBearerAuth()
 export class ProductionEntryController {
-  constructor(private readonly entryService: ProductionEntryService) {}
+  constructor(
+    private readonly entryService: ProductionEntryService,
+    private readonly machineTargetService: MachineTargetService,
+  ) {}
 
   private getCompanyId(req: any): string {
     const companyId = req.erpUser?.defaultCompanyId || req.orgScopes?.[0]?.companyId;
@@ -141,6 +146,20 @@ export class ProductionEntryController {
     const companyId = this.getCompanyId(req);
     const result = await this.entryService.getMachineEntryStatus(companyId, query);
     return { success: true, ...result };
+  }
+
+  @Get('entries/machine-target')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.view')
+  @ApiOperation({
+    summary:
+      'Resolve the active Machine Target (ERP-00016) for machine + shift + production date — powers the auto-filled Target Production field',
+  })
+  async resolveMachineTarget(@Req() req: any, @Query() query: ResolveMachineTargetQueryDto) {
+    const companyId = this.getCompanyId(req);
+    const resolution = await this.machineTargetService.resolve(query, companyId);
+    return { success: true, data: resolution };
   }
 
   // ─── Masters (machine / shift / downtime reason) ──────────────────────────

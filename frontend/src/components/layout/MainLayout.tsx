@@ -658,6 +658,12 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   );
 
   const pageTitle = React.useMemo(() => {
+    // Detail/step routes never match a menu key; give production-entry routes
+    // meaningful titles instead of falling back to the raw URL segment ("New").
+    if (/^\/production\/entries\/new\b/.test(location.pathname)) return 'New Production Entry';
+    if (/^\/production\/entries\/select\b/.test(location.pathname)) return 'New Production Entry';
+    if (/^\/production\/entries\/[^/]+\/edit$/.test(location.pathname)) return 'Edit Production Entry';
+    if (/^\/production\/entries\/[^/]+$/.test(location.pathname)) return 'Production Entry Details';
     const findLabel = (items: MenuProps['items']): string | undefined => {
       for (const item of items ?? []) {
         if (!item) continue;
