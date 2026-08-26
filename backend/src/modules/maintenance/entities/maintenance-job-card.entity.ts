@@ -3,6 +3,11 @@ import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { Department } from '../../organization/entities/department.entity';
+import { Division } from '../../organization/entities/division.entity';
+import { Section } from '../../organization/entities/section.entity';
+import { MaintenanceComplaintCategory } from './maintenance-complaint-category.entity';
+import { MaintenanceRootCauseCategory } from './maintenance-root-cause-category.entity';
+import { MaintenanceFailureCategory } from './maintenance-failure-category.entity';
 import { ErpUser } from '../../user/entities/erp-user.entity';
 import { JobCardStatus, MaintenancePriority } from '../enums';
 
@@ -20,6 +25,20 @@ export class MaintenanceJobCard extends BaseEntity {
   @ManyToOne(() => Company)
   @JoinColumn({ name: 'company_id' })
   company: Company;
+
+  @Column({ name: 'division_id', type: 'uuid' })
+  divisionId: string;
+
+  @ManyToOne(() => Division)
+  @JoinColumn({ name: 'division_id' })
+  division: Division;
+
+  @Column({ name: 'section_id', type: 'uuid' })
+  sectionId: string;
+
+  @ManyToOne(() => Section)
+  @JoinColumn({ name: 'section_id' })
+  section: Section;
 
   @Column({ name: 'job_card_no', type: 'varchar', length: 30, unique: true })
   jobCardNo: string;
@@ -40,6 +59,10 @@ export class MaintenanceJobCard extends BaseEntity {
 
   @Column({ name: 'complaint_category_id', type: 'uuid', nullable: true })
   complaintCategoryId: string | null;
+
+  @ManyToOne(() => MaintenanceComplaintCategory, { nullable: true })
+  @JoinColumn({ name: 'complaint_category_id' })
+  complaintCategory: MaintenanceComplaintCategory | null;
 
   @Column({ name: 'complaint', type: 'text' })
   complaint: string;
@@ -66,8 +89,16 @@ export class MaintenanceJobCard extends BaseEntity {
   @Column({ name: 'root_cause_category_id', type: 'uuid', nullable: true })
   rootCauseCategoryId: string | null;
 
+  @ManyToOne(() => MaintenanceRootCauseCategory, { nullable: true })
+  @JoinColumn({ name: 'root_cause_category_id' })
+  rootCauseCategory: MaintenanceRootCauseCategory | null;
+
   @Column({ name: 'failure_category_id', type: 'uuid', nullable: true })
   failureCategoryId: string | null;
+
+  @ManyToOne(() => MaintenanceFailureCategory, { nullable: true })
+  @JoinColumn({ name: 'failure_category_id' })
+  failureCategory: MaintenanceFailureCategory | null;
 
   @Column({ name: 'corrective_action', type: 'text', nullable: true })
   correctiveAction: string | null;

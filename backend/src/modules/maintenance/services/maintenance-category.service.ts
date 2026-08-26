@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
+import { isUUID } from 'class-validator';
 import { MaintenanceComplaintCategory } from '../entities/maintenance-complaint-category.entity';
 import { MaintenanceRootCauseCategory } from '../entities/maintenance-root-cause-category.entity';
 import { MaintenanceFailureCategory } from '../entities/maintenance-failure-category.entity';
@@ -18,8 +19,12 @@ export class MaintenanceCategoryService {
   ) {}
 
   async findComplaintCategories(companyId?: string): Promise<MaintenanceComplaintCategory[]> {
-    const where: any = { isActive: true };
-    if (companyId) where.companyId = companyId;
+    if (companyId && !isUUID(companyId, 'all')) {
+      throw new BadRequestException('companyId must be a UUID');
+    }
+    const where: any = companyId
+      ? [{ isActive: true, companyId }, { isActive: true, companyId: IsNull() }]
+      : { isActive: true };
     return this.complaintRepo.find({ where, order: { sortOrder: 'ASC', name: 'ASC' } });
   }
 

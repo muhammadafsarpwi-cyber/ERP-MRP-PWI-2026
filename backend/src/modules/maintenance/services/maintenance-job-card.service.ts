@@ -9,6 +9,12 @@ import { MaintenanceJobCardStatusHistory } from '../entities/maintenance-job-car
 import { MaintenanceJobCardWorkLog } from '../entities/maintenance-job-card-work-log.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { ErpUser } from '../../user/entities/erp-user.entity';
+import { Department } from '../../organization/entities/department.entity';
+import { Division } from '../../organization/entities/division.entity';
+import { Section } from '../../organization/entities/section.entity';
+import { MaintenanceComplaintCategory } from '../entities/maintenance-complaint-category.entity';
+import { MaintenanceFailureCategory } from '../entities/maintenance-failure-category.entity';
+import { MaintenanceRootCauseCategory } from '../entities/maintenance-root-cause-category.entity';
 import { JobCardStatus, VALID_TRANSITIONS } from '../enums';
 import {
   CreateJobCardDto,
@@ -41,46 +47,113 @@ export class MaintenanceJobCardService {
     private readonly machineRepo: Repository<Machine>,
     @InjectRepository(ErpUser)
     private readonly userRepo: Repository<ErpUser>,
+    @InjectRepository(Department)
+    private readonly departmentRepo: Repository<Department>,
+    @InjectRepository(MaintenanceComplaintCategory)
+    private readonly complaintCategoryRepo: Repository<MaintenanceComplaintCategory>,
+    @InjectRepository(Division)
+    private readonly divisionRepo: Repository<Division>,
+    @InjectRepository(Section)
+    private readonly sectionRepo: Repository<Section>,
+    @InjectRepository(MaintenanceFailureCategory)
+    private readonly failureCategoryRepo: Repository<MaintenanceFailureCategory>,
+    @InjectRepository(MaintenanceRootCauseCategory)
+    private readonly rootCauseCategoryRepo: Repository<MaintenanceRootCauseCategory>,
     private readonly dataSource: DataSource,
   ) {}
 
   async create(dto: CreateJobCardDto, userId: string): Promise<MaintenanceJobCard> {
+    const erpUser = await this.userRepo.findOne({ where: { authUserId: userId, isActive: true } });
+    if (!erpUser) {
+      throw new NotFoundException('ERP user profile not found for the authenticated account');
+    }
+    const erpUserId = erpUser.id;
     const machine = await this.machineRepo.findOne({ where: { id: dto.machineId, isActive: true } });
     if (!machine) {
       throw new NotFoundException(`Machine with ID '${dto.machineId}' not found`);
+    }
+    if (machine.companyId !== dto.companyId) {
+      throw new BadRequestException('Selected machine does not belong to the selected company');
+    }
+    if (machine.divisionId !== dto.divisionId || machine.sectionId !== dto.sectionId) {
+      throw new BadRequestException('Selected machine does not belong to the selected division and section');
+    }
+
+    const division = await this.divisionRepo.findOne({ where: { id: dto.divisionId, isActive: true } });
+    if (!division) throw new NotFoundException(`Division with ID '${dto.divisionId}' not found`);
+    if (division.companyId !== dto.companyId) throw new BadRequestException('Selected division does not belong to the selected company');
+
+    const section = await this.sectionRepo.findOne({ where: { id: dto.sectionId, isActive: true } });
+    if (!section) throw new NotFoundException(`Section with ID '${dto.sectionId}' not found`);
+    if (section.divisionId !== dto.divisionId) throw new BadRequestException('Selected section does not belong to the selected division');
+
+    if (dto.assignedDepartmentId) {
+      const department = await this.departmentRepo.findOne({ where: { id: dto.assignedDepartmentId, isActive: true } });
+      if (!department) {
+        throw new NotFoundException(`Department with ID '${dto.assignedDepartmentId}' not found`);
+      }
+      if (department.companyId !== dto.companyId || (department.divisionId && department.divisionId !== dto.divisionId) || (department.sectionId && department.sectionId !== dto.sectionId)) {
+        throw new BadRequestException('Selected department does not belong to the selected machine organization context');
+      }
+    }
+
+    if (dto.complaintCategoryId) {
+      const category = await this.complaintCategoryRepo.findOne({ where: { id: dto.complaintCategoryId, isActive: true } });
+      if (!category) {
+        throw new NotFoundException(`Complaint category with ID '${dto.complaintCategoryId}' not found`);
+      }
+      if (category.companyId && category.companyId !== dto.companyId) {
+        throw new BadRequestException('Selected complaint category does not belong to the selected company');
+      }
+    }
+    if (dto.failureCategoryId) {
+      const failureCategory = await this.failureCategoryRepo.findOne({ where: { id: dto.failureCategoryId, isActive: true } });
+      if (!failureCategory) throw new NotFoundException(`Failure category with ID '${dto.failureCategoryId}' not found`);
+      if (failureCategory.companyId && failureCategory.companyId !== dto.companyId) throw new BadRequestException('Selected failure category does not belong to the selected company');
+    }
+    if (dto.rootCauseCategoryId) {
+      const rootCause = await this.rootCauseCategoryRepo.findOne({ where: { id: dto.rootCauseCategoryId, isActive: true } });
+      if (!rootCause) throw new NotFoundException(`Root cause category with ID '${dto.rootCauseCategoryId}' not found`);
+      if (rootCause.companyId && rootCause.companyId !== dto.companyId) throw new BadRequestException('Selected root cause category does not belong to the selected company');
     }
 
     const jobCardNo = await this.generateJobCardNo(dto.companyId);
 
     const jobCard = this.jobCardRepo.create({
       companyId: dto.companyId,
+      divisionId: dto.divisionId,
+      sectionId: dto.sectionId,
       jobCardNo,
       machineId: dto.machineId,
       complaint: dto.complaint,
       priority: dto.priority || ('MEDIUM' as any),
       complaintCategoryId: dto.complaintCategoryId || null,
+      failureCategoryId: dto.failureCategoryId || null,
+      rootCauseCategoryId: dto.rootCauseCategoryId || null,
       assignedDepartmentId: dto.assignedDepartmentId || machine.departmentId || null,
       description: dto.description || null,
-      requestedBy: dto.requestedBy || userId,
+      requestedBy: dto.requestedBy || erpUserId,
       requestedAt: new Date(),
       currentStatus: JobCardStatus.OPEN,
-      createdBy: userId,
-      updatedBy: userId,
+      createdBy: erpUserId,
+      updatedBy: erpUserId,
     });
 
     const saved = await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(saved.id, null, JobCardStatus.OPEN, userId, 'Job card created');
+    await this.recordHistory(saved.id, null, JobCardStatus.OPEN, erpUserId, 'Job card created');
     await this.logActivity(userId, 'JOB_CARD_CREATED', saved.id, jobCardNo);
 
     return this.findOne(saved.id);
   }
 
   async findAll(query: JobCardQueryDto): Promise<{ data: MaintenanceJobCard[]; total: number }> {
-    const { page = 1, limit = 20, search, companyId, machineId, assignedDepartmentId, currentStatus, priority, technicianUserId, dateFrom, dateTo } = query;
+    const { page = 1, limit = 20, search, companyId, machineId, divisionId, sectionId, assignedDepartmentId, currentStatus, priority, technicianUserId, dateFrom, dateTo } = query;
 
     const qb = this.jobCardRepo.createQueryBuilder('jc');
     qb.leftJoinAndSelect('jc.machine', 'machine');
+    qb.leftJoinAndSelect('jc.division', 'division');
+    qb.leftJoinAndSelect('jc.section', 'section');
     qb.leftJoinAndSelect('jc.assignedDepartment', 'department');
     qb.leftJoinAndSelect('jc.requestedByUser', 'requester');
     qb.leftJoinAndSelect('jc.company', 'company');
@@ -91,6 +164,8 @@ export class MaintenanceJobCardService {
     if (machineId) {
       qb.andWhere('jc.machineId = :machineId', { machineId });
     }
+    if (divisionId) qb.andWhere('machine.divisionId = :divisionId', { divisionId });
+    if (sectionId) qb.andWhere('machine.sectionId = :sectionId', { sectionId });
     if (assignedDepartmentId) {
       qb.andWhere('jc.assignedDepartmentId = :assignedDepartmentId', { assignedDepartmentId });
     }
@@ -125,7 +200,7 @@ export class MaintenanceJobCardService {
     const jobCard = await this.jobCardRepo.findOne({
       where: { id },
       relations: [
-        'machine', 'assignedDepartment', 'requestedByUser',
+        'division', 'section', 'machine', 'machine.division', 'machine.section', 'machine.department', 'assignedDepartment', 'requestedByUser', 'complaintCategory', 'rootCauseCategory', 'failureCategory',
         'startedByUser', 'completedByUser', 'closedByUser', 'verifiedByUser', 'approvedByUser',
         'company',
       ],
@@ -140,6 +215,24 @@ export class MaintenanceJobCardService {
     const jobCard = await this.findOne(id);
     if (jobCard.currentStatus === JobCardStatus.APPROVED) {
       throw new BadRequestException('Cannot edit an approved job card');
+    }
+    const effectiveMachineId = dto.machineId || jobCard.machineId;
+    const effectiveDivisionId = dto.divisionId || jobCard.divisionId;
+    const effectiveSectionId = dto.sectionId || jobCard.sectionId;
+    if (dto.machineId || dto.divisionId || dto.sectionId || dto.assignedDepartmentId) {
+      const machine = await this.machineRepo.findOne({ where: { id: effectiveMachineId, isActive: true } });
+      if (!machine) throw new NotFoundException(`Machine with ID '${effectiveMachineId}' not found`);
+      if (machine.companyId !== jobCard.companyId || machine.divisionId !== effectiveDivisionId || machine.sectionId !== effectiveSectionId) {
+        throw new BadRequestException('Selected machine does not belong to the selected organization context');
+      }
+      const departmentId = dto.assignedDepartmentId || jobCard.assignedDepartmentId;
+      if (departmentId) {
+        const department = await this.departmentRepo.findOne({ where: { id: departmentId, isActive: true } });
+        if (!department) throw new NotFoundException(`Department with ID '${departmentId}' not found`);
+        if (department.companyId !== jobCard.companyId || (department.divisionId && department.divisionId !== effectiveDivisionId) || (department.sectionId && department.sectionId !== effectiveSectionId)) {
+          throw new BadRequestException('Selected department does not belong to the selected organization context');
+        }
+      }
     }
     Object.assign(jobCard, dto, { updatedBy: userId });
     await this.jobCardRepo.save(jobCard);

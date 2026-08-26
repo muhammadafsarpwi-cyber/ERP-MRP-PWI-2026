@@ -19,6 +19,9 @@ import {
   MaintenancePmSchedule,
 } from './entities';
 import { Machine } from '../production/entities/machine.entity';
+import { Department } from '../organization/entities/department.entity';
+import { Division } from '../organization/entities/division.entity';
+import { Section } from '../organization/entities/section.entity';
 import { ErpUser } from '../user/entities/erp-user.entity';
 import { MaintenanceJobCardService } from './services/maintenance-job-card.service';
 import { MaintenanceTeamService } from './services/maintenance-team.service';
@@ -49,6 +52,9 @@ import { MaintenancePmController } from './controllers/pm.controller';
       MaintenancePmPlan,
       MaintenancePmSchedule,
       Machine,
+      Department,
+      Division,
+      Section,
       ErpUser,
     ]),
   ],

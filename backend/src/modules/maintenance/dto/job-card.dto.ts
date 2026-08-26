@@ -9,6 +9,16 @@ export class CreateJobCardDto {
   @IsNotEmpty()
   companyId: string;
 
+  @ApiProperty({ description: 'Division ID' })
+  @IsUUID()
+  @IsNotEmpty()
+  divisionId: string;
+
+  @ApiProperty({ description: 'Section ID' })
+  @IsUUID()
+  @IsNotEmpty()
+  sectionId: string;
+
   @ApiProperty({ description: 'Machine ID' })
   @IsUUID()
   @IsNotEmpty()
@@ -25,19 +35,29 @@ export class CreateJobCardDto {
   priority?: MaintenancePriority;
 
   @ApiPropertyOptional()
-  @IsOptional()
   @IsUUID()
-  complaintCategoryId?: string;
+  @IsNotEmpty()
+  complaintCategoryId: string;
 
   @ApiPropertyOptional()
-  @IsOptional()
   @IsUUID()
-  assignedDepartmentId?: string;
+  @IsNotEmpty()
+  assignedDepartmentId: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  failureCategoryId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  rootCauseCategoryId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -50,6 +70,16 @@ export class UpdateJobCardDto {
   @IsOptional()
   @IsUUID()
   machineId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  divisionId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  sectionId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -220,6 +250,16 @@ export class JobCardQueryDto {
   @IsOptional()
   @IsUUID()
   machineId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter through the linked machine hierarchy' })
+  @IsOptional()
+  @IsUUID()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter through the linked machine hierarchy' })
+  @IsOptional()
+  @IsUUID()
+  sectionId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
