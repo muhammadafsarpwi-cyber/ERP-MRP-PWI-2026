@@ -2,6 +2,8 @@ import { Controller, Get, Post, Body, UseGuards, Request, HttpCode, HttpStatus }
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from '../services/auth.service';
 import { SupabaseJwtGuard } from '../guards/supabase-jwt.guard';
+import { Public } from '../decorators/public.decorator';
+import { AuthRateLimitGuard } from '../guards/auth-rate-limit.guard';
 import { LoginDto, ForgotPasswordDto, ResetPasswordDto, ChangePasswordDto } from '../dto/auth.dto';
 
 @ApiTags('auth')
@@ -10,6 +12,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @Public()
+  @UseGuards(AuthRateLimitGuard)
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({ status: 200, description: 'Login successful, returns JWT token and user' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
@@ -30,6 +34,8 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @Public()
+  @UseGuards(AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Send password reset email' })
   @ApiResponse({ status: 200, description: 'Reset email sent (or email not found — same response for security)' })
@@ -38,6 +44,8 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @Public()
+  @UseGuards(AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using token from email' })
   @ApiResponse({ status: 200, description: 'Password reset successfully' })

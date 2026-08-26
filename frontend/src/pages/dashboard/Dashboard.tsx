@@ -1,13 +1,13 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Card, Row, Col, Typography, Statistic, Tag, Space, Button, Tooltip, Empty, Alert,
-  List, Select, DatePicker, Modal, Spin, Table, Badge, Input, Divider, Descriptions, Progress,
+  List, Select, Modal, Spin, Badge, Input, Divider, Descriptions, Progress,
 } from 'antd';
 import {
   DashboardOutlined, ToolOutlined, ShopOutlined, ShoppingCartOutlined, DollarOutlined,
   ReloadOutlined, WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, DatabaseOutlined,
   AlertOutlined, TeamOutlined, BarChartOutlined, RiseOutlined, HomeOutlined,
-  SearchOutlined, ExportOutlined, PrinterOutlined, ApartmentOutlined,
+  SearchOutlined, ApartmentOutlined,
   RightOutlined, InfoCircleOutlined, CloseCircleOutlined, FireOutlined,
 } from '@ant-design/icons';
 import {
@@ -25,14 +25,10 @@ import dashboardService, {
 } from '../../services/dashboardService';
 
 const { Text, Title } = Typography;
-const { RangePicker } = DatePicker;
-
-const COLORS = ['#1677ff', '#52c41a', '#f5222d', '#faad14', '#722ed1', '#13c2c2', '#eb2f96', '#2f54eb'];
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [sectionLoading, setSectionLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
   // ── Global Filters ──
@@ -136,7 +132,7 @@ const Dashboard: React.FC = () => {
     }
   }, [filters]);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { void loadAll(); }, [loadAll]);
 
   // ── Filter change handler ──
   const handleFilterChange = useCallback((key: string, value: string | undefined) => {
@@ -148,7 +144,6 @@ const Dashboard: React.FC = () => {
       newFilters.departmentId = undefined;
     }
     setFilters(newFilters);
-    loadAll(newFilters);
   }, [filters, loadAll]);
 
   // ── Item Detail ──

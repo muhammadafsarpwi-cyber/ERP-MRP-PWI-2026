@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { DepartmentService } from '../services';
 import { CreateDepartmentDto, UpdateDepartmentDto } from '../dto';
@@ -6,6 +7,8 @@ import { DepartmentStatus } from '../entities';
 
 @ApiTags('organization/departments')
 @Controller('departments')
+@UseGuards(PermissionGuard)
+@RequirePermission('admin.users.update')
 export class DepartmentController {
   constructor(private readonly departmentService: DepartmentService) {}
 

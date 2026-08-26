@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { BusinessUnitService } from '../services';
 import { CreateBusinessUnitDto, UpdateBusinessUnitDto } from '../dto';
@@ -6,6 +7,8 @@ import { BusinessUnitStatus } from '../entities';
 
 @ApiTags('organization/business-units')
 @Controller('business-units')
+@UseGuards(PermissionGuard)
+@RequirePermission('admin.users.update')
 export class BusinessUnitController {
   constructor(private readonly businessUnitService: BusinessUnitService) {}
 

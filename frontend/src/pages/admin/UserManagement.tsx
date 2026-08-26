@@ -7,15 +7,15 @@ import {
 import {
   PlusOutlined, EditOutlined, CheckCircleOutlined, CloseCircleOutlined,
   KeyOutlined, EyeInvisibleOutlined, EyeTwoTone, UserOutlined,
-  DeleteOutlined, SearchOutlined, ReloadOutlined, TeamOutlined,
-  SafetyCertificateOutlined, ClockCircleOutlined, ExclamationCircleOutlined,
+  SearchOutlined, ReloadOutlined, TeamOutlined,
+  SafetyCertificateOutlined, ExclamationCircleOutlined,
   MailOutlined, PhoneOutlined, IdcardOutlined, FormOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 interface ErpUser {
   id: string;
@@ -135,12 +135,11 @@ const UserManagement: React.FC = () => {
   useEffect(() => {
     fetchUsers(page, search || undefined, statusFilter);
     fetchRoles();
-  }, [page, fetchUsers, fetchRoles, statusFilter]);
+  }, [page, search, fetchUsers, fetchRoles, statusFilter]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
     setPage(1);
-    fetchUsers(1, value || undefined, statusFilter);
   };
 
   const openCreateModal = () => {

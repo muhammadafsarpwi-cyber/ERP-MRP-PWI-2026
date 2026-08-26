@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { SectionService } from '../services';
 import { CreateSectionDto, UpdateSectionDto } from '../dto';
@@ -6,6 +7,8 @@ import { SectionStatus } from '../entities';
 
 @ApiTags('organization/sections')
 @Controller('sections')
+@UseGuards(PermissionGuard)
+@RequirePermission('admin.users.update')
 export class SectionController {
   constructor(private readonly sectionService: SectionService) {}
 

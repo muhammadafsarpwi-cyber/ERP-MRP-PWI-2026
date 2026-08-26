@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { BranchService } from '../services';
 import { CreateBranchDto, UpdateBranchDto } from '../dto';
@@ -6,6 +7,8 @@ import { BranchStatus } from '../entities';
 
 @ApiTags('organization/branches')
 @Controller('branches')
+@UseGuards(PermissionGuard)
+@RequirePermission('admin.users.update')
 export class BranchController {
   constructor(private readonly branchService: BranchService) {}
 

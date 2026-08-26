@@ -36,6 +36,10 @@ export class OrgScopeGuard implements CanActivate {
       throw new ForbiddenException('No organizational access scope assigned');
     }
 
+    if (user.defaultCompanyId && !scopes.some((scope) => scope.companyId === user.defaultCompanyId)) {
+      throw new ForbiddenException('Default company is outside the user organization scope');
+    }
+
     request.erpUser = user;
     request.orgScopes = scopes;
     return true;

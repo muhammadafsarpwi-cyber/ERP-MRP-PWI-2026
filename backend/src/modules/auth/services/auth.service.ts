@@ -23,10 +23,7 @@ export class AuthService {
     let erpUser = await this.userService.findByAuthUserId(result.user.id);
 
     if (!erpUser) {
-      erpUser = await this.userService.createFromAuthUser({
-        id: result.user.id,
-        email: result.user.email,
-      });
+      throw new UnauthorizedException('Your account has not been provisioned by an administrator');
     }
 
     if (erpUser.status !== 'ACTIVE') {
@@ -62,7 +59,7 @@ export class AuthService {
     let erpUser = await this.userService.findByAuthUserId(supabaseUser.id);
 
     if (!erpUser) {
-      erpUser = await this.userService.createFromAuthUser(supabaseUser);
+      throw new UnauthorizedException('Your account has not been provisioned by an administrator');
     }
 
     if (erpUser.status !== 'ACTIVE') {

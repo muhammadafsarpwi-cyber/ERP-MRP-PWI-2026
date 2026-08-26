@@ -13,7 +13,7 @@ export default new DataSource({
   database: process.env.DB_DATABASE || 'erp_database',
   schema: process.env.DB_SCHEMA || 'public',
   ssl: process.env.DB_SSL === 'true'
-    ? { rejectUnauthorized: false }
+    ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' }
     : false,
   entities: [path.resolve(__dirname, '../modules/**/*.entity{.ts,.js}')],
   migrations: [path.resolve(__dirname, './migrations/*{.ts,.js}')],

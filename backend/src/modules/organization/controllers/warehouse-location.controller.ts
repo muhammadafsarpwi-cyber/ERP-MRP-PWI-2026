@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { WarehouseLocationService } from '../services';
 import { CreateWarehouseLocationDto, UpdateWarehouseLocationDto } from '../dto';
@@ -6,6 +7,8 @@ import { WarehouseLocationStatus } from '../entities';
 
 @ApiTags('organization/warehouse-locations')
 @Controller('warehouse-locations')
+@UseGuards(PermissionGuard)
+@RequirePermission('admin.users.update')
 export class WarehouseLocationController {
   constructor(private readonly locationService: WarehouseLocationService) {}
 

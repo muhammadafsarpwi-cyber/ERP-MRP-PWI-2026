@@ -156,7 +156,6 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, lockedContext, entry, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, qMachineId]);
   const ctxShiftId = ctxIds.shiftId;
-  const ctxDepartmentId = ctxIds.departmentId;
 
   useEffect(() => {
     void (async () => {

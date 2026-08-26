@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Tag, Card, Input, Select, Space, Statistic, Row, Col, message } from 'antd';
-import { SafetyCertificateOutlined, AppstoreOutlined, KeyOutlined } from '@ant-design/icons';
+import { Table, Tag, Card, Input, Select, Space, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 

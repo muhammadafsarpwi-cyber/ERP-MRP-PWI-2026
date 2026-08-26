@@ -22,15 +22,15 @@ async function bootstrap() {
     }),
   );
 
-  // CORS
-  // Allow the configured frontend URL plus same-host LAN access (dev):
-  // any private/loopback host serving the frontend on port 3000.
+  // CORS: production accepts only the explicitly configured frontend origin.
+  // Private-network development origins are allowed only outside production.
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const isProduction = process.env.NODE_ENV === 'production';
   const lanFrontendPattern =
     /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):3000$/;
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || origin === frontendUrl || lanFrontendPattern.test(origin)) {
+      if (!origin || origin === frontendUrl || (!isProduction && lanFrontendPattern.test(origin))) {
         callback(null, true);
       } else {
         callback(null, false);
@@ -40,24 +40,18 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('ERP System API')
-    .setDescription('Manufacturing ERP System API documentation')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addTag('health', 'Health and status endpoints')
-    .addTag('auth', 'Authentication endpoints')
-    .addTag('users', 'User management')
-    .addTag('products', 'Product management')
-    .addTag('customers', 'Customer management')
-    .addTag('sales', 'Sales management')
-    .addTag('inventory', 'Inventory management')
-    .addTag('production', 'Production management')
-    .build();
+  // Do not expose the full API inventory in production unless deliberately enabled.
+  if (!isProduction || process.env.ENABLE_SWAGGER === 'true') {
+    const config = new DocumentBuilder()
+      .setTitle('ERP System API')
+      .setDescription('Manufacturing ERP System API documentation')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');

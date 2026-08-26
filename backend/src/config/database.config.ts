@@ -6,9 +6,10 @@ export const databaseConfig = (
 ): TypeOrmModuleOptions => {
   const sslEnabled = configService.get<string>('DB_SSL', 'false') === 'true';
   const sslServername = configService.get<string>('DB_SSL_SERVERNAME', '');
+  const rejectUnauthorized = configService.get<string>('DB_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
 
   const sslConfig = sslEnabled
-    ? { rejectUnauthorized: false, servername: sslServername || undefined }
+    ? { rejectUnauthorized, servername: sslServername || undefined }
     : false;
 
   return {

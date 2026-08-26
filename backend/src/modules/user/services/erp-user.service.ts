@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository, Not, IsNull } from 'typeorm';
@@ -93,7 +93,7 @@ export class ErpUserService {
 
     try {
       // Disable the on_auth_user_created trigger (erp_core.users table doesn't exist)
-      await queryRunner.query(`SET session_replication_role = 'replica'`);
+      await queryRunner.query(`SET LOCAL session_replication_role = 'replica'`);
 
       // Create auth user — match provisioning script exactly
       const authId = crypto.randomUUID();
@@ -133,9 +133,6 @@ export class ErpUserService {
         )`,
         [identityId, authId, JSON.stringify({ sub: authId, email: dto.email, email_verified: true, phone_verified: false }), authId, now],
       );
-
-      // Re-enable triggers
-      await queryRunner.query(`RESET session_replication_role`);
 
       await queryRunner.commitTransaction();
 
@@ -361,6 +358,13 @@ export class ErpUserService {
 
   async setDefaultContext(id: string, dto: SetDefaultContextDto, userId?: string): Promise<ErpUser> {
     const user = await this.findOne(id);
+
+    const scope = await this.orgScopeRepository.findOne({
+      where: { userId: id, companyId: dto.companyId, status: OrgScopeStatus.ACTIVE },
+    });
+    if (!scope) {
+      throw new ForbiddenException('Default company must be within the user organization scope');
+    }
 
     user.defaultCompanyId = dto.companyId;
     user.defaultDivisionId = dto.divisionId || null;
