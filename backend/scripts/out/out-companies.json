@@ -1,0 +1,35 @@
+{
+    "success":  true,
+    "data":  [
+                 {
+                     "id":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "createdAt":  "2026-08-21T02:12:27.736Z",
+                     "updatedAt":  "2026-08-21T05:04:32.391Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "legalName":  "PakWiz Industrial Solutions (Pvt) Ltd",
+                     "tradeName":  "PakWiz Industries",
+                     "companyCode":  "COMP-001",
+                     "registrationNumber":  null,
+                     "taxRegistrationNumber":  null,
+                     "email":  "info@pakwiz.pk",
+                     "phone":  "+92-21-35061234",
+                     "website":  "https://pakwiz.pk",
+                     "addressLine1":  "Plot 42, Sector 15, Korangi Industrial Area",
+                     "addressLine2":  null,
+                     "city":  "Karachi",
+                     "stateProvince":  "Sindh",
+                     "postalCode":  "74900",
+                     "country":  "Pakistan",
+                     "baseCurrency":  "PKR",
+                     "fiscalYearStart":  "07-01",
+                     "timezone":  "Asia/Karachi",
+                     "dateFormat":  "DD/MM/YYYY",
+                     "numberFormat":  "#,##0.00",
+                     "logoUrl":  null,
+                     "status":  "ACTIVE"
+                 }
+             ],
+    "total":  1
+}

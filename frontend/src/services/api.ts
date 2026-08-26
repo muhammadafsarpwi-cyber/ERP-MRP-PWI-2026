@@ -34,16 +34,25 @@ class ApiService {
     this.api.interceptors.response.use(
       (response: AxiosResponse) => response,
       (error: AxiosError) => {
-        if (error.response?.status === 401) {
-          const currentPath = window.location.pathname;
-          const publicPaths = ['/login', '/forgot-password', '/reset-password'];
-          if (!publicPaths.includes(currentPath)) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('refresh_token');
-            localStorage.removeItem('erp_user');
-            window.location.href = '/login';
+        const status = error.response?.status;
+        const currentPath = window.location.pathname;
+        const publicPaths = ['/login', '/forgot-password', '/reset-password'];
+
+        if (status === 401 && !publicPaths.includes(currentPath)) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('refresh_token');
+          localStorage.removeItem('erp_user');
+          window.location.href = '/login';
+        }
+
+        if (status === 403 && !publicPaths.includes(currentPath)) {
+          const backendMsg = (error.response?.data as any)?.message;
+          const msg = Array.isArray(backendMsg) ? backendMsg[0] : backendMsg;
+          if (msg) {
+            console.warn(`[API 403] ${msg}`);
           }
         }
+
         return Promise.reject(error);
       }
     );

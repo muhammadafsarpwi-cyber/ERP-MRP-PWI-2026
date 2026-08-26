@@ -8,6 +8,7 @@ import { UomService } from './services/uom.service';
 import { UomConversionService } from './services/uom-conversion.service';
 import { ItemCategoryService } from './services/item-category.service';
 import { ItemService } from './services/item.service';
+import { ItemConversionService } from './services/item-conversion.service';
 import { ItemBarcodeService } from './services/item-barcode.service';
 import { ItemAttributeService } from './services/item-attribute.service';
 import { ItemSpecificationService } from './services/item-specification.service';
@@ -40,8 +41,9 @@ import { UserModule } from '../user/user.module';
   ],
   providers: [
     UomService, UomConversionService, ItemCategoryService, ItemService,
+    ItemConversionService,
     ItemBarcodeService, ItemAttributeService, ItemSpecificationService, ItemDocumentService,
   ],
-  exports: [ItemService, UomService, ItemCategoryService],
+  exports: [ItemService, ItemConversionService, UomService, ItemCategoryService],
 })
 export class ItemModule {}

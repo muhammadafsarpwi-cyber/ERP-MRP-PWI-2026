@@ -40,7 +40,7 @@ export class ProductionRoutingService {
   ) {}
 
   async findAll(companyId: string): Promise<ProductionRouting[]> {
-    return this.routingRepo.find({
+    const routings = await this.routingRepo.find({
       where: { companyId, isActive: true },
       relations: [
         'product',
@@ -55,6 +55,8 @@ export class ProductionRoutingService {
       ],
       order: { routingCode: 'ASC' },
     });
+    routings.forEach((r) => this.sortOperations(r));
+    return routings;
   }
 
   async findOne(id: string, companyId: string): Promise<ProductionRouting> {
@@ -75,11 +77,12 @@ export class ProductionRoutingService {
     if (!routing) {
       throw new NotFoundException(`Production Routing not found with id ${id}`);
     }
+    this.sortOperations(routing);
     return routing;
   }
 
   async findByProduct(productId: string, companyId: string): Promise<ProductionRouting | null> {
-    return this.routingRepo.findOne({
+    const routing = await this.routingRepo.findOne({
       where: { productId, companyId, status: RoutingStatus.ACTIVE, isActive: true },
       relations: [
         'product',
@@ -93,6 +96,30 @@ export class ProductionRoutingService {
         'operations.uom',
       ],
     });
+    if (routing) this.sortOperations(routing);
+    return routing;
+  }
+
+  /**
+   * Returns the item's effective production route in correct sequence order.
+   * Throws NotFound when the item does not exist or has no ACTIVE routing.
+   */
+  async getEffectiveRouteForItem(itemId: string, companyId: string): Promise<ProductionRouting> {
+    const item = await this.itemRepo.findOne({ where: { id: itemId, companyId } });
+    if (!item) {
+      throw new NotFoundException(`Item not found with id ${itemId} for this company`);
+    }
+    const routing = await this.findByProduct(itemId, companyId);
+    if (!routing) {
+      throw new NotFoundException(`No active production routing found for item '${item.itemCode}'`);
+    }
+    return routing;
+  }
+
+  private sortOperations(routing: ProductionRouting): void {
+    if (routing.operations) {
+      routing.operations.sort((a, b) => a.sequenceNo - b.sequenceNo);
+    }
   }
 
   async create(dto: CreateRoutingDto, userId?: string): Promise<ProductionRouting> {

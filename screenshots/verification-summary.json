@@ -1,0 +1,33 @@
+{
+  "roles": 11,
+  "modules": 8,
+  "resources": 55,
+  "buttons": {
+    "v": 528,
+    "a": 506,
+    "e": 363,
+    "d": 220,
+    "dash": 803
+  },
+  "consoleErrors": 2,
+  "networkErrors": 0,
+  "networkErrorDetails": [],
+  "consoleErrorDetails": [
+    "Warning: [antd: Card] `bodyStyle` is deprecated. Please use `styles.body` instead.",
+    "Warning: [antd: Card] `bodyStyle` is deprecated. Please use `styles.body` instead."
+  ],
+  "screenshotResources": {
+    "Products & Items": true,
+    "Item Attributes": true,
+    "Item Barcodes": true,
+    "Item Categories": true,
+    "Item Documents": true,
+    "Item Specifications": true,
+    "Units of Measure": true,
+    "UOM Conversions": true,
+    "Companies": true,
+    "Branches": true,
+    "Divisions": true,
+    "Warehouses": true
+  }
+}

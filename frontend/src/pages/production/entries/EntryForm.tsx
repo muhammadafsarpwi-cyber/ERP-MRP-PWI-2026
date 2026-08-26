@@ -4,7 +4,7 @@ import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
   message, Typography, Switch, Alert, Spin, AutoComplete,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
@@ -40,16 +40,23 @@ interface EntryDetailData {
   postToInventory: boolean; warehouseId: string | null; inventoryReferenceId: string | null;
 }
 
-/** Payload of GET /production/entries/machine-target (ERP-00016 resolution). */
+/** Payload of GET /production/entries/machine-target (ERP-00016/ERP-00018 resolution). */
 interface MachineTargetResolution {
   effectiveTargetRecordId: string;
   usedGeneralFallback: boolean;
   machine: { id: string; code: string; name: string };
   shift: { id: string; code: string; name: string } | null;
+  item?: { id: string; itemCode?: string; code?: string; name: string } | null;
   uom: { id: string; code: string; name: string; symbol: string } | null;
   standardHours: number;
   standardTarget: number;
   calculatedTarget: number | null;
+  targetPerHour?: number | null;
+  plannedHours?: number;
+  route?: {
+    id: string; routingCode: string; name: string;
+    operations?: Array<{ id: string; sequenceNo: number; operationName?: string; department?: { name?: string } | null }>;
+  } | null;
   effectiveFrom: string;
   effectiveTo: string | null;
 }
@@ -97,6 +104,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const sectionId = Form.useWatch('sectionId', form);
   const departmentId = Form.useWatch('departmentId', form);
   const itemId = Form.useWatch('itemId', form);
+  const uomId = Form.useWatch('uomId', form);
   const actualQty = Form.useWatch('actualQuantity', form);
   const runningHours = Form.useWatch('runningHours', form);
   const downtimeHours = Form.useWatch('downtimeHours', form);
@@ -188,15 +196,25 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookups.machines]);
 
-  /** Ask the backend which ACTIVE Machine Target applies to machine+shift+date. */
-  const resolveTarget = useCallback(async (machineId: string, mShiftId: string, productionDate: string) => {
+  /** Ask the backend which ACTIVE Machine Target applies to machine+shift+date (+item scope). */
+  const lastResolvedItemRef = useRef<string | null | undefined>(undefined);
+  const resolveTarget = useCallback(async (
+    machineId: string,
+    mShiftId: string,
+    productionDate: string,
+    opts?: { itemId?: string },
+  ) => {
     setResolvingMt(true);
     setMtError(null);
     try {
       const res = await apiService.get<{ success: boolean; data: MachineTargetResolution }>(
         '/production/entries/machine-target',
-        { machineId, shiftId: mShiftId, productionDate },
+        {
+          machineId, shiftId: mShiftId, productionDate,
+          ...(opts?.itemId ? { itemId: opts.itemId } : {}),
+        },
       );
+      lastResolvedItemRef.current = opts?.itemId ?? null;
       setMtResolution(res.data);
       // The machine target's UOM is authoritative for the entry (server enforces it).
       if (res.data.uom?.id) form.setFieldValue('uomId', res.data.uom.id);
@@ -273,10 +291,24 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   // Edit + machine-linked: resolve the governing target for this entry's facts.
   useEffect(() => {
     if (mode === 'edit' && entry?.machineId && entry.shiftId && entry.entryDate) {
-      void resolveTarget(entry.machineId, entry.shiftId, entry.entryDate.slice(0, 10));
+      void resolveTarget(entry.machineId, entry.shiftId, entry.entryDate.slice(0, 10), { itemId: entry.itemId });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, entry?.machineId, entry?.shiftId, entry?.entryDate]);
+
+  // PROMPT-11: item-scoped targets — when the operator picks an Item on a
+  // machine-linked entry, re-resolve so an item-specific target takes
+  // precedence over the generic one resolved before any item was selected.
+  useEffect(() => {
+    const mId = mode === 'edit' ? entry?.machineId : ctxIds.machineId;
+    const sId = mode === 'edit' ? entry?.shiftId ?? entry?.shift?.id : ctxShiftId;
+    const d = mode === 'edit' ? entry?.entryDate?.slice(0, 10) : ctxIds.entryDate;
+    if (!machineLinked || !itemId || !mId || !sId || !d) return;
+    if (lastResolvedItemRef.current === itemId) return;
+    lastResolvedItemRef.current = itemId;
+    void resolveTarget(mId, sId, d, { itemId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId, machineLinked]);
 
   useEffect(() => {
     if (mode === 'create' && departmentId) {
@@ -401,6 +433,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       ? lookups.uoms.filter((u) => u.id === mtResolution.uom!.id)
       : lookups.validUomsForItem(itemId as string | undefined)),
     [machineLinked, mtResolution, lookups.uoms, lookups.uomConversions, lookups.items, itemId], // eslint-disable-line
+  );
+
+  const selectedItem = useMemo(
+    () => lookups.items.find((i) => i.id === itemId) ?? null,
+    [lookups.items, itemId],
   );
 
   const onFinish = useCallback(async (values: Record<string, unknown>) => {
@@ -704,6 +741,67 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               </Form.Item>
             </Card>
 
+            {selectedItem && (
+              <Card
+                size="small" style={{ marginTop: 16 }}
+                title={<span><InfoCircleOutlined style={{ marginRight: 6 }} />Item Details</span>}
+              >
+                <Row gutter={[8, 4]}>
+                  {selectedItem.wireSizeMm != null && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Wire Size</Text>
+                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.wireSizeMm} mm</Text></div>
+                    </Col>
+                  )}
+                  {selectedItem.routeType && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Route Type</Text>
+                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.routeType}</Text></div>
+                    </Col>
+                  )}
+                  {selectedItem.weightPerPiece != null && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Weight / Piece</Text>
+                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.weightPerPiece} kg</Text></div>
+                    </Col>
+                  )}
+                  {selectedItem.piecesPerKg != null && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Pieces / KG</Text>
+                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.piecesPerKg}</Text></div>
+                    </Col>
+                  )}
+                  {selectedItem.weightPerMeter != null && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Weight / Meter</Text>
+                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.weightPerMeter} kg</Text></div>
+                    </Col>
+                  )}
+                  {selectedItem.lengthPerPiece != null && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Length / Piece</Text>
+                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.lengthPerPiece} m</Text></div>
+                    </Col>
+                  )}
+                  {selectedItem.baseUom && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Base UOM</Text>
+                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.baseUom.code}{selectedItem.baseUom.symbol ? ` (${selectedItem.baseUom.symbol})` : ''}</Text></div>
+                    </Col>
+                  )}
+                  {selectedItem.itemType && (
+                    <Col span={12}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Type</Text>
+                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.itemType.replace(/_/g, ' ')}</Text></div>
+                    </Col>
+                  )}
+                </Row>
+                {uomId && selectedItem.baseUomId && uomId !== selectedItem.baseUomId && (
+                  <UomConversionHint fromUomId={uomId} toUomId={selectedItem.baseUomId} uomConversions={lookups.uomConversions} uoms={lookups.uoms} />
+                )}
+              </Card>
+            )}
+
             <Card title="Production Order Linkage (optional)" size="small" style={{ marginTop: 16 }}>
               <Alert
                 type="info" showIcon style={{ marginBottom: 12 }}
@@ -777,7 +875,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               <Row gutter={8}>
                 <Col span={12}>
                   {machineLinked ? (
-                    <Form.Item label="Target Production" required>
+                    <Form.Item label={<span>Target Production <InputBadge type="auto" /></span>} required>
                       <div style={{ position: 'relative' }}>
                         <div
                           className="target-auto-field"
@@ -804,7 +902,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   ) : (
                     <Form.Item
                       name="targetQuantity"
-                      label="Target Production"
+                      label={<span>Target Production <InputBadge type="input" /></span>}
                       initialValue={undefined}
                       rules={[{ required: true, message: 'Target is required' }]}
                     >
@@ -814,7 +912,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   {machineLinked && (
                     <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: -14, marginBottom: 8 }}>
                       {mtResolution
-                        ? `Auto-resolved from the Machine Target master — standard ${formatNumber(mtResolution.standardTarget, 0)} ${mtResolution.uom?.code ?? ''} / ${formatNumber(mtResolution.standardHours, 2)}h${mtResolution.usedGeneralFallback ? ' · GENERAL-shift fallback' : ''}`
+                        ? `Auto-resolved from the Machine Target master${mtResolution.item ? ` (${mtResolution.item.code})` : ''} — standard ${formatNumber(mtResolution.standardTarget, 0)} ${mtResolution.uom?.code ?? ''} / ${formatNumber(mtResolution.standardHours, 2)}h${mtResolution.targetPerHour ? ` · ${formatNumber(mtResolution.targetPerHour, 2)} ${mtResolution.uom?.code ?? ''}/h` : ''}${plannedHours > 0 ? ` · planned ${formatNumber(plannedHours, 2)}h` : ''}${mtResolution.usedGeneralFallback ? ' · GENERAL-shift fallback' : ''}${mtResolution.route?.operations?.length ? ` · route: ${mtResolution.route.operations.length} op(s)` : ''}`
                         : 'Resolving from the Machine Target master…'}
                     </Text>
                   )}
@@ -822,7 +920,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={12}>
                   <Form.Item
                     name="actualQuantity"
-                    label="Actual Good Production"
+                    label={<span>Actual Good Production <InputBadge type="input" /></span>}
                     initialValue={0}
                     rules={[{ required: true, message: 'Actual is required' }]}
                   >
@@ -834,7 +932,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={12}>
                   <Form.Item
                     name="runningHours"
-                    label="Running Hours"
+                    label={<span>Running Hours <InputBadge type="input" /></span>}
                     initialValue={0}
                     rules={[
                       { required: true, message: 'Required' },
@@ -861,7 +959,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={12}>
                   <Form.Item
                     name="scrapQuantity"
-                    label="Rejection / Scrap"
+                    label={<span>Rejection / Scrap <InputBadge type="input" /></span>}
                     initialValue={0}
                     rules={[{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
                   >
@@ -916,7 +1014,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             </Card>
           </Col>
 
-          {/* ── Column 3: Downtime ── */}
+          {/* ── Column 3: Downtime + Route ── */}
           <Col xs={24} lg={8}>
             <Card title="Downtime" size="small">
               {plannedHours > 0 && (
@@ -928,7 +1026,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={12}>
                   <Form.Item
                     name="downtimeHours"
-                    label="Downtime Hours"
+                    label={<span>Downtime Hours {plannedHours > 0 ? <InputBadge type="auto" /> : <InputBadge type="input" />}</span>}
                     initialValue={0}
                     extra={plannedHours > 0 ? `Derived: planned ${formatNumber(plannedHours, 2)}h − running ${formatNumber(derivedRunning, 2)}h` : undefined}
                     rules={[
@@ -980,6 +1078,27 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Input.TextArea rows={3} maxLength={500} showCount placeholder="Notes about this shift's production" />
               </Form.Item>
             </Card>
+
+            <Card title="Production Route" size="small" style={{ marginTop: 16 }}>
+              {machineLinked && mtResolution?.route ? (
+                <RouteChain route={mtResolution.route} />
+              ) : machineLinked && resolvingMt ? (
+                <Spin size="small" />
+              ) : machineLinked && !mtResolution?.route ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  No production route configured for this item.
+                </Text>
+              ) : itemId && !machineLinked ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Select a machine-linked entry to view the production route.
+                </Text>
+              ) : (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Select an item to view its production route.
+                </Text>
+              )}
+            </Card>
+
             {machineLinked && (
               <Alert
                 type="success" showIcon icon={<LockOutlined />} style={{ marginTop: 16 }}
@@ -1016,6 +1135,57 @@ const CtxItem: React.FC<{ label: string; value?: React.ReactNode; strong?: boole
   </div>
 );
 
+const RouteChain: React.FC<{
+  route: { routingCode?: string; name?: string; operations?: Array<{ sequenceNo: number; operationName?: string; department?: { name?: string } | null }> };
+}> = ({ route }) => {
+  const ops = (route.operations ?? []).sort((a, b) => a.sequenceNo - b.sequenceNo);
+  if (ops.length === 0) {
+    return <Text type="secondary" style={{ fontSize: 12 }}>No operations defined in this route.</Text>;
+  }
+  return (
+    <div>
+      {route.routingCode && (
+        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+          {route.routingCode}{route.name ? ` — ${route.name}` : ''} · {ops.length} operation(s)
+        </Text>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {ops.map((op, idx) => (
+          <React.Fragment key={idx}>
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 8px',
+                background: 'var(--theme-surface-alt)',
+                borderRadius: 4,
+                border: '1px solid var(--theme-border)',
+              }}
+            >
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 20, height: 20, borderRadius: '50%',
+                background: 'var(--theme-primary)', color: '#fff',
+                fontSize: 11, fontWeight: 600, flexShrink: 0,
+              }}>
+                {idx + 1}
+              </span>
+              <Text strong style={{ fontSize: 12 }}>{op.operationName ?? 'Operation'}</Text>
+              {op.department?.name && (
+                <Text type="secondary" style={{ fontSize: 11 }}>({op.department.name})</Text>
+              )}
+            </div>
+            {idx < ops.length - 1 && (
+              <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 14, lineHeight: '16px' }}>
+                ↓
+              </div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const StatisticMini: React.FC<{ label: string; hint: string; content: React.ReactNode }> = ({ label, hint, content }) => (
   <div style={{ background: 'var(--theme-surface-alt)', borderRadius: 6, padding: '8px 12px' }}>
     <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>
@@ -1023,5 +1193,51 @@ const StatisticMini: React.FC<{ label: string; hint: string; content: React.Reac
     <Text type="secondary" style={{ fontSize: 11 }}>{hint}</Text>
   </div>
 );
+
+const InputBadge: React.FC<{ type: 'input' | 'auto' }> = ({ type }) => {
+  const isInput = type === 'input';
+  return (
+    <span
+      style={{
+        display: 'inline-block', fontSize: 9, fontWeight: 600, letterSpacing: 0.3,
+        padding: '0 4px', borderRadius: 3, marginLeft: 6,
+        lineHeight: '16px', verticalAlign: 'middle',
+        background: isInput ? 'var(--theme-primary-bg, #e6f4ff)' : 'var(--theme-success-bg, #f0f5ff)',
+        color: isInput ? 'var(--theme-primary, #1677ff)' : 'var(--theme-success, #52c41a)',
+        border: `1px solid ${isInput ? 'var(--theme-primary-border, #91caff)' : 'var(--theme-success-border, #b7eb8f)'}`,
+      }}
+    >
+      {isInput ? 'USER INPUT' : 'AUTO'}
+    </span>
+  );
+};
+
+const UomConversionHint: React.FC<{
+  fromUomId: string;
+  toUomId: string;
+  uomConversions: Array<{ fromUomId: string; toUomId: string; conversionFactor: string | number }>;
+  uoms: Array<{ id: string; code: string; symbol?: string }>;
+}> = ({ fromUomId, toUomId, uomConversions, uoms }) => {
+  const conv = uomConversions.find(
+    (c) => (c.fromUomId === fromUomId && c.toUomId === toUomId)
+      || (c.fromUomId === toUomId && c.toUomId === fromUomId),
+  );
+  if (!conv) return null;
+  const from = uoms.find((u) => u.id === fromUomId);
+  const to = uoms.find((u) => u.id === toUomId);
+  if (!from || !to) return null;
+  const factor = Number(conv.conversionFactor);
+  const sameDirection = conv.fromUomId === fromUomId;
+  const display = sameDirection
+    ? `1 ${from.code} = ${formatNumber(factor, 4)} ${to.code}`
+    : `1 ${to.code} = ${formatNumber(1 / factor, 4)} ${from.code}`;
+  return (
+    <div style={{ marginTop: 8, padding: '4px 8px', background: 'var(--theme-surface-alt)', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
+      <Text type="secondary" style={{ fontSize: 11 }}>
+        Conversion: <Text strong style={{ fontSize: 11 }}>{display}</Text>
+      </Text>
+    </div>
+  );
+};
 
 export default EntryForm;

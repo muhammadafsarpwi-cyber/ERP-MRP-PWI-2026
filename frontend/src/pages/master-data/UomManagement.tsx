@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, InputNumber, message, Popconfirm, Card,
+  App, Table, Button, Space, Modal, Form, Input, Select, InputNumber, Popconfirm, Card,
 } from 'antd';
-import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, CalculatorOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { PageHeader, StatusBadge, EmptyState, PageToolbar, FilterBar } from '../../components/shared';
+import type { FilterOption } from '../../components/shared/FilterBar';
 
 const UOM_TYPES = ['COUNT', 'WEIGHT', 'LENGTH', 'AREA', 'VOLUME', 'TIME', 'OTHER'];
 
@@ -18,22 +20,19 @@ interface Uom {
   status: string;
 }
 
-const statusColorMap: Record<string, string> = {
-  ACTIVE: 'green',
-  INACTIVE: 'red',
-};
-
 const UomManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [uoms, setUoms] = useState<Uom[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUom, setEditingUom] = useState<Uom | null>(null);
   const [form] = Form.useForm();
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
-  const [pageSize] = useState(20);
+  const [showFilters, setShowFilters] = useState(false);
 
   const fetchUoms = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -49,7 +48,7 @@ const UomManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterType, pageSize]);
+  }, [search, filterType, pageSize, message]);
 
   useEffect(() => {
     fetchUoms(page);
@@ -105,6 +104,18 @@ const UomManagement: React.FC = () => {
     }
   };
 
+  const filters: FilterOption[] = [
+    {
+      key: 'uomType',
+      placeholder: 'UOM Type',
+      value: filterType,
+      options: UOM_TYPES.map(t => ({ value: t, label: t })),
+      onChange: (v) => { setFilterType(v); setPage(1); },
+    },
+  ];
+
+  const activeFilterCount = filterType ? 1 : 0;
+
   const columns: ColumnsType<Uom> = [
     { title: 'Code', dataIndex: 'code', key: 'code', width: 120 },
     { title: 'Name', dataIndex: 'name', key: 'name', width: 180 },
@@ -113,7 +124,7 @@ const UomManagement: React.FC = () => {
     { title: 'Decimal Precision', dataIndex: 'decimalPrecision', key: 'decimalPrecision', width: 150 },
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 110,
-      render: (s: string) => <Tag color={statusColorMap[s] || 'default'}>{s}</Tag>,
+      render: (s: string) => <StatusBadge status={s} />,
     },
     {
       title: 'Actions', key: 'actions', width: 140,
@@ -135,41 +146,60 @@ const UomManagement: React.FC = () => {
   ];
 
   return (
-    <Card title="UOM Management">
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          placeholder="Search UOMs..."
-          prefix={<SearchOutlined />}
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          style={{ width: 250 }}
-          allowClear
-        />
-        <Select
-          placeholder="UOM Type"
-          value={filterType}
-          onChange={(v) => { setFilterType(v); setPage(1); }}
-          style={{ width: 150 }}
-          allowClear
-        >
-          {UOM_TYPES.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}
-        </Select>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add UOM</Button>
-      </Space>
-
-      <Table
-        columns={columns}
-        dataSource={uoms}
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          current: page,
-          total,
-          pageSize,
-          onChange: setPage,
-          showSizeChanger: false,
-        }}
+    <div>
+      <PageHeader
+        icon={<CalculatorOutlined />}
+        title="Units of Measure"
+        subtitle={`Manage measurement units and types · ${total} records`}
+        showBreadcrumbs
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add UOM</Button>
+        }
       />
+
+      <PageToolbar
+        searchValue={search}
+        onSearchChange={(v) => { setSearch(v); setPage(1); }}
+        searchPlaceholder="Search UOMs..."
+        filterCount={activeFilterCount}
+        showFilters={showFilters}
+        onToggleFilters={() => setShowFilters((v) => !v)}
+        onClearFilters={() => { setFilterType(undefined); setPage(1); }}
+        hasActiveFilters={activeFilterCount > 0}
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add UOM</Button>
+        }
+      />
+
+      <FilterBar filters={filters} visible={showFilters} />
+
+      <Card styles={{ body: { padding: '8px 0 0' } }}>
+        <Table
+          columns={columns}
+          dataSource={uoms}
+          rowKey="id"
+          loading={loading}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} UOMs`,
+          }}
+          locale={{
+            emptyText: (
+              <EmptyState
+                title={search || filterType ? 'No UOMs match your search' : 'No UOMs found'}
+                description={search || filterType ? 'Try adjusting your search criteria.' : 'Get started by adding your first unit of measure.'}
+                actionLabel="Add UOM"
+                onAction={handleCreate}
+              />
+            ),
+          }}
+        />
+      </Card>
 
       <Modal
         title={editingUom ? 'Edit UOM' : 'Create UOM'}
@@ -177,7 +207,6 @@ const UomManagement: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
         width={500}
-        destroyOnClose
       >
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="Code" rules={[{ required: true }]}>
@@ -199,7 +228,7 @@ const UomManagement: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 };
 

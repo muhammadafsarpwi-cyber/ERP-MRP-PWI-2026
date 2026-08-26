@@ -5,7 +5,20 @@ export interface LookupItem { id: string; name: string; }
 export interface Division extends LookupItem { divisionCode: string; }
 export interface Section extends LookupItem { sectionCode: string; divisionId: string; }
 export interface Department extends LookupItem { departmentCode: string; divisionId: string | null; sectionId: string | null; }
-export interface ItemLk extends LookupItem { itemCode: string; baseUomId: string; baseUom?: { code: string }; itemType: string; isManufacturable: boolean; status: string; }
+export interface ItemLk extends LookupItem {
+  itemCode: string;
+  baseUomId: string;
+  baseUom?: { code: string; symbol?: string };
+  itemType: string;
+  isManufacturable: boolean;
+  status: string;
+  wireSizeMm?: number | null;
+  routeType?: string | null;
+  weightPerPiece?: number | null;
+  piecesPerKg?: number | null;
+  weightPerMeter?: number | null;
+  lengthPerPiece?: number | null;
+}
 export interface UomLk extends LookupItem { code: string; symbol: string; uomType: string; }
 export interface UomConversionLk { id: string; fromUomId: string; toUomId: string; conversionFactor: string | number; status: string; }
 export interface ShiftLk extends LookupItem { shiftCode: string; startTime: string | null; endTime: string | null; plannedHours: number; }

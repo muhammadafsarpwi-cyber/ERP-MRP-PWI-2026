@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { SupabaseAuthService } from './supabase-auth.service';
 import { ErpUserService } from '../../user/services/erp-user.service';
+import { PermissionMatrixService } from '../../permission/services/permission-matrix.service';
 import { LoginDto, ForgotPasswordDto, ResetPasswordDto, ChangePasswordDto } from '../dto/auth.dto';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class AuthService {
   constructor(
     private readonly supabaseAuthService: SupabaseAuthService,
     private readonly userService: ErpUserService,
+    private readonly permissionMatrixService: PermissionMatrixService,
   ) {}
 
   async login(loginDto: LoginDto): Promise<{ token: string; refreshToken: string; user: any }> {
@@ -33,6 +35,8 @@ export class AuthService {
 
     await this.userService.updateLastLogin(erpUser.id);
 
+    const permissions = await this.permissionMatrixService.getUserPermissions(erpUser.id);
+
     return {
       token: result.accessToken,
       refreshToken: result.refreshToken,
@@ -44,6 +48,7 @@ export class AuthService {
         lastName: erpUser.lastName,
         defaultCompanyId: erpUser.defaultCompanyId,
         status: erpUser.status,
+        permissions,
       },
     };
   }
@@ -78,7 +83,13 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
-    return user;
+
+    const permissions = await this.permissionMatrixService.getUserPermissions(user.id);
+
+    return {
+      ...user,
+      permissions,
+    };
   }
 
   async forgotPassword(dto: ForgotPasswordDto): Promise<{ message: string }> {

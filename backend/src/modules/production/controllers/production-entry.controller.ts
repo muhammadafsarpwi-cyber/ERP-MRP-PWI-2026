@@ -19,7 +19,6 @@ import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { ProductionEntryService } from '../services';
-import { MachineTargetService } from '../../machine-target/services/machine-target.service';
 import { ResolveMachineTargetQueryDto } from '../../machine-target/dto';
 import {
   CreateProductionEntryDto,
@@ -35,7 +34,6 @@ import {
 export class ProductionEntryController {
   constructor(
     private readonly entryService: ProductionEntryService,
-    private readonly machineTargetService: MachineTargetService,
   ) {}
 
   private getCompanyId(req: any): string {
@@ -65,11 +63,14 @@ export class ProductionEntryController {
   @ApiQuery({ name: 'dateTo', required: false })
   @ApiQuery({ name: 'shiftId', required: false })
   @ApiQuery({ name: 'machineNo', required: false })
+  @ApiQuery({ name: 'machineId', required: false })
   @ApiQuery({ name: 'itemId', required: false })
+  @ApiQuery({ name: 'uomId', required: false })
+  @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'productionOrderId', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false, enum: ['ASC', 'DESC'] })
-  @ApiOperation({ summary: 'List daily production entries with organization/date/shift/machine/item filters' })
+  @ApiOperation({ summary: 'List daily production entries with organization/date/shift/machine/item/UOM/search filters' })
   async findAll(
     @Req() req: any,
     @Query('page') page?: number,
@@ -81,7 +82,10 @@ export class ProductionEntryController {
     @Query('dateTo') dateTo?: string,
     @Query('shiftId') shiftId?: string,
     @Query('machineNo') machineNo?: string,
+    @Query('machineId') machineId?: string,
     @Query('itemId') itemId?: string,
+    @Query('uomId') uomId?: string,
+    @Query('search') search?: string,
     @Query('productionOrderId') productionOrderId?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'ASC' | 'DESC',
@@ -97,7 +101,10 @@ export class ProductionEntryController {
       dateTo,
       shiftId,
       machineNo,
+      machineId,
       itemId,
+      uomId,
+      search,
       productionOrderId,
       sortBy,
       sortDir,
@@ -119,12 +126,14 @@ export class ProductionEntryController {
     @Query('dateTo') dateTo?: string,
     @Query('shiftId') shiftId?: string,
     @Query('machineNo') machineNo?: string,
+    @Query('machineId') machineId?: string,
     @Query('itemId') itemId?: string,
+    @Query('uomId') uomId?: string,
     @Query('productionOrderId') productionOrderId?: string,
   ) {
     const companyId = this.getCompanyId(req);
     const result = await this.entryService.getReport(companyId, {
-      divisionId, sectionId, departmentId, dateFrom, dateTo, shiftId, machineNo, itemId, productionOrderId,
+      divisionId, sectionId, departmentId, dateFrom, dateTo, shiftId, machineNo, machineId, itemId, uomId, productionOrderId,
     });
     return { success: true, ...result };
   }
@@ -154,11 +163,11 @@ export class ProductionEntryController {
   @RequirePermission('manufacturing.production.entries.view')
   @ApiOperation({
     summary:
-      'Resolve the active Machine Target (ERP-00016) for machine + shift + production date — powers the auto-filled Target Production field',
+      'Resolve the active Machine Target (ERP-00016/ERP-00018) for machine + shift + production date, enriched with shift planned hours and the item\'s effective production route — powers the auto-filled Target Production field',
   })
   async resolveMachineTarget(@Req() req: any, @Query() query: ResolveMachineTargetQueryDto) {
     const companyId = this.getCompanyId(req);
-    const resolution = await this.machineTargetService.resolve(query, companyId);
+    const resolution = await this.entryService.resolveEntryContext(companyId, query);
     return { success: true, data: resolution };
   }
 

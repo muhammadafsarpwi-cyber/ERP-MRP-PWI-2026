@@ -4,6 +4,7 @@ import { MachineTarget } from './entities/machine-target.entity';
 import { Machine } from '../production/entities/machine.entity';
 import { Shift } from '../production/entities/shift.entity';
 import { Uom } from '../item/entities/uom.entity';
+import { Item } from '../item/entities/item.entity';
 import { MachineTargetService } from './services';
 import { MachineTargetController } from './controllers';
 import { AuthModule } from '../auth/auth.module';
@@ -12,7 +13,7 @@ import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MachineTarget, Machine, Shift, Uom]),
+    TypeOrmModule.forFeature([MachineTarget, Machine, Shift, Uom, Item]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),

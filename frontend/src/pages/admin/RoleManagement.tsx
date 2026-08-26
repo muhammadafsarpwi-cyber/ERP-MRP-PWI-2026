@@ -1,8 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, message, Popconfirm, Card, Checkbox } from 'antd';
-import { PlusOutlined, EditOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Tag, Modal, Form, Input, message, Popconfirm, Card, Checkbox, Statistic, Row, Col } from 'antd';
+import { PlusOutlined, EditOutlined, CloseCircleOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { usePermission } from '../../hooks/usePermission';
+
+function formatApiError(error: any, fallback: string): string {
+  if (!error?.response) return 'Network error. Please check your connection.';
+  const { status, data } = error.response;
+  const backendMsg = data?.message;
+  const msg = Array.isArray(backendMsg) ? backendMsg[0] : backendMsg;
+  switch (status) {
+    case 400: return msg || 'Invalid request. Please check your input.';
+    case 401: return 'Session expired. Please log in again.';
+    case 403: return 'You do not have permission to perform this action.';
+    case 404: return msg || 'Resource not found.';
+    case 409: return msg || 'A conflict occurred. This may already exist.';
+    case 422: return msg || 'Validation failed. Please check your input.';
+    case 500: return 'Internal server error. Please try again later.';
+    default: return msg || fallback;
+  }
+}
 
 interface Role {
   id: string;
@@ -31,10 +49,13 @@ const RoleManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [permModalVisible, setPermModalVisible] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [permModalLoading, setPermModalLoading] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [form] = Form.useForm();
   const [permForm] = Form.useForm();
+  const { can } = usePermission();
 
   const fetchRoles = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -43,7 +64,7 @@ const RoleManagement: React.FC = () => {
       setRoles(response.data);
       setTotal(response.total);
     } catch (error) {
-      message.error('Failed to fetch roles');
+      message.error(formatApiError(error, 'Failed to fetch roles'));
     } finally {
       setLoading(false);
     }
@@ -54,7 +75,7 @@ const RoleManagement: React.FC = () => {
       const response = await apiService.get<{ data: Permission[] }>('/admin/permissions', { limit: 500 });
       setPermissions(response.data);
     } catch (error) {
-      message.error('Failed to fetch permissions');
+      message.error(formatApiError(error, 'Failed to fetch permissions'));
     }
   }, []);
 
@@ -78,13 +99,14 @@ const RoleManagement: React.FC = () => {
       message.success('Role deactivated');
       fetchRoles(page);
     } catch (error) {
-      message.error('Failed to deactivate role');
+      message.error(formatApiError(error, 'Failed to deactivate role'));
     }
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      setModalLoading(true);
       if (editingRole) {
         await apiService.patch(`/admin/roles/${editingRole.id}`, values);
         message.success('Role updated');
@@ -94,8 +116,11 @@ const RoleManagement: React.FC = () => {
       }
       setModalVisible(false);
       fetchRoles(page);
-    } catch (error) {
-      message.error('Operation failed');
+    } catch (error: any) {
+      if (error.errorFields) return;
+      message.error(formatApiError(error, 'Operation failed'));
+    } finally {
+      setModalLoading(false);
     }
   };
 
@@ -110,13 +135,17 @@ const RoleManagement: React.FC = () => {
     try {
       const values = await permForm.validateFields();
       if (selectedRole) {
+        setPermModalLoading(true);
         await apiService.post(`/admin/roles/${selectedRole.id}/permissions`, { permissionIds: values.permissionIds });
         message.success('Permissions assigned');
         setPermModalVisible(false);
         fetchRoles(page);
       }
-    } catch (error) {
-      message.error('Failed to assign permissions');
+    } catch (error: any) {
+      if (error.errorFields) return;
+      message.error(formatApiError(error, 'Failed to assign permissions'));
+    } finally {
+      setPermModalLoading(false);
     }
   };
 
@@ -131,9 +160,13 @@ const RoleManagement: React.FC = () => {
       title: 'Actions', key: 'actions',
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          <Button type="link" onClick={() => openPermModal(record)}>Permissions</Button>
-          {!record.isSystemRole && record.status === 'ACTIVE' && (
+          {can('admin.roles.update') && (
+            <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          )}
+          {can('admin.roles.assign_permissions') && (
+            <Button type="link" onClick={() => openPermModal(record)}>Permissions</Button>
+          )}
+          {can('admin.roles.deactivate') && !record.isSystemRole && record.status === 'ACTIVE' && (
             <Popconfirm title="Deactivate?" onConfirm={() => handleDeactivate(record.id)}>
               <Button type="link" danger icon={<CloseCircleOutlined />} />
             </Popconfirm>
@@ -152,12 +185,14 @@ const RoleManagement: React.FC = () => {
   return (
     <Card title="Role Management">
       <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Role</Button>
+        {can('admin.roles.create') && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Role</Button>
+        )}
       </Space>
       <Table columns={columns} dataSource={roles} rowKey="id" loading={loading}
         pagination={{ current: page, total, pageSize: 20, onChange: setPage }} />
 
-      <Modal title={editingRole ? 'Edit Role' : 'Create Role'} open={modalVisible} onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={600}>
+      <Modal title={editingRole ? 'Edit Role' : 'Create Role'} open={modalVisible} onOk={handleSubmit} onCancel={() => setModalVisible(false)} confirmLoading={modalLoading} width={600}>
         <Form form={form} layout="vertical">
           {!editingRole && <Form.Item name="roleCode" label="Role Code" rules={[{ required: true }]}><Input disabled={!!editingRole} /></Form.Item>}
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
@@ -165,7 +200,7 @@ const RoleManagement: React.FC = () => {
         </Form>
       </Modal>
 
-      <Modal title={`Assign Permissions - ${selectedRole?.name}`} open={permModalVisible} onOk={handleAssignPermissions} onCancel={() => setPermModalVisible(false)} width={800}>
+      <Modal title={`Assign Permissions - ${selectedRole?.name}`} open={permModalVisible} onOk={handleAssignPermissions} onCancel={() => setPermModalVisible(false)} confirmLoading={permModalLoading} width={800}>
         <Form form={permForm} layout="vertical">
           <Form.Item name="permissionIds">
             <Checkbox.Group style={{ width: '100%' }}>

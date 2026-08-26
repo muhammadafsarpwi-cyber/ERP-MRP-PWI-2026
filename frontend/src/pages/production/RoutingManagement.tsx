@@ -349,7 +349,7 @@ const RoutingManagement: React.FC = () => {
           </Space>
         </Space>
 
-        <Modal title={editingOp ? 'Edit Operation' : 'Add Operation'} open={opModalVisible} onOk={handleSaveOp} onCancel={() => setOpModalVisible(false)} width={800} destroyOnClose>
+        <Modal title={editingOp ? 'Edit Operation' : 'Add Operation'} open={opModalVisible} onOk={handleSaveOp} onCancel={() => setOpModalVisible(false)} width={800} destroyOnHidden>
           <Form form={opForm} layout="vertical">
             <Row gutter={16}>
               <Col span={6}><Form.Item name="sequenceNo" label="Sequence" rules={[{ required: true }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item></Col>
@@ -417,7 +417,7 @@ const RoutingManagement: React.FC = () => {
         <Table dataSource={filteredRoutings} columns={columns} rowKey="id" loading={loading} pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `Total ${t} routings` }} />
       </Card>
 
-      <Modal title={editingRouting ? 'Edit Routing' : 'New Routing'} open={modalVisible} onOk={handleSave} onCancel={() => setModalVisible(false)} width={700} destroyOnClose>
+      <Modal title={editingRouting ? 'Edit Routing' : 'New Routing'} open={modalVisible} onOk={handleSave} onCancel={() => setModalVisible(false)} width={700} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={12}><Form.Item name="name" label="Routing Name" rules={[{ required: true }]}><Input maxLength={255} /></Form.Item></Col>

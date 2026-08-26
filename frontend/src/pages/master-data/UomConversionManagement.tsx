@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Select, InputNumber, message, Popconfirm, Card,
+  App, Table, Button, Space, Modal, Form, Select, InputNumber, Popconfirm, Card, Input,
 } from 'antd';
-import { PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, SwapOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { PageHeader, StatusBadge, EmptyState } from '../../components/shared';
 
 interface UomConversion {
   id: string;
@@ -22,29 +23,25 @@ interface UomOption {
   name: string;
 }
 
-const statusColorMap: Record<string, string> = {
-  ACTIVE: 'green',
-  INACTIVE: 'red',
-};
-
 const UomConversionManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [conversions, setConversions] = useState<UomConversion[]>([]);
   const [uoms, setUoms] = useState<UomOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConversion, setEditingConversion] = useState<UomConversion | null>(null);
   const [form] = Form.useForm();
-  const [pageSize] = useState(20);
+  const [search, setSearch] = useState('');
 
   const fetchConversions = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
-      const response = await apiService.get<{ data: UomConversion[]; total: number }>('/master-data/uom-conversions', {
-        page: pageNum,
-        limit: pageSize,
-      });
+      const params: any = { page: pageNum, limit: pageSize };
+      if (search) params.search = search;
+      const response = await apiService.get<{ data: UomConversion[]; total: number }>('/master-data/uom-conversions', params);
       setConversions(response.data);
       setTotal(response.total);
     } catch (error) {
@@ -52,7 +49,7 @@ const UomConversionManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [pageSize]);
+  }, [pageSize, search, message]);
 
   const fetchUoms = useCallback(async () => {
     try {
@@ -61,7 +58,7 @@ const UomConversionManagement: React.FC = () => {
     } catch (error) {
       message.error('Failed to fetch UOMs');
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     fetchUoms();
@@ -146,7 +143,7 @@ const UomConversionManagement: React.FC = () => {
     { title: 'Conversion Factor', dataIndex: 'conversionFactor', key: 'conversionFactor', width: 160 },
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 110,
-      render: (s: string) => <Tag color={statusColorMap[s] || 'default'}>{s}</Tag>,
+      render: (s: string) => <StatusBadge status={s} />,
     },
     {
       title: 'Actions', key: 'actions', width: 140,
@@ -168,24 +165,59 @@ const UomConversionManagement: React.FC = () => {
   ];
 
   return (
-    <Card title="UOM Conversion Management">
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Conversion</Button>
-      </Space>
-
-      <Table
-        columns={columns}
-        dataSource={conversions}
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          current: page,
-          total,
-          pageSize,
-          onChange: setPage,
-          showSizeChanger: false,
-        }}
+    <div>
+      <PageHeader
+        icon={<SwapOutlined />}
+        title="UOM Conversions"
+        subtitle={`Manage unit of measure conversion factors · ${total} records`}
+        showBreadcrumbs
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Conversion</Button>
+        }
       />
+
+      <Card styles={{ body: { paddingBottom: 0 } }} style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 4 }}>
+          <Input
+            allowClear
+            prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+            placeholder="Search conversions..."
+            style={{ width: 280, maxWidth: '100%' }}
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+          <div style={{ flex: 1 }} />
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Conversion</Button>
+        </div>
+      </Card>
+
+      <Card styles={{ body: { padding: '8px 0 0' } }}>
+        <Table
+          columns={columns}
+          dataSource={conversions}
+          rowKey="id"
+          loading={loading}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} conversions`,
+          }}
+          locale={{
+            emptyText: (
+              <EmptyState
+                title={search ? 'No conversions match your search' : 'No UOM conversions found'}
+                description={search ? 'Try adjusting your search criteria.' : 'Get started by adding your first conversion factor.'}
+                actionLabel="Add Conversion"
+                onAction={handleCreate}
+              />
+            ),
+          }}
+        />
+      </Card>
 
       <Modal
         title={editingConversion ? 'Edit UOM Conversion' : 'Create UOM Conversion'}
@@ -193,7 +225,6 @@ const UomConversionManagement: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
         width={500}
-        destroyOnClose
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -227,7 +258,7 @@ const UomConversionManagement: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 };
 

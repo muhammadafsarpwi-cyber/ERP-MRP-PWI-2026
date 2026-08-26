@@ -8,6 +8,7 @@ import { Division, Section, Department } from '../../organization/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { MachineTargetService } from '../../machine-target/services/machine-target.service';
+import { ProductionRoutingService } from '../../production-routing/services/production-routing.service';
 
 const COMPANY = '7725aa04-a270-4314-9e82-90949cbe7791';
 
@@ -31,6 +32,8 @@ let productionOrderRepo: any;
 let productionOrderOperationRepo: any;
 let stockLedgerService: any;
 let balanceService: any;
+let machineTargetService: any;
+let productionRoutingService: any;
 
 const validDto = () => ({
   divisionId: 'div-1',
@@ -88,6 +91,13 @@ beforeEach(async () => {
   productionOrderOperationRepo = { findOne: jest.fn() };
   stockLedgerService = { create: jest.fn().mockResolvedValue({ id: 'ledger-ref-1' }) };
   balanceService = { updateBalance: jest.fn(), getAvailableStock: jest.fn() };
+  machineTargetService = {
+    resolveEffectiveEntity: jest.fn().mockResolvedValue({ target: null, usedGeneralFallback: false }),
+    resolve: jest.fn().mockResolvedValue({ effectiveTargetRecordId: 'mt-1', usedGeneralFallback: false }),
+  };
+  productionRoutingService = {
+    getEffectiveRouteForItem: jest.fn().mockRejectedValue(new NotFoundException('no routing')),
+  };
 
   const moduleRef = await Test.createTestingModule({
     providers: [
@@ -107,10 +117,9 @@ beforeEach(async () => {
       { provide: InventoryBalanceService, useValue: balanceService },
       {
         provide: MachineTargetService,
-        useValue: {
-          resolveEffectiveEntity: jest.fn().mockResolvedValue({ target: null, usedGeneralFallback: false }),
-        },
+        useValue: machineTargetService,
       },
+      { provide: ProductionRoutingService, useValue: productionRoutingService },
     ],
   }).compile();
 
@@ -472,5 +481,211 @@ describe('ProductionEntryService — machine entry status (duplicate pre-check)'
     await expect(
       service.getMachineEntryStatus(COMPANY, { entryDate: '2026-08-23', shiftId: 'shift-x' }),
     ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('ProductionEntryService — PROMPT-11: item-scoped target resolution', () => {
+  const machineLinkedDto = () => ({
+    ...validDto(),
+    machineId: 'm-1',
+    machineNo: undefined as unknown as string,
+    uomId: 'uom-kg',
+    targetQuantity: undefined as unknown as number,
+    runningHours: 8,
+  });
+
+  const mockLinkedMachine = () => {
+    machineRepo.findOne.mockResolvedValue({ id: 'm-1', companyId: COMPANY, machineCode: 'NP-02', isActive: true, departmentId: 'dept-1' });
+  };
+
+  it('prefers the item-scoped target (resolveEffectiveEntity called with itemId)', async () => {
+    makeOrgMocks();
+    mockLinkedMachine();
+    machineTargetService.resolveEffectiveEntity.mockImplementation(async (_c: string, _m: string, _s: string, _d: string, _fb: boolean, _u: string | undefined, itemId?: string) =>
+      itemId === 'item-1'
+        ? { target: { id: 'mt-item', itemId: 'item-1', uomId: 'uom-kg', targetQuantity: 5000, standardHours: 8, item: { itemCode: 'WIRE' } }, usedGeneralFallback: false }
+        : { target: null, usedGeneralFallback: false });
+    const saved = await service.create(machineLinkedDto() as any, COMPANY);
+    const firstCall = machineTargetService.resolveEffectiveEntity.mock.calls[0];
+    expect(firstCall[6]).toBe('item-1');
+    expect(saved.targetQuantity).toBe(5000); // 8h working hours = full standard target
+    expect(saved.uomId).toBe('uom-kg'); // target UOM is authoritative
+    expect(saved.machineTargetId).toBe('mt-item');
+    expect(saved.calculatedTarget).toBe(5000);
+  });
+
+  it('falls back to the legacy generic target when the item has no specific one', async () => {
+    makeOrgMocks();
+    mockLinkedMachine();
+    machineTargetService.resolveEffectiveEntity
+      .mockResolvedValueOnce({ target: null, usedGeneralFallback: false }) // item-specific pass: miss
+      .mockResolvedValueOnce({
+        target: { id: 'mt-generic', itemId: null, uomId: 'uom-kg', targetQuantity: 4000, standardHours: 8 },
+        usedGeneralFallback: false,
+      }); // legacy pass: hit
+    const saved = await service.create(machineLinkedDto() as any, COMPANY);
+    expect(machineTargetService.resolveEffectiveEntity).toHaveBeenCalledTimes(2);
+    expect(machineTargetService.resolveEffectiveEntity.mock.calls[1][6]).toBeUndefined();
+    expect(saved.targetQuantity).toBe(4000);
+    expect(saved.machineTargetId).toBe('mt-generic');
+  });
+
+  it('prorates the resolved target for partial working hours (6h of an 8h/5000 shift → 3750)', async () => {
+    makeOrgMocks();
+    mockLinkedMachine();
+    machineTargetService.resolveEffectiveEntity.mockImplementation(async (_c: string, _m: string, _s: string, _d: string, _fb: boolean, _u: string | undefined, itemId?: string) =>
+      itemId === 'item-1'
+        ? { target: { id: 'mt-item', itemId: 'item-1', uomId: 'uom-kg', targetQuantity: 5000, standardHours: 8 }, usedGeneralFallback: false }
+        : { target: null, usedGeneralFallback: false });
+    const saved = await service.create({ ...machineLinkedDto(), runningHours: 6 } as any, COMPANY);
+    expect(saved.targetQuantity).toBe(3750);
+  });
+
+  it('rejects a manually entered targetQuantity when a machine target governs the entry', async () => {
+    makeOrgMocks();
+    mockLinkedMachine();
+    machineTargetService.resolveEffectiveEntity.mockImplementation(async (_c: string, _m: string, _s: string, _d: string, _fb: boolean, _u: string | undefined, itemId?: string) =>
+      itemId === 'item-1'
+        ? { target: { id: 'mt-item', itemId: 'item-1', uomId: 'uom-kg', targetQuantity: 5000, standardHours: 8 }, usedGeneralFallback: false }
+        : { target: null, usedGeneralFallback: false });
+    await expect(
+      service.create({ ...machineLinkedDto(), runningHours: 7, targetQuantity: 9999 } as any, COMPANY),
+    ).rejects.toThrow(/must not be entered manually/);
+  });
+
+  it('rejects entries when no target exists at all for the machine+shift', async () => {
+    makeOrgMocks();
+    mockLinkedMachine();
+    await expect(service.create(machineLinkedDto() as any, COMPANY)).rejects.toThrow(/No active target is configured/);
+  });
+
+  it('rejects an entry whose requested UOM differs from the resolved target UOM', async () => {
+    makeOrgMocks();
+    mockLinkedMachine();
+    machineTargetService.resolveEffectiveEntity.mockResolvedValue({
+      target: { id: 'mt-item', itemId: 'item-1', uomId: 'uom-kg', targetQuantity: 5000, standardHours: 8, item: { itemCode: 'WIRE' } },
+      usedGeneralFallback: false,
+    });
+    await expect(
+      service.create({ ...machineLinkedDto(), uomId: 'uom-meter' } as any, COMPANY),
+    ).rejects.toThrow(/Incompatible UOM/);
+  });
+});
+
+describe('ProductionEntryService — PROMPT-11: derived-UOM validation (PROMPT-09 calculator)', () => {
+  const uomById = (id: string) => {
+    const map: Record<string, { code: string; uomType: string }> = {
+      'uom-m': { code: 'M', uomType: 'LENGTH' },
+      'uom-kg': { code: 'KG', uomType: 'WEIGHT' },
+      'uom-pcs': { code: 'PCS', uomType: 'COUNT' },
+    };
+    return map[id] ?? null;
+  };
+
+  const enableCalculatorUoms = () => {
+    uomConversionRepo.manager.getRepository = jest.fn().mockReturnValue({
+      findOne: jest.fn(async (opts: { where: { id: string } }) => uomById(opts.where.id)),
+    });
+  };
+
+  it('accepts KG production recorded in PCS when the item carries piecesPerKg (derived conversion, no table row)', async () => {
+    makeOrgMocks();
+    enableCalculatorUoms();
+    itemRepo.findOne.mockResolvedValue({
+      id: 'item-1', companyId: COMPANY, itemCode: 'WIRE', status: 'ACTIVE',
+      baseUomId: 'uom-kg', piecesPerKg: 10.672,
+    });
+    const saved = await service.create({ ...validDto(), uomId: 'uom-pcs' } as any, COMPANY);
+    expect(saved.uomId).toBe('uom-pcs');
+  });
+
+  it('accepts a same-family alternative UOM without any conversion data', async () => {
+    makeOrgMocks();
+    enableCalculatorUoms();
+    itemRepo.findOne.mockResolvedValue({
+      id: 'item-1', companyId: COMPANY, itemCode: 'ROD', status: 'ACTIVE',
+      baseUomId: 'uom-kg',
+    });
+    // uom-pcs vs KG would fail, but another WEIGHT-family UOM passes via familyOf identity.
+    uomConversionRepo.manager.getRepository = jest.fn().mockReturnValue({
+      findOne: jest.fn(async (opts: { where: { id: string } }) =>
+        opts.where.id === 'uom-kg' ? { code: 'KG', uomType: 'WEIGHT' } : opts.where.id === 'uom-lb' ? { code: 'LB', uomType: 'WEIGHT' } : null),
+    });
+    const saved = await service.create({ ...validDto(), uomId: 'uom-lb' } as any, COMPANY);
+    expect(saved.uomId).toBe('uom-lb');
+  });
+
+  it('rejects PCS with a clear missing-data message when the LENGTH-based item has no piece data', async () => {
+    makeOrgMocks();
+    enableCalculatorUoms();
+    itemRepo.findOne.mockResolvedValue({
+      id: 'item-1', companyId: COMPANY, itemCode: 'NIPPLE', status: 'ACTIVE',
+      baseUomId: 'uom-m', piecesPerKg: 400,
+    });
+    await expect(
+      service.create({ ...validDto(), uomId: 'uom-pcs' } as any, COMPANY),
+    ).rejects.toThrow(/requires conversion data that item 'NIPPLE' does not have/);
+  });
+
+  it('still rejects UOMs outside the production families entirely', async () => {
+    makeOrgMocks();
+    enableCalculatorUoms();
+    itemRepo.findOne.mockResolvedValue({
+      id: 'item-1', companyId: COMPANY, itemCode: 'WIRE', status: 'ACTIVE',
+      baseUomId: 'uom-kg', piecesPerKg: 10,
+    });
+    await expect(
+      service.create({ ...validDto(), uomId: 'uom-bad' } as any, COMPANY),
+    ).rejects.toThrow(/not valid for item 'WIRE'/);
+  });
+});
+
+describe('ProductionEntryService — PROMPT-11: enriched entry-context preview', () => {
+  it('returns the target resolution plus shift plannedHours and the effective route', async () => {
+    machineTargetService.resolve.mockResolvedValue({ effectiveTargetRecordId: 'mt-9', usedGeneralFallback: false, standardTarget: 5000 });
+    productionRoutingService.getEffectiveRouteForItem.mockResolvedValue({
+      id: 'route-1', routingCode: 'RT-1', name: 'Wire line',
+      operations: [{ id: 'op-1', sequenceNo: 10 }],
+    });
+    const res = await service.resolveEntryContext(COMPANY, {
+      machineId: 'm-1', shiftId: 'shift-1', productionDate: '2026-08-24', itemId: 'item-1',
+    });
+    expect(res.effectiveTargetRecordId).toBe('mt-9');
+    expect(res.plannedHours).toBe(8);
+    expect(res.route.routingCode).toBe('RT-1');
+    expect(productionRoutingService.getEffectiveRouteForItem).toHaveBeenCalledWith('item-1', COMPANY);
+  });
+
+  it('treats a missing route as non-fatal (route: null) and skips lookup without an item', async () => {
+    machineTargetService.resolve.mockResolvedValue({ effectiveTargetRecordId: 'mt-9', usedGeneralFallback: false });
+    productionRoutingService.getEffectiveRouteForItem.mockRejectedValue(new NotFoundException('no routing'));
+    const withItem = await service.resolveEntryContext(COMPANY, {
+      machineId: 'm-1', shiftId: 'shift-1', productionDate: '2026-08-24', itemId: 'item-x',
+    });
+    expect(withItem.route).toBeNull();
+    const noItem = await service.resolveEntryContext(COMPANY, {
+      machineId: 'm-1', shiftId: 'shift-1', productionDate: '2026-08-24',
+    });
+    expect(noItem.route).toBeNull();
+    expect(productionRoutingService.getEffectiveRouteForItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('findAll supports the new machineId/uomId/search filters', async () => {
+    const qbMock = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    entryRepo.createQueryBuilder.mockReturnValue(qbMock);
+    await service.findAll(COMPANY, { machineId: 'm-1', uomId: 'uom-kg', search: 'ali' });
+    const wheres = qbMock.andWhere.mock.calls.map((c: any[]) => c[0] as string);
+    expect(wheres.some((w) => w.includes('pe.machineId'))).toBe(true);
+    expect(wheres.some((w) => w.includes('pe.uomId'))).toBe(true);
+    expect(wheres.some((w) => w.includes('ILIKE :search'))).toBe(true);
   });
 });

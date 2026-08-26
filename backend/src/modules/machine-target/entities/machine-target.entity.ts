@@ -4,6 +4,7 @@ import { Company } from '../../organization/entities/company.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { Shift } from '../../production/entities/shift.entity';
 import { Uom } from '../../item/entities/uom.entity';
+import { Item } from '../../item/entities/item.entity';
 
 export enum MachineTargetStatus {
   ACTIVE = 'ACTIVE',
@@ -55,6 +56,15 @@ export class MachineTarget extends BaseEntity {
   @ManyToOne(() => Uom)
   @JoinColumn({ name: 'uom_id' })
   uom: Uom;
+
+  /** PROMPT-10: produced item (existing Item Master). NULL for pre-ERP-00018 rows. */
+  @Index({ unique: false })
+  @Column({ name: 'item_id', type: 'uuid', nullable: true })
+  itemId: string | null;
+
+  @ManyToOne(() => Item)
+  @JoinColumn({ name: 'item_id' })
+  item: Item;
 
   /** Standard working hours the target quantity is based on (> 0). */
   @Column({ name: 'standard_hours', type: 'numeric', precision: 19, scale: 4, default: 8 })

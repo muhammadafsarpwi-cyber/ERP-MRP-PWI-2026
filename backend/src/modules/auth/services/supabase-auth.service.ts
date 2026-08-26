@@ -262,6 +262,42 @@ export class SupabaseAuthService {
     }
   }
 
+  async signUpWithPassword(
+    email: string,
+    password: string,
+    metadata?: Record<string, any>,
+  ): Promise<{ user: { id: string; email: string } }> {
+    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
+    const supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY');
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Supabase not configured');
+    }
+
+    const response = await fetch(`${supabaseUrl}/auth/v1/signup`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        data: metadata || {},
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      const msg = data.error_description || data.msg || data.error?.message || 'Failed to create user';
+      this.logger.error(`Signup failed for ${email}: ${msg}`);
+      throw new Error(msg);
+    }
+
+    return { user: { id: data.user.id, email: data.user.email } };
+  }
+
   async adminResetUserPassword(authUserId: string, newPassword: string): Promise<void> {
     const { error } = await this.supabase.auth.admin.updateUserById(authUserId, {
       password: newPassword,

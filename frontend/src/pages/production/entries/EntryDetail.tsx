@@ -38,6 +38,10 @@ interface DetailData {
   productionOrderOperationId: string | null;
   inventoryReferenceId: string | null;
   createdByUser?: { fullName: string };
+  route?: {
+    routingCode?: string; name?: string;
+    operations?: Array<{ sequenceNo: number; operationName?: string; department?: { name?: string } | null }>;
+  } | null;
 }
 
 const EntryDetail: React.FC = () => {
@@ -138,6 +142,51 @@ const EntryDetail: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="Remarks" span={2}>{entry.remarks ?? '—'}</Descriptions.Item>
             </Descriptions>
+          </Card>
+
+          <Card size="small" title="Production Route" style={{ marginTop: 16 }}>
+            {entry.route && entry.route.operations && entry.route.operations.length > 0 ? (
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+                  {entry.route.routingCode}{entry.route.name ? ` — ${entry.route.name}` : ''} · {entry.route.operations.length} operation(s)
+                </Text>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {entry.route.operations.sort((a, b) => a.sequenceNo - b.sequenceNo).map((op, idx, arr) => (
+                    <React.Fragment key={idx}>
+                      <div
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '5px 8px',
+                          background: 'var(--theme-surface-alt)',
+                          borderRadius: 4,
+                          border: '1px solid var(--theme-border)',
+                        }}
+                      >
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: 20, height: 20, borderRadius: '50%',
+                          background: 'var(--theme-primary)', color: '#fff',
+                          fontSize: 11, fontWeight: 600, flexShrink: 0,
+                        }}>
+                          {idx + 1}
+                        </span>
+                        <Text strong style={{ fontSize: 12 }}>{op.operationName ?? 'Operation'}</Text>
+                        {op.department?.name && (
+                          <Text type="secondary" style={{ fontSize: 11 }}>({op.department.name})</Text>
+                        )}
+                      </div>
+                      {idx < arr.length - 1 && (
+                        <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 14, lineHeight: '16px' }}>
+                          ↓
+                        </div>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <Text type="secondary">No production route configured for this item.</Text>
+            )}
           </Card>
         </Col>
 

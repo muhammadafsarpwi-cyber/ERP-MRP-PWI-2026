@@ -22,6 +22,7 @@ import {
 import { ProductionOrderController, ProductionEntryController } from './controllers';
 import { InventoryModule } from '../inventory/inventory.module';
 import { MachineTargetModule } from '../machine-target/machine-target.module';
+import { ProductionRoutingModule } from '../production-routing/production-routing.module';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
@@ -51,6 +52,7 @@ import { UserModule } from '../user/user.module';
     ]),
     InventoryModule,
     MachineTargetModule,
+    ProductionRoutingModule,
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),

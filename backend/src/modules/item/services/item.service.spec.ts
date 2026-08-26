@@ -17,6 +17,7 @@ describe('ItemService', () => {
     name: 'Test Item',
     shortName: 'TI',
     description: 'A test item',
+    notes: null,
     itemType: ItemType.FINISHED_GOOD,
     status: ItemStatus.ACTIVE,
     barcode: '1234567890123',
@@ -40,6 +41,21 @@ describe('ItemService', () => {
     reorderLevel: 50,
     safetyStockLevel: 20,
     leadTimeDays: 7,
+    divisionId: null,
+    sectionId: null,
+    departmentId: null,
+    wireSizeMm: null,
+    routeType: null,
+    process1: null,
+    process2: null,
+    process3: null,
+    process4: null,
+    finalProduct: null,
+    packingNextStep: null,
+    weightPerPiece: null,
+    piecesPerKg: null,
+    weightPerMeter: null,
+    lengthPerPiece: null,
     costPrice: 100,
     sellingPrice: 200,
     createdAt: new Date(),
@@ -52,6 +68,9 @@ describe('ItemService', () => {
     baseUom: null as never,
     purchaseUom: null as never,
     salesUom: null as never,
+    division: null as never,
+    section: null as never,
+    department: null as never,
     barcodes: [],
     attributeValues: [],
     specifications: [],
@@ -269,6 +288,36 @@ describe('ItemService', () => {
       repository.findOne.mockResolvedValue(discontinued);
 
       await expect(service.discontinue('item-001')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('remove', () => {
+    it('should delete an item with no business references', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      repository.query = jest.fn().mockResolvedValue([{ c: 0 }]);
+      repository.remove.mockResolvedValue(mockItem);
+
+      await expect(service.remove('item-001')).resolves.toBeUndefined();
+      expect(repository.remove).toHaveBeenCalledWith(mockItem);
+    });
+
+    it('should block deletion when referenced by BOM lines / production / stock', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      repository.query = jest.fn().mockImplementation((sql: string) => {
+        if (sql.includes('bom_lines')) return Promise.resolve([{ c: 3 }]);
+        if (sql.includes('production_entries')) return Promise.resolve([{ c: 12 }]);
+        return Promise.resolve([{ c: 0 }]);
+      });
+
+      await expect(service.remove('item-001')).rejects.toThrow(ConflictException);
+      await expect(service.remove('item-001')).rejects.toThrow(/referenced by/);
+      expect(repository.remove).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when the item does not exist', async () => {
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
     });
   });
 });

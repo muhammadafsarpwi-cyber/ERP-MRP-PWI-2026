@@ -42,6 +42,20 @@ interface UomLk {
   symbol?: string | null;
 }
 
+interface ItemLk {
+  id: string;
+  itemCode: string;
+  name: string;
+  itemType?: string | null;
+  status?: string;
+  isActive?: boolean;
+  baseUomId?: string | null;
+  weightPerPiece?: number | string | null;
+  piecesPerKg?: number | string | null;
+  weightPerMeter?: number | string | null;
+  lengthPerPiece?: number | string | null;
+}
+
 /** Production target units (PROMPT-16): KG / PCS / METER — 'M' is the stored Meter code. */
 const PRODUCTION_UOM_CODES = ['KG', 'PCS', 'M', 'METER'];
 const MAX_STANDARD_HOURS = 24;
@@ -51,10 +65,12 @@ interface MachineTarget {
   companyId: string;
   machineId: string;
   shiftId: string;
+  itemId?: string | null;
   uomId: string;
   machine?: MachineLk | null;
   shift?: ShiftLk | null;
   uom?: UomLk | null;
+  item?: ItemLk | null;
   standardHours: string | number;
   targetQuantity: string | number;
   effectiveFrom: string;
@@ -101,12 +117,14 @@ const TargetManagement: React.FC = () => {
   const [fSection, setFSection] = useState<string | undefined>();
   const [fDepartment, setFDepartment] = useState<string | undefined>();
   const [fShift, setFShift] = useState<string | undefined>();
+  const [fItem, setFItem] = useState<string | undefined>();
   const [fUom, setFUom] = useState<string | undefined>();
   const [fStatus, setFStatus] = useState<string | undefined>();
 
   const [machines, setMachines] = useState<MachineLk[]>([]);
   const [shifts, setShifts] = useState<ShiftLk[]>([]);
   const [uoms, setUoms] = useState<UomLk[]>([]);
+  const [items, setItems] = useState<ItemLk[]>([]);
   const [divisions, setDivisions] = useState<DivisionLk[]>([]);
   const [sections, setSections] = useState<SectionLk[]>([]);
   const [departments, setDepartments] = useState<DepartmentLk[]>([]);
@@ -117,6 +135,7 @@ const TargetManagement: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const formMachineId = Form.useWatch('machineId', form);
+  const formItemId = Form.useWatch('itemId', form);
   const formHours = Form.useWatch('standardHours', form);
   const formQty = Form.useWatch('targetQuantity', form);
   const formUomId = Form.useWatch('uomId', form);
@@ -124,6 +143,10 @@ const TargetManagement: React.FC = () => {
   const selectedMachine = useMemo(
     () => machines.find((m) => m.id === formMachineId) ?? null,
     [machines, formMachineId],
+  );
+  const selectedItem = useMemo(
+    () => items.find((i) => i.id === formItemId) ?? null,
+    [items, formItemId],
   );
   const perHourPreview = useMemo(() => {
     const q = Number(formQty);
@@ -146,6 +169,7 @@ const TargetManagement: React.FC = () => {
       if (fSection) params.sectionId = fSection;
       if (fDepartment) params.departmentId = fDepartment;
       if (fShift) params.shiftId = fShift;
+      if (fItem) params.itemId = fItem;
       if (fUom) params.uomId = fUom;
       if (fStatus) params.status = fStatus;
       const response = await apiService.get<{ data: MachineTarget[]; total: number }>(
@@ -158,7 +182,7 @@ const TargetManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, sortBy, sortDir, search, fMachineId, fDivision, fSection, fDepartment, fShift, fUom, fStatus]);
+  }, [page, pageSize, sortBy, sortDir, search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus]);
 
   useEffect(() => { fetchTargets(page); }, [page, pageSize, fetchTargets]);
 
@@ -172,8 +196,9 @@ const TargetManagement: React.FC = () => {
         apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500 }),
         apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500 }),
         apiService.get<{ data: UomLk[] }>('/master-data/uom', { limit: 200, status: 'ACTIVE' }),
+        apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 1000, status: 'ACTIVE' }),
       ]);
-      const [mch, shf, div, sec, dep, uom] = results;
+      const [mch, shf, div, sec, dep, uom, itm] = results;
       const failed: string[] = [];
       if (mch.status === 'fulfilled') setMachines(mch.value.data || []); else failed.push('machine');
       if (shf.status === 'fulfilled') setShifts(shf.value.data || []); else failed.push('shift');
@@ -184,6 +209,11 @@ const TargetManagement: React.FC = () => {
         setUoms((uom.value.data || []).filter((u) => PRODUCTION_UOM_CODES.includes(String(u.code).toUpperCase())));
       } else {
         failed.push('UOM');
+      }
+      if (itm.status === 'fulfilled') {
+        setItems((itm.value.data || []).filter((i) => i.isActive !== false && i.status !== 'INACTIVE'));
+      } else {
+        failed.push('item');
       }
       if (failed.length > 0) {
         message.warning(`Could not load ${failed.join(' / ')} lookups`);
@@ -215,6 +245,7 @@ const TargetManagement: React.FC = () => {
     form.setFieldsValue({
       machineId: t.machineId,
       shiftId: t.shiftId,
+      itemId: t.itemId ?? undefined,
       uomId: t.uomId,
       standardHours: Number(t.standardHours),
       targetQuantity: Number(t.targetQuantity),
@@ -240,6 +271,7 @@ const TargetManagement: React.FC = () => {
       const payload: any = {
         machineId: values.machineId,
         shiftId: values.shiftId,
+        itemId: values.itemId,
         uomId: values.uomId,
         standardHours: values.standardHours,
         targetQuantity: values.targetQuantity,
@@ -295,6 +327,7 @@ const TargetManagement: React.FC = () => {
     setFSection(undefined);
     setFDepartment(undefined);
     setFShift(undefined);
+    setFItem(undefined);
     setFUom(undefined);
     setFStatus(undefined);
     setPage(1);
@@ -352,6 +385,20 @@ const TargetManagement: React.FC = () => {
       width: 140,
       ellipsis: true,
       render: (_: any, t: MachineTarget) => t.machine?.department?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
+    },
+    {
+      title: 'Item Code',
+      key: 'itemCode',
+      sorter: true,
+      width: 140,
+      render: (_: any, t: MachineTarget) => <b>{t.item?.itemCode ?? '—'}</b>,
+    },
+    {
+      title: 'Item Name',
+      key: 'itemName',
+      width: 180,
+      ellipsis: true,
+      render: (_: any, t: MachineTarget) => t.item?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
     },
     {
       title: 'Shift',
@@ -471,7 +518,7 @@ const TargetManagement: React.FC = () => {
           <Input
             allowClear
             prefix={<SearchOutlined />}
-            placeholder="Search machine ID / code / name / number…"
+            placeholder="Search machine / item code or name…"
             style={{ width: 260 }}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
@@ -507,6 +554,12 @@ const TargetManagement: React.FC = () => {
             onChange={(v) => { setFShift(v); setPage(1); }}
           />
           <Select
+            allowClear showSearch optionFilterProp="label"
+            placeholder="Item" style={{ width: 220 }} value={fItem}
+            options={items.map((i) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
+            onChange={(v) => { setFItem(v); setPage(1); }}
+          />
+          <Select
             allowClear placeholder="UOM" style={{ width: 130 }} value={fUom}
             options={uoms.map((u) => ({ value: u.id, label: u.code }))}
             onChange={(v) => { setFUom(v); setPage(1); }}
@@ -528,7 +581,7 @@ const TargetManagement: React.FC = () => {
         columns={columns}
         dataSource={targets}
         loading={loading}
-        scroll={{ x: 2100 }}
+        scroll={{ x: 2400 }}
         pagination={{
           current: page,
           pageSize,
@@ -542,6 +595,7 @@ const TargetManagement: React.FC = () => {
             const map: Record<string, string> = {
               machineCode: 'machineCode',
               machineName: 'machineName',
+              itemCode: 'itemCode',
               shiftCode: 'shiftCode',
               uomCode: 'uomCode',
               standardHours: 'standardHours',
@@ -564,7 +618,7 @@ const TargetManagement: React.FC = () => {
         onCancel={() => setModalVisible(false)}
         width={760}
         okText={editing ? 'Save Changes' : 'Create Target'}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -595,6 +649,56 @@ const TargetManagement: React.FC = () => {
                 <Descriptions.Item label="Section">{selectedMachine.section?.name ?? '—'}</Descriptions.Item>
                 <Descriptions.Item label="Department">{selectedMachine.department?.name ?? '—'}</Descriptions.Item>
               </Descriptions>
+            </Card>
+          )}
+
+          <Form.Item
+            name="itemId"
+            label="Item"
+            tooltip="The produced item this target applies to (from Item Master)"
+            rules={[{ required: true, message: 'Select an item from the Item Master' }]}
+            style={{ marginTop: 16 }}
+          >
+            <Select
+              showSearch optionFilterProp="label"
+              placeholder="Select item (from Item Master)"
+              options={items.map((i) => ({
+                value: i.id,
+                label: `${i.itemCode} — ${i.name}`,
+              }))}
+            />
+          </Form.Item>
+
+          {selectedItem && (
+            <Card size="small" style={{ marginBottom: 16, background: 'var(--theme-surface-alt)' }} title={<span><AimOutlined /> Selected Item</span>}>
+              <Descriptions size="small" column={3}>
+                <Descriptions.Item label="Code">{selectedItem.itemCode}</Descriptions.Item>
+                <Descriptions.Item label="Name">{selectedItem.name}</Descriptions.Item>
+                <Descriptions.Item label="Type">{selectedItem.itemType ?? '—'}</Descriptions.Item>
+                <Descriptions.Item label="Base UOM">
+                  {uoms.find((u) => u.id === selectedItem.baseUomId)?.code ?? '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Weight / Piece">{fmtQty(selectedItem.weightPerPiece)}</Descriptions.Item>
+                <Descriptions.Item label="Pieces / KG">{fmtQty(selectedItem.piecesPerKg)}</Descriptions.Item>
+                <Descriptions.Item label="Weight / Meter">{fmtQty(selectedItem.weightPerMeter)}</Descriptions.Item>
+                <Descriptions.Item label="Length / Piece">{fmtQty(selectedItem.lengthPerPiece)}</Descriptions.Item>
+              </Descriptions>
+              {(Number(selectedItem.piecesPerKg) > 0 || Number(selectedItem.weightPerPiece) > 0
+                || Number(selectedItem.weightPerMeter) > 0 || Number(selectedItem.lengthPerPiece) > 0) ? (
+                <Alert
+                  type="success"
+                  showIcon
+                  style={{ marginTop: 8 }}
+                  message="Conversion master data found — KG / PCS / METER targets are validated against it on save."
+                />
+              ) : (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 8 }}
+                  message="No conversion data on this item — only targets in the item's base unit family will be accepted."
+                />
+              )}
             </Card>
           )}
 
@@ -718,7 +822,7 @@ const TargetManagement: React.FC = () => {
       </Modal>
 
       <Drawer
-        title={detail ? `Target — ${detail.machine?.machineCode ?? ''} · ${detail.shift?.shiftCode ?? ''}` : ''}
+        title={detail ? `Target — ${detail.machine?.machineCode ?? ''}${detail.item ? ` · ${detail.item.itemCode}` : ''} · ${detail.shift?.shiftCode ?? ''}` : ''}
         placement="right"
         width={480}
         open={!!detail}
@@ -749,6 +853,11 @@ const TargetManagement: React.FC = () => {
                 <Descriptions.Item label="Division">{detail.machine?.division?.name ?? '—'}</Descriptions.Item>
                 <Descriptions.Item label="Section">{detail.machine?.section?.name ?? '—'}</Descriptions.Item>
                 <Descriptions.Item label="Department">{detail.machine?.department?.name ?? '—'}</Descriptions.Item>
+                <Descriptions.Item label="Item">
+                  {detail.item ? (
+                    <span><b>{detail.item.itemCode}</b> · {detail.item.name}</span>
+                  ) : <span style={{ color: 'var(--theme-text-muted)' }}>—</span>}
+                </Descriptions.Item>
                 <Descriptions.Item label="Shift">{detail.shift ? `${detail.shift.shiftCode} · ${detail.shift.name}` : '—'}</Descriptions.Item>
                 <Descriptions.Item label="UOM">{detail.uom ? `${detail.uom.code} · ${detail.uom.name}` : '—'}</Descriptions.Item>
                 <Descriptions.Item label="Standard Target">{`${fmtQty(detail.targetQuantity)} ${uomSymbolOf(detail)}`}</Descriptions.Item>

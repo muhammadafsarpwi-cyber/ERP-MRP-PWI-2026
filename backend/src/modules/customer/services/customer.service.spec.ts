@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CustomerService } from './customer.service';
 import { Customer, CustomerContact, CustomerAddress } from '../entities';
+import { NotificationsService } from '../../notification/notifications.service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 
 describe('CustomerService', () => {
@@ -122,6 +123,7 @@ describe('CustomerService', () => {
         { provide: getRepositoryToken(Customer), useValue: mockRepo },
         { provide: getRepositoryToken(CustomerContact), useValue: { ...mockRepo } },
         { provide: getRepositoryToken(CustomerAddress), useValue: { ...mockRepo } },
+        { provide: NotificationsService, useValue: { notifyActiveUsers: jest.fn() } },
       ],
     }).compile();
 

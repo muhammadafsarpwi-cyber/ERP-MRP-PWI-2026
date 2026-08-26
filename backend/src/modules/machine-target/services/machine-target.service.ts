@@ -10,6 +10,16 @@ import { MachineTarget, MachineTargetStatus } from '../entities/machine-target.e
 import { Machine } from '../../production/entities/machine.entity';
 import { Shift } from '../../production/entities/shift.entity';
 import { Uom } from '../../item/entities/uom.entity';
+import { Item } from '../../item/entities/item.entity';
+import {
+  familyOf,
+  convertWithItemData,
+  supportedConversions,
+  MissingConversionDataError,
+  ConversionItemData,
+  UomTypeInfo,
+  UomFamily,
+} from '../../item/services/uom-conversion.calculator';
 import {
   CreateMachineTargetDto,
   UpdateMachineTargetDto,
@@ -61,6 +71,8 @@ export class MachineTargetService {
     private readonly shiftRepo: Repository<Shift>,
     @InjectRepository(Uom)
     private readonly uomRepo: Repository<Uom>,
+    @InjectRepository(Item)
+    private readonly itemRepo: Repository<Item>,
   ) {}
 
   // ─── Queries ────────────────────────────────────────────────────────────────
@@ -74,6 +86,7 @@ export class MachineTargetService {
       limit = 20,
       machineId,
       shiftId,
+      itemId,
       uomId,
       divisionId,
       sectionId,
@@ -95,11 +108,13 @@ export class MachineTargetService {
       .leftJoinAndSelect('machine.department', 'machineDepartment')
       .leftJoinAndSelect('mt.shift', 'shift')
       .leftJoinAndSelect('mt.uom', 'uom')
+      .leftJoinAndSelect('mt.item', 'item')
       .where('mt.companyId = :companyId', { companyId })
       .andWhere('mt.isActive = true');
 
     if (machineId) qb.andWhere('mt.machineId = :machineId', { machineId });
     if (shiftId) qb.andWhere('mt.shiftId = :shiftId', { shiftId });
+    if (itemId) qb.andWhere('mt.itemId = :itemId', { itemId });
     if (uomId) qb.andWhere('mt.uomId = :uomId', { uomId });
     if (divisionId) qb.andWhere('machine.divisionId = :divisionId', { divisionId });
     if (sectionId) qb.andWhere('machine.sectionId = :sectionId', { sectionId });
@@ -114,7 +129,7 @@ export class MachineTargetService {
     }
     if (search) {
       qb.andWhere(
-        '(machine.machineId ILIKE :search OR machine.machineCode ILIKE :search OR machine.name ILIKE :search OR machine.machineNumber ILIKE :search)',
+        '(machine.machineId ILIKE :search OR machine.machineCode ILIKE :search OR machine.name ILIKE :search OR machine.machineNumber ILIKE :search OR item.itemCode ILIKE :search OR item.name ILIKE :search)',
         { search: `%${search}%` },
       );
     }
@@ -122,6 +137,8 @@ export class MachineTargetService {
     const sortMap: Record<string, string> = {
       machineCode: 'machine.machineCode',
       machineName: 'machine.name',
+      itemCode: 'item.itemCode',
+      itemName: 'item.name',
       shiftCode: 'shift.shiftCode',
       uomCode: 'uom.code',
       effectiveFrom: 'mt.effectiveFrom',
@@ -143,7 +160,10 @@ export class MachineTargetService {
   async findOne(id: string, companyId: string): Promise<MachineTarget> {
     const target = await this.targetRepo.findOne({
       where: { id, companyId },
-      relations: ['machine', 'shift', 'uom', 'machine.department', 'machine.section', 'machine.division'],
+      relations: [
+        'machine', 'shift', 'uom', 'item',
+        'machine.department', 'machine.section', 'machine.division',
+      ],
     });
     if (!target || !target.isActive) {
       throw new NotFoundException(`Machine Target '${id}' not found`);
@@ -154,15 +174,20 @@ export class MachineTargetService {
   // ─── Mutations ──────────────────────────────────────────────────────────────
 
   async create(dto: CreateMachineTargetDto, companyId: string, userId?: string): Promise<MachineTarget> {
-    await this.assertRefsValid(companyId, dto.machineId, dto.shiftId, dto.uomId);
+    const machine = await this.assertRefsValid(companyId, dto.machineId, dto.shiftId, dto.uomId, dto.itemId);
     this.validateDates(dto.effectiveFrom, dto.effectiveTo ?? null);
+    this.assertOrgConsistent(machine, dto);
 
-    await this.assertNoOverlap(companyId, dto.machineId, dto.shiftId, dto.uomId, dto.effectiveFrom, dto.effectiveTo ?? null);
+    await this.assertNoOverlap(
+      companyId, dto.machineId, dto.shiftId, dto.itemId, dto.uomId,
+      dto.effectiveFrom, dto.effectiveTo ?? null,
+    );
 
     const target = this.targetRepo.create({
       companyId,
       machineId: dto.machineId,
       shiftId: dto.shiftId,
+      itemId: dto.itemId,
       uomId: dto.uomId,
       standardHours: String(dto.standardHours),
       targetQuantity: String(dto.targetQuantity),
@@ -176,13 +201,13 @@ export class MachineTargetService {
 
     try {
       const saved = await this.targetRepo.save(target);
-      // Reload with machine/shift/UOM/org relations for a complete API response.
+      // Reload with machine/shift/item/UOM/org relations for a complete API response.
       return await this.findOne(saved.id, companyId);
     } catch (e: any) {
       // uq_machine_targets_active_open_combo safety net
       if (String(e?.code) === '23505' || String(e?.detail ?? '').includes('uq_machine_targets_active_open_combo')) {
         throw new ConflictException(
-          'An open-ended ACTIVE target already exists for this machine/shift/UOM combination',
+          'An open-ended ACTIVE target already exists for this machine/shift/Item/UOM combination',
         );
       }
       throw e;
@@ -195,6 +220,7 @@ export class MachineTargetService {
     const merged = {
       machineId: dto.machineId ?? existing.machineId,
       shiftId: dto.shiftId ?? existing.shiftId,
+      itemId: dto.itemId !== undefined ? dto.itemId ?? null : existing.itemId,
       uomId: dto.uomId ?? existing.uomId,
       standardHours: dto.standardHours !== undefined ? String(dto.standardHours) : String(existing.standardHours),
       targetQuantity: dto.targetQuantity !== undefined ? String(dto.targetQuantity) : String(existing.targetQuantity),
@@ -204,14 +230,15 @@ export class MachineTargetService {
       remarks: dto.remarks !== undefined ? dto.remarks?.trim() || null : existing.remarks,
     };
 
-    await this.assertRefsValid(companyId, merged.machineId, merged.shiftId, merged.uomId);
+    const machine = await this.assertRefsValid(companyId, merged.machineId, merged.shiftId, merged.uomId, merged.itemId);
     this.validateDates(merged.effectiveFrom, merged.effectiveTo);
+    this.assertOrgConsistent(machine, dto);
     if (
       dto.status === MachineTargetStatus.ACTIVE ||
       (dto.status === undefined && existing.status === MachineTargetStatus.ACTIVE)
     ) {
       await this.assertNoOverlap(
-        companyId, merged.machineId, merged.shiftId, merged.uomId,
+        companyId, merged.machineId, merged.shiftId, merged.itemId, merged.uomId,
         merged.effectiveFrom, merged.effectiveTo, id,
       );
     }
@@ -223,7 +250,7 @@ export class MachineTargetService {
     } catch (e: any) {
       if (String(e?.code) === '23505') {
         throw new ConflictException(
-          'An open-ended ACTIVE target already exists for this machine/shift/UOM combination',
+          'An open-ended ACTIVE target already exists for this machine/shift/Item/UOM combination',
         );
       }
       throw e;
@@ -234,7 +261,7 @@ export class MachineTargetService {
     const target = await this.findOne(id, companyId);
     if (status === MachineTargetStatus.ACTIVE && target.status !== MachineTargetStatus.ACTIVE) {
       await this.assertNoOverlap(
-        companyId, target.machineId, target.shiftId, target.uomId,
+        companyId, target.machineId, target.shiftId, target.itemId ?? null, target.uomId,
         target.effectiveFrom, target.effectiveTo, id,
       );
     }
@@ -262,6 +289,12 @@ export class MachineTargetService {
     const machine = await this.machineRepo.findOne({ where: { id: query.machineId, companyId } });
     if (!machine) throw new NotFoundException(`Machine '${query.machineId}' not found in this company`);
 
+    let item: Item | null = null;
+    if (query.itemId) {
+      item = await this.itemRepo.findOne({ where: { id: query.itemId, companyId } });
+      if (!item) throw new NotFoundException(`Item '${query.itemId}' not found in this company`);
+    }
+
     const resolution = await this.resolveEffectiveEntity(
       companyId,
       query.machineId,
@@ -269,6 +302,7 @@ export class MachineTargetService {
       query.productionDate,
       !MachineTargetService.isFalseFlag(query.allowGeneralFallback),
       query.uomId,
+      query.itemId,
     );
     if (!resolution.target) {
       throw new BadRequestException('No active target is configured for this machine and shift.');
@@ -280,10 +314,21 @@ export class MachineTargetService {
       calculatedTarget = calculateProratedTarget(t.targetQuantity, t.standardHours, query.workingHours);
     }
 
+    // targetPerHour is always returned so clients can auto-calculate without
+    // re-fetching (PROMPT-10: no manual hourly calculation on the UI).
+    const targetPerHour = Number((Number(t.targetQuantity) / Number(t.standardHours)).toFixed(4));
+
     const [shift, uom] = await Promise.all([
       this.shiftRepo.findOne({ where: { id: t.shiftId } }),
       this.uomRepo.findOne({ where: { id: t.uomId } }),
     ]);
+
+    // Item info + conversion master data summary for the resolved item.
+    const resolvedItem = item
+      ? item
+      : t.itemId
+        ? await this.itemRepo.findOne({ where: { id: t.itemId, companyId } })
+        : null;
 
     return {
       effectiveTargetRecordId: t.id,
@@ -297,8 +342,25 @@ export class MachineTargetService {
       },
       shift: shift ? { id: shift.id, code: shift.shiftCode, name: shift.name } : null,
       uom: uom ? { id: uom.id, code: uom.code, name: uom.name, symbol: uom.symbol } : null,
+      item: resolvedItem
+        ? {
+            id: resolvedItem.id,
+            code: resolvedItem.itemCode,
+            name: resolvedItem.name,
+            itemType: resolvedItem.itemType,
+            baseUomId: resolvedItem.baseUomId ?? null,
+            conversions: {
+              weightPerPiece: resolvedItem.weightPerPiece,
+              piecesPerKg: resolvedItem.piecesPerKg,
+              weightPerMeter: resolvedItem.weightPerMeter,
+              lengthPerPiece: resolvedItem.lengthPerPiece,
+              supported: supportedConversions(resolvedItem).filter((c) => c.available),
+            },
+          }
+        : null,
       standardHours: Number(t.standardHours),
       standardTarget: Number(t.targetQuantity),
+      targetPerHour,
       actualWorkingHours: query.workingHours ?? null,
       calculatedTarget,
       effectiveFrom: t.effectiveFrom,
@@ -320,11 +382,12 @@ export class MachineTargetService {
     productionDate: string,
     allowGeneralFallback = true,
     uomId?: string,
+    itemId?: string,
   ): Promise<EffectiveResolution> {
-    let candidates = await this.findEffectiveCandidates(companyId, machineId, shiftId, productionDate, uomId);
+    let candidates = await this.findEffectiveCandidates(companyId, machineId, shiftId, productionDate, uomId, itemId);
     if (candidates.length > 1) {
       throw new ConflictException(
-        `Ambiguous target configuration for machine/shift on ${productionDate}: ${candidates.map((c) => c.id).join(', ')}. Close or deactivate duplicate periods, or pass a uomId to disambiguate.`,
+        `Ambiguous target configuration for machine/shift on ${productionDate}: ${candidates.map((c) => c.id).join(', ')}. Close or deactivate duplicate periods, or pass a uomId/itemId to disambiguate.`,
       );
     }
     if (candidates.length === 1) {
@@ -339,7 +402,7 @@ export class MachineTargetService {
     if (!generalShift || generalShift.id === shiftId) {
       return { target: null, usedGeneralFallback: false };
     }
-    candidates = await this.findEffectiveCandidates(companyId, machineId, generalShift.id, productionDate, uomId);
+    candidates = await this.findEffectiveCandidates(companyId, machineId, generalShift.id, productionDate, uomId, itemId);
     if (candidates.length > 1) {
       throw new ConflictException(
         `Ambiguous GENERAL-shift target configuration for machine on ${productionDate}: ${candidates.map((c) => c.id).join(', ')}.`,
@@ -356,7 +419,13 @@ export class MachineTargetService {
     }
   }
 
-  private async assertRefsValid(companyId: string, machineId: string, shiftId: string, uomId: string): Promise<void> {
+  private async assertRefsValid(
+    companyId: string,
+    machineId: string,
+    shiftId: string,
+    uomId: string,
+    itemId?: string | null,
+  ): Promise<Machine> {
     const machine = await this.machineRepo.findOne({ where: { id: machineId, companyId } });
     if (!machine || !machine.isActive) {
       throw new NotFoundException(`Machine '${machineId}' not found in this company`);
@@ -378,17 +447,110 @@ export class MachineTargetService {
         `UOM '${uom.code}' is not a supported production target unit (allowed: KG, PCS, METER)`,
       );
     }
+
+    if (itemId) {
+      const item = await this.itemRepo.findOne({
+        where: { id: itemId, companyId },
+        relations: ['baseUom'],
+      });
+      if (!item || !item.isActive) {
+        throw new NotFoundException(`Item '${itemId}' not found in this company`);
+      }
+      this.assertItemUomCompatible(item, uom);
+    }
+
+    return machine;
+  }
+
+  /** Family of a production UOM, falling back to its well-known code when uomType is unmaintained. */
+  private productionFamily(uom: UomTypeInfo): UomFamily | null {
+    const byType = familyOf(uom);
+    if (byType) return byType;
+    switch (String(uom.code ?? '').toUpperCase()) {
+      case 'KG':
+        return 'WEIGHT';
+      case 'PCS':
+        return 'COUNT';
+      case 'M':
+      case 'METER':
+        return 'LENGTH';
+      default:
+        return null;
+    }
   }
 
   /**
-   * Two ACTIVE windows for the same (company, machine, shift, uom) must never
-   * overlap — otherwise target resolution would be ambiguous. Open-ended rows
-   * are treated as extending to infinity.
+   * PROMPT-10: a target UOM is only valid for an item when it matches the
+   * item's base production family or the item's own conversion master data
+   * provides a mathematically valid path between the two families. Reuses the
+   * Item Master conversion calculator (PROMPT-09) — no duplicated rules.
+   */
+  private assertItemUomCompatible(item: Item, uom: Uom): void {
+    const targetFamily = this.productionFamily(uom);
+    if (!targetFamily) {
+      throw new BadRequestException(
+        `UOM '${uom.code}' is not a supported production target unit (allowed: KG, PCS, METER)`,
+      );
+    }
+    const baseFamily = item.baseUom ? this.productionFamily(item.baseUom) : null;
+    if (!baseFamily) {
+      throw new BadRequestException(
+        `Item '${item.itemCode}' has no production base unit; maintain its base UOM or conversion data before setting a target in '${uom.code}'`,
+      );
+    }
+
+    // Target unit equals the item's own base unit family → always compatible.
+    if (baseFamily === targetFamily) return;
+
+    try {
+      convertWithItemData(item as ConversionItemData, baseFamily, targetFamily, 1);
+    } catch (e: any) {
+      if (e instanceof MissingConversionDataError) {
+        throw new BadRequestException(
+          `Target UOM '${uom.code}' cannot be used for item '${item.itemCode}': ${e.message}`,
+        );
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * PROMPT-10 org consistency: the optional verification fields must match the
+   * machine's Division→Section→Department chain exactly, preventing targets
+   * being filed under an organisation the machine does not belong to.
+   */
+  private assertOrgConsistent(
+    machine: Machine,
+    org: { divisionId?: string; sectionId?: string; departmentId?: string },
+  ): void {
+    if (org.divisionId && machine.divisionId !== org.divisionId) {
+      throw new BadRequestException(
+        `Machine '${machine.machineCode}' does not belong to division '${org.divisionId}'`,
+      );
+    }
+    if (org.sectionId && machine.sectionId !== org.sectionId) {
+      throw new BadRequestException(
+        `Machine '${machine.machineCode}' does not belong to section '${org.sectionId}'`,
+      );
+    }
+    if (org.departmentId && machine.departmentId !== org.departmentId) {
+      throw new BadRequestException(
+        `Machine '${machine.machineCode}' does not belong to department '${org.departmentId}'`,
+      );
+    }
+  }
+
+  /**
+   * Two ACTIVE windows for the same (company, machine, shift, item, uom) must
+   * never overlap — otherwise target resolution would be ambiguous. Open-ended
+   * rows are treated as extending to infinity. The item dimension mirrors the
+   * uq_machine_targets_active_open_combo index (NULLs distinct).
    */
   private async assertNoOverlap(
     companyId: string,
     machineId: string,
     shiftId: string,
+    itemId: string | null,
     uomId: string,
     effectiveFrom: string,
     effectiveTo: string | null,
@@ -407,6 +569,8 @@ export class MachineTargetService {
         rangeToIsNull: effectiveTo === null,
       })
       .andWhere('(mt.effectiveTo >= :rangeFrom OR mt.effectiveTo IS NULL)', { rangeFrom: effectiveFrom });
+    if (itemId) qb.andWhere('mt.itemId = :itemId', { itemId });
+    else qb.andWhere('mt.itemId IS NULL');
     if (excludeId) qb.andWhere('mt.id != :excludeId', { excludeId });
 
     const conflict = await qb.getOne();
@@ -423,6 +587,7 @@ export class MachineTargetService {
     shiftId: string,
     productionDate: string,
     uomId?: string,
+    itemId?: string,
   ): Promise<MachineTarget[]> {
     const qb = this.targetRepo
       .createQueryBuilder('mt')
@@ -432,6 +597,7 @@ export class MachineTargetService {
       .andWhere('mt.machineId = :machineId', { machineId })
       .andWhere('mt.shiftId = :shiftId', { shiftId });
     if (uomId) qb.andWhere('mt.uomId = :uomId', { uomId });
+    if (itemId) qb.andWhere('mt.itemId = :itemId', { itemId });
     qb.andWhere('mt.status = :status', { status: MachineTargetStatus.ACTIVE })
       .andWhere('mt.isActive = true')
       .andWhere('mt.effectiveFrom <= :date', { date: productionDate })

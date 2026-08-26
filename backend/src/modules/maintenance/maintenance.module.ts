@@ -1,0 +1,68 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import {
+  MaintenanceJobCard,
+  MaintenanceJobCardTechnician,
+  MaintenanceJobCardPart,
+  MaintenanceJobCardAttachment,
+  MaintenanceJobCardStatusHistory,
+  MaintenanceJobCardWorkLog,
+  MaintenanceTeam,
+  MaintenanceTeamMember,
+  MaintenanceComplaintCategory,
+  MaintenanceRootCauseCategory,
+  MaintenanceFailureCategory,
+  MaintenancePmPlan,
+  MaintenancePmSchedule,
+} from './entities';
+import { Machine } from '../production/entities/machine.entity';
+import { ErpUser } from '../user/entities/erp-user.entity';
+import { MaintenanceJobCardService } from './services/maintenance-job-card.service';
+import { MaintenanceTeamService } from './services/maintenance-team.service';
+import { MaintenanceCategoryService } from './services/maintenance-category.service';
+import { MaintenancePmService } from './services/maintenance-pm.service';
+import { MaintenanceJobCardController } from './controllers/job-card.controller';
+import { MaintenanceTeamController } from './controllers/team.controller';
+import { MaintenanceCategoryController } from './controllers/category.controller';
+import { MaintenancePmController } from './controllers/pm.controller';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      MaintenanceJobCard,
+      MaintenanceJobCardTechnician,
+      MaintenanceJobCardPart,
+      MaintenanceJobCardAttachment,
+      MaintenanceJobCardStatusHistory,
+      MaintenanceJobCardWorkLog,
+      MaintenanceTeam,
+      MaintenanceTeamMember,
+      MaintenanceComplaintCategory,
+      MaintenanceRootCauseCategory,
+      MaintenanceFailureCategory,
+      MaintenancePmPlan,
+      MaintenancePmSchedule,
+      Machine,
+      ErpUser,
+    ]),
+  ],
+  controllers: [
+    MaintenanceJobCardController,
+    MaintenanceTeamController,
+    MaintenanceCategoryController,
+    MaintenancePmController,
+  ],
+  providers: [
+    MaintenanceJobCardService,
+    MaintenanceTeamService,
+    MaintenanceCategoryService,
+    MaintenancePmService,
+  ],
+  exports: [
+    MaintenanceJobCardService,
+    MaintenanceTeamService,
+    MaintenanceCategoryService,
+    MaintenancePmService,
+  ],
+})
+export class MaintenanceModule {}

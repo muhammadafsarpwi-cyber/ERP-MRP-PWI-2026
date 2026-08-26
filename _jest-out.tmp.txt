@@ -1,0 +1,162 @@
+﻿node.exe : FAIL src/modules/production/services/production-entry.service.spec.ts (7.045 s)
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (FAIL src/module...ec.ts (7.045 s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  ProductionEntryService ΓÇö calculations
+    ΓêÜ computes achievement % as actual/target├ù100 (7200/8000 = 90) (24 ms)
+    ΓêÜ computes achievement with decimals (4500/5000 = 90; 5500/6000 = 91.67) (4 ms)
+    ΓêÜ computes efficiency % from running hours vs shift planned hours (7/8 = 87.5) (3 ms)
+    ΓêÜ falls back to running+downtime when shift has no planned hours (3 ms)
+  ProductionEntryService ΓÇö validation
+    ΓêÜ rejects invalid Division ΓåÆ Section chain (60 ms)
+    ΓêÜ rejects Department outside the selected Section/Division (3 ms)
+    ΓêÜ rejects unknown division (4 ms)
+    ΓêÜ rejects inactive division (5 ms)
+    ΓêÜ rejects item not found in company (company isolation on items) (3 ms)
+    ΓêÜ rejects UOM that is neither the item base UOM nor convertible (14 ms)
+    ΓêÜ accepts a UOM that has an inverse conversion defined to base UOM (3 ms)
+    ΓêÜ rejects targetQuantity <= 0 (3 ms)
+    ΓêÜ rejects negative actual/scrap/hours (4 ms)
+    ΓêÜ rejects downtime exceeding the shift planned hours (13h downtime on an 8h shift) (4 ms)
+    ΓêÜ accepts downtime equal to the shift planned hours boundary (running becomes 0) (4 ms)
+    ΓêÜ rejects duplicate submission for same dept/date/shift/machine/item (3 ms)
+  ProductionEntryService ΓÇö production order linkage
+    ΓêÜ rejects order linkage when order not found in company (4 ms)
+    ΓêÜ rejects entry whose item differs from the production order product (4 ms)
+    ΓêÜ accepts valid order linkage and validates operation belongs to the order (3 ms)
+    ΓêÜ rejects postToInventory together with a production order (double-posting guard) (2 ms)
+  ProductionEntryService ΓÇö inventory integration (make-to-stock)
+    ΓêÜ posts PRODUCTION_RECEIPT IN + scrap OUT via existing ledger when postToInventory is true (4 ms)
+    ΓêÜ requires warehouse when postToInventory is true and skips posting otherwise (2 ms)
+    ΓêÜ skips scrap ledger entry when scrap is zero (2 ms)
+  ProductionEntryService ΓÇö queries & masters
+    ΓêÜ findAll applies filters and company isolation (4 ms)
+    ΓêÜ findOne enforces company isolation (3 ms)
+    ΓêÜ machine master rejects duplicate code per company (2 ms)
+    ΓêÜ machine master creates machine scoped to company + department (2 ms)
+  ProductionEntryService ΓÇö update & delete
+    ΓêÜ update recalculates metrics and validates merged values (2 ms)
+    ΓêÜ update keeps target separate from actual (target never overwritten silently) (3 ms)
+    ΓêÜ soft-deletes instead of hard delete (3 ms)
+    ΓêÜ remove enforces company isolation (3 ms)
+  ProductionEntryService ΓÇö machine entry status (duplicate pre-check)
+    ΓêÜ flags machines with an active entry as ENTERED and the rest ENTRY_REQUIRED with correct counts (4 ms)
+    ΓêÜ matches machine_no case-insensitively and groups multiple entries per machine (3 ms)
+    ΓêÜ applies organizational filters to both machines and entries queries (3 ms)
+    ΓêÜ rejects an unknown shift for this company (3 ms)
+  ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution
+    ├ù prefers the item-scoped target (resolveEffectiveEntity called with itemId) (2 ms)
+    ├ù falls back to the legacy generic target when the item has no specific one (2 ms)
+    ├ù prorates the resolved target for partial working hours (6h of an 8h/5000 shift ΓåÆ 3750) (2 ms)
+    ├ù rejects a manually entered targetQuantity when a machine target governs the entry (41 ms)
+    ΓêÜ rejects entries when no target exists at all for the machine+shift (2 ms)
+    ΓêÜ rejects an entry whose requested UOM differs from the resolved target UOM (3 ms)
+  ProductionEntryService ΓÇö PROMPT-11: derived-UOM validation (PROMPT-09 calculator)
+    ΓêÜ accepts KG production recorded in PCS when the item carries piecesPerKg (derived conversion, no table row) (3 
+ms)
+    ΓêÜ accepts a same-family alternative UOM without any conversion data (2 ms)
+    ΓêÜ rejects PCS with a clear missing-data message when the LENGTH-based item has no piece data (2 ms)
+    ΓêÜ still rejects UOMs outside the production families entirely (2 ms)
+  ProductionEntryService ΓÇö PROMPT-11: enriched entry-context preview
+    ΓêÜ returns the target resolution plus shift plannedHours and the effective route (1 ms)
+    ΓêÜ treats a missing route as non-fatal (route: null) and skips lookup without an item (2 ms)
+    ΓêÜ findAll supports the new machineId/uomId/search filters (2 ms)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ prefers the item-scoped target 
+(resolveEffectiveEntity called with itemId)
+
+    BadRequestException: machineNo 'SR-01' does not match machine 'NP-02' selected from the machine master
+
+    [0m [90m 891 |[39m         machineNo [33m=[39m machine[33m.[39mmachineCode[33m;[39m
+     [90m 892 |[39m       } [36melse[39m [36mif[39m (machine[33m.[39mmachineCode [33m!==[39m machineNo) {
+    [31m[1m>[22m[39m[90m 893 |[39m         [36mthrow[39m [36mnew[39m 
+[33mBadRequestException[39m([32m`machineNo '${machineNo}' does not match machine '${machine.machineCode}' selected 
+from the machine master`[39m)[33m;[39m
+     [90m     |[39m               [31m[1m^[22m[39m
+     [90m 894 |[39m       }
+     [90m 895 |[39m       [36mif[39m (machine[33m.[39mdepartmentId [33m&&[39m machine[33m.[39mdepartmentId 
+[33m!==[39m v[33m.[39mdepartmentId) {
+     [90m 896 |[39m         [36mconst[39m machineDept [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mdepartmentRepo[33m.[39mfindOne({ where[33m:[39m { id[33m:[39m 
+machine[33m.[39mdepartmentId } })[33m;[39m[0m
+
+      at ProductionEntryService.validateAndResolve (modules/production/services/production-entry.service.ts:893:15)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:593:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:507:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ falls back to the legacy generic target 
+when the item has no specific one
+
+    BadRequestException: machineNo 'SR-01' does not match machine 'NP-02' selected from the machine master
+
+    [0m [90m 891 |[39m         machineNo [33m=[39m machine[33m.[39mmachineCode[33m;[39m
+     [90m 892 |[39m       } [36melse[39m [36mif[39m (machine[33m.[39mmachineCode [33m!==[39m machineNo) {
+    [31m[1m>[22m[39m[90m 893 |[39m         [36mthrow[39m [36mnew[39m 
+[33mBadRequestException[39m([32m`machineNo '${machineNo}' does not match machine '${machine.machineCode}' selected 
+from the machine master`[39m)[33m;[39m
+     [90m     |[39m               [31m[1m^[22m[39m
+     [90m 894 |[39m       }
+     [90m 895 |[39m       [36mif[39m (machine[33m.[39mdepartmentId [33m&&[39m machine[33m.[39mdepartmentId 
+[33m!==[39m v[33m.[39mdepartmentId) {
+     [90m 896 |[39m         [36mconst[39m machineDept [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mdepartmentRepo[33m.[39mfindOne({ where[33m:[39m { id[33m:[39m 
+machine[33m.[39mdepartmentId } })[33m;[39m[0m
+
+      at ProductionEntryService.validateAndResolve (modules/production/services/production-entry.service.ts:893:15)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:593:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:525:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ prorates the resolved target for partial 
+working hours (6h of an 8h/5000 shift ΓåÆ 3750)
+
+    BadRequestException: machineNo 'SR-01' does not match machine 'NP-02' selected from the machine master
+
+    [0m [90m 891 |[39m         machineNo [33m=[39m machine[33m.[39mmachineCode[33m;[39m
+     [90m 892 |[39m       } [36melse[39m [36mif[39m (machine[33m.[39mmachineCode [33m!==[39m machineNo) {
+    [31m[1m>[22m[39m[90m 893 |[39m         [36mthrow[39m [36mnew[39m 
+[33mBadRequestException[39m([32m`machineNo '${machineNo}' does not match machine '${machine.machineCode}' selected 
+from the machine master`[39m)[33m;[39m
+     [90m     |[39m               [31m[1m^[22m[39m
+     [90m 894 |[39m       }
+     [90m 895 |[39m       [36mif[39m (machine[33m.[39mdepartmentId [33m&&[39m machine[33m.[39mdepartmentId 
+[33m!==[39m v[33m.[39mdepartmentId) {
+     [90m 896 |[39m         [36mconst[39m machineDept [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mdepartmentRepo[33m.[39mfindOne({ where[33m:[39m { id[33m:[39m 
+machine[33m.[39mdepartmentId } })[33m;[39m[0m
+
+      at ProductionEntryService.validateAndResolve (modules/production/services/production-entry.service.ts:893:15)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:593:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:539:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ rejects a manually entered 
+targetQuantity when a machine target governs the entry
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected pattern: /must not be entered manually/
+    Received message: "No active target is configured for this machine and shift. Configure one in the Machine Target 
+Master before recording production."
+
+        [0m [90m 797 |[39m     }
+         [90m 798 |[39m     [36mif[39m ([33m![39mresolution[33m.[39mtarget) {
+        [31m[1m>[22m[39m[90m 799 |[39m       [36mthrow[39m [36mnew[39m [33mBadRequestException[39m(
+         [90m     |[39m             [31m[1m^[22m[39m
+         [90m 800 |[39m         [32m'No active target is configured for this machine and shift. Configure one in 
+the Machine Target Master before recording production.'[39m[33m,[39m
+         [90m 801 |[39m       )[33m;[39m
+         [90m 802 |[39m     }[0m
+
+      at ProductionEntryService.resolveMachineTarget (modules/production/services/production-entry.service.ts:799:13)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:583:16)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:546:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:548:15)
+
+Test Suites: 1 failed, 1 total
+Tests:       4 failed, 44 passed, 48 total
+Snapshots:   0 total
+Time:        7.435 s
+Ran all test suites matching /production-entry.service.spec/i.

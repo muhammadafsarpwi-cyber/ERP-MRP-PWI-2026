@@ -41,6 +41,7 @@ import {
   UserManagement,
   RoleManagement,
   PermissionManagement,
+  PermissionMatrix,
 } from './pages/admin';
 import {
   ItemManagement,
@@ -81,7 +82,7 @@ const App: React.FC = () => {
         element={
           <ProtectedRoute>
             <MainLayout>
-              <Content style={{ margin: '24px 16px', padding: 24, minHeight: 280 }}>
+              <Content style={{ margin: '24px 16px', padding: 24, minHeight: 280, overflow: 'visible' }}>
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<Dashboard />} />
@@ -121,6 +122,7 @@ const App: React.FC = () => {
                   <Route path="/admin/users" element={<UserManagement />} />
                   <Route path="/admin/roles" element={<RoleManagement />} />
                   <Route path="/admin/permissions" element={<PermissionManagement />} />
+                  <Route path="/admin/permissions-matrix" element={<PermissionMatrix />} />
                   <Route path="/master-data/items" element={<ItemManagement />} />
                   <Route path="/master-data/categories" element={<CategoryManagement />} />
                   <Route path="/master-data/uom" element={<UomManagement />} />

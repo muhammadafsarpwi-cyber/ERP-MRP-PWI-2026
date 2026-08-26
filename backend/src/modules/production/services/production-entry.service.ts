@@ -22,6 +22,11 @@ import {
   MachineTargetService,
   calculateProratedTarget,
 } from '../../machine-target/services/machine-target.service';
+import { ProductionRoutingService } from '../../production-routing/services/production-routing.service';
+import {
+  familyOf,
+  supportedConversions,
+} from '../../item/services/uom-conversion.calculator';
 
 const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
 
@@ -53,6 +58,7 @@ export class ProductionEntryService {
     private readonly stockLedgerService: StockLedgerService,
     private readonly inventoryBalanceService: InventoryBalanceService,
     private readonly machineTargetService: MachineTargetService,
+    private readonly productionRoutingService: ProductionRoutingService,
   ) {}
 
   // ─── Queries ────────────────────────────────────────────────────────────────
@@ -67,7 +73,10 @@ export class ProductionEntryService {
     dateTo?: string;
     shiftId?: string;
     machineNo?: string;
+    machineId?: string;
     itemId?: string;
+    uomId?: string;
+    search?: string;
     productionOrderId?: string;
     sortBy?: string;
     sortDir?: 'ASC' | 'DESC';
@@ -82,7 +91,10 @@ export class ProductionEntryService {
       dateTo,
       shiftId,
       machineNo,
+      machineId,
       itemId,
+      uomId,
+      search,
       productionOrderId,
       sortBy,
       sortDir = 'DESC',
@@ -106,9 +118,16 @@ export class ProductionEntryService {
     if (dateTo) qb.andWhere('pe.entryDate <= :dateTo', { dateTo });
     if (shiftId) qb.andWhere('pe.shiftId = :shiftId', { shiftId });
     if (machineNo) qb.andWhere('pe.machineNo ILIKE :machineNo', { machineNo: `%${machineNo}%` });
+    if (machineId) qb.andWhere('pe.machineId = :machineId', { machineId });
     if (itemId) qb.andWhere('pe.itemId = :itemId', { itemId });
+    if (uomId) qb.andWhere('pe.uomId = :uomId', { uomId });
     if (productionOrderId) qb.andWhere('pe.productionOrderId = :productionOrderId', { productionOrderId });
-
+    if (search?.trim()) {
+      qb.andWhere(
+        '(pe.operatorName ILIKE :search OR pe.machineNo ILIKE :search OR item.itemCode ILIKE :search OR item.name ILIKE :search OR pe.remarks ILIKE :search)',
+        { search: `%${search.trim()}%` },
+      );
+    }
     const sortMap: Record<string, string> = {
       entryDate: 'pe.entryDate',
       createdAt: 'pe.createdAt',
@@ -139,6 +158,14 @@ export class ProductionEntryService {
     if (!entry || !entry.isActive) {
       throw new NotFoundException(`Production Entry with ID '${id}' not found`);
     }
+    // Attach the item's effective production route when available (for UI display).
+    if (entry.itemId) {
+      try {
+        (entry as any).route = await this.productionRoutingService.getEffectiveRouteForItem(entry.itemId, companyId);
+      } catch {
+        (entry as any).route = null;
+      }
+    }
     return entry;
   }
 
@@ -155,7 +182,9 @@ export class ProductionEntryService {
     dateTo?: string;
     shiftId?: string;
     machineNo?: string;
+    machineId?: string;
     itemId?: string;
+    uomId?: string;
     productionOrderId?: string;
   }): Promise<any> {
     const qb = this.entryRepo.createQueryBuilder('pe')
@@ -176,7 +205,9 @@ export class ProductionEntryService {
     if (filters.dateTo) qb.andWhere('pe.entryDate <= :dateTo', { dateTo: filters.dateTo });
     if (filters.shiftId) qb.andWhere('pe.shiftId = :shiftId', { shiftId: filters.shiftId });
     if (filters.machineNo) qb.andWhere('pe.machineNo ILIKE :machineNo', { machineNo: `%${filters.machineNo}%` });
+    if (filters.machineId) qb.andWhere('pe.machineId = :machineId', { machineId: filters.machineId });
     if (filters.itemId) qb.andWhere('pe.itemId = :itemId', { itemId: filters.itemId });
+    if (filters.uomId) qb.andWhere('pe.uomId = :uomId', { uomId: filters.uomId });
     if (filters.productionOrderId) qb.andWhere('pe.productionOrderId = :productionOrderId', { productionOrderId: filters.productionOrderId });
 
     qb.orderBy('division.name', 'ASC').addOrderBy('section.name', 'ASC').addOrderBy('department.name', 'ASC');
@@ -524,6 +555,36 @@ export class ProductionEntryService {
 
   // ─── Commands ───────────────────────────────────────────────────────────────
 
+  /**
+   * PROMPT-11: everything the Daily Entry form needs in ONE call —
+   * machine-target resolution (item-aware), the shift's planned hours and,
+   * when available, the item's effective production route.
+   * Route absence is NOT an error: daily entries are valid without routing.
+   */
+  async resolveEntryContext(
+    companyId: string,
+    query: { machineId?: string; shiftId?: string; productionDate?: string; itemId?: string; uomId?: string },
+  ): Promise<any> {
+    const resolution = await this.machineTargetService.resolve(query as any, companyId);
+    const shift = query.shiftId
+      ? await this.shiftRepo.findOne({ where: { id: query.shiftId, companyId } })
+      : null;
+    const effectiveItemId = query.itemId ?? resolution.item?.id ?? null;
+    let route: any = null;
+    if (effectiveItemId) {
+      try {
+        route = await this.productionRoutingService.getEffectiveRouteForItem(effectiveItemId, companyId);
+      } catch {
+        route = null;
+      }
+    }
+    return {
+      ...resolution,
+      plannedHours: Number(shift?.plannedHours ?? 0),
+      route,
+    };
+  }
+
   async create(dto: CreateProductionEntryDto, companyId: string, userId?: string): Promise<ProductionEntry> {
     // ERP-00016: resolve the machine target FIRST so the final UOM/target feed
     // the standard validations (target governs the entry UOM when linked).
@@ -532,6 +593,7 @@ export class ProductionEntryService {
       shiftId: dto.shiftId,
       entryDate: dto.entryDate,
       workingHours: dto.runningHours,
+      itemId: dto.itemId,
       requestedUomId: dto.uomId ?? null,
       manualTargetQuantity: dto.targetQuantity,
     });
@@ -634,6 +696,7 @@ export class ProductionEntryService {
       shiftId: merged.shiftId,
       entryDate: merged.entryDate,
       workingHours: merged.runningHours,
+      itemId: merged.itemId,
       requestedUomId: merged.uomId,
       manualTargetQuantity: dto.targetQuantity,
     });
@@ -696,6 +759,12 @@ export class ProductionEntryService {
    *  - no configured target → clear business error (never silently zero)
    *  - user-supplied targetQuantity → rejected (auto-calculated instead)
    *  - incompatible UOM → rejected
+   *
+   * ERP-00018/PROMPT-11: targets may be scoped to an Item. Resolution is
+   * two-step so both configurations keep working:
+   *  1. try the exact machine+shift+ITEM target first
+   *  2. fall back to the legacy generic (item-less) target when no
+   *     item-specific configuration exists for this machine+shift+date
    */
   private async resolveMachineTarget(
     companyId: string,
@@ -704,6 +773,7 @@ export class ProductionEntryService {
       shiftId: string;
       entryDate: string;
       workingHours: number;
+      itemId?: string | null;
       requestedUomId?: string | null;
       manualTargetQuantity?: number | null;
     },
@@ -715,18 +785,28 @@ export class ProductionEntryService {
     standardTarget: number;
     calculatedTarget: number;
     usedGeneralFallback: boolean;
+    itemScoped: boolean;
   } | null> {
     if (!v.machineId) return null;
 
-    const resolution = await this.machineTargetService.resolveEffectiveEntity(
-      companyId,
-      v.machineId,
-      v.shiftId,
-      v.entryDate,
-      true,
-    );
+    let resolution = v.itemId
+      ? await this.machineTargetService.resolveEffectiveEntity(
+          companyId, v.machineId, v.shiftId, v.entryDate, true, undefined, v.itemId,
+        )
+      : { target: null as any, usedGeneralFallback: false };
+    let itemScoped = !!resolution.target;
+    if (!resolution.target && v.itemId) {
+      // Legacy fallback: machine/shift has no target for THIS item — a generic
+      // (item-less) target still governs the entry.
+      resolution = await this.machineTargetService.resolveEffectiveEntity(
+        companyId, v.machineId, v.shiftId, v.entryDate, true,
+      );
+      itemScoped = false;
+    }
     if (!resolution.target) {
-      throw new BadRequestException('No active target is configured for this machine and shift.');
+      throw new BadRequestException(
+        'No active target is configured for this machine and shift. Configure one in the Machine Target Master before recording production.',
+      );
     }
     const t = resolution.target;
     const calculated = calculateProratedTarget(t.targetQuantity, t.standardHours, v.workingHours);
@@ -743,7 +823,7 @@ export class ProductionEntryService {
     if (v.requestedUomId && v.requestedUomId !== t.uomId) {
       const uomCode = (t as any).uom?.code ?? t.uomId;
       throw new BadRequestException(
-        `Incompatible UOM for this entry: machine target is configured in '${uomCode}'`,
+        `Incompatible UOM for this entry: the resolved machine target for item '${t.item?.itemCode ?? 'generic'}' is configured in '${uomCode}'. Record production in the target's UOM.`,
       );
     }
 
@@ -755,6 +835,7 @@ export class ProductionEntryService {
       standardTarget: Number(t.targetQuantity),
       calculatedTarget: calculated,
       usedGeneralFallback: resolution.usedGeneralFallback,
+      itemScoped,
     };
   }
 
@@ -921,8 +1002,10 @@ export class ProductionEntryService {
   }
 
   /**
-   * UOM is item-driven: accepted when equal to the item's base UOM or when a
-   * conversion path exists in uom_conversions. Reuses existing conversion data.
+   * UOM is item-driven: accepted when equal to the item's base UOM, when a
+   * conversion path exists in uom_conversions, or when the PROMPT-09
+   * conversion calculator can derive one from the item's own data
+   * (weightPerPiece / piecesPerKg / weightPerMeter / lengthPerPiece).
    */
   private async assertUomValidForItem(item: Item, uomId: string): Promise<void> {
     if (item.baseUomId === uomId) return;
@@ -930,11 +1013,35 @@ export class ProductionEntryService {
     if (direct) return;
     const inverse = await this.uomConversionRepo.findOne({ where: { fromUomId: item.baseUomId, toUomId: uomId } });
     if (inverse) return;
-    const uom = await this.uomConversionRepo.manager
-      .getRepository('Uom')
-      .findOne({ where: { id: uomId } });
+
+    // Derived-conversion fallback (PROMPT-09 calculator): same-family UOMs are
+    // always compatible; cross-family works when the item carries enough data.
+    const uomRepo = this.uomConversionRepo.manager.getRepository('Uom');
+    const [requestedUom, baseUom] = await Promise.all([
+      (uomRepo as any).findOne({ where: { id: uomId } }),
+      (uomRepo as any).findOne({ where: { id: item.baseUomId } }),
+    ]);
+    const reqFamily = familyOf((requestedUom ?? {}) as any);
+    const baseFamily = familyOf((baseUom ?? {}) as any);
+    if (reqFamily && baseFamily) {
+      if (reqFamily === baseFamily) return;
+      const supported = supportedConversions({
+        weightPerPiece: item.weightPerPiece,
+        piecesPerKg: item.piecesPerKg,
+        weightPerMeter: item.weightPerMeter,
+        lengthPerPiece: item.lengthPerPiece,
+      }).some(
+        (c) => c.available &&
+          ((c.from === reqFamily && c.to === baseFamily) || (c.from === baseFamily && c.to === reqFamily)),
+      );
+      if (supported) return;
+      throw new BadRequestException(
+        `UOM '${(requestedUom as any)?.code ?? uomId}' requires conversion data that item '${item.itemCode}' does not have (e.g. length per piece or piece weight for ${reqFamily} ↔ ${baseFamily}).`,
+      );
+    }
+
     throw new BadRequestException(
-      `UOM '${(uom as any)?.code ?? uomId}' is not valid for item '${item.itemCode}' (base UOM or a defined conversion required)`,
+      `UOM '${(requestedUom as any)?.code ?? uomId}' is not valid for item '${item.itemCode}' (base UOM or a defined conversion required)`,
     );
   }
 

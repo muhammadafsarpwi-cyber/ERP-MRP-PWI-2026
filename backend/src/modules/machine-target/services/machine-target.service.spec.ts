@@ -6,6 +6,7 @@ import { MachineTarget } from '../entities/machine-target.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { Shift } from '../../production/entities/shift.entity';
 import { Uom } from '../../item/entities/uom.entity';
+import { Item } from '../../item/entities/item.entity';
 
 jest.mock('qrcode', () => ({ toDataURL: jest.fn(async () => 'data:image/png;base64,x') }));
 
@@ -14,12 +15,14 @@ const MACHINE = '103be387-c310-40b0-a670-b787d81174cb';
 const SHIFT = '58d9ed01-5c7d-4b60-a748-16cb4117afdc';
 const GEN = '4ff84e90-bbb2-4ef5-9c79-e193a3ffa37e';
 const UOM = '9d173c37-9f23-4b96-aa7c-de1a625debf8';
+const ITEM = 'd2000000-0000-0000-0000-000000000001';
 
 let service: MachineTargetService;
 let targetRepo: any;
 let machineRepo: any;
 let shiftRepo: any;
 let uomRepo: any;
+let itemRepo: any;
 
 const makeQb = () => {
   const qb: any = {};
@@ -33,14 +36,35 @@ const makeQb = () => {
 };
 
 const refsValid = () => {
-  machineRepo.findOne.mockResolvedValue({ id: MACHINE, companyId: COMPANY, isActive: true, status: 'ACTIVE', machineCode: 'ST-01' });
+  machineRepo.findOne.mockResolvedValue({
+    id: MACHINE, companyId: COMPANY, isActive: true, status: 'ACTIVE', machineCode: 'ST-01',
+    divisionId: null, sectionId: null, departmentId: null,
+  });
   shiftRepo.findOne.mockResolvedValue({ id: SHIFT, companyId: COMPANY, isActive: true, shiftCode: 'SHIFT-1' });
   uomRepo.findOne.mockResolvedValue({ id: UOM, code: 'PCS', status: 'ACTIVE' });
+  itemRepo.findOne.mockResolvedValue(activeItem());
 };
+
+/** Wire-drawing item with base UOM KG and full conversion data (PROMPT-09 style). */
+const activeItem = (over: any = {}) => ({
+  id: ITEM,
+  companyId: COMPANY,
+  itemCode: 'SAMPLE-WIRE-4.50',
+  name: 'Sample Wire 4.50',
+  isActive: true,
+  baseUomId: 'base-kg',
+  baseUom: { id: 'base-kg', code: 'KG', uomType: 'WEIGHT', status: 'ACTIVE' },
+  weightPerPiece: '0.0937',
+  piecesPerKg: '10.672',
+  weightPerMeter: '0.1249',
+  lengthPerPiece: null,
+  ...over,
+});
 
 const validDto = () => ({
   machineId: MACHINE,
   shiftId: SHIFT,
+  itemId: ITEM,
   uomId: UOM,
   standardHours: 8,
   targetQuantity: 5000,
@@ -65,6 +89,7 @@ beforeEach(async () => {
   machineRepo = { findOne: jest.fn().mockResolvedValue(null) };
   shiftRepo = { findOne: jest.fn().mockResolvedValue(null) };
   uomRepo = { findOne: jest.fn().mockResolvedValue(null) };
+  itemRepo = { findOne: jest.fn().mockResolvedValue(null) };
 
   const moduleRef = await Test.createTestingModule({
     providers: [
@@ -73,6 +98,7 @@ beforeEach(async () => {
       { provide: getRepositoryToken(Machine), useValue: machineRepo },
       { provide: getRepositoryToken(Shift), useValue: shiftRepo },
       { provide: getRepositoryToken(Uom), useValue: uomRepo },
+      { provide: getRepositoryToken(Item), useValue: itemRepo },
     ],
   }).compile();
 
@@ -250,5 +276,185 @@ describe('MachineTargetService — resolution', () => {
       ),
     ).rejects.toThrow(/No active target/);
     expect(shiftRepo.findOne).not.toHaveBeenCalled();
+  });
+});
+
+describe('MachineTargetService � PROMPT-10 item dimension', () => {
+  it('rejects unknown items', async () => {
+    refsValid();
+    itemRepo.findOne.mockResolvedValue(null);
+    await expect(service.create(validDto(), COMPANY)).rejects.toThrow(NotFoundException);
+    expect(itemRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: ITEM, companyId: COMPANY } }),
+    );
+  });
+
+  it('rejects inactive items', async () => {
+    refsValid();
+    itemRepo.findOne.mockResolvedValue(activeItem({ isActive: false }));
+    await expect(service.create(validDto(), COMPANY)).rejects.toThrow(NotFoundException);
+  });
+
+  it('accepts a target in the item base unit even without conversion data', async () => {
+    refsValid();
+    uomRepo.findOne.mockResolvedValue({ id: UOM, code: 'KG', status: 'ACTIVE' });
+    itemRepo.findOne.mockResolvedValue(activeItem({
+      baseUom: { id: 'base-kg', code: 'KG', uomType: 'WEIGHT', status: 'ACTIVE' },
+      weightPerPiece: null, piecesPerKg: null, weightPerMeter: null, lengthPerPiece: null,
+    }));
+    const result = await service.create(validDto(), COMPANY);
+    expect(result.itemId).toBe(ITEM);
+  });
+
+  it('accepts a cross-family target when the item conversion data supports it (KG base -> PCS)', async () => {
+    refsValid(); // base KG + piecesPerKg present; UOM PCS
+    const result = await service.create(validDto(), COMPANY);
+    expect(result.itemId).toBe(ITEM);
+  });
+
+  it('rejects a cross-family target with no mathematically valid path (KG base -> METER)', async () => {
+    refsValid();
+    uomRepo.findOne.mockResolvedValue({ id: UOM, code: 'M', status: 'ACTIVE' });
+    itemRepo.findOne.mockResolvedValue(activeItem({
+      weightPerMeter: null, lengthPerPiece: null, // no WEIGHT->LENGTH path
+    }));
+    await expect(service.create(validDto(), COMPANY)).rejects.toThrow(/cannot be used for item 'SAMPLE-WIRE-4\.50'/);
+  });
+
+  it('rejects a machine filed under a department it does not belong to', async () => {
+    refsValid();
+    await expect(
+      service.create({ ...validDto(), departmentId: 'dep-x' } as any, COMPANY),
+    ).rejects.toThrow(/does not belong to department/);
+  });
+});
+
+describe('MachineTargetService � org consistency guard', () => {
+  it('accepts verification fields that match the machine org chain', async () => {
+    machineRepo.findOne.mockResolvedValue({
+      id: MACHINE, companyId: COMPANY, isActive: true, status: 'ACTIVE', machineCode: 'ST-01',
+      divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dep-1',
+    });
+    shiftRepo.findOne.mockResolvedValue({ id: SHIFT, companyId: COMPANY, isActive: true, shiftCode: 'SHIFT-1' });
+    uomRepo.findOne.mockResolvedValue({ id: UOM, code: 'PCS', status: 'ACTIVE' });
+    itemRepo.findOne.mockResolvedValue(activeItem());
+
+    const result = await service.create(
+      { ...validDto(), divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dep-1' } as any,
+      COMPANY,
+    );
+    expect(result.machineId).toBe(MACHINE);
+  });
+
+  it('rejects a wrong section on update', async () => {
+    refsValid();
+    const qb = makeQb();
+    targetRepo.createQueryBuilder.mockReturnValue(qb);
+    const created = await service.create(validDto(), COMPANY);
+    machineRepo.findOne.mockResolvedValue({
+      id: MACHINE, companyId: COMPANY, isActive: true, status: 'ACTIVE', machineCode: 'ST-01',
+      divisionId: 'div-1', sectionId: 'sec-real', departmentId: 'dep-1',
+    });
+    await expect(
+      service.update(created.id, { sectionId: 'sec-other' } as any, COMPANY),
+    ).rejects.toThrow(/does not belong to section/);
+  });
+});
+
+describe('MachineTargetService � uniqueness includes the item', () => {
+  it('scopes the overlap check to the same item', async () => {
+    refsValid();
+    const qb = makeQb();
+    qb.getOne.mockResolvedValue(null);
+    targetRepo.createQueryBuilder.mockReturnValue(qb);
+
+    await service.create(validDto(), COMPANY);
+    const whereArgs = qb.andWhere.mock.calls.map((c: any[]) => c[0]);
+    expect(whereArgs.some((s: string) => s.includes('mt.itemId = :itemId'))).toBe(true);
+    const paramCalls = qb.andWhere.mock.calls.map((c: any[]) => c[1]);
+    expect(paramCalls.some((p: any) => p && p.itemId === ITEM)).toBe(true);
+  });
+});
+
+describe('MachineTargetService � PROMPT-10 resolve with item', () => {
+  const targetRow = (over: any = {}) => ({
+    id: 'mt-1',
+    companyId: COMPANY,
+    machineId: MACHINE,
+    shiftId: SHIFT,
+    itemId: ITEM,
+    uomId: UOM,
+    standardHours: '8',
+    targetQuantity: '5000',
+    effectiveFrom: '2026-08-01',
+    effectiveTo: null,
+    ...over,
+  });
+
+  const resolveQb = (shiftRows: any[], generalRows: any[] = []) => {
+    const qb = makeQb();
+    let lastShiftParam: string | undefined;
+    qb.andWhere.mockImplementation((expr: string, params?: any) => {
+      if (params && 'shiftId' in params) lastShiftParam = params.shiftId;
+      return qb;
+    });
+    qb.getMany.mockImplementation(async () => {
+      if (lastShiftParam === SHIFT) return shiftRows;
+      if (lastShiftParam === GEN) return generalRows;
+      return [];
+    });
+    targetRepo.createQueryBuilder.mockReturnValue(qb);
+    machineRepo.findOne.mockResolvedValue({
+      id: MACHINE, companyId: COMPANY, isActive: true, status: 'ACTIVE',
+      machineCode: 'ST-01', name: 'Straightener 01', machineNumber: 'ST # 01', machineId: 'MCH001',
+    });
+    return qb;
+  };
+
+  it('returns item info and targetPerHour in the resolved payload', async () => {
+    resolveQb([targetRow()]);
+    shiftRepo.findOne.mockResolvedValue({ id: SHIFT, companyId: COMPANY, shiftCode: 'SHIFT-A' });
+    itemRepo.findOne.mockResolvedValue(activeItem());
+
+    const res = await service.resolve(
+      {
+        machineId: MACHINE, shiftId: SHIFT, itemId: ITEM,
+        productionDate: '2026-08-10', workingHours: 6,
+      } as any,
+      COMPANY,
+    );
+    expect(res.item.code).toBe('SAMPLE-WIRE-4.50');
+    expect(res.item.baseUomId).toBe('base-kg');
+    expect(res.targetPerHour).toBe(625);
+    expect(res.calculatedTarget).toBe(3750);
+    expect(res.standardTarget).toBe(5000);
+    expect(res.usedGeneralFallback).toBe(false);
+  });
+
+  it('forwards the itemId filter into the effective-candidate query', async () => {
+    const qb = resolveQb([targetRow()]);
+    shiftRepo.findOne.mockResolvedValue({ id: SHIFT, companyId: COMPANY, shiftCode: 'SHIFT-A' });
+    itemRepo.findOne.mockResolvedValue(activeItem());
+
+    await service.resolve(
+      { machineId: MACHINE, shiftId: SHIFT, itemId: ITEM, productionDate: '2026-08-10' } as any,
+      COMPANY,
+    );
+    const paramCalls = qb.andWhere.mock.calls.map((c: any[]) => c[1]);
+    expect(paramCalls.some((p: any) => p && p.itemId === ITEM)).toBe(true);
+  });
+
+  it('falls back to the GENERAL shift for the same item when needed', async () => {
+    resolveQb([], [targetRow({ shiftId: GEN })]);
+    shiftRepo.findOne.mockResolvedValue({ id: GEN, companyId: COMPANY, shiftCode: 'GENERAL', name: 'General Shift' });
+    itemRepo.findOne.mockResolvedValue(activeItem());
+
+    const res = await service.resolve(
+      { machineId: MACHINE, shiftId: SHIFT, itemId: ITEM, productionDate: '2026-08-10', workingHours: 12 } as any,
+      COMPANY,
+    );
+    expect(res.usedGeneralFallback).toBe(true);
+    expect(res.calculatedTarget).toBe(7500);
+    expect(res.targetPerHour).toBe(625);
   });
 });

@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ErpUserService } from './erp-user.service';
 import { ErpUser, ErpUserStatus, UserRole, UserOrganizationScope } from '../entities';
+import { NotificationsService } from '../../notification/notifications.service';
+import { SupabaseAuthService } from '../../auth/services/supabase-auth.service';
 
 describe('ErpUserService', () => {
   let service: ErpUserService;
@@ -64,6 +66,16 @@ describe('ErpUserService', () => {
         { provide: getRepositoryToken(ErpUser), useValue: mockRepo },
         { provide: getRepositoryToken(UserRole), useValue: mockRepo },
         { provide: getRepositoryToken(UserOrganizationScope), useValue: mockRepo },
+        { provide: NotificationsService, useValue: { notifyActiveUsers: jest.fn() } },
+        { provide: SupabaseAuthService, useValue: { signUpWithPassword: jest.fn() } },
+        { provide: getDataSourceToken(), useValue: { createQueryRunner: jest.fn(() => ({
+          connect: jest.fn(),
+          startTransaction: jest.fn(),
+          query: jest.fn(),
+          commitTransaction: jest.fn(),
+          rollbackTransaction: jest.fn(),
+          release: jest.fn(),
+        })) } },
       ],
     }).compile();
 

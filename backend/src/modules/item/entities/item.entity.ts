@@ -1,6 +1,9 @@
 import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
+import { Division } from '../../organization/entities/division.entity';
+import { Section } from '../../organization/entities/section.entity';
+import { Department } from '../../organization/entities/department.entity';
 import { ItemCategory } from './item-category.entity';
 import { Uom } from './uom.entity';
 import { ItemBarcode } from './item-barcode.entity';
@@ -26,6 +29,14 @@ export enum ItemStatus {
   DISCONTINUED = 'DISCONTINUED',
 }
 
+export enum RouteType {
+  DIRECT_SPOKE = 'DIRECT_SPOKE',
+  STANDARD_SPD = 'STANDARD_SPD',
+  NIPPLE = 'NIPPLE',
+  CCD = 'CCD',
+  CUSTOM = 'CUSTOM',
+}
+
 @Entity('items')
 export class Item extends BaseEntity {
   @Column({ name: 'company_id', type: 'uuid' })
@@ -49,6 +60,10 @@ export class Item extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   description: string | null;
+
+  /** Remarks (PROMPT-09): reuses the existing `notes` column. */
+  @Column({ name: 'notes', type: 'text', nullable: true })
+  notes: string | null;
 
   @Column({ name: 'item_type', type: 'varchar', length: 30, default: ItemType.OTHER })
   itemType: ItemType;
@@ -134,6 +149,63 @@ export class Item extends BaseEntity {
 
   @Column({ name: 'lead_time_days', type: 'integer', nullable: true })
   leadTimeDays: number | null;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
+  @ManyToOne(() => Division, { nullable: true })
+  @JoinColumn({ name: 'division_id' })
+  division: Division;
+
+  @Column({ name: 'section_id', type: 'uuid', nullable: true })
+  sectionId: string | null;
+
+  @ManyToOne(() => Section, { nullable: true })
+  @JoinColumn({ name: 'section_id' })
+  section: Section;
+
+  @Column({ name: 'department_id', type: 'uuid', nullable: true })
+  departmentId: string | null;
+
+  @ManyToOne(() => Department, { nullable: true })
+  @JoinColumn({ name: 'department_id' })
+  department: Department;
+
+  @Column({ name: 'wire_size_mm', type: 'decimal', precision: 8, scale: 3, nullable: true })
+  wireSizeMm: number | null;
+
+  @Column({ name: 'route_type', type: 'varchar', length: 50, nullable: true })
+  routeType: string | null;
+
+  @Column({ name: 'process_1', type: 'varchar', length: 255, nullable: true })
+  process1: string | null;
+
+  @Column({ name: 'process_2', type: 'varchar', length: 255, nullable: true })
+  process2: string | null;
+
+  @Column({ name: 'process_3', type: 'varchar', length: 255, nullable: true })
+  process3: string | null;
+
+  @Column({ name: 'process_4', type: 'varchar', length: 255, nullable: true })
+  process4: string | null;
+
+  @Column({ name: 'final_product', type: 'varchar', length: 255, nullable: true })
+  finalProduct: string | null;
+
+  @Column({ name: 'packing_next_step', type: 'varchar', length: 255, nullable: true })
+  packingNextStep: string | null;
+
+  @Column({ name: 'weight_per_piece', type: 'decimal', precision: 15, scale: 6, nullable: true })
+  weightPerPiece: number | null;
+
+  @Column({ name: 'pieces_per_kg', type: 'decimal', precision: 15, scale: 6, nullable: true })
+  piecesPerKg: number | null;
+
+  @Column({ name: 'weight_per_meter', type: 'decimal', precision: 15, scale: 6, nullable: true })
+  weightPerMeter: number | null;
+
+  @Column({ name: 'length_per_piece', type: 'decimal', precision: 15, scale: 6, nullable: true })
+  lengthPerPiece: number | null;
 
   @Column({ name: 'cost_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
   costPrice: number | null;

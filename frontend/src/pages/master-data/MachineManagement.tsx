@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, DatePicker, message,
-  Popconfirm, Card, Drawer, Descriptions, AutoComplete, Dropdown, InputNumber,
+  Alert, App, Badge, Button, Card, DatePicker, Descriptions, Drawer, Dropdown, Form, Input, InputNumber,
+  Modal, Popconfirm, Select, Space, Table, Tooltip, Typography,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, ReloadOutlined, QrcodeOutlined,
-  EyeOutlined, MoreOutlined, PrinterOutlined,
+  EyeOutlined, MoreOutlined, PrinterOutlined, ClearOutlined, FilterOutlined,
+  ToolOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
+import { PageHeader, StatusBadge, EmptyState, LoadingState } from '../../components/shared';
+
+const { Text } = Typography;
 
 interface OrgItem { id: string; name: string; }
 interface DivisionLk extends OrgItem { divisionCode: string; }
@@ -57,14 +61,21 @@ const STATUS_COLORS: Record<string, string> = {
   RETIRED: 'default',
 };
 
-const MACHINE_TYPE_SUGGESTIONS = [
-  'Cold Forge', 'Thread Rolling', 'Heat Treatment', 'Plating Line',
-  'Packing Station', 'Inspection Station', 'Straightener', 'Coating Line',
-];
+const detailDesc = (items: Array<{ label: string; children: React.ReactNode }>) => (
+  <Descriptions size="small" column={2} labelStyle={{ width: 150 }}>
+    {items.map((s) => (
+      <Descriptions.Item key={s.label} label={s.label}>
+        {s.children ?? <Text type="secondary">—</Text>}
+      </Descriptions.Item>
+    ))}
+  </Descriptions>
+);
 
 const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMachineId }) => {
+  const { message } = App.useApp();
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -78,6 +89,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [fDepartment, setFDepartment] = useState<string | undefined>();
   const [fStatus, setFStatus] = useState<string | undefined>();
   const [fCriticality, setFCriticality] = useState<string | undefined>();
+  const [showFilters, setShowFilters] = useState(false);
 
   const [divisions, setDivisions] = useState<DivisionLk[]>([]);
   const [sections, setSections] = useState<SectionLk[]>([]);
@@ -86,6 +98,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [modalVisible, setModalVisible] = useState(false);
   const [editing, setEditing] = useState<Machine | null>(null);
   const [detail, setDetail] = useState<Machine | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [qrModal, setQrModal] = useState<{ visible: boolean; machine: Machine | null; dataUrl: string; payload: string; url: string }>({
     visible: false, machine: null, dataUrl: '', payload: '', url: '',
   });
@@ -98,7 +111,6 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     if (initialMachineId) {
       (async () => {
         try {
-          // /machines/qr/:key resolves UUID, machine code AND system Machine ID (MCH###)
           const m = await apiService.get<Machine>(`/machines/qr/${initialMachineId}`);
           setDetail(m);
         } catch {
@@ -106,10 +118,11 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         }
       })();
     }
-  }, [initialMachineId]);
+  }, [initialMachineId, message]);
 
   const fetchMachines = useCallback(async (pageNum: number = page) => {
     setLoading(true);
+    setError(null);
     try {
       const params: any = { page: pageNum, limit: pageSize, sortBy, sortDir };
       if (search) params.search = search;
@@ -122,8 +135,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       const response = await apiService.get<{ data: Machine[]; total: number }>('/machines', params);
       setMachines(response.data);
       setTotal(response.total);
-    } catch (error: any) {
-      message.error(error?.response?.data?.message || 'Failed to fetch machines');
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to load machines. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -146,7 +159,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         message.warning('Could not load division / section / department lookups');
       }
     })();
-  }, []);
+  }, [message]);
 
   const sectionsForDivision = useMemo(
     () => (divisionId?: string) => (divisionId ? sections.filter((s) => s.divisionId === divisionId) : sections),
@@ -155,6 +168,11 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const departmentsForSection = useMemo(
     () => (sectionId?: string) => (sectionId ? departments.filter((d) => d.sectionId === sectionId) : departments),
     [departments],
+  );
+
+  const activeFilterCount = useMemo(
+    () => [fMachineId, fDivision, fSection, fDepartment, fStatus, fCriticality].filter(Boolean).length,
+    [fMachineId, fDivision, fSection, fDepartment, fStatus, fCriticality],
   );
 
   const openCreate = () => {
@@ -181,7 +199,6 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         installationDate: values.installationDate ? values.installationDate.format('YYYY-MM-DD') : null,
         warrantyExpiryDate: values.warrantyExpiryDate ? values.warrantyExpiryDate.format('YYYY-MM-DD') : null,
       };
-      // Machine ID is system-generated (MCH###): never client-editable
       delete payload.machineId;
       setSaving(true);
       if (editing) {
@@ -219,6 +236,19 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       fetchMachines();
     } catch (error: any) {
       message.error(error?.response?.data?.message || 'Failed to delete machine');
+    }
+  };
+
+  const openDetail = async (m: Machine) => {
+    setDetail(null);
+    setDetailLoading(true);
+    try {
+      const res = await apiService.get<Machine>(`/machines/${m.id}`);
+      setDetail(res);
+    } catch {
+      message.error('Failed to load machine details');
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -266,344 +296,267 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
 
   const columns: ColumnsType<Machine> = [
     {
-      title: 'Machine ID',
-      dataIndex: 'machineId',
+      title: 'Machine ID', dataIndex: 'machineId', key: 'machineId', width: 110, fixed: 'left',
       sorter: true,
-      width: 110,
-      render: (mid: string | null | undefined) => (
-        <code style={{ fontWeight: 600 }}>{mid ?? '—'}</code>
-      ),
+      render: (mid: string | null | undefined) => <code style={{ fontWeight: 600, fontSize: 13 }}>{mid ?? '—'}</code>,
     },
     {
-      title: 'Code',
-      dataIndex: 'machineCode',
+      title: 'Code', dataIndex: 'machineCode', key: 'machineCode', width: 110,
       sorter: true,
-      width: 120,
-      render: (code: string) => <b>{code}</b>,
+      render: (code: string) => <Text strong style={{ fontSize: 13 }}>{code}</Text>,
     },
     {
-      title: 'Machine No.',
-      dataIndex: 'machineNumber',
-      width: 110,
-      ellipsis: true,
-      render: (n: string | null | undefined) => n ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
+      title: 'Machine No.', dataIndex: 'machineNumber', key: 'machineNumber', width: 100, ellipsis: true,
+      render: (n: string | null | undefined) => n ?? <Text type="secondary">—</Text>,
     },
     {
-      title: 'Name',
-      dataIndex: 'name',
+      title: 'Name', dataIndex: 'name', key: 'name', width: 200, ellipsis: true,
       sorter: true,
-      width: 200,
       render: (_: any, m: Machine) => (
         <div>
-          <div>{m.name}</div>
-          {m.machineType && <span style={{ color: 'var(--theme-text-muted)', fontSize: 12 }}>{m.machineType}</span>}
+          <div style={{ fontSize: 13 }}>{m.name}</div>
+          {m.machineType && <Text type="secondary" style={{ fontSize: 12 }}>{m.machineType}</Text>}
         </div>
       ),
     },
     {
-      title: 'Division',
-      width: 130,
-      ellipsis: true,
-      render: (_: any, m: Machine) => m.division?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
+      title: 'Division', key: 'division', width: 120, ellipsis: true,
+      render: (_: any, m: Machine) => m.division?.name ?? <Text type="secondary">—</Text>,
     },
     {
-      title: 'Section',
-      width: 130,
-      ellipsis: true,
-      render: (_: any, m: Machine) => m.section?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
+      title: 'Section', key: 'section', width: 120, ellipsis: true,
+      render: (_: any, m: Machine) => m.section?.name ?? <Text type="secondary">—</Text>,
     },
     {
-      title: 'Department',
-      width: 150,
-      ellipsis: true,
-      render: (_: any, m: Machine) => m.department?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
+      title: 'Department', key: 'department', width: 140, ellipsis: true,
+      render: (_: any, m: Machine) => m.department?.name ?? <Text type="secondary">—</Text>,
     },
-    { title: 'Location', dataIndex: 'location', width: 140 },
     {
-      title: 'Make / Model',
-      width: 160,
+      title: 'Location', dataIndex: 'location', key: 'location', width: 130, ellipsis: true,
+    },
+    {
+      title: 'Make / Model', key: 'makeModel', width: 150,
       render: (_: any, m: Machine) => (
         <div style={{ fontSize: 12 }}>
-          <div>{m.manufacturer ?? '—'}</div>
-          <span style={{ color: 'var(--theme-text-muted)' }}>{m.model ?? ''}</span>
+          <div>{m.manufacturer ?? <Text type="secondary">—</Text>}</div>
+          {m.model && <Text type="secondary" style={{ fontSize: 12 }}>{m.model}</Text>}
         </div>
       ),
     },
     {
-      title: 'Criticality',
-      dataIndex: 'criticality',
+      title: 'Criticality', dataIndex: 'criticality', key: 'criticality', width: 100,
       sorter: true,
-      width: 110,
-      render: (c: string) => <Tag color={CRITICALITY_COLORS[c]}>{c}</Tag>,
+      render: (c: string) => <StatusBadge status={c} colorMap={CRITICALITY_COLORS} />,
     },
     {
-      title: 'Status',
-      dataIndex: 'status',
+      title: 'Status', dataIndex: 'status', key: 'status', width: 110,
       sorter: true,
-      width: 110,
-      render: (s: string) => <Tag color={STATUS_COLORS[s]}>{s}</Tag>,
+      render: (s: string) => <StatusBadge status={s} colorMap={STATUS_COLORS} />,
     },
     {
-      title: 'Actions',
-      key: 'actions',
-      width: 190,
+      title: 'Actions', key: 'actions', width: 170, fixed: 'right',
       render: (_: any, m: Machine) => (
         <Space size={0}>
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setDetail(m)} />
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(m)} />
-          <Button type="link" size="small" icon={<QrcodeOutlined />} onClick={() => showQr(m)} />
-          <Dropdown
-            menu={{
-              items: [
-                ...(m.status !== 'ACTIVE'
-                  ? [{ key: 'ACTIVE', label: 'Set Active' }]
-                  : []),
-                ...(m.status !== 'MAINTENANCE'
-                  ? [{ key: 'MAINTENANCE', label: 'Set Maintenance' }]
-                  : []),
-                ...(m.status !== 'INACTIVE'
-                  ? [{ key: 'INACTIVE', label: 'Deactivate' }]
-                  : []),
-                ...(m.status !== 'RETIRED'
-                  ? [{ key: 'RETIRED', label: 'Retire' }]
-                  : []),
-              ],
-              onClick: ({ key }) => handleStatus(m, key),
-            }}
-          >
-            <Button type="link" size="small" icon={<MoreOutlined />} />
-          </Dropdown>
+          <Tooltip title="View">
+            <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(m)} />
+          </Tooltip>
+          <Tooltip title="Edit">
+            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(m)} />
+          </Tooltip>
+          <Tooltip title="QR Code">
+            <Button type="text" size="small" icon={<QrcodeOutlined />} onClick={() => showQr(m)} />
+          </Tooltip>
+          <Tooltip title="Status">
+            <Dropdown
+              menu={{
+                items: [
+                  ...(m.status !== 'ACTIVE' ? [{ key: 'ACTIVE', label: 'Set Active' }] : []),
+                  ...(m.status !== 'MAINTENANCE' ? [{ key: 'MAINTENANCE', label: 'Set Maintenance' }] : []),
+                  ...(m.status !== 'INACTIVE' ? [{ key: 'INACTIVE', label: 'Deactivate' }] : []),
+                  ...(m.status !== 'RETIRED' ? [{ key: 'RETIRED', label: 'Retire' }] : []),
+                ],
+                onClick: ({ key }) => handleStatus(m, key),
+              }}
+            >
+              <Button type="text" size="small" icon={<MoreOutlined />} />
+            </Dropdown>
+          </Tooltip>
           <Popconfirm
-            title={`Delete machine '${m.machineCode}'?`}
-            description="The record is soft-deleted and hidden from lists."
+            title={`Delete '${m.machineCode}'?`}
+            description="Blocked if referenced by production data."
+            okButtonProps={{ danger: true }}
             onConfirm={() => handleDelete(m)}
           >
-            <Button type="link" size="small" danger>Delete</Button>
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
       ),
     },
   ];
 
+  const sortInfo = `Sorted by ${sortBy} (${sortDir.toLowerCase()})`;
+
   return (
     <div style={{ padding: 24 }}>
-      <Card style={{ marginBottom: 16 }}>
-        <Space wrap size={8}>
+      <PageHeader
+        icon={<ToolOutlined />}
+        title="Machine Master"
+        subtitle={`Production machines, tools and equipment · ${total} records`}
+        showBreadcrumbs
+        extra={
+          <>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add Machine</Button>
+            <Tooltip title="Refresh">
+              <Button icon={<ReloadOutlined />} onClick={() => fetchMachines()} />
+            </Tooltip>
+          </>
+        }
+      />
+
+      <Card styles={{ body: { paddingBottom: 0 } }} style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 4 }}>
           <Input
             allowClear
-            prefix={<SearchOutlined />}
-            placeholder="Search Machine ID, code, name, serial…"
-            style={{ width: 260 }}
+            prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+            placeholder="Search by code, name, serial…"
+            style={{ width: 280, maxWidth: '100%' }}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="Machine ID (e.g. MCH001)"
-            style={{ width: 190 }}
-            value={fMachineId}
-            onChange={(e) => { setFMachineId(e.target.value); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="Division" style={{ width: 180 }} value={fDivision}
-            options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-            onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="Section" style={{ width: 180 }} value={fSection}
-            options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
-            onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
-            disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
-          />
-          <Select
-            allowClear placeholder="Department" style={{ width: 200 }} value={fDepartment}
-            options={(fSection ? departmentsForSection(fSection) : fDivision
-              ? departments.filter((d) => d.divisionId === fDivision)
-              : departments).map((d) => ({ value: d.id, label: d.name }))}
-            onChange={(v) => { setFDepartment(v); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="Status" style={{ width: 140 }} value={fStatus}
-            options={['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((s) => ({ value: s, label: s }))}
-            onChange={(v) => { setFStatus(v); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="Criticality" style={{ width: 140 }} value={fCriticality}
-            options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((c) => ({ value: c, label: c }))}
-            onChange={(v) => { setFCriticality(v); setPage(1); }}
-          />
-          <Button icon={<ReloadOutlined />} onClick={resetFilters}>Reset</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            New Machine
-          </Button>
-        </Space>
+          <Badge count={activeFilterCount}>
+            <Button icon={<FilterOutlined />} onClick={() => setShowFilters((v) => !v)}>
+              Filters
+            </Button>
+          </Badge>
+          {activeFilterCount > 0 && (
+            <Button type="text" icon={<ClearOutlined />} onClick={resetFilters}>
+              Clear Filters
+            </Button>
+          )}
+          <div style={{ flex: 1 }} />
+          <Text type="secondary" style={{ fontSize: 12 }}>{sortInfo}</Text>
+        </div>
+        {showFilters && (
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12, padding: '14px 0 16px', marginTop: 12, borderTop: '1px solid #f0f0f0',
+          }}>
+            <Input
+              allowClear prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+              placeholder="Machine ID (e.g. MCH001)"
+              value={fMachineId}
+              onChange={(e) => { setFMachineId(e.target.value); setPage(1); }}
+            />
+            <Select
+              allowClear showSearch optionFilterProp="label" placeholder="Division"
+              style={{ width: '100%' }}
+              value={fDivision}
+              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+              onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
+            />
+            <Select
+              allowClear showSearch optionFilterProp="label" placeholder="Section"
+              style={{ width: '100%' }}
+              value={fSection}
+              options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
+              onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
+              disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
+            />
+            <Select
+              allowClear showSearch optionFilterProp="label" placeholder="Department"
+              style={{ width: '100%' }}
+              value={fDepartment}
+              options={(fSection ? departmentsForSection(fSection) : fDivision
+                ? departments.filter((d) => d.divisionId === fDivision)
+                : departments).map((d) => ({ value: d.id, label: d.name }))}
+              onChange={(v) => { setFDepartment(v); setPage(1); }}
+            />
+            <Select
+              allowClear placeholder="Status"
+              style={{ width: '100%' }}
+              value={fStatus}
+              options={['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))}
+              onChange={(v) => { setFStatus(v); setPage(1); }}
+            />
+            <Select
+              allowClear placeholder="Criticality"
+              style={{ width: '100%' }}
+              value={fCriticality}
+              options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((c) => ({ value: c, label: c.charAt(0) + c.slice(1).toLowerCase() }))}
+              onChange={(v) => { setFCriticality(v); setPage(1); }}
+            />
+          </div>
+        )}
       </Card>
 
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={machines}
-        loading={loading}
-        scroll={{ x: 1200 }}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          showTotal: (t) => `${t} machines`,
-          onChange: (p, ps) => { setPage(p); setPageSize(ps); },
-        }}
-        onChange={(_pg, _flt, sorter: any) => {
-          if (sorter && sorter.field) {
-            const map: Record<string, string> = {
-              machineId: 'machineId', machineCode: 'machineCode', name: 'name', criticality: 'criticality', status: 'status',
-            };
-            const col = map[sorter.field] || 'machineCode';
-            setSortBy(col);
-            setSortDir(sorter.order === 'descend' ? 'DESC' : 'ASC');
-          }
-        }}
-      />
+      {error && (
+        <Alert
+          type="error"
+          showIcon
+          message="Could not load machines"
+          description={error}
+          action={<Button size="small" danger onClick={() => fetchMachines()}>Retry</Button>}
+          style={{ marginBottom: 16 }}
+          closable
+        />
+      )}
 
-      <Modal
-        title={editing ? `Edit Machine — ${editing.machineCode}` : 'New Machine'}
-        open={modalVisible}
-        onOk={handleSave}
-        confirmLoading={saving}
-        onCancel={() => setModalVisible(false)}
-        width={720}
-        okText={editing ? 'Save Changes' : 'Create Machine'}
-        destroyOnClose
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item label="Machine ID" style={{ marginBottom: 8 }}>
-            <Input
-              value={editing?.machineId ?? ''}
-              placeholder="Auto-generated on save (MCH###)"
-              disabled
-              style={{ maxWidth: 200, fontWeight: 600 }}
-            />
-          </Form.Item>
-          <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item
-              name="machineCode" label="Machine Code"
-              rules={[{ required: true, max: 50, message: 'Unique code, max 50 chars' }]}
-              style={{ flex: 1, minWidth: 200 }}
-            >
-              <Input placeholder="e.g. HD-04" disabled={false} />
-            </Form.Item>
-            <Form.Item name="machineNumber" label="Machine Number" style={{ flex: 1, minWidth: 200 }}>
-              <Input placeholder="e.g. MM-1001" maxLength={60} />
-            </Form.Item>
-          </Space>
-          <Form.Item
-            name="name" label="Machine Name"
-            rules={[{ required: true, max: 255, message: 'Name is required' }]}
-          >
-            <Input placeholder="e.g. Header Machine 04" maxLength={255} />
-          </Form.Item>
-          <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item name="divisionId" label="Division" style={{ flex: 1, minWidth: 200 }}>
-              <Select
-                allowClear placeholder="(optional)"
-                options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-                onChange={() => {
-                  form.setFieldValue('sectionId', undefined);
-                  form.setFieldValue('departmentId', undefined);
-                }}
+      <Card title={<span style={{ fontSize: 14, fontWeight: 600 }}>Machines</span>} styles={{ body: { padding: '8px 0 0' } }}>
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={machines}
+          loading={loading}
+          scroll={{ x: 1500 }}
+          sticky
+          size="middle"
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} machines`,
+            onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
+          }}
+          onChange={(_pg, _flt, sorter: any) => {
+            if (sorter && sorter.field && !Array.isArray(sorter.field)) {
+              const map: Record<string, string> = {
+                machineId: 'machineId', machineCode: 'machineCode', name: 'name', criticality: 'criticality', status: 'status',
+              };
+              const col = map[sorter.field] || 'machineCode';
+              setSortBy(col);
+              setSortDir(sorter.order === 'descend' ? 'DESC' : 'ASC');
+            }
+          }}
+          locale={{
+            emptyText: (
+              <EmptyState
+                title={search || activeFilterCount > 0 ? 'No machines match your filters' : 'No machines found'}
+                description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by adding your first machine.'}
+                actionLabel="Add Machine"
+                onAction={openCreate}
               />
-            </Form.Item>
-            <Form.Item name="sectionId" label="Section" style={{ flex: 1, minWidth: 200 }}>
-              <Select
-                allowClear placeholder="(optional)"
-                options={sectionsForDivision(formDivisionId).map((s) => ({ value: s.id, label: s.name }))}
-                onChange={() => form.setFieldValue('departmentId', undefined)}
-              />
-            </Form.Item>
-            <Form.Item name="departmentId" label="Department" style={{ flex: 1, minWidth: 200 }}>
-              <Select
-                allowClear placeholder="(optional)"
-                options={(formSectionId ? departmentsForSection(formSectionId) : formDivisionId
-                  ? departments.filter((d) => d.divisionId === formDivisionId)
-                  : departments).map((d) => ({ value: d.id, label: d.name }))}
-              />
-            </Form.Item>
-          </Space>
-          <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item name="machineType" label="Machine Type" style={{ flex: 1, minWidth: 200 }}>
-              <AutoComplete
-                options={MACHINE_TYPE_SUGGESTIONS.map((t) => ({ value: t }))}
-                placeholder="e.g. Cold Forge"
-                filterOption
-              />
-            </Form.Item>
-            <Form.Item name="location" label="Location" style={{ flex: 1, minWidth: 200 }}>
-              <Input placeholder="e.g. Hall A / Bay 3" maxLength={255} />
-            </Form.Item>
-            <Form.Item name="criticality" label="Criticality" initialValue="MEDIUM" style={{ flex: 1, minWidth: 160 }}>
-              <Select options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((c) => ({ value: c, label: c }))} />
-            </Form.Item>
-          </Space>
-          <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item name="manufacturer" label="Manufacturer" style={{ flex: 1, minWidth: 200 }}>
-              <Input maxLength={120} />
-            </Form.Item>
-            <Form.Item name="model" label="Model" style={{ flex: 1, minWidth: 160 }}>
-              <Input maxLength={120} />
-            </Form.Item>
-            <Form.Item name="serialNumber" label="Serial Number" style={{ flex: 1, minWidth: 200 }}>
-              <Input maxLength={120} />
-            </Form.Item>
-          </Space>
-          <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item
-              name="capacity" label="Capacity"
-              tooltip="Numeric capacity (up to 4 decimals); unit goes in Power Rating / Description"
-              style={{ flex: 1, minWidth: 180 }}
-            >
-              <InputNumber
-                placeholder="e.g. 120"
-                min={0}
-                step={0.0001}
-                style={{ width: '100%' }}
-              />
-            </Form.Item>
-            <Form.Item name="powerRating" label="Power Rating" style={{ flex: 1, minWidth: 140 }}>
-              <Input placeholder="e.g. 15 kW" maxLength={60} />
-            </Form.Item>
-            <Form.Item name="installationDate" label="Installation Date" style={{ flex: 1, minWidth: 170 }}>
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item
-              name="warrantyExpiryDate" label="Warranty Expiry"
-              dependencies={['installationDate']}
-              rules={[
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    const inst = getFieldValue('installationDate');
-                    if (!value || !inst || !value.isBefore(inst)) return Promise.resolve();
-                    return Promise.reject(new Error('Warranty expiry must be after installation date'));
-                  },
-                }),
-              ]}
-              style={{ flex: 1, minWidth: 170 }}
-            >
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-          </Space>
-          <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} maxLength={2000} />
-          </Form.Item>
-        </Form>
-      </Modal>
+            ),
+          }}
+        />
+      </Card>
 
       <Drawer
-        title={detail ? `${detail.machineCode} — ${detail.name}` : ''}
-        placement="right"
-        width={520}
-        open={!!detail}
-        onClose={() => setDetail(null)}
+        open={!!detail || detailLoading}
+        onClose={() => { setDetail(null); setDetailLoading(false); }}
+        width={Math.min(720, typeof window !== 'undefined' ? window.innerWidth - 40 : 680)}
+        title={
+          detail ? (
+            <Space wrap>
+              <span style={{ fontWeight: 600 }}>{detail.machineCode}</span>
+              <StatusBadge status={detail.status} colorMap={STATUS_COLORS} />
+              <StatusBadge status={detail.criticality} colorMap={CRITICALITY_COLORS} />
+            </Space>
+          ) : (
+            'Machine Details'
+          )
+        }
         extra={
           detail && (
             <Space>
@@ -615,39 +568,92 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           )
         }
       >
-        {detail && (
-          <Descriptions column={1} bordered size="small">
-            <Descriptions.Item label="Machine ID">
-              <code style={{ fontWeight: 600 }}>{detail.machineId ?? '—'}</code>
-            </Descriptions.Item>
-            <Descriptions.Item label="Machine Code">{detail.machineCode}</Descriptions.Item>
-            <Descriptions.Item label="Machine Number">{detail.machineNumber ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Name">{detail.name}</Descriptions.Item>
-            <Descriptions.Item label="Type">{detail.machineType ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Division">{detail.division?.name ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Section">{detail.section?.name ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Department">{detail.department?.name ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Location">{detail.location ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Manufacturer">{detail.manufacturer ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Model">{detail.model ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Serial Number">{detail.serialNumber ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Capacity">{detail.capacity ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Power Rating">{detail.powerRating ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Installation Date">{detail.installationDate ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Warranty Expiry">{detail.warrantyExpiryDate ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="Criticality">
-              <Tag color={CRITICALITY_COLORS[detail.criticality]}>{detail.criticality}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Status">
-              <Tag color={STATUS_COLORS[detail.status]}>{detail.status}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Description">{detail.description ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="QR Payload">
-              <code style={{ fontSize: 11 }}>{detail.qrPayload ?? '—'}</code>
-            </Descriptions.Item>
-          </Descriptions>
-        )}
+        {detailLoading ? (
+          <LoadingState tip="Loading machine details…" />
+        ) : detail ? (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Card size="small" title="Machine Identity">
+              {detailDesc([
+                { label: 'Machine ID', children: <code style={{ fontWeight: 600, fontSize: 13 }}>{detail.machineId ?? '—'}</code> },
+                { label: 'Machine Code', children: <Text strong>{detail.machineCode}</Text> },
+                { label: 'Machine Number', children: detail.machineNumber ?? undefined },
+                { label: 'Machine Name', children: detail.name },
+                { label: 'Machine Type', children: detail.machineType ?? undefined },
+                {
+                  label: 'Status',
+                  children: <StatusBadge status={detail.status} colorMap={STATUS_COLORS} />,
+                },
+                {
+                  label: 'Criticality',
+                  children: <StatusBadge status={detail.criticality} colorMap={CRITICALITY_COLORS} />,
+                },
+              ])}
+            </Card>
+
+            <Card size="small" title="Organization">
+              {detailDesc([
+                { label: 'Division', children: detail.division?.name },
+                { label: 'Section', children: detail.section?.name },
+                { label: 'Department', children: detail.department?.name },
+              ])}
+            </Card>
+
+            <Card size="small" title="Location">
+              {detailDesc([
+                { label: 'Location', children: detail.location },
+              ])}
+            </Card>
+
+            <Card size="small" title="Technical Information">
+              {detailDesc([
+                { label: 'Manufacturer', children: detail.manufacturer },
+                { label: 'Model', children: detail.model },
+                { label: 'Serial Number', children: detail.serialNumber },
+                { label: 'Capacity', children: detail.capacity },
+                { label: 'Power Rating', children: detail.powerRating },
+              ])}
+            </Card>
+
+            <Card size="small" title="Dates">
+              {detailDesc([
+                { label: 'Installation Date', children: detail.installationDate },
+                { label: 'Warranty Expiry', children: detail.warrantyExpiryDate },
+              ])}
+            </Card>
+
+            {detail.description && (
+              <Card size="small" title="Description">
+                <Text style={{ fontSize: 13 }}>{detail.description}</Text>
+              </Card>
+            )}
+
+            {detail.qrPayload && (
+              <Card size="small" title="QR Information">
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>QR Payload:</Text>
+                  <div><code style={{ fontSize: 11 }}>{detail.qrPayload}</code></div>
+                </div>
+              </Card>
+            )}
+          </Space>
+        ) : null}
       </Drawer>
+
+      <FormModal
+        open={modalVisible}
+        editing={editing}
+        saving={saving}
+        form={form}
+        formDivisionId={formDivisionId}
+        formSectionId={formSectionId}
+        divisions={divisions}
+        sections={sections}
+        departments={departments}
+        sectionsForDivision={sectionsForDivision}
+        departmentsForSection={departmentsForSection}
+        onCancel={() => setModalVisible(false)}
+        onOk={handleSave}
+      />
 
       <Modal
         title={`QR Code — ${qrModal.machine?.machineCode ?? ''}`}
@@ -679,5 +685,166 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     </div>
   );
 };
+
+interface FormModalProps {
+  open: boolean;
+  editing: Machine | null;
+  saving: boolean;
+  form: ReturnType<typeof Form.useForm>[0];
+  formDivisionId: string | undefined;
+  formSectionId: string | undefined;
+  divisions: DivisionLk[];
+  sections: SectionLk[];
+  departments: DepartmentLk[];
+  sectionsForDivision: (divisionId?: string) => SectionLk[];
+  departmentsForSection: (sectionId?: string) => DepartmentLk[];
+  onCancel: () => void;
+  onOk: () => void;
+}
+
+const FormModal: React.FC<FormModalProps> = ({
+  open, editing, saving, form, formDivisionId, formSectionId,
+  divisions, sections, departments, sectionsForDivision, departmentsForSection,
+  onCancel, onOk,
+}) => (
+  <Modal
+    title={editing ? `Edit Machine — ${editing.machineCode}` : 'New Machine'}
+    open={open}
+    onOk={onOk}
+    confirmLoading={saving}
+    onCancel={onCancel}
+    width={800}
+    okText={editing ? 'Save Changes' : 'Create Machine'}
+  >
+    <Form form={form} layout="vertical" requiredMark="optional">
+      <Card size="small" title="Machine Identity" style={{ marginBottom: 16 }}>
+        <Form.Item label="Machine ID" style={{ marginBottom: 8 }}>
+          <Input
+            value={editing?.machineId ?? ''}
+            placeholder="Auto-generated on save (MCH###)"
+            disabled
+            style={{ maxWidth: 200, fontWeight: 600 }}
+          />
+        </Form.Item>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
+          <Form.Item
+            name="machineCode" label="Machine Code"
+            rules={[{ required: true, max: 50, message: 'Unique code, max 50 chars' }]}
+          >
+            <Input placeholder="e.g. HD-04" />
+          </Form.Item>
+          <Form.Item name="machineNumber" label="Machine Number">
+            <Input placeholder="e.g. MM-1001" maxLength={60} />
+          </Form.Item>
+          <Form.Item
+            name="name" label="Machine Name"
+            rules={[{ required: true, max: 255, message: 'Name is required' }]}
+          >
+            <Input placeholder="e.g. Header Machine 04" maxLength={255} />
+          </Form.Item>
+          <Form.Item name="machineType" label="Machine Type">
+            <Input
+              placeholder="e.g. Cold Forge"
+              maxLength={100}
+            />
+          </Form.Item>
+        </div>
+      </Card>
+
+      <Card size="small" title="Organization" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
+          <Form.Item name="divisionId" label="Division">
+            <Select
+              allowClear showSearch optionFilterProp="label" placeholder="Select division"
+              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+              onChange={() => {
+                form.setFieldValue('sectionId', undefined);
+                form.setFieldValue('departmentId', undefined);
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="sectionId" label="Section">
+            <Select
+              allowClear showSearch optionFilterProp="label" placeholder="Select section"
+              options={sectionsForDivision(formDivisionId).map((s) => ({ value: s.id, label: s.name }))}
+              onChange={() => form.setFieldValue('departmentId', undefined)}
+            />
+          </Form.Item>
+          <Form.Item name="departmentId" label="Department">
+            <Select
+              allowClear showSearch optionFilterProp="label" placeholder="Select department"
+              options={(formSectionId ? departmentsForSection(formSectionId) : formDivisionId
+                ? departments.filter((d) => d.divisionId === formDivisionId)
+                : departments).map((d) => ({ value: d.id, label: d.name }))}
+            />
+          </Form.Item>
+        </div>
+      </Card>
+
+      <Card size="small" title="Location & Classification" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
+          <Form.Item name="location" label="Location">
+            <Input placeholder="e.g. Hall A / Bay 3" maxLength={255} />
+          </Form.Item>
+          <Form.Item name="criticality" label="Criticality" initialValue="MEDIUM">
+            <Select options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((c) => ({ value: c, label: c.charAt(0) + c.slice(1).toLowerCase() }))} />
+          </Form.Item>
+        </div>
+      </Card>
+
+      <Card size="small" title="Technical Information" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
+          <Form.Item name="manufacturer" label="Manufacturer">
+            <Input maxLength={120} />
+          </Form.Item>
+          <Form.Item name="model" label="Model">
+            <Input maxLength={120} />
+          </Form.Item>
+          <Form.Item name="serialNumber" label="Serial Number">
+            <Input maxLength={120} />
+          </Form.Item>
+          <Form.Item
+            name="capacity" label="Capacity"
+            tooltip="Numeric capacity (up to 4 decimals); unit goes in Power Rating / Description"
+          >
+            <InputNumber placeholder="e.g. 120" min={0} step={0.0001} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="powerRating" label="Power Rating">
+            <Input placeholder="e.g. 15 kW" maxLength={60} />
+          </Form.Item>
+        </div>
+      </Card>
+
+      <Card size="small" title="Dates" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
+          <Form.Item name="installationDate" label="Installation Date">
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="warrantyExpiryDate" label="Warranty Expiry"
+            dependencies={['installationDate']}
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  const inst = getFieldValue('installationDate');
+                  if (!value || !inst || !value.isBefore(inst)) return Promise.resolve();
+                  return Promise.reject(new Error('Warranty expiry must be after installation date'));
+                },
+              }),
+            ]}
+          >
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+        </div>
+      </Card>
+
+      <Card size="small" title="Additional">
+        <Form.Item name="description" label="Description" style={{ marginBottom: 0 }}>
+          <Input.TextArea rows={2} maxLength={2000} />
+        </Form.Item>
+      </Card>
+    </Form>
+  </Modal>
+);
 
 export default MachineManagement;

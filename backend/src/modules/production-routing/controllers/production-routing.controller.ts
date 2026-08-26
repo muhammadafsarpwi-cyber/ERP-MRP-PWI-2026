@@ -57,6 +57,17 @@ export class ProductionRoutingController {
     return { data: routing };
   }
 
+  @Get('item/:itemId/route')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing.view')
+  @ApiOperation({ summary: "Get an item's effective production route in sequence order" })
+  async getEffectiveRouteForItem(@Param('itemId', ParseUUIDPipe) itemId: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const routing = await this.routingService.getEffectiveRouteForItem(itemId, companyId);
+    return { data: routing };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

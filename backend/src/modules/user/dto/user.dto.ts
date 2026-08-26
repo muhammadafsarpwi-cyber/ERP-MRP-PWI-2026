@@ -170,3 +170,60 @@ export class SetDefaultContextDto {
   @IsOptional()
   departmentId?: string;
 }
+
+export class CreateUserFullDto {
+  @ApiProperty({ description: 'Email address' })
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @ApiProperty({ description: 'Password (min 8 chars, uppercase + lowercase + number)' })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, {
+    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+  })
+  password: string;
+
+  @ApiProperty({ description: 'Display name' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  displayName: string;
+
+  @ApiPropertyOptional({ description: 'Username' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  username?: string;
+
+  @ApiPropertyOptional({ description: 'First name' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  firstName?: string;
+
+  @ApiPropertyOptional({ description: 'Last name' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  lastName?: string;
+
+  @ApiPropertyOptional({ description: 'Phone' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(20)
+  phone?: string;
+
+  @ApiPropertyOptional({ description: 'Employee ID' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  employeeId?: string;
+
+  @ApiPropertyOptional({ description: 'Role IDs to assign', type: [String] })
+  @IsArray()
+  @IsUUID('4', { each: true })
+  @IsOptional()
+  roleIds?: string[];
+}

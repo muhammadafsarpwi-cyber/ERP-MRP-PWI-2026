@@ -299,7 +299,7 @@ const BomManagement: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => { setModalVisible(false); form.resetFields(); }}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>

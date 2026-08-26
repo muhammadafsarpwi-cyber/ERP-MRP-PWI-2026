@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesOrderService } from './sales-order.service';
 import { SalesOrder, SalesOrderItem, SalesCustomer } from '../entities';
+import { NotificationsService } from '../../notification/notifications.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 describe('SalesOrderService', () => {
@@ -58,6 +59,7 @@ describe('SalesOrderService', () => {
         { provide: getRepositoryToken(SalesOrder), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesOrderItem), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesCustomer), useValue: makeMockRepo() },
+        { provide: NotificationsService, useValue: { notifyActiveUsers: jest.fn() } },
       ],
     }).compile();
 

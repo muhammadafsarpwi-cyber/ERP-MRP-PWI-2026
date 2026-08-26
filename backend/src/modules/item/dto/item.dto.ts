@@ -14,7 +14,9 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ItemType } from '../entities/item.entity';
+import { ItemType, RouteType } from '../entities/item.entity';
+
+export const ROUTE_TYPES = Object.values(RouteType) as string[];
 
 export class CreateItemDto {
   @ApiProperty({ description: 'Company ID' })
@@ -53,6 +55,12 @@ export class CreateItemDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  /** Remarks (PROMPT-09): reuses the existing `notes` column. */
+  @ApiPropertyOptional({ description: 'Remarks' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
 
   @ApiProperty({ description: 'Item type', enum: ItemType })
   @IsEnum(ItemType)
@@ -163,6 +171,92 @@ export class CreateItemDto {
   @IsInt()
   @IsOptional()
   leadTimeDays?: number;
+
+  @ApiPropertyOptional({ description: 'Division ID (Division -> Section -> Department -> Item)' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Section ID within the division' })
+  @IsUUID()
+  @IsOptional()
+  sectionId?: string;
+
+  @ApiPropertyOptional({ description: 'Department ID within the section' })
+  @IsUUID()
+  @IsOptional()
+  departmentId?: string;
+
+  @ApiPropertyOptional({ description: 'Raw wire size in mm' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  wireSizeMm?: number;
+
+  @ApiPropertyOptional({ description: 'Routing rule for this item', enum: RouteType })
+  @IsIn(ROUTE_TYPES)
+  @IsOptional()
+  routeType?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 1' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process1?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 2' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process2?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 3' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process3?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 4' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process4?: string;
+
+  @ApiPropertyOptional({ description: 'Final produced product' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  finalProduct?: string;
+
+  @ApiPropertyOptional({ description: 'Packing / next step after the final process' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  packingNextStep?: string;
+
+  @ApiPropertyOptional({ description: 'Weight per piece in KG' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  weightPerPiece?: number;
+
+  @ApiPropertyOptional({ description: 'Pieces per KG (manually maintained; never auto-overwritten)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  piecesPerKg?: number;
+
+  @ApiPropertyOptional({ description: 'Weight per meter in kg/m' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  weightPerMeter?: number;
+
+  @ApiPropertyOptional({ description: 'Length per piece in m' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  lengthPerPiece?: number;
 }
 
 export class UpdateItemDto {
@@ -202,6 +296,12 @@ export class UpdateItemDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  /** Remarks (PROMPT-09): reuses the existing `notes` column. */
+  @ApiPropertyOptional({ description: 'Remarks' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
 
   @ApiPropertyOptional({ description: 'Item type', enum: ItemType })
   @IsEnum(ItemType)
@@ -312,6 +412,92 @@ export class UpdateItemDto {
   @IsInt()
   @IsOptional()
   leadTimeDays?: number;
+
+  @ApiPropertyOptional({ description: 'Division ID (Division -> Section -> Department -> Item)' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Section ID within the division' })
+  @IsUUID()
+  @IsOptional()
+  sectionId?: string;
+
+  @ApiPropertyOptional({ description: 'Department ID within the section' })
+  @IsUUID()
+  @IsOptional()
+  departmentId?: string;
+
+  @ApiPropertyOptional({ description: 'Raw wire size in mm' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  wireSizeMm?: number;
+
+  @ApiPropertyOptional({ description: 'Routing rule for this item', enum: RouteType })
+  @IsIn(ROUTE_TYPES)
+  @IsOptional()
+  routeType?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 1' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process1?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 2' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process2?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 3' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process3?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 4' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process4?: string;
+
+  @ApiPropertyOptional({ description: 'Final produced product' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  finalProduct?: string;
+
+  @ApiPropertyOptional({ description: 'Packing / next step after the final process' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  packingNextStep?: string;
+
+  @ApiPropertyOptional({ description: 'Weight per piece in KG' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  weightPerPiece?: number;
+
+  @ApiPropertyOptional({ description: 'Pieces per KG (manually maintained; never auto-overwritten)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  piecesPerKg?: number;
+
+  @ApiPropertyOptional({ description: 'Weight per meter in kg/m' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  weightPerMeter?: number;
+
+  @ApiPropertyOptional({ description: 'Length per piece in m' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  lengthPerPiece?: number;
 }
 
 export class ItemFilterDto {
@@ -352,6 +538,38 @@ export class ItemFilterDto {
   @IsOptional()
   companyId?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by division ID' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by section ID' })
+  @IsUUID()
+  @IsOptional()
+  sectionId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by department ID' })
+  @IsUUID()
+  @IsOptional()
+  departmentId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by route type' })
+  @IsString()
+  @IsOptional()
+  routeType?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by exact wire size (mm)' })
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  wireSizeMm?: number;
+
+  @ApiPropertyOptional({ description: 'Filter by active flag (true = ACTIVE status only, false = non-ACTIVE)' })
+  @IsBoolean()
+  @IsOptional()
+  @Type(() => Boolean)
+  active?: boolean;
+
   @ApiPropertyOptional({ description: 'Filter purchasable items' })
   @IsBoolean()
   @IsOptional()
@@ -387,4 +605,31 @@ export class ItemFilterDto {
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
   sortOrder?: string;
+}
+
+export class ConvertUomDto {
+  @ApiProperty({ description: 'Quantity to convert' })
+  @IsNumber()
+  @Min(0)
+  quantity: number;
+
+  @ApiPropertyOptional({ description: 'Source UOM ID' })
+  @IsUUID()
+  @IsOptional()
+  fromUomId?: string;
+
+  @ApiPropertyOptional({ description: "Source UOM code, e.g. 'KG'" })
+  @IsString()
+  @IsOptional()
+  fromUomCode?: string;
+
+  @ApiPropertyOptional({ description: 'Target UOM ID' })
+  @IsUUID()
+  @IsOptional()
+  toUomId?: string;
+
+  @ApiPropertyOptional({ description: "Target UOM code, e.g. 'PCS'" })
+  @IsString()
+  @IsOptional()
+  toUomCode?: string;
 }

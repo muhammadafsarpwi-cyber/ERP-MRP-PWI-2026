@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ErpUserService } from '../services/erp-user.service';
 import { AuthService } from '../../auth/services/auth.service';
-import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto } from '../dto/user.dto';
+import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto, CreateUserFullDto } from '../dto/user.dto';
 import { AdminResetPasswordDto } from '../../auth/dto/auth.dto';
 import { ErpUserStatus } from '../entities';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
@@ -25,6 +25,17 @@ export class UserController {
   @ApiResponse({ status: 201, description: 'User created successfully' })
   async create(@Body() dto: CreateErpUserDto) {
     const user = await this.userService.create(dto);
+    return { success: true, data: user, message: 'User created successfully' };
+  }
+
+  @Post('create-full')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('admin.users.create')
+  @ApiOperation({ summary: 'Create user with auth account (signup + erp user + role assignment)' })
+  @ApiResponse({ status: 201, description: 'User and auth account created successfully' })
+  async createFull(@Body() dto: CreateUserFullDto, @Req() req: any) {
+    const authUserId = req.user?.id;
+    const user = await this.userService.createFull(dto, authUserId);
     return { success: true, data: user, message: 'User created successfully' };
   }
 

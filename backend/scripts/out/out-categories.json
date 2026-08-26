@@ -1,0 +1,407 @@
+{
+    "success":  true,
+    "data":  [
+                 {
+                     "id":  "d48baf67-6ed4-476b-b557-7b29b47ed373",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-PKG-BOX",
+                     "name":  "Boxes \u0026 Cartons",
+                     "description":  "Corrugated boxes and cartons",
+                     "parentCategoryId":  "fb1cf7b5-175c-4c35-b871-600dc12d1c4a",
+                     "status":  "ACTIVE",
+                     "parentCategory":  {
+                                            "id":  "fb1cf7b5-175c-4c35-b871-600dc12d1c4a",
+                                            "createdAt":  "2026-08-21T05:37:54.219Z",
+                                            "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                            "createdBy":  null,
+                                            "updatedBy":  null,
+                                            "isActive":  true,
+                                            "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                            "categoryCode":  "CAT-PKG",
+                                            "name":  "Packaging Materials",
+                                            "description":  "Packaging and labeling materials",
+                                            "parentCategoryId":  null,
+                                            "status":  "ACTIVE"
+                                        },
+                     "children":  [
+
+                                  ]
+                 },
+                 {
+                     "id":  "90165ada-3264-4ea4-98d6-1878f4f91796",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-CONS",
+                     "name":  "Consumables",
+                     "description":  "Consumable supplies and materials",
+                     "parentCategoryId":  null,
+                     "status":  "ACTIVE",
+                     "parentCategory":  null,
+                     "children":  [
+                                      {
+                                          "id":  "e15f8011-2b93-41be-a4ea-cc351fca26ff",
+                                          "createdAt":  "2026-08-21T05:37:54.219Z",
+                                          "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                          "createdBy":  null,
+                                          "updatedBy":  null,
+                                          "isActive":  true,
+                                          "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                          "categoryCode":  "CAT-CONS-IND",
+                                          "name":  "Industrial Supplies",
+                                          "description":  "Industrial consumable supplies",
+                                          "parentCategoryId":  "90165ada-3264-4ea4-98d6-1878f4f91796",
+                                          "status":  "ACTIVE"
+                                      }
+                                  ]
+                 },
+                 {
+                     "id":  "d67565a1-8cd0-4dfe-b87c-7f3c72356296",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-FIN-ELEC",
+                     "name":  "Electrical Parts",
+                     "description":  "Finished electrical components",
+                     "parentCategoryId":  "9deb05a6-c1ab-4427-8a61-4f14410eda44",
+                     "status":  "ACTIVE",
+                     "parentCategory":  {
+                                            "id":  "9deb05a6-c1ab-4427-8a61-4f14410eda44",
+                                            "createdAt":  "2026-08-21T05:37:54.219Z",
+                                            "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                            "createdBy":  null,
+                                            "updatedBy":  null,
+                                            "isActive":  true,
+                                            "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                            "categoryCode":  "CAT-FIN",
+                                            "name":  "Finished Goods",
+                                            "description":  "Completed products ready for sale",
+                                            "parentCategoryId":  null,
+                                            "status":  "ACTIVE"
+                                        },
+                     "children":  [
+
+                                  ]
+                 },
+                 {
+                     "id":  "9deb05a6-c1ab-4427-8a61-4f14410eda44",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-FIN",
+                     "name":  "Finished Goods",
+                     "description":  "Completed products ready for sale",
+                     "parentCategoryId":  null,
+                     "status":  "ACTIVE",
+                     "parentCategory":  null,
+                     "children":  [
+                                      {
+                                          "id":  "d67565a1-8cd0-4dfe-b87c-7f3c72356296",
+                                          "createdAt":  "2026-08-21T05:37:54.219Z",
+                                          "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                          "createdBy":  null,
+                                          "updatedBy":  null,
+                                          "isActive":  true,
+                                          "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                          "categoryCode":  "CAT-FIN-ELEC",
+                                          "name":  "Electrical Parts",
+                                          "description":  "Finished electrical components",
+                                          "parentCategoryId":  "9deb05a6-c1ab-4427-8a61-4f14410eda44",
+                                          "status":  "ACTIVE"
+                                      },
+                                      {
+                                          "id":  "9e62b3a3-6e2b-48cd-a7c6-aeaad6b30fff",
+                                          "createdAt":  "2026-08-21T05:37:54.219Z",
+                                          "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                          "createdBy":  null,
+                                          "updatedBy":  null,
+                                          "isActive":  true,
+                                          "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                          "categoryCode":  "CAT-FIN-MECH",
+                                          "name":  "Mechanical Parts",
+                                          "description":  "Finished mechanical components",
+                                          "parentCategoryId":  "9deb05a6-c1ab-4427-8a61-4f14410eda44",
+                                          "status":  "ACTIVE"
+                                      }
+                                  ]
+                 },
+                 {
+                     "id":  "e15f8011-2b93-41be-a4ea-cc351fca26ff",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-CONS-IND",
+                     "name":  "Industrial Supplies",
+                     "description":  "Industrial consumable supplies",
+                     "parentCategoryId":  "90165ada-3264-4ea4-98d6-1878f4f91796",
+                     "status":  "ACTIVE",
+                     "parentCategory":  {
+                                            "id":  "90165ada-3264-4ea4-98d6-1878f4f91796",
+                                            "createdAt":  "2026-08-21T05:37:54.219Z",
+                                            "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                            "createdBy":  null,
+                                            "updatedBy":  null,
+                                            "isActive":  true,
+                                            "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                            "categoryCode":  "CAT-CONS",
+                                            "name":  "Consumables",
+                                            "description":  "Consumable supplies and materials",
+                                            "parentCategoryId":  null,
+                                            "status":  "ACTIVE"
+                                        },
+                     "children":  [
+
+                                  ]
+                 },
+                 {
+                     "id":  "9268a61f-1676-476b-8161-6997accb819a",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-PKG-LBL",
+                     "name":  "Labels \u0026 Tags",
+                     "description":  "Labels, tags, and stickers",
+                     "parentCategoryId":  "fb1cf7b5-175c-4c35-b871-600dc12d1c4a",
+                     "status":  "ACTIVE",
+                     "parentCategory":  {
+                                            "id":  "fb1cf7b5-175c-4c35-b871-600dc12d1c4a",
+                                            "createdAt":  "2026-08-21T05:37:54.219Z",
+                                            "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                            "createdBy":  null,
+                                            "updatedBy":  null,
+                                            "isActive":  true,
+                                            "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                            "categoryCode":  "CAT-PKG",
+                                            "name":  "Packaging Materials",
+                                            "description":  "Packaging and labeling materials",
+                                            "parentCategoryId":  null,
+                                            "status":  "ACTIVE"
+                                        },
+                     "children":  [
+
+                                  ]
+                 },
+                 {
+                     "id":  "9e62b3a3-6e2b-48cd-a7c6-aeaad6b30fff",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-FIN-MECH",
+                     "name":  "Mechanical Parts",
+                     "description":  "Finished mechanical components",
+                     "parentCategoryId":  "9deb05a6-c1ab-4427-8a61-4f14410eda44",
+                     "status":  "ACTIVE",
+                     "parentCategory":  {
+                                            "id":  "9deb05a6-c1ab-4427-8a61-4f14410eda44",
+                                            "createdAt":  "2026-08-21T05:37:54.219Z",
+                                            "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                            "createdBy":  null,
+                                            "updatedBy":  null,
+                                            "isActive":  true,
+                                            "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                            "categoryCode":  "CAT-FIN",
+                                            "name":  "Finished Goods",
+                                            "description":  "Completed products ready for sale",
+                                            "parentCategoryId":  null,
+                                            "status":  "ACTIVE"
+                                        },
+                     "children":  [
+
+                                  ]
+                 },
+                 {
+                     "id":  "d77d3193-e358-470d-b350-61560a8e15ae",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-RAW-MET",
+                     "name":  "Metals",
+                     "description":  "Steel, aluminum, copper and other metals",
+                     "parentCategoryId":  "81507b5b-dca1-4975-b05e-1300b2fd92fd",
+                     "status":  "ACTIVE",
+                     "parentCategory":  {
+                                            "id":  "81507b5b-dca1-4975-b05e-1300b2fd92fd",
+                                            "createdAt":  "2026-08-21T05:37:54.219Z",
+                                            "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                            "createdBy":  null,
+                                            "updatedBy":  null,
+                                            "isActive":  true,
+                                            "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                            "categoryCode":  "CAT-RAW",
+                                            "name":  "Raw Materials",
+                                            "description":  "Unprocessed materials for manufacturing",
+                                            "parentCategoryId":  null,
+                                            "status":  "ACTIVE"
+                                        },
+                     "children":  [
+
+                                  ]
+                 },
+                 {
+                     "id":  "fb1cf7b5-175c-4c35-b871-600dc12d1c4a",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-PKG",
+                     "name":  "Packaging Materials",
+                     "description":  "Packaging and labeling materials",
+                     "parentCategoryId":  null,
+                     "status":  "ACTIVE",
+                     "parentCategory":  null,
+                     "children":  [
+                                      {
+                                          "id":  "9268a61f-1676-476b-8161-6997accb819a",
+                                          "createdAt":  "2026-08-21T05:37:54.219Z",
+                                          "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                          "createdBy":  null,
+                                          "updatedBy":  null,
+                                          "isActive":  true,
+                                          "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                          "categoryCode":  "CAT-PKG-LBL",
+                                          "name":  "Labels \u0026 Tags",
+                                          "description":  "Labels, tags, and stickers",
+                                          "parentCategoryId":  "fb1cf7b5-175c-4c35-b871-600dc12d1c4a",
+                                          "status":  "ACTIVE"
+                                      },
+                                      {
+                                          "id":  "d48baf67-6ed4-476b-b557-7b29b47ed373",
+                                          "createdAt":  "2026-08-21T05:37:54.219Z",
+                                          "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                          "createdBy":  null,
+                                          "updatedBy":  null,
+                                          "isActive":  true,
+                                          "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                          "categoryCode":  "CAT-PKG-BOX",
+                                          "name":  "Boxes \u0026 Cartons",
+                                          "description":  "Corrugated boxes and cartons",
+                                          "parentCategoryId":  "fb1cf7b5-175c-4c35-b871-600dc12d1c4a",
+                                          "status":  "ACTIVE"
+                                      }
+                                  ]
+                 },
+                 {
+                     "id":  "618480bc-4a0c-4b3d-a397-a31e1a63bc2a",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-RAW-PLST",
+                     "name":  "Plastics",
+                     "description":  "Plastic resins and compounds",
+                     "parentCategoryId":  "81507b5b-dca1-4975-b05e-1300b2fd92fd",
+                     "status":  "ACTIVE",
+                     "parentCategory":  {
+                                            "id":  "81507b5b-dca1-4975-b05e-1300b2fd92fd",
+                                            "createdAt":  "2026-08-21T05:37:54.219Z",
+                                            "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                            "createdBy":  null,
+                                            "updatedBy":  null,
+                                            "isActive":  true,
+                                            "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                            "categoryCode":  "CAT-RAW",
+                                            "name":  "Raw Materials",
+                                            "description":  "Unprocessed materials for manufacturing",
+                                            "parentCategoryId":  null,
+                                            "status":  "ACTIVE"
+                                        },
+                     "children":  [
+
+                                  ]
+                 },
+                 {
+                     "id":  "81507b5b-dca1-4975-b05e-1300b2fd92fd",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-RAW",
+                     "name":  "Raw Materials",
+                     "description":  "Unprocessed materials for manufacturing",
+                     "parentCategoryId":  null,
+                     "status":  "ACTIVE",
+                     "parentCategory":  null,
+                     "children":  [
+                                      {
+                                          "id":  "d77d3193-e358-470d-b350-61560a8e15ae",
+                                          "createdAt":  "2026-08-21T05:37:54.219Z",
+                                          "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                          "createdBy":  null,
+                                          "updatedBy":  null,
+                                          "isActive":  true,
+                                          "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                          "categoryCode":  "CAT-RAW-MET",
+                                          "name":  "Metals",
+                                          "description":  "Steel, aluminum, copper and other metals",
+                                          "parentCategoryId":  "81507b5b-dca1-4975-b05e-1300b2fd92fd",
+                                          "status":  "ACTIVE"
+                                      },
+                                      {
+                                          "id":  "618480bc-4a0c-4b3d-a397-a31e1a63bc2a",
+                                          "createdAt":  "2026-08-21T05:37:54.219Z",
+                                          "updatedAt":  "2026-08-21T05:37:54.219Z",
+                                          "createdBy":  null,
+                                          "updatedBy":  null,
+                                          "isActive":  true,
+                                          "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                                          "categoryCode":  "CAT-RAW-PLST",
+                                          "name":  "Plastics",
+                                          "description":  "Plastic resins and compounds",
+                                          "parentCategoryId":  "81507b5b-dca1-4975-b05e-1300b2fd92fd",
+                                          "status":  "ACTIVE"
+                                      }
+                                  ]
+                 },
+                 {
+                     "id":  "ddb2e536-f9cc-4c4f-95ba-0e855e9d77f0",
+                     "createdAt":  "2026-08-21T05:37:54.219Z",
+                     "updatedAt":  "2026-08-21T05:37:54.219Z",
+                     "createdBy":  null,
+                     "updatedBy":  null,
+                     "isActive":  true,
+                     "companyId":  "7725aa04-a270-4314-9e82-90949cbe7791",
+                     "categoryCode":  "CAT-SERV",
+                     "name":  "Services",
+                     "description":  "Service offerings",
+                     "parentCategoryId":  null,
+                     "status":  "ACTIVE",
+                     "parentCategory":  null,
+                     "children":  [
+
+                                  ]
+                 }
+             ],
+    "total":  12
+}
