@@ -128,7 +128,7 @@ const EntryList: React.FC = () => {
   }, [buildFilters]);
 
   useEffect(() => { void fetchRows(); }, [fetchRows]);
-  useEffect(() => { void fetchReport(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { void fetchReport(); }, [fetchReport]);
 
   const handleSearch = () => {
     setPage(1);

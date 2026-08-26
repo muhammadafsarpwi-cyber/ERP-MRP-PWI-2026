@@ -144,7 +144,7 @@ const Dashboard: React.FC = () => {
       newFilters.departmentId = undefined;
     }
     setFilters(newFilters);
-  }, [filters, loadAll]);
+  }, [filters]);
 
   // ── Item Detail ──
   const openItemDetail = async (item: ItemOverview) => {
