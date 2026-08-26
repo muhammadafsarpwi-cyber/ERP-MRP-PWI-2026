@@ -12,8 +12,13 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build application
-RUN npm run build
+# Build application from a clean output directory. The repository previously
+# contained a TypeScript incremental-build cache, which can cause a clean Docker
+# build to skip emitting files that are not present in `dist`.
+RUN rm -rf dist tsconfig.tsbuildinfo \
+    && npm run build \
+    && test -f dist/main.js \
+    && test -f dist/app.controller.js
 
 # Production stage
 FROM node:20-alpine AS production
