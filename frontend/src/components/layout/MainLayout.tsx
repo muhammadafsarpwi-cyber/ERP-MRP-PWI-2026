@@ -28,6 +28,9 @@ import {
   ClusterOutlined,
   AimOutlined,
   SettingOutlined,
+  ToolOutlined,
+  FileProtectOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
@@ -118,6 +121,11 @@ const SIDEBAR_PERMISSION_MAP: Record<string, string[]> = {
   '/production/bom': ['manufacturing.bom.view'],
   '/production/routings': ['manufacturing.routing.view'],
   '/production/targets': ['manufacturing.machine_target.view'],
+  '/maintenance': ['maintenance.job_card.view'],
+  '/maintenance/job-cards': ['maintenance.job_card.view'],
+  '/maintenance/teams': ['maintenance.team.view'],
+  '/maintenance/categories': ['maintenance.category.view'],
+  '/maintenance/preventive-maintenance': ['maintenance.pm.view'],
   '/settings': [],
 };
 
@@ -188,6 +196,14 @@ function buildMenuItems(hasPermission: (code: string) => boolean): MenuProps['it
     { key: '/production/bom', icon: <NavIcon color={ICON_COLORS.production}><ClusterOutlined /></NavIcon>, label: 'Bill of Materials' },
     { key: '/production/routings', icon: <NavIcon color={ICON_COLORS.production}><ApartmentOutlined /></NavIcon>, label: 'Routing' },
     { key: '/production/targets', icon: <NavIcon color={ICON_COLORS.production}><AimOutlined /></NavIcon>, label: 'Machine Targets' },
+  ].filter(item => can(item.key));
+
+  const maintenanceChildren = [
+    { key: '/maintenance', icon: <NavIcon color={ICON_COLORS.production}><ToolOutlined /></NavIcon>, label: 'Overview' },
+    { key: '/maintenance/job-cards', icon: <NavIcon color={ICON_COLORS.production}><FileProtectOutlined /></NavIcon>, label: 'Job Cards' },
+    { key: '/maintenance/teams', icon: <NavIcon color={ICON_COLORS.production}><TeamOutlined /></NavIcon>, label: 'Teams' },
+    { key: '/maintenance/categories', icon: <NavIcon color={ICON_COLORS.production}><TagsOutlined /></NavIcon>, label: 'Categories' },
+    { key: '/maintenance/preventive-maintenance', icon: <NavIcon color={ICON_COLORS.production}><CalendarOutlined /></NavIcon>, label: 'Preventive Maintenance' },
   ].filter(item => can(item.key));
 
   const items: MenuProps['items'] = [];
@@ -271,6 +287,15 @@ function buildMenuItems(hasPermission: (code: string) => boolean): MenuProps['it
       icon: <NavIcon color={ICON_COLORS.production}><BuildOutlined /></NavIcon>,
       label: 'Production',
       children: productionChildren,
+    });
+  }
+
+  if (maintenanceChildren.length > 0) {
+    items.push({
+      key: 'maintenance',
+      icon: <NavIcon color={ICON_COLORS.production}><ToolOutlined /></NavIcon>,
+      label: 'Maintenance',
+      children: maintenanceChildren,
     });
   }
 

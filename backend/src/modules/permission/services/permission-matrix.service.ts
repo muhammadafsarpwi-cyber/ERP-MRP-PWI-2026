@@ -49,6 +49,7 @@ export class PermissionMatrixService {
     customer: 'Customers',
     sales: 'Sales',
     manufacturing: 'Manufacturing',
+    maintenance: 'Maintenance',
   };
 
   private readonly resourceLabels: Record<string, string> = {
@@ -103,6 +104,11 @@ export class PermissionMatrixService {
     entries: 'Daily Production Entry',
     machine: 'Machine Master',
     machine_target: 'Machine Targets',
+    job_card: 'Job Cards',
+    team: 'Maintenance Teams',
+    category: 'Maintenance Categories',
+    pm: 'Preventive Maintenance',
+    reports: 'Maintenance Reports',
   };
 
   async getMatrix(): Promise<PermissionMatrixResponse> {
@@ -141,7 +147,7 @@ export class PermissionMatrixService {
     }
 
     const moduleOrder = Array.from(moduleSet).sort((a, b) => {
-      const order = ['organization', 'admin', 'item', 'inventory', 'procurement', 'customer', 'sales', 'manufacturing'];
+      const order = ['organization', 'admin', 'item', 'inventory', 'procurement', 'customer', 'sales', 'manufacturing', 'maintenance'];
       const ai = order.indexOf(a);
       const bi = order.indexOf(b);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);

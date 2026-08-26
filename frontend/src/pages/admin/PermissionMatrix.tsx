@@ -41,6 +41,7 @@ const MODULE_COLORS: Record<string, string> = {
   customer: '#7BDC9E',
   sales: '#82CBF0',
   manufacturing: '#F6CE7A',
+  maintenance: '#2E8B8B',
 };
 
 const ACTION_LABELS: Record<string, string> = {

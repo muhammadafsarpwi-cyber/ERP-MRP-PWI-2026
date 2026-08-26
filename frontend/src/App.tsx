@@ -62,6 +62,7 @@ import {
 } from './pages/procurement';
 import DevelopmentStatus from './pages/development/DevelopmentStatus';
 import Settings from './pages/settings';
+import { MaintenanceDashboard, MaintenancePage } from './pages/maintenance';
 import './App.css';
 
 const { Content } = Layout;
@@ -112,6 +113,11 @@ const App: React.FC = () => {
                   <Route path="/procurement/returns" element={<PurchaseReturnManagement />} />
                   <Route path="/procurement/invoices" element={<PurchaseInvoiceManagement />} />
                   <Route path="/production/*" element={<Production />} />
+                  <Route path="/maintenance" element={<MaintenanceDashboard />} />
+                  <Route path="/maintenance/job-cards" element={<MaintenancePage page="job-cards" />} />
+                  <Route path="/maintenance/teams" element={<MaintenancePage page="teams" />} />
+                  <Route path="/maintenance/categories" element={<MaintenancePage page="categories" />} />
+                  <Route path="/maintenance/preventive-maintenance" element={<MaintenancePage page="preventive-maintenance" />} />
                   <Route path="/organization/companies" element={<CompanyManagement />} />
                   <Route path="/organization/branches" element={<BranchManagement />} />
                   <Route path="/organization/divisions" element={<DivisionManagement />} />

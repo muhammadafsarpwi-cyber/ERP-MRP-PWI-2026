@@ -1,6 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { PermissionModule } from '../permission/permission.module';
+import { UserModule } from '../user/user.module';
 import {
   MaintenanceJobCard,
   MaintenanceJobCardTechnician,
@@ -29,7 +31,9 @@ import { MaintenancePmController } from './controllers/pm.controller';
 
 @Module({
   imports: [
-    AuthModule,
+    forwardRef(() => AuthModule),
+    forwardRef(() => PermissionModule),
+    forwardRef(() => UserModule),
     TypeOrmModule.forFeature([
       MaintenanceJobCard,
       MaintenanceJobCardTechnician,

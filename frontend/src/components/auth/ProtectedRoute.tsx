@@ -50,6 +50,11 @@ const ROUTE_PERMISSION_MAP: Record<string, string[]> = {
   '/production/bom': ['manufacturing.bom.view'],
   '/production/routings': ['manufacturing.routing.view'],
   '/production/targets': ['manufacturing.machine_target.view'],
+  '/maintenance': ['maintenance.job_card.view'],
+  '/maintenance/job-cards': ['maintenance.job_card.view'],
+  '/maintenance/teams': ['maintenance.team.view'],
+  '/maintenance/categories': ['maintenance.category.view'],
+  '/maintenance/preventive-maintenance': ['maintenance.pm.view'],
 };
 
 function matchRoute(pathname: string): string | null {

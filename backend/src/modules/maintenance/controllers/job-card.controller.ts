@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { SupabaseJwtGuard } from '../../auth/guards';
-import { RequirePermission } from '../../auth/guards';
+import { PermissionGuard, RequirePermission } from '../../auth/guards';
 import { CurrentUser, CurrentUserId } from '../../../common/decorators/user.decorator';
 import { MaintenanceJobCardService } from '../services';
 import {
@@ -13,8 +13,8 @@ import {
 
 @ApiTags('Maintenance - Job Cards')
 @ApiBearerAuth()
-@UseGuards(SupabaseJwtGuard)
-@Controller('maintenance/job-cards')
+@UseGuards(SupabaseJwtGuard, PermissionGuard)
+@Controller('master-data/maintenance/job-cards')
 export class MaintenanceJobCardController {
   constructor(private readonly jobCardService: MaintenanceJobCardService) {}
 
@@ -56,7 +56,7 @@ export class MaintenanceJobCardController {
   }
 
   @Patch(':id')
-  @RequirePermission('maintenance.job_card.edit')
+  @RequirePermission('maintenance.job_card.update')
   @ApiOperation({ summary: 'Update job card' })
   @ApiParam({ name: 'id', type: String })
   update(@Param('id') id: string, @Body() dto: UpdateJobCardDto, @CurrentUser() user: any) {
@@ -96,7 +96,7 @@ export class MaintenanceJobCardController {
   }
 
   @Post(':id/waiting-for-parts')
-  @RequirePermission('maintenance.job_card.waiting')
+  @RequirePermission('maintenance.job_card.update')
   @ApiOperation({ summary: 'Mark job card as waiting for parts' })
   @ApiParam({ name: 'id', type: String })
   waitingForParts(@Param('id') id: string, @CurrentUser() user: any, @Body('remarks') remarks?: string) {
@@ -104,7 +104,7 @@ export class MaintenanceJobCardController {
   }
 
   @Post(':id/resume')
-  @RequirePermission('maintenance.job_card.resume')
+  @RequirePermission('maintenance.job_card.update')
   @ApiOperation({ summary: 'Resume job card from hold/parts' })
   @ApiParam({ name: 'id', type: String })
   resume(@Param('id') id: string, @CurrentUser() user: any) {
@@ -168,7 +168,7 @@ export class MaintenanceJobCardController {
   }
 
   @Post(':id/parts')
-  @RequirePermission('maintenance.job_card.edit')
+  @RequirePermission('maintenance.job_card.update')
   @ApiOperation({ summary: 'Add spare part to job card' })
   @ApiParam({ name: 'id', type: String })
   addPart(@Param('id') id: string, @Body() dto: AddJobCardPartDto, @CurrentUser() user: any) {
@@ -176,7 +176,7 @@ export class MaintenanceJobCardController {
   }
 
   @Delete(':id/parts/:partId')
-  @RequirePermission('maintenance.job_card.edit')
+  @RequirePermission('maintenance.job_card.update')
   @ApiOperation({ summary: 'Remove spare part from job card' })
   @ApiParam({ name: 'id', type: String })
   @ApiParam({ name: 'partId', type: String })
@@ -193,7 +193,7 @@ export class MaintenanceJobCardController {
   }
 
   @Post(':id/work-logs')
-  @RequirePermission('maintenance.job_card.edit')
+  @RequirePermission('maintenance.job_card.update')
   @ApiOperation({ summary: 'Add work log to job card' })
   @ApiParam({ name: 'id', type: String })
   addWorkLog(@Param('id') id: string, @Body() dto: AddWorkLogDto, @CurrentUser() user: any) {
@@ -209,7 +209,7 @@ export class MaintenanceJobCardController {
   }
 
   @Post(':id/attachments')
-  @RequirePermission('maintenance.job_card.edit')
+  @RequirePermission('maintenance.job_card.update')
   @ApiOperation({ summary: 'Add attachment to job card' })
   @ApiParam({ name: 'id', type: String })
   addAttachment(@Param('id') id: string, @Body() dto: { fileName: string; fileUrl: string; mimeType?: string; fileSize?: number; description?: string }, @CurrentUser() user: any) {
