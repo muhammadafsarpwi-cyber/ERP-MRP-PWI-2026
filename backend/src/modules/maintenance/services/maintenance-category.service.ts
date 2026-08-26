@@ -41,8 +41,12 @@ export class MaintenanceCategoryService {
   }
 
   async findRootCauseCategories(companyId?: string): Promise<MaintenanceRootCauseCategory[]> {
-    const where: any = { isActive: true };
-    if (companyId) where.companyId = companyId;
+    if (companyId && !isUUID(companyId, 'all')) {
+      throw new BadRequestException('companyId must be a UUID');
+    }
+    const where: any = companyId
+      ? [{ isActive: true, companyId }, { isActive: true, companyId: IsNull() }]
+      : { isActive: true };
     return this.rootCauseRepo.find({ where, order: { sortOrder: 'ASC', name: 'ASC' } });
   }
 
@@ -59,8 +63,12 @@ export class MaintenanceCategoryService {
   }
 
   async findFailureCategories(companyId?: string): Promise<MaintenanceFailureCategory[]> {
-    const where: any = { isActive: true };
-    if (companyId) where.companyId = companyId;
+    if (companyId && !isUUID(companyId, 'all')) {
+      throw new BadRequestException('companyId must be a UUID');
+    }
+    const where: any = companyId
+      ? [{ isActive: true, companyId }, { isActive: true, companyId: IsNull() }]
+      : { isActive: true };
     return this.failureRepo.find({ where, order: { sortOrder: 'ASC', name: 'ASC' } });
   }
 

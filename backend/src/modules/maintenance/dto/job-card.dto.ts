@@ -35,9 +35,9 @@ export class CreateJobCardDto {
   priority?: MaintenancePriority;
 
   @ApiPropertyOptional()
+  @IsOptional()
   @IsUUID()
-  @IsNotEmpty()
-  complaintCategoryId: string;
+  complaintCategoryId?: string;
 
   @ApiPropertyOptional()
   @IsUUID()
