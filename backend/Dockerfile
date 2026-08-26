@@ -1,5 +1,5 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ RUN rm -rf dist tsconfig.tsbuildinfo \
     && test -f dist/app.controller.js
 
 # Production stage
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
 WORKDIR /app
 
