@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
+import { AuditModule } from '../audit/audit.module';
+import { InventoryModule } from '../inventory/inventory.module';
 import {
   MaintenanceJobCard,
   MaintenanceJobCardTechnician,
@@ -37,6 +39,8 @@ import { MaintenancePmController } from './controllers/pm.controller';
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
+    forwardRef(() => AuditModule),
+    forwardRef(() => InventoryModule),
     TypeOrmModule.forFeature([
       MaintenanceJobCard,
       MaintenanceJobCardTechnician,

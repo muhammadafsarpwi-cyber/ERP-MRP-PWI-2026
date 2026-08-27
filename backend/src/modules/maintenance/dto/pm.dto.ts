@@ -1,10 +1,11 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsArray, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, IsArray, Min, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsUuid } from '../../../common/validators';
 
 export class CreatePmPlanDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   companyId: string;
 
@@ -24,7 +25,7 @@ export class CreatePmPlanDto {
   description?: string;
 
   @ApiProperty({ description: 'Machine ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   machineId: string;
 
@@ -45,8 +46,13 @@ export class CreatePmPlanDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   assignedTeamId?: string;
+
+  @ApiPropertyOptional({ description: 'Schedule start date for PM generation' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
 }
 
 export class UpdatePmPlanDto {
@@ -76,6 +82,19 @@ export class UpdatePmPlanDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   assignedTeamId?: string;
+
+  @ApiPropertyOptional({ description: 'Schedule start date for PM generation' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+}
+
+export class GenerateScheduleDto {
+  @ApiProperty({ description: 'Number of months to generate schedules ahead' })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  monthsAhead: number;
 }

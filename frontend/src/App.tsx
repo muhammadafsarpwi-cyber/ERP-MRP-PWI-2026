@@ -62,7 +62,7 @@ import {
 } from './pages/procurement';
 import DevelopmentStatus from './pages/development/DevelopmentStatus';
 import Settings from './pages/settings';
-import { MaintenanceDashboard, MaintenancePage, JobCardList, JobCardCreate, JobCardDetail } from './pages/maintenance';
+import { MaintenanceDashboard, MaintenancePage, JobCardList, JobCardCreate, JobCardDetail, PmPlansList, PmSchedules, TeamsList, CategoriesList, MaintenanceReports } from './pages/maintenance';
 import './App.css';
 
 const { Content } = Layout;
@@ -117,9 +117,12 @@ const App: React.FC = () => {
                   <Route path="/maintenance/job-cards" element={<JobCardList />} />
                   <Route path="/maintenance/job-cards/new" element={<JobCardCreate />} />
                   <Route path="/maintenance/job-cards/:id" element={<JobCardDetail />} />
-                  <Route path="/maintenance/teams" element={<MaintenancePage page="teams" />} />
-                  <Route path="/maintenance/categories" element={<MaintenancePage page="categories" />} />
-                  <Route path="/maintenance/preventive-maintenance" element={<MaintenancePage page="preventive-maintenance" />} />
+                  <Route path="/maintenance/teams" element={<TeamsList />} />
+                  <Route path="/maintenance/categories" element={<CategoriesList />} />
+                  <Route path="/maintenance/preventive-maintenance" element={<PmPlansList />} />
+                  <Route path="/maintenance/pm-plans" element={<PmPlansList />} />
+                  <Route path="/maintenance/pm-schedules" element={<PmSchedules />} />
+                  <Route path="/maintenance/reports" element={<MaintenanceReports />} />
                   <Route path="/organization/companies" element={<CompanyManagement />} />
                   <Route path="/organization/branches" element={<BranchManagement />} />
                   <Route path="/organization/divisions" element={<DivisionManagement />} />

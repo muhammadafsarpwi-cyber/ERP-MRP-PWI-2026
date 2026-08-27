@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { MaintenanceJobCard } from '../entities/maintenance-job-card.entity';
 import { MaintenanceJobCardTechnician } from '../entities/maintenance-job-card-technician.entity';
 import { MaintenanceJobCardPart } from '../entities/maintenance-job-card-part.entity';
@@ -15,7 +15,12 @@ import { Section } from '../../organization/entities/section.entity';
 import { MaintenanceComplaintCategory } from '../entities/maintenance-complaint-category.entity';
 import { MaintenanceFailureCategory } from '../entities/maintenance-failure-category.entity';
 import { MaintenanceRootCauseCategory } from '../entities/maintenance-root-cause-category.entity';
-import { JobCardStatus, VALID_TRANSITIONS } from '../enums';
+import { JobCardStatus, MaintenanceType, VALID_TRANSITIONS } from '../enums';
+import { ActivityLogService } from '../../audit/services/activity-log.service';
+import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
+import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
+import { InventoryPolicy } from '../../inventory/entities/inventory-policy.entity';
 import {
   CreateJobCardDto,
   UpdateJobCardDto,
@@ -60,6 +65,8 @@ export class MaintenanceJobCardService {
     @InjectRepository(MaintenanceRootCauseCategory)
     private readonly rootCauseCategoryRepo: Repository<MaintenanceRootCauseCategory>,
     private readonly dataSource: DataSource,
+    private readonly activityLog: ActivityLogService,
+    private readonly inventoryBalanceService: InventoryBalanceService,
   ) {}
 
   async create(dto: CreateJobCardDto, userId: string): Promise<MaintenanceJobCard> {
@@ -127,6 +134,7 @@ export class MaintenanceJobCardService {
       machineId: dto.machineId,
       complaint: dto.complaint,
       priority: dto.priority || ('MEDIUM' as any),
+      maintenanceType: dto.maintenanceType || MaintenanceType.BREAKDOWN,
       complaintCategoryId: dto.complaintCategoryId || null,
       failureCategoryId: dto.failureCategoryId || null,
       rootCauseCategoryId: dto.rootCauseCategoryId || null,
@@ -148,7 +156,7 @@ export class MaintenanceJobCardService {
   }
 
   async findAll(query: JobCardQueryDto): Promise<{ data: MaintenanceJobCard[]; total: number }> {
-    const { page = 1, limit = 20, search, companyId, machineId, divisionId, sectionId, assignedDepartmentId, currentStatus, priority, technicianUserId, dateFrom, dateTo } = query;
+    const { page = 1, limit = 20, search, companyId, machineId, divisionId, sectionId, assignedDepartmentId, currentStatus, priority, maintenanceType, technicianUserId, dateFrom, dateTo } = query;
 
     const qb = this.jobCardRepo.createQueryBuilder('jc');
     qb.leftJoinAndSelect('jc.machine', 'machine');
@@ -174,6 +182,9 @@ export class MaintenanceJobCardService {
     }
     if (priority) {
       qb.andWhere('jc.priority = :priority', { priority });
+    }
+    if (maintenanceType) {
+      qb.andWhere('jc.maintenanceType = :maintenanceType', { maintenanceType });
     }
     if (technicianUserId) {
       qb.innerJoin('maintenance_job_card_technicians', 't', 't.job_card_id = jc.id AND t.technician_user_id = :technicianUserId', { technicianUserId });
@@ -252,6 +263,7 @@ export class MaintenanceJobCardService {
   async assign(id: string, dto: AssignJobCardDto, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.ASSIGNED);
+    const previousStatus = jobCard.currentStatus;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -281,7 +293,7 @@ export class MaintenanceJobCardService {
 
       const history = queryRunner.manager.create(MaintenanceJobCardStatusHistory, {
         jobCardId: id,
-        fromStatus: JobCardStatus.OPEN,
+        fromStatus: previousStatus,
         toStatus: JobCardStatus.ASSIGNED,
         changedBy: userId,
         remarks: dto.remarks || `Assigned to ${dto.technicianUserIds.length} technician(s)`,
@@ -319,24 +331,28 @@ export class MaintenanceJobCardService {
   async hold(id: string, userId: string, remarks?: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.ON_HOLD);
+    const previousStatus = jobCard.currentStatus;
 
     jobCard.currentStatus = JobCardStatus.ON_HOLD;
     jobCard.updatedBy = userId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.IN_PROGRESS, JobCardStatus.ON_HOLD, userId, remarks || 'Job put on hold');
+    await this.recordHistory(id, previousStatus, JobCardStatus.ON_HOLD, userId, remarks || 'Job put on hold');
+    await this.logActivity(userId, 'JOB_CARD_ON_HOLD', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async waitingForParts(id: string, userId: string, remarks?: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.WAITING_FOR_PARTS);
+    const previousStatus = jobCard.currentStatus;
 
     jobCard.currentStatus = JobCardStatus.WAITING_FOR_PARTS;
     jobCard.updatedBy = userId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.IN_PROGRESS, JobCardStatus.WAITING_FOR_PARTS, userId, remarks || 'Waiting for parts');
+    await this.recordHistory(id, previousStatus, JobCardStatus.WAITING_FOR_PARTS, userId, remarks || 'Waiting for parts');
+    await this.logActivity(userId, 'JOB_CARD_WAITING_FOR_PARTS', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
@@ -350,6 +366,7 @@ export class MaintenanceJobCardService {
     await this.jobCardRepo.save(jobCard);
 
     await this.recordHistory(id, previousStatus, JobCardStatus.IN_PROGRESS, userId, 'Job resumed');
+    await this.logActivity(userId, 'JOB_CARD_RESUMED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
@@ -414,6 +431,7 @@ export class MaintenanceJobCardService {
     await this.jobCardRepo.save(jobCard);
 
     await this.recordHistory(id, JobCardStatus.COMPLETED, JobCardStatus.CLOSED, userId, remarks || 'Job closed');
+    await this.logActivity(userId, 'JOB_CARD_CLOSED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
@@ -429,6 +447,7 @@ export class MaintenanceJobCardService {
     await this.jobCardRepo.save(jobCard);
 
     await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.VERIFIED, userId, remarks || 'Job verified');
+    await this.logActivity(userId, 'JOB_CARD_VERIFIED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
@@ -470,6 +489,7 @@ export class MaintenanceJobCardService {
     await this.jobCardRepo.save(jobCard);
 
     await this.recordHistory(id, JobCardStatus.CLOSED, JobCardStatus.PENDING_VERIFICATION, userId, 'Submitted for verification');
+    await this.logActivity(userId, 'JOB_CARD_SUBMITTED_FOR_VERIFICATION', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
@@ -479,23 +499,75 @@ export class MaintenanceJobCardService {
       throw new BadRequestException('Cannot add parts to an approved job card');
     }
 
-    const part = this.partRepo.create({
-      jobCardId: id,
-      itemId: dto.itemId,
-      quantity: dto.quantity,
-      uomId: dto.uomId,
-      unitCost: dto.unitCost || null,
-      totalCost: dto.unitCost ? dto.unitCost * dto.quantity : null,
-      issuedFrom: dto.issuedFrom || null,
-      issuedAt: new Date(),
-      issuedBy: userId,
-      remarks: dto.remarks || null,
+    const saved = await this.dataSource.transaction(async (manager) => {
+      if (dto.issuedFrom) {
+        await this.writeStockMovementTx(manager, {
+          companyId: jobCard.companyId,
+          transactionType: 'MAINTENANCE_ISSUE',
+          itemId: dto.itemId,
+          warehouseId: dto.issuedFrom,
+          quantity: dto.quantity,
+          uomId: dto.uomId,
+          direction: 'OUT',
+          referenceType: 'JOB_CARD',
+          referenceId: id,
+          referenceNumber: jobCard.jobCardNo,
+          notes: `Spare part issued for job card ${jobCard.jobCardNo}`,
+          createdBy: userId,
+        });
+      }
+
+      const part = manager.create(MaintenanceJobCardPart, {
+        jobCardId: id,
+        itemId: dto.itemId,
+        quantity: dto.quantity,
+        uomId: dto.uomId,
+        unitCost: dto.unitCost || null,
+        totalCost: dto.unitCost ? dto.unitCost * dto.quantity : null,
+        issuedFrom: dto.issuedFrom || null,
+        issuedAt: new Date(),
+        issuedBy: userId,
+        remarks: dto.remarks || null,
+      });
+      return manager.save(part);
     });
-    return this.partRepo.save(part);
+
+    await this.logActivity(userId, 'JOB_CARD_PART_ADDED', id, jobCard.jobCardNo);
+    return saved;
   }
 
-  async removePart(jobCardId: string, partId: string): Promise<void> {
-    await this.partRepo.delete({ id: partId, jobCardId });
+  async removePart(jobCardId: string, partId: string, userId?: string): Promise<void> {
+    const part = await this.partRepo.findOne({ where: { id: partId, jobCardId } });
+    if (!part) throw new NotFoundException(`Spare part '${partId}' not found in job card '${jobCardId}'`);
+
+    const jobCard = await this.findOne(jobCardId);
+    const issuedFrom = part.issuedFrom;
+
+    if (issuedFrom) {
+      await this.dataSource.transaction(async (manager) => {
+        await this.writeStockMovementTx(manager, {
+          companyId: jobCard.companyId,
+          transactionType: 'MAINTENANCE_RETURN',
+          itemId: part.itemId,
+          warehouseId: issuedFrom,
+          quantity: part.quantity,
+          uomId: part.uomId,
+          direction: 'IN',
+          referenceType: 'JOB_CARD',
+          referenceId: jobCardId,
+          referenceNumber: jobCard.jobCardNo,
+          notes: `Spare part returned from job card ${jobCard.jobCardNo}`,
+          createdBy: userId || 'system',
+        });
+        await manager.getRepository(MaintenanceJobCardPart).delete({ id: partId, jobCardId });
+      });
+    } else {
+      await this.partRepo.delete({ id: partId, jobCardId });
+    }
+
+    if (userId) {
+      await this.logActivity(userId, 'JOB_CARD_PART_REMOVED', jobCardId, jobCard.jobCardNo);
+    }
   }
 
   async getParts(jobCardId: string): Promise<MaintenanceJobCardPart[]> {
@@ -504,6 +576,95 @@ export class MaintenanceJobCardService {
       relations: ['item', 'uom', 'issuedFromWarehouse'],
       order: { createdAt: 'ASC' },
     });
+  }
+
+  private async writeStockMovementTx(
+    manager: EntityManager,
+    params: {
+      companyId: string;
+      transactionType: string;
+      itemId: string;
+      warehouseId: string;
+      quantity: number;
+      uomId: string;
+      direction: 'IN' | 'OUT';
+      referenceType: string;
+      referenceId: string;
+      referenceNumber: string;
+      notes: string;
+      createdBy: string;
+    },
+  ): Promise<void> {
+    const ledgerRepo = manager.getRepository(StockLedger);
+    const balanceRepo = manager.getRepository(InventoryBalance);
+    const policyRepo = manager.getRepository(InventoryPolicy);
+
+    const ledger = ledgerRepo.create({
+      companyId: params.companyId,
+      transactionType: params.transactionType,
+      transactionDate: new Date(),
+      itemId: params.itemId,
+      warehouseId: params.warehouseId,
+      locationId: null,
+      quantity: params.quantity,
+      uomId: params.uomId,
+      direction: params.direction,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      referenceNumber: params.referenceNumber,
+      batchId: null,
+      serialNumber: null,
+      notes: params.notes,
+      createdBy: params.createdBy,
+    });
+    await ledgerRepo.save(ledger);
+
+    let balance = await balanceRepo.findOne({
+      where: {
+        companyId: params.companyId,
+        itemId: params.itemId,
+        warehouseId: params.warehouseId,
+      },
+    });
+
+    if (!balance) {
+      balance = balanceRepo.create({
+        companyId: params.companyId,
+        itemId: params.itemId,
+        warehouseId: params.warehouseId,
+        locationId: null,
+        batchId: null,
+        uomId: params.uomId,
+        onHand: 0,
+        reserved: 0,
+        available: 0,
+        status: 'ACTIVE',
+      });
+    }
+
+    if (params.direction === 'IN') {
+      balance.onHand = Number(balance.onHand) + params.quantity;
+      balance.available = Number(balance.available) + params.quantity;
+    } else {
+      const newOnHand = Number(balance.onHand) - params.quantity;
+      const newAvailable = Number(balance.available) - params.quantity;
+
+      if (newOnHand < 0) {
+        const policy = await policyRepo.findOne({
+          where: { companyId: params.companyId, itemId: params.itemId, warehouseId: params.warehouseId },
+        });
+        if (!policy || !policy.allowNegativeStock) {
+          throw new BadRequestException(
+            `Insufficient stock. Available: ${balance.onHand}, requested: ${params.quantity}`,
+          );
+        }
+      }
+
+      balance.onHand = newOnHand;
+      balance.available = newAvailable;
+    }
+
+    await balanceRepo.save(balance);
   }
 
   async addWorkLog(id: string, dto: AddWorkLogDto, userId: string): Promise<MaintenanceJobCardWorkLog> {
@@ -518,7 +679,10 @@ export class MaintenanceJobCardService {
       workDescription: dto.workDescription,
       remarks: dto.remarks || null,
     });
-    return this.workLogRepo.save(workLog);
+    const saved = await this.workLogRepo.save(workLog);
+    const jobCard = await this.findOne(id);
+    await this.logActivity(userId, 'JOB_CARD_WORK_LOG_ADDED', id, jobCard.jobCardNo);
+    return saved;
   }
 
   async getWorkLogs(jobCardId: string): Promise<MaintenanceJobCardWorkLog[]> {
@@ -539,7 +703,10 @@ export class MaintenanceJobCardService {
       uploadedBy: userId,
       description: dto.description || null,
     });
-    return this.attachmentRepo.save(attachment);
+    const saved = await this.attachmentRepo.save(attachment);
+    const jobCard = await this.findOne(id);
+    await this.logActivity(userId, 'JOB_CARD_ATTACHMENT_ADDED', id, jobCard.jobCardNo);
+    return saved;
   }
 
   async getAttachments(jobCardId: string): Promise<MaintenanceJobCardAttachment[]> {
@@ -547,6 +714,21 @@ export class MaintenanceJobCardService {
       where: { jobCardId },
       order: { uploadedAt: 'ASC' },
     });
+  }
+
+  async checkStock(companyId: string, itemId: string, warehouseId?: string): Promise<any> {
+    if (warehouseId) {
+      const balance = await this.inventoryBalanceService.findByItemWarehouse(companyId, itemId, warehouseId);
+      const onHand = balance ? Number(balance.onHand) : 0;
+      const reserved = balance ? Number(balance.reserved) : 0;
+      return { balances: balance ? [balance] : [], totalOnHand: onHand, totalReserved: reserved, totalAvailable: onHand - reserved };
+    }
+    const result = await this.inventoryBalanceService.findAll({ companyId, itemId, limit: 100 });
+    const balances = result.data;
+    const totalOnHand = balances.reduce((sum, b) => sum + Number(b.onHand || 0), 0);
+    const totalReserved = balances.reduce((sum, b) => sum + Number(b.reserved || 0), 0);
+    const totalAvailable = balances.reduce((sum, b) => sum + Number(b.available || 0), 0);
+    return { balances, totalOnHand, totalReserved, totalAvailable };
   }
 
   async getHistory(jobCardId: string): Promise<MaintenanceJobCardStatusHistory[]> {
@@ -574,6 +756,72 @@ export class MaintenanceJobCardService {
     });
   }
 
+  async getMachineStats(machineId: string): Promise<any> {
+    const machine = await this.machineRepo.findOne({ where: { id: machineId }, relations: ['company', 'division', 'section', 'department'] });
+    if (!machine) throw new NotFoundException(`Machine '${machineId}' not found`);
+
+    const total = await this.jobCardRepo.count({ where: { machineId, isActive: true } });
+    const approved = await this.jobCardRepo.count({ where: { machineId, isActive: true, currentStatus: JobCardStatus.APPROVED } });
+    const inProgress = await this.jobCardRepo.count({ where: { machineId, isActive: true, currentStatus: JobCardStatus.IN_PROGRESS } });
+    const completed = await this.jobCardRepo.count({ where: { machineId, isActive: true, currentStatus: JobCardStatus.COMPLETED } });
+
+    const downtimeResult = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select('SUM(jc.downtimeMinutes)', 'totalDowntimeMinutes')
+      .addSelect('AVG(jc.downtimeMinutes)', 'avgDowntimeMinutes')
+      .addSelect('COUNT(CASE WHEN jc.maintenanceType = :bt THEN 1 END)', 'breakdownCount')
+      .addSelect('COUNT(CASE WHEN jc.maintenanceType = :pt THEN 1 END)', 'preventiveCount')
+      .addSelect('COUNT(CASE WHEN jc.maintenanceType = :ct THEN 1 END)', 'correctiveCount')
+      .addSelect('COUNT(CASE WHEN jc.maintenanceType = :it THEN 1 END)', 'inspectionCount')
+      .addSelect('COUNT(CASE WHEN jc.maintenanceType = :et THEN 1 END)', 'emergencyCount')
+      .where('jc.machineId = :machineId', { machineId })
+      .andWhere('jc.isActive = true')
+      .setParameters({ bt: 'BREAKDOWN', pt: 'PREVENTIVE', ct: 'CORRECTIVE', it: 'INSPECTION', et: 'EMERGENCY' })
+      .getRawOne();
+
+    const byType = {
+      breakdown: parseInt(downtimeResult?.breakdownCount || '0', 10),
+      preventive: parseInt(downtimeResult?.preventiveCount || '0', 10),
+      corrective: parseInt(downtimeResult?.correctiveCount || '0', 10),
+      inspection: parseInt(downtimeResult?.inspectionCount || '0', 10),
+      emergency: parseInt(downtimeResult?.emergencyCount || '0', 10),
+    };
+
+    const recentCards = await this.jobCardRepo.find({
+      where: { machineId, isActive: true },
+      order: { requestedAt: 'DESC' },
+      take: 10,
+    });
+
+    let mtbf = 0;
+    if (approved > 1) {
+      const approvedCards = await this.jobCardRepo.find({
+        where: { machineId, isActive: true, currentStatus: JobCardStatus.APPROVED },
+        order: { requestedAt: 'ASC' },
+      });
+      let totalMinutesBetween = 0;
+      for (let i = 1; i < approvedCards.length; i++) {
+        const prev = new Date(approvedCards[i - 1].requestedAt).getTime();
+        const curr = new Date(approvedCards[i].requestedAt).getTime();
+        totalMinutesBetween += (curr - prev) / 60000;
+      }
+      mtbf = Math.round(totalMinutesBetween / (approvedCards.length - 1) / 60);
+    }
+
+    return {
+      machine,
+      total,
+      approved,
+      inProgress,
+      completed,
+      totalDowntimeMinutes: parseInt(downtimeResult?.totalDowntimeMinutes || '0', 10),
+      avgDowntimeMinutes: Math.round(parseFloat(downtimeResult?.avgDowntimeMinutes || '0')),
+      mtbfHours: mtbf,
+      byType,
+      recentCards,
+    };
+  }
+
   async getDashboard(companyId: string): Promise<any> {
     const qb = this.jobCardRepo.createQueryBuilder('jc');
     qb.where('jc.companyId = :companyId', { companyId });
@@ -590,10 +838,133 @@ export class MaintenanceJobCardService {
     const approved = await qb.clone().andWhere('jc.currentStatus = :s', { s: JobCardStatus.APPROVED }).getCount();
     const critical = await qb.clone().andWhere('jc.priority = :p AND jc.currentStatus NOT IN (:...done)', { p: 'CRITICAL', done: [JobCardStatus.APPROVED, JobCardStatus.REJECTED] }).getCount();
 
+    const byMaintenanceType = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select('jc.maintenanceType', 'type')
+      .addSelect('COUNT(*)', 'count')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .andWhere('jc.currentStatus NOT IN (:...done)', { done: [JobCardStatus.APPROVED, JobCardStatus.REJECTED] })
+      .groupBy('jc.maintenanceType')
+      .getRawMany();
+
     return {
       total, open, assigned, inProgress, onHold, waitingForParts,
       completed, pendingVerification, approved, critical,
+      byMaintenanceType,
     };
+  }
+
+  async getChartData(companyId: string): Promise<any> {
+    const typeBreakdown = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select('jc.maintenanceType', 'type')
+      .addSelect('COUNT(*)', 'count')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .groupBy('jc.maintenanceType')
+      .getRawMany();
+
+    const priorityBreakdown = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select('jc.priority', 'priority')
+      .addSelect('COUNT(*)', 'count')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .andWhere('jc.currentStatus NOT IN (:...done)', { done: [JobCardStatus.APPROVED, JobCardStatus.REJECTED] })
+      .groupBy('jc.priority')
+      .getRawMany();
+
+    const monthlyTrend = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select("TO_CHAR(jc.requestedAt, 'YYYY-MM')", 'month')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('SUM(CASE WHEN jc.currentStatus = :approved THEN 1 ELSE 0 END)', 'completed')
+      .addSelect('SUM(CASE WHEN jc.maintenanceType = :bt THEN 1 ELSE 0 END)', 'breakdowns')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .andWhere('jc.requestedAt >= NOW() - INTERVAL \'12 months\'')
+      .setParameters({ approved: JobCardStatus.APPROVED, bt: 'BREAKDOWN' })
+      .groupBy("TO_CHAR(jc.requestedAt, 'YYYY-MM')")
+      .orderBy("TO_CHAR(jc.requestedAt, 'YYYY-MM')", 'ASC')
+      .getRawMany();
+
+    const statusBreakdown = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select('jc.currentStatus', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .groupBy('jc.currentStatus')
+      .getRawMany();
+
+    const avgDowntime = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select('AVG(jc.downtimeMinutes)', 'avgDowntime')
+      .addSelect('SUM(jc.downtimeMinutes)', 'totalDowntime')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .andWhere('jc.downtimeMinutes IS NOT NULL')
+      .getRawOne();
+
+    return {
+      typeBreakdown,
+      priorityBreakdown,
+      monthlyTrend,
+      statusBreakdown,
+      avgDowntimeMinutes: Math.round(parseFloat(avgDowntime?.avgDowntime || '0')),
+      totalDowntimeMinutes: parseInt(avgDowntime?.totalDowntime || '0', 10),
+    };
+  }
+
+  async getReports(companyId: string): Promise<any> {
+    const topProblemMachines = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .leftJoin('jc.machine', 'machine')
+      .select('machine.id', 'machineId')
+      .addSelect('machine.machine_name', 'machineName')
+      .addSelect('machine.machine_code', 'machineCode')
+      .addSelect('COUNT(*)', 'jobCount')
+      .addSelect('SUM(CASE WHEN jc.currentStatus = :approved THEN 1 ELSE 0 END)', 'approvedCount')
+      .addSelect('SUM(jc.downtimeMinutes)', 'totalDowntime')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .setParameters({ approved: JobCardStatus.APPROVED })
+      .groupBy('machine.id')
+      .addGroupBy('machine.machine_name')
+      .addGroupBy('machine.machine_code')
+      .orderBy('"jobCount"', 'DESC')
+      .limit(10)
+      .getRawMany();
+
+    const downtimeByType = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select('jc.maintenanceType', 'type')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('AVG(jc.downtimeMinutes)', 'avgDowntime')
+      .addSelect('SUM(jc.downtimeMinutes)', 'totalDowntime')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .andWhere('jc.downtimeMinutes IS NOT NULL')
+      .groupBy('jc.maintenanceType')
+      .getRawMany();
+
+    const mtbfByMachine = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .leftJoin('jc.machine', 'machine')
+      .select('machine.id', 'machineId')
+      .addSelect('machine.machine_name', 'machineName')
+      .addSelect('COUNT(*)', 'totalJobs')
+      .where('jc.companyId = :companyId', { companyId })
+      .andWhere('jc.isActive = true')
+      .andWhere('jc.currentStatus = :approved')
+      .setParameters({ approved: JobCardStatus.APPROVED })
+      .groupBy('machine.id')
+      .addGroupBy('machine.machine_name')
+      .having('COUNT(*) > 1')
+      .getRawMany();
+
+    return { topProblemMachines, downtimeByType, mtbfByMachine };
   }
 
   private validateTransition(current: JobCardStatus, target: JobCardStatus): void {
@@ -638,8 +1009,14 @@ export class MaintenanceJobCardService {
 
   private async logActivity(userId: string, action: string, targetId: string, targetName: string): Promise<void> {
     try {
-      const user = await this.userRepo.findOne({ where: { id: userId }, select: ['email'] });
-      const { ActivityLogService } = await import('../../audit/services/activity-log.service');
+      await this.activityLog.log({
+        action,
+        targetType: 'maintenance_job_cards',
+        targetId,
+        targetName,
+        actorUserId: userId,
+        details: `Job Card: ${targetName}`,
+      });
     } catch {
       // Activity logging is best-effort
     }

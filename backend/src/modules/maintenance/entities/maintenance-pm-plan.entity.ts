@@ -46,4 +46,13 @@ export class MaintenancePmPlan extends BaseEntity {
   @ManyToOne(() => MaintenanceTeam, { nullable: true })
   @JoinColumn({ name: 'assigned_team_id' })
   assignedTeam: MaintenanceTeam | null;
+
+  @Column({ name: 'start_date', type: 'date', nullable: true })
+  startDate: string | null;
+
+  @Column({ name: 'next_due_date', type: 'date', nullable: true })
+  nextDueDate: string | null;
+
+  @Column({ name: 'last_generated_at', type: 'timestamp with time zone', nullable: true })
+  lastGeneratedAt: Date | null;
 }

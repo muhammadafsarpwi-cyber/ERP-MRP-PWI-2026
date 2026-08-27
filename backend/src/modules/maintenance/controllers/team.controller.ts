@@ -45,8 +45,8 @@ export class MaintenanceTeamController {
 
   @Delete(':id')
   @RequirePermission('maintenance.team.manage')
-  @ApiOperation({ summary: 'Delete team' })
-  remove(@Param('id') id: string) {
-    return this.teamService.remove(id);
+  @ApiOperation({ summary: 'Deactivate team' })
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.teamService.remove(id, user.id);
   }
 }

@@ -1,10 +1,11 @@
 import { IsString, IsNotEmpty, IsOptional, IsUUID, IsBoolean, IsArray, ValidateNested } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsUuid } from '../../../common/validators';
 
 export class CreateTeamDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   companyId: string;
 
@@ -25,7 +26,7 @@ export class CreateTeamDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   departmentId?: string;
 
   @ApiPropertyOptional({ type: [String], description: 'Initial member user IDs' })
@@ -53,7 +54,7 @@ export class UpdateTeamDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   departmentId?: string;
 
   @ApiPropertyOptional({ type: [String] })

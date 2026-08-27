@@ -126,6 +126,9 @@ const SIDEBAR_PERMISSION_MAP: Record<string, string[]> = {
   '/maintenance/teams': ['maintenance.team.view'],
   '/maintenance/categories': ['maintenance.category.view'],
   '/maintenance/preventive-maintenance': ['maintenance.pm.view'],
+  '/maintenance/pm-plans': ['maintenance.pm.view'],
+  '/maintenance/pm-schedules': ['maintenance.pm.view'],
+  '/maintenance/reports': ['maintenance.job_card.view'],
   '/settings': [],
 };
 
@@ -203,7 +206,9 @@ function buildMenuItems(hasPermission: (code: string) => boolean): MenuProps['it
     { key: '/maintenance/job-cards', icon: <NavIcon color={ICON_COLORS.production}><FileProtectOutlined /></NavIcon>, label: 'Job Cards' },
     { key: '/maintenance/teams', icon: <NavIcon color={ICON_COLORS.production}><TeamOutlined /></NavIcon>, label: 'Teams' },
     { key: '/maintenance/categories', icon: <NavIcon color={ICON_COLORS.production}><TagsOutlined /></NavIcon>, label: 'Categories' },
-    { key: '/maintenance/preventive-maintenance', icon: <NavIcon color={ICON_COLORS.production}><CalendarOutlined /></NavIcon>, label: 'Preventive Maintenance' },
+    { key: '/maintenance/pm-plans', icon: <NavIcon color={ICON_COLORS.production}><CalendarOutlined /></NavIcon>, label: 'PM Plans' },
+    { key: '/maintenance/pm-schedules', icon: <NavIcon color={ICON_COLORS.production}><CalendarOutlined /></NavIcon>, label: 'PM Schedules' },
+    { key: '/maintenance/reports', icon: <NavIcon color={ICON_COLORS.analytics}><BarChartOutlined /></NavIcon>, label: 'Reports' },
   ].filter(item => can(item.key));
 
   const items: MenuProps['items'] = [];

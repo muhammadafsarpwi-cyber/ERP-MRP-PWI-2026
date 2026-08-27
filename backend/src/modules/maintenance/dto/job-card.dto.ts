@@ -1,26 +1,27 @@
 import { IsString, IsNotEmpty, IsOptional, IsUUID, IsEnum, IsNumber, MaxLength, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { MaintenancePriority } from '../enums';
+import { IsUuid } from '../../../common/validators';
+import { MaintenancePriority, MaintenanceType } from '../enums';
 
 export class CreateJobCardDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   companyId: string;
 
   @ApiProperty({ description: 'Division ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   divisionId: string;
 
   @ApiProperty({ description: 'Section ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   sectionId: string;
 
   @ApiProperty({ description: 'Machine ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   machineId: string;
 
@@ -34,15 +35,20 @@ export class CreateJobCardDto {
   @IsEnum(MaintenancePriority)
   priority?: MaintenancePriority;
 
+  @ApiPropertyOptional({ enum: MaintenanceType, default: MaintenanceType.BREAKDOWN })
+  @IsOptional()
+  @IsEnum(MaintenanceType)
+  maintenanceType?: MaintenanceType;
+
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   complaintCategoryId?: string;
 
   @ApiPropertyOptional()
-  @IsUUID()
-  @IsNotEmpty()
-  assignedDepartmentId: string;
+  @IsOptional()
+  @IsUuid()
+  assignedDepartmentId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -51,34 +57,34 @@ export class CreateJobCardDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   failureCategoryId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   rootCauseCategoryId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   requestedBy?: string;
 }
 
 export class UpdateJobCardDto {
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   machineId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   divisionId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   sectionId?: string;
 
   @ApiPropertyOptional()
@@ -91,14 +97,19 @@ export class UpdateJobCardDto {
   @IsEnum(MaintenancePriority)
   priority?: MaintenancePriority;
 
+  @ApiPropertyOptional({ enum: MaintenanceType })
+  @IsOptional()
+  @IsEnum(MaintenanceType)
+  maintenanceType?: MaintenanceType;
+
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   complaintCategoryId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   assignedDepartmentId?: string;
 
   @ApiPropertyOptional()
@@ -113,12 +124,12 @@ export class UpdateJobCardDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   rootCauseCategoryId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   failureCategoryId?: string;
 
   @ApiPropertyOptional()
@@ -157,7 +168,7 @@ export class AssignJobCardDto {
 
 export class AddJobCardPartDto {
   @ApiProperty({ description: 'Item ID (must be SPARE_PART type)' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   itemId: string;
 
@@ -168,7 +179,7 @@ export class AddJobCardPartDto {
   quantity: number;
 
   @ApiProperty({ description: 'UOM ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   uomId: string;
 
@@ -180,7 +191,7 @@ export class AddJobCardPartDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   issuedFrom?: string;
 
   @ApiPropertyOptional()
@@ -243,27 +254,27 @@ export class JobCardQueryDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   companyId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   machineId?: string;
 
   @ApiPropertyOptional({ description: 'Filter through the linked machine hierarchy' })
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Filter through the linked machine hierarchy' })
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   sectionId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   assignedDepartmentId?: string;
 
   @ApiPropertyOptional()
@@ -276,9 +287,14 @@ export class JobCardQueryDto {
   @IsString()
   priority?: string;
 
+  @ApiPropertyOptional({ enum: MaintenanceType })
+  @IsOptional()
+  @IsEnum(MaintenanceType)
+  maintenanceType?: MaintenanceType;
+
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   technicianUserId?: string;
 
   @ApiPropertyOptional()

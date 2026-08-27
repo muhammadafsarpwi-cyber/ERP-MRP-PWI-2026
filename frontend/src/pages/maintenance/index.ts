@@ -1,3 +1,10 @@
 export { default as MaintenancePage } from './MaintenancePage';
 export { default as MaintenanceDashboard } from './MaintenanceDashboard';
-export { default as JobCardList, JobCardCreate, JobCardDetail } from './JobCards';
+export { JobCardList, JobCardCreate, JobCardDetail } from './JobCards';
+export { MachineProfilePanel } from './MachineProfilePanel';
+export { SparePartsPanel } from './SparePartsPanel';
+export { PmPlansList } from './PmPlansList';
+export { PmSchedules } from './PmSchedules';
+export { TeamsList } from './TeamsList';
+export { CategoriesList } from './CategoriesList';
+export { MaintenanceReports } from './MaintenanceReports';

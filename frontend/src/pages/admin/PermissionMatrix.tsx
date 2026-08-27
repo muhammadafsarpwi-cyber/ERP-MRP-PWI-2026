@@ -210,7 +210,7 @@ const PermissionMatrix: React.FC = () => {
       </div>
 
       <Card
-        bodyStyle={{ padding: 0, overflow: 'visible' }}
+        styles={{ body: { padding: 0, overflow: 'visible' } }}
         style={{ overflow: 'visible' }}
         extra={
           <Space>

@@ -1,13 +1,16 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MaintenanceTeam } from '../entities/maintenance-team.entity';
 import { MaintenanceTeamMember } from '../entities/maintenance-team-member.entity';
 import { ErpUser } from '../../user/entities/erp-user.entity';
 import { CreateTeamDto, UpdateTeamDto } from '../dto';
+import { ActivityLogService } from '../../audit/services/activity-log.service';
 
 @Injectable()
 export class MaintenanceTeamService {
+  private readonly logger = new Logger(MaintenanceTeamService.name);
+
   constructor(
     @InjectRepository(MaintenanceTeam)
     private readonly teamRepo: Repository<MaintenanceTeam>,
@@ -15,6 +18,7 @@ export class MaintenanceTeamService {
     private readonly memberRepo: Repository<MaintenanceTeamMember>,
     @InjectRepository(ErpUser)
     private readonly userRepo: Repository<ErpUser>,
+    private readonly activityLog: ActivityLogService,
   ) {}
 
   async create(dto: CreateTeamDto, userId: string): Promise<MaintenanceTeam> {
@@ -41,6 +45,7 @@ export class MaintenanceTeamService {
       }
     }
 
+    await this.activityLog.log({ action: 'MAINTENANCE_TEAM_CREATED', targetType: 'maintenance_teams', targetId: saved.id, actorUserId: userId, targetName: saved.name, details: `Team: ${saved.code}` });
     return this.findOne(saved.id);
   }
 
@@ -78,10 +83,16 @@ export class MaintenanceTeamService {
       }
     }
 
+    await this.activityLog.log({ action: 'MAINTENANCE_TEAM_UPDATED', targetType: 'maintenance_teams', targetId: id, actorUserId: userId, details: JSON.stringify(dto) });
     return this.findOne(id);
   }
 
-  async remove(id: string): Promise<void> {
-    await this.teamRepo.delete(id);
+  async remove(id: string, userId: string): Promise<void> {
+    const team = await this.teamRepo.findOne({ where: { id } });
+    if (!team) throw new NotFoundException(`Team '${id}' not found`);
+    team.isActive = false;
+    team.updatedBy = userId;
+    await this.teamRepo.save(team);
+    await this.activityLog.log({ action: 'MAINTENANCE_TEAM_DEACTIVATED', targetType: 'maintenance_teams', targetId: id, actorUserId: userId });
   }
 }

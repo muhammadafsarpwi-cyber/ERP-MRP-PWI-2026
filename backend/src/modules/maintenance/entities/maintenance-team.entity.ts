@@ -1,7 +1,8 @@
-import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
+import { Entity, Column, ManyToOne, OneToMany, JoinColumn, Index } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Department } from '../../organization/entities/department.entity';
+import { MaintenanceTeamMember } from './maintenance-team-member.entity';
 
 @Entity('maintenance_teams')
 @Index(['companyId'])
@@ -28,4 +29,7 @@ export class MaintenanceTeam extends BaseEntity {
   @ManyToOne(() => Department, { nullable: true })
   @JoinColumn({ name: 'department_id' })
   department: Department | null;
+
+  @OneToMany(() => MaintenanceTeamMember, (member) => member.team)
+  members: MaintenanceTeamMember[];
 }

@@ -9,7 +9,7 @@ import { MaintenanceComplaintCategory } from './maintenance-complaint-category.e
 import { MaintenanceRootCauseCategory } from './maintenance-root-cause-category.entity';
 import { MaintenanceFailureCategory } from './maintenance-failure-category.entity';
 import { ErpUser } from '../../user/entities/erp-user.entity';
-import { JobCardStatus, MaintenancePriority } from '../enums';
+import { JobCardStatus, MaintenancePriority, MaintenanceType } from '../enums';
 
 @Entity('maintenance_job_cards')
 @Index(['companyId'])
@@ -69,6 +69,9 @@ export class MaintenanceJobCard extends BaseEntity {
 
   @Column({ name: 'priority', type: 'varchar', length: 20, default: MaintenancePriority.MEDIUM })
   priority: MaintenancePriority;
+
+  @Column({ name: 'maintenance_type', type: 'varchar', length: 30, default: MaintenanceType.BREAKDOWN })
+  maintenanceType: MaintenanceType;
 
   @Column({ name: 'requested_by', type: 'uuid', nullable: true })
   requestedBy: string | null;

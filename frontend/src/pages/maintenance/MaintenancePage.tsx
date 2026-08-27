@@ -6,11 +6,12 @@ import {
   FileProtectOutlined,
   TeamOutlined,
   TagsOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/shared';
 
-export type MaintenancePageKey = 'dashboard' | 'job-cards' | 'teams' | 'categories' | 'preventive-maintenance';
+export type MaintenancePageKey = 'dashboard' | 'job-cards' | 'teams' | 'categories' | 'preventive-maintenance' | 'reports';
 
 const pageConfig: Record<MaintenancePageKey, {
   title: string;
@@ -48,6 +49,12 @@ const pageConfig: Record<MaintenancePageKey, {
     icon: <CalendarOutlined />,
     permission: 'maintenance.pm.view',
   },
+  reports: {
+    title: 'Maintenance Reports',
+    subtitle: 'Downtime analysis, MTBF, and top problem machines',
+    icon: <BarChartOutlined />,
+    permission: 'maintenance.job_card.view',
+  },
 };
 
 const links: Array<{ key: MaintenancePageKey; path: string; label: string }> = [
@@ -55,7 +62,8 @@ const links: Array<{ key: MaintenancePageKey; path: string; label: string }> = [
   { key: 'job-cards', path: '/maintenance/job-cards', label: 'Job Cards' },
   { key: 'teams', path: '/maintenance/teams', label: 'Teams' },
   { key: 'categories', path: '/maintenance/categories', label: 'Categories' },
-  { key: 'preventive-maintenance', path: '/maintenance/preventive-maintenance', label: 'Preventive Maintenance' },
+  { key: 'preventive-maintenance', path: '/maintenance/pm-plans', label: 'PM Plans' },
+  { key: 'reports', path: '/maintenance/reports', label: 'Reports' },
 ];
 
 interface MaintenancePageProps {

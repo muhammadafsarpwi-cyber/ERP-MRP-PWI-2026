@@ -6,7 +6,7 @@ import { SupabaseJwtGuard } from '../../auth/guards';
 import { PermissionGuard, RequirePermission } from '../../auth/guards';
 import { CurrentUser } from '../../../common/decorators/user.decorator';
 import { MaintenancePmService } from '../services';
-import { CreatePmPlanDto, UpdatePmPlanDto } from '../dto';
+import { CreatePmPlanDto, UpdatePmPlanDto, GenerateScheduleDto } from '../dto';
 
 @ApiTags('Maintenance - Preventive Maintenance')
 @ApiBearerAuth()
@@ -45,9 +45,16 @@ export class MaintenancePmController {
 
   @Delete('plans/:id')
   @RequirePermission('maintenance.pm.manage')
-  @ApiOperation({ summary: 'Delete PM plan' })
-  removePlan(@Param('id') id: string) {
-    return this.pmService.removePlan(id);
+  @ApiOperation({ summary: 'Deactivate PM plan' })
+  removePlan(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.pmService.removePlan(id, user.id);
+  }
+
+  @Post('plans/:id/generate-schedules')
+  @RequirePermission('maintenance.pm.manage')
+  @ApiOperation({ summary: 'Generate PM schedules for a plan' })
+  generateSchedules(@Param('id') id: string, @Body() dto: GenerateScheduleDto, @CurrentUser() user: any) {
+    return this.pmService.generateSchedules(id, dto, user.id);
   }
 
   @Get('schedules')
@@ -55,5 +62,19 @@ export class MaintenancePmController {
   @ApiOperation({ summary: 'List PM schedules' })
   findSchedules(@Query('companyId') companyId?: string) {
     return this.pmService.findSchedules(companyId);
+  }
+
+  @Post('schedules/:id/complete')
+  @RequirePermission('maintenance.pm.manage')
+  @ApiOperation({ summary: 'Mark PM schedule as completed' })
+  completeSchedule(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.pmService.completeSchedule(id, user.id);
+  }
+
+  @Post('schedules/:id/skip')
+  @RequirePermission('maintenance.pm.manage')
+  @ApiOperation({ summary: 'Skip PM schedule' })
+  skipSchedule(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.pmService.skipSchedule(id, user.id);
   }
 }

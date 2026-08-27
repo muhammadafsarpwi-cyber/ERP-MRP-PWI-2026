@@ -39,12 +39,45 @@ export class MaintenanceJobCardController {
     return this.jobCardService.getDashboard(companyId);
   }
 
+  @Get('chart-data')
+  @RequirePermission('maintenance.job_card.view')
+  @ApiOperation({ summary: 'Chart data for maintenance dashboard' })
+  chartData(@Query('companyId') companyId: string) {
+    return this.jobCardService.getChartData(companyId);
+  }
+
+  @Get('reports')
+  @RequirePermission('maintenance.reports.view')
+  @ApiOperation({ summary: 'Maintenance reports data' })
+  reports(@Query('companyId') companyId: string) {
+    return this.jobCardService.getReports(companyId);
+  }
+
+  @Get('machine/:machineId/stats')
+  @RequirePermission('maintenance.job_card.view')
+  @ApiOperation({ summary: 'Get maintenance statistics for a machine' })
+  @ApiParam({ name: 'machineId', type: String })
+  getMachineStats(@Param('machineId') machineId: string) {
+    return this.jobCardService.getMachineStats(machineId);
+  }
+
   @Get('machine/:machineId')
   @RequirePermission('maintenance.job_card.view')
   @ApiOperation({ summary: 'Get job card history for a machine' })
   @ApiParam({ name: 'machineId', type: String })
   getMachineHistory(@Param('machineId') machineId: string) {
     return this.jobCardService.getMachineHistory(machineId);
+  }
+
+  @Get('stock-check')
+  @RequirePermission('maintenance.job_card.view')
+  @ApiOperation({ summary: 'Check available stock for a spare part item' })
+  stockCheck(
+    @Query('companyId') companyId: string,
+    @Query('itemId') itemId: string,
+    @Query('warehouseId') warehouseId?: string,
+  ) {
+    return this.jobCardService.checkStock(companyId, itemId, warehouseId);
   }
 
   @Get(':id')
@@ -177,11 +210,11 @@ export class MaintenanceJobCardController {
 
   @Delete(':id/parts/:partId')
   @RequirePermission('maintenance.job_card.update')
-  @ApiOperation({ summary: 'Remove spare part from job card' })
+  @ApiOperation({ summary: 'Remove spare part from job card (reverses stock)' })
   @ApiParam({ name: 'id', type: String })
   @ApiParam({ name: 'partId', type: String })
-  removePart(@Param('id') id: string, @Param('partId') partId: string) {
-    return this.jobCardService.removePart(id, partId);
+  removePart(@Param('id') id: string, @Param('partId') partId: string, @CurrentUser() user: any) {
+    return this.jobCardService.removePart(id, partId, user.id);
   }
 
   @Get(':id/work-logs')

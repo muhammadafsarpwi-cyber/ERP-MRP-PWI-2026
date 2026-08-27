@@ -1,10 +1,11 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUuid } from '../../../common/validators';
 
 export class CreateCategoryDto {
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsUuid()
   companyId?: string;
 
   @ApiProperty({ description: 'Category code' })
