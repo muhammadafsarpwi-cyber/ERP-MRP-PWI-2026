@@ -17,6 +17,7 @@ import { MaintenanceFailureCategory } from '../entities/maintenance-failure-cate
 import { MaintenanceRootCauseCategory } from '../entities/maintenance-root-cause-category.entity';
 import { JobCardStatus, MaintenanceType, VALID_TRANSITIONS } from '../enums';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
+import { MaintenanceUserResolverService } from './maintenance-user-resolver.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
 import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
@@ -67,14 +68,11 @@ export class MaintenanceJobCardService {
     private readonly dataSource: DataSource,
     private readonly activityLog: ActivityLogService,
     private readonly inventoryBalanceService: InventoryBalanceService,
+    private readonly userResolver: MaintenanceUserResolverService,
   ) {}
 
   async create(dto: CreateJobCardDto, userId: string): Promise<MaintenanceJobCard> {
-    const erpUser = await this.userRepo.findOne({ where: { authUserId: userId, isActive: true } });
-    if (!erpUser) {
-      throw new NotFoundException('ERP user profile not found for the authenticated account');
-    }
-    const erpUserId = erpUser.id;
+    const erpUserId = await this.userResolver.resolve(userId);
     const machine = await this.machineRepo.findOne({ where: { id: dto.machineId, isActive: true } });
     if (!machine) {
       throw new NotFoundException(`Machine with ID '${dto.machineId}' not found`);
@@ -150,7 +148,7 @@ export class MaintenanceJobCardService {
     const saved = await this.jobCardRepo.save(jobCard);
 
     await this.recordHistory(saved.id, null, JobCardStatus.OPEN, erpUserId, 'Job card created');
-    await this.logActivity(userId, 'JOB_CARD_CREATED', saved.id, jobCardNo);
+    await this.logActivity(erpUserId, 'JOB_CARD_CREATED', saved.id, jobCardNo);
 
     return this.findOne(saved.id);
   }
@@ -165,6 +163,8 @@ export class MaintenanceJobCardService {
     qb.leftJoinAndSelect('jc.assignedDepartment', 'department');
     qb.leftJoinAndSelect('jc.requestedByUser', 'requester');
     qb.leftJoinAndSelect('jc.company', 'company');
+    qb.leftJoinAndSelect('jc.technicians', 'technicians');
+    qb.leftJoinAndSelect('technicians.technicianUser', 'technicianUser');
 
     if (companyId) {
       qb.andWhere('jc.companyId = :companyId', { companyId });
@@ -227,6 +227,7 @@ export class MaintenanceJobCardService {
     if (jobCard.currentStatus === JobCardStatus.APPROVED) {
       throw new BadRequestException('Cannot edit an approved job card');
     }
+    const erpUserId = await this.userResolver.resolve(userId);
     const effectiveMachineId = dto.machineId || jobCard.machineId;
     const effectiveDivisionId = dto.divisionId || jobCard.divisionId;
     const effectiveSectionId = dto.sectionId || jobCard.sectionId;
@@ -245,7 +246,7 @@ export class MaintenanceJobCardService {
         }
       }
     }
-    Object.assign(jobCard, dto, { updatedBy: userId });
+    Object.assign(jobCard, dto, { updatedBy: erpUserId });
     await this.jobCardRepo.save(jobCard);
     return this.findOne(id);
   }
@@ -255,8 +256,9 @@ export class MaintenanceJobCardService {
     if (jobCard.currentStatus !== JobCardStatus.OPEN) {
       throw new BadRequestException('Only OPEN job cards can be deleted');
     }
+    const erpUserId = await this.userResolver.resolve(userId);
     jobCard.isActive = false;
-    jobCard.updatedBy = userId;
+    jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
   }
 
@@ -264,6 +266,7 @@ export class MaintenanceJobCardService {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.ASSIGNED);
     const previousStatus = jobCard.currentStatus;
+    const erpUserId = await this.userResolver.resolve(userId);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -282,20 +285,22 @@ export class MaintenanceJobCardService {
           technicianUserId: dto.technicianUserIds[i],
           role: i === 0 ? 'PRIMARY' : 'SECONDARY',
           assignedAt: new Date(),
+          createdBy: erpUserId,
+          updatedBy: erpUserId,
         });
         await queryRunner.manager.save(tech);
       }
 
       jobCard.currentStatus = JobCardStatus.ASSIGNED;
       jobCard.assignedAt = new Date();
-      jobCard.updatedBy = userId;
+      jobCard.updatedBy = erpUserId;
       await queryRunner.manager.save(jobCard);
 
       const history = queryRunner.manager.create(MaintenanceJobCardStatusHistory, {
         jobCardId: id,
         fromStatus: previousStatus,
         toStatus: JobCardStatus.ASSIGNED,
-        changedBy: userId,
+        changedBy: erpUserId,
         remarks: dto.remarks || `Assigned to ${dto.technicianUserIds.length} technician(s)`,
       });
       await queryRunner.manager.save(history);
@@ -308,23 +313,24 @@ export class MaintenanceJobCardService {
       await queryRunner.release();
     }
 
-    await this.logActivity(userId, 'JOB_CARD_ASSIGNED', id, jobCard.jobCardNo);
+    await this.logActivity(erpUserId, 'JOB_CARD_ASSIGNED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async start(id: string, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.IN_PROGRESS);
+    const erpUserId = await this.userResolver.resolve(userId);
 
     jobCard.currentStatus = JobCardStatus.IN_PROGRESS;
     jobCard.startedAt = new Date();
-    jobCard.startedBy = userId;
+    jobCard.startedBy = erpUserId;
     jobCard.downtimeStart = jobCard.downtimeStart || new Date();
-    jobCard.updatedBy = userId;
+    jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.ASSIGNED, JobCardStatus.IN_PROGRESS, userId, 'Job started');
-    await this.logActivity(userId, 'JOB_CARD_STARTED', id, jobCard.jobCardNo);
+    await this.recordHistory(id, JobCardStatus.ASSIGNED, JobCardStatus.IN_PROGRESS, erpUserId, 'Job started');
+    await this.logActivity(erpUserId, 'JOB_CARD_STARTED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
@@ -332,13 +338,14 @@ export class MaintenanceJobCardService {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.ON_HOLD);
     const previousStatus = jobCard.currentStatus;
+    const erpUserId = await this.userResolver.resolve(userId);
 
     jobCard.currentStatus = JobCardStatus.ON_HOLD;
-    jobCard.updatedBy = userId;
+    jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, previousStatus, JobCardStatus.ON_HOLD, userId, remarks || 'Job put on hold');
-    await this.logActivity(userId, 'JOB_CARD_ON_HOLD', id, jobCard.jobCardNo);
+    await this.recordHistory(id, previousStatus, JobCardStatus.ON_HOLD, erpUserId, remarks || 'Job put on hold');
+    await this.logActivity(erpUserId, 'JOB_CARD_ON_HOLD', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
@@ -346,33 +353,36 @@ export class MaintenanceJobCardService {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.WAITING_FOR_PARTS);
     const previousStatus = jobCard.currentStatus;
+    const erpUserId = await this.userResolver.resolve(userId);
 
     jobCard.currentStatus = JobCardStatus.WAITING_FOR_PARTS;
-    jobCard.updatedBy = userId;
+    jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, previousStatus, JobCardStatus.WAITING_FOR_PARTS, userId, remarks || 'Waiting for parts');
-    await this.logActivity(userId, 'JOB_CARD_WAITING_FOR_PARTS', id, jobCard.jobCardNo);
+    await this.recordHistory(id, previousStatus, JobCardStatus.WAITING_FOR_PARTS, erpUserId, remarks || 'Waiting for parts');
+    await this.logActivity(erpUserId, 'JOB_CARD_WAITING_FOR_PARTS', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async resumeFromHold(id: string, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.IN_PROGRESS);
+    const erpUserId = await this.userResolver.resolve(userId);
 
     const previousStatus = jobCard.currentStatus;
     jobCard.currentStatus = JobCardStatus.IN_PROGRESS;
-    jobCard.updatedBy = userId;
+    jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, previousStatus, JobCardStatus.IN_PROGRESS, userId, 'Job resumed');
-    await this.logActivity(userId, 'JOB_CARD_RESUMED', id, jobCard.jobCardNo);
+    await this.recordHistory(id, previousStatus, JobCardStatus.IN_PROGRESS, erpUserId, 'Job resumed');
+    await this.logActivity(erpUserId, 'JOB_CARD_RESUMED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async complete(id: string, dto: { diagnosis?: string; correctiveAction?: string; preventiveAction?: string; rootCauseCategoryId?: string; failureCategoryId?: string; remarks?: string }, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.COMPLETED);
+    const erpUserId = await this.userResolver.resolve(userId);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -380,14 +390,14 @@ export class MaintenanceJobCardService {
     try {
       jobCard.currentStatus = JobCardStatus.COMPLETED;
       jobCard.completedAt = new Date();
-      jobCard.completedBy = userId;
+      jobCard.completedBy = erpUserId;
       jobCard.diagnosis = dto.diagnosis || jobCard.diagnosis;
       jobCard.correctiveAction = dto.correctiveAction || jobCard.correctiveAction;
       jobCard.preventiveAction = dto.preventiveAction || jobCard.preventiveAction;
       jobCard.rootCauseCategoryId = dto.rootCauseCategoryId || jobCard.rootCauseCategoryId;
       jobCard.failureCategoryId = dto.failureCategoryId || jobCard.failureCategoryId;
       jobCard.remarks = dto.remarks || jobCard.remarks;
-      jobCard.updatedBy = userId;
+      jobCard.updatedBy = erpUserId;
 
       if (jobCard.downtimeStart) {
         const start = new Date(jobCard.downtimeStart);
@@ -402,7 +412,7 @@ export class MaintenanceJobCardService {
         jobCardId: id,
         fromStatus: JobCardStatus.IN_PROGRESS,
         toStatus: JobCardStatus.COMPLETED,
-        changedBy: userId,
+        changedBy: erpUserId,
         remarks: dto.remarks || 'Job completed',
       });
       await queryRunner.manager.save(history);
@@ -415,81 +425,86 @@ export class MaintenanceJobCardService {
       await queryRunner.release();
     }
 
-    await this.logActivity(userId, 'JOB_CARD_COMPLETED', id, jobCard.jobCardNo);
+    await this.logActivity(erpUserId, 'JOB_CARD_COMPLETED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async close(id: string, userId: string, remarks?: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.CLOSED);
+    const erpUserId = await this.userResolver.resolve(userId);
 
     jobCard.currentStatus = JobCardStatus.CLOSED;
     jobCard.closedAt = new Date();
-    jobCard.closedBy = userId;
-    jobCard.updatedBy = userId;
+    jobCard.closedBy = erpUserId;
+    jobCard.updatedBy = erpUserId;
     if (remarks) jobCard.remarks = remarks;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.COMPLETED, JobCardStatus.CLOSED, userId, remarks || 'Job closed');
-    await this.logActivity(userId, 'JOB_CARD_CLOSED', id, jobCard.jobCardNo);
+    await this.recordHistory(id, JobCardStatus.COMPLETED, JobCardStatus.CLOSED, erpUserId, remarks || 'Job closed');
+    await this.logActivity(erpUserId, 'JOB_CARD_CLOSED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async verify(id: string, userId: string, remarks?: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.VERIFIED);
+    const erpUserId = await this.userResolver.resolve(userId);
 
     jobCard.currentStatus = JobCardStatus.VERIFIED;
     jobCard.verifiedAt = new Date();
-    jobCard.verifiedBy = userId;
-    jobCard.updatedBy = userId;
+    jobCard.verifiedBy = erpUserId;
+    jobCard.updatedBy = erpUserId;
     if (remarks) jobCard.remarks = remarks;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.VERIFIED, userId, remarks || 'Job verified');
-    await this.logActivity(userId, 'JOB_CARD_VERIFIED', id, jobCard.jobCardNo);
+    await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.VERIFIED, erpUserId, remarks || 'Job verified');
+    await this.logActivity(erpUserId, 'JOB_CARD_VERIFIED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async approve(id: string, userId: string, remarks?: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.APPROVED);
+    const erpUserId = await this.userResolver.resolve(userId);
 
     jobCard.currentStatus = JobCardStatus.APPROVED;
     jobCard.approvedAt = new Date();
-    jobCard.approvedBy = userId;
-    jobCard.updatedBy = userId;
+    jobCard.approvedBy = erpUserId;
+    jobCard.updatedBy = erpUserId;
     if (remarks) jobCard.remarks = remarks;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.VERIFIED, JobCardStatus.APPROVED, userId, remarks || 'Job approved');
-    await this.logActivity(userId, 'JOB_CARD_APPROVED', id, jobCard.jobCardNo);
+    await this.recordHistory(id, JobCardStatus.VERIFIED, JobCardStatus.APPROVED, erpUserId, remarks || 'Job approved');
+    await this.logActivity(erpUserId, 'JOB_CARD_APPROVED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async reject(id: string, dto: RejectJobCardDto, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.REJECTED);
+    const erpUserId = await this.userResolver.resolve(userId);
 
     jobCard.currentStatus = JobCardStatus.REJECTED;
-    jobCard.updatedBy = userId;
+    jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.REJECTED, userId, dto.reason);
-    await this.logActivity(userId, 'JOB_CARD_REJECTED', id, jobCard.jobCardNo);
+    await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.REJECTED, erpUserId, dto.reason);
+    await this.logActivity(erpUserId, 'JOB_CARD_REJECTED', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
   async submitForVerification(id: string, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.PENDING_VERIFICATION);
+    const erpUserId = await this.userResolver.resolve(userId);
 
     jobCard.currentStatus = JobCardStatus.PENDING_VERIFICATION;
-    jobCard.updatedBy = userId;
+    jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.CLOSED, JobCardStatus.PENDING_VERIFICATION, userId, 'Submitted for verification');
-    await this.logActivity(userId, 'JOB_CARD_SUBMITTED_FOR_VERIFICATION', id, jobCard.jobCardNo);
+    await this.recordHistory(id, JobCardStatus.CLOSED, JobCardStatus.PENDING_VERIFICATION, erpUserId, 'Submitted for verification');
+    await this.logActivity(erpUserId, 'JOB_CARD_SUBMITTED_FOR_VERIFICATION', id, jobCard.jobCardNo);
     return this.findOne(id);
   }
 
@@ -498,6 +513,7 @@ export class MaintenanceJobCardService {
     if (jobCard.currentStatus === JobCardStatus.APPROVED) {
       throw new BadRequestException('Cannot add parts to an approved job card');
     }
+    const erpUserId = await this.userResolver.resolve(userId);
 
     const saved = await this.dataSource.transaction(async (manager) => {
       if (dto.issuedFrom) {
@@ -513,7 +529,7 @@ export class MaintenanceJobCardService {
           referenceId: id,
           referenceNumber: jobCard.jobCardNo,
           notes: `Spare part issued for job card ${jobCard.jobCardNo}`,
-          createdBy: userId,
+          createdBy: erpUserId,
         });
       }
 
@@ -526,13 +542,15 @@ export class MaintenanceJobCardService {
         totalCost: dto.unitCost ? dto.unitCost * dto.quantity : null,
         issuedFrom: dto.issuedFrom || null,
         issuedAt: new Date(),
-        issuedBy: userId,
+        issuedBy: erpUserId,
+        createdBy: erpUserId,
+        updatedBy: erpUserId,
         remarks: dto.remarks || null,
       });
       return manager.save(part);
     });
 
-    await this.logActivity(userId, 'JOB_CARD_PART_ADDED', id, jobCard.jobCardNo);
+    await this.logActivity(erpUserId, 'JOB_CARD_PART_ADDED', id, jobCard.jobCardNo);
     return saved;
   }
 
@@ -542,6 +560,7 @@ export class MaintenanceJobCardService {
 
     const jobCard = await this.findOne(jobCardId);
     const issuedFrom = part.issuedFrom;
+    const erpUserId = userId ? await this.userResolver.resolve(userId) : null;
 
     if (issuedFrom) {
       await this.dataSource.transaction(async (manager) => {
@@ -557,7 +576,7 @@ export class MaintenanceJobCardService {
           referenceId: jobCardId,
           referenceNumber: jobCard.jobCardNo,
           notes: `Spare part returned from job card ${jobCard.jobCardNo}`,
-          createdBy: userId || 'system',
+          createdBy: erpUserId || 'system',
         });
         await manager.getRepository(MaintenanceJobCardPart).delete({ id: partId, jobCardId });
       });
@@ -565,8 +584,8 @@ export class MaintenanceJobCardService {
       await this.partRepo.delete({ id: partId, jobCardId });
     }
 
-    if (userId) {
-      await this.logActivity(userId, 'JOB_CARD_PART_REMOVED', jobCardId, jobCard.jobCardNo);
+    if (erpUserId) {
+      await this.logActivity(erpUserId, 'JOB_CARD_PART_REMOVED', jobCardId, jobCard.jobCardNo);
     }
   }
 
@@ -668,9 +687,10 @@ export class MaintenanceJobCardService {
   }
 
   async addWorkLog(id: string, dto: AddWorkLogDto, userId: string): Promise<MaintenanceJobCardWorkLog> {
+    const erpUserId = await this.userResolver.resolve(userId);
     const workLog = this.workLogRepo.create({
       jobCardId: id,
-      technicianUserId: dto.technicianUserId || userId,
+      technicianUserId: dto.technicianUserId || erpUserId,
       startedAt: dto.startedAt ? new Date(dto.startedAt) : null,
       endedAt: dto.endedAt ? new Date(dto.endedAt) : null,
       durationMinutes: dto.startedAt && dto.endedAt
@@ -681,7 +701,7 @@ export class MaintenanceJobCardService {
     });
     const saved = await this.workLogRepo.save(workLog);
     const jobCard = await this.findOne(id);
-    await this.logActivity(userId, 'JOB_CARD_WORK_LOG_ADDED', id, jobCard.jobCardNo);
+    await this.logActivity(erpUserId, 'JOB_CARD_WORK_LOG_ADDED', id, jobCard.jobCardNo);
     return saved;
   }
 
@@ -694,18 +714,21 @@ export class MaintenanceJobCardService {
   }
 
   async addAttachment(id: string, dto: { fileName: string; fileUrl: string; mimeType?: string; fileSize?: number; description?: string }, userId: string): Promise<MaintenanceJobCardAttachment> {
+    const erpUserId = await this.userResolver.resolve(userId);
     const attachment = this.attachmentRepo.create({
       jobCardId: id,
       fileName: dto.fileName,
       fileUrl: dto.fileUrl,
       mimeType: dto.mimeType || null,
       fileSize: dto.fileSize || null,
-      uploadedBy: userId,
+      uploadedBy: erpUserId,
+      createdBy: erpUserId,
+      updatedBy: erpUserId,
       description: dto.description || null,
     });
     const saved = await this.attachmentRepo.save(attachment);
     const jobCard = await this.findOne(id);
-    await this.logActivity(userId, 'JOB_CARD_ATTACHMENT_ADDED', id, jobCard.jobCardNo);
+    await this.logActivity(erpUserId, 'JOB_CARD_ATTACHMENT_ADDED', id, jobCard.jobCardNo);
     return saved;
   }
 

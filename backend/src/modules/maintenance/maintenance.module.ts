@@ -29,6 +29,7 @@ import { MaintenanceJobCardService } from './services/maintenance-job-card.servi
 import { MaintenanceTeamService } from './services/maintenance-team.service';
 import { MaintenanceCategoryService } from './services/maintenance-category.service';
 import { MaintenancePmService } from './services/maintenance-pm.service';
+import { MaintenanceUserResolverService } from './services/maintenance-user-resolver.service';
 import { MaintenanceJobCardController } from './controllers/job-card.controller';
 import { MaintenanceTeamController } from './controllers/team.controller';
 import { MaintenanceCategoryController } from './controllers/category.controller';
@@ -73,12 +74,14 @@ import { MaintenancePmController } from './controllers/pm.controller';
     MaintenanceTeamService,
     MaintenanceCategoryService,
     MaintenancePmService,
+    MaintenanceUserResolverService,
   ],
   exports: [
     MaintenanceJobCardService,
     MaintenanceTeamService,
     MaintenanceCategoryService,
     MaintenancePmService,
+    MaintenanceUserResolverService,
   ],
 })
 export class MaintenanceModule {}

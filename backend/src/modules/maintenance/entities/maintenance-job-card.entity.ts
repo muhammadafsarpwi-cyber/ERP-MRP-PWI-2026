@@ -1,4 +1,4 @@
-import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
+import { Entity, Column, ManyToOne, OneToMany, JoinColumn, Index } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Machine } from '../../production/entities/machine.entity';
@@ -8,6 +8,7 @@ import { Section } from '../../organization/entities/section.entity';
 import { MaintenanceComplaintCategory } from './maintenance-complaint-category.entity';
 import { MaintenanceRootCauseCategory } from './maintenance-root-cause-category.entity';
 import { MaintenanceFailureCategory } from './maintenance-failure-category.entity';
+import { MaintenanceJobCardTechnician } from './maintenance-job-card-technician.entity';
 import { ErpUser } from '../../user/entities/erp-user.entity';
 import { JobCardStatus, MaintenancePriority, MaintenanceType } from '../enums';
 
@@ -176,4 +177,7 @@ export class MaintenanceJobCard extends BaseEntity {
 
   @Column({ name: 'remarks', type: 'text', nullable: true })
   remarks: string | null;
+
+  @OneToMany(() => MaintenanceJobCardTechnician, (technician) => technician.jobCard)
+  technicians: MaintenanceJobCardTechnician[];
 }

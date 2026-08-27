@@ -1,12 +1,13 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan, LessThanOrEqual } from 'typeorm';
+import { Repository, DataSource, MoreThan, LessThanOrEqual } from 'typeorm';
 import { MaintenancePmPlan } from '../entities/maintenance-pm-plan.entity';
 import { MaintenancePmSchedule } from '../entities/maintenance-pm-schedule.entity';
 import { MaintenanceJobCard } from '../entities/maintenance-job-card.entity';
 import { JobCardStatus } from '../enums';
 import { CreatePmPlanDto, UpdatePmPlanDto, GenerateScheduleDto } from '../dto';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
+import { MaintenanceUserResolverService } from './maintenance-user-resolver.service';
 
 @Injectable()
 export class MaintenancePmService {
@@ -20,16 +21,19 @@ export class MaintenancePmService {
     @InjectRepository(MaintenanceJobCard)
     private readonly jobCardRepo: Repository<MaintenanceJobCard>,
     private readonly activityLog: ActivityLogService,
+    private readonly userResolver: MaintenanceUserResolverService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async createPlan(dto: CreatePmPlanDto, userId: string): Promise<MaintenancePmPlan> {
+    const erpUserId = await this.userResolver.resolve(userId);
     const existing = await this.planRepo.findOne({ where: { planCode: dto.planCode } });
     if (existing) {
       throw new ConflictException(`PM Plan with code '${dto.planCode}' already exists`);
     }
-    const plan = this.planRepo.create({ ...dto, createdBy: userId, updatedBy: userId });
+    const plan = this.planRepo.create({ ...dto, createdBy: erpUserId, updatedBy: erpUserId });
     const saved = await this.planRepo.save(plan);
-    await this.activityLog.log({ action: 'PM_PLAN_CREATED', targetType: 'maintenance_pm_plans', targetId: saved.id, actorUserId: userId, targetName: saved.planCode });
+    await this.activityLog.log({ action: 'PM_PLAN_CREATED', targetType: 'maintenance_pm_plans', targetId: saved.id, actorUserId: erpUserId, targetName: saved.planCode });
     return saved;
   }
 
@@ -46,23 +50,26 @@ export class MaintenancePmService {
   }
 
   async updatePlan(id: string, dto: UpdatePmPlanDto, userId: string): Promise<MaintenancePmPlan> {
+    const erpUserId = await this.userResolver.resolve(userId);
     const plan = await this.findOnePlan(id);
-    Object.assign(plan, dto, { updatedBy: userId });
+    Object.assign(plan, dto, { updatedBy: erpUserId });
     const saved = await this.planRepo.save(plan);
-    await this.activityLog.log({ action: 'PM_PLAN_UPDATED', targetType: 'maintenance_pm_plans', targetId: id, actorUserId: userId, details: JSON.stringify(dto) });
+    await this.activityLog.log({ action: 'PM_PLAN_UPDATED', targetType: 'maintenance_pm_plans', targetId: id, actorUserId: erpUserId, details: JSON.stringify(dto) });
     return saved;
   }
 
   async removePlan(id: string, userId: string): Promise<void> {
+    const erpUserId = await this.userResolver.resolve(userId);
     const plan = await this.planRepo.findOne({ where: { id } });
     if (!plan) throw new NotFoundException(`PM Plan '${id}' not found`);
     plan.isActive = false;
-    plan.updatedBy = userId;
+    plan.updatedBy = erpUserId;
     await this.planRepo.save(plan);
-    await this.activityLog.log({ action: 'PM_PLAN_DEACTIVATED', targetType: 'maintenance_pm_plans', targetId: id, actorUserId: userId });
+    await this.activityLog.log({ action: 'PM_PLAN_DEACTIVATED', targetType: 'maintenance_pm_plans', targetId: id, actorUserId: erpUserId });
   }
 
   async generateSchedules(planId: string, dto: GenerateScheduleDto, userId: string): Promise<MaintenancePmSchedule[]> {
+    const erpUserId = await this.userResolver.resolve(userId);
     const plan = await this.findOnePlan(planId);
     const startDate = plan.startDate ? new Date(plan.startDate) : new Date();
     const endDate = new Date(startDate);
@@ -95,10 +102,10 @@ export class MaintenancePmService {
 
     plan.nextDueDate = schedules.length > 0 ? schedules[0].scheduledDate : null;
     plan.lastGeneratedAt = new Date();
-    plan.updatedBy = userId;
+    plan.updatedBy = erpUserId;
     await this.planRepo.save(plan);
 
-    await this.activityLog.log({ action: 'PM_SCHEDULES_GENERATED', targetType: 'maintenance_pm_plans', targetId: planId, actorUserId: userId, details: `Generated ${schedules.length} schedules, ${dto.monthsAhead} months ahead` });
+    await this.activityLog.log({ action: 'PM_SCHEDULES_GENERATED', targetType: 'maintenance_pm_plans', targetId: planId, actorUserId: erpUserId, details: `Generated ${schedules.length} schedules, ${dto.monthsAhead} months ahead` });
 
     return schedules;
   }
@@ -146,25 +153,31 @@ export class MaintenancePmService {
   }
 
   async completeSchedule(scheduleId: string, userId: string): Promise<MaintenancePmSchedule> {
+    const erpUserId = await this.userResolver.resolve(userId);
     const schedule = await this.scheduleRepo.findOne({ where: { id: scheduleId } });
     if (!schedule) throw new NotFoundException(`PM Schedule '${scheduleId}' not found`);
     if (schedule.status === 'COMPLETED') throw new BadRequestException('Schedule already completed');
 
-    schedule.status = 'COMPLETED';
-    schedule.completedAt = new Date();
-    const saved = await this.scheduleRepo.save(schedule);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      schedule.status = 'COMPLETED';
+      schedule.completedAt = new Date();
+      const sched = await manager.getRepository(MaintenancePmSchedule).save(schedule);
 
-    const plan = await this.findOnePlan(schedule.pmPlanId);
-    const nextDate = this.getNextFrequencyDate(new Date(schedule.scheduledDate), plan.frequencyType, plan.frequencyValue);
-    plan.nextDueDate = nextDate.toISOString().split('T')[0];
-    plan.updatedBy = userId;
-    await this.planRepo.save(plan);
+      const plan = await this.findOnePlan(schedule.pmPlanId);
+      const nextDate = this.getNextFrequencyDate(new Date(schedule.scheduledDate), plan.frequencyType, plan.frequencyValue);
+      plan.nextDueDate = nextDate.toISOString().split('T')[0];
+      plan.updatedBy = erpUserId;
+      await manager.getRepository(MaintenancePmPlan).save(plan);
 
-    await this.activityLog.log({ action: 'PM_SCHEDULE_COMPLETED', targetType: 'maintenance_pm_schedules', targetId: scheduleId, actorUserId: userId, details: `Schedule ${schedule.scheduledDate} completed for plan ${plan.planCode}` });
-    return saved;
+      return { sched, plan };
+    });
+
+    await this.activityLog.log({ action: 'PM_SCHEDULE_COMPLETED', targetType: 'maintenance_pm_schedules', targetId: scheduleId, actorUserId: erpUserId, details: `Schedule ${saved.sched.scheduledDate} completed for plan ${saved.plan.planCode}` });
+    return saved.sched;
   }
 
   async skipSchedule(scheduleId: string, userId: string): Promise<MaintenancePmSchedule> {
+    const erpUserId = await this.userResolver.resolve(userId);
     const schedule = await this.scheduleRepo.findOne({ where: { id: scheduleId } });
     if (!schedule) throw new NotFoundException(`PM Schedule '${scheduleId}' not found`);
     if (schedule.status === 'COMPLETED') throw new BadRequestException('Cannot skip a completed schedule');
@@ -172,7 +185,7 @@ export class MaintenancePmService {
     schedule.status = 'SKIPPED';
     const saved = await this.scheduleRepo.save(schedule);
 
-    await this.activityLog.log({ action: 'PM_SCHEDULE_SKIPPED', targetType: 'maintenance_pm_schedules', targetId: scheduleId, actorUserId: userId });
+    await this.activityLog.log({ action: 'PM_SCHEDULE_SKIPPED', targetType: 'maintenance_pm_schedules', targetId: scheduleId, actorUserId: erpUserId });
     return saved;
   }
 }

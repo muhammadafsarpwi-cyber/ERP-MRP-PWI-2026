@@ -6,10 +6,12 @@ import {
   ClockCircleOutlined,
   ExclamationCircleOutlined,
   ReloadOutlined,
+  RightOutlined,
   ToolOutlined,
   WarningOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import { EmptyState, LoadingState, PageHeader, StatusBadge } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
@@ -64,6 +66,17 @@ const PRIORITY_COLORS: Record<string, string> = {
   LOW: '#52c41a',
 };
 
+const QUEUE_LABEL: Record<string, string> = {
+  OPEN: 'New Requests',
+  ASSIGNED: 'Assigned',
+  IN_PROGRESS: 'In Progress',
+  ON_HOLD: 'On Hold',
+  WAITING_FOR_PARTS: 'Waiting for Parts',
+  COMPLETED: 'Completed',
+  PENDING_VERIFICATION: 'Pending Verification',
+  APPROVED: 'Approved',
+};
+
 function getApiError(error: unknown): string {
   const response = (error as { response?: { data?: { message?: string | string[] } } })?.response;
   const message = response?.data?.message;
@@ -81,6 +94,7 @@ const formatDuration = (minutes: number): string => {
 
 const MaintenanceDashboard: React.FC = () => {
   const { user } = usePermission();
+  const navigate = useNavigate();
   const companyId = user?.defaultCompanyId as string | undefined;
   const [data, setData] = useState<MaintenanceDashboardResponse | null>(null);
   const [chartData, setChartData] = useState<ChartData | null>(null);
@@ -152,6 +166,24 @@ const MaintenanceDashboard: React.FC = () => {
             <Col xs={24} sm={12} lg={6}><Card><Statistic title="Pending Verification" value={data.pendingVerification} prefix={<ClockCircleOutlined />} valueStyle={{ color: '#722ed1' }} /></Card></Col>
             <Col xs={24} sm={12} lg={6}><Card><Statistic title="Approved" value={data.approved} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#389e0d' }} /></Card></Col>
             <Col xs={24} sm={12} lg={6}><Card><Statistic title="Critical" value={data.critical} prefix={<WarningOutlined />} valueStyle={{ color: '#cf1322' }} /></Card></Col>
+          </Row>
+
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col span={24}>
+              <Card title="Action Queues" size="small">
+                {STATUS_ITEMS.every(item => Number(data[item.key] ?? 0) === 0) ? (
+                  <Typography.Text type="secondary">No jobs needing attention. All queues are empty.</Typography.Text>
+                ) : (
+                  <Space wrap>
+                    {STATUS_ITEMS.filter(item => Number(data[item.key] ?? 0) > 0).map(item => (
+                      <Button key={item.key} icon={<RightOutlined />} onClick={() => navigate(`/maintenance/job-cards?status=${item.label}`)}>
+                        {QUEUE_LABEL[item.label] || label(item.label)} ({Number(data[item.key] ?? 0)})
+                      </Button>
+                    ))}
+                  </Space>
+                )}
+              </Card>
+            </Col>
           </Row>
 
           <Row gutter={[16, 16]} style={{ marginTop: 16 }}>

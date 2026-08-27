@@ -3,6 +3,38 @@ export const JOB_CARD_STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD', 
 export const JOB_CARD_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 export const MAINTENANCE_TYPES = ['BREAKDOWN', 'PREVENTIVE', 'CORRECTIVE', 'INSPECTION', 'EMERGENCY'];
 
+export const JOB_CARD_FLOW = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'PENDING_VERIFICATION', 'VERIFIED', 'APPROVED'] as const;
+
+export const NEXT_ACTION_LABEL: Record<string, string> = {
+  OPEN: 'Assign Technician',
+  ASSIGNED: 'Start Work',
+  IN_PROGRESS: 'Continue Work',
+  ON_HOLD: 'Resume Work',
+  WAITING_FOR_PARTS: 'Resume Work',
+  COMPLETED: 'Close',
+  CLOSED: 'Submit for Verification',
+  PENDING_VERIFICATION: 'Verify',
+  VERIFIED: 'Approve',
+  APPROVED: 'Completed',
+  REJECTED: 'Reassign',
+  CANCELLED: 'Cancelled',
+};
+
+export const STATUS_DESCRIPTION: Record<string, string> = {
+  OPEN: 'Waiting for technician or team assignment.',
+  ASSIGNED: 'Assignment made — waiting for the technician to start work.',
+  IN_PROGRESS: 'Work is currently in progress.',
+  ON_HOLD: 'Job paused on hold.',
+  WAITING_FOR_PARTS: 'Waiting for spare parts before work can continue.',
+  COMPLETED: 'Work completed — awaiting job close.',
+  CLOSED: 'Closed by maintenance — awaiting submission for verification.',
+  PENDING_VERIFICATION: 'Awaiting verification by the requester or responsible person.',
+  VERIFIED: 'Verified — awaiting final approval.',
+  APPROVED: 'Job card fully approved. No further action required.',
+  REJECTED: 'Rejected during review — returned to the assignment workflow.',
+  CANCELLED: 'Job card cancelled.',
+};
+
 export type JobCard = Record<string, any>;
 export type OrgOption = { id: string; name?: string; companyName?: string; legalName?: string; tradeName?: string; companyCode?: string; code?: string; departmentCode?: string; machineCode?: string; machineId?: string; machineNumber?: string };
 export type JobCardContext = { companyId: string; companyName: string; divisionId: string; divisionName: string; sectionId: string; sectionName: string; departmentId: string; departmentName: string; machineId: string; machineName: string; machineCode?: string };

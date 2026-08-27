@@ -8,8 +8,16 @@ const STATUS_COLORS: Record<string, string> = {
   RETIRED: 'default',
   DRAFT: 'default',
   OPEN: 'blue',
+  ASSIGNED: 'cyan',
   IN_PROGRESS: 'processing',
+  ON_HOLD: 'gold',
+  WAITING_FOR_PARTS: 'orange',
   COMPLETED: 'green',
+  CLOSED: 'geekblue',
+  PENDING_VERIFICATION: 'purple',
+  VERIFIED: 'lime',
+  APPROVED: 'success',
+  REJECTED: 'volcano',
   CANCELLED: 'red',
 };
 
