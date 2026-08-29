@@ -75,9 +75,12 @@ CREATE TABLE IF NOT EXISTS qc_inspection_results (
     inspection_id UUID NOT NULL REFERENCES qc_inspections(id) ON DELETE CASCADE,
     characteristic_id UUID NOT NULL REFERENCES qc_quality_characteristics(id),
     measured_value DECIMAL(19,6),
-    result VARCHAR(20) DEFAULT 'PENDING' CHECK (result IN ('PASS','FAIL','N_A')),
+    result VARCHAR(20) DEFAULT 'PENDING' CHECK (result IN ('PENDING','PASS','FAIL','N_A')),
     remarks TEXT
 );
+-- Fix existing constraint to allow PENDING (idempotent)
+ALTER TABLE qc_inspection_results DROP CONSTRAINT IF EXISTS qc_inspection_results_result_check;
+ALTER TABLE qc_inspection_results ADD CONSTRAINT qc_inspection_results_result_check CHECK (result IN ('PENDING','PASS','FAIL','N_A'));
 CREATE INDEX IF NOT EXISTS idx_qc_res_insp ON qc_inspection_results(inspection_id);
 
 CREATE TABLE IF NOT EXISTS qc_defect_classifications (

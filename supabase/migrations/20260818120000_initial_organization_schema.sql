@@ -255,6 +255,11 @@ INSERT INTO warehouses (company_id, warehouse_code, name, warehouse_type, status
 SELECT c.id, 'WH-MAIN-001', 'Main Warehouse', 'GENERAL', 'ACTIVE'
 FROM companies c WHERE c.company_code = 'COMP-001'
 ON CONFLICT (warehouse_code, company_id) DO NOTHING;
+-- Second warehouse so demo data transfers reference two distinct warehouses
+INSERT INTO warehouses (company_id, warehouse_code, name, warehouse_type, status)
+SELECT c.id, 'WH-SEC-002', 'Secondary Warehouse', 'GENERAL', 'ACTIVE'
+FROM companies c WHERE c.company_code = 'COMP-001'
+ON CONFLICT (warehouse_code, company_id) DO NOTHING;
 
 -- =====================================================
 -- SEED DATA: Initial Divisions (5 divisions)

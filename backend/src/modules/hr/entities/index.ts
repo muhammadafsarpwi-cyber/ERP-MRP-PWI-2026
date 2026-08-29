@@ -1,0 +1,11 @@
+export { HrDesignation } from './hr-designation.entity';
+export { HrEmployee } from './hr-employee.entity';
+export { HrEmployeeDocument } from './hr-employee-document.entity';
+export { HrEmployeeSkill } from './hr-employee-skill.entity';
+export { HrEmployeeTraining } from './hr-employee-training.entity';
+export { HrEmployeeHistory } from './hr-employee-history.entity';
+export { HrAttendance } from './hr-attendance.entity';
+export { HrLeaveRequest } from './hr-leave-request.entity';
+export { HrLeaveType } from './hr-leave-type.entity';
+export { HrShift } from './hr-shift.entity';
+export { HrHoliday } from './hr-holiday.entity';

@@ -24,6 +24,8 @@ import { AuditModule } from './modules/audit/audit.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { FinanceModule } from './modules/finance/finance.module';
+import { HrModule } from './modules/hr/hr.module';
+import { QcModule } from './modules/qc/qc.module';
 import * as net from 'net';
 
 function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promise<boolean> {
@@ -95,6 +97,8 @@ function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promis
     DashboardModule,
     MaintenanceModule,
     FinanceModule,
+    HrModule,
+    QcModule,
   ],
   controllers: [AppController],
   providers: [AppService],

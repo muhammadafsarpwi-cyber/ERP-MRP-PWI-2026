@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS production_routings (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   product_id UUID NOT NULL REFERENCES items(id),
-  bom_id UUID NOT NULL REFERENCES bill_of_materials(id),
+  bom_id UUID REFERENCES bill_of_materials(id),
   status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
   base_quantity DECIMAL(19,4) NOT NULL DEFAULT 1,
   estimated_total_time DECIMAL(19,4) NOT NULL DEFAULT 0,

@@ -580,7 +580,24 @@ CREATE POLICY sales_return_lines_parent_delete ON erp_sales.sales_return_lines
   FOR DELETE USING (erp_core.company_in_scope((SELECT company_id FROM erp_sales.sales_returns WHERE id = sales_return_lines.return_id)));
 
 -- ----- 4j. NOTIFICATIONS (user-scoped) -----
-
+-- Ensure table exists (may be created by TypeORM sync rather than migrations)
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_by UUID,
+    updated_by UUID,
+    is_active BOOLEAN DEFAULT true,
+    user_id UUID,
+    title VARCHAR(50),
+    message VARCHAR(200),
+    entity_type VARCHAR(50),
+    entity_id UUID,
+    is_read BOOLEAN DEFAULT false,
+    read_at TIMESTAMP WITH TIME ZONE,
+    status VARCHAR(20) DEFAULT 'ACTIVE'
+);
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS notifications_user_select ON public.notifications;
 CREATE POLICY notifications_user_select ON public.notifications
   FOR SELECT USING (user_id = auth.uid());
