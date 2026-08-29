@@ -1,0 +1,192 @@
+/* ============================================================================
+   MAINTENANCE UI DESIGN SYSTEM
+   Theme-resolved shadow tokens + responsive helpers shared across all
+   Maintenance screens. Follows the global ERP theme (theme.css) and adapts to
+   html[data-theme='dark'].
+   ============================================================================ */
+
+:root {
+  --maint-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --maint-shadow-hover: 0 3px 10px rgba(16, 24, 40, 0.12);
+  --maint-track-bg: #eef0f9;
+}
+
+html[data-theme='dark'] {
+  --maint-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --maint-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.55);
+  --maint-track-bg: #242a49;
+}
+
+/* Status pipeline: horizontally scrollable inside its own container only.
+   Never lets the whole page overflow horizontally. */
+.maint-pipeline {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+/* Job Card status summary: 4-column grid on desktop, wraps to 2 on tablets and
+   1 on small phones. Cards always stay inside the page width. */
+.maint-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 1024px) {
+  .maint-status-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 575px) {
+  .maint-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* KPI grid: one/two column on the smallest screens. */
+.maint-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 575px) {
+  .maint-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+}
+
+/* Responsive dashboards: stack panel rows and let tables scroll internally. */
+.maint-row {
+  display: grid;
+  gap: 12px;
+}
+
+.maint-row--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+.maint-row--2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+.maint-row--split {
+  grid-template-columns: 8fr 4fr;
+}
+
+@media (max-width: 1024px) {
+  .maint-row--3,
+  .maint-row--2,
+  .maint-row--split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.maint-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* ── Job Card row actions ────────────────────────────────────────────────
+   Compact, modern icon + workflow buttons in the Actions column. No
+   duplicate controls. The View button is a clean, square icon button with a
+   status-appropriate accent color. Touch targets enlarge on small screens.
+   Theme tokens are used throughout so light + dark both render correctly. */
+.jc-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.jc-view-btn.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--theme-primary);
+  border-color: var(--theme-border);
+  background: var(--theme-surface);
+  line-height: 1;
+}
+
+.jc-view-btn.ant-btn:hover,
+.jc-view-btn.ant-btn:focus {
+  color: var(--theme-accent);
+  border-color: var(--theme-accent);
+  background: var(--theme-accent-soft);
+}
+
+.jc-action-primary.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Every action button in a row must stay inside the cell (no wrap, no push). */
+.jc-actions .ant-btn {
+  flex: none;
+}
+
+/* ── Job Card workflow modals: never exceed the viewport ────────────────
+   Wide workflow dialogs (Close Job, Review) have explicit widths (e.g. 720px)
+   that would overflow a phone. Cap the modal to the viewport and let its body
+   scroll internally while keeping footer actions visible. */
+.ant-modal {
+  max-width: calc(100vw - 16px);
+  margin: 0 auto;
+}
+
+.ant-modal-content {
+  max-height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
+}
+
+.ant-modal-header {
+  flex: none;
+}
+
+.ant-modal-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ant-modal-footer {
+  flex: none;
+}
+
+@media (max-width: 576px) {
+  .ant-modal {
+    margin: 8px;
+  }
+  .ant-modal-body {
+    max-height: 60vh;
+  }
+}
+
+@media (max-width: 767px) {
+  .ant-table-wrapper .jc-actions {
+    gap: 6px;
+  }
+
+  .jc-view-btn.ant-btn {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    font-size: 18px;
+    border-radius: 8px;
+  }
+
+  .jc-action-primary.ant-btn {
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 15px;
+  }
+}

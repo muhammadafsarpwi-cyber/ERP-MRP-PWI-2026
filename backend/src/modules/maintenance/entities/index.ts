@@ -1,5 +1,6 @@
 export { MaintenanceJobCard } from './maintenance-job-card.entity';
 export { MaintenanceJobCardTechnician } from './maintenance-job-card-technician.entity';
+export { MaintenanceTechnician } from './maintenance-technician.entity';
 export { MaintenanceJobCardPart } from './maintenance-job-card-part.entity';
 export { MaintenanceJobCardAttachment } from './maintenance-job-card-attachment.entity';
 export { MaintenanceJobCardStatusHistory } from './maintenance-job-card-status-history.entity';

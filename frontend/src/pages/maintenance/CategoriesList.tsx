@@ -1,43 +1,135 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, App as AntApp, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Space, Table, Tabs, Typography } from 'antd';
-import { PlusOutlined, ReloadOutlined, TagsOutlined } from '@ant-design/icons';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, App as AntApp, Button, Card, Form, Input, InputNumber, Modal, Table, Tabs, Typography } from 'antd';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
-import { EmptyState, LoadingState, PageHeader } from '../../components/shared';
+import { EmptyState, LoadingState } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
+import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { panelCard, shadowSm } from './maintTheme';
 import { errorText } from './jobCards.types';
+import './maintTheme.css';
 
 type Category = Record<string, any>;
 
+const TAB_DEFS: Array<{ key: string; label: string; noun: string; apiPath: string }> = [
+  { key: 'complaint', label: 'Complaint Categories', noun: 'Complaint Category', apiPath: '/master-data/maintenance/categories/complaint' },
+  { key: 'root-cause', label: 'Root Cause Categories', noun: 'Root Cause Category', apiPath: '/master-data/maintenance/categories/root-cause' },
+  { key: 'failure', label: 'Failure Categories', noun: 'Failure Category', apiPath: '/master-data/maintenance/categories/failure' },
+];
+
+export const CategoriesList: React.FC = () => {
+  const { can } = usePermission();
+  const [activeKey, setActiveKey] = useState('complaint');
+  const [createOpen, setCreateOpen] = useState(false);
+  const createSeq = useRef(0);
+
+  const activeDef = TAB_DEFS.find(d => d.key === activeKey) || TAB_DEFS[0];
+  const canManage = can('maintenance.category.manage');
+  const refreshSeq = useRef(0);
+
+  const triggerCreate = useCallback(() => {
+    createSeq.current += 1;
+    setCreateOpen(true);
+  }, []);
+
+  const triggerRefresh = useCallback(() => {
+    refreshSeq.current += 1;
+  }, []);
+
+  const { setHeaderActions, clearHeaderActions } = useHeaderActions.getState();
+  useEffect(() => {
+    setHeaderActions([
+      ...(canManage
+        ? [{
+            key: 'create-category',
+            node: (
+              <Button type="primary" icon={<PlusOutlined />} onClick={triggerCreate}>
+                Add {activeDef.noun}
+              </Button>
+            ),
+          }]
+        : []),
+      { key: 'refresh', node: (<Button icon={<ReloadOutlined />} onClick={triggerRefresh}>Refresh</Button>) },
+    ]);
+    return () => clearHeaderActions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setHeaderActions, clearHeaderActions, canManage, activeDef.noun, triggerCreate, triggerRefresh]);
+
+  return (
+    <div>
+      <Card style={{ ...panelCard, boxShadow: shadowSm }}>
+        <Tabs
+          activeKey={activeKey}
+          onChange={setActiveKey}
+          items={TAB_DEFS.map(def => ({
+            key: def.key,
+            label: def.label,
+            children: (
+              <CategoryTab
+                def={def}
+                canManage={canManage}
+                createOpen={activeKey === def.key && createOpen}
+                openCreate={triggerCreate}
+                closeCreate={() => setCreateOpen(false)}
+                createSeq={createSeq.current}
+                refreshSeq={refreshSeq.current}
+              />
+            ),
+          }))}
+        />
+      </Card>
+    </div>
+  );
+};
+
 const CategoryTab: React.FC<{
-  title: string;
-  apiPath: string;
+  def: { key: string; label: string; noun: string; apiPath: string };
   canManage: boolean;
-}> = ({ title, apiPath, canManage }) => {
+  createOpen: boolean;
+  openCreate: () => void;
+  closeCreate: () => void;
+  createSeq: number;
+  refreshSeq: number;
+}> = ({ def, canManage, createOpen, openCreate, closeCreate, createSeq, refreshSeq }) => {
   const { message } = AntApp.useApp();
   const [items, setItems] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [createOpen, setCreateOpen] = useState(false);
-  const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const result = await apiService.get<any[]>(apiPath);
+      const result = await apiService.get<any[]>(def.apiPath);
       setItems(result || []);
     } catch (e) { setError(errorText(e)); }
     finally { setLoading(false); }
-  }, [apiPath]);
+  }, [def.apiPath]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (refreshSeq > 0) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSeq]);
+
+  useEffect(() => {
+    if (createSeq > 0) openCreate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createSeq]);
+
+  useEffect(() => {
+    if (createOpen) form.resetFields();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createOpen]);
 
   const createItem = async (values: any) => {
     setSaving(true);
     try {
-      await apiService.post(apiPath, values);
-      message.success(`${title} created`);
-      setCreateOpen(false);
+      await apiService.post(def.apiPath, values);
+      message.success(`${def.noun} created`);
+      closeCreate();
       form.resetFields();
       load();
     } catch (e) { message.error(errorText(e)); }
@@ -53,19 +145,16 @@ const CategoryTab: React.FC<{
 
   return (
     <>
-      <div style={{ marginBottom: 16, textAlign: 'right' }}>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
-          {canManage && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setCreateOpen(true); }}>Add {title}</Button>}
-        </Space>
-      </div>
-      {error && <Alert type="error" showIcon message={`Unable to load ${title.toLowerCase()}`} description={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon message={`Unable to load ${def.noun.toLowerCase()}s`} description={error} style={{ marginBottom: 16, borderRadius: 6 }} />}
       {loading ? <LoadingState /> : items.length === 0 ? (
-        <EmptyState title={`No ${title.toLowerCase()}`} description={`Create a ${title.toLowerCase()} classification to get started.`} />
+        <EmptyState title={`No ${def.noun.toLowerCase()}s`} description={`Create a ${def.noun.toLowerCase()} classification to get started.`} />
       ) : (
-        <Table rowKey="id" columns={columns} dataSource={items} pagination={{ pageSize: 20 }} size="small" />
+        <Card styles={{ body: { padding: 0 } }} style={{ ...panelCard, marginTop: 4 }}>
+          <Table rowKey="id" columns={columns} dataSource={items} pagination={{ pageSize: 20, showSizeChanger: true }} size="middle" scroll={{ x: 640 }} />
+        </Card>
       )}
-      <Modal title={`Add ${title}`} open={createOpen} confirmLoading={saving} onCancel={() => setCreateOpen(false)} onOk={() => form.submit()}>
+
+      <Modal title={`Add ${def.noun}`} open={createOpen} confirmLoading={saving} onCancel={closeCreate} onOk={() => form.submit()}>
         <Form form={form} layout="vertical" onFinish={createItem}>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="code" label="Code"><Input /></Form.Item>
@@ -74,35 +163,6 @@ const CategoryTab: React.FC<{
         </Form>
       </Modal>
     </>
-  );
-};
-
-export const CategoriesList: React.FC = () => {
-  const { can } = usePermission();
-
-  return (
-    <div>
-      <PageHeader icon={<TagsOutlined />} title="Maintenance Categories" subtitle="Complaint, root-cause, and failure classifications" gradient="linear-gradient(135deg, #1f6f78 0%, #2e8b8b 100%)" showBreadcrumbs />
-      <Card>
-        <Tabs items={[
-          {
-            key: 'complaint',
-            label: 'Complaint Categories',
-            children: <CategoryTab title="Complaint Category" apiPath="/master-data/maintenance/categories/complaint" canManage={can('maintenance.category.manage')} />,
-          },
-          {
-            key: 'root-cause',
-            label: 'Root Cause Categories',
-            children: <CategoryTab title="Root Cause Category" apiPath="/master-data/maintenance/categories/root-cause" canManage={can('maintenance.category.manage')} />,
-          },
-          {
-            key: 'failure',
-            label: 'Failure Categories',
-            children: <CategoryTab title="Failure Category" apiPath="/master-data/maintenance/categories/failure" canManage={can('maintenance.category.manage')} />,
-          },
-        ]} />
-      </Card>
-    </div>
   );
 };
 

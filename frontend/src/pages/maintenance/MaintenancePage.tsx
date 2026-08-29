@@ -79,7 +79,6 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({ page }) => {
         icon={config.icon}
         title={config.title}
         subtitle={config.subtitle}
-        gradient="linear-gradient(135deg, #1f6f78 0%, #2e8b8b 100%)"
         showBreadcrumbs
       />
       <Card>

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsEnum, IsNumber, MaxLength, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsUUID, IsEnum, IsNumber, IsArray, MaxLength, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsUuid } from '../../../common/validators';
@@ -149,10 +149,29 @@ export class UpdateJobCardDto {
 }
 
 export class AssignJobCardDto {
-  @ApiProperty({ description: 'Technician user IDs', type: [String] })
+  @ApiProperty({ description: 'Technician master IDs (maintenance_technicians)', type: [String] })
   @IsUUID('4', { each: true })
   @IsNotEmpty()
-  technicianUserIds: string[];
+  technicianIds: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  teamCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+}
+
+export class StartJobCardDto {
+  @ApiPropertyOptional({ description: 'Technician master IDs (maintenance_technicians) to assign at start', type: [String] })
+  @IsOptional()
+  @IsUUID('4', { each: true })
+  @IsArray()
+  technicianIds?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -281,6 +300,13 @@ export class JobCardQueryDto {
   @IsOptional()
   @IsString()
   currentStatus?: string;
+
+  @ApiPropertyOptional({
+    description: 'Comma-separated current status values (OR). Takes precedence over currentStatus.',
+  })
+  @IsOptional()
+  @IsString()
+  statuses?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

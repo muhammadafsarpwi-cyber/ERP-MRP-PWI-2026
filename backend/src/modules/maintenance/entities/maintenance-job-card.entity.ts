@@ -8,6 +8,7 @@ import { Section } from '../../organization/entities/section.entity';
 import { MaintenanceComplaintCategory } from './maintenance-complaint-category.entity';
 import { MaintenanceRootCauseCategory } from './maintenance-root-cause-category.entity';
 import { MaintenanceFailureCategory } from './maintenance-failure-category.entity';
+import { MaintenanceTeam } from './maintenance-team.entity';
 import { MaintenanceJobCardTechnician } from './maintenance-job-card-technician.entity';
 import { ErpUser } from '../../user/entities/erp-user.entity';
 import { JobCardStatus, MaintenancePriority, MaintenanceType } from '../enums';
@@ -57,6 +58,13 @@ export class MaintenanceJobCard extends BaseEntity {
   @ManyToOne(() => Department, { nullable: true })
   @JoinColumn({ name: 'assigned_department_id' })
   assignedDepartment: Department | null;
+
+  @Column({ name: 'team_id', type: 'uuid', nullable: true })
+  teamId: string | null;
+
+  @ManyToOne(() => MaintenanceTeam, { nullable: true })
+  @JoinColumn({ name: 'team_id' })
+  team: MaintenanceTeam | null;
 
   @Column({ name: 'complaint_category_id', type: 'uuid', nullable: true })
   complaintCategoryId: string | null;

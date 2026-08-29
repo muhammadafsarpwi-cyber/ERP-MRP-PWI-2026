@@ -47,9 +47,18 @@ export enum PmScheduleStatus {
 }
 
 export const VALID_TRANSITIONS: Record<JobCardStatus, JobCardStatus[]> = {
-  [JobCardStatus.OPEN]: [JobCardStatus.ASSIGNED, JobCardStatus.CANCELLED],
+  // OPEN → start work directly, or assign mastery (stays an un-started "Open
+  // queue" card either way), or cancel.
+  [JobCardStatus.OPEN]: [
+    JobCardStatus.IN_PROGRESS,
+    JobCardStatus.ASSIGNED,
+    JobCardStatus.CANCELLED,
+  ],
   [JobCardStatus.ASSIGNED]: [JobCardStatus.IN_PROGRESS, JobCardStatus.OPEN],
   [JobCardStatus.IN_PROGRESS]: [
+    // "Close Job" submits straight to Pending Review (COMPLETED kept for
+    // backward compatibility with pre-existing records).
+    JobCardStatus.PENDING_VERIFICATION,
     JobCardStatus.ON_HOLD,
     JobCardStatus.WAITING_FOR_PARTS,
     JobCardStatus.COMPLETED,
@@ -58,9 +67,19 @@ export const VALID_TRANSITIONS: Record<JobCardStatus, JobCardStatus[]> = {
   [JobCardStatus.WAITING_FOR_PARTS]: [JobCardStatus.IN_PROGRESS],
   [JobCardStatus.COMPLETED]: [JobCardStatus.CLOSED],
   [JobCardStatus.CLOSED]: [JobCardStatus.PENDING_VERIFICATION],
-  [JobCardStatus.PENDING_VERIFICATION]: [JobCardStatus.VERIFIED, JobCardStatus.REJECTED],
-  [JobCardStatus.VERIFIED]: [JobCardStatus.APPROVED],
+  // Approving from Pending Review closes the job card directly — there is no
+  // separate "Approved" workflow state. VERIFIED remains a legacy
+  // intermediate for cards that entered before this remap.
+  [JobCardStatus.PENDING_VERIFICATION]: [
+    JobCardStatus.CLOSED,
+    JobCardStatus.REJECTED,
+    JobCardStatus.VERIFIED,
+  ],
+  [JobCardStatus.VERIFIED]: [JobCardStatus.CLOSED, JobCardStatus.APPROVED],
   [JobCardStatus.APPROVED]: [],
-  [JobCardStatus.REJECTED]: [JobCardStatus.ASSIGNED],
+  // Returned / rejected cards return to Pending Review once the rework is
+  // done (canonical resubmit path). Re-assignment is still offered so the
+  // returned work can be redirected to another technician when needed.
+  [JobCardStatus.REJECTED]: [JobCardStatus.PENDING_VERIFICATION, JobCardStatus.ASSIGNED],
   [JobCardStatus.CANCELLED]: [],
 };

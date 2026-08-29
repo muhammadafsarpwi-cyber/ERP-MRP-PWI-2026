@@ -1,16 +1,23 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Card, Typography, Alert, Result } from 'antd';
-import { MailOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import React, { useEffect, useState } from 'react';
+import { Button, Form, Input, Result } from 'antd';
+import { ArrowLeftOutlined, MailOutlined, SendOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import apiService from '../../services/api';
-
-const { Title, Text } = Typography;
+import AuthBrand from '../../components/auth/AuthBrand';
+import AuthBrandPane from '../../components/auth/AuthBrandPane';
+import AuthError from '../../components/auth/AuthError';
+import AuthShell from '../../components/auth/AuthShell';
+import './auth.css';
 
 const ForgotPassword: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState('');
+
+  useEffect(() => {
+    document.title = 'Reset Password | PWI — Pakistan Wire & Industry';
+  }, []);
 
   const onFinish = async (values: { email: string }) => {
     setLoading(true);
@@ -20,113 +27,103 @@ const ForgotPassword: React.FC = () => {
       setSubmittedEmail(values.email);
       setSent(true);
     } catch (err: any) {
-      const serverMessage = err.response?.data?.message || err.response?.data?.error;
       if (err.response?.status === 0 || !err.response) {
-        setError('Unable to connect to the server. Please try again later.');
+        setError('Unable to connect to the ERP server. Please try again.');
       } else {
-        setError(serverMessage || 'Failed to send reset email. Please try again.');
+        setError('Failed to send reset email. Please try again.');
       }
     } finally {
       setLoading(false);
     }
   };
 
-  if (sent) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '100vh',
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        }}
-      >
-        <Card style={{ width: 460, borderRadius: 8, boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }}>
-          <Result
-            status="success"
-            title="Check your email"
-            subTitle={
-              <span>
-                If an account exists with <Text strong>{submittedEmail}</Text>, we've sent a
-                password reset link. Please check your inbox and spam folder.
-              </span>
-            }
-            extra={
-              <Link to="/login">
-                <Button type="primary" icon={<ArrowLeftOutlined />}>
-                  Back to Sign In
-                </Button>
-              </Link>
-            }
-          />
-        </Card>
-      </div>
-    );
-  }
-
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      }}
-    >
-      <Card style={{ width: 420, borderRadius: 8, boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <Title level={3} style={{ marginBottom: 4 }}>Reset Password</Title>
-          <Text type="secondary">
-            Enter your email address and we'll send you a link to reset your password.
-          </Text>
+    <AuthShell footer="Secure Enterprise Operations Platform">
+      <AuthBrandPane />
+
+      <section className="erp-auth-panel" aria-labelledby="forgot-heading">
+        <div className="erp-auth-panel-brand">
+          <AuthBrand variant="theme" />
         </div>
-
-        {error && (
-          <Alert
-            message={error}
-            type="error"
-            showIcon
-            closable
-            onClose={() => setError(null)}
-            style={{ marginBottom: 24 }}
-          />
-        )}
-
-        <Form name="forgot-password" onFinish={onFinish} layout="vertical" requiredMark={false}>
-          <Form.Item
-            name="email"
-            rules={[
-              { required: true, message: 'Please enter your email' },
-              { type: 'email', message: 'Please enter a valid email' },
-            ]}
-          >
-            <Input
-              prefix={<MailOutlined style={{ color: '#bfbfbf' }} />}
-              placeholder="Email address"
-              size="large"
-              autoComplete="email"
+        {sent ? (
+          <div className="erp-auth-result">
+            <Result
+              status="success"
+              title="Check your email"
+              subTitle={
+                <span>
+                  If an account exists with <strong>{submittedEmail}</strong>, a
+                  password reset link has been sent to your inbox and spam folder.
+                </span>
+              }
+              extra={
+                <Link to="/login">
+                  <Button type="primary">
+                    <ArrowLeftOutlined />
+                    Back to Sign In
+                  </Button>
+                </Link>
+              }
             />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 12 }}>
-            <Button type="primary" htmlType="submit" loading={loading} block size="large">
-              Send Reset Link
-            </Button>
-          </Form.Item>
-
-          <div style={{ textAlign: 'center' }}>
-            <Link to="/login">
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                <ArrowLeftOutlined style={{ marginRight: 4 }} />
-                Back to Sign In
-              </Text>
-            </Link>
           </div>
-        </Form>
-      </Card>
-    </div>
+        ) : (
+          <>
+            <h2 id="forgot-heading" className="erp-auth-panel-heading">
+              Reset Password
+            </h2>
+            <p className="erp-auth-panel-sub">
+              Enter your email address and we&apos;ll send you a secure link to reset
+              your password.
+            </p>
+
+            <AuthError message={error} onClose={() => setError(null)} />
+
+            <Form
+              name="forgot-password"
+              onFinish={onFinish}
+              layout="vertical"
+              requiredMark={false}
+              disabled={loading}
+            >
+              <Form.Item
+                name="email"
+                label="Email"
+                rules={[
+                  { required: true, message: 'Please enter your email' },
+                  { type: 'email', message: 'Please enter a valid email' },
+                ]}
+              >
+                <Input
+                  prefix={<MailOutlined style={{ color: '#8c94a6' }} />}
+                  placeholder="Email address"
+                  size="large"
+                  autoComplete="email"
+                  autoFocus
+                />
+              </Form.Item>
+
+              <Button
+                className="erp-auth-button"
+                type="primary"
+                htmlType="submit"
+                block
+                loading={loading}
+                icon={<SendOutlined />}
+              >
+                Send Reset Link
+              </Button>
+            </Form>
+
+            <p className="erp-auth-note">
+              <Link className="erp-auth-link" to="/login">
+                <ArrowLeftOutlined />
+                Back to Sign In
+              </Link>
+            </p>
+          </>
+        )}
+      </section>
+    </AuthShell>
   );
 };
 

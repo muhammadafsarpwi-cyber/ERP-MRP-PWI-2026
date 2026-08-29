@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Layout } from 'antd';
 import MainLayout from './components/layout/MainLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import Welcome from './pages/auth/Welcome';
 import Login from './pages/auth/Login';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
@@ -62,7 +63,7 @@ import {
 } from './pages/procurement';
 import DevelopmentStatus from './pages/development/DevelopmentStatus';
 import Settings from './pages/settings';
-import { MaintenanceDashboard, MaintenancePage, JobCardList, JobCardCreate, JobCardDetail, PmPlansList, PmSchedules, TeamsList, CategoriesList, MaintenanceReports } from './pages/maintenance';
+import { MaintenanceDashboard, JobCardList, JobCardCreate, JobCardDetail, PmPlansList, PmSchedules, TeamsList, CategoriesList, MaintenanceReports } from './pages/maintenance';
 import './App.css';
 
 const { Content } = Layout;
@@ -75,6 +76,7 @@ const MachineMasterDeepLink: React.FC = () => {
 const App: React.FC = () => {
   return (
     <Routes>
+      <Route path="/" element={<Welcome />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
@@ -85,7 +87,6 @@ const App: React.FC = () => {
             <MainLayout>
               <Content style={{ margin: '24px 16px', padding: 24, minHeight: 280, overflow: 'visible' }}>
                 <Routes>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/change-password" element={<ChangePassword />} />

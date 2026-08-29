@@ -1,8 +1,56 @@
+/* ── Sidebar navigation icon system ───────────────────────────────────────
+   Sizing + visual treatment for every sidebar icon. Icon glyph size is
+   driven by font-size on the wrapper (antd icons inherit currentColor and
+   1em size). Wrappers are fixed-width so labels stay perfectly aligned. */
+
+.erp-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  line-height: 0;
+  vertical-align: middle;
+}
+
+/* Top-level navigation icons: 20px glyph inside a 22px box */
+.erp-nav-icon--lg {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  font-size: 20px;
+}
+
+/* Submenu child icons: slightly smaller to preserve hierarchy */
+.erp-nav-icon--sm {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  font-size: 18px;
+}
+
 /* Horizontal gap between each sidebar navigation icon and its label.
    Scoped to the sidebar Menu only; does not affect any other icon. */
 .ant-menu-item > .erp-nav-icon,
 .ant-menu-submenu-title > .erp-nav-icon {
   margin-right: 10px;
+}
+
+/* Active item: stronger label weight + brighter semantic icon so it stays
+   clearly visible on the active background pill. */
+.ant-menu-item-selected .ant-menu-title-content,
+.ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-title-content {
+  font-weight: 600;
+}
+
+.ant-menu-item-selected > .erp-nav-icon,
+.ant-menu-submenu-selected > .ant-menu-submenu-title > .erp-nav-icon {
+  filter: brightness(1.25);
+}
+
+/* Hover: subtle brightness lift, no glow or gradient */
+.ant-menu-item:not(.ant-menu-item-selected):hover > .erp-nav-icon,
+.ant-menu-submenu-title:not(.ant-menu-submenu-selected-list):hover > .erp-nav-icon {
+  filter: brightness(1.35);
 }
 
 /* Fully collapsed (80px) sidebar: drop the gap so the icon stays centered */
@@ -15,4 +63,102 @@
    which can leave partial letter slivers). Popup flyouts keep their labels. */
 .ant-menu-inline-collapsed .ant-menu-title-content {
   display: none;
+}
+
+/* ── Live-count badge chips ──────────────────────────────────────────────
+   Replaces the tiny antd Badge with a compact, bold, high-contrast count
+   pill that sits at the right edge of a menu item label. Renders in the
+   (always-dark) sidebar so contrast is consistent in light and dark themes. */
+
+.ant-menu-item .ant-menu-title-content,
+.ant-menu-submenu-title .ant-menu-title-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.erp-nav-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+}
+
+.erp-nav-label-text {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.erp-nav-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Non-zero counts get a solid, high-contrast pill. */
+.erp-nav-chip--hot {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: linear-gradient(180deg, #2f6bff 0%, #1d4fd7 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+/* Selected item: white pill reads clearly on the active highlight. */
+.ant-menu-item-selected .erp-nav-chip--hot {
+  color: #0d1f3d;
+  border-color: #ffffff;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Thin, subtle sidebar scrollbar ─────────────────────────────────────
+   Keeps vertical scrolling functional (mobile included) without the heavy
+   default scrollbar. */
+
+.ant-layout-sider,
+.ant-layout-sider-children {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+.ant-layout-sider::-webkit-scrollbar,
+.ant-layout-sider-children::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.ant-layout-sider::-webkit-scrollbar-track,
+.ant-layout-sider-children::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ant-layout-sider::-webkit-scrollbar-thumb,
+.ant-layout-sider-children::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.ant-layout-sider::-webkit-scrollbar-thumb:hover,
+.ant-layout-sider-children::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
 }

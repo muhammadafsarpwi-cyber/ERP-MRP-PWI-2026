@@ -3,7 +3,7 @@ import { Card, Descriptions, Statistic, Row, Col, Tag, Space, Typography } from 
 import { ToolOutlined, WarningOutlined, CheckCircleOutlined, ClockCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { StatusBadge } from '../../components/shared';
-import { errorText, label } from './jobCards.types';
+import { label } from './jobCards.types';
 
 const { Text } = Typography;
 

@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { App as AntApp, Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { App as AntApp, Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Popconfirm, Space, Table, Tag, Typography } from 'antd';
 import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
-import { errorText, label } from './jobCards.types';
+import { errorText } from './jobCards.types';
 
 type SparePart = Record<string, any>;
 type StockInfo = { balances: any[]; totalOnHand: number; totalReserved: number; totalAvailable: number };
@@ -24,7 +24,6 @@ export const SparePartsPanel: React.FC<{
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [stockInfo, setStockInfo] = useState<StockInfo | null>(null);
-  const [selectedItemId, setSelectedItemId] = useState<string>('');
 
   const loadParts = useCallback(async () => {
     setLoading(true);
@@ -42,7 +41,6 @@ export const SparePartsPanel: React.FC<{
 
   const checkStock = async (itemId: string) => {
     if (!itemId || !companyId) { setStockInfo(null); return; }
-    setSelectedItemId(itemId);
     try {
       const result = await apiService.get<any>(`${BASE}/stock-check`, { companyId, itemId });
       setStockInfo(result);

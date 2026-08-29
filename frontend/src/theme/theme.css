@@ -20,9 +20,25 @@
   --theme-success: #52c41a;
   --theme-warning: #faad14;
   --theme-danger: #ff4d4f;
+  --theme-info: #4f46e5;
   --theme-success-soft: #eaf9e4;
   --theme-warning-soft: #fff5e0;
   --theme-danger-soft: #ffecec;
+  --theme-info-soft: #e9eafd;
+  --theme-surface-elevated: #ffffff;
+  --theme-chart-grid: rgba(15, 23, 42, 0.08);
+  --theme-chart-axis: rgba(15, 23, 42, 0.5);
+  --theme-icon-primary: #58a6ff;
+  --theme-icon-success: #3fb950;
+  --theme-icon-warning: #d29922;
+  --theme-icon-danger: #f85149;
+  --theme-icon-info: #54aeff;
+  --theme-icon-purple: #c08cff;
+  --theme-icon-cyan: #45d6d0;
+  --theme-icon-orange: #fd8a4e;
+  --theme-icon-indigo: #93a6ff;
+  --theme-icon-violet: #a98cff;
+  --theme-icon-neutral: #9aa8bc;
 }
 
 html[data-theme='dark'] {
@@ -47,9 +63,25 @@ html[data-theme='dark'] {
   --theme-success: #49aa19;
   --theme-warning: #d89614;
   --theme-danger: #e5484d;
+  --theme-info: #818cf8;
   --theme-success-soft: rgba(73, 170, 25, 0.16);
   --theme-warning-soft: rgba(216, 150, 20, 0.16);
   --theme-danger-soft: rgba(229, 72, 77, 0.16);
+  --theme-info-soft: rgba(129, 140, 248, 0.16);
+  --theme-surface-elevated: #202544;
+  --theme-chart-grid: rgba(226, 232, 255, 0.09);
+  --theme-chart-axis: rgba(199, 204, 235, 0.5);
+  --theme-icon-primary: #7cc4ff;
+  --theme-icon-success: #5cd98c;
+  --theme-icon-warning: #f0b647;
+  --theme-icon-danger: #f8726d;
+  --theme-icon-info: #74b7ff;
+  --theme-icon-purple: #d09cff;
+  --theme-icon-cyan: #66e3dc;
+  --theme-icon-orange: #ff9e6a;
+  --theme-icon-indigo: #aeb9ff;
+  --theme-icon-violet: #c3a9ff;
+  --theme-icon-neutral: #b6c2d6;
 }
 
 body {
@@ -62,6 +94,15 @@ body {
   background: var(--theme-surface);
   border-bottom: 1px solid var(--theme-border);
   transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+.erp-app-header-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-right: 9px;
+  font-size: 20px;
+  line-height: 0;
 }
 
 .erp-app-content {

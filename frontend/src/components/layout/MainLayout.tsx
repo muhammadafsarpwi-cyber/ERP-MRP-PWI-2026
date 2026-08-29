@@ -1,36 +1,9 @@
 import React, { useState } from 'react';
 import { Layout, Menu, Avatar, Dropdown, Space } from 'antd';
 import {
-  DashboardOutlined,
   UserOutlined,
-  ShoppingCartOutlined,
-  InboxOutlined,
   LogoutOutlined,
-  BankOutlined,
-  BranchesOutlined,
-  ApartmentOutlined,
-  HomeOutlined,
-  DatabaseOutlined,
-  EnvironmentOutlined,
-  SafetyOutlined,
-  TeamOutlined,
-  KeyOutlined,
-  SafetyCertificateOutlined,
-  AppstoreOutlined,
-  TagsOutlined,
-  CalculatorOutlined,
-  SwapOutlined,
-  EditOutlined,
-  BarChartOutlined,
-  BugOutlined,
   LockOutlined,
-  BuildOutlined,
-  ClusterOutlined,
-  AimOutlined,
-  SettingOutlined,
-  ToolOutlined,
-  FileProtectOutlined,
-  CalendarOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
@@ -39,286 +12,99 @@ import NotificationBell from './NotificationBell';
 import './sidebar-nav.css';
 import { useThemeStore } from '../../theme/themeStore';
 import { usePermission } from '../../hooks/usePermission';
+import { useHeaderActions } from './headerActionsStore';
+import { useNavBadgeStore } from './navBadgeStore';
+import {
+  NAV_ENTRIES,
+  NAV_ICON_COLOR,
+  isNavGroup,
+  resolveNavMeta,
+  resolveNavActiveKeys,
+} from './navigationConfig';
+import type { NavColorToken } from './navigationConfig';
 
 const { Header, Sider, Content } = Layout;
 
-const NavIcon: React.FC<{ color: string; children: React.ReactNode }> = ({ color, children }) => (
-  <span
-    className="erp-nav-icon"
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      lineHeight: 0,
-      color,
-      background: 'transparent',
-      flex: 'none',
-    }}
-  >
-    {children}
+/**
+ * Desktop sidebar width — wide enough for the full Maintenance queue labels
+ * ("Started Job Cards", "Pending Review", "Returned Job Cards",
+ * "Complete Job Cards", "All Job Cards") to render un-truncated, even with
+ * their live-count badge chips. ~260px keeps the "label + badge" pair on one
+ * line without pushing the layout past a professional, compact footprint.
+ */
+const SIDER_WIDTH = 260; // px
+
+const NavIcon: React.FC<{ color: string; size?: 'lg' | 'sm'; icon: React.ComponentType }> = ({ color, size = 'lg', icon: Icon }) => (
+  <span className={`erp-nav-icon erp-nav-icon--${size}`} style={{ color }}>
+    <Icon />
   </span>
 );
 
-const ICON_COLORS = {
-  dashboard: '#93A6FF',
-  organization: '#C3A9FF',
-  adminGroup: '#FF8F8A',
-  users: '#7BDC9E',
-  roles: '#84BCFF',
-  permissions: '#F6C86B',
-  masterData: '#79D5EC',
-  customers: '#7BDC9E',
-  sales: '#82CBF0',
-  procurement: '#FFAE7E',
-  inventory: '#74DECF',
-  analytics: '#79D5EC',
-  production: '#F6CE7A',
-  development: '#F09BE3',
-  settings: '#BFC9D6',
+// Maintenance module hero titles. Icons for these pages come from the
+// canonical navigation config so the header always matches the Sidebar.
+const MAINTENANCE_HEADER_META: Record<string, { title: string }> = {
+  '/maintenance': { title: 'Maintenance Dashboard' },
+  '/maintenance/job-cards': { title: 'Maintenance Job Cards' },
+  '/maintenance/teams': { title: 'Maintenance Teams' },
+  '/maintenance/categories': { title: 'Maintenance Categories' },
+  '/maintenance/pm-plans': { title: 'Maintenance PM Plans' },
+  '/maintenance/pm-schedules': { title: 'Maintenance PM Schedules' },
+  '/maintenance/reports': { title: 'Maintenance Reports' },
 };
 
-const SIDEBAR_PERMISSION_MAP: Record<string, string[]> = {
-  '/dashboard': [],
-  '/organization/companies': ['organization.company.view'],
-  '/organization/branches': ['organization.branch.view'],
-  '/organization/divisions': ['organization.division.view'],
-  '/organization/sections': ['organization.section.view'],
-  '/organization/departments': ['organization.department.view'],
-  '/organization/warehouses': ['organization.warehouse.view'],
-  '/organization/locations': ['organization.warehouse.view'],
-  '/admin/users': ['admin.users.view'],
-  '/admin/roles': ['admin.roles.view'],
-  '/admin/permissions': ['admin.permissions.view'],
-  '/admin/permissions-matrix': ['admin.roles.view'],
-  '/master-data/items': ['item.item.view'],
-  '/master-data/categories': ['item.item_category.view'],
-  '/master-data/uom': ['item.uom.view'],
-  '/master-data/uom-conversions': ['item.uom_conversion.view'],
-  '/master-data/machines': ['manufacturing.machine.view'],
-  '/customers': ['customer.customer.view'],
-  '/sales/quotations': ['sales.quotations.view'],
-  '/sales/orders': ['sales.orders.view'],
-  '/sales/deliveries': ['sales.deliveries.view'],
-  '/sales/invoices': ['sales.invoices.view'],
-  '/sales/returns': ['sales.returns.view'],
-  '/procurement/suppliers': ['procurement.supplier.view'],
-  '/procurement/requisitions': ['procurement.requisition.view'],
-  '/procurement/rfqs': ['procurement.rfq.view'],
-  '/procurement/quotations': ['procurement.quotation.view'],
-  '/procurement/orders': ['procurement.order.view'],
-  '/procurement/receipts': ['procurement.receipt.view'],
-  '/procurement/returns': ['procurement.return.view'],
-  '/procurement/invoices': ['procurement.invoice.view'],
-  '/inventory': ['inventory.inventory.view'],
-  '/inventory/policies': ['inventory.policy.view'],
-  '/inventory/batches': ['inventory.batch.view'],
-  '/inventory/adjustments': ['inventory.adjustment.view'],
-  '/inventory/transfers': ['inventory.transfer.view'],
-  '/inventory/reservations': ['inventory.reservation.view'],
-  '/inventory/ledger': ['inventory.inventory.view'],
-  '/inventory/reports': ['inventory.inventory.view'],
-  '/production/entries': ['manufacturing.production.entries.view'],
-  '/production/bom': ['manufacturing.bom.view'],
-  '/production/routings': ['manufacturing.routing.view'],
-  '/production/targets': ['manufacturing.machine_target.view'],
-  '/maintenance': ['maintenance.job_card.view'],
-  '/maintenance/job-cards': ['maintenance.job_card.view'],
-  '/maintenance/teams': ['maintenance.team.view'],
-  '/maintenance/categories': ['maintenance.category.view'],
-  '/maintenance/preventive-maintenance': ['maintenance.pm.view'],
-  '/maintenance/pm-plans': ['maintenance.pm.view'],
-  '/maintenance/pm-schedules': ['maintenance.pm.view'],
-  '/maintenance/reports': ['maintenance.job_card.view'],
-  '/settings': [],
-};
-
-function buildMenuItems(hasPermission: (code: string) => boolean): MenuProps['items'] {
-  const can = (key: string) => {
-    const required = SIDEBAR_PERMISSION_MAP[key];
+function buildMenuItems(
+  hasPermission: (code: string) => boolean,
+  navBadges: Record<string, number> = {},
+): MenuProps['items'] {
+  const can = (child: { permissions?: string[] }) => {
+    const required = child.permissions;
     if (!required || required.length === 0) return true;
     return required.some(p => hasPermission(p));
   };
 
-  const orgChildren = [
-    { key: '/organization/companies', icon: <NavIcon color={ICON_COLORS.organization}><BankOutlined /></NavIcon>, label: 'Companies' },
-    { key: '/organization/branches', icon: <NavIcon color={ICON_COLORS.organization}><BranchesOutlined /></NavIcon>, label: 'Branches' },
-    { key: '/organization/divisions', icon: <NavIcon color={ICON_COLORS.organization}><ApartmentOutlined /></NavIcon>, label: 'Divisions' },
-    { key: '/organization/sections', icon: <NavIcon color={ICON_COLORS.organization}><ApartmentOutlined /></NavIcon>, label: 'Sections' },
-    { key: '/organization/departments', icon: <NavIcon color={ICON_COLORS.organization}><ApartmentOutlined /></NavIcon>, label: 'Departments' },
-    { key: '/organization/warehouses', icon: <NavIcon color={ICON_COLORS.organization}><HomeOutlined /></NavIcon>, label: 'Warehouses' },
-    { key: '/organization/locations', icon: <NavIcon color={ICON_COLORS.organization}><EnvironmentOutlined /></NavIcon>, label: 'Warehouse Locations' },
-  ].filter(item => can(item.key));
+  const toNavIcon = (Item: { icon: React.ComponentType; color: NavColorToken }, size: 'lg' | 'sm') => (
+    <NavIcon color={NAV_ICON_COLOR[Item.color]} icon={Item.icon} size={size} />
+  );
 
-  const adminChildren = [
-    { key: '/admin/users', icon: <NavIcon color={ICON_COLORS.users}><TeamOutlined /></NavIcon>, label: 'Users' },
-    { key: '/admin/roles', icon: <NavIcon color={ICON_COLORS.roles}><SafetyCertificateOutlined /></NavIcon>, label: 'Roles' },
-    { key: '/admin/permissions', icon: <NavIcon color={ICON_COLORS.permissions}><KeyOutlined /></NavIcon>, label: 'Permissions' },
-    { key: '/admin/permissions-matrix', icon: <NavIcon color="#93A6FF"><SafetyCertificateOutlined /></NavIcon>, label: 'Roles & Permissions' },
-  ].filter(item => can(item.key));
-
-  const masterDataChildren = [
-    { key: '/master-data/items', icon: <NavIcon color={ICON_COLORS.masterData}><TagsOutlined /></NavIcon>, label: 'Products & Items' },
-    { key: '/master-data/categories', icon: <NavIcon color={ICON_COLORS.masterData}><AppstoreOutlined /></NavIcon>, label: 'Item Categories' },
-    { key: '/master-data/uom', icon: <NavIcon color={ICON_COLORS.masterData}><CalculatorOutlined /></NavIcon>, label: 'Units of Measure' },
-    { key: '/master-data/uom-conversions', icon: <NavIcon color={ICON_COLORS.masterData}><SwapOutlined /></NavIcon>, label: 'UOM Conversions' },
-    { key: '/master-data/machines', icon: <NavIcon color={ICON_COLORS.masterData}><BuildOutlined /></NavIcon>, label: 'Machine Master' },
-  ].filter(item => can(item.key));
-
-  const salesChildren = [
-    { key: '/sales/quotations', icon: <NavIcon color={ICON_COLORS.sales}><AppstoreOutlined /></NavIcon>, label: 'Quotations' },
-    { key: '/sales/orders', icon: <NavIcon color={ICON_COLORS.sales}><ShoppingCartOutlined /></NavIcon>, label: 'Sales Orders' },
-    { key: '/sales/deliveries', icon: <NavIcon color={ICON_COLORS.sales}><InboxOutlined /></NavIcon>, label: 'Deliveries' },
-    { key: '/sales/invoices', icon: <NavIcon color={ICON_COLORS.sales}><CalculatorOutlined /></NavIcon>, label: 'Invoices' },
-    { key: '/sales/returns', icon: <NavIcon color={ICON_COLORS.sales}><SwapOutlined /></NavIcon>, label: 'Sales Returns' },
-  ].filter(item => can(item.key));
-
-  const procurementChildren = [
-    { key: '/procurement/suppliers', icon: <NavIcon color={ICON_COLORS.procurement}><BankOutlined /></NavIcon>, label: 'Suppliers' },
-    { key: '/procurement/requisitions', icon: <NavIcon color={ICON_COLORS.procurement}><EditOutlined /></NavIcon>, label: 'Purchase Requisitions' },
-    { key: '/procurement/rfqs', icon: <NavIcon color={ICON_COLORS.procurement}><SwapOutlined /></NavIcon>, label: 'Request for Quotations' },
-    { key: '/procurement/quotations', icon: <NavIcon color={ICON_COLORS.procurement}><AppstoreOutlined /></NavIcon>, label: 'Quotations' },
-    { key: '/procurement/orders', icon: <NavIcon color={ICON_COLORS.procurement}><ShoppingCartOutlined /></NavIcon>, label: 'Purchase Orders' },
-    { key: '/procurement/receipts', icon: <NavIcon color={ICON_COLORS.procurement}><InboxOutlined /></NavIcon>, label: 'Goods Receipts' },
-    { key: '/procurement/returns', icon: <NavIcon color={ICON_COLORS.procurement}><SwapOutlined /></NavIcon>, label: 'Purchase Returns' },
-    { key: '/procurement/invoices', icon: <NavIcon color={ICON_COLORS.procurement}><CalculatorOutlined /></NavIcon>, label: 'Invoices' },
-  ].filter(item => can(item.key));
-
-  const inventoryChildren = [
-    { key: '/inventory', icon: <NavIcon color={ICON_COLORS.inventory}><InboxOutlined /></NavIcon>, label: 'Overview' },
-    { key: '/inventory/policies', icon: <NavIcon color={ICON_COLORS.inventory}><SafetyOutlined /></NavIcon>, label: 'Inventory Policies' },
-    { key: '/inventory/batches', icon: <NavIcon color={ICON_COLORS.inventory}><AppstoreOutlined /></NavIcon>, label: 'Batch Tracking' },
-    { key: '/inventory/adjustments', icon: <NavIcon color={ICON_COLORS.inventory}><EditOutlined /></NavIcon>, label: 'Stock Adjustments' },
-    { key: '/inventory/transfers', icon: <NavIcon color={ICON_COLORS.inventory}><SwapOutlined /></NavIcon>, label: 'Stock Transfers' },
-    { key: '/inventory/reservations', icon: <NavIcon color={ICON_COLORS.inventory}><SafetyCertificateOutlined /></NavIcon>, label: 'Reservations' },
-    { key: '/inventory/ledger', icon: <NavIcon color={ICON_COLORS.inventory}><DatabaseOutlined /></NavIcon>, label: 'Stock Ledger' },
-    { key: '/inventory/reports', icon: <NavIcon color={ICON_COLORS.analytics}><BarChartOutlined /></NavIcon>, label: 'Reports' },
-  ].filter(item => can(item.key));
-
-  const productionChildren = [
-    { key: '/production/entries', icon: <NavIcon color={ICON_COLORS.production}><EditOutlined /></NavIcon>, label: 'Daily Production Entry' },
-    { key: '/production/bom', icon: <NavIcon color={ICON_COLORS.production}><ClusterOutlined /></NavIcon>, label: 'Bill of Materials' },
-    { key: '/production/routings', icon: <NavIcon color={ICON_COLORS.production}><ApartmentOutlined /></NavIcon>, label: 'Routing' },
-    { key: '/production/targets', icon: <NavIcon color={ICON_COLORS.production}><AimOutlined /></NavIcon>, label: 'Machine Targets' },
-  ].filter(item => can(item.key));
-
-  const maintenanceChildren = [
-    { key: '/maintenance', icon: <NavIcon color={ICON_COLORS.production}><ToolOutlined /></NavIcon>, label: 'Overview' },
-    { key: '/maintenance/job-cards', icon: <NavIcon color={ICON_COLORS.production}><FileProtectOutlined /></NavIcon>, label: 'Job Cards' },
-    { key: '/maintenance/teams', icon: <NavIcon color={ICON_COLORS.production}><TeamOutlined /></NavIcon>, label: 'Teams' },
-    { key: '/maintenance/categories', icon: <NavIcon color={ICON_COLORS.production}><TagsOutlined /></NavIcon>, label: 'Categories' },
-    { key: '/maintenance/pm-plans', icon: <NavIcon color={ICON_COLORS.production}><CalendarOutlined /></NavIcon>, label: 'PM Plans' },
-    { key: '/maintenance/pm-schedules', icon: <NavIcon color={ICON_COLORS.production}><CalendarOutlined /></NavIcon>, label: 'PM Schedules' },
-    { key: '/maintenance/reports', icon: <NavIcon color={ICON_COLORS.analytics}><BarChartOutlined /></NavIcon>, label: 'Reports' },
-  ].filter(item => can(item.key));
+  const withBadge = (key: string, label: React.ReactNode): React.ReactNode => {
+    if (!(key in navBadges)) return label;
+    const count = navBadges[key];
+    return (
+      <span className="erp-nav-label">
+        <span className="erp-nav-label-text">{label}</span>
+        <span className={`erp-nav-chip${count > 0 ? ' erp-nav-chip--hot' : ''}`}>{count}</span>
+      </span>
+    );
+  };
 
   const items: MenuProps['items'] = [];
 
-  if (can('/dashboard')) {
-    items.push({
-      key: '/dashboard',
-      icon: <NavIcon color={ICON_COLORS.dashboard}><DashboardOutlined /></NavIcon>,
-      label: 'Dashboard',
-    });
-  }
+  for (const entry of NAV_ENTRIES) {
+    if (entry.key === 'development' && process.env.NODE_ENV === 'production') continue;
 
-  if (orgChildren.length > 0) {
-    items.push({
-      key: 'organization',
-      icon: <NavIcon color={ICON_COLORS.organization}><BankOutlined /></NavIcon>,
-      label: 'Organization',
-      children: orgChildren,
-    });
-  }
-
-  if (adminChildren.length > 0) {
-    items.push({
-      key: 'admin',
-      icon: <NavIcon color={ICON_COLORS.adminGroup}><SafetyOutlined /></NavIcon>,
-      label: 'Administration',
-      children: adminChildren,
-    });
-  }
-
-  if (masterDataChildren.length > 0) {
-    items.push({
-      key: 'master-data',
-      icon: <NavIcon color={ICON_COLORS.masterData}><DatabaseOutlined /></NavIcon>,
-      label: 'Master Data',
-      children: masterDataChildren,
-    });
-  }
-
-  if (can('/customers')) {
-    items.push({
-      key: 'customers',
-      icon: <NavIcon color={ICON_COLORS.customers}><TeamOutlined /></NavIcon>,
-      label: 'Customers',
-      children: [
-        { key: '/customers', icon: <NavIcon color={ICON_COLORS.customers}><TeamOutlined /></NavIcon>, label: 'Customer List' },
-      ],
-    });
-  }
-
-  if (salesChildren.length > 0) {
-    items.push({
-      key: 'sales',
-      icon: <NavIcon color={ICON_COLORS.sales}><ShoppingCartOutlined /></NavIcon>,
-      label: 'Sales',
-      children: salesChildren,
-    });
-  }
-
-  if (procurementChildren.length > 0) {
-    items.push({
-      key: 'procurement',
-      icon: <NavIcon color={ICON_COLORS.procurement}><ShoppingCartOutlined /></NavIcon>,
-      label: 'Procurement',
-      children: procurementChildren,
-    });
-  }
-
-  if (inventoryChildren.length > 0) {
-    items.push({
-      key: 'inventory',
-      icon: <NavIcon color={ICON_COLORS.inventory}><InboxOutlined /></NavIcon>,
-      label: 'Inventory',
-      children: inventoryChildren,
-    });
-  }
-
-  if (productionChildren.length > 0) {
-    items.push({
-      key: 'production',
-      icon: <NavIcon color={ICON_COLORS.production}><BuildOutlined /></NavIcon>,
-      label: 'Production',
-      children: productionChildren,
-    });
-  }
-
-  if (maintenanceChildren.length > 0) {
-    items.push({
-      key: 'maintenance',
-      icon: <NavIcon color={ICON_COLORS.production}><ToolOutlined /></NavIcon>,
-      label: 'Maintenance',
-      children: maintenanceChildren,
-    });
-  }
-
-  items.push({
-    key: '/settings',
-    icon: <NavIcon color={ICON_COLORS.settings}><SettingOutlined /></NavIcon>,
-    label: 'Settings',
-  });
-
-  if (process.env.NODE_ENV !== 'production') {
-    items.push({
-      key: 'development',
-      icon: <NavIcon color={ICON_COLORS.development}><BugOutlined /></NavIcon>,
-      label: 'Development',
-      children: [
-        { key: '/development/status', icon: <NavIcon color={ICON_COLORS.development}><BugOutlined /></NavIcon>, label: 'Development Status' },
-      ],
-    });
+    if (isNavGroup(entry)) {
+      const children = entry.children
+        .filter(child => can(child))
+        .map(child => ({
+          key: child.key,
+          icon: toNavIcon(child, 'sm'),
+          label: withBadge(child.key, child.label),
+        }));
+      if (children.length > 0) {
+        items.push({
+          key: entry.key,
+          icon: toNavIcon(entry, 'lg'),
+          label: entry.label,
+          children,
+        });
+      }
+    } else if (can(entry)) {
+      items.push({
+        key: entry.key,
+        icon: toNavIcon(entry, 'lg'),
+        label: withBadge(entry.key, entry.label),
+      });
+    }
   }
 
   return items;
@@ -352,18 +138,33 @@ interface MainLayoutProps {
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [hoverOpen, setHoverOpen] = useState(false);
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
   const closeTimerRef = React.useRef<number | null>(null);
   const [userName, setUserName] = useState('Admin User');
   const navigate = useNavigate();
   const location = useLocation();
   const { can, isLoaded } = usePermission();
+  const { actions: headerActions, title: headerTitle, icon: headerIcon } = useHeaderActions();
+  const navBadges = useNavBadgeStore((s) => s.badges);
 
   const effectiveCan = React.useCallback((key: string) => {
     if (!isLoaded) return true;
     return can(key);
   }, [isLoaded, can]);
 
-  const menuItems = React.useMemo(() => buildMenuItems(effectiveCan), [effectiveCan]);
+  const menuItems = React.useMemo(() => buildMenuItems(effectiveCan, navBadges), [effectiveCan, navBadges]);
+
+  const activeKeys = React.useMemo(
+    () => resolveNavActiveKeys(location.pathname, location.search),
+    [location.pathname, location.search]
+  );
+
+  React.useEffect(() => {
+    setOpenKeys((prev) => {
+      if (activeKeys.openKeys.length === 0) return prev;
+      return Array.from(new Set([...prev, ...activeKeys.openKeys]));
+    });
+  }, [activeKeys.openKeys]);
 
   const canHover = React.useMemo(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return true;
@@ -414,11 +215,25 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     []
   );
 
+  const hasStatusParam = React.useMemo(
+    () => {
+      const q = new URLSearchParams(location.search);
+      return Boolean(q.get('status') || q.get('statuses'));
+    },
+    [location.search]
+  );
+  const maintenanceHeader = !hasStatusParam ? MAINTENANCE_HEADER_META[location.pathname] : undefined;
+  const headerNavMeta = React.useMemo(
+    () => resolveNavMeta(location.pathname, location.search),
+    [location.pathname, location.search]
+  );
+
   const pageTitle = React.useMemo(() => {
     if (/^\/production\/entries\/new\b/.test(location.pathname)) return 'New Production Entry';
     if (/^\/production\/entries\/select\b/.test(location.pathname)) return 'New Production Entry';
     if (/^\/production\/entries\/[^/]+\/edit$/.test(location.pathname)) return 'Edit Production Entry';
     if (/^\/production\/entries\/[^/]+$/.test(location.pathname)) return 'Production Entry Details';
+    if (headerNavMeta) return headerNavMeta.label;
     const findLabel = (items: MenuProps['items']): string | undefined => {
       for (const item of items ?? []) {
         if (!item) continue;
@@ -444,7 +259,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     return segment
       .replace(/[-_]+/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase());
-  }, [location.pathname, menuItems]);
+  }, [location.pathname, headerNavMeta, menuItems]);
+
+  const headerTitleText = headerTitle ?? maintenanceHeader?.title ?? pageTitle;
+
+  let headerIconNode: React.ReactNode = null;
+  let headerIconColor: string | undefined;
+  if (headerIcon) {
+    headerIconNode = headerIcon;
+    headerIconColor = headerNavMeta?.colorVar ?? 'var(--theme-text-muted)';
+  } else if (headerNavMeta) {
+    headerIconNode = React.createElement(headerNavMeta.icon);
+    headerIconColor = headerNavMeta.colorVar;
+  }
 
   React.useEffect(() => {
     useThemeStore.getState().initializeForUser();
@@ -459,6 +286,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   const handleMenuClick = (info: { key: string }) => {
     navigate(info.key);
+  };
+
+  /**
+   * Parent expansion behavior: opening a new top-level group closes the
+   * previously open one (accordion), while the active parent automatically
+   * stays/becomes open on URL navigation or refresh.
+   */
+  const handleOpenChange = (nextOpenKeys: string[]) => {
+    const latestOpenKey = nextOpenKeys.find((key) => !openKeys.includes(key));
+    setOpenKeys(latestOpenKey ? [latestOpenKey] : []);
   };
 
   const handleUserMenuClick: MenuProps['onClick'] = (info) => {
@@ -480,6 +317,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         onCollapse={handleManualCollapse}
         onMouseEnter={openHoverSidebar}
         onMouseLeave={scheduleCloseHoverSidebar}
+        breakpoint="lg"
+        collapsedWidth={80}
+        width={SIDER_WIDTH}
         style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0 }}
       >
         <div
@@ -528,14 +368,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[activeKeys.selectedKey]}
+          {...(effectivelyCollapsed ? {} : { openKeys })}
           items={menuItems}
           onClick={handleMenuClick}
+          onOpenChange={handleOpenChange}
         />
       </Sider>
       <Layout
         style={{
-          marginLeft: effectivelyCollapsed ? 80 : 200,
+          marginLeft: effectivelyCollapsed ? 80 : SIDER_WIDTH,
           transition: 'margin-left 0.2s',
         }}
       >
@@ -549,7 +391,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             gap: 12,
             position: 'fixed',
             top: 0,
-            left: effectivelyCollapsed ? 80 : 200,
+            left: effectivelyCollapsed ? 80 : SIDER_WIDTH,
             right: 0,
             zIndex: 10,
             transition: 'left 0.2s',
@@ -559,20 +401,54 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             style={{
               marginRight: 'auto',
               minWidth: 0,
+              display: 'flex',
+              alignItems: 'center',
               overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
               fontSize: 16,
               fontWeight: 600,
               color: 'var(--theme-text)',
             }}
           >
-            {pageTitle}
+            {headerIconNode && (
+              <span
+                className="erp-app-header-icon"
+                style={{
+                  color: headerIconColor,
+                }}
+              >
+                {headerIconNode}
+              </span>
+            )}
+            <span
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {headerTitleText}
+            </span>
           </span>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              overflowX: 'auto',
+              minWidth: 0,
+              scrollbarWidth: 'thin',
+            }}
+          >
+            {headerActions.map((a) => (
+              <div key={a.key} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                {a.node}
+              </div>
+            ))}
+          </div>
           <NotificationBell />
           <ThemeSettingsButton />
           <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }}>
-            <Space style={{ cursor: 'pointer' }}>
+            <Space style={{ cursor: 'pointer', flexShrink: 0 }}>
               <Avatar icon={<UserOutlined />} />
               <span>{userName}</span>
             </Space>
@@ -581,8 +457,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         <Content
           className="erp-app-content"
           style={{
-            margin: '88px 16px 24px',
-            padding: 24,
+            margin: '72px 8px 8px',
+            padding: 12,
             borderRadius: 8,
             minHeight: 280,
             overflowX: 'auto',

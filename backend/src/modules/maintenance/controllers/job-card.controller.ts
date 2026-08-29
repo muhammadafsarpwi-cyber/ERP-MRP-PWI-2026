@@ -1,13 +1,15 @@
 import {
   Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards,
+  UseInterceptors, UploadedFile, ParseFilePipeBuilder,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam, ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { SupabaseJwtGuard } from '../../auth/guards';
 import { PermissionGuard, RequirePermission } from '../../auth/guards';
 import { CurrentUser, CurrentUserId } from '../../../common/decorators/user.decorator';
 import { MaintenanceJobCardService } from '../services';
 import {
-  CreateJobCardDto, UpdateJobCardDto, AssignJobCardDto,
+  CreateJobCardDto, UpdateJobCardDto, AssignJobCardDto, StartJobCardDto,
   AddJobCardPartDto, AddWorkLogDto, RejectJobCardDto, JobCardQueryDto,
 } from '../dto';
 
@@ -17,6 +19,34 @@ import {
 @Controller('master-data/maintenance/job-cards')
 export class MaintenanceJobCardController {
   constructor(private readonly jobCardService: MaintenanceJobCardService) {}
+
+  @Post('import')
+  @RequirePermission('maintenance.job_card.create')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file', 'companyId'],
+      properties: {
+        file: { type: 'string', format: 'binary', description: 'CSV file with headers: machineCode, complaint, jobCardNo (optional), priority, maintenanceType, description, requestedAt, assignedDepartmentId' },
+        companyId: { type: 'string' },
+      },
+    },
+  })
+  @ApiOperation({ summary: 'Bulk import job cards from a CSV file' })
+  importCsv(
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addMaxSizeValidator({ maxSize: 5 * 1024 * 1024 })
+        .build({ errorHttpStatusCode: 400 }),
+    )
+    file: any,
+    @Body('companyId') companyId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.jobCardService.importCsv(file, companyId, user.id);
+  }
 
   @Post()
   @RequirePermission('maintenance.job_card.create')
@@ -35,22 +65,43 @@ export class MaintenanceJobCardController {
   @Get('dashboard')
   @RequirePermission('maintenance.job_card.view')
   @ApiOperation({ summary: 'Job card dashboard summary' })
-  dashboard(@Query('companyId') companyId: string) {
-    return this.jobCardService.getDashboard(companyId);
+  dashboard(
+    @Query('companyId') companyId: string,
+    @Query('machineId') machineId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.jobCardService.getDashboard(companyId, machineId, divisionId, sectionId, departmentId, search);
   }
 
   @Get('chart-data')
   @RequirePermission('maintenance.job_card.view')
   @ApiOperation({ summary: 'Chart data for maintenance dashboard' })
-  chartData(@Query('companyId') companyId: string) {
-    return this.jobCardService.getChartData(companyId);
+  chartData(
+    @Query('companyId') companyId: string,
+    @Query('machineId') machineId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.jobCardService.getChartData(companyId, machineId, divisionId, sectionId, departmentId, search);
   }
 
   @Get('reports')
   @RequirePermission('maintenance.reports.view')
   @ApiOperation({ summary: 'Maintenance reports data' })
-  reports(@Query('companyId') companyId: string) {
-    return this.jobCardService.getReports(companyId);
+  reports(
+    @Query('companyId') companyId: string,
+    @Query('machineId') machineId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.jobCardService.getReports(companyId, machineId, divisionId, sectionId, departmentId, search);
   }
 
   @Get('machine/:machineId/stats')
@@ -114,10 +165,10 @@ export class MaintenanceJobCardController {
 
   @Post(':id/start')
   @RequirePermission('maintenance.job_card.start')
-  @ApiOperation({ summary: 'Start working on job card' })
+  @ApiOperation({ summary: 'Start working on job card (optionally re-assign technicians, team and initial remarks)' })
   @ApiParam({ name: 'id', type: String })
-  start(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.jobCardService.start(id, user.id);
+  start(@Param('id') id: string, @CurrentUser() user: any, @Body() dto?: StartJobCardDto) {
+    return this.jobCardService.start(id, user.id, dto);
   }
 
   @Post(':id/hold')
@@ -162,10 +213,10 @@ export class MaintenanceJobCardController {
 
   @Post(':id/submit-for-verification')
   @RequirePermission('maintenance.job_card.close')
-  @ApiOperation({ summary: 'Submit job card for verification' })
+  @ApiOperation({ summary: 'Submit job card for verification (also used to resubmit a returned job card)' })
   @ApiParam({ name: 'id', type: String })
-  submitForVerification(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.jobCardService.submitForVerification(id, user.id);
+  submitForVerification(@Param('id') id: string, @CurrentUser() user: any, @Body('remarks') remarks?: string) {
+    return this.jobCardService.submitForVerification(id, user.id, remarks);
   }
 
   @Post(':id/verify')

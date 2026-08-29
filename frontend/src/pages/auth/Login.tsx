@@ -1,15 +1,28 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Card, Typography, Alert, Checkbox } from 'antd';
-import { UserOutlined, LockOutlined, EyeInvisibleOutlined, EyeTwoTone } from '@ant-design/icons';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Button, Form, Input } from 'antd';
+import {
+  LockOutlined,
+  LoginOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
+import AuthBrand from '../../components/auth/AuthBrand';
+import AuthBrandPane from '../../components/auth/AuthBrandPane';
+import AuthError from '../../components/auth/AuthError';
+import AuthShell from '../../components/auth/AuthShell';
+import PasswordField from '../../components/auth/PasswordField';
+import './auth.css';
 
-const { Title, Text } = Typography;
+interface LoginFormValues {
+  email: string;
+  password: string;
+}
 
 const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [email] = useState(() => {
+  const [initialEmail] = useState(() => {
     try {
       const stored = localStorage.getItem('erp_user');
       if (stored) {
@@ -19,16 +32,31 @@ const Login: React.FC = () => {
     } catch {}
     return '';
   });
-  const navigate = useNavigate();
 
-  const onFinish = async (values: { email: string; password: string; remember?: boolean }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [redirecting] = useState(() => !!localStorage.getItem('token'));
+
+  useEffect(() => {
+    document.title = 'Sign In | PWI — Pakistan Wire & Industry';
+    if (redirecting) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [redirecting, navigate]);
+
+  const onFinish = async (values: LoginFormValues) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiService.post<{ token: string; refreshToken: string; user: any }>(
-        '/auth/login',
-        { email: values.email, password: values.password },
-      );
+      const response = await apiService.post<{
+        token: string;
+        refreshToken: string;
+        user: any;
+      }>('/auth/login', {
+        email: values.email,
+        password: values.password,
+      });
+
       localStorage.setItem('token', response.token);
       if (response.refreshToken) {
         localStorage.setItem('refresh_token', response.refreshToken);
@@ -36,18 +64,23 @@ const Login: React.FC = () => {
       if (response.user) {
         localStorage.setItem('erp_user', JSON.stringify(response.user));
       }
-      navigate('/dashboard', { replace: true });
+
+      const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+      const destination =
+        from && from.startsWith('/') && from !== '/login' && !from.startsWith('/forgot')
+          ? from
+          : '/dashboard';
+      navigate(destination, { replace: true });
     } catch (err: any) {
       const status = err.response?.status;
-      const serverMessage = err.response?.data?.message || err.response?.data?.error;
-
       if (status === 401) {
         setError('Invalid email or password. Please try again.');
       } else if (status === 403) {
         setError('Your account has been deactivated. Contact your administrator.');
       } else if (status === 0 || !err.response) {
-        setError('Unable to connect to the server. Please check your connection.');
+        setError('Unable to connect to the ERP server. Please try again.');
       } else {
+        const serverMessage = err.response?.data?.message || err.response?.data?.error;
         setError(serverMessage || 'An unexpected error occurred. Please try again.');
       }
     } finally {
@@ -55,94 +88,84 @@ const Login: React.FC = () => {
     }
   };
 
-  return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      }}
-    >
-      <Card style={{ width: 420, borderRadius: 8, boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <Title level={3} style={{ marginBottom: 4 }}>ERP System</Title>
-          <Text type="secondary">Sign in to your account</Text>
-        </div>
+  if (redirecting) {
+    return null;
+  }
 
-        {error && (
-          <Alert
-            message={error}
-            type="error"
-            showIcon
-            closable
-            onClose={() => setError(null)}
-            style={{ marginBottom: 24 }}
-          />
-        )}
+  return (
+    <AuthShell footer="Secure Enterprise Operations Platform">
+      <AuthBrandPane />
+
+      <section className="erp-auth-panel" aria-labelledby="login-heading">
+        <div className="erp-auth-panel-brand">
+          <AuthBrand variant="theme" />
+        </div>
+        <h2 id="login-heading" className="erp-auth-panel-heading">
+          Secure ERP / MRP Access
+        </h2>
+        <p className="erp-auth-panel-sub">
+          Sign in to continue to your command center.
+        </p>
+
+        <AuthError message={error} onClose={() => setError(null)} />
 
         <Form
           name="login"
           onFinish={onFinish}
           layout="vertical"
-          initialValues={{ email: email || '', remember: true }}
+          initialValues={{ email: initialEmail }}
           requiredMark={false}
+          disabled={loading}
         >
           <Form.Item
             name="email"
+            label="Username / Email"
             rules={[
               { required: true, message: 'Please enter your email' },
               { type: 'email', message: 'Please enter a valid email' },
             ]}
           >
             <Input
-              prefix={<UserOutlined style={{ color: '#bfbfbf' }} />}
+              prefix={<UserOutlined style={{ color: '#8c94a6' }} />}
               placeholder="Email address"
               size="large"
-              autoComplete="email"
+              autoComplete="username"
+              autoFocus
             />
           </Form.Item>
 
-          <Form.Item
+          <PasswordField
             name="password"
+            label="Password"
+            placeholder="Password"
+            autoComplete="current-password"
             rules={[{ required: true, message: 'Please enter your password' }]}
-          >
-            <Input.Password
-              prefix={<LockOutlined style={{ color: '#bfbfbf' }} />}
-              placeholder="Password"
-              size="large"
-              autoComplete="current-password"
-              iconRender={(visible) =>
-                visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />
-              }
-            />
-          </Form.Item>
+          />
 
-          <Form.Item name="remember" valuePropName="checked">
-            <Checkbox>Remember me</Checkbox>
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 12 }}>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={loading}
-              block
-              size="large"
-            >
-              Sign in
-            </Button>
-          </Form.Item>
-
-          <div style={{ textAlign: 'center' }}>
-            <Link to="/forgot-password">
-              <Text type="secondary" style={{ fontSize: 13 }}>Forgot your password?</Text>
+          <div className="erp-auth-panel-row">
+            <Link className="erp-auth-link" to="/forgot-password">
+              Forgot password?
             </Link>
           </div>
+
+          <Button
+            className="erp-auth-button"
+            type="primary"
+            htmlType="submit"
+            block
+            loading={loading}
+            icon={<LoginOutlined />}
+          >
+            Sign In
+          </Button>
         </Form>
-      </Card>
-    </div>
+
+        <p className="erp-auth-note">
+          <LockOutlined aria-hidden="true" />
+          New user accounts are provisioned by your system administrator.
+        </p>
+      </section>
+    </AuthShell>
   );
 };
 

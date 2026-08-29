@@ -31,6 +31,7 @@ const GRANTED_CODES = [
   'maintenance.job_card.approve', 'maintenance.job_card.reject', 'maintenance.pm.manage',
 ];
 const grantedIds = [];
+let tempTechId = '';
 
 let token = '';
 let pass = 0, fail = 0;
@@ -57,7 +58,7 @@ async function api(method, p, body) {
 async function db() {
   return new Promise((resolve, reject) => {
     const c = new Client({ host: 'aws-1-ap-northeast-1.pooler.supabase.com', port: 5432, user: 'postgres.gnvobiwlzezostzjpqvu', password: 'pwiAfsar74()', database: 'postgres', ssl: { rejectUnauthorized: false } });
-    c.connect().then(() => resolve(c)).catch(reject);
+    c.connect().then(() => c.query('SET statement_timeout = 15000').then(() => resolve(c), reject)).catch(reject);
   });
 }
 
@@ -209,6 +210,19 @@ async function main() {
     displayName: (erpRow && (erpRow.display_name || erpRow.full_name)) || EMAIL,
   });
   expect(!!USER.defaultCompanyId, 'default company id resolved');
+
+  // Temporary master technician (active, linked to the dev ERP user) so `assign` can
+  // resolve a real MaintenanceTechnician via technicianIds; removed in cleanup.
+  const empCode = 'E2E-EMP-' + Date.now();
+  const techIns = await c.query(
+    `INSERT INTO maintenance_technicians
+        (id, created_at, updated_at, created_by, updated_by, is_active, employee_id,
+         technician_name, department, skill, shift, status, user_id, remarks)
+     VALUES (gen_random_uuid(), now(), now(), $1, $1, true, $2, 'E2E Technician',
+             'Maintenance', 'E2E', 'DAY', 'ACTIVE', $1, 'E2E run - temporary technician')
+     RETURNING id`, [USER.id, empCode]);
+  tempTechId = techIns.rows[0] && techIns.rows[0].id;
+  expect(!!tempTechId, 'temporary technician created for workflow (' + empCode + ')');
 
   // row-based name resolution (avoids assuming org column names)
   const rowNames = async (tbl, id) => {
@@ -490,8 +504,8 @@ async function main() {
       if (card2 && card2.jobCardNo) createdJobCardCodes.push(card2.jobCardNo);
     }
 
-    /* ══ 2b. FULL 12-STATE WORKFLOW + VERIFICATION UX (API walk + UI assertions) ══ */
-    console.log('== 2b. Job Card Workflow (lifecycle, rejection path, UI) ==');
+    /* ══ 2b. FULL WORKFLOW + VERIFICATION/RESUBMIT (API walk + UI assertions) ══ */
+    console.log('== 2b. Job Card Workflow (lifecycle, rejection/resubmit path, UI) ==');
     const w1 = createdJobCardIds[0];
     const w2 = createdJobCardIds[1] || null;
     const transition = async (label2, cardId, endpoint, expectStatus, body) => {
@@ -510,85 +524,101 @@ async function main() {
         await cdp.waitFor(`document.body.innerText.includes(${JSON.stringify(w1Code)})`, 'new card visible at top of list', 15000);
         const openRow = await cdp.eval(`(() => { const rows=[...document.querySelectorAll('.ant-table-tbody tr.ant-table-row')]; const r=rows.find(x=>x.innerText.includes(${JSON.stringify(w1Code)})); return r? r.innerText : ''; })()`);
         expect(/Open/.test(openRow), 'list row shows OPEN status badge');
-        expect(/Assign Technician|Assign/.test(openRow), 'list row next action shows assignment');
+        expect(/Start Job|Assign/.test(openRow), 'list row next action shows start/assign step');
       }
       await goto(FRONT + '/maintenance/job-cards/' + w1);
-      await cdp.waitFor(`document.querySelectorAll('.ant-steps-item').length >= 8`, 'workflow steps rendered on detail (>= 8)', 20000);
+      await cdp.waitFor(`document.querySelectorAll('.ant-steps-item').length >= 6`, 'workflow steps rendered on detail (>= 6)', 20000);
       const openTxt = await cdp.eval('document.body.innerText');
       expect(openTxt.includes('Pending Verification'), 'workflow includes Pending Verification step');
-      expect(/Assign Technician|Assign/.test(openTxt), 'next action shows assignment step');
+      expect(/Start Job|Assign/.test(openTxt), 'next action shows start/assign step');
 
       let d = await api('GET', '/master-data/maintenance/job-cards/' + w1);
       expect(d.status === 200 && d.json.currentStatus === 'OPEN', 'card1 starts OPEN (got ' + (d.json && d.json.currentStatus) + ')');
 
-      d = await transition('assign', w1, 'assign', 'ASSIGNED', { technicianUserIds: [USER.id], remarks: 'E2E assignment' });
+      d = await transition('assign', w1, 'assign', 'ASSIGNED', { technicianIds: [tempTechId], remarks: 'E2E assignment' });
       if (d) {
         const tech = await api('GET', '/master-data/maintenance/job-cards/' + w1 + '/technicians');
-        expect(Array.isArray(tech.json) && tech.json.length === 1 && tech.json[0].technicianUserId === USER.id, 'technician recorded after assign');
+        expect(Array.isArray(tech.json) && tech.json.length === 1 && tech.json[0].technicianId === tempTechId, 'master technician recorded after assign');
+        const techRow = tech.json && tech.json[0];
+        expect(!!techRow && (techRow.technicianUserId === USER.id || !techRow.technicianUserId), 'technician carries ERP-user link where available');
       }
-      d = await transition('start', w1, 'start', 'IN_PROGRESS');
-      d = await transition('hold', w1, 'hold', 'ON_HOLD');
+      d = await transition('start', w1, 'start', 'IN_PROGRESS', { technicianIds: [tempTechId] });
+      d = await transition('hold', w1, 'hold', 'ON_HOLD', { remarks: 'E2E hold' });
       if (d) { await goto(FRONT + '/maintenance/job-cards/' + w1); await cdp.waitFor(`document.body.innerText.includes('On Hold')`, 'detail shows ON HOLD state', 15000); }
       d = await transition('resume', w1, 'resume', 'IN_PROGRESS');
       d = await transition('waiting-for-parts', w1, 'waiting-for-parts', 'WAITING_FOR_PARTS');
       if (d) { await goto(FRONT + '/maintenance/job-cards/' + w1); await cdp.waitFor(`document.body.innerText.includes('Waiting for Parts')`, 'detail shows WAITING FOR PARTS state', 15000); }
       d = await transition('resume', w1, 'resume', 'IN_PROGRESS');
-      d = await transition('complete', w1, 'complete', 'COMPLETED', { diagnosis: 'E2E diagnosis', correctiveAction: 'Rebuilt trial', remarks: 'E2E complete' });
-      d = await transition('close', w1, 'close', 'CLOSED');
-      d = await transition('submit-for-verification', w1, 'submit-for-verification', 'PENDING_VERIFICATION');
+      d = await transition('complete', w1, 'complete', 'PENDING_VERIFICATION', { diagnosis: 'E2E diagnosis', correctiveAction: 'Rebuilt trial', remarks: 'E2E complete' });
       if (d) {
+        expect(!!d.completedAt && !!d.completedByUser && d.completedByUser.id, 'completedAt + completedBy recorded on Complete');
         await goto(FRONT + '/maintenance/job-cards/' + w1);
-        await cdp.waitFor(`document.body.innerText.includes('Pending Verification')`, 'detail shows Pending Verification', 15000);
+        await cdp.waitFor(`document.body.innerText.includes('Pending Verification')`, 'detail shows Pending Verification after Complete', 15000);
         const vTxt = await cdp.eval('document.body.innerText');
-        expect(vTxt.includes('Verify'), 'verify action present');
-        expect(vTxt.includes('Reject'), 'reject action present');
+        expect(vTxt.includes('Review'), 'review action present');
+        expect(vTxt.includes('Return to Technician'), 'return action present');
       }
       d = await transition('verify', w1, 'verify', 'VERIFIED', { remarks: 'E2E verified' });
-      d = await transition('approve', w1, 'approve', 'APPROVED', { remarks: 'E2E approved' });
+      d = await transition('approve', w1, 'approve', 'CLOSED', { remarks: 'E2E approved' });
       if (d) {
         expect(!!(d.completedByUser && d.completedByUser.id), 'completedByUser recorded');
         expect(!!(d.verifiedByUser && d.verifiedByUser.id), 'verifiedByUser recorded');
         expect(!!(d.approvedByUser && d.approvedByUser.id), 'approvedByUser recorded');
-        expect(!!d.approvedAt && !!d.verifiedAt && !!d.completedAt, 'approved/verified/completed timestamps present');
+        expect(!!d.approvedAt && !!d.verifiedAt && !!d.completedAt && !!d.closedAt, 'approved/verified/completed/closed timestamps present');
       }
       const hist = await api('GET', '/master-data/maintenance/job-cards/' + w1 + '/history');
       if (Array.isArray(hist.json) && hist.json.length) {
         const seq = hist.json.map((h) => h.toStatus);
-        expect(seq.length >= 11, 'history has all lifecycle transitions (' + seq.length + ')');
-        expect(seq[seq.length - 1] === 'APPROVED', 'history ends at APPROVED');
+        expect(seq.length >= 10, 'history has all lifecycle transitions (' + seq.length + ')');
+        expect(seq[seq.length - 1] === 'CLOSED', 'history ends at CLOSED (approved closes the card)');
         expect(hist.json.every((h) => h.changedByUser && h.changedByUser.id), 'history rows carry actor');
       }
       await goto(FRONT + '/maintenance/job-cards/' + w1);
-      await cdp.waitFor(`document.body.innerText.includes('Approved')`, 'approved state rendered on detail', 15000);
+      await cdp.waitFor(`document.body.innerText.includes('No further action required')`, 'closed card shows terminal message', 15000);
       const appTxt = await cdp.eval('document.body.innerText');
-      expect(/No further action required|fully approved/.test(appTxt), 'approved card shows terminal message');
+      expect(appTxt.includes('Approved By'), 'approved-by actor rendered on closed card');
+      expect(appTxt.includes('Closed By'), 'closed-by actor rendered on closed card');
       const w1CodeB = createdJobCardCodes[0] || '';
       if (w1CodeB) {
         await goto(FRONT + '/maintenance/job-cards');
         await cdp.waitFor(`document.querySelectorAll('.ant-table-tbody tr.ant-table-row').length > 0`, 'job card list rendered', 20000);
         await cdp.waitFor(`document.body.innerText.includes(${JSON.stringify(w1CodeB)})`, 'approved card visible in list row', 15000);
         const listTxt = await cdp.eval(`(() => { const rows=[...document.querySelectorAll('.ant-table-tbody tr.ant-table-row')]; const r=rows.find(x=>x.innerText.includes(${JSON.stringify(w1CodeB)})); return r? r.innerText : ''; })()`);
-        expect(/Approved/.test(listTxt), 'list row shows Approved status badge');
-        expect(/Completed|Done/.test(listTxt), 'list row next action shows Completed');
+        expect(/Closed|Approved/.test(listTxt), 'list row shows Closed/Approved status badge');
+        expect(/Completed/.test(listTxt), 'list row next action shows Completed');
         const qTxt = await cdp.eval('document.body.innerText');
-        expect(qTxt.includes('Approved') && qTxt.includes('Pending Verify'), 'queue tiles render (Approved / Pending Verify)');
+        expect(qTxt.includes('STARTED') && qTxt.includes('PENDING REVIEW') && qTxt.includes('COMPLETE'), 'queue tiles render (STARTED / PENDING REVIEW / COMPLETE)');
       }
     }
 
-    if (w2) {
-      console.log('   [info] running rejection path on card2 ' + w2);
-      let d = await transition('a', w2, 'assign', 'ASSIGNED', { technicianUserIds: [USER.id] });
-      d = await transition('s', w2, 'start', 'IN_PROGRESS');
-      d = await transition('c', w2, 'complete', 'COMPLETED', {});
-      d = await transition('cl', w2, 'close', 'CLOSED');
-      d = await transition('sf', w2, 'submit-for-verification', 'PENDING_VERIFICATION');
+    if (w2 && tempTechId) {
+      console.log('   [info] running rejection + resubmit path on card2 ' + w2);
+      let d = await transition('a', w2, 'assign', 'ASSIGNED', { technicianIds: [tempTechId], remarks: 'E2E w2 assign' });
+      d = await transition('s', w2, 'start', 'IN_PROGRESS', { technicianIds: [tempTechId] });
+      d = await transition('c', w2, 'complete', 'PENDING_VERIFICATION', { diagnosis: 'E2E w2 diagnosis', correctiveAction: 'Rework done', remarks: 'E2E w2 complete' });
       d = await transition('rj', w2, 'reject', 'REJECTED', { reason: 'E2E rejection: documentation incomplete' });
       if (d) {
         expect(!!d.remarks, 'reject reason captured on card (' + String(d.remarks).slice(0, 50) + ')');
+        const rHist = await api('GET', '/master-data/maintenance/job-cards/' + w2 + '/history');
+        if (Array.isArray(rHist.json)) {
+          const rejectedStep = rHist.json.find((h) => h.toStatus === 'REJECTED');
+          expect(!!rejectedStep && /documentation incomplete/.test(rejectedStep.remarks || ''), 'reject remark persisted on history row');
+        }
         await goto(FRONT + '/maintenance/job-cards/' + w2);
-        await cdp.waitFor(`document.body.innerText.includes('Rejected')`, 'detail shows Rejected state', 15000);
+        await cdp.waitFor(`document.body.innerText.includes('was returned')`, 'detail shows Returned state', 15000);
+        const rTxt = await cdp.eval('document.body.innerText');
+        expect(/Resubmit for Review/.test(rTxt), 'resubmit action present on returned card');
       }
-      d = await transition('ra', w2, 'assign', 'ASSIGNED', { technicianUserIds: [USER.id], remarks: 'Reassigned after rejection' });
+      d = await transition('sf', w2, 'submit-for-verification', 'PENDING_VERIFICATION', { remarks: 'E2E rework complete, resubmitted' });
+      if (d) {
+        const rHist = await api('GET', '/master-data/maintenance/job-cards/' + w2 + '/history');
+        if (Array.isArray(rHist.json)) {
+          const resub = rHist.json.find((h) => h.toStatus === 'PENDING_VERIFICATION' && h.fromStatus === 'REJECTED');
+          expect(!!resub, 'history records REJECTED -> PENDING_VERIFICATION (resubmit)');
+        }
+      }
+      d = await transition('v2', w2, 'verify', 'VERIFIED', { remarks: 'E2E re-verified' });
+      d = await transition('a2', w2, 'approve', 'CLOSED', { remarks: 'E2E finally approved' });
     }
 
     /* ══ 3. DASHBOARD ══ */
@@ -607,12 +637,12 @@ async function main() {
     /* ══ 4. REPORTS ══ */
     console.log('== 4. Maintenance Reports ==');
     await goto(FRONT + '/maintenance/reports');
-    await waitApi((r) => r.url.includes('/reports') && r.status === 200, 'reports API 200', 25000);
-    await cdp.waitFor(`document.body.innerText.includes('Maintenance Reports')`, 'reports page rendered', 20000);
+    await waitApi((r) => r.url.includes('/job-cards/reports') && r.status === 200, 'reports API 200', 25000);
+    await cdp.waitFor(`document.body.innerText.toLowerCase().includes('top problem machines') || document.body.innerText.toLowerCase().includes('downtime by maintenance type')`, 'reports sections rendered', 20000);
     const repErr = await cdp.eval(`[...document.querySelectorAll('.ant-alert-error')].map(a=>a.innerText)`);
     expect(repErr.length === 0, 'reports page has no error alerts');
     const repTxt = await cdp.eval('document.body.innerText');
-    const repHas = repTxt.includes('Top Problem Machines') || repTxt.includes('Downtime by Maintenance Type') || repTxt.includes('No report data available');
+    const repHas = /Top Problem Machines|Downtime by Maintenance Type|No report data available/i.test(repTxt);
     expect(repHas, 'reports page shows report cards or empty state');
 
     /* ══ 5. TEAMS ══ */
@@ -691,22 +721,28 @@ async function main() {
       // act on the first two non-terminal schedules (from the repos themselves)
       const doUiAction = async (actionLabel, apiSuffix, schedRow) => {
         const planCode = (schedRow && schedRow.plan_code) || '';
-        const got = await cdp.eval(`(() => {
-          const rows=[...document.querySelectorAll('.ant-table-tbody tr.ant-table-row')];
-          let r = rows.find(x => ${JSON.stringify(planCode) ? 'x.innerText.includes(' + JSON.stringify(planCode) + ')' : 'false'});
-          const row = r || rows.find(x => [...x.querySelectorAll('button')].some(b => b.textContent.trim()===${JSON.stringify(actionLabel)})) || null;
-          if(!row) return false;
-          const b=[...row.querySelectorAll('button')].find(x=>x.textContent.trim()===${JSON.stringify(actionLabel)});
-          if(!b) return false;
-          (${CLICK_AT})(b); return true;
-        })()`);
-        if (!got) { console.log('   [info] no ' + actionLabel + ' button on schedule row'); return 'none'; }
+        const t0 = Date.now();
+        let clicked = false;
+        while (Date.now() - t0 < 15000) {
+          const got = await cdp.eval(`(() => {
+            const rows=[...document.querySelectorAll('.ant-table-tbody tr.ant-table-row')];
+            let r = rows.find(x => ${JSON.stringify(planCode) ? 'x.innerText.includes(' + JSON.stringify(planCode) + ')' : 'false'});
+            const row = r || rows.find(x => [...x.querySelectorAll('button')].some(b => b.textContent.trim()===${JSON.stringify(actionLabel)})) || null;
+            if(!row) return false;
+            const b=[...row.querySelectorAll('button')].find(x=>x.textContent.trim()===${JSON.stringify(actionLabel)});
+            if(!b) return false;
+            (${CLICK_AT})(b); return true;
+          })()`);
+          if (got) { clicked = true; break; }
+          await new Promise((r) => setTimeout(r, 350));
+        }
+        if (!clicked) { console.log('   [info] no ' + actionLabel + ' button on schedule row'); return 'none'; }
         await new Promise((r) => setTimeout(r, 700));
         await cdp.eval(`(() => { const pop=[...document.querySelectorAll('.ant-popover:not(.ant-popover-hidden)')].pop();
           if(!pop) return false;
           const b=[...pop.querySelectorAll('button')].find(x=>x.textContent.trim()===${JSON.stringify(actionLabel)});
           if(b) (${CLICK_AT})(b); return !!b; })()`);
-        await waitApi((r) => r.method === 'POST' && r.url.includes('/schedules/' + schedRow.id + '/' + apiSuffix) && r.status === 200, actionLabel + ' API 200');
+        await waitApi((r) => r.method === 'POST' && r.url.includes('/schedules/' + schedRow.id + '/' + apiSuffix) && r.status >= 200 && r.status < 300, actionLabel + ' API 2xx');
         return 'done';
       };
 
@@ -769,7 +805,10 @@ async function main() {
     consume();
     const allApi = [...requests.values()];
     const noStatus = allApi.filter((r) => !r.aborted && (r.status === null || r.status === undefined));
-    expect(noStatus.length === 0, 'every captured API request got a status response (' + noStatus.length + ' unmatched, ' + allApi.filter((r) => r.aborted).length + ' aborted by navigation)');
+    const superseded = noStatus.filter((r) => allApi.some((o) => o !== r && o.status !== null && o.method === r.method && o.url === r.url));
+    if (superseded.length) console.log('   [info] ' + superseded.length + ' duplicate superseded request(s) (identical-sibling already answered) ignored by status check');
+    const trulyUnanswered = noStatus.filter((r) => !superseded.includes(r));
+    expect(trulyUnanswered.length === 0, 'every captured API request got a status response (' + trulyUnanswered.length + ' unanswered, ' + superseded.length + ' superseded duplicates, ' + allApi.filter((r) => r.aborted).length + ' aborted by navigation)');
     const non2xx = allApi.filter((r) => r.status !== null && (r.status < 200 || r.status >= 300));
     if (non2xx.length) {
       for (const r of non2xx.slice(0, 10)) console.log('   non-2xx: ' + r.method + ' ' + r.url.replace('http://localhost:3001/api/v1', '') + ' -> ' + r.status);
@@ -825,6 +864,13 @@ async function main() {
           if (!t) continue;
           await cc.query('UPDATE maintenance_pm_schedules SET status=$1, completed_at=$2 WHERE id=$3', [t.status, t.completed_at, t.id]);
           await cc.query('UPDATE maintenance_pm_plans SET next_due_date=$1 WHERE id=$2', [nextDue[t.pm_plan_id] || null, t.pm_plan_id]);
+        }
+        if (tempTechId) {
+          try {
+            await cc.query('DELETE FROM maintenance_job_card_technicians WHERE technician_id=$1', [tempTechId]);
+          } catch { /* join row already removed with job cards */ }
+          const delTech = await cc.query('DELETE FROM maintenance_technicians WHERE id=$1', [tempTechId]);
+          console.log('   [cleanup] deleted temporary technician (' + delTech.rowCount + ')');
         }
         const revoke = grantedIds.length
           ? await cc.query(`DELETE FROM role_permissions rp USING roles r

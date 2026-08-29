@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, App as AntApp, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tag, Typography } from 'antd';
-import { PlusOutlined, ReloadOutlined, CalendarOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
-import { EmptyState, LoadingState, PageHeader } from '../../components/shared';
+import { EmptyState, LoadingState } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
+import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { panelCard, shadowSm } from './maintTheme';
 import { errorText, label } from './jobCards.types';
+import './maintTheme.css';
 
 const BASE = '/master-data/maintenance/pm';
 type PmPlan = Record<string, any>;
@@ -15,21 +18,31 @@ const rowsOf = (r: any): any[] => r?.data?.data || r?.data || r || [];
 const uuidRowsOf = (r: any): OrgOption[] => rowsOf(r).filter((i: any) => i && UUID_RE.test(String(i.id)));
 const optionLabel = (o: OrgOption) => o.name || o.code || o.id;
 
+const frequencyLabel = (r: PmPlan) => `${r.frequencyValue}x ${label(r.frequencyType)}`;
+
 const FREQUENCY_OPTIONS = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL', 'HOURS'];
 
+const STATUS_COLOR: Record<string, string> = {
+  SCHEDULED: 'blue',
+  DUE: 'orange',
+  OVERDUE: 'red',
+  COMPLETED: 'green',
+  SKIPPED: 'default',
+};
+
 export const PmPlansList: React.FC = () => {
-  const navigate = () => {};
   const { message } = AntApp.useApp();
   const { can } = usePermission();
   const [plans, setPlans] = useState<PmPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<PmPlan | null>(null);
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [machines, setMachines] = useState<OrgOption[]>([]);
   const [teams, setTeams] = useState<OrgOption[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -61,6 +74,35 @@ export const PmPlansList: React.FC = () => {
     catch (e) { message.error(errorText(e)); }
   };
 
+  const viewPlan = async (id: string) => {
+    try {
+      const plan = await apiService.get<any>(`${BASE}/plans/${id}`);
+      setSelectedPlan(plan);
+      setDetailOpen(true);
+    } catch (e) { message.error(errorText(e)); }
+  };
+
+  const canManage = can('maintenance.pm.manage');
+
+  const { setHeaderActions, clearHeaderActions } = useHeaderActions.getState();
+  useEffect(() => {
+    setHeaderActions([
+      ...(canManage
+        ? [{
+            key: 'create-plan',
+            node: (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setCreateOpen(true); }}>
+                Create PM Plan
+              </Button>
+            ),
+          }]
+        : []),
+      { key: 'refresh', node: (<Button icon={<ReloadOutlined />} onClick={load} loading={loading}>Refresh</Button>) },
+    ]);
+    return () => clearHeaderActions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setHeaderActions, clearHeaderActions, canManage, loading, load]);
+
   const columns = [
     { title: 'Code', dataIndex: 'planCode', render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
     { title: 'Plan Name', dataIndex: 'planName' },
@@ -68,7 +110,7 @@ export const PmPlansList: React.FC = () => {
       title: 'Machine',
       render: (_: any, r: PmPlan) => r.machine ? `${r.machine.machineCode || ''} ${r.machine.name || ''}`.trim() || '—' : '—',
     },
-    { title: 'Frequency', render: (_: any, r: PmPlan) => <Tag>{r.frequencyValue}x {label(r.frequencyType)}</Tag> },
+    { title: 'Frequency', render: (_: any, r: PmPlan) => <Tag color={STATUS_COLOR.SCHEDULED}>{frequencyLabel(r)}</Tag> },
     {
       title: 'Team',
       render: (_: any, r: PmPlan) => r.assignedTeam?.name || '—',
@@ -79,9 +121,9 @@ export const PmPlansList: React.FC = () => {
       title: 'Actions',
       key: 'actions',
       render: (_: any, r: PmPlan) => (
-        <Space>
-          <Button size="small" onClick={() => navigate()}>View</Button>
-          {can('maintenance.pm.manage') && (
+        <Space wrap size={4}>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => viewPlan(r.id)}>View</Button>
+          {canManage && (
             <Button size="small" danger icon={<DeleteOutlined />} onClick={() => Modal.confirm({
               title: 'Deactivate this PM plan?',
               onOk: () => deletePlan(r.id),
@@ -93,21 +135,14 @@ export const PmPlansList: React.FC = () => {
   ];
 
   return (
-    <div>
-      <PageHeader icon={<CalendarOutlined />} title="PM Plans" subtitle="Preventive maintenance plans and schedules" gradient="linear-gradient(135deg, #1f6f78 0%, #2e8b8b 100%)" showBreadcrumbs />
-      {error && <Alert type="error" showIcon message="Unable to load PM plans" description={error} style={{ marginBottom: 16 }} />}
-      {loading ? <LoadingState /> : (
-        <>
-          <div style={{ marginBottom: 16, textAlign: 'right' }}>
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
-              {can('maintenance.pm.manage') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setCreateOpen(true); }}>Create PM Plan</Button>}
-            </Space>
-          </div>
-          {plans.length === 0 ? <EmptyState title="No PM plans" description="Create a preventive maintenance plan to get started." /> : (
-            <Table rowKey="id" columns={columns} dataSource={plans} pagination={{ pageSize: 20 }} />
-          )}
-        </>
+    <div className="maint-table-scroll">
+      {error && <Alert type="error" showIcon message="Unable to load PM plans" description={error} style={{ marginBottom: 16, borderRadius: 6 }} />}
+      {loading ? <LoadingState /> : plans.length === 0 ? (
+        <Card style={{ ...panelCard }}><EmptyState title="No PM plans" description="Create a preventive maintenance plan to get started." /></Card>
+      ) : (
+        <Card style={{ ...panelCard, boxShadow: shadowSm }} styles={{ body: { padding: 0 } }}>
+          <Table rowKey="id" columns={columns} dataSource={plans} pagination={{ pageSize: 20, showSizeChanger: true }} scroll={{ x: 1080 }} />
+        </Card>
       )}
 
       <Modal title="Create PM Plan" open={createOpen} confirmLoading={saving} onCancel={() => setCreateOpen(false)} onOk={() => form.submit()} width={640}>
@@ -128,6 +163,21 @@ export const PmPlansList: React.FC = () => {
             <Col span={8}><Form.Item name="startDate" label="Start Date"><Input type="date" /></Form.Item></Col>
           </Row>
         </Form>
+      </Modal>
+
+      <Modal title="PM Plan Details" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={640}>
+        {selectedPlan && (
+          <Descriptions bordered size="small" column={2}>
+            <Descriptions.Item label="Code">{selectedPlan.planCode}</Descriptions.Item>
+            <Descriptions.Item label="Name">{selectedPlan.planName}</Descriptions.Item>
+            <Descriptions.Item label="Description" span={2}>{selectedPlan.description || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Machine">{selectedPlan.machine ? `${selectedPlan.machine.machineCode || ''} ${selectedPlan.machine.name || ''}`.trim() : '—'}</Descriptions.Item>
+            <Descriptions.Item label="Frequency">{frequencyLabel(selectedPlan)}</Descriptions.Item>
+            <Descriptions.Item label="Team">{selectedPlan.assignedTeam?.name || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Start Date">{selectedPlan.startDate ? new Date(selectedPlan.startDate).toLocaleDateString() : '—'}</Descriptions.Item>
+            <Descriptions.Item label="Next Due">{selectedPlan.nextDueDate ? new Date(selectedPlan.nextDueDate).toLocaleDateString() : '—'}</Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </div>
   );

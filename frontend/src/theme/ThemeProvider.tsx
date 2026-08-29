@@ -40,9 +40,14 @@ const buildCssVars = (
       '--theme-success': '#49aa19',
       '--theme-warning': '#d89614',
       '--theme-danger': '#e5484d',
+      '--theme-info': accent,
       '--theme-success-soft': 'rgba(73, 170, 25, 0.16)',
       '--theme-warning-soft': 'rgba(216, 150, 20, 0.16)',
       '--theme-danger-soft': 'rgba(229, 72, 77, 0.16)',
+      '--theme-info-soft': rgbaFromHex(accent, 0.16),
+      '--theme-surface-elevated': lightenHex(surface, 0.09),
+      '--theme-chart-grid': 'rgba(226, 232, 255, 0.09)',
+      '--theme-chart-axis': 'rgba(199, 204, 235, 0.5)',
     };
   }
   return {
@@ -64,13 +69,18 @@ const buildCssVars = (
     '--theme-hover': rgbaFromHex(primary, 0.07),
     '--theme-active': rgbaFromHex(primary, 0.14),
     '--theme-focus': rgbaFromHex(accent, 0.35),
-    '--theme-success': '#52c41a',
-    '--theme-warning': '#faad14',
-    '--theme-danger': '#ff4d4f',
-    '--theme-success-soft': mixHex('#52c41a', '#ffffff', 0.88),
-    '--theme-warning-soft': mixHex('#faad14', '#ffffff', 0.85),
-    '--theme-danger-soft': mixHex('#ff4d4f', '#ffffff', 0.88),
-  };
+'--theme-success': '#52c41a',
+      '--theme-warning': '#faad14',
+      '--theme-danger': '#ff4d4f',
+      '--theme-info': accent,
+      '--theme-success-soft': mixHex('#52c41a', '#ffffff', 0.88),
+      '--theme-warning-soft': mixHex('#faad14', '#ffffff', 0.85),
+      '--theme-danger-soft': mixHex('#ff4d4f', '#ffffff', 0.88),
+      '--theme-info-soft': mixHex(accent, '#ffffff', 0.88),
+      '--theme-surface-elevated': '#ffffff',
+      '--theme-chart-grid': 'rgba(15, 23, 42, 0.08)',
+      '--theme-chart-axis': 'rgba(15, 23, 42, 0.5)',
+    };
 };
 
 const applyCssVars = (vars: Record<string, string>): void => {

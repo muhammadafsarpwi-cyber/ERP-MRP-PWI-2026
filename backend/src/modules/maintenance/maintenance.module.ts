@@ -19,6 +19,7 @@ import {
   MaintenanceFailureCategory,
   MaintenancePmPlan,
   MaintenancePmSchedule,
+  MaintenanceTechnician,
 } from './entities';
 import { Machine } from '../production/entities/machine.entity';
 import { Department } from '../organization/entities/department.entity';
@@ -29,11 +30,13 @@ import { MaintenanceJobCardService } from './services/maintenance-job-card.servi
 import { MaintenanceTeamService } from './services/maintenance-team.service';
 import { MaintenanceCategoryService } from './services/maintenance-category.service';
 import { MaintenancePmService } from './services/maintenance-pm.service';
+import { MaintenanceTechnicianService } from './services/maintenance-technician.service';
 import { MaintenanceUserResolverService } from './services/maintenance-user-resolver.service';
 import { MaintenanceJobCardController } from './controllers/job-card.controller';
 import { MaintenanceTeamController } from './controllers/team.controller';
 import { MaintenanceCategoryController } from './controllers/category.controller';
 import { MaintenancePmController } from './controllers/pm.controller';
+import { MaintenanceTechnicianController } from './controllers/technician.controller';
 
 @Module({
   imports: [
@@ -61,6 +64,7 @@ import { MaintenancePmController } from './controllers/pm.controller';
       Division,
       Section,
       ErpUser,
+      MaintenanceTechnician,
     ]),
   ],
   controllers: [
@@ -68,6 +72,7 @@ import { MaintenancePmController } from './controllers/pm.controller';
     MaintenanceTeamController,
     MaintenanceCategoryController,
     MaintenancePmController,
+    MaintenanceTechnicianController,
   ],
   providers: [
     MaintenanceJobCardService,
@@ -75,6 +80,7 @@ import { MaintenancePmController } from './controllers/pm.controller';
     MaintenanceCategoryService,
     MaintenancePmService,
     MaintenanceUserResolverService,
+    MaintenanceTechnicianService,
   ],
   exports: [
     MaintenanceJobCardService,
@@ -82,6 +88,7 @@ import { MaintenancePmController } from './controllers/pm.controller';
     MaintenanceCategoryService,
     MaintenancePmService,
     MaintenanceUserResolverService,
+    MaintenanceTechnicianService,
   ],
 })
 export class MaintenanceModule {}

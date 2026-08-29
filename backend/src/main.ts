@@ -27,7 +27,7 @@ async function bootstrap() {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
   const isProduction = process.env.NODE_ENV === 'production';
   const lanFrontendPattern =
-    /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):3000$/;
+    /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):(3000|4174)$/;
   app.enableCors({
     origin: (origin, callback) => {
       if (!origin || origin === frontendUrl || (!isProduction && lanFrontendPattern.test(origin))) {

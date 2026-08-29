@@ -68,6 +68,13 @@ class ApiService {
     return response.data;
   }
 
+  async upload<T>(url: string, formData: FormData): Promise<T> {
+    const response = await this.api.post<T>(url, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
   async put<T>(url: string, data?: any): Promise<T> {
     const response = await this.api.put<T>(url, data);
     return response.data;
