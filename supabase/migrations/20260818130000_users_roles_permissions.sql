@@ -139,9 +139,12 @@ CREATE INDEX IF NOT EXISTS idx_user_org_scopes_department_id ON user_organizatio
 
 -- =====================================================
 -- SEED DATA: Initial System Roles
+-- SUPER_ADMIN uses a fixed UUID so later migrations can grant it deterministically
 -- =====================================================
+INSERT INTO roles (id, role_code, name, description, is_system_role, status) VALUES
+    ('c37e82cb-5242-4987-a92a-3edb208da6f4', 'SUPER_ADMIN', 'Super Administrator', 'Full system access with all permissions', true, 'ACTIVE')
+ON CONFLICT (id) DO NOTHING;
 INSERT INTO roles (role_code, name, description, is_system_role, status) VALUES
-    ('SUPER_ADMIN', 'Super Administrator', 'Full system access with all permissions', true, 'ACTIVE'),
     ('ADMIN', 'Administrator', 'System administration with most permissions', true, 'ACTIVE'),
     ('MANAGEMENT', 'Management', 'Management level access', true, 'ACTIVE'),
     ('SALES', 'Sales', 'Sales department access', false, 'ACTIVE'),

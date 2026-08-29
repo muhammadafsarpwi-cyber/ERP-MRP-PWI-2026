@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- PROMPT-07 / PROMPT-07-FIX: Machine Master canonical inventory seed
 -- Migration: 20260822040000_erp_00014b_machine_master_alignment.sql
 --
@@ -199,7 +199,7 @@ DECLARE
 BEGIN
   SELECT COUNT(*) INTO v_count FROM public.machines WHERE is_active;
   SELECT COUNT(*) INTO v_canonical FROM public.machines
-  WHERE machine_id ~ '^MCH[0-9]{3} AND is_active; AND is_active;
+  WHERE machine_id ~ '^MCH[0-9]{3}$' AND is_active;
   SELECT COUNT(*) INTO v_dups FROM (
     SELECT machine_id FROM public.machines GROUP BY machine_id HAVING COUNT(*) > 1
   ) d;

@@ -237,10 +237,24 @@ CREATE INDEX IF NOT EXISTS idx_warehouse_locations_status ON warehouse_locations
 
 -- =====================================================
 -- SEED DATA: Initial Company
+-- Fixed UUID so later migrations can reference it deterministically
 -- =====================================================
-INSERT INTO companies (company_code, legal_name, trade_name, base_currency, status)
-VALUES ('COMP-001', 'Default Company', 'Default Company', 'USD', 'ACTIVE')
-ON CONFLICT (company_code) DO NOTHING;
+INSERT INTO companies (id, company_code, legal_name, trade_name, base_currency, status)
+VALUES ('7725aa04-a270-4314-9e82-90949cbe7791', 'COMP-001', 'Default Company', 'Default Company', 'USD', 'ACTIVE')
+ON CONFLICT (id) DO NOTHING;
+-- If a COMP-001 row exists with a different id (older DBs), keep it but ensure the fixed id exists
+INSERT INTO companies (id, company_code, legal_name, trade_name, base_currency, status)
+SELECT '7725aa04-a270-4314-9e82-90949cbe7791', company_code, legal_name, trade_name, base_currency, status
+FROM companies WHERE company_code = 'COMP-001' AND id <> '7725aa04-a270-4314-9e82-90949cbe7791'
+ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================
+-- SEED DATA: Initial Warehouse (needed by downstream demo data)
+-- =====================================================
+INSERT INTO warehouses (company_id, warehouse_code, name, warehouse_type, status)
+SELECT c.id, 'WH-MAIN-001', 'Main Warehouse', 'GENERAL', 'ACTIVE'
+FROM companies c WHERE c.company_code = 'COMP-001'
+ON CONFLICT (warehouse_code, company_id) DO NOTHING;
 
 -- =====================================================
 -- SEED DATA: Initial Divisions (5 divisions)

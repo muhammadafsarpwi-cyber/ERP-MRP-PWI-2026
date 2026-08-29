@@ -96,6 +96,20 @@ END $$;
 -- This preserves the historical association without duplicating departments.
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- Ensure operational divisions (SPD, CCD) exist before scoping (clean-room reproducibility)
+DO $$
+DECLARE
+  v_company_id UUID;
+BEGIN
+  SELECT id INTO v_company_id FROM companies WHERE company_code = 'COMP-001';
+  INSERT INTO divisions (company_id, division_code, name, description, status)
+  VALUES (v_company_id, 'SPD', 'Steel Products Division', 'Steel wire, cable and fastener manufacturing', 'ACTIVE')
+  ON CONFLICT (division_code, company_id) DO NOTHING;
+  INSERT INTO divisions (company_id, division_code, name, description, status)
+  VALUES (v_company_id, 'CCD', 'Control Cables Division', 'Control cable manufacturing', 'ACTIVE')
+  ON CONFLICT (division_code, company_id) DO NOTHING;
+END $$;
+
 DO $$
 DECLARE
   v_company_id UUID;

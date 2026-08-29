@@ -134,7 +134,7 @@ export class DashboardService {
 
     let totalMachines = await this.machineRepo.count({ where: { companyId } });
     let activeMachines = await this.machineRepo.count({ where: { companyId, status: 'ACTIVE' as any } });
-    let machineStatusMap: Record<string, number> = {};
+    const machineStatusMap: Record<string, number> = {};
 
     if (filters?.departmentId) {
       const statusRows = await this.machineRepo
@@ -160,7 +160,7 @@ export class DashboardService {
       for (const row of statusRows) machineStatusMap[row.status] = parseInt(row.count, 10);
     }
 
-    let entryQb = this.entryRepo.createQueryBuilder('pe')
+    const entryQb = this.entryRepo.createQueryBuilder('pe')
       .where('pe.company_id = :companyId', { companyId })
       .andWhere('pe.is_active = true');
     if (filters?.departmentId) entryQb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
@@ -170,9 +170,9 @@ export class DashboardService {
       entryQb.clone().andWhere('pe.entry_date = :today', { today }).getCount(),
     ]);
 
-    let targetCountQb = this.machineTargetRepo.createQueryBuilder('mt')
+    const targetCountQb = this.machineTargetRepo.createQueryBuilder('mt')
       .where('mt."company_id" = :companyId', { companyId });
-    let targetActiveCountQb = this.machineTargetRepo.createQueryBuilder('mt')
+    const targetActiveCountQb = this.machineTargetRepo.createQueryBuilder('mt')
       .where('mt."company_id" = :companyId', { companyId });
     if (filters?.departmentId) {
       targetCountQb.andWhere('mt."department_id" = :departmentId', { departmentId: filters.departmentId });

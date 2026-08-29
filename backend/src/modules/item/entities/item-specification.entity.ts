@@ -30,8 +30,26 @@ export class ItemSpecification extends BaseEntity {
   @JoinColumn({ name: 'uom_id' })
   uom: Uom;
 
-  @Column({ type: 'text', nullable: true })
-  description: string | null;
+  @Column({ name: 'min_value', type: 'numeric', precision: 19, scale: 6, nullable: true })
+  minValue: number | null;
+
+  @Column({ name: 'max_value', type: 'numeric', precision: 19, scale: 6, nullable: true })
+  maxValue: number | null;
+
+  @Column({ name: 'target_value', type: 'numeric', precision: 19, scale: 6, nullable: true })
+  targetValue: number | null;
+
+  @Column({ name: 'tolerance_plus', type: 'numeric', precision: 19, scale: 6, nullable: true })
+  tolerancePlus: number | null;
+
+  @Column({ name: 'tolerance_minus', type: 'numeric', precision: 19, scale: 6, nullable: true })
+  toleranceMinus: number | null;
+
+  @Column({ name: 'is_critical', type: 'boolean', default: false })
+  isCritical: boolean;
+
+  @Column({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder: number;
 
   @Column({ type: 'varchar', length: 20, default: SpecificationStatus.ACTIVE })
   status: SpecificationStatus;

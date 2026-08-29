@@ -20,7 +20,7 @@ export class AuthService {
       loginDto.password,
     );
 
-    let erpUser = await this.userService.findByAuthUserId(result.user.id);
+    const erpUser = await this.userService.findByAuthUserId(result.user.id);
 
     if (!erpUser) {
       throw new UnauthorizedException('Your account has not been provisioned by an administrator');
@@ -56,7 +56,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid token');
     }
 
-    let erpUser = await this.userService.findByAuthUserId(supabaseUser.id);
+    const erpUser = await this.userService.findByAuthUserId(supabaseUser.id);
 
     if (!erpUser) {
       throw new UnauthorizedException('Your account has not been provisioned by an administrator');

@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CompanyController } from './company.controller';
 import { CompanyService } from '../services';
 import { CompanyStatus } from '../entities';
+import { PermissionService } from '../../permission/services/permission.service';
+import { ErpUserService } from '../../user/services/erp-user.service';
 
 describe('CompanyController', () => {
   let controller: CompanyController;
@@ -33,6 +35,14 @@ describe('CompanyController', () => {
         {
           provide: CompanyService,
           useValue: mockService,
+        },
+        {
+          provide: PermissionService,
+          useValue: { checkUserPermission: jest.fn().mockResolvedValue(true) },
+        },
+        {
+          provide: ErpUserService,
+          useValue: { findByAuthUserId: jest.fn().mockResolvedValue({ id: 'erp-user', status: 'ACTIVE' }) },
         },
       ],
     }).compile();

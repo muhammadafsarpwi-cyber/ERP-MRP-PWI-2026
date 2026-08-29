@@ -128,49 +128,49 @@ WHERE item_code IN ('FIN-001', 'SLD-0001', 'SLD-0002')
 
 -- BOM-001: Precision Bearing 6205 (ACTIVE)
 INSERT INTO bill_of_materials (id, company_id, bom_code, name, description, status, base_quantity, product_id, effective_from, estimated_cost)
-VALUES (
+SELECT
   'b1000000-0000-0000-0000-000000000001',
-  '7725aa04-a270-4314-9e82-90949cbe7791',
+  c.id,
   'BOM-001',
   'Precision Bearing 6205 Assembly',
   'Main production BOM for Precision Bearing 6205. Includes steel, aluminum, and hydraulic oil.',
   'ACTIVE',
   1,
-  'a395c230-5f53-4dd1-9170-0a35d0a569e4',
+  (SELECT id FROM items WHERE item_code = 'FIN-001'),
   '2026-01-01T00:00:00Z',
   1880.0000
-)
+FROM companies c WHERE c.company_code = 'COMP-001'
 ON CONFLICT (bom_code, company_id) DO NOTHING;
 
 -- BOM-002: Industrial Widget (ACTIVE)
 INSERT INTO bill_of_materials (id, company_id, bom_code, name, description, status, base_quantity, product_id, effective_from, estimated_cost)
-VALUES (
+SELECT
   'b1000000-0000-0000-0000-000000000002',
-  '7725aa04-a270-4314-9e82-90949cbe7791',
+  c.id,
   'BOM-002',
   'Industrial Widget Assembly',
   'Standard production BOM for Industrial Widget. Steel body, ABS plastic housing, copper wiring.',
   'ACTIVE',
   1,
-  '079c0ac6-1f62-49f4-8f58-1bdec1c828fe',
+  (SELECT id FROM items WHERE item_code = 'SLD-0001'),
   '2026-01-01T00:00:00Z',
   2440.0000
-)
+FROM companies c WHERE c.company_code = 'COMP-001'
 ON CONFLICT (bom_code, company_id) DO NOTHING;
 
 -- BOM-003: Premium Component Kit (DRAFT)
 INSERT INTO bill_of_materials (id, company_id, bom_code, name, description, status, base_quantity, product_id, estimated_cost)
-VALUES (
+SELECT
   'b1000000-0000-0000-0000-000000000003',
-  '7725aa04-a270-4314-9e82-90949cbe7791',
+  c.id,
   'BOM-003',
   'Premium Component Kit Assembly',
   'Draft BOM for Premium Component Kit. Includes bearings, fasteners, and packaging.',
   'DRAFT',
   1,
-  '94212023-e076-4cda-b556-b1bdbb3f784b',
+  (SELECT id FROM items WHERE item_code = 'SLD-0002'),
   1745.0000
-)
+FROM companies c WHERE c.company_code = 'COMP-001'
 ON CONFLICT (bom_code, company_id) DO NOTHING;
 
 -- ============================================================
@@ -179,26 +179,38 @@ ON CONFLICT (bom_code, company_id) DO NOTHING;
 
 -- BOM-001 lines (Precision Bearing 6205)
 INSERT INTO bom_lines (bom_id, line_number, item_id, quantity, uom_id, scrap_factor, yield_percentage, remarks)
-VALUES
-  ('b1000000-0000-0000-0000-000000000001', 1, '83700083-14cc-4745-be42-6e84c7b5ff1c', 2, '52a2a811-b692-497e-9467-10a06b66043b', 0.05, 95, 'Steel sheet for bearing housing'),
-  ('b1000000-0000-0000-0000-000000000001', 2, '1c53e9a9-b020-4d3a-bcd4-67ab8b50ef6f', 1, '52a2a811-b692-497e-9467-10a06b66043b', 0.03, 97, 'Aluminum rod for bearing race'),
-  ('b1000000-0000-0000-0000-000000000001', 3, 'c32d8fe3-32c6-402e-8012-d5884ed2700d', 0.5, '52a2a811-b692-497e-9467-10a06b66043b', 0.02, 98, 'Hydraulic oil for lubrication')
+SELECT 'b1000000-0000-0000-0000-000000000001', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
+FROM (VALUES
+  (1, 'RAW-001', 2, 'KG', 0.05, 95, 'Steel sheet for bearing housing'),
+  (2, 'RAW-002', 1, 'KG', 0.03, 97, 'Aluminum rod for bearing race'),
+  (3, 'CONS-001', 0.5, 'KG', 0.02, 98, 'Hydraulic oil for lubrication')
+) AS v(line_number, item_code, quantity, uom_code, scrap_factor, yield_percentage, remarks)
+JOIN items i ON i.item_code = v.item_code
+JOIN uoms u ON u.code = v.uom_code
 ON CONFLICT (bom_id, line_number) DO NOTHING;
 
 -- BOM-002 lines (Industrial Widget)
 INSERT INTO bom_lines (bom_id, line_number, item_id, quantity, uom_id, scrap_factor, yield_percentage, remarks)
-VALUES
-  ('b1000000-0000-0000-0000-000000000002', 1, '83700083-14cc-4745-be42-6e84c7b5ff1c', 3, '52a2a811-b692-497e-9467-10a06b66043b', 0.04, 96, 'Steel sheet for widget body'),
-  ('b1000000-0000-0000-0000-000000000002', 2, 'ab5aa175-9b79-4aa8-b59e-69f90cb9e3bf', 2, '52a2a811-b692-497e-9467-10a06b66043b', 0.03, 97, 'ABS plastic for housing'),
-  ('b1000000-0000-0000-0000-000000000002', 3, '42733eb7-9378-4b00-9c26-d2feb87da03c', 1, '52a2a811-b692-497e-9467-10a06b66043b', 0.01, 99, 'Copper wire for electrical')
+SELECT 'b1000000-0000-0000-0000-000000000002', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
+FROM (VALUES
+  (1, 'RAW-001', 3, 'KG', 0.04, 96, 'Steel sheet for widget body'),
+  (2, 'RAW-003', 2, 'KG', 0.03, 97, 'ABS plastic for housing'),
+  (3, 'RAW-004', 1, 'KG', 0.01, 99, 'Copper wire for electrical')
+) AS v(line_number, item_code, quantity, uom_code, scrap_factor, yield_percentage, remarks)
+JOIN items i ON i.item_code = v.item_code
+JOIN uoms u ON u.code = v.uom_code
 ON CONFLICT (bom_id, line_number) DO NOTHING;
 
 -- BOM-003 lines (Premium Component Kit)
 INSERT INTO bom_lines (bom_id, line_number, item_id, quantity, uom_id, scrap_factor, yield_percentage, remarks)
-VALUES
-  ('b1000000-0000-0000-0000-000000000003', 1, 'a395c230-5f53-4dd1-9170-0a35d0a569e4', 2, 'a6d4c30b-f644-4be0-aa1b-19ba55495789', 0, 100, 'Bearings for kit assembly'),
-  ('b1000000-0000-0000-0000-000000000003', 2, '74d8a402-2ae7-45b6-bd0b-8254d5b8a94f', 1, 'a6d4c30b-f644-4be0-aa1b-19ba55495789', 0, 100, 'Fastener pack for assembly'),
-  ('b1000000-0000-0000-0000-000000000003', 3, '101e6ea5-552c-4029-843b-214d63487507', 1, 'a6d4c30b-f644-4be0-aa1b-19ba55495789', 0, 100, 'Packaging for finished kit')
+SELECT 'b1000000-0000-0000-0000-000000000003', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
+FROM (VALUES
+  (1, 'FIN-001', 2, 'EA', 0, 100, 'Bearings for kit assembly'),
+  (2, 'SLD-0003', 1, 'EA', 0, 100, 'Fastener pack for assembly'),
+  (3, 'PKG-001', 1, 'EA', 0, 100, 'Packaging for finished kit')
+) AS v(line_number, item_code, quantity, uom_code, scrap_factor, yield_percentage, remarks)
+JOIN items i ON i.item_code = v.item_code
+JOIN uoms u ON u.code = v.uom_code
 ON CONFLICT (bom_id, line_number) DO NOTHING;
 
 COMMIT;

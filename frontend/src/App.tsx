@@ -11,6 +11,7 @@ import ChangePassword from './pages/auth/ChangePassword';
 import Dashboard from './pages/dashboard/Dashboard';
 import Products from './pages/products/Products';
 import { CustomerManagement } from './pages/customers';
+import FinancePage from './pages/finance/FinancePage';
 import {
   SalesQuotationManagement,
   SalesOrderManagement,
@@ -124,6 +125,11 @@ const App: React.FC = () => {
                   <Route path="/maintenance/pm-plans" element={<PmPlansList />} />
                   <Route path="/maintenance/pm-schedules" element={<PmSchedules />} />
                   <Route path="/maintenance/reports" element={<MaintenanceReports />} />
+                  <Route path="/finance" element={<FinancePage />} />
+                  <Route path="/finance/accounts" element={<FinancePage />} />
+                  <Route path="/finance/journals" element={<FinancePage />} />
+                  <Route path="/finance/journals/new" element={<FinancePage />} />
+                  <Route path="/finance/reports/*" element={<FinancePage />} />
                   <Route path="/organization/companies" element={<CompanyManagement />} />
                   <Route path="/organization/branches" element={<BranchManagement />} />
                   <Route path="/organization/divisions" element={<DivisionManagement />} />

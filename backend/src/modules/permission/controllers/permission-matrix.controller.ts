@@ -61,7 +61,11 @@ export class PermissionMatrixController {
   @ApiResponse({ status: 200, description: 'User permissions returned' })
   async getMyPermissions(@Request() req: any) {
     const authUserId = req.user?.id;
-    const permissions = await this.matrixService.getUserPermissions(authUserId);
+    const erpUser = await this.userService.findByAuthUserId(authUserId);
+    if (!erpUser) {
+      return { success: true, data: [] };
+    }
+    const permissions = await this.matrixService.getUserPermissions(erpUser.id);
     return { success: true, data: permissions };
   }
 }

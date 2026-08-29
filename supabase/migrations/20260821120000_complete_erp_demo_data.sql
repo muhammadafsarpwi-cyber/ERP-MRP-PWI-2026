@@ -975,7 +975,7 @@ BEGIN
     IF v_loc2 IS NULL THEN v_loc2 := v_loc1; END IF;
 
     INSERT INTO inventory_policies (company_id, item_id, warehouse_id, minimum_stock, maximum_stock, reorder_level, reorder_quantity, safety_stock, lead_time_days, preferred_location_id, tracking_type, allow_negative_stock, status)
-    SELECT v_company_id, i.id, w.id, ip.min_stock, ip.max_stock, ip.reorder, ip.reorder_qty, ip.safety, ip.lead_days, wl.id, ip.tracking, false, 'ACTIVE'
+    SELECT DISTINCT ON (i.id, w.id) v_company_id, i.id, w.id, ip.min_stock, ip.max_stock, ip.reorder, ip.reorder_qty, ip.safety, ip.lead_days, wl.id, ip.tracking, false, 'ACTIVE'
     FROM (VALUES
         ('RAW-001', 'WH', 3000, 15000, 5000, 5000, 2000, 7, 'LOC1', 'NONE'),
         ('RAW-002', 'WH', 1000, 6000, 2000, 2000, 800, 10, 'LOC1', 'NONE'),
@@ -1072,7 +1072,7 @@ BEGIN
 
     -- Insert balances (on_hand = qty, available = on_hand - reserved)
     INSERT INTO inventory_balances (company_id, item_id, warehouse_id, location_id, batch_id, uom_id, on_hand, reserved, available, status)
-    SELECT v_company_id, i.id, w.id, wl.id, b.id, u.id, ib.on_hand, ib.reserved, ib.on_hand - ib.reserved, 'ACTIVE'
+    SELECT DISTINCT ON (i.id, w.id, u.id) v_company_id, i.id, w.id, wl.id, b.id, u.id, ib.on_hand, ib.reserved, ib.on_hand - ib.reserved, 'ACTIVE'
     FROM (VALUES
         ('RAW-001', 'WH1', 'LOC1', NULL, 'KG', 3000, 500),
         ('RAW-001', 'WH2', 'LOC2', NULL, 'KG', 1200, 0),

@@ -8,11 +8,11 @@ import { CompanyStatus } from '../entities';
 @ApiTags('organization/companies')
 @Controller('companies')
 @UseGuards(PermissionGuard)
-@RequirePermission('admin.users.update')
 export class CompanyController {
   constructor(private readonly companyService: CompanyService) {}
 
   @Post()
+  @RequirePermission('company.create')
   @ApiOperation({ summary: 'Create a new company' })
   @ApiResponse({ status: 201, description: 'Company created successfully' })
   @ApiResponse({ status: 409, description: 'Company code already exists' })
@@ -22,6 +22,7 @@ export class CompanyController {
   }
 
   @Get()
+  @RequirePermission('company.view')
   @ApiOperation({ summary: 'Get all companies' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -38,6 +39,7 @@ export class CompanyController {
   }
 
   @Get(':id')
+  @RequirePermission('company.view')
   @ApiOperation({ summary: 'Get a company by ID' })
   @ApiParam({ name: 'id', description: 'Company ID' })
   @ApiResponse({ status: 200, description: 'Company found' })
@@ -48,6 +50,7 @@ export class CompanyController {
   }
 
   @Patch(':id')
+  @RequirePermission('company.update')
   @ApiOperation({ summary: 'Update a company' })
   @ApiParam({ name: 'id', description: 'Company ID' })
   @ApiResponse({ status: 200, description: 'Company updated successfully' })
@@ -58,6 +61,7 @@ export class CompanyController {
   }
 
   @Patch(':id/activate')
+  @RequirePermission('company.activate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Activate a company' })
   @ApiParam({ name: 'id', description: 'Company ID' })
@@ -68,6 +72,7 @@ export class CompanyController {
   }
 
   @Patch(':id/deactivate')
+  @RequirePermission('company.deactivate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Deactivate a company' })
   @ApiParam({ name: 'id', description: 'Company ID' })
@@ -78,6 +83,7 @@ export class CompanyController {
   }
 
   @Delete(':id')
+  @RequirePermission('company.delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a company' })
   @ApiParam({ name: 'id', description: 'Company ID' })
