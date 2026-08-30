@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg0" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1626"/><stop offset="100%" stop-color="#1b2c44"/>
+    </linearGradient>
+    <radialGradient id="glow0" cx="0.5" cy="0.4" r="0.7">
+      <stop offset="0%" stop-color="#d4b25c" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#d4b25c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g opacity="0.08" stroke="#9fb3c8" stroke-width="2" fill="none">
+    <line x1="40" y1="60" x2="140" y2="60"/><line x1="40" y1="70" x2="120" y2="70"/>
+    <line x1="40" y1="80" x2="160" y2="80"/><line x1="40" y1="90" x2="100" y2="90"/>
+    <circle cx="700" cy="120" r="40"/><circle cx="760" cy="120" r="12"/>
+    <rect x="600" y="260" width="180" height="90" rx="6"/>
+  </g>
+  <rect width="1600" height="900" fill="url(#bg0)"/>
+  <rect width="1600" height="900" fill="url(#glow0)"/>
+  <rect width="1600" height="900" fill="#04070d" opacity="0.45"/>
+  <g font-family="Georgia, serif" text-anchor="middle">
+    <text x="800" y="430" font-size="64" fill="#e8edf4" letter-spacing="10">PWI</text>
+    <text x="800" y="490" font-size="26" fill="#9fb3c8" letter-spacing="6">PAKISTAN WIRE &amp; INDUSTRY</text>
+    <text x="800" y="600" font-size="18" fill="#d4b25c" letter-spacing="3">DEMO IMAGE 1 — REPLACE WITH COMPANY PHOTOGRAPH</text>
+  </g></svg>

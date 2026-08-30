@@ -1,106 +1,106 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from 'antd';
-import { ArrowRightOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, SoundOutlined, SoundFilled } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import AuthBrand from '../../components/auth/AuthBrand';
-import ThemeToggle from '../../components/auth/ThemeToggle';
-import WelcomeSlideshow from '../../components/auth/WelcomeSlideshow';
-import './auth.css';
+import WelcomeBackground from '../../components/auth/WelcomeBackground';
+import WelcomeAnimation from '../../components/auth/WelcomeAnimation';
+import './welcome.css';
+
+/** Number of floating golden particles — kept modest and performant. */
+const PARTICLE_COUNT = 22;
 
 const Welcome: React.FC = () => {
   const navigate = useNavigate();
   const [redirecting] = useState(() => !!localStorage.getItem('token'));
+  const [exiting, setExiting] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [soundReady, setSoundReady] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const reducedMotion = useMemo(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  );
+  const particles = useMemo(
+    () =>
+      Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
+        left: `${(i * 37) % 100}%`,
+        delay: `${(i * 0.9) % 12}s`,
+        duration: `${9 + (i % 7)}s`,
+        size: 2 + (i % 3),
+      })),
+    [],
+  );
 
   useEffect(() => {
     document.title = 'Welcome | PWI — Pakistan Wire & Industry';
-  }, []);
-
-  useEffect(() => {
-    if (redirecting) {
-      navigate('/dashboard', { replace: true });
-    }
+    if (redirecting) navigate('/dashboard', { replace: true });
   }, [redirecting, navigate]);
 
+  useEffect(() => {
+    // Subtle cinematic intro sound — optional, starts only after user interaction.
+    if (muted || soundReady) return;
+    if (audioRef.current) {
+      audioRef.current.volume = 0.25;
+      audioRef.current.play().catch(() => setMuted(true));
+      setSoundReady(true);
+    }
+  }, [muted, soundReady]);
+
   const handleEnter = () => {
-    navigate('/login');
+    // Ensure the audio never blocks the transition.
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+    setExiting(true);
+    window.setTimeout(() => navigate('/login', { replace: true }), 620);
   };
 
-  // Keyboard: Enter or Escape → Sign In immediately (cleanup happens on unmount).
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Enter' && event.key !== 'Escape') return;
-      const target = event.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'BUTTON' ||
-          target.tagName === 'A' ||
-          target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA')
-      ) {
-        return;
-      }
-      event.preventDefault();
-      navigate('/login');
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [navigate]);
-
-  if (redirecting) {
-    return null;
-  }
+  const toggleMute = () => {
+    setMuted((m) => !m);
+    setSoundReady(false);
+  };
 
   return (
-    <div className="erp-auth-root">
-      <WelcomeSlideshow onComplete={() => navigate('/login')} />
-      <div className="erp-auth-shade" />
-      <div className="erp-auth-grid" />
-      <div className="erp-auth-corners" aria-hidden="true">
-        <span className="erp-corner erp-corner-tl" />
-        <span className="erp-corner erp-corner-tr" />
-        <span className="erp-corner erp-corner-bl" />
-        <span className="erp-corner erp-corner-br" />
+    <div className={`erp-welcome-root${exiting ? ' is-exiting' : ''}`}>
+      <WelcomeBackground reducedMotion={reducedMotion} />
+      <div className="erp-welcome-overlay" aria-hidden="true" />
+      <div className="erp-welcome-particles" aria-hidden="true">
+        {particles.map((p, i) => (
+          <span
+            key={i}
+            className="erp-welcome-particle"
+            style={{ left: p.left, animationDelay: p.delay, animationDuration: p.duration, width: p.size, height: p.size }}
+          />
+        ))}
       </div>
 
-      <header className="erp-auth-top">
-        <AuthBrand />
-        <div className="erp-auth-top-right">
-          <span className="erp-auth-status">
-            <span className="erp-auth-status-dot" aria-hidden="true" />
-            Systems Operational
-          </span>
-          <ThemeToggle />
-        </div>
-      </header>
+      {/* Optional subtle audio */}
+      <audio ref={audioRef} src={`${process.env.PUBLIC_URL}/assets/welcome/welcome-intro.wav`} preload="none" loop />
+      <Button
+        className="erp-welcome-sound"
+        type="text"
+        icon={muted ? <SoundOutlined /> : <SoundFilled />}
+        aria-label={muted ? 'Unmute welcome sound' : 'Mute welcome sound'}
+        onClick={toggleMute}
+      />
 
-      <main className="erp-welcome-main">
-        <p className="erp-welcome-eyebrow">Industrial ERP / MRP Management System</p>
-        <h1 className="erp-welcome-title">PWI</h1>
-        <h2 className="erp-welcome-company">Pakistan Wire &amp; Industry</h2>
-        <div className="erp-welcome-divider" aria-hidden="true" />
-        <p className="erp-welcome-tagline">
-          Production <span className="erp-welcome-sep" aria-hidden="true">•</span>{' '}
-          Inventory <span className="erp-welcome-sep" aria-hidden="true">•</span>{' '}
-          Procurement <span className="erp-welcome-sep" aria-hidden="true">•</span>{' '}
-          Sales
+      <div className="erp-welcome-panel">
+        <img className="erp-welcome-logo" src={`${process.env.PUBLIC_URL}/logo.png`} alt="PWI — Pakistan Wire & Industry logo" />
+        <div className="erp-welcome-brand">Pakistan Wire &amp; Industry</div>
+        <WelcomeAnimation reducedMotion={reducedMotion} onAnimationComplete={() => {}} />
+        <p className="erp-welcome-sub">
+          Enterprise Manufacturing &amp; ERP System
         </p>
         <Button
-          className="erp-enter-btn"
           type="primary"
+          className="erp-welcome-enter"
           size="large"
+          icon={<ArrowRightOutlined />}
           onClick={handleEnter}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleEnter(); }}
+          aria-label="Welcome — enter the ERP"
         >
-          Enter System
-          <ArrowRightOutlined />
+          WELCOME
         </Button>
-        <p className="erp-welcome-security">Secure Enterprise Operations Platform</p>
-      </main>
-
-      <footer className="erp-auth-footer">
-        <span>PWI • Pakistan Wire &amp; Industry</span>
-        <span>ERP / MRP Platform</span>
-        <span>© 2026 Pakistan Wire &amp; Industry</span>
-      </footer>
+      </div>
     </div>
   );
 };
