@@ -107,6 +107,45 @@
     0 24px 60px rgba(0, 0, 0, 0.26);
 }
 
+/* Perimeter light sweep — a thin, subtle luminous streak that travels
+   clockwise around the box (top → right → bottom → left → top). CSS-only,
+   composited as a masked ring so it follows the rounded corners without ever
+   transforming or resizing the box. Uses the theme accent so it adapts to the
+   light/dark theme. */
+@property --welcome-beam {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.erp-welcome-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  padding: 2px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--welcome-beam),
+    transparent 0deg 330deg,
+    color-mix(in srgb, var(--theme-accent, #58a6ff) 22%, transparent) 346deg,
+    color-mix(in srgb, var(--theme-accent, #58a6ff) 52%, #ecf3ff) 353deg,
+    color-mix(in srgb, var(--theme-accent, #58a6ff) 30%, transparent) 359deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--theme-accent, #58a6ff) 45%, transparent));
+  animation: erp-welcome-beam 7s linear infinite;
+}
+@keyframes erp-welcome-beam {
+  from { --welcome-beam: 0deg; }
+  to   { --welcome-beam: 360deg; }
+}
+
 .erp-welcome-logo {
   height: 72px;
   width: 72px;
@@ -250,6 +289,7 @@
   .erp-welcome-particle { animation: none !important; opacity: 0; }
   .erp-write-pen { display: none; }
   .erp-write-sub { transition: none !important; }
+  .erp-welcome-panel::before { display: none; } /* perimeter sweep → normal static border */
 }
 
 /* Mobile edge-to-edge + compact panel */
