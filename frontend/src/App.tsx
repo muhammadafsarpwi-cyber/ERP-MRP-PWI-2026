@@ -29,6 +29,7 @@ import {
   WhatsAppLogsPage,
   NotificationRulesPage,
   NotificationPreferencesPage,
+  CommunicationCenterPage,
 } from './pages/communication';
 import {
   SalesQuotationManagement,
@@ -161,6 +162,9 @@ const App: React.FC = () => {
                   <Route path="/notifications" element={<NotificationsPage />} />
                   <Route path="/notifications/settings" element={<NotificationPreferencesPage />} />
                   <Route path="/notifications/preferences" element={<NotificationPreferencesPage />} />
+                  <Route path="/communication" element={<CommunicationCenterPage />} />
+                  <Route path="/communication/email" element={<Navigate to="/communication/email-settings" replace />} />
+                  <Route path="/communication/whatsapp" element={<Navigate to="/communication/whatsapp-settings" replace />} />
                   <Route path="/communication/email-settings" element={<EmailSettingsPage />} />
                   <Route path="/communication/email-templates" element={<EmailTemplatesPage channel="EMAIL" title="Email Templates" />} />
                   <Route path="/communication/email-logs" element={<EmailLogsPage channel="EMAIL" title="Email Delivery Logs" />} />

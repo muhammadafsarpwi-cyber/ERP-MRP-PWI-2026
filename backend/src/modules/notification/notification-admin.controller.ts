@@ -31,11 +31,11 @@ export class NotificationAdminController {
     private readonly engine: NotificationEngineService,
   ) {}
 
-  private companyWhere(companyId?: string): { companyId: string } | {} {
+  private companyWhere(companyId?: string): Record<string, string> {
     return companyId ? { companyId } : {};
   }
 
-  private companyOr(companyId?: string): { companyId: string } | {} {
+  private companyOr(companyId?: string): Record<string, string> {
     return companyId ? { companyId } : {};
   }
 

@@ -21,6 +21,25 @@ export class NotificationsController {
     return { success: true, data };
   }
 
+  @Get('paginated')
+  @ApiOperation({ summary: 'Paginated, filterable notification list' })
+  async listPaginated(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('filter') filter?: 'all' | 'unread' | 'read',
+    @Query('type') type?: string,
+  ) {
+    const result = await this.notificationsService.listForUserPaginated(
+      this.authUserId(req),
+      Number(page) || 1,
+      Number(limit) || 20,
+      filter,
+      type,
+    );
+    return { success: true, ...result };
+  }
+
   @Get('unread-count')
   @ApiOperation({ summary: 'Unread notification count for the current user' })
   async unreadCount(@Req() req: any) {
@@ -33,6 +52,15 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Mark a single notification as read (scoped to current user)' })
   async markRead(@Req() req: any, @Param('id') id: string) {
     await this.notificationsService.markRead(id, this.authUserId(req));
+    const count = await this.notificationsService.unreadCount(this.authUserId(req));
+    return { success: true, data: { count } };
+  }
+
+  @Post(':id/unread')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark a single notification as unread (scoped to current user)' })
+  async markUnread(@Req() req: any, @Param('id') id: string) {
+    await this.notificationsService.markUnread(id, this.authUserId(req));
     const count = await this.notificationsService.unreadCount(this.authUserId(req));
     return { success: true, data: { count } };
   }

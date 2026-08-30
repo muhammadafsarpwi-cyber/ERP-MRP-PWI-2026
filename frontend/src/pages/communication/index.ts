@@ -6,3 +6,4 @@ export { default as EmailLogsPage } from './DeliveryLogs';
 export { default as WhatsAppLogsPage } from './DeliveryLogs';
 export { default as NotificationRulesPage } from './NotificationRules';
 export { default as NotificationPreferencesPage } from './NotificationPreferences';
+export { default as CommunicationCenterPage } from './CommunicationCenter';

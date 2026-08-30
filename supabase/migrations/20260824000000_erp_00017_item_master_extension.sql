@@ -211,7 +211,7 @@ BEGIN
      'CCD Wire', 'CCD Packing',
      0.120000, 8.333, 0.150000, 0.800000,
      'PROMPT-09 SAMPLE DATA - safe test record', true, true, NOW(), NOW())
-ON CONFLICT (company_id, item_code) DO UPDATE SET
+ON CONFLICT (item_code, company_id) DO UPDATE SET
     name               = EXCLUDED.name,
     item_type          = EXCLUDED.item_type,
     status             = EXCLUDED.status,
@@ -291,7 +291,7 @@ ON CONFLICT (company_id, item_code) DO UPDATE SET
      'Packed CCD Cable [SAMPLE]', 'FINISHED_GOOD', 'ACTIVE', true,
      v_uom_pcs, v_div_ccd, v_sec_spiral, v_dept_spiral, 'PROMPT-09 SAMPLE DATA - packed/dispatchable item',
      0.150000, 6.67, NULL, NULL, true, true, NOW(), NOW())
-ON CONFLICT (company_id, item_code) DO UPDATE SET
+ON CONFLICT (item_code, company_id) DO UPDATE SET
     name             = EXCLUDED.name,
     item_type        = EXCLUDED.item_type,
     status           = EXCLUDED.status,
@@ -316,22 +316,16 @@ END $$;
 DO $$
 DECLARE
   v_company_id UUID := '7725aa04-a270-4314-9e82-90949cbe7791';
-  v_it_wire345   UUID := 'c1000000-0000-4000-8000-000000000001';
-  v_it_wire450   UUID := 'c1000000-0000-4000-8000-000000000002';
-  v_it_nipple    UUID := 'c1000000-0000-4000-8000-000000000003';
-  v_it_ccdwire   UUID := 'c1000000-0000-4000-8000-000000000004';
-  v_it_straight  UUID := 'c1000000-0000-4000-8000-000000000011';
-  v_it_swaged    UUID := 'c1000000-0000-4000-8000-000000000012';
-  v_it_spoke     UUID := 'c1000000-0000-4000-8000-000000000013';
-  v_it_plated    UUID := 'c1000000-0000-4000-8000-000000000014';
-  v_it_packed    UUID := 'c1000000-0000-4000-8000-000000000015';
-  v_it_nipformed UUID := 'c1000000-0000-4000-8000-000000000016';
-  v_it_nipplated UUID := 'c1000000-0000-4000-8000-000000000017';
-  v_it_nippacked UUID := 'c1000000-0000-4000-8000-000000000018';
-  v_it_flat      UUID := 'c1000000-0000-4000-8000-000000000019';
-  v_it_spiral    UUID := 'c1000000-0000-4000-8000-000000000020';
-  v_it_pvc       UUID := 'c1000000-0000-4000-8000-000000000021';
-  v_it_ccdpacked UUID := 'c1000000-0000-4000-8000-000000000022';
+  -- Resolve sample item IDs by business code (company_id + item_code) at runtime.
+  -- Never hardcode UUIDs across migration boundaries — the items may have been
+  -- created by an earlier migration version with different UUIDs, and ON CONFLICT
+  -- preserves existing row IDs. Fail fast if a required item is missing.
+  v_it_wire345   UUID; v_it_wire450   UUID;
+  v_it_nipple    UUID; v_it_ccdwire   UUID;
+  v_it_straight  UUID; v_it_swaged    UUID;
+  v_it_spoke     UUID; v_it_plated    UUID; v_it_packed    UUID;
+  v_it_nipformed UUID; v_it_nipplated UUID; v_it_nippacked UUID;
+  v_it_flat      UUID; v_it_spiral    UUID; v_it_pvc       UUID; v_it_ccdpacked UUID;
 
   v_div_spd UUID; v_div_ccd UUID;
   v_sec_spoke UUID; v_sec_plate UUID; v_sec_pack UUID; v_sec_nipple UUID; v_sec_spiral UUID; v_sec_pvc UUID; v_sec_ccdpack UUID;
@@ -340,10 +334,32 @@ DECLARE
   v_dept_flattening UUID; v_dept_spiral UUID; v_dept_pvc UUID; v_dept_ccdpack UUID;
   v_uom_kg UUID; v_uom_pcs UUID; v_uom_m UUID;
   v_routing_id UUID;
+  v_missing TEXT := '';
 BEGIN
-  IF v_it_wire345 IS NULL OR v_it_wire450 IS NULL OR v_it_nipple IS NULL OR v_it_ccdwire IS NULL THEN
-    RAISE NOTICE 'Skipping sample routings: sample items missing';
-    RETURN;
+  -- Resolve sample items by company_id + item_code (fail-fast)
+  SELECT id INTO v_it_wire345   FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-WIRE-3.45' AND is_active = true;
+  SELECT id INTO v_it_wire450   FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-WIRE-4.50' AND is_active = true;
+  SELECT id INTO v_it_nipple    FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-NIPPLE' AND is_active = true;
+  SELECT id INTO v_it_ccdwire   FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-CCD-WIRE' AND is_active = true;
+  SELECT id INTO v_it_straight  FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-STRAIGHTENED-WIRE' AND is_active = true;
+  SELECT id INTO v_it_swaged    FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-SWAGED-WIRE' AND is_active = true;
+  SELECT id INTO v_it_spoke     FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-SPOKE' AND is_active = true;
+  SELECT id INTO v_it_plated    FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-SPOKE-PLATED' AND is_active = true;
+  SELECT id INTO v_it_packed    FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-SPOKE-PACKED' AND is_active = true;
+  SELECT id INTO v_it_nipformed FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-NIPPLE-FORMED' AND is_active = true;
+  SELECT id INTO v_it_nipplated FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-NIPPLE-PLATED' AND is_active = true;
+  SELECT id INTO v_it_nippacked FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-NIPPLE-PACKED' AND is_active = true;
+  SELECT id INTO v_it_flat      FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-CCD-FLATTENED' AND is_active = true;
+  SELECT id INTO v_it_spiral    FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-CCD-SPIRAL' AND is_active = true;
+  SELECT id INTO v_it_pvc       FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-CCD-PVC' AND is_active = true;
+  SELECT id INTO v_it_ccdpacked FROM items WHERE company_id = v_company_id AND item_code = 'SAMPLE-CCD-PACKED' AND is_active = true;
+
+  IF v_it_wire345 IS NULL THEN v_missing := v_missing || 'SAMPLE-WIRE-3.45 '; END IF;
+  IF v_it_wire450 IS NULL THEN v_missing := v_missing || 'SAMPLE-WIRE-4.50 '; END IF;
+  IF v_it_nipple IS NULL    THEN v_missing := v_missing || 'SAMPLE-NIPPLE ';    END IF;
+  IF v_it_ccdwire IS NULL   THEN v_missing := v_missing || 'SAMPLE-CCD-WIRE ';  END IF;
+  IF v_missing != '' THEN
+    RAISE EXCEPTION 'Required sample items not found for company %: % (migration 00017 Section 8)', v_company_id, v_missing;
   END IF;
 
   SELECT id INTO v_div_spd  FROM divisions WHERE division_code = 'SPD' AND company_id = v_company_id LIMIT 1;
@@ -371,29 +387,36 @@ BEGIN
   IF v_uom_pcs IS NULL THEN SELECT id INTO v_uom_pcs FROM uoms WHERE code = 'PC' LIMIT 1; END IF;
   SELECT id INTO v_uom_m   FROM uoms WHERE code = 'M'   LIMIT 1;
 
-  -- Clean previous sample operations only (scoped to our fixed routing ids)
-  DELETE FROM routing_operations WHERE routing_id IN (
-    'b1000000-0000-4000-8000-000000000001',
-    'b1000000-0000-4000-8000-000000000002',
-    'b1000000-0000-4000-8000-000000000003',
-    'b1000000-0000-4000-8000-000000000004');
+  -- Clean previous sample operations — resolve routing id by routing_code first
+  -- so we use the ACTUAL routing UUID regardless of what was created earlier.
+  FOR v_routing_id IN
+    SELECT id FROM production_routings
+    WHERE routing_code IN ('RTG-SMP-001','RTG-SMP-002','RTG-SMP-003','RTG-SMP-004')
+      AND company_id = v_company_id
+  LOOP
+    DELETE FROM routing_operations WHERE routing_id = v_routing_id;
+  END LOOP;
 
   -- ------------------------------------------------------------------
   -- SAMPLE ROUTE 1: WIRE-3.45 -> DIRECT_SPOKE (Straightener/Swagging skipped)
   -- RAW MATERIAL -> Spoke -> Spoke Plating -> Spoke Packing
   -- ------------------------------------------------------------------
-  INSERT INTO production_routings (id, company_id, routing_code, name, description,
-                                   product_id, bom_id, status, base_quantity, estimated_total_time,
-                                   is_default, effective_from, created_at, updated_at, is_active)
-  VALUES ('b1000000-0000-4000-8000-000000000001', v_company_id, 'RTG-SMP-001',
-          'Wire 3.45 mm - Direct Spoke [SAMPLE]',
-          'PROMPT-09 sample: RAW MATERIAL -> Spoke -> Spoke Plating -> Spoke Packing (DIRECT_SPOKE)',
-          v_it_wire345, NULL, 'ACTIVE', 1, 60, true, NOW(), NOW(), NOW(), true)
-  ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name, description = EXCLUDED.description, status = 'ACTIVE',
-    is_default = true, updated_at = NOW();
-
-  v_routing_id := 'b1000000-0000-4000-8000-000000000001';
+  SELECT id INTO v_routing_id FROM production_routings WHERE routing_code = 'RTG-SMP-001' AND company_id = v_company_id;
+  IF NOT FOUND THEN
+    INSERT INTO production_routings (id, company_id, routing_code, name, description,
+                                     product_id, bom_id, status, base_quantity, estimated_total_time,
+                                     is_default, effective_from, created_at, updated_at, is_active)
+    VALUES ('b1000000-0000-4000-8000-000000000001', v_company_id, 'RTG-SMP-001',
+            'Wire 3.45 mm - Direct Spoke [SAMPLE]',
+            'PROMPT-09 sample: RAW MATERIAL -> Spoke -> Spoke Plating -> Spoke Packing (DIRECT_SPOKE)',
+            v_it_wire345, NULL, 'ACTIVE', 1, 60, true, NOW(), NOW(), NOW(), true)
+    RETURNING id INTO v_routing_id;
+  ELSE
+    UPDATE production_routings SET name = 'Wire 3.45 mm - Direct Spoke [SAMPLE]',
+           description = 'PROMPT-09 sample: RAW MATERIAL -> Spoke -> Spoke Plating -> Spoke Packing (DIRECT_SPOKE)',
+           status = 'ACTIVE', is_default = true, updated_at = NOW()
+    WHERE id = v_routing_id;
+  END IF;
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name,
                                   division_id, section_id, department_id,
                                   input_item_id, output_item_id, input_quantity, output_quantity, uom_id,
@@ -413,18 +436,22 @@ BEGIN
   -- SAMPLE ROUTE 2: WIRE-4.50 -> STANDARD_SPD
   -- RAW MATERIAL -> Straightener -> Swagging -> Spoke -> Spoke Plating -> Spoke Packing
   -- ------------------------------------------------------------------
-  INSERT INTO production_routings (id, company_id, routing_code, name, description,
-                                   product_id, bom_id, status, base_quantity, estimated_total_time,
-                                   is_default, effective_from, created_at, updated_at, is_active)
-  VALUES ('b1000000-0000-4000-8000-000000000002', v_company_id, 'RTG-SMP-002',
-          'Wire 4.50 mm - Standard SPD [SAMPLE]',
-          'PROMPT-09 sample: RAW MATERIAL -> Straightener -> Swagging -> Spoke -> Spoke Plating -> Spoke Packing (STANDARD_SPD)',
-          v_it_wire450, NULL, 'ACTIVE', 1, 100, true, NOW(), NOW(), NOW(), true)
-  ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name, description = EXCLUDED.description, status = 'ACTIVE',
-    is_default = true, updated_at = NOW();
-
-  v_routing_id := 'b1000000-0000-4000-8000-000000000002';
+  SELECT id INTO v_routing_id FROM production_routings WHERE routing_code = 'RTG-SMP-002' AND company_id = v_company_id;
+  IF NOT FOUND THEN
+    INSERT INTO production_routings (id, company_id, routing_code, name, description,
+                                     product_id, bom_id, status, base_quantity, estimated_total_time,
+                                     is_default, effective_from, created_at, updated_at, is_active)
+    VALUES ('b1000000-0000-4000-8000-000000000002', v_company_id, 'RTG-SMP-002',
+            'Wire 4.50 mm - Standard SPD [SAMPLE]',
+            'PROMPT-09 sample: RAW MATERIAL -> Straightener -> Swagging -> Spoke -> Spoke Plating -> Spoke Packing (STANDARD_SPD)',
+            v_it_wire450, NULL, 'ACTIVE', 1, 100, true, NOW(), NOW(), NOW(), true)
+    RETURNING id INTO v_routing_id;
+  ELSE
+    UPDATE production_routings SET name = 'Wire 4.50 mm - Standard SPD [SAMPLE]',
+           description = 'PROMPT-09 sample: RAW MATERIAL -> Straightener -> Swagging -> Spoke -> Spoke Plating -> Spoke Packing (STANDARD_SPD)',
+           status = 'ACTIVE', is_default = true, updated_at = NOW()
+    WHERE id = v_routing_id;
+  END IF;
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name,
                                   division_id, section_id, department_id,
                                   input_item_id, output_item_id, input_quantity, output_quantity, uom_id,
@@ -450,18 +477,23 @@ BEGIN
   -- SAMPLE ROUTE 3: NIPPLE
   -- RAW MATERIAL -> Nipple -> Nipple Plating -> Packing
   -- ------------------------------------------------------------------
-  INSERT INTO production_routings (id, company_id, routing_code, name, description,
-                                   product_id, bom_id, status, base_quantity, estimated_total_time,
-                                   is_default, effective_from, created_at, updated_at, is_active)
-  VALUES ('b1000000-0000-4000-8000-000000000003', v_company_id, 'RTG-SMP-003',
-          'Nipple Route [SAMPLE]',
-          'PROMPT-09 sample: RAW MATERIAL -> Nipple -> Nipple Plating -> Packing (NIPPLE)',
-          v_it_nipple, NULL, 'ACTIVE', 1, 60, true, NOW(), NOW(), NOW(), true)
-  ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name, description = EXCLUDED.description, status = 'ACTIVE',
-    is_default = true, updated_at = NOW();
+  SELECT id INTO v_routing_id FROM production_routings WHERE routing_code = 'RTG-SMP-003' AND company_id = v_company_id;
+  IF NOT FOUND THEN
+    INSERT INTO production_routings (id, company_id, routing_code, name, description,
+                                     product_id, bom_id, status, base_quantity, estimated_total_time,
+                                     is_default, effective_from, created_at, updated_at, is_active)
+    VALUES ('b1000000-0000-4000-8000-000000000003', v_company_id, 'RTG-SMP-003',
+            'Nipple Route [SAMPLE]',
+            'PROMPT-09 sample: RAW MATERIAL -> Nipple -> Nipple Plating -> Packing (NIPPLE)',
+            v_it_nipple, NULL, 'ACTIVE', 1, 60, true, NOW(), NOW(), NOW(), true)
+    RETURNING id INTO v_routing_id;
+  ELSE
+    UPDATE production_routings SET name = 'Nipple Route [SAMPLE]',
+           description = 'PROMPT-09 sample: RAW MATERIAL -> Nipple -> Nipple Plating -> Packing (NIPPLE)',
+           status = 'ACTIVE', is_default = true, updated_at = NOW()
+    WHERE id = v_routing_id;
+  END IF;
 
-  v_routing_id := 'b1000000-0000-4000-8000-000000000003';
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name,
                                   division_id, section_id, department_id,
                                   input_item_id, output_item_id, input_quantity, output_quantity, uom_id,
@@ -481,18 +513,23 @@ BEGIN
   -- SAMPLE ROUTE 4: CCD WIRE
   -- RAW MATERIAL -> Flattening -> Spiral -> PVC -> CCD Packing
   -- ------------------------------------------------------------------
-  INSERT INTO production_routings (id, company_id, routing_code, name, description,
-                                   product_id, bom_id, status, base_quantity, estimated_total_time,
-                                   is_default, effective_from, created_at, updated_at, is_active)
-  VALUES ('b1000000-0000-4000-8000-000000000004', v_company_id, 'RTG-SMP-004',
-          'CCD Wire Route [SAMPLE]',
-          'PROMPT-09 sample: RAW MATERIAL -> Flattening -> Spiral -> PVC -> CCD Packing (CCD)',
-          v_it_ccdwire, NULL, 'ACTIVE', 1, 90, true, NOW(), NOW(), NOW(), true)
-  ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name, description = EXCLUDED.description, status = 'ACTIVE',
-    is_default = true, updated_at = NOW();
+  SELECT id INTO v_routing_id FROM production_routings WHERE routing_code = 'RTG-SMP-004' AND company_id = v_company_id;
+  IF NOT FOUND THEN
+    INSERT INTO production_routings (id, company_id, routing_code, name, description,
+                                     product_id, bom_id, status, base_quantity, estimated_total_time,
+                                     is_default, effective_from, created_at, updated_at, is_active)
+    VALUES ('b1000000-0000-4000-8000-000000000004', v_company_id, 'RTG-SMP-004',
+            'CCD Wire Route [SAMPLE]',
+            'PROMPT-09 sample: RAW MATERIAL -> Flattening -> Spiral -> PVC -> CCD Packing (CCD)',
+            v_it_ccdwire, NULL, 'ACTIVE', 1, 90, true, NOW(), NOW(), NOW(), true)
+    RETURNING id INTO v_routing_id;
+  ELSE
+    UPDATE production_routings SET name = 'CCD Wire Route [SAMPLE]',
+           description = 'PROMPT-09 sample: RAW MATERIAL -> Flattening -> Spiral -> PVC -> CCD Packing (CCD)',
+           status = 'ACTIVE', is_default = true, updated_at = NOW()
+    WHERE id = v_routing_id;
+  END IF;
 
-  v_routing_id := 'b1000000-0000-4000-8000-000000000004';
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name,
                                   division_id, section_id, department_id,
                                   input_item_id, output_item_id, input_quantity, output_quantity, uom_id,

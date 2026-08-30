@@ -9,7 +9,88 @@ import {
   Max,
   MaxLength,
   IsBoolean,
+  IsArray,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+
+/** A single production item line within a shift/machine entry. */
+export class ProductionEntryItemDto {
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  lineNumber?: number;
+
+  @IsOptional()
+  @IsUUID('loose')
+  id?: string | null;
+
+  @IsOptional()
+  @IsUUID('loose')
+  itemId?: string | null;
+
+  @IsOptional()
+  @IsUUID('loose')
+  uomId?: string | null;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  targetQuantity?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  actualQuantity?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  scrapQuantity?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(24)
+  runningHours?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  routingCode?: string | null;
+
+  @IsOptional()
+  @IsString()
+  remarks?: string | null;
+}
+
+/** A single downtime line within a shift/machine entry. */
+export class ProductionEntryDowntimeDto {
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  lineNumber?: number;
+
+  @IsOptional()
+  @IsUUID('loose')
+  id?: string | null;
+
+  @IsOptional()
+  @IsUUID('loose')
+  downtimeReasonId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  downtimeReason?: string | null;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(24)
+  downtimeHours!: number;
+
+  @IsOptional()
+  @IsString()
+  remarks?: string | null;
+}
 
 export class CreateProductionEntryDto {
   @IsOptional()
@@ -121,6 +202,20 @@ export class CreateProductionEntryDto {
   @IsOptional()
   @IsUUID('loose')
   warehouseId?: string | null;
+
+  /** Repeatable production item lines (multi-item shift). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductionEntryItemDto)
+  items?: ProductionEntryItemDto[];
+
+  /** Repeatable downtime lines (multi-downtime shift). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductionEntryDowntimeDto)
+  downtimes?: ProductionEntryDowntimeDto[];
 }
 
 export class UpdateProductionEntryDto {
@@ -222,6 +317,20 @@ export class UpdateProductionEntryDto {
   @IsOptional()
   @IsString()
   remarks?: string | null;
+
+  /** Repeatable production item lines (multi-item shift). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductionEntryItemDto)
+  items?: ProductionEntryItemDto[];
+
+  /** Repeatable downtime lines (multi-downtime shift). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductionEntryDowntimeDto)
+  downtimes?: ProductionEntryDowntimeDto[];
 }
 
 export class CreateMachineDto {
@@ -239,7 +348,26 @@ export class CreateMachineDto {
 
   @IsOptional()
   @IsString()
+  remarks?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   description?: string | null;
+
+  /** Repeatable production item lines (multi-item shift). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductionEntryItemDto)
+  items?: ProductionEntryItemDto[];
+
+  /** Repeatable downtime lines (multi-downtime shift). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductionEntryDowntimeDto)
+  downtimes?: ProductionEntryDowntimeDto[];
 }
 
 /**

@@ -9,6 +9,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
 import ThemeSettingsButton from './ThemeCustomizer';
 import NotificationBell from './NotificationBell';
+import EmailCommunicationIcon from './EmailCommunicationIcon';
+import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
 import './sidebar-nav.css';
 import { useThemeStore } from '../../theme/themeStore';
 import { usePermission } from '../../hooks/usePermission';
@@ -446,6 +448,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             ))}
           </div>
           <NotificationBell />
+          <EmailCommunicationIcon />
+          <WhatsAppCommunicationIcon />
           <ThemeSettingsButton />
           <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }}>
             <Space style={{ cursor: 'pointer', flexShrink: 0 }}>

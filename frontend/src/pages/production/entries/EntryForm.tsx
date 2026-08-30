@@ -4,7 +4,7 @@ import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
   message, Typography, Switch, Alert, Spin, AutoComplete,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
@@ -12,6 +12,24 @@ import { useLookups } from './lookups';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 
 const { Title, Text } = Typography;
+
+/** Live downtime summary: planned / running / allocated / remaining. */
+const DowntimeSummary: React.FC = () => {
+  const running = toNum(Form.useWatch('runningHours', Form.useFormInstance() as any));
+  const downtimeLines = (Form.useWatch('downtimeEntries', Form.useFormInstance() as any) ?? []) as Array<{ downtimeHours?: number | string }>;
+  const planned = toNum(Form.useWatch('plannedHours', Form.useFormInstance() as any));
+  const allocated = downtimeLines.reduce((s, l) => s + toNum(l.downtimeHours), 0);
+  const available = Math.max(0, planned - running);
+  const remaining = Math.max(0, available - allocated);
+  return (
+    <div style={{ marginTop: 12, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+      <Text type="secondary">Planned <Text strong>{formatNumber(planned, 2)}h</Text></Text>
+      <Text type="secondary">Running <Text strong>{formatNumber(running, 2)}h</Text></Text>
+      <Text type="secondary">Allocated Downtime <Text strong>{formatNumber(allocated, 2)}h</Text></Text>
+      <Text type="secondary">Remaining <Text strong style={{ color: remaining <= 0 ? '#52c41a' : '#faad14' }}>{formatNumber(remaining, 2)}h</Text></Text>
+    </div>
+  );
+};
 
 interface WarehouseLk { id: string; name: string; warehouseCode: string; }
 interface OrderOperation { id: string; sequenceNo: number; departmentId: string | null; operationName?: string; name?: string; }
@@ -449,6 +467,34 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       payload.downtimeReasonId = (values.downtimeReasonId as string | undefined) ?? null;
       if (payload.productionOrderId === undefined) delete payload.productionOrderId;
       if (payload.productionOrderOperationId === undefined) delete payload.productionOrderOperationId;
+
+      // ── Multi-item / multi-downtime child lines ────────────────────────────
+      const itemLines = (values.productionItems as any[] | undefined) ?? [];
+      if (itemLines.length) {
+        payload.items = itemLines
+          .filter((l: any) => l.itemId)
+          .map((l: any, idx: number) => ({
+            lineNumber: l.lineNumber ?? idx + 1,
+            itemId: l.itemId,
+            uomId: l.uomId ?? payload.uomId,
+            targetQuantity: Number(l.targetQuantity ?? 0),
+            actualQuantity: Number(l.actualQuantity ?? 0),
+            scrapQuantity: Number(l.scrapQuantity ?? 0),
+            runningHours: Number(l.runningHours ?? 0),
+            routingCode: l.routingCode ?? undefined,
+            remarks: l.remarks ?? undefined,
+          }));
+      }
+      const downtimeLines = (values.downtimeEntries as any[] | undefined) ?? [];
+      if (downtimeLines.length) {
+        payload.downtimes = downtimeLines.map((l: any, idx: number) => ({
+          lineNumber: l.lineNumber ?? idx + 1,
+          downtimeReasonId: l.downtimeReasonId ?? undefined,
+          downtimeReason: l.downtimeReason ?? undefined,
+          downtimeHours: Number(l.downtimeHours ?? 0),
+          remarks: l.remarks ?? undefined,
+        }));
+      }
 
       // ── Production context IDs ────────────────────────────────────────────
       // The compact context summary leaves division/section/department/date/
@@ -1107,6 +1153,92 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             )}
           </Col>
         </Row>
+
+        <Card title="Production Items" size="small" style={{ marginTop: 16 }}>
+          <Form.List name="productionItems">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((f) => (
+                  <Row key={f.key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
+                    <Col span={6}>
+                      <Form.Item name={[f.name, 'itemId']} noStyle rules={[{ required: true, message: 'Required' }]}>
+                        <Select showSearch optionFilterProp="label" placeholder="Item"
+                          options={lookups.items.map((i: any) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={3}>
+                      <Form.Item name={[f.name, 'runningHours']} noStyle initialValue={0}>
+                        <InputNumber min={0} max={24} placeholder="Run h" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={3}>
+                      <Form.Item name={[f.name, 'targetQuantity']} noStyle initialValue={0}>
+                        <InputNumber min={0} placeholder="Target" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={3}>
+                      <Form.Item name={[f.name, 'actualQuantity']} noStyle initialValue={0}>
+                        <InputNumber min={0} placeholder="Actual" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={3}>
+                      <Form.Item name={[f.name, 'scrapQuantity']} noStyle initialValue={0}>
+                        <InputNumber min={0} placeholder="Scrap" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={4}>
+                      <Form.Item name={[f.name, 'routingCode']} noStyle>
+                        <Input placeholder="Route code" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={2}>
+                      <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} aria-label="Remove production item" />
+                    </Col>
+                  </Row>
+                ))}
+                <Button type="dashed" icon={<PlusOutlined />} block onClick={() => add({ runningHours: 0, targetQuantity: 0, actualQuantity: 0, scrapQuantity: 0 })}>
+                  + Add Production Item
+                </Button>
+              </>
+            )}
+          </Form.List>
+        </Card>
+
+        <Card title="Downtime Entries" size="small" style={{ marginTop: 16 }}>
+          <Form.List name="downtimeEntries">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((f) => (
+                  <Row key={f.key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
+                    <Col span={10}>
+                      <Form.Item name={[f.name, 'downtimeReasonId']} noStyle rules={[{ required: true, message: 'Required' }]}>
+                        <Select showSearch optionFilterProp="label" placeholder="Downtime reason"
+                          options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: `${r.code} — ${r.name}` }))} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={6}>
+                      <Form.Item name={[f.name, 'downtimeHours']} noStyle rules={[{ required: true, message: 'Required' }]}>
+                        <InputNumber min={0} max={24} placeholder="Hours" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={6}>
+                      <Form.Item name={[f.name, 'remarks']} noStyle>
+                        <Input placeholder="Remarks" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={2}>
+                      <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} aria-label="Remove downtime entry" />
+                    </Col>
+                  </Row>
+                ))}
+                <Button type="dashed" icon={<PlusOutlined />} block onClick={() => add({ downtimeHours: 0 })}>
+                  + Add Downtime
+                </Button>
+              </>
+            )}
+          </Form.List>
+          <DowntimeSummary />
+        </Card>
 
         <Button
           type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}

@@ -23,7 +23,12 @@ export class AppController {
   }
 
   @Get('status')
-  @ApiOperation({ summary: 'System status check' })
+  @Public()
+  @ApiOperation({
+    summary: 'System status check',
+    description:
+      'Reports real connectivity for backend, database and Supabase. Public because it only exposes non-sensitive status/host/port/provider values.',
+  })
   async getStatus() {
     return this.appService.getStatus();
   }

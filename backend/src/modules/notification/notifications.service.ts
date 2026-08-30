@@ -107,4 +107,35 @@ export class NotificationsService {
     );
     return unread.length;
   }
+
+  /** Mark a single notification as UNREAD (only the owning user). */
+  async markUnread(id: string, authUserId: string): Promise<boolean> {
+    const notification = await this.repo.findOne({ where: { id, userId: authUserId } });
+    if (!notification || !notification.isRead) return !!notification;
+    notification.isRead = false;
+    notification.readAt = null;
+    await this.repo.save(notification);
+    return true;
+  }
+
+  /** Paginated list of notifications for the current user. */
+  async listForUserPaginated(
+    authUserId: string,
+    page = 1,
+    limit = 20,
+    filter?: 'all' | 'unread' | 'read',
+    type?: string,
+  ): Promise<{ data: Notification[]; total: number; page: number; limit: number }> {
+    const qb = this.repo.createQueryBuilder('n').where('n.userId = :authUserId', { authUserId });
+    if (filter === 'unread') qb.andWhere('n.isRead = false');
+    if (filter === 'read') qb.andWhere('n.isRead = true');
+    if (type) qb.andWhere('n.type = :type', { type });
+    qb.orderBy('n.created_at', 'DESC');
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const safePage = Math.max(Number(page) || 1, 1);
+    qb.skip((safePage - 1) * safeLimit);
+    qb.take(safeLimit);
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total, page: safePage, limit: safeLimit };
+  }
 }

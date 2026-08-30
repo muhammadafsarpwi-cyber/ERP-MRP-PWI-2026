@@ -8,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
   ProductionEntry,
+  ProductionEntryItem,
+  ProductionEntryDowntime,
   Machine,
   Shift,
   DowntimeReason,
@@ -35,6 +37,10 @@ export class ProductionEntryService {
   constructor(
     @InjectRepository(ProductionEntry)
     private readonly entryRepo: Repository<ProductionEntry>,
+    @InjectRepository(ProductionEntryItem)
+    private readonly entryItemRepo: Repository<ProductionEntryItem>,
+    @InjectRepository(ProductionEntryDowntime)
+    private readonly entryDowntimeRepo: Repository<ProductionEntryDowntime>,
     @InjectRepository(Machine)
     private readonly machineRepo: Repository<Machine>,
     @InjectRepository(Shift)
@@ -664,6 +670,8 @@ export class ProductionEntryService {
       await this.postInventory(companyId, saved, resolved.warehouseId!, userId);
     }
 
+    await this.persistChildren(saved.id, companyId, dto.items ?? [], dto.downtimes ?? [], userId, false);
+
     return saved;
   }
 
@@ -740,7 +748,61 @@ export class ProductionEntryService {
       updatedBy: userId ?? null,
     });
 
-    return this.entryRepo.save(entry);
+    const saved = await this.entryRepo.save(entry);
+    await this.persistChildren(saved.id, companyId, dto.items ?? [], dto.downtimes ?? [], userId, true);
+    return saved;
+  }
+
+  // ─── Multi-item / multi-downtime child persistence ──────────────────────────
+
+  private async persistChildren(
+    entryId: string,
+    companyId: string,
+    items?: Array<{ lineNumber?: number; itemId?: string | null; uomId?: string | null; targetQuantity?: number; actualQuantity?: number; scrapQuantity?: number; runningHours?: number; routingCode?: string | null; remarks?: string | null }>,
+    downtimes?: Array<{ lineNumber?: number; downtimeReasonId?: string | null; downtimeReason?: string | null; downtimeHours: number; remarks?: string | null }>,
+    userId?: string,
+    replace = false,
+  ): Promise<void> {
+    if (replace) {
+      await this.entryItemRepo.delete({ productionEntryId: entryId });
+      await this.entryDowntimeRepo.delete({ productionEntryId: entryId });
+    }
+    if (items && items.length) {
+      const rows = items.map((it, idx) =>
+        this.entryItemRepo.create({
+          companyId,
+          productionEntryId: entryId,
+          lineNumber: it.lineNumber ?? idx + 1,
+          itemId: it.itemId ?? null,
+          uomId: it.uomId ?? null,
+          targetQuantity: it.targetQuantity ?? 0,
+          actualQuantity: it.actualQuantity ?? 0,
+          scrapQuantity: it.scrapQuantity ?? 0,
+          runningHours: it.runningHours ?? 0,
+          routingCode: it.routingCode ?? null,
+          remarks: it.remarks ?? null,
+          createdBy: userId ?? null,
+          updatedBy: userId ?? null,
+        }),
+      );
+      await this.entryItemRepo.save(rows);
+    }
+    if (downtimes && downtimes.length) {
+      const rows = downtimes.map((dt, idx) =>
+        this.entryDowntimeRepo.create({
+          companyId,
+          productionEntryId: entryId,
+          lineNumber: dt.lineNumber ?? idx + 1,
+          downtimeReasonId: dt.downtimeReasonId ?? null,
+          downtimeReasonText: dt.downtimeReason ?? null,
+          downtimeHours: dt.downtimeHours ?? 0,
+          remarks: dt.remarks ?? null,
+          createdBy: userId ?? null,
+          updatedBy: userId ?? null,
+        }),
+      );
+      await this.entryDowntimeRepo.save(rows);
+    }
   }
 
   async remove(id: string, companyId: string, userId?: string): Promise<void> {

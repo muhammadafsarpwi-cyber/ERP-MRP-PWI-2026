@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ProductionEntryService } from './production-entry.service';
-import { ProductionEntry, Machine, Shift, DowntimeReason, ProductionOrder, ProductionOrderOperation } from '../entities';
+import { ProductionEntry, ProductionEntryItem, ProductionEntryDowntime, Machine, Shift, DowntimeReason, ProductionOrder, ProductionOrderOperation } from '../entities';
 import { Item, UomConversion } from '../../item/entities';
 import { Division, Section, Department } from '../../organization/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
@@ -30,6 +30,8 @@ let sectionRepo: any;
 let departmentRepo: any;
 let productionOrderRepo: any;
 let productionOrderOperationRepo: any;
+let entryItemRepo: any;
+let entryDowntimeRepo: any;
 let stockLedgerService: any;
 let balanceService: any;
 let machineTargetService: any;
@@ -89,6 +91,8 @@ beforeEach(async () => {
   departmentRepo = { findOne: jest.fn() };
   productionOrderRepo = { findOne: jest.fn() };
   productionOrderOperationRepo = { findOne: jest.fn() };
+  entryItemRepo = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), delete: jest.fn().mockResolvedValue({ affected: 0 }) };
+  entryDowntimeRepo = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), delete: jest.fn().mockResolvedValue({ affected: 0 }) };
   stockLedgerService = { create: jest.fn().mockResolvedValue({ id: 'ledger-ref-1' }) };
   balanceService = { updateBalance: jest.fn(), getAvailableStock: jest.fn() };
   machineTargetService = {
@@ -113,6 +117,8 @@ beforeEach(async () => {
       { provide: getRepositoryToken(Department), useValue: departmentRepo },
       { provide: getRepositoryToken(ProductionOrder), useValue: productionOrderRepo },
       { provide: getRepositoryToken(ProductionOrderOperation), useValue: productionOrderOperationRepo },
+      { provide: getRepositoryToken(ProductionEntryItem), useValue: entryItemRepo },
+      { provide: getRepositoryToken(ProductionEntryDowntime), useValue: entryDowntimeRepo },
       { provide: StockLedgerService, useValue: stockLedgerService },
       { provide: InventoryBalanceService, useValue: balanceService },
       {

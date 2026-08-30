@@ -294,12 +294,14 @@ export const NAV_ENTRIES: NavEntry[] = [
     color: 'cyan',
     permissions: ['email.settings.manage'],
     children: [
+      { key: '/communication', label: 'Communication Center', icon: MailOutlined, color: 'cyan', permissions: ['email.settings.manage'] },
       { key: '/communication/email-settings', label: 'Email Settings', icon: MailOutlined, color: 'cyan', permissions: ['email.settings.manage'] },
       { key: '/communication/email-templates', label: 'Email Templates', icon: EditOutlined, color: 'cyan', permissions: ['email.template.manage'] },
       { key: '/communication/email-logs', label: 'Email Logs', icon: UnorderedListOutlined, color: 'cyan', permissions: ['email.log.view'] },
       { key: '/communication/whatsapp-settings', label: 'WhatsApp Settings', icon: MessageOutlined, color: 'success', permissions: ['whatsapp.settings.manage'] },
       { key: '/communication/whatsapp-templates', label: 'WhatsApp Templates', icon: EditOutlined, color: 'success', permissions: ['whatsapp.template.manage'] },
       { key: '/communication/whatsapp-logs', label: 'WhatsApp Logs', icon: UnorderedListOutlined, color: 'success', permissions: ['whatsapp.log.view'] },
+      { key: '/communication/rules', label: 'Notification Rules', icon: BellOutlined, color: 'cyan', permissions: ['notifications.rules.view'] },
     ],
   },
   {
@@ -346,7 +348,6 @@ export const NAV_ENTRIES: NavEntry[] = [
     permissions: ['manufacturing.production.orders.view'],
     children: [
       { key: '/production/orders', label: 'Production Orders', icon: PlayCircleOutlined, color: 'info', permissions: ['manufacturing.production.orders.view'] },
-      { key: '/production/entries', label: 'Production Entries', icon: UnorderedListOutlined, color: 'info' },
     ],
   },
 ];
