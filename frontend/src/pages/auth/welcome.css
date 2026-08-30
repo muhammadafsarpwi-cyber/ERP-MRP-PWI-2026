@@ -15,7 +15,7 @@
   border: 0;
   box-sizing: border-box;
   overflow: hidden;
-  background: #070c14;
+  background: #0d1424;
   color: #e8edf4;
   display: flex;
   align-items: center;
@@ -28,7 +28,7 @@
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  background: #070c14;
+  background: #0d1424;
 }
 .erp-welcome-slide {
   position: absolute;
@@ -45,7 +45,6 @@
   object-fit: cover;
   object-position: center;
   transform: scale(1.02);
-  animation: erp-welcome-kenburns 16s ease-out forwards;
 }
 .erp-welcome-slide.is-active .erp-welcome-img {
   animation: erp-welcome-kenburns 16s ease-out forwards;
@@ -55,13 +54,13 @@
   to   { transform: scale(1.1); }
 }
 
-/* Cinematic overlay */
+/* Cinematic overlay — light, keeps the industry photograph visible. */
 .erp-welcome-overlay {
   position: absolute;
   inset: 0;
   z-index: 2;
   background:
-    radial-gradient(120% 90% at 50% 20%, rgba(4, 7, 13, 0.25) 0%, rgba(4, 7, 13, 0.72) 100%);
+    linear-gradient(180deg, rgba(5, 12, 22, 0.10) 0%, rgba(5, 12, 22, 0.20) 100%);
 }
 
 /* Floating light / golden particles */
@@ -88,20 +87,24 @@
   100% { transform: translateY(-8vh); opacity: 0; }
 }
 
-/* Brand + handwriting center panel */
+/* Brand + handwriting center panel — translucent premium glass. */
 .erp-welcome-panel {
   position: relative;
   z-index: 4;
-  width: min(92vw, 900px);
+  width: min(94vw, 1100px);
   text-align: center;
-  padding: 24px 20px 40px;
+  padding: 32px 26px 42px;
   box-sizing: border-box;
-  border-radius: 18px;
-  background: rgba(10, 16, 28, 0.42);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(159, 179, 200, 0.18);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  border-radius: 20px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 42%, rgba(255, 255, 255, 0) 100%),
+    rgba(8, 16, 30, 0.14);
+  backdrop-filter: blur(8px) saturate(1.12);
+  -webkit-backdrop-filter: blur(8px) saturate(1.12);
+  border: 1px solid rgba(255, 224, 170, 0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 24px 60px rgba(0, 0, 0, 0.26);
 }
 
 .erp-welcome-logo {
@@ -111,64 +114,95 @@
   margin: 0 auto 14px;
   filter: drop-shadow(0 4px 18px rgba(212, 178, 92, 0.35));
 }
-.erp-welcome-brand {
-  font-size: 15px;
-  letter-spacing: 5px;
-  text-transform: uppercase;
-  color: rgba(212, 178, 92, 0.9);
-  margin-bottom: 18px;
-  font-weight: 500;
-}
 
-/* Handwriting lines */
-.erp-welcome-text {
-  margin: 10px 0 22px;
+/* Handwritten display headlines — premium gold script/brush. */
+.erp-welcome-write {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin: 8px 0 12px;
 }
-.erp-welcome-line {
-  overflow: hidden;
-  white-space: nowrap;
+.pwi-phrases {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
 }
-.erp-welcome-line span {
+.pwi-phrase {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+.pwi-line {
   display: inline-block;
-  opacity: 0;
-  transform: translateX(-12px);
-  transition: opacity 0.7s ease, transform 0.7s ease;
-}
-.erp-welcome-line.is-visible span {
-  opacity: 1;
-  transform: translateX(0);
-}
-.erp-welcome-line--welcome {
-  font-size: clamp(16px, 3vw, 26px);
-  letter-spacing: 10px;
-  color: #b7c4d6;
-  margin-bottom: 10px;
-  font-weight: 300;
-}
-.erp-welcome-line--pwi {
-  font-size: clamp(26px, 6.2vw, 56px);
-  letter-spacing: 4px;
+  white-space: nowrap;
+  text-align: center;
+  font-family: 'Dancing Script', 'Kaushan Script', 'Segoe Script', cursive;
   font-weight: 700;
-  color: #f2f5f9;
-  line-height: 1.12;
-  text-shadow: 0 4px 30px rgba(0, 0, 0, 0.55);
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  padding: 0 0.12em;
+  color: #e9c878; /* solid-gold fallback if background-clip:text is unsupported */
+  filter: drop-shadow(0 3px 12px rgba(0, 0, 0, 0.5));
+  will-change: clip-path;
 }
-.erp-welcome-line--full {
-  font-size: clamp(13px, 2.6vw, 22px);
-  letter-spacing: 6px;
-  color: rgba(212, 178, 92, 0.95);
-  margin-top: 8px;
-  font-weight: 400;
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .pwi-line {
+    color: transparent;
+    background-image: linear-gradient(175deg, #fbe9bd 0%, #e6c571 42%, #c69a44 78%, #a67c24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
+.pwi-line--primary {
+  font-size: clamp(46px, 9vw, 96px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.pwi-line--company {
+  font-size: clamp(18px, 4vw, 46px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
-/* Sub copy */
-.erp-welcome-sub {
-  font-size: clamp(12px, 2vw, 15px);
-  color: #9fb3c8;
+/* Premium gold marker/brush nib — tip anchored on the leading ink edge. */
+.erp-write-pen {
+  position: absolute;
+  width: 16px;
+  height: 22px;
+  transform: translate(-50%, -100%) rotate(-16deg);
+  transform-origin: 50% 100%;
+  pointer-events: none;
+  z-index: 6;
+  background:
+    radial-gradient(circle at 50% 8%, #fff3d3 0%, #f4dc94 34%, #d4b25c 70%, #9c7a24 100%);
+  clip-path: polygon(50% 0%, 100% 42%, 50% 100%, 0% 42%);
+  box-shadow:
+    0 0 14px rgba(216, 179, 94, 0.85),
+    0 0 4px rgba(255, 240, 205, 0.9);
+}
+
+/* Sub copy (rendered by WelcomeAnimation). */
+.erp-write-sub {
+  font-size: clamp(12px, 2vw, 16px);
+  color: #e0e8f2;
   letter-spacing: 2px;
   max-width: 640px;
-  margin: 0 auto 28px;
+  margin: 4px auto 0;
   line-height: 1.6;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.8s ease 0.2s, transform 0.8s ease 0.2s;
+}
+.erp-write-sub.is-visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 /* Premium enter button */
@@ -214,7 +248,8 @@
   .erp-welcome-img,
   .erp-welcome-slide.is-active .erp-welcome-img { animation: none !important; }
   .erp-welcome-particle { animation: none !important; opacity: 0; }
-  .erp-welcome-line span { transition: none !important; }
+  .erp-write-pen { display: none; }
+  .erp-write-sub { transition: none !important; }
 }
 
 /* Mobile edge-to-edge + compact panel */
@@ -230,8 +265,14 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 20px 18px 40px;
-    background: rgba(8, 13, 22, 0.6);
+    padding: 20px 16px 36px;
+    background:
+      linear-gradient(160deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 100%),
+      rgba(8, 16, 30, 0.24);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
-  .erp-welcome-logo { height: 56px; width: 56px; }
+  .erp-welcome-logo { height: 50px; width: 50px; }
+  .pwi-line--primary { font-size: clamp(40px, 11vw, 80px); }
+  .pwi-line--company { font-size: clamp(17px, 4.6vw, 38px); }
 }

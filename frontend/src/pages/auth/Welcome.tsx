@@ -84,11 +84,7 @@ const Welcome: React.FC = () => {
 
       <div className="erp-welcome-panel">
         <img className="erp-welcome-logo" src={`${process.env.PUBLIC_URL}/logo.png`} alt="PWI — Pakistan Wire & Industry logo" />
-        <div className="erp-welcome-brand">Pakistan Wire &amp; Industry</div>
         <WelcomeAnimation reducedMotion={reducedMotion} onAnimationComplete={() => {}} />
-        <p className="erp-welcome-sub">
-          Enterprise Manufacturing &amp; ERP System
-        </p>
         <Button
           type="primary"
           className="erp-welcome-enter"

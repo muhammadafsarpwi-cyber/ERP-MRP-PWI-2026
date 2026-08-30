@@ -3,34 +3,26 @@
  * ------------------------------------------------------------------
  * Single source of truth for the Welcome screen slideshow.
  *
- * DEMO IMAGES — REPLACE WITH COMPANY PHOTOGRAPHS
- * The files below are elegant gradient placeholders labelled "DEMO".
- * When PWI provides real factory/wire-production photographs, drop the
- * new .jpg files into  `src/assets/welcome/` and update the imports here.
- * The Welcome component needs NO other change.
+ * These point at the real PWI factory / wire-industry photographs served
+ * from  `frontend/public/images/welcome/`  (README in that folder documents
+ * the replacement flow). Overwrite a `welcome-0N.jpg` with a new photograph
+ * of the same filename and no code change is needed.
  *
- * Recommended real photographs (1600×900 or larger):
- *   welcome-factory-01.jpg        — wire drawing machine floor
- *   welcome-wire-production-02.jpg— production line
- *   welcome-wire-coils-03.jpg     — coils of finished wire
- *   welcome-machine-04.jpg        — production machinery close-up
- *   welcome-production-05.jpg     — industrial operations / workers
- *   welcome-industry-06.jpg       — premium PWI factory scene
+ * Existing files (already present):
+ *   welcome-01.jpg — wire manufacturing / wire coils
+ *   welcome-02.jpg — industrial production machinery
+ *   welcome-03.jpg — wire drawing / straightening machinery
+ *   welcome-04.jpg — spoke / metal component manufacturing
+ *   welcome-05.jpg — cable manufacturing
+ *   welcome-06.jpg — factory floor / production line
  */
-import welcomeFactory01 from '../assets/welcome/welcome-factory-01.svg';
-import welcomeWireProduction02 from '../assets/welcome/welcome-wire-production-02.svg';
-import welcomeWireCoils03 from '../assets/welcome/welcome-wire-coils-03.svg';
-import welcomeMachine04 from '../assets/welcome/welcome-machine-04.svg';
-import welcomeProduction05 from '../assets/welcome/welcome-production-05.svg';
-import welcomeIndustry06 from '../assets/welcome/welcome-industry-06.svg';
-
 export const WELCOME_IMAGES: string[] = [
-  welcomeFactory01,
-  welcomeWireProduction02,
-  welcomeWireCoils03,
-  welcomeMachine04,
-  welcomeProduction05,
-  welcomeIndustry06,
+  `${process.env.PUBLIC_URL}/images/welcome/welcome-01.jpg`,
+  `${process.env.PUBLIC_URL}/images/welcome/welcome-02.jpg`,
+  `${process.env.PUBLIC_URL}/images/welcome/welcome-03.jpg`,
+  `${process.env.PUBLIC_URL}/images/welcome/welcome-04.jpg`,
+  `${process.env.PUBLIC_URL}/images/welcome/welcome-05.jpg`,
+  `${process.env.PUBLIC_URL}/images/welcome/welcome-06.jpg`,
 ];
 
 /** Seconds each background image stays visible before crossfading. */

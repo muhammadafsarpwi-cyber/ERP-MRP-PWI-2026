@@ -17,6 +17,7 @@ import { useThemeStore } from '../../theme/themeStore';
 import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from './headerActionsStore';
 import { useNavBadgeStore } from './navBadgeStore';
+import { syncMaintenanceQueueBadges } from './maintenanceQueueBadges';
 import {
   NAV_ENTRIES,
   NAV_ICON_COLOR,
@@ -149,9 +150,17 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [userName, setUserName] = useState('Admin User');
   const navigate = useNavigate();
   const location = useLocation();
-  const { can, isLoaded } = usePermission();
+  const { can, isLoaded, user } = usePermission();
   const { actions: headerActions, title: headerTitle, icon: headerIcon } = useHeaderActions();
   const navBadges = useNavBadgeStore((s) => s.badges);
+
+  // Hydrate the Maintenance sidebar count badges from the real dashboard API so
+  // they are visible on EVERY page (not just while the Job Card list is open).
+  React.useEffect(() => {
+    const cid = user?.defaultCompanyId;
+    if (!cid) return;
+    void syncMaintenanceQueueBadges(String(cid));
+  }, [user?.defaultCompanyId]);
 
   const effectiveCan = React.useCallback((key: string) => {
     if (!isLoaded) return true;

@@ -21,8 +21,7 @@ import {
   UUID_RE, errorText, label, ACTION_MAP, NEXT_ACTION_LABEL,
 } from './jobCards.types';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
-import { useNavBadgeStore } from '../../components/layout/navBadgeStore';
-import { MAINTENANCE_QUEUE_NAV_KEYS } from '../../components/layout/navigationConfig';
+import { JOB_CARD_DASH_COUNTER as DASH_COUNTER, syncMaintenanceQueueBadges } from '../../components/layout/maintenanceQueueBadges';
 import { STATUS_COLORS, tint, shadowSm, panelCard } from './maintTheme';
 import { useMaintenanceHierarchy, divisionLabel, sectionLabel, departmentLabel } from './useMaintenanceHierarchy';
 import './maintTheme.css';
@@ -31,34 +30,6 @@ const { Text } = Typography;
 
 const ALL = '__all__';
 const ALL_OPTION = { value: ALL, label: 'All' };
-
-/** Maps a raw job-card status to its dashboard count key. */
-const DASH_COUNTER: Record<string, string> = {
-  OPEN: 'open',
-  ASSIGNED: 'assigned',
-  IN_PROGRESS: 'inProgress',
-  ON_HOLD: 'onHold',
-  WAITING_FOR_PARTS: 'waitingForParts',
-  PENDING_VERIFICATION: 'pendingVerification',
-  REJECTED: 'rejected',
-  CLOSED: 'closed',
-  APPROVED: 'approved',
-};
-
-/**
- * Sidebar queue definitions. Each queue is the union of the real statuses it
- * represents (see MAINTENANCE_QUEUE_NAV_KEYS). "Open Job Card" is the creation
- * form — it intentionally has NO queue/badge.
- */
-const QUEUE_DEFS: Array<{ statuses: string[]; navKey: string }> = [
-  { statuses: ['OPEN', 'ASSIGNED'], navKey: MAINTENANCE_QUEUE_NAV_KEYS.started },
-  { statuses: ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'], navKey: MAINTENANCE_QUEUE_NAV_KEYS.closed },
-  { statuses: ['PENDING_VERIFICATION'], navKey: MAINTENANCE_QUEUE_NAV_KEYS.review },
-  { statuses: ['REJECTED'], navKey: MAINTENANCE_QUEUE_NAV_KEYS.returned },
-  { statuses: ['CLOSED', 'APPROVED'], navKey: MAINTENANCE_QUEUE_NAV_KEYS.complete },
-];
-
-const QUEUE_NAV_KEYS = Object.values(MAINTENANCE_QUEUE_NAV_KEYS);
 
 /** Top summary cards (workflow queues) on the All Job Cards page. */
 const QUEUE_KEYS: Array<{ statuses: string[]; colorKey: string; label: string; key: string }> = [
@@ -200,52 +171,6 @@ export const JobCardList: React.FC = () => {
     return number && name && number !== name ? `${number} — ${name}` : (number || name || 'Unnamed machine');
   };
 
-  /**
-   * Sidebar queue badges: real, company-scoped dashboard counts, independent
-   * of this page's hierarchy/search filters so the sidebar stays correct no
-   * matter which filtered queue page is open. Each workflow queue is the sum
-   * of its constituent real statuses. "Open Job Card" is the creation form —
-   * it never gets a badge.
-   */
-  const sidebarBadgeReq = useRef(0);
-  const syncSidebarBadges = useCallback(async (companyId: string) => {
-    const reqId = ++sidebarBadgeReq.current;
-    const navBadges = useNavBadgeStore.getState();
-    const clearAll = () => { for (const key of QUEUE_NAV_KEYS) navBadges.clearNavBadge(key); };
-    const setPmSchedules = (rows: unknown) => {
-      const raw = (rows as any[]) || [];
-      const count = raw.filter((s: any) => s && s.id).length;
-      navBadges.setNavBadge('/maintenance/pm-schedules', count);
-    };
-    try {
-      const d = await apiService.get<any>('/master-data/maintenance/job-cards/dashboard', { companyId });
-      if (reqId !== sidebarBadgeReq.current) return;
-      if (!d || typeof d !== 'object' || typeof d.total !== 'number') { clearAll(); return; }
-      navBadges.setNavBadge(MAINTENANCE_QUEUE_NAV_KEYS.all, d.total);
-      for (const q of QUEUE_DEFS) {
-        const count = q.statuses.reduce((sum, s) => sum + (Number(d[DASH_COUNTER[s]]) || 0), 0);
-        navBadges.setNavBadge(q.navKey, count);
-      }
-      navBadges.clearNavBadge(MAINTENANCE_QUEUE_NAV_KEYS.open);
-      const pm = await apiService.get<any>('/master-data/maintenance/pm/schedules', { companyId }).catch(() => null);
-      if (reqId !== sidebarBadgeReq.current) return;
-      if (Array.isArray(pm)) setPmSchedules(pm);
-      else if (pm && Array.isArray(pm.data)) setPmSchedules(pm.data);
-      else navBadges.clearNavBadge('/maintenance/pm-schedules');
-    } catch {
-      if (reqId !== sidebarBadgeReq.current) return;
-      clearAll();
-    }
-  }, []);
-  useEffect(() => { if (companyId) syncSidebarBadges(companyId); }, [companyId, syncSidebarBadges]);
-  useEffect(() => {
-    const navBadges = useNavBadgeStore.getState();
-    return () => {
-      for (const key of QUEUE_NAV_KEYS) navBadges.clearNavBadge(key);
-      navBadges.clearNavBadge('/maintenance/pm-schedules');
-    };
-  }, []);
-
   const loadQueue = useCallback(async () => {
     if (!companyId) return;
     const params: Record<string, string> = { companyId };
@@ -353,7 +278,7 @@ export const JobCardList: React.FC = () => {
   const resetAll = () => { setPage(1); setSearchInput(''); setFilters(emptyFilters(user?.defaultCompanyId)); setShowFilters(false); setSearchParams({}); };
 
   const remove = async (id: string) => {
-    try { await apiService.delete(`${JOB_CARD_BASE}/${id}`); message.success('Job card deleted'); load(); loadQueue(); }
+    try { await apiService.delete(`${JOB_CARD_BASE}/${id}`); message.success('Job card deleted'); load(); loadQueue(); if (companyId) void syncMaintenanceQueueBadges(companyId); }
     catch (e) { message.error(errorText(e)); }
   };
 
@@ -373,7 +298,7 @@ export const JobCardList: React.FC = () => {
         try {
           await apiService.post(`${JOB_CARD_BASE}/${r.id}/${action.endpoint}`, action.endpoint === 'reject' ? { reason: 'Rejected during review' } : {});
           message.success(`${action.label} completed`);
-          load(); loadQueue();
+          load(); loadQueue(); if (companyId) void syncMaintenanceQueueBadges(companyId);
         } catch (e) { message.error(errorText(e)); throw e; }
       },
     });
@@ -572,7 +497,7 @@ export const JobCardList: React.FC = () => {
       setImportResult(res);
       if (res && res.imported > 0) {
         message.success(`Imported ${res.imported} job card(s).`);
-        load(); loadQueue();
+        load(); loadQueue(); if (companyId) void syncMaintenanceQueueBadges(companyId);
       } else {
         message.warning('No job cards were imported. Review the report for details.');
       }

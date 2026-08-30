@@ -84,6 +84,7 @@
   flex: 1;
   min-width: 0;
   gap: 8px;
+  overflow: visible; /* never clip the count chip */
 }
 
 .erp-nav-label-text {
@@ -113,6 +114,9 @@
   color: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.1);
+  position: relative;
+  z-index: 1;
+  overflow: visible; /* never hide the count inside the chip */
 }
 
 /* Non-zero counts get a solid, high-contrast pill. */
