@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Avatar, Dropdown, Space } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Space, Drawer, Grid, Button } from 'antd';
 import {
   UserOutlined,
   LogoutOutlined,
   LockOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
@@ -142,6 +143,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [hoverOpen, setHoverOpen] = useState(false);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   const closeTimerRef = React.useRef<number | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.lg;
   const [userName, setUserName] = useState('Admin User');
   const navigate = useNavigate();
   const location = useLocation();
@@ -287,6 +291,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   }, []);
 
   const handleMenuClick = (info: { key: string }) => {
+    setMobileOpen(false);
     navigate(info.key);
   };
 
@@ -313,17 +318,18 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        collapsible
-        collapsed={effectivelyCollapsed}
-        onCollapse={handleManualCollapse}
-        onMouseEnter={openHoverSidebar}
-        onMouseLeave={scheduleCloseHoverSidebar}
-        breakpoint="lg"
-        collapsedWidth={80}
-        width={SIDER_WIDTH}
-        style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0 }}
-      >
+      {!isMobile && (
+        <Sider
+          collapsible
+          collapsed={effectivelyCollapsed}
+          onCollapse={handleManualCollapse}
+          onMouseEnter={openHoverSidebar}
+          onMouseLeave={scheduleCloseHoverSidebar}
+          breakpoint="lg"
+          collapsedWidth={80}
+          width={SIDER_WIDTH}
+          style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0 }}
+        >
         <div
           style={{
             minHeight: 32,
@@ -376,29 +382,62 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           onClick={handleMenuClick}
           onOpenChange={handleOpenChange}
         />
-      </Sider>
+        </Sider>
+      )}
+      {isMobile && (
+        <Drawer
+          placement="left"
+          width={300}
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          styles={{ body: { padding: 0 } }}
+          title="ERP System"
+        >
+          <Menu
+            theme="dark"
+            mode="inline"
+            selectedKeys={[activeKeys.selectedKey]}
+            openKeys={openKeys}
+            items={menuItems}
+            onClick={handleMenuClick}
+            onOpenChange={handleOpenChange}
+            style={{ borderRight: 0 }}
+          />
+        </Drawer>
+      )}
       <Layout
         style={{
-          marginLeft: effectivelyCollapsed ? 80 : SIDER_WIDTH,
+          marginLeft: isMobile ? 0 : (effectivelyCollapsed ? 80 : SIDER_WIDTH),
           transition: 'margin-left 0.2s',
+          minWidth: 0,
+          width: '100%',
         }}
       >
         <Header
           className="erp-app-header"
           style={{
-            padding: '0 24px',
+            padding: isMobile ? '0 8px' : '0 24px',
             display: 'flex',
             justifyContent: 'flex-end',
             alignItems: 'center',
-            gap: 12,
+            gap: isMobile ? 4 : 12,
             position: 'fixed',
             top: 0,
-            left: effectivelyCollapsed ? 80 : SIDER_WIDTH,
+            left: isMobile ? 0 : (effectivelyCollapsed ? 80 : SIDER_WIDTH),
             right: 0,
             zIndex: 10,
             transition: 'left 0.2s',
           }}
         >
+          {isMobile && (
+            <Button
+              aria-label="Open navigation menu"
+              type="text"
+              icon={<MenuOutlined style={{ fontSize: 20 }} />}
+              onClick={() => setMobileOpen(true)}
+              style={{ flexShrink: 0, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            />
+          )}
           <span
             style={{
               marginRight: 'auto',

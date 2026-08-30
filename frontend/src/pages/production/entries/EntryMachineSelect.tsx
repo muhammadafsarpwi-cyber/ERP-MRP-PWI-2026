@@ -253,7 +253,7 @@ const EntryMachineSelect: React.FC = () => {
           </Card>
 
           {loading && machines.length === 0 ? (
-            <Card><Spin tip="Loading machine status..." style={{ width: '100%', marginTop: 60 }} /></Card>
+            <Card><Spin style={{ width: '100%', marginTop: 60 }} /></Card>
           ) : machines.length === 0 ? (
             <Empty description="No active machines found for this selection." />
           ) : (

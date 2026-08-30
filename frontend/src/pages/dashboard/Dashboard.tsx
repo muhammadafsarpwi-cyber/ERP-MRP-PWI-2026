@@ -315,9 +315,9 @@ const Dashboard: React.FC = () => {
         ]}
         width={700}
       >
-        {itemDetailLoading ? (
-          <Spin tip="Loading route..." />
-        ) : itemDetail ? (
+                {itemDetailLoading ? (
+                  <Spin />
+                ) : itemDetail ? (
           <div>
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="Item Code">{itemDetail.itemCode}</Descriptions.Item>

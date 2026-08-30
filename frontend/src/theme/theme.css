@@ -280,3 +280,26 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
     transition: none !important;
   }
 }
+
+
+/* =====================================================================
+   Mobile edge-to-edge application container.
+   On small screens the ERP must touch the viewport edges — no outer
+   gap/border. The internal content margin/padding/border are set inline
+   by MainLayout, so these overrides remove them on mobile only.
+   ===================================================================== */
+@media (max-width: 767px) {
+  .erp-app-content {
+    margin: 0 !important;
+    padding: 8px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    min-height: 100vh;
+    width: 100% !important;
+    box-sizing: border-box;
+  }
+  .erp-app-header {
+    left: 0 !important;
+    width: 100%;
+  }
+}
