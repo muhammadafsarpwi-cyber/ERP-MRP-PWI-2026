@@ -5,7 +5,7 @@ import { ProductionOrderService } from './production-order.service';
 import { ProductionOrder, ProductionOrderOperation, ProductionOrderOperationLog, ProductionOrderStatus, ProductionOperationStatus } from '../entities';
 import { ProductionRouting, RoutingOperation, RoutingStatus } from '../../production-routing/entities';
 import { BillOfMaterials, BomLine, BomStatus } from '../../bom/entities';
-import { Item, UomConversion } from '../../item/entities';
+import { Item, Uom, UomConversion } from '../../item/entities';
 import { Division, Section, Department, DepartmentDivisionScope, Warehouse } from '../../organization/entities';
 import { SalesOrderItem } from '../../sales/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
@@ -24,6 +24,7 @@ describe('ProductionOrderService', () => {
   let bomRepo: any;
   let bomLineRepo: any;
   let itemRepo: any;
+  let uomRepo: any;
   let uomConversionRepo: any;
   let divisionRepo: any;
   let sectionRepo: any;
@@ -51,6 +52,7 @@ describe('ProductionOrderService', () => {
     bomRepo = { findOne: jest.fn() };
     bomLineRepo = { findOne: jest.fn(), find: jest.fn() };
     itemRepo = { findOne: jest.fn() };
+    uomRepo = { findOne: jest.fn() };
     uomConversionRepo = { findOne: jest.fn() };
     divisionRepo = { findOne: jest.fn() };
     sectionRepo = { findOne: jest.fn() };
@@ -72,6 +74,7 @@ describe('ProductionOrderService', () => {
         { provide: getRepositoryToken(BillOfMaterials), useValue: bomRepo },
         { provide: getRepositoryToken(BomLine), useValue: bomLineRepo },
         { provide: getRepositoryToken(Item), useValue: itemRepo },
+        { provide: getRepositoryToken(Uom), useValue: uomRepo },
         { provide: getRepositoryToken(UomConversion), useValue: uomConversionRepo },
         { provide: getRepositoryToken(Division), useValue: divisionRepo },
         { provide: getRepositoryToken(Section), useValue: sectionRepo },
@@ -106,6 +109,7 @@ describe('ProductionOrderService', () => {
 
   it('create generates sequential order number and saves DRAFT order', async () => {
     itemRepo.findOne.mockResolvedValue({ id: 'p1', companyId: COMPANY, isManufacturable: true });
+    uomRepo.findOne.mockResolvedValue({ id: 'u1' });
     routingRepo.findOne.mockResolvedValue({ id: 'r1', companyId: COMPANY, productId: 'p1', routingCode: 'RTG-1' });
     orderRepo.query.mockResolvedValue([{ order_number: 'PO-000005' }, { order_number: 'PO-000003' }]);
     const result = await service.create({ productId: 'p1', routingId: 'r1', plannedQuantity: 10, uomId: 'u1' } as any, COMPANY);

@@ -29,6 +29,7 @@ import { PurchaseInvoiceController } from './controllers/purchase-invoice.contro
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { UserModule } from '../user/user.module';
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
+    forwardRef(() => FinanceModule),
   ],
   controllers: [
     SupplierController,

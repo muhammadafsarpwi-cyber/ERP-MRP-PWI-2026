@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesInvoice, SalesCustomer, SalesOrder } from '../entities';
+import { FinanceAutoPostingService } from '../../finance/services/finance-auto-posting.service';
 
 @Injectable()
 export class SalesInvoiceService {
@@ -14,6 +15,7 @@ export class SalesInvoiceService {
     private readonly customerRepo: Repository<SalesCustomer>,
     @InjectRepository(SalesOrder)
     private readonly orderRepo: Repository<SalesOrder>,
+    private readonly autoPosting: FinanceAutoPostingService,
   ) {}
 
   async create(dto: any, userId?: string): Promise<SalesInvoice> {
@@ -132,7 +134,14 @@ export class SalesInvoiceService {
       invoice.status = 'Partial';
     }
 
-    return this.repo.save(invoice);
+    const saved = await this.repo.save(invoice);
+    // Auto-post customer receipt: DR Cash, CR AR
+    try {
+      await this.autoPosting.postCustomerReceipt(invoice.companyId, invoice.invoiceNo, id, amount, userId);
+    } catch (e: any) {
+      this.logger.warn(`Auto-posting for receipt on invoice ${id} failed: ${e.message}`);
+    }
+    return saved;
   }
 
   async post(id: string, userId?: string, companyId?: string): Promise<SalesInvoice> {
@@ -141,7 +150,14 @@ export class SalesInvoiceService {
       throw new BadRequestException('Can only post invoices in Pending status');
     }
     invoice.status = 'Posted';
-    return this.repo.save(invoice);
+    const saved = await this.repo.save(invoice);
+    // Auto-post AR journal
+    try {
+      await this.autoPosting.postSalesInvoice(invoice.companyId, invoice.invoiceNo, id, Number(invoice.totalAmount), userId);
+    } catch (e: any) {
+      this.logger.warn(`Auto-posting for sales invoice ${id} failed: ${e.message}`);
+    }
+    return saved;
   }
 
   async cancel(id: string, userId?: string, companyId?: string): Promise<SalesInvoice> {

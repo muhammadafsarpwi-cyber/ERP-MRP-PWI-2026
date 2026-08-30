@@ -23,6 +23,7 @@ import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { NotificationsModule } from '../notification/notification.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { NotificationsModule } from '../notification/notification.module';
     forwardRef(() => UserModule),
     forwardRef(() => InventoryModule),
     NotificationsModule,
+    forwardRef(() => FinanceModule),
   ],
   controllers: [
     SalesQuotationController,

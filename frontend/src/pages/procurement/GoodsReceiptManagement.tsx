@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, SearchOutlined, CheckOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { ERPLineItems, ERPLine } from '../../components/shared';
 
 interface GoodsReceipt {
   id: string;
@@ -34,6 +35,27 @@ const GoodsReceiptManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
+  const [lineItems, setLineItems] = useState<ERPLine[]>([]);
+  const [companyId, setCompanyId] = useState('');
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string }>>([]);
+
+  useEffect(() => {
+    const erpUser = localStorage.getItem('erp_user');
+    if (erpUser) {
+      try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
+    }
+    (async () => {
+      try {
+        const s = await apiService.get<{ data: Array<{ id: string; name: string }> }>('/procurement/suppliers', { limit: 200 });
+        setSuppliers(s.data || []);
+      } catch { /* ignore */ }
+      try {
+        const w = await apiService.get<{ data: Array<{ id: string; warehouseCode: string; name: string }> }>('/warehouses', { limit: 100 });
+        setWarehouses(w.data || []);
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const fetchData = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -55,18 +77,32 @@ const GoodsReceiptManagement: React.FC = () => {
 
   const handleCreate = () => {
     form.resetFields();
+    setLineItems([]);
     setModalVisible(true);
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      await apiService.post('/procurement/receipts', values);
+      if (lineItems.length === 0) {
+        message.warning('Add at least one line item');
+        return;
+      }
+      const payload = {
+        ...values,
+        lines: lineItems.map((l) => ({
+          itemId: l.itemId, uomId: l.uomId, quantityOrdered: l.quantity, quantityReceived: l.quantity,
+          quantityAccepted: l.quantity, quantityRejected: 0, unitPrice: l.rate,
+          conditionNotes: l.itemName || l.itemCode,
+        })),
+      };
+      await apiService.post('/procurement/receipts', payload);
       message.success('Goods receipt created');
       setModalVisible(false);
       fetchData(page);
     } catch (error) {
-      message.error('Failed to create goods receipt');
+      const msg: any = (error as any)?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : 'Failed to create goods receipt');
     }
   };
 
@@ -123,34 +159,24 @@ const GoodsReceiptManagement: React.FC = () => {
       <Modal title="Create Goods Receipt" open={modalVisible}
         onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={700}>
         <Form form={form} layout="vertical">
+          <Form.Item name="companyId" hidden><Input /></Form.Item>
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="companyId" label="Company ID" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
-            </Col>
             <Col span={12}>
               <Form.Item name="receiptCode" label="Receipt Code" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="poId" label="PO ID" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="supplierId" label="Supplier ID" rules={[{ required: true }]}>
-                <Input />
+              <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}>
+                <Select showSearch optionFilterProp="label"
+                  options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="warehouseId" label="Warehouse ID" rules={[{ required: true }]}>
-                <Input />
+              <Form.Item name="warehouseId" label="Warehouse" rules={[{ required: true }]}>
+                <Select options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -159,8 +185,9 @@ const GoodsReceiptManagement: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} showWarehouse={false} label="Receipt Items" />
           <Form.Item name="notes" label="Notes">
-            <Input.TextArea rows={3} />
+            <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
       </Modal>

@@ -7,6 +7,7 @@ import { PlusOutlined, EditOutlined, SearchOutlined, CheckOutlined, CloseOutline
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
+import { ERPLineItems, ERPLine } from '../../components/shared';
 
 interface Quotation {
   id: string;
@@ -37,6 +38,22 @@ const QuotationManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
+  const [lineItems, setLineItems] = useState<ERPLine[]>([]);
+  const [companyId, setCompanyId] = useState('');
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    const erpUser = localStorage.getItem('erp_user');
+    if (erpUser) {
+      try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
+    }
+    (async () => {
+      try {
+        const s = await apiService.get<{ data: Array<{ id: string; name: string }> }>('/procurement/suppliers', { limit: 200 });
+        setSuppliers(s.data || []);
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const fetchData = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -59,6 +76,7 @@ const QuotationManagement: React.FC = () => {
   const handleCreate = () => {
     setEditingItem(null);
     form.resetFields();
+    setLineItems([]);
     setModalVisible(true);
   };
 
@@ -71,17 +89,29 @@ const QuotationManagement: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      if (lineItems.length === 0) {
+        message.warning('Add at least one line item');
+        return;
+      }
+      const payload = {
+        ...values,
+        lines: lineItems.map((l, i) => ({
+          lineNumber: i + 1, itemId: l.itemId, uomId: l.uomId, quantity: l.quantity,
+          unitPrice: l.rate, discountPercent: l.discountPercent, leadTimeDays: 0, notes: l.itemName,
+        })),
+      };
       if (editingItem) {
-        await apiService.patch(`/procurement/quotations/${editingItem.id}`, values);
+        await apiService.patch(`/procurement/quotations/${editingItem.id}`, payload);
         message.success('Quotation updated');
       } else {
-        await apiService.post('/procurement/quotations', values);
+        await apiService.post('/procurement/quotations', payload);
         message.success('Quotation created');
       }
       setModalVisible(false);
       fetchData(page);
     } catch (error) {
-      message.error('Failed to save quotation');
+      const msg: any = (error as any)?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : 'Failed to save quotation');
     }
   };
 
@@ -139,27 +169,17 @@ const QuotationManagement: React.FC = () => {
       <Modal title={editingItem ? 'Edit Quotation' : 'Create Quotation'} open={modalVisible}
         onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={700}>
         <Form form={form} layout="vertical">
+          <Form.Item name="companyId" hidden><Input /></Form.Item>
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="companyId" label="Company ID" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
-            </Col>
             <Col span={12}>
               <Form.Item name="quotationCode" label="Quotation Code" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="rfqId" label="RFQ ID" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="supplierId" label="Supplier ID" rules={[{ required: true }]}>
-                <Input />
+              <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}>
+                <Select showSearch optionFilterProp="label"
+                  options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
               </Form.Item>
             </Col>
           </Row>
@@ -180,8 +200,9 @@ const QuotationManagement: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} label="Quotation Items" />
           <Form.Item name="notes" label="Notes">
-            <Input.TextArea rows={3} />
+            <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
       </Modal>

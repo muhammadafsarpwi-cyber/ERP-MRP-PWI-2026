@@ -7,6 +7,7 @@ import { PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, CheckOutlined,
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
+import { ERPLineItems, ERPLine } from '../../components/shared';
 import dayjs from 'dayjs';
 
 interface SalesReturn {
@@ -45,6 +46,22 @@ const SalesReturnManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
+  const [lineItems, setLineItems] = useState<ERPLine[]>([]);
+  const [companyId, setCompanyId] = useState('');
+  const [customers, setCustomers] = useState<Array<{ id: string; companyName?: string; customerCode?: string }>>([]);
+
+  useEffect(() => {
+    const erpUser = localStorage.getItem('erp_user');
+    if (erpUser) {
+      try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
+    }
+    (async () => {
+      try {
+        const c = await apiService.get<{ data: Array<{ id: string; companyName?: string; customerCode?: string }> }>('/customer/customers', { limit: 100 });
+        setCustomers(c.data || []);
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const fetchData = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -70,6 +87,7 @@ const SalesReturnManagement: React.FC = () => {
     form.setFieldsValue({
       subtotal: 0, taxAmount: 0, totalAmount: 0,
     });
+    setLineItems([]);
     setModalVisible(true);
   };
 
@@ -102,17 +120,29 @@ const SalesReturnManagement: React.FC = () => {
   const handleSubmitForm = async () => {
     try {
       const values = await form.validateFields();
+      if (lineItems.length === 0) {
+        message.warning('Add at least one line item');
+        return;
+      }
+      const payload = {
+        ...values,
+        lines: lineItems.map((l) => ({
+          itemId: l.itemId, description: l.itemName, quantity: l.quantity,
+          uomId: l.uomId, unitPrice: l.rate, taxAmount: 0, lineTotal: l.lineTotal, reason: l.itemName,
+        })),
+      };
       if (editingItem) {
-        await apiService.patch(`/sales/returns/${editingItem.id}`, values);
+        await apiService.patch(`/sales/returns/${editingItem.id}`, payload);
         message.success('Return updated');
       } else {
-        await apiService.post('/sales/returns', values);
+        await apiService.post('/sales/returns', payload);
         message.success('Return created');
       }
       setModalVisible(false);
       fetchData(page);
     } catch (error) {
-      message.error('Failed to save return');
+      const msg: any = (error as any)?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : 'Failed to save return');
     }
   };
 
@@ -198,20 +228,9 @@ const SalesReturnManagement: React.FC = () => {
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="salesOrderId" label="Sales Order ID" rules={[{ required: true }]}>
-                <Input placeholder="Enter Sales Order UUID" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="salesInvoiceId" label="Sales Invoice ID" rules={[{ required: true }]}>
-                <Input placeholder="Enter Sales Invoice UUID" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="customerId" label="Customer ID" rules={[{ required: true }]}>
-                <Input placeholder="Enter Customer UUID" />
+              <Form.Item name="customerId" label="Customer" rules={[{ required: true }]}>
+                <Select showSearch optionFilterProp="label"
+                  options={customers.map((c) => ({ value: c.id, label: `${c.customerCode || ''} ${c.companyName || c.id}` }))} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -220,7 +239,8 @@ const SalesReturnManagement: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
-          <Row gutter={16}>
+          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} label="Return Items" />
+          <Row gutter={16} style={{ marginTop: 12 }}>
             <Col span={6}>
               <Form.Item name="subtotal" label="Subtotal">
                 <InputNumber style={{ width: '100%' }} min={0} precision={2} />
@@ -232,8 +252,8 @@ const SalesReturnManagement: React.FC = () => {
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="totalAmount" label="Total">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+              <Form.Item name="totalAmount" label="Total (auto)">
+                <InputNumber style={{ width: '100%' }} min={0} precision={2} disabled />
               </Form.Item>
             </Col>
           </Row>

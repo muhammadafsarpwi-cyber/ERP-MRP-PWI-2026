@@ -5,6 +5,7 @@ import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { AuditModule } from '../audit/audit.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { NotificationsModule } from '../notification/notification.module';
 import {
   MaintenanceJobCard,
   MaintenanceJobCardTechnician,
@@ -45,6 +46,7 @@ import { MaintenanceTechnicianController } from './controllers/technician.contro
     forwardRef(() => UserModule),
     forwardRef(() => AuditModule),
     forwardRef(() => InventoryModule),
+    forwardRef(() => NotificationsModule),
     TypeOrmModule.forFeature([
       MaintenanceJobCard,
       MaintenanceJobCardTechnician,

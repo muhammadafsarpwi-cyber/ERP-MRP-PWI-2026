@@ -179,7 +179,7 @@ BEGIN
                      notes, track_inventory, is_purchasable, created_at, updated_at)
   VALUES
     -- SAMPLE 01: Wire 3.45 mm -> DIRECT_SPOKE (Straightener/Swagging skipped)
-    ('c1000000-0000-0000-0000-000000000001', v_company_id, 'SAMPLE-WIRE-3.45',
+    ('c1000000-0000-4000-8000-000000000001', v_company_id, 'SAMPLE-WIRE-3.45',
      'Wire 3.45 mm [SAMPLE]', 'RAW_MATERIAL', 'ACTIVE', true,
      v_uom_kg, v_div_spd, v_sec_spoke, v_dept_spoke,
      3.450, 'DIRECT_SPOKE', 'Spoke', 'Spoke Plating', NULL, NULL,
@@ -188,7 +188,7 @@ BEGIN
      'PROMPT-09 SAMPLE DATA - safe test record', true, true, NOW(), NOW()),
 
     -- SAMPLE 02: Wire 4.50 mm -> STANDARD_SPD (Straightener -> Swagging -> Spoke ...)
-    ('c1000000-0000-0000-0000-000000000002', v_company_id, 'SAMPLE-WIRE-4.50',
+    ('c1000000-0000-4000-8000-000000000002', v_company_id, 'SAMPLE-WIRE-4.50',
      'Wire 4.50 mm [SAMPLE]', 'RAW_MATERIAL', 'ACTIVE', true,
      v_uom_kg, v_div_spd, v_sec_spoke, v_dept_straight,
      4.500, 'STANDARD_SPD', 'Straightener', 'Swagging', 'Spoke', 'Spoke Plating',
@@ -197,23 +197,21 @@ BEGIN
      'PROMPT-09 SAMPLE DATA - safe test record', true, true, NOW(), NOW()),
 
     -- SAMPLE 03: Nipple -> Nipple Plating -> Packing
-    ('c1000000-0000-0000-0000-000000000003', v_company_id, 'SAMPLE-NIPPLE',
+    ('c1000000-0000-4000-8000-000000000003', v_company_id, 'SAMPLE-NIPPLE',
      'Nipple [SAMPLE]', 'RAW_MATERIAL', 'ACTIVE', true,
      v_uom_pcs, v_div_spd, v_sec_nipple, v_dept_nipple,
      NULL, 'NIPPLE', 'Nipple', 'Nipple Plating', NULL, NULL,
      'Nipple', 'Packing',
      0.002500, 400.00, NULL, NULL,
-     'PROMPT-09 SAMPLE DATA - safe test record', true, true, NOW(), NOW()),
-
-    -- SAMPLE 04: CCD Wire -> Flattening -> Spiral -> PVC -> CCD Packing
-    ('c1000000-0000-0000-0000-000000000004', v_company_id, 'SAMPLE-CCD-WIRE',
+'PROMPT-09 SAMPLE DATA - safe test record', true, true, NOW(), NOW()),
+     ('c1000000-0000-4000-8000-000000000004', v_company_id, 'SAMPLE-CCD-WIRE',
      'CCD Wire [SAMPLE]', 'RAW_MATERIAL', 'ACTIVE', true,
      v_uom_m, v_div_ccd, v_sec_spiral, v_dept_flat,
      2.500, 'CCD', 'Flattening', 'Spiral', 'PVC', NULL,
      'CCD Wire', 'CCD Packing',
      0.120000, 8.333, 0.150000, 0.800000,
      'PROMPT-09 SAMPLE DATA - safe test record', true, true, NOW(), NOW())
-  ON CONFLICT (id) DO UPDATE SET
+ON CONFLICT (company_id, item_code) DO UPDATE SET
     name               = EXCLUDED.name,
     item_type          = EXCLUDED.item_type,
     status             = EXCLUDED.status,
@@ -245,55 +243,55 @@ BEGIN
                      weight_per_piece, pieces_per_kg, weight_per_meter, length_per_piece,
                      track_inventory, is_manufacturable, created_at, updated_at)
   VALUES
-    ('c1000000-0000-0000-0000-000000000011', v_company_id, 'SAMPLE-STRAIGHTENED-WIRE',
+    ('c1000000-0000-4000-8000-000000000011', v_company_id, 'SAMPLE-STRAIGHTENED-WIRE',
      'Straightened Wire 4.50 mm [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_kg, v_div_spd, v_sec_spoke, v_dept_straight, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.093700, 10.67, 0.124900, 0.750000, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000012', v_company_id, 'SAMPLE-SWAGED-WIRE',
+    ('c1000000-0000-4000-8000-000000000012', v_company_id, 'SAMPLE-SWAGED-WIRE',
      'Swaged Wire 4.50 mm [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_kg, v_div_spd, v_sec_spoke, v_dept_swage, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.090000, 11.11, 0.120000, 0.750000, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000013', v_company_id, 'SAMPLE-SPOKE',
+    ('c1000000-0000-4000-8000-000000000013', v_company_id, 'SAMPLE-SPOKE',
      'Spoke [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_pcs, v_div_spd, v_sec_spoke, v_dept_spoke, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.088000, 11.36, NULL, NULL, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000014', v_company_id, 'SAMPLE-SPOKE-PLATED',
+    ('c1000000-0000-4000-8000-000000000014', v_company_id, 'SAMPLE-SPOKE-PLATED',
      'Spoke Plated [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_pcs, v_div_spd, v_sec_spoke, v_dept_spoke, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.089000, 11.24, NULL, NULL, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000015', v_company_id, 'SAMPLE-SPOKE-PACKED',
+    ('c1000000-0000-4000-8000-000000000015', v_company_id, 'SAMPLE-SPOKE-PACKED',
      'Packed Spoke [SAMPLE]', 'FINISHED_GOOD', 'ACTIVE', true,
      v_uom_pcs, v_div_spd, v_sec_spoke, v_dept_spoke, 'PROMPT-09 SAMPLE DATA - packed/dispatchable item',
      0.090000, 11.11, NULL, NULL, true, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000016', v_company_id, 'SAMPLE-NIPPLE-FORMED',
+    ('c1000000-0000-4000-8000-000000000016', v_company_id, 'SAMPLE-NIPPLE-FORMED',
      'Nipple Formed [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_pcs, v_div_spd, v_sec_nipple, v_dept_header, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.002500, 400.00, NULL, NULL, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000017', v_company_id, 'SAMPLE-NIPPLE-PLATED',
+    ('c1000000-0000-4000-8000-000000000017', v_company_id, 'SAMPLE-NIPPLE-PLATED',
      'Nipple Plated [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_pcs, v_div_spd, v_sec_nipple, v_dept_nipple, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.002600, 384.62, NULL, NULL, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000018', v_company_id, 'SAMPLE-NIPPLE-PACKED',
+    ('c1000000-0000-4000-8000-000000000018', v_company_id, 'SAMPLE-NIPPLE-PACKED',
      'Packed Nipple [SAMPLE]', 'FINISHED_GOOD', 'ACTIVE', true,
      v_uom_pcs, v_div_spd, v_sec_nipple, v_dept_nipple, 'PROMPT-09 SAMPLE DATA - packed/dispatchable item',
      0.002700, 370.37, NULL, NULL, true, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000019', v_company_id, 'SAMPLE-CCD-FLATTENED',
+    ('c1000000-0000-4000-8000-000000000019', v_company_id, 'SAMPLE-CCD-FLATTENED',
      'CCD Flattened Strip [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_m, v_div_ccd, v_sec_spiral, v_dept_flat, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.115000, 8.70, 0.144000, 0.800000, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000020', v_company_id, 'SAMPLE-CCD-SPIRAL',
+    ('c1000000-0000-4000-8000-000000000020', v_company_id, 'SAMPLE-CCD-SPIRAL',
      'CCD Spiral Cable [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_m, v_div_ccd, v_sec_spiral, v_dept_spiral, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.130000, 7.69, 0.162000, 0.800000, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000021', v_company_id, 'SAMPLE-CCD-PVC',
+    ('c1000000-0000-4000-8000-000000000021', v_company_id, 'SAMPLE-CCD-PVC',
      'CCD PVC Insulated Cable [SAMPLE]', 'SEMI_FINISHED', 'ACTIVE', true,
      v_uom_m, v_div_ccd, v_sec_spiral, v_dept_spiral, 'PROMPT-09 SAMPLE DATA - intermediate item',
      0.140000, 7.14, 0.175000, 0.800000, false, true, NOW(), NOW()),
-    ('c1000000-0000-0000-0000-000000000022', v_company_id, 'SAMPLE-CCD-PACKED',
+    ('c1000000-0000-4000-8000-000000000022', v_company_id, 'SAMPLE-CCD-PACKED',
      'Packed CCD Cable [SAMPLE]', 'FINISHED_GOOD', 'ACTIVE', true,
      v_uom_pcs, v_div_ccd, v_sec_spiral, v_dept_spiral, 'PROMPT-09 SAMPLE DATA - packed/dispatchable item',
      0.150000, 6.67, NULL, NULL, true, true, NOW(), NOW())
-  ON CONFLICT (id) DO UPDATE SET
+ON CONFLICT (company_id, item_code) DO UPDATE SET
     name             = EXCLUDED.name,
     item_type        = EXCLUDED.item_type,
     status           = EXCLUDED.status,
@@ -318,22 +316,22 @@ END $$;
 DO $$
 DECLARE
   v_company_id UUID := '7725aa04-a270-4314-9e82-90949cbe7791';
-  v_it_wire345   UUID := 'c1000000-0000-0000-0000-000000000001';
-  v_it_wire450   UUID := 'c1000000-0000-0000-0000-000000000002';
-  v_it_nipple    UUID := 'c1000000-0000-0000-0000-000000000003';
-  v_it_ccdwire   UUID := 'c1000000-0000-0000-0000-000000000004';
-  v_it_straight  UUID := 'c1000000-0000-0000-0000-000000000011';
-  v_it_swaged    UUID := 'c1000000-0000-0000-0000-000000000012';
-  v_it_spoke     UUID := 'c1000000-0000-0000-0000-000000000013';
-  v_it_plated    UUID := 'c1000000-0000-0000-0000-000000000014';
-  v_it_packed    UUID := 'c1000000-0000-0000-0000-000000000015';
-  v_it_nipformed UUID := 'c1000000-0000-0000-0000-000000000016';
-  v_it_nipplated UUID := 'c1000000-0000-0000-0000-000000000017';
-  v_it_nippacked UUID := 'c1000000-0000-0000-0000-000000000018';
-  v_it_flat      UUID := 'c1000000-0000-0000-0000-000000000019';
-  v_it_spiral    UUID := 'c1000000-0000-0000-0000-000000000020';
-  v_it_pvc       UUID := 'c1000000-0000-0000-0000-000000000021';
-  v_it_ccdpacked UUID := 'c1000000-0000-0000-0000-000000000022';
+  v_it_wire345   UUID := 'c1000000-0000-4000-8000-000000000001';
+  v_it_wire450   UUID := 'c1000000-0000-4000-8000-000000000002';
+  v_it_nipple    UUID := 'c1000000-0000-4000-8000-000000000003';
+  v_it_ccdwire   UUID := 'c1000000-0000-4000-8000-000000000004';
+  v_it_straight  UUID := 'c1000000-0000-4000-8000-000000000011';
+  v_it_swaged    UUID := 'c1000000-0000-4000-8000-000000000012';
+  v_it_spoke     UUID := 'c1000000-0000-4000-8000-000000000013';
+  v_it_plated    UUID := 'c1000000-0000-4000-8000-000000000014';
+  v_it_packed    UUID := 'c1000000-0000-4000-8000-000000000015';
+  v_it_nipformed UUID := 'c1000000-0000-4000-8000-000000000016';
+  v_it_nipplated UUID := 'c1000000-0000-4000-8000-000000000017';
+  v_it_nippacked UUID := 'c1000000-0000-4000-8000-000000000018';
+  v_it_flat      UUID := 'c1000000-0000-4000-8000-000000000019';
+  v_it_spiral    UUID := 'c1000000-0000-4000-8000-000000000020';
+  v_it_pvc       UUID := 'c1000000-0000-4000-8000-000000000021';
+  v_it_ccdpacked UUID := 'c1000000-0000-4000-8000-000000000022';
 
   v_div_spd UUID; v_div_ccd UUID;
   v_sec_spoke UUID; v_sec_plate UUID; v_sec_pack UUID; v_sec_nipple UUID; v_sec_spiral UUID; v_sec_pvc UUID; v_sec_ccdpack UUID;
@@ -375,10 +373,10 @@ BEGIN
 
   -- Clean previous sample operations only (scoped to our fixed routing ids)
   DELETE FROM routing_operations WHERE routing_id IN (
-    'b1000000-0000-0000-0000-000000000001',
-    'b1000000-0000-0000-0000-000000000002',
-    'b1000000-0000-0000-0000-000000000003',
-    'b1000000-0000-0000-0000-000000000004');
+    'b1000000-0000-4000-8000-000000000001',
+    'b1000000-0000-4000-8000-000000000002',
+    'b1000000-0000-4000-8000-000000000003',
+    'b1000000-0000-4000-8000-000000000004');
 
   -- ------------------------------------------------------------------
   -- SAMPLE ROUTE 1: WIRE-3.45 -> DIRECT_SPOKE (Straightener/Swagging skipped)
@@ -387,7 +385,7 @@ BEGIN
   INSERT INTO production_routings (id, company_id, routing_code, name, description,
                                    product_id, bom_id, status, base_quantity, estimated_total_time,
                                    is_default, effective_from, created_at, updated_at, is_active)
-  VALUES ('b1000000-0000-0000-0000-000000000001', v_company_id, 'RTG-SMP-001',
+  VALUES ('b1000000-0000-4000-8000-000000000001', v_company_id, 'RTG-SMP-001',
           'Wire 3.45 mm - Direct Spoke [SAMPLE]',
           'PROMPT-09 sample: RAW MATERIAL -> Spoke -> Spoke Plating -> Spoke Packing (DIRECT_SPOKE)',
           v_it_wire345, NULL, 'ACTIVE', 1, 60, true, NOW(), NOW(), NOW(), true)
@@ -395,19 +393,19 @@ BEGIN
     name = EXCLUDED.name, description = EXCLUDED.description, status = 'ACTIVE',
     is_default = true, updated_at = NOW();
 
-  v_routing_id := 'b1000000-0000-0000-0000-000000000001';
+  v_routing_id := 'b1000000-0000-4000-8000-000000000001';
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name,
                                   division_id, section_id, department_id,
                                   input_item_id, output_item_id, input_quantity, output_quantity, uom_id,
                                   status, remarks, created_at, updated_at, is_active)
   VALUES
-    ('b2000000-0000-0000-0000-000000000001', v_company_id, v_routing_id, 10, 'OP-SMP-010', 'Spoke',
+    ('b2000000-0000-4000-8000-000000000001', v_company_id, v_routing_id, 10, 'OP-SMP-010', 'Spoke',
      v_div_spd, v_sec_spoke, v_dept_spoke, v_it_wire345, v_it_spoke, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000002', v_company_id, v_routing_id, 20, 'OP-SMP-020', 'Spoke Plating',
+    ('b2000000-0000-4000-8000-000000000002', v_company_id, v_routing_id, 20, 'OP-SMP-020', 'Spoke Plating',
      v_div_spd, v_sec_plate, v_dept_spokeplate, v_it_spoke, v_it_plated, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000003', v_company_id, v_routing_id, 30, 'OP-SMP-030', 'Spoke Packing',
+    ('b2000000-0000-4000-8000-000000000003', v_company_id, v_routing_id, 30, 'OP-SMP-030', 'Spoke Packing',
      v_div_spd, v_sec_pack, v_dept_spokepack, v_it_plated, v_it_packed, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE packing / dispatch step', NOW(), NOW(), true);
 
@@ -418,7 +416,7 @@ BEGIN
   INSERT INTO production_routings (id, company_id, routing_code, name, description,
                                    product_id, bom_id, status, base_quantity, estimated_total_time,
                                    is_default, effective_from, created_at, updated_at, is_active)
-  VALUES ('b1000000-0000-0000-0000-000000000002', v_company_id, 'RTG-SMP-002',
+  VALUES ('b1000000-0000-4000-8000-000000000002', v_company_id, 'RTG-SMP-002',
           'Wire 4.50 mm - Standard SPD [SAMPLE]',
           'PROMPT-09 sample: RAW MATERIAL -> Straightener -> Swagging -> Spoke -> Spoke Plating -> Spoke Packing (STANDARD_SPD)',
           v_it_wire450, NULL, 'ACTIVE', 1, 100, true, NOW(), NOW(), NOW(), true)
@@ -426,25 +424,25 @@ BEGIN
     name = EXCLUDED.name, description = EXCLUDED.description, status = 'ACTIVE',
     is_default = true, updated_at = NOW();
 
-  v_routing_id := 'b1000000-0000-0000-0000-000000000002';
+  v_routing_id := 'b1000000-0000-4000-8000-000000000002';
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name,
                                   division_id, section_id, department_id,
                                   input_item_id, output_item_id, input_quantity, output_quantity, uom_id,
                                   status, remarks, created_at, updated_at, is_active)
   VALUES
-    ('b2000000-0000-0000-0000-000000000011', v_company_id, v_routing_id, 10, 'OP-SMP-010', 'Straightener',
+    ('b2000000-0000-4000-8000-000000000011', v_company_id, v_routing_id, 10, 'OP-SMP-010', 'Straightener',
      v_div_spd, v_sec_spoke, v_dept_straightener, v_it_wire450, v_it_straight, 1, 1, v_uom_kg, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000012', v_company_id, v_routing_id, 20, 'OP-SMP-020', 'Swagging',
+    ('b2000000-0000-4000-8000-000000000012', v_company_id, v_routing_id, 20, 'OP-SMP-020', 'Swagging',
      v_div_spd, v_sec_spoke, v_dept_swagging, v_it_straight, v_it_swaged, 1, 1, v_uom_kg, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000013', v_company_id, v_routing_id, 30, 'OP-SMP-030', 'Spoke',
+    ('b2000000-0000-4000-8000-000000000013', v_company_id, v_routing_id, 30, 'OP-SMP-030', 'Spoke',
      v_div_spd, v_sec_spoke, v_dept_spoke, v_it_swaged, v_it_spoke, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000014', v_company_id, v_routing_id, 40, 'OP-SMP-040', 'Spoke Plating',
+    ('b2000000-0000-4000-8000-000000000014', v_company_id, v_routing_id, 40, 'OP-SMP-040', 'Spoke Plating',
      v_div_spd, v_sec_plate, v_dept_spokeplate, v_it_spoke, v_it_plated, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000015', v_company_id, v_routing_id, 50, 'OP-SMP-050', 'Spoke Packing',
+    ('b2000000-0000-4000-8000-000000000015', v_company_id, v_routing_id, 50, 'OP-SMP-050', 'Spoke Packing',
      v_div_spd, v_sec_pack, v_dept_spokepack, v_it_plated, v_it_packed, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE packing / dispatch step', NOW(), NOW(), true);
 
@@ -455,7 +453,7 @@ BEGIN
   INSERT INTO production_routings (id, company_id, routing_code, name, description,
                                    product_id, bom_id, status, base_quantity, estimated_total_time,
                                    is_default, effective_from, created_at, updated_at, is_active)
-  VALUES ('b1000000-0000-0000-0000-000000000003', v_company_id, 'RTG-SMP-003',
+  VALUES ('b1000000-0000-4000-8000-000000000003', v_company_id, 'RTG-SMP-003',
           'Nipple Route [SAMPLE]',
           'PROMPT-09 sample: RAW MATERIAL -> Nipple -> Nipple Plating -> Packing (NIPPLE)',
           v_it_nipple, NULL, 'ACTIVE', 1, 60, true, NOW(), NOW(), NOW(), true)
@@ -463,19 +461,19 @@ BEGIN
     name = EXCLUDED.name, description = EXCLUDED.description, status = 'ACTIVE',
     is_default = true, updated_at = NOW();
 
-  v_routing_id := 'b1000000-0000-0000-0000-000000000003';
+  v_routing_id := 'b1000000-0000-4000-8000-000000000003';
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name,
                                   division_id, section_id, department_id,
                                   input_item_id, output_item_id, input_quantity, output_quantity, uom_id,
                                   status, remarks, created_at, updated_at, is_active)
   VALUES
-    ('b2000000-0000-0000-0000-000000000021', v_company_id, v_routing_id, 10, 'OP-SMP-010', 'Nipple',
+    ('b2000000-0000-4000-8000-000000000021', v_company_id, v_routing_id, 10, 'OP-SMP-010', 'Nipple',
      v_div_spd, v_sec_nipple, v_dept_nipple, v_it_nipple, v_it_nipformed, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000022', v_company_id, v_routing_id, 20, 'OP-SMP-020', 'Nipple Plating',
+    ('b2000000-0000-4000-8000-000000000022', v_company_id, v_routing_id, 20, 'OP-SMP-020', 'Nipple Plating',
      v_div_spd, v_sec_plate, v_dept_nippleplate, v_it_nipformed, v_it_nipplated, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000023', v_company_id, v_routing_id, 30, 'OP-SMP-030', 'Packing',
+    ('b2000000-0000-4000-8000-000000000023', v_company_id, v_routing_id, 30, 'OP-SMP-030', 'Packing',
      v_div_spd, v_sec_pack, v_dept_spokepack, v_it_nipplated, v_it_nippacked, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE packing / dispatch step', NOW(), NOW(), true);
 
@@ -486,7 +484,7 @@ BEGIN
   INSERT INTO production_routings (id, company_id, routing_code, name, description,
                                    product_id, bom_id, status, base_quantity, estimated_total_time,
                                    is_default, effective_from, created_at, updated_at, is_active)
-  VALUES ('b1000000-0000-0000-0000-000000000004', v_company_id, 'RTG-SMP-004',
+  VALUES ('b1000000-0000-4000-8000-000000000004', v_company_id, 'RTG-SMP-004',
           'CCD Wire Route [SAMPLE]',
           'PROMPT-09 sample: RAW MATERIAL -> Flattening -> Spiral -> PVC -> CCD Packing (CCD)',
           v_it_ccdwire, NULL, 'ACTIVE', 1, 90, true, NOW(), NOW(), NOW(), true)
@@ -494,22 +492,22 @@ BEGIN
     name = EXCLUDED.name, description = EXCLUDED.description, status = 'ACTIVE',
     is_default = true, updated_at = NOW();
 
-  v_routing_id := 'b1000000-0000-0000-0000-000000000004';
+  v_routing_id := 'b1000000-0000-4000-8000-000000000004';
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name,
                                   division_id, section_id, department_id,
                                   input_item_id, output_item_id, input_quantity, output_quantity, uom_id,
                                   status, remarks, created_at, updated_at, is_active)
   VALUES
-    ('b2000000-0000-0000-0000-000000000031', v_company_id, v_routing_id, 10, 'OP-SMP-010', 'Flattening',
+    ('b2000000-0000-4000-8000-000000000031', v_company_id, v_routing_id, 10, 'OP-SMP-010', 'Flattening',
      v_div_ccd, v_sec_spiral, v_dept_flattening, v_it_ccdwire, v_it_flat, 1, 1, v_uom_m, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000032', v_company_id, v_routing_id, 20, 'OP-SMP-020', 'Spiral',
+    ('b2000000-0000-4000-8000-000000000032', v_company_id, v_routing_id, 20, 'OP-SMP-020', 'Spiral',
      v_div_ccd, v_sec_spiral, v_dept_spiral, v_it_flat, v_it_spiral, 1, 1, v_uom_m, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000033', v_company_id, v_routing_id, 30, 'OP-SMP-030', 'PVC',
+    ('b2000000-0000-4000-8000-000000000033', v_company_id, v_routing_id, 30, 'OP-SMP-030', 'PVC',
      v_div_ccd, v_sec_pvc, v_dept_pvc, v_it_spiral, v_it_pvc, 1, 1, v_uom_m, 'ACTIVE',
      'SAMPLE operation', NOW(), NOW(), true),
-    ('b2000000-0000-0000-0000-000000000034', v_company_id, v_routing_id, 40, 'OP-SMP-040', 'CCD Packing',
+    ('b2000000-0000-4000-8000-000000000034', v_company_id, v_routing_id, 40, 'OP-SMP-040', 'CCD Packing',
      v_div_ccd, v_sec_ccdpack, v_dept_ccdpack, v_it_pvc, v_it_ccdpacked, 1, 1, v_uom_pcs, 'ACTIVE',
      'SAMPLE packing / dispatch step', NOW(), NOW(), true);
 

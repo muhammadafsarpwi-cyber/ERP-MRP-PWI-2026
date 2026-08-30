@@ -75,4 +75,14 @@ export class PurchaseInvoiceController {
     const invoice = await this.service.cancel(id);
     return { success: true, data: invoice, message: 'Purchase invoice cancelled' };
   }
+
+  @Patch(':id/record-payment')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.invoice.post')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Record supplier payment against purchase invoice (auto-posts AP/cash journal)' })
+  async recordPayment(@Param('id') id: string, @Body('paidAmount') paidAmount: number) {
+    const invoice = await this.service.recordPayment(id, Number(paidAmount));
+    return { success: true, data: invoice, message: 'Payment recorded successfully' };
+  }
 }

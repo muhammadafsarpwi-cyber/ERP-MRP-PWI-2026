@@ -5,6 +5,7 @@ import {
   FinanceJournal, FinanceJournalLine,
 } from './entities';
 import { FinanceService } from './services/finance.service';
+import { FinanceAutoPostingService } from './services/finance-auto-posting.service';
 import { FinanceController } from './controllers/finance.controller';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
@@ -20,7 +21,7 @@ import { UserModule } from '../user/user.module';
     forwardRef(() => UserModule),
   ],
   controllers: [FinanceController],
-  providers: [FinanceService],
-  exports: [FinanceService],
+  providers: [FinanceService, FinanceAutoPostingService],
+  exports: [FinanceService, FinanceAutoPostingService],
 })
 export class FinanceModule {}

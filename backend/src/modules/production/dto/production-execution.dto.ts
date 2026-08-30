@@ -1,5 +1,6 @@
-import { IsNumber, IsOptional, IsString, Min, IsUUID, IsNotEmpty } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min, IsUUID, IsNotEmpty, IsArray, ValidateNested } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 
 export class CompleteOperationDto {
   @ApiProperty({ description: 'Total quantity input to the operation' })
@@ -51,6 +52,9 @@ export class IssueMaterialLineDto {
 
 export class IssueMaterialsDto {
   @ApiProperty({ type: [IssueMaterialLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => IssueMaterialLineDto)
   lines: IssueMaterialLineDto[];
 }
 

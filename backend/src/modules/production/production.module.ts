@@ -11,7 +11,7 @@ import {
 } from './entities';
 import { ProductionRouting, RoutingOperation } from '../production-routing/entities';
 import { BillOfMaterials, BomLine } from '../bom/entities';
-import { Item, UomConversion } from '../item/entities';
+import { Item, Uom, UomConversion } from '../item/entities';
 import { Division, Section, Department, DepartmentDivisionScope, Warehouse } from '../organization/entities';
 import { SalesOrderItem } from '../sales/entities';
 import {
@@ -42,6 +42,7 @@ import { UserModule } from '../user/user.module';
       BillOfMaterials,
       BomLine,
       Item,
+      Uom,
       UomConversion,
       Division,
       Section,

@@ -12,7 +12,7 @@ import { NotificationsModule } from '../notification/notification.module';
     TypeOrmModule.forFeature([ErpUser, UserRole, UserOrganizationScope]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
-    NotificationsModule,
+    forwardRef(() => NotificationsModule),
   ],
   controllers: [UserController],
   providers: [ErpUserService],

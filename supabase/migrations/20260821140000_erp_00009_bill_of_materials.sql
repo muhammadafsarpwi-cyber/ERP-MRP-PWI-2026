@@ -129,7 +129,7 @@ WHERE item_code IN ('FIN-001', 'SLD-0001', 'SLD-0002')
 -- BOM-001: Precision Bearing 6205 (ACTIVE)
 INSERT INTO bill_of_materials (id, company_id, bom_code, name, description, status, base_quantity, product_id, effective_from, estimated_cost)
 SELECT
-  'b1000000-0000-0000-0000-000000000001',
+  'b1000000-0000-4000-8000-000000000001',
   c.id,
   'BOM-001',
   'Precision Bearing 6205 Assembly',
@@ -145,7 +145,7 @@ ON CONFLICT (bom_code, company_id) DO NOTHING;
 -- BOM-002: Industrial Widget (ACTIVE)
 INSERT INTO bill_of_materials (id, company_id, bom_code, name, description, status, base_quantity, product_id, effective_from, estimated_cost)
 SELECT
-  'b1000000-0000-0000-0000-000000000002',
+  'b1000000-0000-4000-8000-000000000002',
   c.id,
   'BOM-002',
   'Industrial Widget Assembly',
@@ -161,7 +161,7 @@ ON CONFLICT (bom_code, company_id) DO NOTHING;
 -- BOM-003: Premium Component Kit (DRAFT)
 INSERT INTO bill_of_materials (id, company_id, bom_code, name, description, status, base_quantity, product_id, estimated_cost)
 SELECT
-  'b1000000-0000-0000-0000-000000000003',
+  'b1000000-0000-4000-8000-000000000003',
   c.id,
   'BOM-003',
   'Premium Component Kit Assembly',
@@ -179,11 +179,11 @@ ON CONFLICT (bom_code, company_id) DO NOTHING;
 
 -- BOM-001 lines (Precision Bearing 6205)
 INSERT INTO bom_lines (bom_id, line_number, item_id, quantity, uom_id, scrap_factor, yield_percentage, remarks)
-SELECT 'b1000000-0000-0000-0000-000000000001', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
+SELECT 'b1000000-0000-4000-8000-000000000001', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
 FROM (VALUES
   (1, 'RAW-001', 2, 'KG', 0.05, 95, 'Steel sheet for bearing housing'),
   (2, 'RAW-002', 1, 'KG', 0.03, 97, 'Aluminum rod for bearing race'),
-  (3, 'CONS-001', 0.5, 'KG', 0.02, 98, 'Hydraulic oil for lubrication')
+  (3, 'CONS-001', 0.5, 'L', 0.02, 98, 'Hydraulic oil for lubrication')
 ) AS v(line_number, item_code, quantity, uom_code, scrap_factor, yield_percentage, remarks)
 JOIN items i ON i.item_code = v.item_code
 JOIN uoms u ON u.code = v.uom_code
@@ -191,7 +191,7 @@ ON CONFLICT (bom_id, line_number) DO NOTHING;
 
 -- BOM-002 lines (Industrial Widget)
 INSERT INTO bom_lines (bom_id, line_number, item_id, quantity, uom_id, scrap_factor, yield_percentage, remarks)
-SELECT 'b1000000-0000-0000-0000-000000000002', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
+SELECT 'b1000000-0000-4000-8000-000000000002', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
 FROM (VALUES
   (1, 'RAW-001', 3, 'KG', 0.04, 96, 'Steel sheet for widget body'),
   (2, 'RAW-003', 2, 'KG', 0.03, 97, 'ABS plastic for housing'),
@@ -203,7 +203,7 @@ ON CONFLICT (bom_id, line_number) DO NOTHING;
 
 -- BOM-003 lines (Premium Component Kit)
 INSERT INTO bom_lines (bom_id, line_number, item_id, quantity, uom_id, scrap_factor, yield_percentage, remarks)
-SELECT 'b1000000-0000-0000-0000-000000000003', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
+SELECT 'b1000000-0000-4000-8000-000000000003', v.line_number, i.id, v.quantity, u.id, v.scrap_factor, v.yield_percentage, v.remarks
 FROM (VALUES
   (1, 'FIN-001', 2, 'EA', 0, 100, 'Bearings for kit assembly'),
   (2, 'SLD-0003', 1, 'EA', 0, 100, 'Fastener pack for assembly'),

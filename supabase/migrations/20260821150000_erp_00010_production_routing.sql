@@ -18,93 +18,66 @@ BEGIN
 
   INSERT INTO divisions (id, company_id, division_code, name, description, status, created_at, updated_at, is_active)
   VALUES
-    ('d1000000-0000-0000-0000-000000000001', v_company_id, 'SPD', 'Spoke Division',
+    ('d1000000-0000-4000-8000-000000000001', v_company_id, 'SPD', 'Spoke Division',
      'Spoke Division - Straightener, Swagging, Spoke, Nipple, Plating, Packing', 'ACTIVE', NOW(), NOW(), true),
-    ('d1000000-0000-0000-0000-000000000002', v_company_id, 'CCD', 'Control Cable Division',
+    ('d1000000-0000-4000-8000-000000000002', v_company_id, 'CCD', 'Control Cable Division',
      'Control Cable Division - Flattening, Spiral, PVC, Packing', 'ACTIVE', NOW(), NOW(), true)
   ON CONFLICT (division_code, company_id) DO UPDATE SET
     name = EXCLUDED.name,
     description = EXCLUDED.description,
     updated_at = NOW();
 
-  -- =======================================================================
+-- =======================================================================
   -- SECTION 2: MANUFACTURING SECTIONS
+  -- Resolve division_id by code lookup instead of hardcoded UUID
+  -- (the division may have been created with a different UUID by another migration)
   -- =======================================================================
 
   INSERT INTO sections (id, company_id, section_code, name, description, division_id, status, created_at, updated_at, is_active)
-  VALUES
+  SELECT s.id::uuid, v_company_id, s.section_code, s.name, s.description, d.id, 'ACTIVE', NOW(), NOW(), true
+  FROM (VALUES
     -- Spoke Division sections
-    ('d2000000-0000-0000-0000-000000000001', v_company_id, 'SEC-010', 'Spoke',
-     'Spoke section - Straightener, Swagging, Spoke operations',
-     'd1000000-0000-0000-0000-000000000001', 'ACTIVE', NOW(), NOW(), true),
-    ('d2000000-0000-0000-0000-000000000002', v_company_id, 'SEC-011', 'Nipple',
-     'Nipple section - Header, Nipple operations',
-     'd1000000-0000-0000-0000-000000000001', 'ACTIVE', NOW(), NOW(), true),
-    ('d2000000-0000-0000-0000-000000000003', v_company_id, 'SEC-012', 'Auto Plating',
-     'Auto Plating section - Spoke Plating, Nipple Plating operations',
-     'd1000000-0000-0000-0000-000000000001', 'ACTIVE', NOW(), NOW(), true),
-    ('d2000000-0000-0000-0000-000000000004', v_company_id, 'SEC-013', 'SPD Packing',
-     'SPD Packing section - Spoke Packing operations',
-     'd1000000-0000-0000-0000-000000000001', 'ACTIVE', NOW(), NOW(), true),
-    ('d2000000-0000-0000-0000-000000000005', v_company_id, 'SEC-014', 'Maintenance',
-     'Maintenance section - Facility Maintenance operations',
-     'd1000000-0000-0000-0000-000000000001', 'ACTIVE', NOW(), NOW(), true),
+    ('d2000000-0000-4000-8000-000000000001', 'SEC-010', 'Spoke', 'Spoke section - Straightener, Swagging, Spoke operations', 'SPD'),
+    ('d2000000-0000-4000-8000-000000000002', 'SEC-011', 'Nipple', 'Nipple section - Header, Nipple operations', 'SPD'),
+    ('d2000000-0000-4000-8000-000000000003', 'SEC-012', 'Auto Plating', 'Auto Plating section - Spoke Plating, Nipple Plating operations', 'SPD'),
+    ('d2000000-0000-4000-8000-000000000004', 'SEC-013', 'SPD Packing', 'SPD Packing section - Spoke Packing operations', 'SPD'),
+    ('d2000000-0000-4000-8000-000000000005', 'SEC-014', 'Maintenance', 'Maintenance section - Facility Maintenance operations', 'SPD'),
     -- Control Cable Division sections
-    ('d2000000-0000-0000-0000-000000000006', v_company_id, 'SEC-015', 'Spiral',
-     'Spiral section - Flattening, Spiral operations',
-     'd1000000-0000-0000-0000-000000000002', 'ACTIVE', NOW(), NOW(), true),
-    ('d2000000-0000-0000-0000-000000000007', v_company_id, 'SEC-016', 'PVC',
-     'PVC section - PVC extrusion operations',
-     'd1000000-0000-0000-0000-000000000002', 'ACTIVE', NOW(), NOW(), true),
-    ('d2000000-0000-0000-0000-000000000008', v_company_id, 'SEC-017', 'CCD Packing',
-     'CCD Packing section - Control Cable Packing operations',
-     'd1000000-0000-0000-0000-000000000002', 'ACTIVE', NOW(), NOW(), true)
+    ('d2000000-0000-4000-8000-000000000006', 'SEC-015', 'Spiral', 'Spiral section - Flattening, Spiral operations', 'CCD'),
+    ('d2000000-0000-4000-8000-000000000007', 'SEC-016', 'PVC', 'PVC section - PVC extrusion operations', 'CCD'),
+    ('d2000000-0000-4000-8000-000000000008', 'SEC-017', 'CCD Packing', 'CCD Packing section - Control Cable Packing operations', 'CCD')
+  ) AS s(id, section_code, name, description, div_code)
+  JOIN divisions d ON d.company_id = v_company_id AND d.division_code = s.div_code
   ON CONFLICT (section_code, company_id) DO UPDATE SET
     name = EXCLUDED.name,
     description = EXCLUDED.description,
     division_id = EXCLUDED.division_id,
     updated_at = NOW();
 
-  -- =======================================================================
+-- =======================================================================
   -- SECTION 3: MANUFACTURING DEPARTMENTS
+  -- Resolve division_id and section_id by code lookup
   -- =======================================================================
 
   INSERT INTO departments (id, company_id, department_code, name, description, division_id, section_id, status, created_at, updated_at, is_active)
-  VALUES
-    -- Spoke Division > Spoke section
-    ('d3000000-0000-0000-0000-000000000001', v_company_id, 'SPD-DEPT001', 'Straightener',
-     'Wire straightening operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000001', 'ACTIVE', NOW(), NOW(), true),
-    ('d3000000-0000-0000-0000-000000000002', v_company_id, 'SPD-DEPT002', 'Swagging',
-     'Swagging operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000001', 'ACTIVE', NOW(), NOW(), true),
-    ('d3000000-0000-0000-0000-000000000003', v_company_id, 'SPD-DEPT003', 'Spoke',
-     'Spoke assembly operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000001', 'ACTIVE', NOW(), NOW(), true),
-    -- Spoke Division > Nipple section
-    ('d3000000-0000-0000-0000-000000000004', v_company_id, 'SPD-DEPT004', 'Header',
-     'Header operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'ACTIVE', NOW(), NOW(), true),
-    ('d3000000-0000-0000-0000-000000000005', v_company_id, 'SPD-DEPT005', 'Nipple',
-     'Nipple assembly operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'ACTIVE', NOW(), NOW(), true),
-    -- Spoke Division > Auto Plating section
-    ('d3000000-0000-0000-0000-000000000006', v_company_id, 'SPD-DEPT006', 'Spoke Plating',
-     'Spoke plating operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000003', 'ACTIVE', NOW(), NOW(), true),
-    ('d3000000-0000-0000-0000-000000000007', v_company_id, 'SPD-DEPT007', 'Nipple Plating',
-     'Nipple plating operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000003', 'ACTIVE', NOW(), NOW(), true),
-    -- Spoke Division > SPD Packing section
-    ('d3000000-0000-0000-0000-000000000008', v_company_id, 'SPD-DEPT008', 'Spoke Packing',
-     'Spoke packing operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000004', 'ACTIVE', NOW(), NOW(), true),
-    -- Spoke Division > Maintenance section
-    ('d3000000-0000-0000-0000-000000000009', v_company_id, 'SPD-DEPT009', 'Facility Maintenance',
-     'Facility maintenance operations', 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000005', 'ACTIVE', NOW(), NOW(), true),
-    -- Control Cable Division > Spiral section
-    ('d3000000-0000-0000-0000-000000000010', v_company_id, 'CCD-DEPT001', 'Flattening',
-     'Wire flattening operations', 'd1000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000006', 'ACTIVE', NOW(), NOW(), true),
-    ('d3000000-0000-0000-0000-000000000011', v_company_id, 'CCD-DEPT002', 'Spiral',
-     'Spiral winding operations', 'd1000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000006', 'ACTIVE', NOW(), NOW(), true),
-    -- Control Cable Division > PVC section
-    ('d3000000-0000-0000-0000-000000000012', v_company_id, 'CCD-DEPT003', 'PVC',
-     'PVC extrusion operations', 'd1000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000007', 'ACTIVE', NOW(), NOW(), true),
-    -- Control Cable Division > CCD Packing section
-    ('d3000000-0000-0000-0000-000000000013', v_company_id, 'CCD-DEPT004', 'CCD Packing',
-     'Control Cable packing operations', 'd1000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000008', 'ACTIVE', NOW(), NOW(), true)
+  SELECT d.id::uuid, v_company_id, d.department_code, d.name, d.description, dv.id, s.id, 'ACTIVE', NOW(), NOW(), true
+  FROM (VALUES
+    ('d3000000-0000-4000-8000-000000000001', 'SPD-DEPT001', 'Straightener', 'Wire straightening operations', 'SPD', 'SEC-010'),
+    ('d3000000-0000-4000-8000-000000000002', 'SPD-DEPT002', 'Swagging', 'Swagging operations', 'SPD', 'SEC-010'),
+    ('d3000000-0000-4000-8000-000000000003', 'SPD-DEPT003', 'Spoke', 'Spoke assembly operations', 'SPD', 'SEC-010'),
+    ('d3000000-0000-4000-8000-000000000004', 'SPD-DEPT004', 'Header', 'Header operations', 'SPD', 'SEC-011'),
+    ('d3000000-0000-4000-8000-000000000005', 'SPD-DEPT005', 'Nipple', 'Nipple assembly operations', 'SPD', 'SEC-011'),
+    ('d3000000-0000-4000-8000-000000000006', 'SPD-DEPT006', 'Spoke Plating', 'Spoke plating operations', 'SPD', 'SEC-012'),
+    ('d3000000-0000-4000-8000-000000000007', 'SPD-DEPT007', 'Nipple Plating', 'Nipple plating operations', 'SPD', 'SEC-012'),
+    ('d3000000-0000-4000-8000-000000000008', 'SPD-DEPT008', 'Spoke Packing', 'Spoke packing operations', 'SPD', 'SEC-013'),
+    ('d3000000-0000-4000-8000-000000000009', 'SPD-DEPT009', 'Facility Maintenance', 'Facility maintenance operations', 'SPD', 'SEC-014'),
+    ('d3000000-0000-4000-8000-000000000010', 'CCD-DEPT001', 'Flattening', 'Wire flattening operations', 'CCD', 'SEC-015'),
+    ('d3000000-0000-4000-8000-000000000011', 'CCD-DEPT002', 'Spiral', 'Spiral winding operations', 'CCD', 'SEC-015'),
+    ('d3000000-0000-4000-8000-000000000012', 'CCD-DEPT003', 'PVC', 'PVC extrusion operations', 'CCD', 'SEC-016'),
+    ('d3000000-0000-4000-8000-000000000013', 'CCD-DEPT004', 'CCD Packing', 'Control Cable packing operations', 'CCD', 'SEC-017')
+  ) AS d(id, department_code, name, description, div_code, sec_code)
+  JOIN divisions dv ON dv.company_id = v_company_id AND dv.division_code = d.div_code
+  JOIN sections s ON s.company_id = v_company_id AND s.section_code = d.sec_code
   ON CONFLICT (department_code, company_id) DO UPDATE SET
     name = EXCLUDED.name,
     description = EXCLUDED.description,
@@ -314,25 +287,25 @@ BEGIN
   -- Demo Routing 1: Industrial Widget Assembly (Spoke Division)
   INSERT INTO production_routings (id, company_id, routing_code, name, description, product_id, bom_id, status, base_quantity, estimated_total_time, is_default, effective_from, created_at, updated_at, is_active)
   VALUES (
-    'e1000000-0000-0000-0000-000000000001', v_company_id, 'RTG-001',
+    'e1000000-0000-4000-8000-000000000001', v_company_id, 'RTG-001',
     'Industrial Widget - Spoke Assembly',
     'Standard routing for Industrial Widget through Spoke Division', v_product_id, v_bom_id,
     'ACTIVE', 1, 120, true, NOW(), NOW(), NOW(), true
   ) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = NOW();
 
-  v_routing_id := 'e1000000-0000-0000-0000-000000000001';
+  v_routing_id := 'e1000000-0000-4000-8000-000000000001';
 
   INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name, division_id, section_id, department_id, setup_time_minutes, run_time_minutes, queue_time_minutes, wait_time_minutes, labor_required, machine_required, status, created_at, updated_at, is_active)
   VALUES
-    ('f1000000-0000-0000-0000-000000000001', v_company_id, v_routing_id, 10, 'OP-001', 'Wire Straightening',
+    ('f1000000-0000-4000-8000-000000000001', v_company_id, v_routing_id, 10, 'OP-001', 'Wire Straightening',
      v_div_spd, v_sec_spoke, v_dept_straightener, 15, 5, 5, 0, true, true, 'ACTIVE', NOW(), NOW(), true),
-    ('f1000000-0000-0000-0000-000000000002', v_company_id, v_routing_id, 20, 'OP-002', 'Swagging',
+    ('f1000000-0000-4000-8000-000000000002', v_company_id, v_routing_id, 20, 'OP-002', 'Swagging',
      v_div_spd, v_sec_spoke, v_dept_swagging, 10, 10, 5, 0, true, true, 'ACTIVE', NOW(), NOW(), true),
-    ('f1000000-0000-0000-0000-000000000003', v_company_id, v_routing_id, 30, 'OP-003', 'Spoke Assembly',
+    ('f1000000-0000-4000-8000-000000000003', v_company_id, v_routing_id, 30, 'OP-003', 'Spoke Assembly',
      v_div_spd, v_sec_spoke, v_dept_spoke, 10, 15, 5, 0, true, false, 'ACTIVE', NOW(), NOW(), true),
-    ('f1000000-0000-0000-0000-000000000004', v_company_id, v_routing_id, 40, 'OP-004', 'Spoke Plating',
+    ('f1000000-0000-4000-8000-000000000004', v_company_id, v_routing_id, 40, 'OP-004', 'Spoke Plating',
      v_div_spd, v_sec_plate, v_dept_spoke_plate, 20, 25, 10, 5, true, true, 'ACTIVE', NOW(), NOW(), true),
-    ('f1000000-0000-0000-0000-000000000005', v_company_id, v_routing_id, 50, 'OP-005', 'Final Inspection & Packing',
+    ('f1000000-0000-4000-8000-000000000005', v_company_id, v_routing_id, 50, 'OP-005', 'Final Inspection & Packing',
      v_div_spd, v_sec_pack, v_dept_spoke_pack, 5, 10, 0, 0, true, false, 'ACTIVE', NOW(), NOW(), true)
   ON CONFLICT (id) DO UPDATE SET operation_name = EXCLUDED.operation_name, updated_at = NOW();
 
@@ -340,21 +313,21 @@ BEGIN
   IF v_product_id IS NOT NULL THEN
     INSERT INTO production_routings (id, company_id, routing_code, name, description, product_id, bom_id, status, base_quantity, estimated_total_time, is_default, effective_from, created_at, updated_at, is_active)
     VALUES (
-      'e1000000-0000-0000-0000-000000000002', v_company_id, 'RTG-002',
+      'e1000000-0000-4000-8000-000000000002', v_company_id, 'RTG-002',
       'Nipple Assembly Routing',
       'Nipple manufacturing through Header and Nipple departments', v_product_id, v_bom_id,
       'DRAFT', 1, 75, false, NOW(), NOW(), NOW(), true
     ) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = NOW();
 
-    v_routing_id := 'e1000000-0000-0000-0000-000000000002';
+    v_routing_id := 'e1000000-0000-4000-8000-000000000002';
 
     INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name, division_id, section_id, department_id, setup_time_minutes, run_time_minutes, queue_time_minutes, wait_time_minutes, labor_required, machine_required, status, created_at, updated_at, is_active)
     VALUES
-      ('f2000000-0000-0000-0000-000000000001', v_company_id, v_routing_id, 10, 'OP-001', 'Heading',
+      ('f2000000-0000-4000-8000-000000000001', v_company_id, v_routing_id, 10, 'OP-001', 'Heading',
        v_div_spd, v_sec_nipple, v_dept_header, 10, 15, 5, 0, true, true, 'ACTIVE', NOW(), NOW(), true),
-      ('f2000000-0000-0000-0000-000000000002', v_company_id, v_routing_id, 20, 'OP-002', 'Nipple Forming',
+      ('f2000000-0000-4000-8000-000000000002', v_company_id, v_routing_id, 20, 'OP-002', 'Nipple Forming',
        v_div_spd, v_sec_nipple, v_dept_nipple, 5, 15, 5, 0, true, true, 'ACTIVE', NOW(), NOW(), true),
-      ('f2000000-0000-0000-0000-000000000003', v_company_id, v_routing_id, 30, 'OP-003', 'Nipple Plating',
+      ('f2000000-0000-4000-8000-000000000003', v_company_id, v_routing_id, 30, 'OP-003', 'Nipple Plating',
        v_div_spd, v_sec_plate, v_dept_nipple_plate, 10, 20, 5, 0, true, true, 'ACTIVE', NOW(), NOW(), true)
     ON CONFLICT (id) DO UPDATE SET operation_name = EXCLUDED.operation_name, updated_at = NOW();
   END IF;
@@ -363,23 +336,23 @@ BEGIN
   IF v_product_id IS NOT NULL THEN
     INSERT INTO production_routings (id, company_id, routing_code, name, description, product_id, bom_id, status, base_quantity, estimated_total_time, is_default, effective_from, created_at, updated_at, is_active)
     VALUES (
-      'e1000000-0000-0000-0000-000000000003', v_company_id, 'RTG-003',
+      'e1000000-0000-4000-8000-000000000003', v_company_id, 'RTG-003',
       'Control Cable Assembly',
       'Control Cable manufacturing through Flattening, Spiral, PVC', v_product_id, v_bom_id,
       'ACTIVE', 1, 180, false, NOW(), NOW(), NOW(), true
     ) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = NOW();
 
-    v_routing_id := 'e1000000-0000-0000-0000-000000000003';
+    v_routing_id := 'e1000000-0000-4000-8000-000000000003';
 
     INSERT INTO routing_operations (id, company_id, routing_id, sequence_no, operation_code, operation_name, division_id, section_id, department_id, setup_time_minutes, run_time_minutes, queue_time_minutes, wait_time_minutes, labor_required, machine_required, status, created_at, updated_at, is_active)
     VALUES
-      ('f3000000-0000-0000-0000-000000000001', v_company_id, v_routing_id, 10, 'OP-001', 'Wire Flattening',
+      ('f3000000-0000-4000-8000-000000000001', v_company_id, v_routing_id, 10, 'OP-001', 'Wire Flattening',
        v_div_ccd, v_sec_spiral, v_dept_flattening, 15, 20, 10, 0, true, true, 'ACTIVE', NOW(), NOW(), true),
-      ('f3000000-0000-0000-0000-000000000002', v_company_id, v_routing_id, 20, 'OP-002', 'Spiral Winding',
+      ('f3000000-0000-4000-8000-000000000002', v_company_id, v_routing_id, 20, 'OP-002', 'Spiral Winding',
        v_div_ccd, v_sec_spiral, v_dept_spiral, 10, 30, 10, 5, true, true, 'ACTIVE', NOW(), NOW(), true),
-      ('f3000000-0000-0000-0000-000000000003', v_company_id, v_routing_id, 30, 'OP-003', 'PVC Extrusion',
+      ('f3000000-0000-4000-8000-000000000003', v_company_id, v_routing_id, 30, 'OP-003', 'PVC Extrusion',
        v_div_ccd, v_sec_pvc, v_dept_pvc, 20, 35, 15, 10, true, true, 'ACTIVE', NOW(), NOW(), true),
-      ('f3000000-0000-0000-0000-000000000004', v_company_id, v_routing_id, 40, 'OP-004', 'Cable Packing',
+      ('f3000000-0000-4000-8000-000000000004', v_company_id, v_routing_id, 40, 'OP-004', 'Cable Packing',
        v_div_ccd, NULL, v_dept_ccd_pack, 5, 15, 0, 0, true, false, 'ACTIVE', NOW(), NOW(), true)
     ON CONFLICT (id) DO UPDATE SET operation_name = EXCLUDED.operation_name, updated_at = NOW();
   END IF;

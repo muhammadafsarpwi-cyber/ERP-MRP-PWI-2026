@@ -57,72 +57,72 @@ BEGIN
   FOR v_row IN
     SELECT * FROM (VALUES
       -- SPD â€” Straightener Department (5)
-      ('ST-01',  'd3000000-0000-0000-0000-000000000001', 'MCH001', 'Straightener Machine 01'),
-      ('ST-02',  'd3000000-0000-0000-0000-000000000001', 'MCH002', 'Straightener Machine 02'),
-      ('ST-03',  'd3000000-0000-0000-0000-000000000001', 'MCH003', 'Straightener Machine 03'),
-      ('ST-04',  'd3000000-0000-0000-0000-000000000001', 'MCH004', 'Straightener Machine 04'),
-      ('ST-05',  'd3000000-0000-0000-0000-000000000001', 'MCH005', 'Straightener Machine 05'),
+      ('ST-01',  'd3000000-0000-4000-8000-000000000001', 'MCH001', 'Straightener Machine 01'),
+      ('ST-02',  'd3000000-0000-4000-8000-000000000001', 'MCH002', 'Straightener Machine 02'),
+      ('ST-03',  'd3000000-0000-4000-8000-000000000001', 'MCH003', 'Straightener Machine 03'),
+      ('ST-04',  'd3000000-0000-4000-8000-000000000001', 'MCH004', 'Straightener Machine 04'),
+      ('ST-05',  'd3000000-0000-4000-8000-000000000001', 'MCH005', 'Straightener Machine 05'),
       -- SPD â€” Swagging Department (6)
-      ('SW-01',  'd3000000-0000-0000-0000-000000000002', 'MCH006', 'Swagging Machine 01'),
-      ('SW-02',  'd3000000-0000-0000-0000-000000000002', 'MCH007', 'Swagging Machine 02'),
-      ('SW-03',  'd3000000-0000-0000-0000-000000000002', 'MCH008', 'Swagging Machine 03'),
-      ('SW-04',  'd3000000-0000-0000-0000-000000000002', 'MCH009', 'Swagging Machine 04'),
-      ('SW-05',  'd3000000-0000-0000-0000-000000000002', 'MCH010', 'Swagging Machine 05'),
-      ('SW-06',  'd3000000-0000-0000-0000-000000000002', 'MCH011', 'Swagging Machine 06'),
+      ('SW-01',  'd3000000-0000-4000-8000-000000000002', 'MCH006', 'Swagging Machine 01'),
+      ('SW-02',  'd3000000-0000-4000-8000-000000000002', 'MCH007', 'Swagging Machine 02'),
+      ('SW-03',  'd3000000-0000-4000-8000-000000000002', 'MCH008', 'Swagging Machine 03'),
+      ('SW-04',  'd3000000-0000-4000-8000-000000000002', 'MCH009', 'Swagging Machine 04'),
+      ('SW-05',  'd3000000-0000-4000-8000-000000000002', 'MCH010', 'Swagging Machine 05'),
+      ('SW-06',  'd3000000-0000-4000-8000-000000000002', 'MCH011', 'Swagging Machine 06'),
       -- SPD â€” Spoke Department (7)
-      ('SP-01',  'd3000000-0000-0000-0000-000000000003', 'MCH012', 'Spoke Machine SP-01'),
-      ('SP-02',  'd3000000-0000-0000-0000-000000000003', 'MCH013', 'Spoke Machine SP-02'),
-      ('SP-03',  'd3000000-0000-0000-0000-000000000003', 'MCH014', 'Spoke Machine SP-03'),
-      ('SP-04',  'd3000000-0000-0000-0000-000000000003', 'MCH015', 'Spoke Machine SP-04'),
-      ('SP-05',  'd3000000-0000-0000-0000-000000000003', 'MCH016', 'Spoke Machine SP-05'),
-      ('SP-06',  'd3000000-0000-0000-0000-000000000003', 'MCH017', 'Spoke Machine SP-06'),
-      ('SP-07',  'd3000000-0000-0000-0000-000000000003', 'MCH018', 'Spoke Machine SP-07'),
+      ('SP-01',  'd3000000-0000-4000-8000-000000000003', 'MCH012', 'Spoke Machine SP-01'),
+      ('SP-02',  'd3000000-0000-4000-8000-000000000003', 'MCH013', 'Spoke Machine SP-02'),
+      ('SP-03',  'd3000000-0000-4000-8000-000000000003', 'MCH014', 'Spoke Machine SP-03'),
+      ('SP-04',  'd3000000-0000-4000-8000-000000000003', 'MCH015', 'Spoke Machine SP-04'),
+      ('SP-05',  'd3000000-0000-4000-8000-000000000003', 'MCH016', 'Spoke Machine SP-05'),
+      ('SP-06',  'd3000000-0000-4000-8000-000000000003', 'MCH017', 'Spoke Machine SP-06'),
+      ('SP-07',  'd3000000-0000-4000-8000-000000000003', 'MCH018', 'Spoke Machine SP-07'),
       -- SPD â€” Spoke Plating Department: barrel lines BL-01..09 + APS-01 (10)
-      ('BL-01',  'd3000000-0000-0000-0000-000000000006', 'MCH019', 'Barrel Machine BL-01'),
-      ('BL-02',  'd3000000-0000-0000-0000-000000000006', 'MCH020', 'Barrel Machine BL-02'),
-      ('BL-03',  'd3000000-0000-0000-0000-000000000006', 'MCH021', 'Barrel Machine BL-03'),
-      ('BL-04',  'd3000000-0000-0000-0000-000000000006', 'MCH022', 'Barrel Machine BL-04'),
-      ('BL-05',  'd3000000-0000-0000-0000-000000000006', 'MCH023', 'Barrel Machine BL-05'),
-      ('BL-06',  'd3000000-0000-0000-0000-000000000006', 'MCH024', 'Barrel Machine BL-06'),
-      ('BL-07',  'd3000000-0000-0000-0000-000000000006', 'MCH025', 'Barrel Machine BL-07'),
-      ('BL-08',  'd3000000-0000-0000-0000-000000000006', 'MCH026', 'Barrel Machine BL-08'),
-      ('BL-09',  'd3000000-0000-0000-0000-000000000006', 'MCH027', 'Barrel Machine BL-09'),
-      ('APS-01', 'd3000000-0000-0000-0000-000000000006', 'MCH031', 'Spoke Plating APS-01'),
+      ('BL-01',  'd3000000-0000-4000-8000-000000000006', 'MCH019', 'Barrel Machine BL-01'),
+      ('BL-02',  'd3000000-0000-4000-8000-000000000006', 'MCH020', 'Barrel Machine BL-02'),
+      ('BL-03',  'd3000000-0000-4000-8000-000000000006', 'MCH021', 'Barrel Machine BL-03'),
+      ('BL-04',  'd3000000-0000-4000-8000-000000000006', 'MCH022', 'Barrel Machine BL-04'),
+      ('BL-05',  'd3000000-0000-4000-8000-000000000006', 'MCH023', 'Barrel Machine BL-05'),
+      ('BL-06',  'd3000000-0000-4000-8000-000000000006', 'MCH024', 'Barrel Machine BL-06'),
+      ('BL-07',  'd3000000-0000-4000-8000-000000000006', 'MCH025', 'Barrel Machine BL-07'),
+      ('BL-08',  'd3000000-0000-4000-8000-000000000006', 'MCH026', 'Barrel Machine BL-08'),
+      ('BL-09',  'd3000000-0000-4000-8000-000000000006', 'MCH027', 'Barrel Machine BL-09'),
+      ('APS-01', 'd3000000-0000-4000-8000-000000000006', 'MCH031', 'Spoke Plating APS-01'),
       -- SPD â€” Nipple Plating Department: barrel lines BL-10..12 + APS-01 (4)
-      ('BL-10',  'd3000000-0000-0000-0000-000000000007', 'MCH028', 'Barrel Machine BL-10'),
-      ('BL-11',  'd3000000-0000-0000-0000-000000000007', 'MCH029', 'Barrel Machine BL-11'),
-      ('BL-12',  'd3000000-0000-0000-0000-000000000007', 'MCH030', 'Barrel Machine BL-12'),
-      ('APS-01', 'd3000000-0000-0000-0000-000000000007', 'MCH032', 'Nipple Plating APS-01'),
+      ('BL-10',  'd3000000-0000-4000-8000-000000000007', 'MCH028', 'Barrel Machine BL-10'),
+      ('BL-11',  'd3000000-0000-4000-8000-000000000007', 'MCH029', 'Barrel Machine BL-11'),
+      ('BL-12',  'd3000000-0000-4000-8000-000000000007', 'MCH030', 'Barrel Machine BL-12'),
+      ('APS-01', 'd3000000-0000-4000-8000-000000000007', 'MCH032', 'Nipple Plating APS-01'),
       -- SPD â€” Spoke Packing Department (2)
-      ('PKS-01', 'd3000000-0000-0000-0000-000000000008', 'MCH033', 'Spoke Packing Station 01'),
-      ('PKS-02', 'd3000000-0000-0000-0000-000000000008', 'MCH034', 'Spoke Packing Station 02'),
+      ('PKS-01', 'd3000000-0000-4000-8000-000000000008', 'MCH033', 'Spoke Packing Station 01'),
+      ('PKS-02', 'd3000000-0000-4000-8000-000000000008', 'MCH034', 'Spoke Packing Station 02'),
       -- CCD â€” Flattening Department (5)
-      ('FT-01',  'd3000000-0000-0000-0000-000000000010', 'MCH035', 'Flattening Machine FT-01'),
-      ('FT-02',  'd3000000-0000-0000-0000-000000000010', 'MCH036', 'Flattening Machine FT-02'),
-      ('FT-03',  'd3000000-0000-0000-0000-000000000010', 'MCH037', 'Flattening Machine FT-03'),
-      ('FT-04',  'd3000000-0000-0000-0000-000000000010', 'MCH038', 'Flattening Machine FT-04'),
-      ('FT-05',  'd3000000-0000-0000-0000-000000000010', 'MCH039', 'Flattening Machine FT-05'),
+      ('FT-01',  'd3000000-0000-4000-8000-000000000010', 'MCH035', 'Flattening Machine FT-01'),
+      ('FT-02',  'd3000000-0000-4000-8000-000000000010', 'MCH036', 'Flattening Machine FT-02'),
+      ('FT-03',  'd3000000-0000-4000-8000-000000000010', 'MCH037', 'Flattening Machine FT-03'),
+      ('FT-04',  'd3000000-0000-4000-8000-000000000010', 'MCH038', 'Flattening Machine FT-04'),
+      ('FT-05',  'd3000000-0000-4000-8000-000000000010', 'MCH039', 'Flattening Machine FT-05'),
       -- CCD â€” Spiral Department (14)
-      ('SP-01',  'd3000000-0000-0000-0000-000000000011', 'MCH040', 'Spiral Machine SP-01'),
-      ('SP-02',  'd3000000-0000-0000-0000-000000000011', 'MCH041', 'Spiral Machine SP-02'),
-      ('SP-03',  'd3000000-0000-0000-0000-000000000011', 'MCH042', 'Spiral Machine SP-03'),
-      ('SP-04',  'd3000000-0000-0000-0000-000000000011', 'MCH043', 'Spiral Machine SP-04'),
-      ('SP-05',  'd3000000-0000-0000-0000-000000000011', 'MCH044', 'Spiral Machine SP-05'),
-      ('SP-06',  'd3000000-0000-0000-0000-000000000011', 'MCH045', 'Spiral Machine SP-06'),
-      ('SP-07',  'd3000000-0000-0000-0000-000000000011', 'MCH046', 'Spiral Machine SP-07'),
-      ('SP-08',  'd3000000-0000-0000-0000-000000000011', 'MCH047', 'Spiral Machine SP-08'),
-      ('SP-09',  'd3000000-0000-0000-0000-000000000011', 'MCH048', 'Spiral Machine SP-09'),
-      ('SP-10',  'd3000000-0000-0000-0000-000000000011', 'MCH049', 'Spiral Machine SP-10'),
-      ('SP-11',  'd3000000-0000-0000-0000-000000000011', 'MCH050', 'Spiral Machine SP-11'),
-      ('SP-12',  'd3000000-0000-0000-0000-000000000011', 'MCH051', 'Spiral Machine SP-12'),
-      ('SP-13',  'd3000000-0000-0000-0000-000000000011', 'MCH052', 'Spiral Machine SP-13'),
-      ('SP-14',  'd3000000-0000-0000-0000-000000000011', 'MCH053', 'Spiral Machine SP-14'),
+      ('SP-01',  'd3000000-0000-4000-8000-000000000011', 'MCH040', 'Spiral Machine SP-01'),
+      ('SP-02',  'd3000000-0000-4000-8000-000000000011', 'MCH041', 'Spiral Machine SP-02'),
+      ('SP-03',  'd3000000-0000-4000-8000-000000000011', 'MCH042', 'Spiral Machine SP-03'),
+      ('SP-04',  'd3000000-0000-4000-8000-000000000011', 'MCH043', 'Spiral Machine SP-04'),
+      ('SP-05',  'd3000000-0000-4000-8000-000000000011', 'MCH044', 'Spiral Machine SP-05'),
+      ('SP-06',  'd3000000-0000-4000-8000-000000000011', 'MCH045', 'Spiral Machine SP-06'),
+      ('SP-07',  'd3000000-0000-4000-8000-000000000011', 'MCH046', 'Spiral Machine SP-07'),
+      ('SP-08',  'd3000000-0000-4000-8000-000000000011', 'MCH047', 'Spiral Machine SP-08'),
+      ('SP-09',  'd3000000-0000-4000-8000-000000000011', 'MCH048', 'Spiral Machine SP-09'),
+      ('SP-10',  'd3000000-0000-4000-8000-000000000011', 'MCH049', 'Spiral Machine SP-10'),
+      ('SP-11',  'd3000000-0000-4000-8000-000000000011', 'MCH050', 'Spiral Machine SP-11'),
+      ('SP-12',  'd3000000-0000-4000-8000-000000000011', 'MCH051', 'Spiral Machine SP-12'),
+      ('SP-13',  'd3000000-0000-4000-8000-000000000011', 'MCH052', 'Spiral Machine SP-13'),
+      ('SP-14',  'd3000000-0000-4000-8000-000000000011', 'MCH053', 'Spiral Machine SP-14'),
       -- CCD â€” PVC Department (2)
-      ('SP-01',  'd3000000-0000-0000-0000-000000000012', 'MCH054', 'PVC Coating Line SP-01'),
-      ('SP-02',  'd3000000-0000-0000-0000-000000000012', 'MCH055', 'PVC Coating Line SP-02'),
+      ('SP-01',  'd3000000-0000-4000-8000-000000000012', 'MCH054', 'PVC Coating Line SP-01'),
+      ('SP-02',  'd3000000-0000-4000-8000-000000000012', 'MCH055', 'PVC Coating Line SP-02'),
       -- CCD â€” CCD Packing Department (2)
-      ('PK-01',  'd3000000-0000-0000-0000-000000000013', 'MCH056', 'CCD Packing Station PK-01'),
-      ('PK-02',  'd3000000-0000-0000-0000-000000000013', 'MCH057', 'CCD Packing Station PK-02')
+      ('PK-01',  'd3000000-0000-4000-8000-000000000013', 'MCH056', 'CCD Packing Station PK-01'),
+      ('PK-02',  'd3000000-0000-4000-8000-000000000013', 'MCH057', 'CCD Packing Station PK-02')
     ) AS t(code, dept, mid, name)
     ORDER BY t.mid
   LOOP
@@ -145,8 +145,8 @@ BEGIN
       SELECT id INTO v_existing
       FROM public.machines
       WHERE company_id = v_company
-        AND COALESCE(department_id, '00000000-0000-0000-0000-000000000000'::uuid)
-          = COALESCE(v_row.dept::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+        AND COALESCE(department_id, '00000000-0000-4000-8000-000000000000'::uuid)
+          = COALESCE(v_row.dept::uuid, '00000000-0000-4000-8000-000000000000'::uuid)
         AND LOWER(machine_code) = LOWER(v_row.code)
         AND is_active = true
       LIMIT 1;

@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined, SendOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { ERPLineItems, ERPLine } from '../../components/shared';
 
 interface PurchaseRequisition {
   id: string;
@@ -39,6 +40,15 @@ const PurchaseRequisitionManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
+  const [lineItems, setLineItems] = useState<ERPLine[]>([]);
+  const [companyId, setCompanyId] = useState('');
+
+  useEffect(() => {
+    const erpUser = localStorage.getItem('erp_user');
+    if (erpUser) {
+      try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
+    }
+  }, []);
 
   const fetchData = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -62,6 +72,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
     setEditingItem(null);
     form.resetFields();
     form.setFieldsValue({ requestType: 'STANDARD' });
+    setLineItems([]);
     setModalVisible(true);
   };
 
@@ -74,11 +85,18 @@ const PurchaseRequisitionManagement: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      const payload = {
+        ...values,
+        lines: lineItems.map((l) => ({
+          itemId: l.itemId, description: l.itemName, quantity: l.quantity,
+          uomId: l.uomId, unitPrice: l.rate, estimatedAmount: l.lineTotal,
+        })),
+      };
       if (editingItem) {
-        await apiService.patch(`/procurement/requisitions/${editingItem.id}`, values);
+        await apiService.patch(`/procurement/requisitions/${editingItem.id}`, payload);
         message.success('Purchase requisition updated');
       } else {
-        await apiService.post('/procurement/requisitions', values);
+        await apiService.post('/procurement/requisitions', payload);
         message.success('Purchase requisition created');
       }
       setModalVisible(false);
@@ -141,24 +159,20 @@ const PurchaseRequisitionManagement: React.FC = () => {
       <Modal title={editingItem ? 'Edit Purchase Requisition' : 'Create Purchase Requisition'} open={modalVisible}
         onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={700}>
         <Form form={form} layout="vertical">
+          <Form.Item name="companyId" hidden><Input /></Form.Item>
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="companyId" label="Company ID" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
-            </Col>
             <Col span={12}>
               <Form.Item name="requisitionCode" label="Requisition Code" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="title" label="Title">
                 <Input />
               </Form.Item>
             </Col>
+          </Row>
+          <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="requestType" label="Request Type">
                 <Select>
@@ -166,8 +180,6 @@ const PurchaseRequisitionManagement: React.FC = () => {
                 </Select>
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="department" label="Department">
                 <Input />
@@ -182,6 +194,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} />
           </Form.Item>
+          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} label="Requisition Items" />
           <Form.Item name="notes" label="Notes">
             <Input.TextArea rows={2} />
           </Form.Item>

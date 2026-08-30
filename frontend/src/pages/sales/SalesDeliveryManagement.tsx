@@ -7,6 +7,7 @@ import { PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, CheckOutlined,
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
+import { ERPLineItems, ERPLine } from '../../components/shared';
 import dayjs from 'dayjs';
 
 interface SalesDelivery {
@@ -47,6 +48,27 @@ const SalesDeliveryManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
+  const [lineItems, setLineItems] = useState<ERPLine[]>([]);
+  const [companyId, setCompanyId] = useState('');
+  const [customers, setCustomers] = useState<Array<{ id: string; companyName?: string; customerCode?: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string }>>([]);
+
+  useEffect(() => {
+    const erpUser = localStorage.getItem('erp_user');
+    if (erpUser) {
+      try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
+    }
+    (async () => {
+      try {
+        const c = await apiService.get<{ data: Array<{ id: string; companyName?: string; customerCode?: string }> }>('/customer/customers', { limit: 100 });
+        setCustomers(c.data || []);
+      } catch { /* ignore */ }
+      try {
+        const w = await apiService.get<{ data: Array<{ id: string; warehouseCode: string; name: string }> }>('/warehouses', { limit: 100 });
+        setWarehouses(w.data || []);
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const fetchData = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -72,6 +94,7 @@ const SalesDeliveryManagement: React.FC = () => {
     form.setFieldsValue({
       subtotal: 0, taxAmount: 0, totalAmount: 0,
     });
+    setLineItems([]);
     setModalVisible(true);
   };
 
@@ -103,17 +126,30 @@ const SalesDeliveryManagement: React.FC = () => {
   const handleSubmitForm = async () => {
     try {
       const values = await form.validateFields();
+      if (lineItems.length === 0) {
+        message.warning('Add at least one line item');
+        return;
+      }
+      const payload = {
+        ...values,
+        lines: lineItems.map((l) => ({
+          itemId: l.itemId, description: l.itemName, quantity: l.quantity,
+          uomId: l.uomId, warehouseId: l.warehouseId || values.warehouseId,
+          unitPrice: l.rate, taxAmount: l.lineTotal - (l.quantity * l.rate), lineTotal: l.lineTotal,
+        })),
+      };
       if (editingItem) {
-        await apiService.patch(`/sales/deliveries/${editingItem.id}`, values);
+        await apiService.patch(`/sales/deliveries/${editingItem.id}`, payload);
         message.success('Delivery updated');
       } else {
-        await apiService.post('/sales/deliveries', values);
+        await apiService.post('/sales/deliveries', payload);
         message.success('Delivery created');
       }
       setModalVisible(false);
       fetchData(page);
     } catch (error) {
-      message.error('Failed to save delivery');
+      const msg: any = (error as any)?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : 'Failed to save delivery');
     }
   };
 
@@ -182,13 +218,14 @@ const SalesDeliveryManagement: React.FC = () => {
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="salesOrderId" label="Sales Order ID" rules={[{ required: true }]}>
-                <Input placeholder="Enter Sales Order UUID" />
+              <Form.Item name="customerId" label="Customer" rules={[{ required: true }]}>
+                <Select showSearch optionFilterProp="label"
+                  options={customers.map((c) => ({ value: c.id, label: `${c.customerCode || ''} ${c.companyName || c.id}` }))} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="customerId" label="Customer ID" rules={[{ required: true }]}>
-                <Input placeholder="Enter Customer UUID" />
+              <Form.Item name="warehouseId" label="Warehouse">
+                <Select allowClear options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))} />
               </Form.Item>
             </Col>
           </Row>
@@ -206,21 +243,17 @@ const SalesDeliveryManagement: React.FC = () => {
           </Row>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="warehouseId" label="Warehouse ID">
-                <Input placeholder="Enter Warehouse UUID" />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
               <Form.Item name="carrier" label="Carrier">
                 <Input placeholder="Carrier name" />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col span={12}>
               <Form.Item name="trackingNumber" label="Tracking Number">
                 <Input placeholder="Tracking number" />
               </Form.Item>
             </Col>
           </Row>
+          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} showWarehouse label="Delivery Items" />
           <Form.Item name="notes" label="Notes">
             <Input.TextArea rows={3} />
           </Form.Item>

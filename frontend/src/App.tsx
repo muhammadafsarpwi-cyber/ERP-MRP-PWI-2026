@@ -12,6 +12,24 @@ import Dashboard from './pages/dashboard/Dashboard';
 import Products from './pages/products/Products';
 import { CustomerManagement } from './pages/customers';
 import FinancePage from './pages/finance/FinancePage';
+import ChartOfAccounts from './pages/finance/ChartOfAccounts';
+import JournalEntries from './pages/finance/JournalEntries';
+import FinanceReports from './pages/finance/FinanceReports';
+import ProductionOrders from './pages/production/ProductionOrders';
+import EmployeesPage from './pages/hr/Employees';
+import AttendanceLeave from './pages/hr/AttendanceLeave';
+import QcPage from './pages/qc/QcPage';
+import NotificationsPage from './pages/notifications/NotificationsPage';
+import {
+  EmailSettingsPage,
+  WhatsAppSettingsPage,
+  EmailTemplatesPage,
+  WhatsAppTemplatesPage,
+  EmailLogsPage,
+  WhatsAppLogsPage,
+  NotificationRulesPage,
+  NotificationPreferencesPage,
+} from './pages/communication';
 import {
   SalesQuotationManagement,
   SalesOrderManagement,
@@ -126,10 +144,30 @@ const App: React.FC = () => {
                   <Route path="/maintenance/pm-schedules" element={<PmSchedules />} />
                   <Route path="/maintenance/reports" element={<MaintenanceReports />} />
                   <Route path="/finance" element={<FinancePage />} />
-                  <Route path="/finance/accounts" element={<FinancePage />} />
-                  <Route path="/finance/journals" element={<FinancePage />} />
-                  <Route path="/finance/journals/new" element={<FinancePage />} />
-                  <Route path="/finance/reports/*" element={<FinancePage />} />
+                  <Route path="/finance/accounts" element={<ChartOfAccounts />} />
+                  <Route path="/finance/journals" element={<JournalEntries />} />
+                  <Route path="/finance/journals/new" element={<JournalEntries />} />
+                  <Route path="/finance/reports/*" element={<FinanceReports />} />
+                  <Route path="/production/orders" element={<ProductionOrders />} />
+                  <Route path="/hr/employees" element={<EmployeesPage />} />
+                  <Route path="/hr/attendance" element={<AttendanceLeave />} />
+                  <Route path="/hr/leave" element={<AttendanceLeave />} />
+                  <Route path="/hr/shifts" element={<AttendanceLeave />} />
+                  <Route path="/hr/holidays" element={<AttendanceLeave />} />
+                  <Route path="/qc" element={<QcPage />} />
+                  <Route path="/qc/inspections" element={<QcPage />} />
+                  <Route path="/qc/ncr" element={<QcPage />} />
+                  <Route path="/qc/capa" element={<QcPage />} />
+                  <Route path="/notifications" element={<NotificationsPage />} />
+                  <Route path="/notifications/settings" element={<NotificationPreferencesPage />} />
+                  <Route path="/notifications/preferences" element={<NotificationPreferencesPage />} />
+                  <Route path="/communication/email-settings" element={<EmailSettingsPage />} />
+                  <Route path="/communication/email-templates" element={<EmailTemplatesPage channel="EMAIL" title="Email Templates" />} />
+                  <Route path="/communication/email-logs" element={<EmailLogsPage channel="EMAIL" title="Email Delivery Logs" />} />
+                  <Route path="/communication/whatsapp-settings" element={<WhatsAppSettingsPage />} />
+                  <Route path="/communication/whatsapp-templates" element={<WhatsAppTemplatesPage channel="WHATSAPP" title="WhatsApp Templates" />} />
+                  <Route path="/communication/whatsapp-logs" element={<WhatsAppLogsPage channel="WHATSAPP" title="WhatsApp Delivery Logs" />} />
+                  <Route path="/communication/rules" element={<NotificationRulesPage />} />
                   <Route path="/organization/companies" element={<CompanyManagement />} />
                   <Route path="/organization/branches" element={<BranchManagement />} />
                   <Route path="/organization/divisions" element={<DivisionManagement />} />

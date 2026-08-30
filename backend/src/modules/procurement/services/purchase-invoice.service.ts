@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PurchaseInvoice, PurchaseInvoiceLine } from '../entities';
 import { CreatePurchaseInvoiceDto, PurchaseInvoiceFilterDto } from '../dto';
+import { FinanceAutoPostingService } from '../../finance/services/finance-auto-posting.service';
 
 @Injectable()
 export class PurchaseInvoiceService {
@@ -13,6 +14,7 @@ export class PurchaseInvoiceService {
     private readonly repo: Repository<PurchaseInvoice>,
     @InjectRepository(PurchaseInvoiceLine)
     private readonly lineRepo: Repository<PurchaseInvoiceLine>,
+    private readonly autoPosting: FinanceAutoPostingService,
   ) {}
 
   async create(dto: CreatePurchaseInvoiceDto, userId?: string): Promise<PurchaseInvoice> {
@@ -101,7 +103,14 @@ export class PurchaseInvoiceService {
     invoice.postedBy = userId || null;
     invoice.postedAt = new Date();
     invoice.updatedBy = userId || null;
-    return this.repo.save(invoice);
+    const saved = await this.repo.save(invoice);
+    // Auto-post AP journal
+    try {
+      await this.autoPosting.postPurchaseInvoice(invoice.companyId, invoice.invoiceCode, id, Number(invoice.totalAmount), userId);
+    } catch (e: any) {
+      this.logger.warn(`Auto-posting for purchase invoice ${id} failed: ${e.message}`);
+    }
+    return saved;
   }
 
   async cancel(id: string, userId?: string): Promise<PurchaseInvoice> {
@@ -110,5 +119,29 @@ export class PurchaseInvoiceService {
     invoice.status = 'CANCELLED';
     invoice.updatedBy = userId || null;
     return this.repo.save(invoice);
+  }
+
+  async recordPayment(id: string, amount: number, userId?: string): Promise<PurchaseInvoice> {
+    const invoice = await this.findOne(id);
+    if (invoice.status === 'CANCELLED') throw new BadRequestException('Cannot record payment for a cancelled invoice');
+    if (amount <= 0) throw new BadRequestException('Payment amount must be greater than zero');
+    const balance = Number(invoice.totalAmount) - Number(invoice.paidAmount || 0);
+    if (amount > balance) throw new BadRequestException('Payment amount exceeds the outstanding balance');
+
+    invoice.paidAmount = Number(invoice.paidAmount || 0) + amount;
+    invoice.updatedBy = userId || null;
+    if (Number(invoice.paidAmount) >= Number(invoice.totalAmount)) {
+      invoice.paymentStatus = 'PAID';
+    } else if (Number(invoice.paidAmount) > 0) {
+      invoice.paymentStatus = 'PARTIAL';
+    }
+    const saved = await this.repo.save(invoice);
+    // Auto-post supplier payment: DR AP, CR Cash
+    try {
+      await this.autoPosting.postSupplierPayment(invoice.companyId, invoice.invoiceCode, id, amount, userId);
+    } catch (e: any) {
+      this.logger.warn(`Auto-posting for supplier payment on invoice ${id} failed: ${e.message}`);
+    }
+    return saved;
   }
 }

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { SalesInvoiceService } from './sales-invoice.service';
 import { SalesInvoice, SalesCustomer, SalesOrder } from '../entities';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { FinanceAutoPostingService } from '../../finance/services/finance-auto-posting.service';
 
 describe('SalesInvoiceService', () => {
   let service: SalesInvoiceService;
@@ -57,6 +58,7 @@ describe('SalesInvoiceService', () => {
         { provide: getRepositoryToken(SalesInvoice), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesCustomer), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesOrder), useValue: makeMockRepo() },
+        { provide: FinanceAutoPostingService, useValue: { postSalesInvoice: jest.fn(), postCustomerReceipt: jest.fn() } },
       ],
     }).compile();
 

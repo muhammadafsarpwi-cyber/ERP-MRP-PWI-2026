@@ -11,7 +11,7 @@ import { CreateProductionOrderDto, UpdateProductionOrderDto, CompleteOperationDt
 import { ProductionRouting, RoutingOperation } from '../../production-routing/entities';
 import { RoutingStatus } from '../../production-routing/entities';
 import { BillOfMaterials, BomLine, BomStatus } from '../../bom/entities';
-import { Item, UomConversion } from '../../item/entities';
+import { Item, Uom, UomConversion } from '../../item/entities';
 import { Division, Section, Department, DepartmentDivisionScope, Warehouse } from '../../organization/entities';
 import { SalesOrderItem } from '../../sales/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
@@ -38,6 +38,8 @@ export class ProductionOrderService {
     private readonly bomLineRepo: Repository<BomLine>,
     @InjectRepository(Item)
     private readonly itemRepo: Repository<Item>,
+    @InjectRepository(Uom)
+    private readonly uomRepo: Repository<Uom>,
     @InjectRepository(UomConversion)
     private readonly uomConversionRepo: Repository<UomConversion>,
     @InjectRepository(Division)
@@ -162,7 +164,7 @@ export class ProductionOrderService {
     await this.validateProduct(dto.productId, companyId);
     const routing = await this.validateRouting(dto.routingId, companyId, dto.productId);
     if (dto.bomId) await this.validateBom(dto.bomId, companyId, dto.productId);
-    await this.assertExists(this.itemRepo, dto.uomId, 'UOM');
+await this.assertExists(this.uomRepo, dto.uomId, 'UOM');
     if (dto.salesOrderItemId) await this.validateSalesOrderItem(dto.salesOrderItemId, dto.productId);
     if (dto.divisionId) await this.validateDivision(dto.divisionId);
     for (const wId of [dto.rawMaterialWarehouseId, dto.wipWarehouseId, dto.finishedGoodsWarehouseId]) {
@@ -214,7 +216,7 @@ export class ProductionOrderService {
     for (const wId of [dto.rawMaterialWarehouseId, dto.wipWarehouseId, dto.finishedGoodsWarehouseId]) {
       if (wId) await this.validateWarehouse(wId, companyId);
     }
-    if (dto.uomId) await this.assertExists(this.itemRepo, dto.uomId, 'UOM');
+    if (dto.uomId) await this.assertExists(this.uomRepo, dto.uomId, 'UOM');
 
     Object.assign(order, {
       ...dto,

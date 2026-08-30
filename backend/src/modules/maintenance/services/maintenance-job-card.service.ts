@@ -21,6 +21,7 @@ import { MaintenanceTeam } from '../entities/maintenance-team.entity';
 import { JobCardStatus, MaintenanceType, VALID_TRANSITIONS } from '../enums';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
 import { MaintenanceUserResolverService } from './maintenance-user-resolver.service';
+import { NotificationEngineService } from '../../notification/notification-engine.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
 import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
@@ -77,6 +78,7 @@ export class MaintenanceJobCardService {
     private readonly activityLog: ActivityLogService,
     private readonly inventoryBalanceService: InventoryBalanceService,
     private readonly userResolver: MaintenanceUserResolverService,
+    private readonly notificationEngine: NotificationEngineService,
   ) {}
 
   async create(dto: CreateJobCardDto, userId: string): Promise<MaintenanceJobCard> {
@@ -157,6 +159,7 @@ export class MaintenanceJobCardService {
 
     await this.recordHistory(saved.id, null, JobCardStatus.OPEN, erpUserId, 'Job card created');
     await this.logActivity(erpUserId, 'JOB_CARD_CREATED', saved.id, jobCardNo);
+    this.emitJobCardEvent('MAINT_JOB_CARD_CREATED', saved.id, userId);
 
     return this.findOne(saved.id);
   }
@@ -691,6 +694,7 @@ export class MaintenanceJobCardService {
     // explicit assignment, ASSIGNED when the assignment was made first).
     await this.recordHistory(id, previousStatus, JobCardStatus.IN_PROGRESS, erpUserId, remarks || 'Job started');
     await this.logActivity(erpUserId, 'JOB_CARD_STARTED', id, jobCard.jobCardNo);
+    this.emitJobCardEvent('MAINT_JOB_CARD_STARTED', id, userId);
     return this.findOne(id);
   }
 
@@ -787,6 +791,7 @@ export class MaintenanceJobCardService {
     }
 
     await this.logActivity(erpUserId, 'JOB_CARD_COMPLETED', id, jobCard.jobCardNo);
+    this.emitJobCardEvent('MAINT_JOB_CARD_SUBMITTED', id, userId);
     return this.findOne(id);
   }
 
@@ -804,6 +809,7 @@ export class MaintenanceJobCardService {
 
     await this.recordHistory(id, JobCardStatus.COMPLETED, JobCardStatus.CLOSED, erpUserId, remarks || 'Job closed');
     await this.logActivity(erpUserId, 'JOB_CARD_CLOSED', id, jobCard.jobCardNo);
+    this.emitJobCardEvent('MAINT_JOB_CARD_CLOSED', id, userId);
     return this.findOne(id);
   }
 
@@ -821,6 +827,7 @@ export class MaintenanceJobCardService {
 
     await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.VERIFIED, erpUserId, remarks || 'Job verified');
     await this.logActivity(erpUserId, 'JOB_CARD_VERIFIED', id, jobCard.jobCardNo);
+    this.emitJobCardEvent('MAINT_JOB_CARD_VERIFIED', id, userId);
     return this.findOne(id);
   }
 
@@ -844,6 +851,7 @@ export class MaintenanceJobCardService {
 
     await this.recordHistory(id, previousStatus, JobCardStatus.CLOSED, erpUserId, remarks || 'Job approved');
     await this.logActivity(erpUserId, 'JOB_CARD_APPROVED', id, jobCard.jobCardNo);
+    this.emitJobCardEvent('MAINT_JOB_CARD_APPROVED', id, userId);
     return this.findOne(id);
   }
 
@@ -858,6 +866,7 @@ export class MaintenanceJobCardService {
 
     await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.REJECTED, erpUserId, dto.reason);
     await this.logActivity(erpUserId, 'JOB_CARD_REJECTED', id, jobCard.jobCardNo);
+    this.emitJobCardEvent('MAINT_JOB_CARD_REJECTED', id, userId);
     return this.findOne(id);
   }
 
@@ -874,6 +883,7 @@ export class MaintenanceJobCardService {
 
     await this.recordHistory(id, previousStatus, JobCardStatus.PENDING_VERIFICATION, erpUserId, remarks || 'Submitted for verification');
     await this.logActivity(erpUserId, 'JOB_CARD_SUBMITTED_FOR_VERIFICATION', id, jobCard.jobCardNo);
+    this.emitJobCardEvent('MAINT_JOB_CARD_SUBMITTED', id, userId);
     return this.findOne(id);
   }
 
@@ -1820,6 +1830,41 @@ export class MaintenanceJobCardService {
       });
     } catch {
       // Activity logging is best-effort
+    }
+  }
+
+  /**
+   * Emit a maintenance job card notification event (created/started/closed/
+   * submitted/verified/rejected/approved). Uses real record data; never throws
+   * into the business flow. actorAuthUserId is the authenticated user id.
+   */
+  private async emitJobCardEvent(eventCode: string, id: string, actorAuthUserId?: string): Promise<void> {
+    try {
+      const card = await this.findOne(id);
+      const context: Record<string, any> = {
+        jobCardNumber: card.jobCardNo,
+        title: card.complaint,
+        machineCode: card.machine?.machineCode ?? card.machine?.machineNumber ?? '',
+        machineName: card.machine?.name ?? card.machine?.machineNumber ?? '',
+        department: card.assignedDepartment?.name ?? card.machine?.department?.name ?? '',
+        priority: card.priority,
+        status: card.currentStatus,
+        createdByName: card.requestedByUser?.displayName ?? '',
+        companyName: card.company?.legalName ?? card.company?.tradeName ?? '',
+        link: `/master-data/maintenance/job-cards/${card.id}`,
+      };
+      await this.notificationEngine.emit({
+        eventCode,
+        companyId: card.companyId,
+        title: `New Maintenance Job Card`,
+        message: `Job Card ${card.jobCardNo} has been created for machine ${card.machine?.machineCode || ''}.`,
+        entityType: 'job_card',
+        entityId: card.id,
+        actorAuthUserId,
+        context,
+      });
+    } catch (error) {
+      this.logger.warn(`Notification emit skipped for ${eventCode} ${id}: ${(error as Error).message}`);
     }
   }
 }

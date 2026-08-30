@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, SearchOutlined, SendOutlined, StopOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { ERPLineItems, ERPLine } from '../../components/shared';
 
 interface Rfq {
   id: string;
@@ -38,6 +39,15 @@ const RfqManagement: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
   const [suppliers, setSuppliers] = useState<DropdownOption[]>([]);
+  const [lineItems, setLineItems] = useState<ERPLine[]>([]);
+  const [companyId, setCompanyId] = useState('');
+
+  useEffect(() => {
+    const erpUser = localStorage.getItem('erp_user');
+    if (erpUser) {
+      try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
+    }
+  }, []);
 
   const fetchData = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -70,6 +80,7 @@ const RfqManagement: React.FC = () => {
   const handleCreate = () => {
     setEditingItem(null);
     form.resetFields();
+    setLineItems([]);
     setModalVisible(true);
   };
 
@@ -82,17 +93,29 @@ const RfqManagement: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      if (lineItems.length === 0) {
+        message.warning('Add at least one line item');
+        return;
+      }
+      const payload = {
+        ...values,
+        lines: lineItems.map((l, i) => ({
+          lineNumber: i + 1, itemId: l.itemId, uomId: l.uomId, quantity: l.quantity,
+          notes: l.itemName || l.itemCode,
+        })),
+      };
       if (editingItem) {
-        await apiService.patch(`/procurement/rfqs/${editingItem.id}`, values);
+        await apiService.patch(`/procurement/rfqs/${editingItem.id}`, payload);
         message.success('RFQ updated');
       } else {
-        await apiService.post('/procurement/rfqs', values);
+        await apiService.post('/procurement/rfqs', payload);
         message.success('RFQ created');
       }
       setModalVisible(false);
       fetchData(page);
     } catch (error) {
-      message.error('Failed to save RFQ');
+      const msg: any = (error as any)?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : 'Failed to save RFQ');
     }
   };
 
@@ -148,35 +171,31 @@ const RfqManagement: React.FC = () => {
       <Modal title={editingItem ? 'Edit RFQ' : 'Create RFQ'} open={modalVisible}
         onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={700}>
         <Form form={form} layout="vertical">
+          <Form.Item name="companyId" hidden><Input /></Form.Item>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="companyId" label="Company ID" rules={[{ required: true }]}>
+              <Form.Item name="rfqCode" label="RFQ Code" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="rfqCode" label="RFQ Code" rules={[{ required: true }]}>
+              <Form.Item name="title" label="Title">
                 <Input />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="title" label="Title">
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
               <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}>
-                <Select>
-                  {suppliers.map(s => <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>)}
-                </Select>
+                <Select showSearch optionFilterProp="label"
+                  options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
               </Form.Item>
             </Col>
           </Row>
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} />
           </Form.Item>
+          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} label="RFQ Items" showDiscount={false} showTax={false} />
         </Form>
       </Modal>
     </Card>
