@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Button, Space, Modal, Form, Input, Select, message, Row, Col, Tag, DatePicker, Tabs } from 'antd';
-import { PlusOutlined, SearchOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
+import { PlusOutlined,  CheckOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { PageHeader } from '../../components/shared';

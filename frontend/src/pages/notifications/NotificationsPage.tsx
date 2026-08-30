@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, List, Tag, Typography, Badge, Button, Space, Tabs, Form, Switch, Table, message, Row, Col, Input } from 'antd';
-import { BellOutlined, CheckOutlined, MailOutlined, WhatsAppOutlined, SettingOutlined } from '@ant-design/icons';
+import { Card, List,  Typography, Badge, Button, Space, Tabs } from 'antd';
+import { BellOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { PageHeader } from '../../components/shared';
 

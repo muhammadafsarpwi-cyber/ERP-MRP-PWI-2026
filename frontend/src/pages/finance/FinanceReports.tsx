@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Tabs, Tag, Row, Col, Statistic, Typography } from 'antd';
+import { Card, Table, Tabs,  Row, Col, Statistic, Typography } from 'antd';
 import apiService from '../../services/api';
 import { PageHeader } from '../../components/shared';
 
