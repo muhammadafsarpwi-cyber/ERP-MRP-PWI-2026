@@ -16,6 +16,7 @@ import './sidebar-nav.css';
 import { useThemeStore } from '../../theme/themeStore';
 import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from './headerActionsStore';
+import Breadcrumbs from '../shared/Breadcrumbs';
 import { useNavBadgeStore } from './navBadgeStore';
 import { syncMaintenanceQueueBadges } from './maintenanceQueueBadges';
 import {
@@ -151,7 +152,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { can, isLoaded, user } = usePermission();
-  const { actions: headerActions, title: headerTitle, icon: headerIcon } = useHeaderActions();
+  const { actions: headerActions, title: headerTitle, subtitle: headerSubtitle, icon: headerIcon } = useHeaderActions();
   const navBadges = useNavBadgeStore((s) => s.badges);
 
   // Hydrate the Maintenance sidebar count badges from the real dashboard API so
@@ -425,11 +426,13 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         <Header
           className="erp-app-header"
           style={{
+            height: isMobile ? 96 : 116,
             padding: isMobile ? '0 8px' : '0 24px',
             display: 'flex',
-            justifyContent: 'flex-end',
-            alignItems: 'center',
-            gap: isMobile ? 4 : 12,
+            flexDirection: 'column',
+            justifyContent: 'center',
+            gap: isMobile ? 4 : 8,
+            lineHeight: 'normal',
             position: 'fixed',
             top: 0,
             left: isMobile ? 0 : (effectivelyCollapsed ? 80 : SIDER_WIDTH),
@@ -438,78 +441,94 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             transition: 'left 0.2s',
           }}
         >
-          {isMobile && (
-            <Button
-              aria-label="Open navigation menu"
-              type="text"
-              icon={<MenuOutlined style={{ fontSize: 20 }} />}
-              onClick={() => setMobileOpen(true)}
-              style={{ flexShrink: 0, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            />
-          )}
-          <span
-            style={{
-              marginRight: 'auto',
-              minWidth: 0,
-              display: 'flex',
-              alignItems: 'center',
-              overflow: 'hidden',
-              fontSize: 16,
-              fontWeight: 600,
-              color: 'var(--theme-text)',
-            }}
-          >
+          {/* TOP ROW — menu · page icon · breadcrumb · right controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12, minWidth: 0 }}>
+            {isMobile && (
+              <Button
+                aria-label="Open navigation menu"
+                type="text"
+                icon={<MenuOutlined style={{ fontSize: 20 }} />}
+                onClick={() => setMobileOpen(true)}
+                style={{ flexShrink: 0, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              />
+            )}
+            <div style={{ minWidth: 0, overflow: 'hidden', flex: '1 1 auto' }}>
+              <Breadcrumbs style={{ marginBottom: 0 }} />
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                overflowX: 'auto',
+                minWidth: 0,
+                flexShrink: 0,
+                scrollbarWidth: 'thin',
+              }}
+            >
+              {headerActions.map((a) => (
+                <div key={a.key} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                  {a.node}
+                </div>
+              ))}
+              <NotificationBell />
+              <EmailCommunicationIcon />
+              <WhatsAppCommunicationIcon />
+              <ThemeSettingsButton />
+              <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }}>
+                <Space style={{ cursor: 'pointer', flexShrink: 0 }}>
+                  <Avatar icon={<UserOutlined />} />
+                  <span>{userName}</span>
+                </Space>
+              </Dropdown>
+            </div>
+          </div>
+
+          {/* TITLE ROW — page icon · title · subtitle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
             {headerIconNode && (
               <span
                 className="erp-app-header-icon"
-                style={{
-                  color: headerIconColor,
-                }}
+                style={{ color: headerIconColor, fontSize: 26 }}
               >
                 {headerIconNode}
               </span>
             )}
-            <span
-              style={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {headerTitleText}
-            </span>
-          </span>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              overflowX: 'auto',
-              minWidth: 0,
-              scrollbarWidth: 'thin',
-            }}
-          >
-            {headerActions.map((a) => (
-              <div key={a.key} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                {a.node}
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: isMobile ? 18 : 22,
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  color: 'var(--theme-text)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {headerTitleText}
               </div>
-            ))}
+              {headerSubtitle && (
+                <div
+                  style={{
+                    fontSize: isMobile ? 12 : 13,
+                    marginTop: 2,
+                    color: 'var(--theme-text-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {headerSubtitle}
+                </div>
+              )}
+            </div>
           </div>
-          <NotificationBell />
-          <EmailCommunicationIcon />
-          <WhatsAppCommunicationIcon />
-          <ThemeSettingsButton />
-          <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }}>
-            <Space style={{ cursor: 'pointer', flexShrink: 0 }}>
-              <Avatar icon={<UserOutlined />} />
-              <span>{userName}</span>
-            </Space>
-          </Dropdown>
         </Header>
         <Content
           className="erp-app-content"
           style={{
-            margin: '72px 8px 8px',
+            margin: isMobile ? '104px 8px 8px' : '124px 8px 8px',
             padding: 12,
             borderRadius: 8,
             minHeight: 280,
