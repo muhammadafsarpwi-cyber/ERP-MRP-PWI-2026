@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import { InventoryBalance, InventoryPolicy } from '../entities';
 
 @Injectable()
@@ -20,11 +20,13 @@ export class InventoryBalanceService {
     warehouseId: string,
     locationId?: string,
     batchId?: string,
+    manager?: EntityManager,
   ): Promise<InventoryBalance | null> {
+    const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
     const where: Record<string, any> = { companyId, itemId, warehouseId };
     if (locationId) where.locationId = locationId;
     if (batchId) where.batchId = batchId;
-    return this.repo.findOne({ where, relations: ['item', 'warehouse', 'location', 'batch', 'uom'] });
+    return repo.findOne({ where, relations: ['item', 'warehouse', 'location', 'batch', 'uom'] });
   }
 
   async findAll(filter: {
@@ -72,9 +74,10 @@ export class InventoryBalanceService {
     warehouseId?: string,
     locationId?: string,
     batchId?: string,
+    manager?: EntityManager,
   ): Promise<number> {
     if (!companyId || !itemId || !warehouseId) return 0;
-    const balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId, batchId);
+    const balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId, batchId, manager);
     if (!balance) return 0;
     return Number(balance.onHand) - Number(balance.reserved);
   }
@@ -88,11 +91,14 @@ export class InventoryBalanceService {
     uomId: string,
     quantityChange: number,
     direction: 'IN' | 'OUT',
+    manager?: EntityManager,
   ): Promise<InventoryBalance> {
-    let balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId || undefined, batchId || undefined);
+    const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
+    const policyRepo = manager ? manager.getRepository(InventoryPolicy) : this.policyRepo;
+    let balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId || undefined, batchId || undefined, manager);
 
     if (!balance) {
-      balance = this.repo.create({
+      balance = repo.create({
         companyId,
         itemId,
         warehouseId,
@@ -114,7 +120,7 @@ export class InventoryBalanceService {
       const newAvailable = Number(balance.available) - quantityChange;
 
       if (newOnHand < 0) {
-        const policy = await this.policyRepo.findOne({
+        const policy = await policyRepo.findOne({
           where: { companyId, itemId, warehouseId },
         });
         if (!policy || !policy.allowNegativeStock) {
@@ -128,7 +134,7 @@ export class InventoryBalanceService {
       balance.available = newAvailable;
     }
 
-    return this.repo.save(balance);
+    return repo.save(balance);
   }
 
   async reserveStock(

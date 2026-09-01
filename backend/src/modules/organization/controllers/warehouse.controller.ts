@@ -22,6 +22,7 @@ export class WarehouseController {
   }
 
   @Get()
+  @RequirePermission('inventory.view')
   @ApiOperation({ summary: 'Get all warehouses' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -48,6 +49,7 @@ export class WarehouseController {
   }
 
   @Get(':id')
+  @RequirePermission('inventory.view')
   @ApiOperation({ summary: 'Get a warehouse by ID' })
   @ApiParam({ name: 'id', description: 'Warehouse ID' })
   @ApiResponse({ status: 200, description: 'Warehouse found' })

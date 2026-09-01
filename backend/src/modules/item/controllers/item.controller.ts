@@ -41,6 +41,7 @@ export class ItemController {
   @ApiQuery({ name: 'sectionId', required: false })
   @ApiQuery({ name: 'departmentId', required: false })
   @ApiQuery({ name: 'routeType', required: false })
+  @ApiQuery({ name: 'routeTypeId', required: false })
   @ApiQuery({ name: 'wireSizeMm', required: false })
   @ApiQuery({ name: 'active', required: false })
   @ApiQuery({ name: 'isPurchasable', required: false })
@@ -62,6 +63,7 @@ export class ItemController {
     @Query('sectionId') sectionId?: string,
     @Query('departmentId') departmentId?: string,
     @Query('routeType') routeType?: string,
+    @Query('routeTypeId') routeTypeId?: string,
     @Query('wireSizeMm') wireSizeMm?: number,
     @Query('active') active?: string,
     @Query('isPurchasable') isPurchasable?: boolean,

@@ -1,11 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import {
   ProductionEntry,
   ProductionEntryItem,
@@ -15,8 +10,9 @@ import {
   DowntimeReason,
 } from '../entities';
 import { CreateProductionEntryDto, UpdateProductionEntryDto, CreateMachineDto } from '../dto';
-import { Item, UomConversion } from '../../item/entities';
-import { Division, Section, Department } from '../../organization/entities';
+import { Item, Uom, UomConversion } from '../../item/entities';
+import { Division, Section, Department, Warehouse } from '../../organization/entities';
+import { BillOfMaterials, BomLine, BomStatus } from '../../bom/entities';
 import { ProductionOrder, ProductionOrderOperation } from '../entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
@@ -61,6 +57,14 @@ export class ProductionEntryService {
     private readonly productionOrderRepo: Repository<ProductionOrder>,
     @InjectRepository(ProductionOrderOperation)
     private readonly productionOrderOperationRepo: Repository<ProductionOrderOperation>,
+    @InjectRepository(BillOfMaterials)
+    private readonly bomRepo: Repository<BillOfMaterials>,
+    @InjectRepository(BomLine)
+    private readonly bomLineRepo: Repository<BomLine>,
+    @InjectRepository(Warehouse)
+    private readonly warehouseRepo: Repository<Warehouse>,
+    @InjectRepository(Uom)
+    private readonly uomRepo: Repository<Uom>,
     private readonly stockLedgerService: StockLedgerService,
     private readonly inventoryBalanceService: InventoryBalanceService,
     private readonly machineTargetService: MachineTargetService,
@@ -628,6 +632,13 @@ export class ProductionEntryService {
 
     await this.assertNoDuplicate(companyId, dto.departmentId, dto.entryDate, dto.shiftId, resolved.machineNo, dto.itemId);
 
+    // Raw Material Source Warehouse — where ACTIVE BOM raw materials are deducted
+    // when the entry is posted to inventory (optional; improves backward compatibility).
+    const rawMaterialWarehouseId = dto.rawMaterialWarehouseId ?? null;
+    if (rawMaterialWarehouseId) {
+      await this.validateRawMaterialWarehouse(rawMaterialWarehouseId, companyId);
+    }
+
     const entry = this.entryRepo.create({
       companyId,
       productionOrderId: dto.productionOrderId ?? null,
@@ -660,6 +671,7 @@ export class ProductionEntryService {
       downtimeReasonText: dto.downtimeReason ?? null,
       scrapQuantity: dto.scrapQuantity,
       remarks: dto.remarks ?? null,
+      rawMaterialWarehouseId,
       createdBy: userId ?? null,
       updatedBy: userId ?? null,
     });
@@ -667,7 +679,11 @@ export class ProductionEntryService {
     const saved = await this.entryRepo.save(entry);
 
     if (resolved.shouldPostInventory) {
-      await this.postInventory(companyId, saved, resolved.warehouseId!, userId);
+      // Atomic inventory operation: deduct ACTIVE BOM raw materials from the
+      // Raw Material Source Warehouse, then post the finished-good receipt.
+      await this.entryRepo.manager.transaction(async (manager) => {
+        await this.postInventoryAndConsume(manager, companyId, saved, resolved.warehouseId!, rawMaterialWarehouseId, userId);
+      });
     }
 
     await this.persistChildren(saved.id, companyId, dto.items ?? [], dto.downtimes ?? [], userId, false);
@@ -696,6 +712,7 @@ export class ProductionEntryService {
       scrapQuantity: dto.scrapQuantity ?? Number(entry.scrapQuantity),
       runningHours: dto.runningHours ?? Number(entry.runningHours),
       downtimeHours: dto.downtimeHours ?? Number(entry.downtimeHours),
+      rawMaterialWarehouseId: dto.rawMaterialWarehouseId !== undefined ? (dto.rawMaterialWarehouseId ?? null) : entry.rawMaterialWarehouseId ?? null,
     };
 
     // ERP-00016: re-resolve the target when machine/shift/date/hours changed.
@@ -1168,7 +1185,25 @@ export class ProductionEntryService {
    * here — Production Order completion is the single authoritative posting
    * point (avoids double-posting).
    */
-  private async postInventory(companyId: string, entry: ProductionEntry, warehouseId: string, userId?: string): Promise<void> {
+  /**
+   * Atomic inventory posting for production entries that post to inventory:
+   *  1. automatically deduct every ACTIVE BOM raw material from the Raw
+   *     Material Source Warehouse (validated up-front, never partial),
+   *  2. then post the finished-good production receipt exactly as before.
+   * Runs inside a DB transaction so either all inventory changes commit or none do.
+   */
+  private async postInventoryAndConsume(
+    manager: EntityManager,
+    companyId: string,
+    entry: ProductionEntry,
+    warehouseId: string,
+    rawMaterialWarehouseId: string | null,
+    userId?: string,
+  ): Promise<void> {
+    if (rawMaterialWarehouseId) {
+      await this.consumeRawMaterials(manager, companyId, entry, rawMaterialWarehouseId, userId);
+    }
+
     const receipt = await this.stockLedgerService.create({
       companyId,
       transactionType: 'PRODUCTION_RECEIPT',
@@ -1181,12 +1216,12 @@ export class ProductionEntryService {
       referenceId: entry.id,
       notes: `Daily production receipt (${entry.machineNo}, ${entry.entryDate})`,
       createdBy: userId ?? undefined,
-    });
+    }, manager);
     // Write the ledger reference back onto the entry (audit + double-posting guard)
     entry.inventoryReferenceId = receipt.id;
-    await this.entryRepo.update(entry.id, { inventoryReferenceId: receipt.id });
+    await manager.getRepository(ProductionEntry).update(entry.id, { inventoryReferenceId: receipt.id });
     await this.inventoryBalanceService.updateBalance(
-      companyId, entry.itemId, warehouseId, null, null, entry.uomId, Number(entry.actualQuantity), 'IN',
+      companyId, entry.itemId, warehouseId, null, null, entry.uomId, Number(entry.actualQuantity), 'IN', manager,
     );
 
     if (Number(entry.scrapQuantity) > 0) {
@@ -1202,8 +1237,115 @@ export class ProductionEntryService {
         referenceId: entry.id,
         notes: `Scrap/rejection recorded for daily production entry (audit trail; no balance impact)`,
         createdBy: userId ?? undefined,
-      });
+      }, manager);
     }
+  }
+
+  // ─── Automatic BOM raw-material consumption ───────────────────────────────────
+
+  /**
+   * Finds the production item's ACTIVE BOM (respecting effective dates) and
+   * deducts the computed requirement of every raw-material line from the Raw
+   * Material Source Warehouse, in one transaction. Validates ALL component
+   * stock before any deduction, so an insufficient component rejects the whole
+   * posting with no partial consumption.
+   */
+  private async consumeRawMaterials(
+    manager: EntityManager,
+    companyId: string,
+    entry: ProductionEntry,
+    rawMaterialWarehouseId: string,
+    userId?: string,
+  ): Promise<void> {
+    const bom = await this.findActiveBom(companyId, entry.itemId);
+    if (!bom) {
+      throw new BadRequestException('No ACTIVE BOM exists for this production item.');
+    }
+    const lines = await this.bomLineRepo.find({ where: { bomId: bom.id }, order: { lineNumber: 'ASC' } });
+    if (!lines.length) return;
+
+    const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number }> = [];
+    for (const line of lines) {
+      const required = await this.computeBomRequirement(companyId, entry, bom, line);
+      const component = await this.itemRepo.findOne({ where: { id: line.itemId } });
+      const uomCode = component?.baseUom?.code ?? (await this.uomRepo.findOne({ where: { id: line.uomId } }))?.code ?? '';
+      const available = await this.inventoryBalanceService.getAvailableStock(
+        companyId, line.itemId, rawMaterialWarehouseId, undefined, undefined, manager,
+      );
+      requirements.push({ line, required, uomCode, available });
+    }
+
+    // Validate ALL components before touching stock — never partial.
+    const missing = requirements.find((r) => r.available < r.required);
+    if (missing) {
+      throw new BadRequestException(
+        `Raw material stock is insufficient. Required: ${this.round4(missing.required)} ${missing.uomCode} | Available: ${this.round4(missing.available)} ${missing.uomCode}`,
+      );
+    }
+
+    for (const r of requirements) {
+      await this.stockLedgerService.create({
+        companyId,
+        transactionType: 'PRODUCTION_CONSUMPTION',
+        itemId: r.line.itemId,
+        warehouseId: rawMaterialWarehouseId,
+        quantity: r.required,
+        uomId: r.line.uomId,
+        direction: 'OUT',
+        referenceType: ENTRY_REFERENCE_TYPE,
+        referenceId: entry.id,
+        notes: `Automatic raw material consumption for production entry (${entry.machineNo}, ${entry.entryDate})`,
+        createdBy: userId ?? undefined,
+      }, manager);
+      await this.inventoryBalanceService.updateBalance(
+        companyId, r.line.itemId, rawMaterialWarehouseId, null, null, r.line.uomId, r.required, 'OUT', manager,
+      );
+    }
+  }
+
+  private async findActiveBom(companyId: string, productId: string): Promise<BillOfMaterials | null> {
+    const boms = await this.bomRepo.find({ where: { companyId, productId, status: BomStatus.ACTIVE } });
+    if (!boms.length) return null;
+    const now = new Date();
+    const valid = boms.filter((b) =>
+      (!b.effectiveFrom || new Date(b.effectiveFrom) <= now) &&
+      (!b.effectiveTo || new Date(b.effectiveTo) >= now),
+    );
+    return (valid.length ? valid : boms)[0];
+  }
+
+  /**
+   * Correct BOM requirement for the entry's actual production quantity:
+   *   productionQty (entry UOM) → product base UOM → divide by BOM base quantity
+   *   → × line quantity → × (1 + scrapFactor) ÷ (yield%/100) → line UOM → item base UOM.
+   */
+  private async computeBomRequirement(companyId: string, entry: ProductionEntry, bom: BillOfMaterials, line: BomLine): Promise<number> {
+    const product = await this.itemRepo.findOne({ where: { id: entry.itemId } });
+    const productBaseUomId = product?.baseUomId ?? entry.uomId;
+    const productionQty = Number(entry.actualQuantity);
+    const qtyInBase = entry.uomId === productBaseUomId ? productionQty : await this.convertQty(entry.uomId, productBaseUomId, productionQty);
+    const units = qtyInBase / Number(bom.baseQuantity || 1);
+    let req = units * Number(line.quantity) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
+    const component = await this.itemRepo.findOne({ where: { id: line.itemId } });
+    if (component?.baseUomId && component.baseUomId !== line.uomId) {
+      req = await this.convertQty(line.uomId, component.baseUomId, req);
+    }
+    return this.round4(req);
+  }
+
+  private async convertQty(fromUomId: string | null, toUomId: string, quantity: number): Promise<number> {
+    if (!fromUomId || fromUomId === toUomId) return quantity;
+    let conv = await this.uomConversionRepo.findOne({ where: { fromUomId, toUomId } });
+    if (conv) return quantity * Number(conv.conversionFactor);
+    conv = await this.uomConversionRepo.findOne({ where: { fromUomId: toUomId, toUomId: fromUomId } });
+    if (conv && Number(conv.conversionFactor) !== 0) return quantity / Number(conv.conversionFactor);
+    throw new BadRequestException(`No UOM conversion defined between UOMs '${fromUomId}' and '${toUomId}'`);
+  }
+
+  private async validateRawMaterialWarehouse(warehouseId: string, companyId: string): Promise<void> {
+    const wh = await this.warehouseRepo.findOne({ where: { id: warehouseId, companyId } });
+    if (!wh) throw new BadRequestException('Raw Material Source Warehouse not found for this company.');
+    if (wh.status !== 'ACTIVE') throw new BadRequestException('Raw Material Source Warehouse is not ACTIVE.');
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────

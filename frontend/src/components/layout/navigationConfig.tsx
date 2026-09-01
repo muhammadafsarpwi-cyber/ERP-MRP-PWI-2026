@@ -166,9 +166,11 @@ export const NAV_ENTRIES: NavEntry[] = [
     children: [
       { key: '/master-data/items', label: 'Products & Items', icon: DatabaseOutlined, color: 'info', permissions: ['item.view'] },
       { key: '/master-data/categories', label: 'Item Categories', icon: TagsOutlined, color: 'info', permissions: ['item_category.view'] },
+      { key: '/master-data/route-types', label: 'Route Types', icon: BranchesOutlined, color: 'info', permissions: ['item_route_type.view'] },
       { key: '/master-data/uom', label: 'Units of Measure', icon: CalculatorOutlined, color: 'info', permissions: ['uom.view'] },
       { key: '/master-data/uom-conversions', label: 'UOM Conversions', icon: SwapOutlined, color: 'info', permissions: ['uom_conversion.view'] },
       { key: '/master-data/machines', label: 'Machine Master', icon: ToolOutlined, color: 'info', permissions: ['manufacturing.machine.view'] },
+      { key: '/production/targets', label: 'Machine Targets', icon: AimOutlined, color: 'info', permissions: ['manufacturing.machine_target.view'] },
     ],
   },
 
@@ -220,6 +222,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     color: 'indigo',
     children: [
       { key: '/inventory', label: 'Overview', icon: InboxOutlined, color: 'indigo', permissions: ['inventory.view'] },
+      { key: '/inventory/receiving', label: 'Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['inventory.opening_stock.create'] },
       { key: '/inventory/policies', label: 'Inventory Policies', icon: SafetyOutlined, color: 'indigo', permissions: ['inventory.policy.view'] },
       { key: '/inventory/batches', label: 'Batch Tracking', icon: AppstoreOutlined, color: 'indigo', permissions: ['inventory.batch.view'] },
       { key: '/inventory/adjustments', label: 'Stock Adjustments', icon: EditOutlined, color: 'indigo', permissions: ['inventory.view'] },
@@ -236,10 +239,11 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: BuildOutlined,
     color: 'cyan',
     children: [
+      { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.production.orders.view'] },
       { key: '/production/entries', label: 'Daily Production Entry', icon: EditOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
       { key: '/production/bom', label: 'Bill of Materials', icon: ClusterOutlined, color: 'cyan', permissions: ['manufacturing.bom.view'] },
       { key: '/production/routings', label: 'Routing', icon: ApartmentOutlined, color: 'cyan', permissions: ['manufacturing.routing.view'] },
-      { key: '/production/targets', label: 'Machine Targets', icon: AimOutlined, color: 'cyan', permissions: ['manufacturing.machine_target.view'] },
+      { key: '/production/reports', label: 'Production Reports', icon: BarChartOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
     ],
   },
 

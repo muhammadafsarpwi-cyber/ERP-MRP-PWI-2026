@@ -1,6 +1,10 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockTransfer, StockTransferLine, InventoryReservation, SerialNumber } from './entities';
+import { Division, Section, Department } from '../organization/entities';
+import { Warehouse } from '../organization/entities/warehouse.entity';
+import { Item } from '../item/entities/item.entity';
+import { Uom } from '../item/entities/uom.entity';
 import { InventoryPolicyService } from './services/inventory-policy.service';
 import { BatchService } from './services/batch.service';
 import { InventoryBalanceService } from './services/inventory-balance.service';
@@ -19,6 +23,7 @@ import { InventoryReservationController } from './controllers/inventory-reservat
 import { StockReportController } from './controllers/stock-report.controller';
 import { OpeningStockController } from './controllers/opening-stock.controller';
 import { SerialNumberController } from './controllers/serial-number.controller';
+import { InventoryReceiptController } from './controllers/inventory-receipt.controller';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
@@ -29,6 +34,7 @@ import { UserModule } from '../user/user.module';
       InventoryPolicy, Batch, InventoryBalance, StockLedger,
       StockAdjustment, StockAdjustmentLine, StockTransfer, StockTransferLine,
       InventoryReservation, SerialNumber,
+      Division, Section, Department, Warehouse, Item, Uom,
     ]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
@@ -38,6 +44,7 @@ import { UserModule } from '../user/user.module';
     InventoryPolicyController, BatchController, InventoryBalanceController,
     StockAdjustmentController, StockTransferController, InventoryReservationController,
     StockReportController, OpeningStockController, SerialNumberController,
+    InventoryReceiptController,
   ],
   providers: [
     InventoryPolicyService, BatchService, InventoryBalanceService, StockLedgerService,

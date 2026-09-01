@@ -5,6 +5,9 @@ import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { WarehouseLocation } from '../../organization/entities/warehouse-location.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { Batch } from './batch.entity';
+import { Division } from '../../organization/entities/division.entity';
+import { Section } from '../../organization/entities/section.entity';
+import { Department } from '../../organization/entities/department.entity';
 
 @Entity('stock_ledger')
 export class StockLedger {
@@ -19,6 +22,27 @@ export class StockLedger {
 
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
+  @ManyToOne(() => Division, { nullable: true })
+  @JoinColumn({ name: 'division_id' })
+  division: Division | null;
+
+  @Column({ name: 'section_id', type: 'uuid', nullable: true })
+  sectionId: string | null;
+
+  @ManyToOne(() => Section, { nullable: true })
+  @JoinColumn({ name: 'section_id' })
+  section: Section | null;
+
+  @Column({ name: 'department_id', type: 'uuid', nullable: true })
+  departmentId: string | null;
+
+  @ManyToOne(() => Department, { nullable: true })
+  @JoinColumn({ name: 'department_id' })
+  department: Department | null;
 
   @ManyToOne(() => Company)
   @JoinColumn({ name: 'company_id' })

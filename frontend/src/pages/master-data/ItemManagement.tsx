@@ -108,6 +108,8 @@ const ItemManagement: React.FC = () => {
   const [divisions, setDivisions] = useState<DivisionOption[]>([]);
   const [sections, setSections] = useState<SectionOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [routeTypes, setRouteTypes] = useState<Array<{ id: string; routeCode: string; name: string; status: string }>>([]);
+  const [routeTypesState, setRouteTypesState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [companyId, setCompanyId] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -187,7 +189,7 @@ const ItemManagement: React.FC = () => {
       if (fDepartment) params.departmentId = fDepartment;
       if (fCategory) params.categoryId = fCategory;
       if (fItemType) params.itemType = fItemType;
-      if (fRouteType) params.routeType = fRouteType;
+      if (fRouteType) params.routeTypeId = fRouteType;
       if (fStatus) params.status = fStatus;
       return params;
     },
@@ -225,20 +227,24 @@ const ItemManagement: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [uomRes, catRes, divRes, secRes, depRes] = await Promise.all([
+        const [uomRes, catRes, divRes, secRes, depRes, rtRes] = await Promise.all([
           apiService.get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 }),
           apiService.get<{ data: CategoryOption[] }>('/master-data/categories', { limit: 500 }),
           apiService.get<{ data: DivisionOption[] }>('/divisions', { limit: 200 }),
           apiService.get<{ data: SectionOption[] }>('/sections', { limit: 500 }),
           apiService.get<{ data: DepartmentOption[] }>('/departments', { limit: 500 }),
+          apiService.get<{ data: Array<{ id: string; routeCode: string; name: string; status: string }> }>('/master-data/route-types', { limit: 200 }),
         ]);
         setUoms(uomRes.data || []);
         setCategories(catRes.data || []);
         setDivisions(divRes.data || []);
         setSections(secRes.data || []);
         setDepartments(depRes.data || []);
+        setRouteTypes((rtRes.data || []).filter((rt) => rt.status === 'ACTIVE'));
+        setRouteTypesState('ready');
       } catch {
-        message.warning('Could not load lookup data (UOM / categories / organization)');
+        message.warning('Could not load lookup data (UOM / categories / organization / route types)');
+        setRouteTypesState('error');
       }
       setCompanyId(await resolveCompanyId());
     })();
@@ -315,6 +321,7 @@ const ItemManagement: React.FC = () => {
       departmentId: record.departmentId ?? undefined,
       wireSizeMm: record.wireSizeMm ?? undefined,
       routeType: record.routeType ?? undefined,
+      routeTypeId: record.routeTypeId ?? (record.routeType ? routeTypes.find((rt) => rt.routeCode === record.routeType)?.id : undefined),
       process1: record.process1 ?? undefined,
       process2: record.process2 ?? undefined,
       process3: record.process3 ?? undefined,
@@ -348,8 +355,29 @@ const ItemManagement: React.FC = () => {
       const payload: Record<string, unknown> = {};
       Object.entries(values).forEach(([k, v]) => {
         if (v === undefined || v === null) return;
-        payload[k] = typeof v === 'string' ? v.trim() : v;
+        if (typeof v === 'string') {
+          const trimmed = v.trim();
+          if (trimmed === '') return;
+          payload[k] = trimmed;
+        } else {
+          payload[k] = v;
+        }
       });
+      // Defensive: strip any non-UUID display text from org fields (should never happen, but safe)
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      for (const field of ['divisionId', 'sectionId', 'departmentId', 'categoryId', 'baseUomId', 'purchaseUomId', 'salesUomId', 'routeTypeId'] as const) {
+        if (payload[field] !== undefined && typeof payload[field] === 'string') {
+          const val = (payload[field] as string).trim();
+          if (!UUID_RE.test(val)) {
+            delete payload[field];
+          }
+        }
+      }
+      // Route type: submit the UUID (routeTypeId). Remove the legacy display-code field
+      // so the backend authoritative route-types master decides the stored code.
+      if (payload.routeType !== undefined && payload.routeTypeId !== undefined) {
+        delete payload.routeType;
+      }
       if (editing) {
         if (editing.companyId) payload.companyId = editing.companyId;
       } else if (companyId) {
@@ -444,9 +472,12 @@ const ItemManagement: React.FC = () => {
   const itemToExportRow = (r: Item): Array<string | number | null | undefined> => [
     r.itemCode, r.name, r.sku ?? '', r.shortName ?? '',
     ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType,
-    r.categoryName ?? '', r.divisionName ?? '', r.sectionName ?? '', r.departmentName ?? '',
+    r.categoryName ?? '',
+    r.division ? `${r.division.divisionCode} - ${r.division.name}` : (r.divisionName ?? ''),
+    r.section ? `${r.section.sectionCode} - ${r.section.name}` : (r.sectionName ?? ''),
+    r.department ? `${r.department.departmentCode} - ${r.department.name}` : (r.departmentName ?? ''),
     num(r.wireSizeMm),
-    r.routeType ? ROUTE_TYPES.find((x) => x.value === r.routeType)?.label || r.routeType : '',
+    r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : '',
     r.process1 ?? '', r.process2 ?? '', r.process3 ?? '', r.process4 ?? '',
     r.finalProduct ?? '', r.packingNextStep ?? '', r.baseUomName ?? '',
     num(r.weightPerPiece), num(r.piecesPerKg), num(r.weightPerMeter), num(r.lengthPerPiece),
@@ -480,7 +511,7 @@ const ItemManagement: React.FC = () => {
     if (dep) parts.push(`Department: ${dep}`);
     if (fCategory) parts.push(`Category: ${flatCategories.find((c) => c.id === fCategory)?.name ?? fCategory}`);
     if (fItemType) parts.push(`Type: ${ITEM_TYPES.find((t) => t.value === fItemType)?.label ?? fItemType}`);
-    if (fRouteType) parts.push(`Route: ${ROUTE_TYPES.find((t) => t.value === fRouteType)?.label ?? fRouteType}`);
+    if (fRouteType) parts.push(`Route: ${routeTypes.find((t) => t.id === fRouteType)?.routeCode ?? fRouteType}`);
     if (fStatus) parts.push(`Status: ${fStatus}`);
     return parts.length ? parts.join('   |   ') : 'All items';
   };
@@ -497,11 +528,12 @@ const ItemManagement: React.FC = () => {
       const bodyRows = rows
         .map(
           (r) => `<tr>
-            <td><b>${r.itemCode}</b></td><td>${r.name}</td><td>${r.divisionName ?? ''}</td>
-            <td>${r.sectionName ?? ''}</td><td>${r.departmentName ?? ''}</td>
+            <td><b>${r.itemCode}</b></td><td>${r.name}</td><td>${r.division ? `${r.division.divisionCode} - ${r.division.name}` : (r.divisionName ?? '')}</td>
+            <td>${r.section ? `${r.section.sectionCode} - ${r.section.name}` : (r.sectionName ?? '')}</td>
+            <td>${r.department ? `${r.department.departmentCode} - ${r.department.name}` : (r.departmentName ?? '')}</td>
             <td class="num">${num(r.wireSizeMm)}</td>
             <td>${ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType}</td>
-            <td>${r.routeType ? ROUTE_TYPES.find((x) => x.value === r.routeType)?.label || r.routeType : ''}</td>
+            <td>${r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : ''}</td>
             <td>${r.baseUomName ?? ''}</td><td class="status ${r.status.toLowerCase()}">${r.status}</td>
           </tr>`,
         )
@@ -623,11 +655,18 @@ const ItemManagement: React.FC = () => {
       else numbers[key] = parsed;
     });
 
-    let routeType: string | undefined;
+    let routeTypeId: string | undefined;
     const routeRaw = get('routeType').toUpperCase().replace(/[\s-]+/g, '_');
     if (routeRaw) {
-      routeType = ROUTE_TYPES.find((t) => t.value === routeRaw || t.label.toUpperCase().replace(/\s+/g, '_') === routeRaw)?.value;
-      if (!routeType) errors.push(`Invalid Route Type '${get('routeType')}'`);
+      const rt = routeTypes.find(
+        (x) => x.routeCode.toUpperCase() === routeRaw || x.name.toUpperCase().replace(/[\s-]+/g, '_') === routeRaw,
+      );
+      if (rt) routeTypeId = rt.id;
+      else {
+        const legacy = ROUTE_TYPES.find((t) => t.value === routeRaw || t.label.toUpperCase().replace(/\s+/g, '_') === routeRaw)?.value;
+        if (legacy) routeTypeId = routeTypes.find((x) => x.routeCode === legacy)?.id;
+        if (!routeTypeId) errors.push(`Invalid Route Type '${get('routeType')}'`);
+      }
     }
 
     const categoryName = get('categoryName');
@@ -649,7 +688,7 @@ const ItemManagement: React.FC = () => {
       ...(sectionId ? { sectionId } : {}),
       ...(departmentId ? { departmentId } : {}),
       ...(numbers.wireSizeMm !== undefined ? { wireSizeMm: numbers.wireSizeMm } : {}),
-      ...(routeType ? { routeType } : {}),
+      ...(routeTypeId ? { routeTypeId } : {}),
       ...(get('process1') ? { process1: get('process1') } : {}),
       ...(get('process2') ? { process2: get('process2') } : {}),
       ...(get('process3') ? { process3: get('process3') } : {}),
@@ -759,6 +798,22 @@ const ItemManagement: React.FC = () => {
     return chips;
   };
 
+  // Resolve a human-readable route label from the DB-backed master (or legacy code).
+  const routeTypeLabel = (r: Item): string => {
+    const ref = r.routeTypeRef;
+    if (ref) return `${ref.routeCode} — ${ref.name}`;
+    if (r.routeTypeId) {
+      const rt = routeTypes.find((x) => x.id === r.routeTypeId);
+      if (rt) return `${rt.routeCode} — ${rt.name}`;
+    }
+    if (r.routeType) {
+      const rt = routeTypes.find((x) => x.routeCode === r.routeType);
+      if (rt) return `${rt.routeCode} — ${rt.name}`;
+      return ROUTE_TYPES.find((x) => x.value === r.routeType)?.label || r.routeType;
+    }
+    return '';
+  };
+
   const columns: ColumnsType<Item> = [
     {
       title: 'Item Code', dataIndex: 'itemCode', key: 'itemCode', width: 150, fixed: 'left',
@@ -777,15 +832,15 @@ const ItemManagement: React.FC = () => {
     },
     {
       title: 'Division', key: 'division', width: 120, ellipsis: true,
-      render: (_: unknown, r: Item) => r.divisionName ?? <Text type="secondary">—</Text>,
+      render: (_: unknown, r: Item) => r.division ? `${r.division.divisionCode} - ${r.division.name}` : (r.divisionName ?? <Text type="secondary">—</Text>),
     },
     {
       title: 'Section', key: 'section', width: 120, ellipsis: true,
-      render: (_: unknown, r: Item) => r.sectionName ?? <Text type="secondary">—</Text>,
+      render: (_: unknown, r: Item) => r.section ? `${r.section.sectionCode} - ${r.section.name}` : (r.sectionName ?? <Text type="secondary">—</Text>),
     },
     {
       title: 'Department', key: 'department', width: 140, ellipsis: true,
-      render: (_: unknown, r: Item) => r.departmentName ?? <Text type="secondary">—</Text>,
+      render: (_: unknown, r: Item) => r.department ? `${r.department.departmentCode} - ${r.department.name}` : (r.departmentName ?? <Text type="secondary">—</Text>),
     },
     {
       title: 'Wire Size', dataIndex: 'wireSizeMm', key: 'wireSizeMm', width: 100, align: 'right',
@@ -802,8 +857,10 @@ const ItemManagement: React.FC = () => {
     {
       title: 'Route', dataIndex: 'routeType', key: 'routeType', width: 120,
       sorter: true,
-      render: (v: string | null) =>
-        v ? <Tag color={routeColorMap[v] ?? 'default'} style={{ marginInlineEnd: 0 }}>{ROUTE_TYPES.find((r) => r.value === v)?.label || v}</Tag> : <Text type="secondary">—</Text>,
+      render: (v: string | null, r: Item) => {
+        const label = routeTypeLabel(r);
+        return label ? <Tag color={routeColorMap[r.routeType ?? ''] ?? 'default'} style={{ marginInlineEnd: 0 }}>{label}</Tag> : <Text type="secondary">—</Text>;
+      },
     },
     {
       title: 'UOM / Conversion', key: 'uom', width: 170,
@@ -1033,8 +1090,10 @@ const ItemManagement: React.FC = () => {
               onChange={(v) => { setFItemType(v); setPage(1); }}
             />
             <Select
-              allowClear placeholder="Route Type" options={ROUTE_TYPES}
+              allowClear showSearch optionFilterProp="label" placeholder="Route Type"
               value={fRouteType}
+              loading={routeTypesState === 'loading'}
+              options={routeTypes.map((rt) => ({ value: rt.id, label: `${rt.routeCode} — ${rt.name}` }))}
               onChange={(v) => { setFRouteType(v); setPage(1); }}
             />
           </div>
@@ -1132,9 +1191,9 @@ const ItemManagement: React.FC = () => {
 
             <Card size="small" title="Organization" style={{ borderRadius: 8 }}>
               {detailDesc([
-                { label: 'Division', children: txt(detailItem.divisionName) },
-                { label: 'Section', children: txt(detailItem.sectionName) },
-                { label: 'Department', children: txt(detailItem.departmentName) },
+                { label: 'Division', children: txt(detailItem.division ? `${detailItem.division.divisionCode} — ${detailItem.division.name}` : (detailItem.divisionName ?? null)) },
+                { label: 'Section', children: txt(detailItem.section ? `${detailItem.section.sectionCode} — ${detailItem.section.name}` : (detailItem.sectionName ?? null)) },
+                { label: 'Department', children: txt(detailItem.department ? `${detailItem.department.departmentCode} — ${detailItem.department.name}` : (detailItem.departmentName ?? null)) },
               ])}
             </Card>
 
@@ -1143,9 +1202,9 @@ const ItemManagement: React.FC = () => {
                 { label: 'Wire Size (mm)', children: detailItem.wireSizeMm != null ? String(Number(detailItem.wireSizeMm)) : null },
                 {
                   label: 'Route Type',
-                  children: detailItem.routeType ? (
-                    <Tag color={routeColorMap[detailItem.routeType] ?? 'default'} style={{ marginInlineEnd: 0 }}>
-                      {ROUTE_TYPES.find((r) => r.value === detailItem.routeType)?.label || detailItem.routeType}
+                  children: routeTypeLabel(detailItem) ? (
+                    <Tag color={routeColorMap[detailItem.routeType ?? ''] ?? 'default'} style={{ marginInlineEnd: 0 }}>
+                      {routeTypeLabel(detailItem)}
                     </Tag>
                   ) : null,
                 },
@@ -1223,43 +1282,36 @@ const ItemManagement: React.FC = () => {
             {editing ? `Edit Item — ${editing.itemCode}` : 'Add New Item'}
           </Space>
         }
-        styles={{ body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } }}
+        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
       >
         <Form form={form} layout="vertical" requiredMark="optional">
-          <Card size="small" title="Basic Information" style={{ marginBottom: 16, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
+          {/* SECTION 1 — BASIC INFORMATION */}
+          <Card size="small" title="Basic Information" style={{ marginBottom: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
               <Form.Item
                 name="itemCode" label="Item Code" rules={[
                   { required: true, message: 'Item Code is required' },
                   { pattern: /^[A-Z0-9_-]+$/, message: 'Uppercase letters, numbers, hyphens and underscores only' },
                 ]}
-                extra={editing ? 'Item Code cannot be changed' : undefined}
+                extra={editing ? 'Item Code cannot be changed' : 'e.g. DEMO-RM-CU-001'}
               >
-                <Input disabled={!!editing} placeholder="e.g. WIRE-3MM-001" maxLength={50} />
+                <Input disabled={!!editing} placeholder="e.g. DEMO-RM-CU-001" maxLength={50} />
               </Form.Item>
-              <Form.Item name="sku" label="SKU"><Input maxLength={100} placeholder="Optional" /></Form.Item>
               <Form.Item name="name" label="Item Name" rules={[{ required: true, message: 'Item Name is required' }]}>
-                <Input maxLength={255} />
+                <Input placeholder="e.g. Copper Wire 2.00 mm" maxLength={255} />
               </Form.Item>
-              <Form.Item name="shortName" label="Short Name"><Input maxLength={100} placeholder="Optional" /></Form.Item>
-              <Form.Item name="itemType" label="Item Type" rules={[{ required: true, message: 'Item Type is required' }]}>
-                <Select options={ITEM_TYPES} placeholder="Select type" />
-              </Form.Item>
-              <Form.Item name="categoryId" label="Item Category">
-                <Select
-                  allowClear showSearch optionFilterProp="label"
-                  options={flatCategories.map((c) => ({ value: c.id, label: c.name }))}
-                  placeholder="Select category"
-                />
+              <Form.Item name="shortName" label="Short Name">
+                <Input maxLength={100} placeholder="e.g. Cu Wire 2mm" />
               </Form.Item>
               <Form.Item name="description" label="Description" style={{ gridColumn: '1 / -1' }}>
-                <Input.TextArea rows={2} maxLength={1000} />
+                <Input.TextArea rows={2} maxLength={1000} placeholder="e.g. Demo raw material received from another manufacturing unit" />
               </Form.Item>
             </div>
           </Card>
 
-          <Card size="small" title="Organization" style={{ marginBottom: 16, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
+          {/* SECTION 2 — ORGANIZATION */}
+          <Card size="small" title="Organization" style={{ marginBottom: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
               <Form.Item name="divisionId" label="Division">
                 <Select
                   allowClear showSearch optionFilterProp="label" placeholder="Select division"
@@ -1293,13 +1345,73 @@ const ItemManagement: React.FC = () => {
             </div>
           </Card>
 
-          <Card size="small" title="Production / Routing" style={{ marginBottom: 16, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
-              <Form.Item name="wireSizeMm" label="Wire Size (mm)">
-                <InputNumber min={0} step={0.01} style={{ width: '100%' }} />
+          {/* SECTION 3 — CLASSIFICATION */}
+          <Card size="small" title="Classification" style={{ marginBottom: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
+              <Form.Item name="itemType" label="Item Type" rules={[{ required: true, message: 'Item Type is required' }]}>
+                <Select options={ITEM_TYPES} placeholder="e.g. RAW_MATERIAL" />
               </Form.Item>
-              <Form.Item name="routeType" label="Routing Rule (Route Type)">
-                <Select options={ROUTE_TYPES} allowClear placeholder="Select route" />
+              <Form.Item name="categoryId" label="Item Category">
+                <Select
+                  allowClear showSearch optionFilterProp="label"
+                  options={flatCategories.map((c) => ({ value: c.id, label: c.name }))}
+                  placeholder="e.g. Copper / Metal"
+                />
+              </Form.Item>
+              <Form.Item name="routeTypeId" label="Route Type">
+                <Select
+                  allowClear showSearch optionFilterProp="label"
+                  loading={routeTypesState === 'loading'}
+                  status={routeTypesState === 'error' ? 'error' : undefined}
+                  notFoundContent={routeTypesState === 'error' ? 'Route types could not be loaded' : 'No active route types'}
+                  options={routeTypes.map((rt) => ({ value: rt.id, label: `${rt.routeCode} — ${rt.name}` }))}
+                  placeholder="e.g. CONTROL_CABLE — Control Cable"
+                />
+              </Form.Item>
+            </div>
+          </Card>
+
+          {/* SECTION 4 — UOM / INVENTORY */}
+          <Card size="small" title="UOM & Inventory" style={{ marginBottom: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
+              <Form.Item name="baseUomId" label="Base UOM" rules={[{ required: true, message: 'Base UOM is required' }]}>
+                <Select
+                  showSearch optionFilterProp="label" placeholder="e.g. KG"
+                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
+                />
+              </Form.Item>
+              <Form.Item name="purchaseUomId" label="Purchase UOM">
+                <Select
+                  allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
+                />
+              </Form.Item>
+              <Form.Item name="salesUomId" label="Sales UOM">
+                <Select
+                  allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
+                />
+              </Form.Item>
+              <Form.Item name="weightPerPiece" label="Weight per Piece (kg)" extra="Enables KG ↔ PCS">
+                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 0.0555" />
+              </Form.Item>
+              <Form.Item name="piecesPerKg" label="Pieces per KG" extra="Manually maintained">
+                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 18.02" />
+              </Form.Item>
+              <Form.Item name="weightPerMeter" label="Weight per Meter (kg/m)" extra="Enables KG ↔ METER">
+                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="Optional" />
+              </Form.Item>
+              <Form.Item name="lengthPerPiece" label="Length per Piece (m)" extra="Enables PCS ↔ METER">
+                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="Optional" />
+              </Form.Item>
+            </div>
+          </Card>
+
+          {/* SECTION 5 — PRODUCTION */}
+          <Card size="small" title="Production" style={{ marginBottom: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
+              <Form.Item name="wireSizeMm" label="Wire Size (mm)">
+                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional" />
               </Form.Item>
               <Form.Item name="finalProduct" label="Final Product"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="packingNextStep" label="Packing / Next Step"><Input maxLength={255} placeholder="Optional" /></Form.Item>
@@ -1310,49 +1422,16 @@ const ItemManagement: React.FC = () => {
             </div>
           </Card>
 
-          <Card size="small" title="Weight, UOM & Conversion" style={{ marginBottom: 16, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
-              <Form.Item name="baseUomId" label="Base UOM" rules={[{ required: true, message: 'Base UOM is required' }]}>
-                <Select
-                  showSearch optionFilterProp="label" placeholder="Select base UOM"
-                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
-                />
-              </Form.Item>
-              <Form.Item name="purchaseUomId" label="Purchase UOM">
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="Select purchase UOM"
-                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
-                />
-              </Form.Item>
-              <Form.Item name="salesUomId" label="Sales UOM">
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="Select sales UOM"
-                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
-                />
-              </Form.Item>
-              <Form.Item name="weightPerPiece" label="Weight per Piece (kg)" extra="Enables KG ↔ PCS">
-                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} />
-              </Form.Item>
-              <Form.Item name="piecesPerKg" label="Pieces per KG" extra="Manually maintained">
-                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} />
-              </Form.Item>
-              <Form.Item name="weightPerMeter" label="Weight per Meter (kg/m)" extra="Enables KG ↔ METER">
-                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} />
-              </Form.Item>
-              <Form.Item name="lengthPerPiece" label="Length per Piece (m)" extra="Enables PCS ↔ METER">
-                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} />
-              </Form.Item>
-            </div>
-          </Card>
-
-          <Card size="small" title="Identification & Tracking" style={{ marginBottom: 16, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 16px' }}>
+          {/* SECTION 6 — ADDITIONAL */}
+          <Card size="small" title="Additional" style={{ marginBottom: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
+              <Form.Item name="sku" label="SKU"><Input maxLength={100} placeholder="Optional" /></Form.Item>
               <Form.Item name="barcode" label="Barcode"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="manufacturerPartNumber" label="Manufacturer Part Number"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+              <Form.Item name="manufacturerPartNumber" label="Manufacturer Part No."><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="brand" label="Brand"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="model" label="Model"><Input maxLength={255} placeholder="Optional" /></Form.Item>
             </div>
-            <Row gutter={[16, 8]} style={{ marginTop: 8 }}>
+            <Row gutter={[12, 8]} style={{ marginTop: 8 }}>
               {TRACKING_SWITCHES.map((s) => (
                 <Col key={s.name} xs={12} sm={8} md={6}>
                   <Form.Item name={s.name} label={s.label} valuePropName="checked" style={{ marginBottom: 4 }}>
@@ -1361,24 +1440,21 @@ const ItemManagement: React.FC = () => {
                 </Col>
               ))}
             </Row>
-          </Card>
-
-          <Card size="small" title="Stock Planning & Other" style={{ marginBottom: 16, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0 16px' }}>
-              <Form.Item name="minimumStockLevel" label="Min Stock Level"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
-              <Form.Item name="maximumStockLevel" label="Max Stock Level"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
-              <Form.Item name="reorderLevel" label="Reorder Level"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
-              <Form.Item name="safetyStockLevel" label="Safety Stock Level"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
-              <Form.Item name="leadTimeDays" label="Lead Time (Days)"><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0 12px', marginTop: 8 }}>
+              <Form.Item name="minimumStockLevel" label="Min Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+              <Form.Item name="maximumStockLevel" label="Max Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+              <Form.Item name="reorderLevel" label="Reorder Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+              <Form.Item name="safetyStockLevel" label="Safety Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+              <Form.Item name="leadTimeDays" label="Lead Time (Days)"><InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
             </div>
             {editing && (
-              <Form.Item label="Status" style={{ marginBottom: 8 }}>
+              <Form.Item label="Status" style={{ marginBottom: 8, marginTop: 8 }}>
                 <StatusBadge status={editing.status} colorMap={statusColorMap} style={{ marginRight: 8 }} />
                 <Text type="secondary" style={{ fontSize: 12 }}>Manage via Activate / Deactivate row actions</Text>
               </Form.Item>
             )}
             <Form.Item name="notes" label="Remarks" style={{ marginBottom: 8 }}>
-              <Input.TextArea rows={2} maxLength={2000} />
+              <Input.TextArea rows={2} maxLength={2000} placeholder="Optional note" />
             </Form.Item>
           </Card>
         </Form>

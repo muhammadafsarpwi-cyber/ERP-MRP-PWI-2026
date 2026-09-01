@@ -60,6 +60,39 @@ export class ProductionOrderService {
 
   // ─── Queries ────────────────────────────────────────────────────────────────
 
+  /**
+   * Production Dashboard KPIs aggregated from production_orders: status counts
+   * and planned/completed/scrapped quantities, scoped to the company (and
+   * optionally a division/date range). Read-only.
+   */
+  async getDashboardSummary(companyId: string, filters?: { dateFrom?: string; dateTo?: string; divisionId?: string }) {
+    const qb = this.orderRepo.createQueryBuilder('o');
+    qb.select(`COUNT(o.id)::int`, 'total');
+    qb.addSelect(`COUNT(*) FILTER (WHERE o.status = 'DRAFT')`, 'open');
+    qb.addSelect(`COUNT(*) FILTER (WHERE o.status IN ('RELEASED','IN_PROGRESS'))`, 'inProgress');
+    qb.addSelect(`COUNT(*) FILTER (WHERE o.status = 'COMPLETED')`, 'completed');
+    qb.addSelect(`COUNT(*) FILTER (WHERE o.status = 'CANCELLED')`, 'cancelled');
+    qb.addSelect(`COALESCE(SUM(o.planned_quantity),0)`, 'plannedQuantity');
+    qb.addSelect(`COALESCE(SUM(o.completed_quantity),0)`, 'completedQuantity');
+    qb.addSelect(`COALESCE(SUM(o.scrapped_quantity),0)`, 'scrappedQuantity');
+    qb.where('o.company_id = :companyId', { companyId });
+    if (filters?.divisionId) qb.andWhere('o.division_id = :divisionId', { divisionId: filters.divisionId });
+    if (filters?.dateFrom) qb.andWhere('o.due_date >= :dateFrom', { dateFrom: filters.dateFrom });
+    if (filters?.dateTo) qb.andWhere('o.due_date <= :dateTo', { dateTo: filters.dateTo });
+
+    const row = await qb.getRawOne();
+    return {
+      total: Number(row?.total || 0),
+      open: Number(row?.open || 0),
+      inProgress: Number(row?.inProgress || 0),
+      completed: Number(row?.completed || 0),
+      cancelled: Number(row?.cancelled || 0),
+      plannedQuantity: Number(row?.plannedQuantity || 0),
+      completedQuantity: Number(row?.completedQuantity || 0),
+      scrappedQuantity: Number(row?.scrappedQuantity || 0),
+    };
+  }
+
   async findAll(companyId: string, filters?: {
     page?: number;
     limit?: number;

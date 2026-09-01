@@ -43,6 +43,8 @@ export const routeColorMap: Record<string, string> = {
   NIPPLE: 'purple',
   CCD: 'orange',
   CUSTOM: 'default',
+  CONTROL_CABLE: 'cyan',
+  SPOKE: 'geekblue',
 };
 
 export interface Item {
@@ -71,8 +73,13 @@ export interface Item {
   divisionName?: string | null;
   sectionName?: string | null;
   departmentName?: string | null;
+  division?: { id: string; divisionCode: string; name: string } | null;
+  section?: { id: string; sectionCode: string; name: string } | null;
+  department?: { id: string; departmentCode: string; name: string } | null;
   wireSizeMm?: number | null;
   routeType?: string | null;
+  routeTypeId?: string | null;
+  routeTypeRef?: { id: string; routeCode: string; name: string } | null;
   process1?: string | null;
   process2?: string | null;
   process3?: string | null;

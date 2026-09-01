@@ -1,6 +1,7 @@
 export * from './uom.entity';
 export * from './uom-conversion.entity';
 export * from './item-category.entity';
+export * from './route-type.entity';
 export * from './item.entity';
 export * from './item-barcode.entity';
 export * from './item-attribute-definition.entity';

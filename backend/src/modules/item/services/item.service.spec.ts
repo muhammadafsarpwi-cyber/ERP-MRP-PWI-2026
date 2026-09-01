@@ -3,11 +3,16 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ItemService } from './item.service';
 import { Item, ItemStatus, ItemType } from '../entities';
+import { ItemRouteType } from '../entities/route-type.entity';
+import { Division, Section, Department } from '../../organization/entities';
 import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 
 describe('ItemService', () => {
   let service: ItemService;
   let repository: jest.Mocked<Repository<Item>>;
+  let divisionRepo: { findOne: jest.Mock };
+  let sectionRepo: { findOne: jest.Mock };
+  let departmentRepo: { findOne: jest.Mock };
 
   const mockItem: Item = {
     id: 'item-001',
@@ -46,6 +51,8 @@ describe('ItemService', () => {
     departmentId: null,
     wireSizeMm: null,
     routeType: null,
+    routeTypeId: null,
+    routeTypeRef: null as never,
     process1: null,
     process2: null,
     process3: null,
@@ -78,11 +85,15 @@ describe('ItemService', () => {
   };
 
   beforeEach(async () => {
+    divisionRepo = { findOne: jest.fn() };
+    sectionRepo = { findOne: jest.fn() };
+    departmentRepo = { findOne: jest.fn() };
     const mockRepository = {
       find: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn(),
       save: jest.fn(),
+      update: jest.fn(),
       remove: jest.fn(),
       createQueryBuilder: jest.fn(() => ({
         leftJoinAndSelect: jest.fn().mockReturnThis(),
@@ -99,6 +110,10 @@ describe('ItemService', () => {
       providers: [
         ItemService,
         { provide: getRepositoryToken(Item), useValue: mockRepository },
+        { provide: getRepositoryToken(Division), useValue: divisionRepo },
+        { provide: getRepositoryToken(Section), useValue: sectionRepo },
+        { provide: getRepositoryToken(Department), useValue: departmentRepo },
+        { provide: getRepositoryToken(ItemRouteType), useValue: { findOne: jest.fn() } },
       ],
     }).compile();
 
@@ -213,16 +228,113 @@ describe('ItemService', () => {
   });
 
   describe('update', () => {
-    it('should update an item', async () => {
-      const updateDto = { name: 'Updated Item' };
-      const updatedItem = { ...mockItem, name: 'Updated Item' };
+    const withOrg = (overrides: Record<string, unknown> = {}) => ({
+      ...mockItem,
+      divisionId: 'div-1',
+      sectionId: 'sec-1',
+      departmentId: 'dept-1',
+      division: { id: 'div-1', divisionCode: 'CCD', name: 'Control Cable Division' } as never,
+      section: { id: 'sec-1', sectionCode: 'SEC-015', name: 'Spiral' } as never,
+      department: { id: 'dept-1', departmentCode: 'CCD-DEPT001', name: 'Flattening' } as never,
+      ...overrides,
+    });
 
-      repository.findOne.mockResolvedValue(mockItem);
-      repository.save.mockResolvedValue(updatedItem);
+    beforeEach(() => {
+      repository.update.mockResolvedValue({ affected: 1, raw: {}, generatedMaps: [] });
+    });
 
-      const result = await service.update('item-001', updateDto, 'user-001');
+    it('TEST 1: should edit Item Name only and preserve organization IDs', async () => {
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-1', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-1', divisionId: 'div-1', sectionId: 'sec-1' });
+      const loaded = withOrg();
+      repository.findOne.mockResolvedValue(loaded);
 
-      expect(result.name).toBe('Updated Item');
+      const result = await service.update('item-001', { name: 'Updated Item' }, 'user-001');
+
+      expect(repository.update).toHaveBeenCalledWith('item-001', expect.objectContaining({ name: 'Updated Item' }));
+      const called = repository.update.mock.calls[0][1];
+      // Scalar update must NOT contain org fields when they were not supplied
+      expect(called.divisionId).toBeUndefined();
+      expect(called.sectionId).toBeUndefined();
+      expect(called.departmentId).toBeUndefined();
+      expect(result.divisionId).toBe('div-1');
+    });
+
+    it('TEST 2: should change Section + Department within same Division and persist new IDs', async () => {
+      // Same division (div-1); new section (sec-2) + department (dept-2) inside div-1
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-2', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-2', divisionId: 'div-1', sectionId: 'sec-2' });
+      repository.findOne
+        .mockResolvedValueOnce(withOrg()) // initial load (div-1/sec-1/dept-1)
+        .mockResolvedValueOnce({ ...withOrg(), sectionId: 'sec-2', departmentId: 'dept-2' }); // fresh read
+
+      const result = await service.update('item-001', { sectionId: 'sec-2', departmentId: 'dept-2' }, 'user-001');
+
+      expect(repository.update).toHaveBeenCalledWith('item-001', expect.objectContaining({ sectionId: 'sec-2', departmentId: 'dept-2' }));
+      expect(result.sectionId).toBe('sec-2');
+      expect(result.departmentId).toBe('dept-2');
+      expect(result.divisionId).toBe('div-1');
+    });
+
+    it('TEST 3: should change Division + Section + Department and persist new IDs', async () => {
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-2', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-2', divisionId: 'div-2' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-2', divisionId: 'div-2', sectionId: 'sec-2' });
+      repository.findOne
+        .mockResolvedValueOnce(withOrg())
+        .mockResolvedValueOnce({ ...withOrg(), divisionId: 'div-2', sectionId: 'sec-2', departmentId: 'dept-2' });
+
+      const result = await service.update('item-001', { divisionId: 'div-2', sectionId: 'sec-2', departmentId: 'dept-2' }, 'user-001');
+
+      expect(repository.update).toHaveBeenCalledWith('item-001', expect.objectContaining({ divisionId: 'div-2', sectionId: 'sec-2', departmentId: 'dept-2' }));
+      expect(result.divisionId).toBe('div-2');
+      expect(result.sectionId).toBe('sec-2');
+      expect(result.departmentId).toBe('dept-2');
+    });
+
+    it('TEST 4: fresh read after update returns newly persisted organization IDs', async () => {
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-2', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-2', divisionId: 'div-2' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-2', divisionId: 'div-2', sectionId: 'sec-2' });
+      repository.findOne
+        .mockResolvedValueOnce(withOrg())
+        .mockResolvedValueOnce({ ...withOrg(), divisionId: 'div-2', sectionId: 'sec-2', departmentId: 'dept-2' });
+
+      const result = await service.update('item-001', { divisionId: 'div-2', sectionId: 'sec-2', departmentId: 'dept-2' }, 'user-001');
+
+      expect(repository.findOne).toHaveBeenCalledTimes(2);
+      expect(result.divisionId).toBe('div-2');
+      expect(result.sectionId).toBe('sec-2');
+      expect(result.departmentId).toBe('dept-2');
+    });
+
+    it('TEST 5: should reject invalid hierarchy (section not in division) and not update', async () => {
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-wrong', divisionId: 'div-other' });
+      repository.findOne.mockResolvedValue(withOrg());
+
+      await expect(service.update('item-001', { divisionId: 'div-1', sectionId: 'sec-wrong' })).rejects.toThrow(BadRequestException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('TEST 6: stale loaded relation objects must not override new scalar FK values', async () => {
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-2', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-2', divisionId: 'div-2' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-2', divisionId: 'div-2', sectionId: 'sec-2' });
+      // Loaded entity carries OLD relation objects, update sends NEW FKs
+      const loaded = withOrg(); // old: div-1/sec-1/dept-1 with relation objects
+      repository.findOne
+        .mockResolvedValueOnce(loaded)
+        .mockResolvedValueOnce({ ...loaded, divisionId: 'div-2', sectionId: 'sec-2', departmentId: 'dept-2' });
+
+      const result = await service.update('item-001', { divisionId: 'div-2', sectionId: 'sec-2', departmentId: 'dept-2' }, 'user-001');
+
+      // The scalar update must contain the NEW FK values, not the stale relation IDs
+      expect(repository.update).toHaveBeenCalledWith('item-001', expect.objectContaining({ divisionId: 'div-2', sectionId: 'sec-2', departmentId: 'dept-2' }));
+      expect(result.divisionId).toBe('div-2');
+      expect(result.sectionId).toBe('sec-2');
+      expect(result.departmentId).toBe('dept-2');
     });
 
     it('should throw ConflictException when updating to duplicate item code', async () => {

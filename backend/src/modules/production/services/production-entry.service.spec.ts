@@ -3,8 +3,9 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ProductionEntryService } from './production-entry.service';
 import { ProductionEntry, ProductionEntryItem, ProductionEntryDowntime, Machine, Shift, DowntimeReason, ProductionOrder, ProductionOrderOperation } from '../entities';
-import { Item, UomConversion } from '../../item/entities';
-import { Division, Section, Department } from '../../organization/entities';
+import { Item, Uom, UomConversion } from '../../item/entities';
+import { Division, Section, Department, Warehouse } from '../../organization/entities';
+import { BillOfMaterials, BomLine } from '../../bom/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { MachineTargetService } from '../../machine-target/services/machine-target.service';
@@ -36,6 +37,10 @@ let stockLedgerService: any;
 let balanceService: any;
 let machineTargetService: any;
 let productionRoutingService: any;
+let bomRepo: any;
+let bomLineRepo: any;
+let warehouseRepo: any;
+let uomRepo: any;
 
 const validDto = () => ({
   divisionId: 'div-1',
@@ -62,6 +67,18 @@ beforeEach(async () => {
     findOne: jest.fn().mockResolvedValue(null),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
     createQueryBuilder: jest.fn(),
+    // Minimal in-transaction manager so `entryRepo.manager.transaction(...)`
+    // (used by atomic inventory posting) is exercised in unit tests.
+    manager: {
+      transaction: jest.fn(async (cb: (m: any) => Promise<any>) =>
+        cb({
+          getRepository: jest.fn((e: any) => ({
+            update: jest.fn().mockResolvedValue({ affected: 1 }),
+            save: jest.fn((x: any) => x),
+            findOne: jest.fn().mockResolvedValue(null),
+          })),
+        })),
+    },
   };
   const machineQb = () => ({
     where: jest.fn().mockReturnThis(),
@@ -95,6 +112,10 @@ beforeEach(async () => {
   entryDowntimeRepo = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), delete: jest.fn().mockResolvedValue({ affected: 0 }) };
   stockLedgerService = { create: jest.fn().mockResolvedValue({ id: 'ledger-ref-1' }) };
   balanceService = { updateBalance: jest.fn(), getAvailableStock: jest.fn() };
+  bomRepo = { find: jest.fn().mockResolvedValue([]) };
+  bomLineRepo = { find: jest.fn().mockResolvedValue([]) };
+  warehouseRepo = { findOne: jest.fn().mockResolvedValue(null) };
+  uomRepo = { findOne: jest.fn().mockResolvedValue(null) };
   machineTargetService = {
     resolveEffectiveEntity: jest.fn().mockResolvedValue({ target: null, usedGeneralFallback: false }),
     resolve: jest.fn().mockResolvedValue({ effectiveTargetRecordId: 'mt-1', usedGeneralFallback: false }),
@@ -119,6 +140,10 @@ beforeEach(async () => {
       { provide: getRepositoryToken(ProductionOrderOperation), useValue: productionOrderOperationRepo },
       { provide: getRepositoryToken(ProductionEntryItem), useValue: entryItemRepo },
       { provide: getRepositoryToken(ProductionEntryDowntime), useValue: entryDowntimeRepo },
+      { provide: getRepositoryToken(BillOfMaterials), useValue: bomRepo },
+      { provide: getRepositoryToken(BomLine), useValue: bomLineRepo },
+      { provide: getRepositoryToken(Warehouse), useValue: warehouseRepo },
+      { provide: getRepositoryToken(Uom), useValue: uomRepo },
       { provide: StockLedgerService, useValue: stockLedgerService },
       { provide: InventoryBalanceService, useValue: balanceService },
       {
@@ -290,7 +315,7 @@ describe('ProductionEntryService — inventory integration (make-to-stock)', () 
       direction: 'OUT',
       quantity: 150,
     });
-    expect(balanceService.updateBalance).toHaveBeenCalledWith(COMPANY, 'item-1', 'wh-1', null, null, 'uom-m', 7200, 'IN');
+    expect(balanceService.updateBalance).toHaveBeenCalledWith(COMPANY, 'item-1', 'wh-1', null, null, 'uom-m', 7200, 'IN', expect.anything());
     expect(saved.id).toBe('entry-1');
   });
 
@@ -693,5 +718,82 @@ describe('ProductionEntryService — PROMPT-11: enriched entry-context preview',
     expect(wheres.some((w) => w.includes('pe.machineId'))).toBe(true);
     expect(wheres.some((w) => w.includes('pe.uomId'))).toBe(true);
     expect(wheres.some((w) => w.includes('ILIKE :search'))).toBe(true);
+  });
+});
+
+describe('ProductionEntryService — automatic BOM consumption', () => {
+  const setupBom = (opts?: { baseQuantity?: number; lines?: Array<any> }) => {
+    const baseQuantity = opts?.baseQuantity ?? 1;
+    bomRepo.find.mockResolvedValue([{ id: 'bom-1', productId: 'item-1', baseQuantity, status: 'ACTIVE', effectiveFrom: null, effectiveTo: null }]);
+    bomLineRepo.find.mockResolvedValue(opts?.lines ?? [
+      { id: 'bl-1', lineNumber: 1, itemId: 'raw-a', quantity: 0.8, uomId: 'uom-kg', scrapFactor: 0, yieldPercentage: 100 },
+      { id: 'bl-2', lineNumber: 2, itemId: 'raw-b', quantity: 0.1, uomId: 'uom-kg', scrapFactor: 0, yieldPercentage: 100 },
+    ]);
+    itemRepo.findOne.mockImplementation(({ where }: any) =>
+      where.id === 'item-1'
+        ? Promise.resolve({ id: 'item-1', companyId: COMPANY, itemCode: 'FG-SPIRAL', baseUomId: 'uom-m', status: 'ACTIVE' })
+        : Promise.resolve({ id: where.id, companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' }),
+    );
+    uomRepo.findOne.mockResolvedValue({ id: 'uom-kg', code: 'kg' });
+    warehouseRepo.findOne.mockResolvedValue({ id: 'rw-wh-1', status: 'ACTIVE' });
+  };
+  const entry = () => ({ ...validDto(), postToInventory: true, warehouseId: 'wh-1', rawMaterialWarehouseId: 'rw-wh-1' } as any);
+
+  it('consumes all ACTIVE BOM components and then posts the production receipt', async () => {
+    makeOrgMocks();
+    setupBom();
+    balanceService.getAvailableStock.mockResolvedValue(100000);
+    const saved = await service.create(entry(), COMPANY);
+
+    const consumes = stockLedgerService.create.mock.calls.filter((c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION');
+    expect(consumes.length).toBe(2);
+    expect(consumes[0][0]).toMatchObject({ itemId: 'raw-a', quantity: 5760, direction: 'OUT', uomId: 'uom-kg', referenceType: 'PRODUCTION_ENTRY', referenceId: 'entry-1', warehouseId: 'rw-wh-1' });
+    expect(consumes[1][0]).toMatchObject({ itemId: 'raw-b', quantity: 720 });
+
+    const receipt = stockLedgerService.create.mock.calls.find((c: any) => c[0].transactionType === 'PRODUCTION_RECEIPT');
+    expect(receipt[0]).toMatchObject({ itemId: 'item-1', direction: 'IN', warehouseId: 'wh-1', quantity: 7200 });
+
+    const outs = balanceService.updateBalance.mock.calls.filter((c: any) => c[7] === 'OUT');
+    expect(outs.length).toBe(2);
+    expect(outs[0]).toEqual([COMPANY, 'raw-a', 'rw-wh-1', null, null, 'uom-kg', 5760, 'OUT', expect.anything()]);
+    expect(saved.rawMaterialWarehouseId).toBe('rw-wh-1');
+  });
+
+  it('rejects production when a component is insufficient — no partial deduction, no receipt', async () => {
+    makeOrgMocks();
+    setupBom();
+    balanceService.getAvailableStock.mockImplementation((_c: any, itemId: string) =>
+      Promise.resolve(itemId === 'raw-a' ? 100 : 100000));
+    await expect(service.create(entry(), COMPANY)).rejects.toThrow('Raw material stock is insufficient');
+    expect(stockLedgerService.create).not.toHaveBeenCalled();
+    expect(balanceService.updateBalance).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the production item has no ACTIVE BOM', async () => {
+    makeOrgMocks();
+    bomRepo.find.mockResolvedValue([]);
+    warehouseRepo.findOne.mockResolvedValue({ id: 'rw-wh-1', status: 'ACTIVE' });
+    await expect(service.create(entry(), COMPANY)).rejects.toThrow('No ACTIVE BOM exists');
+    expect(stockLedgerService.create).not.toHaveBeenCalled();
+    expect(balanceService.updateBalance).not.toHaveBeenCalled();
+  });
+
+  it('computes requirement from BOM base quantity, scrap factor and yield %', async () => {
+    makeOrgMocks();
+    setupBom({ baseQuantity: 2, lines: [
+      { id: 'bl-1', lineNumber: 1, itemId: 'raw-a', quantity: 0.5, uomId: 'uom-kg', scrapFactor: 0.1, yieldPercentage: 80 },
+    ] });
+    balanceService.getAvailableStock.mockResolvedValue(100000);
+    await service.create(entry(), COMPANY);
+    const consumes = stockLedgerService.create.mock.calls.filter((c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION');
+    // units = 7200 / 2 = 3600; req = 3600 * 0.5 * (1.1) / 0.8 = 2475
+    expect(consumes[0][0].quantity).toBe(2475);
+  });
+
+  it('rejects an invalid raw-material source warehouse', async () => {
+    makeOrgMocks();
+    setupBom();
+    warehouseRepo.findOne.mockResolvedValue(null);
+    await expect(service.create(entry(), COMPANY)).rejects.toThrow('Raw Material Source Warehouse not found');
   });
 });

@@ -6,3 +6,4 @@ export { default as StockTransferManagement } from './StockTransferManagement';
 export { default as ReservationManagement } from './ReservationManagement';
 export { default as StockLedgerView } from './StockLedgerView';
 export { default as InventoryReports } from './InventoryReports';
+export { default as InventoryReceiving } from './InventoryReceiving';

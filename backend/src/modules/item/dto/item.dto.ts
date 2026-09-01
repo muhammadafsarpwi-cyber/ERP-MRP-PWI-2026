@@ -20,7 +20,7 @@ export const ROUTE_TYPES = Object.values(RouteType) as string[];
 
 export class CreateItemDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   companyId: string;
 
@@ -88,22 +88,22 @@ export class CreateItemDto {
   model?: string;
 
   @ApiPropertyOptional({ description: 'Category ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   categoryId?: string;
 
   @ApiProperty({ description: 'Base UOM ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   baseUomId: string;
 
   @ApiPropertyOptional({ description: 'Purchase UOM ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   purchaseUomId?: string;
 
   @ApiPropertyOptional({ description: 'Sales UOM ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   salesUomId?: string;
 
@@ -173,17 +173,17 @@ export class CreateItemDto {
   leadTimeDays?: number;
 
   @ApiPropertyOptional({ description: 'Division ID (Division -> Section -> Department -> Item)' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Section ID within the division' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   sectionId?: string;
 
   @ApiPropertyOptional({ description: 'Department ID within the section' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   departmentId?: string;
 
@@ -193,10 +193,15 @@ export class CreateItemDto {
   @IsOptional()
   wireSizeMm?: number;
 
-  @ApiPropertyOptional({ description: 'Routing rule for this item', enum: RouteType })
+  @ApiPropertyOptional({ description: 'Routing rule for this item (legacy code)', enum: RouteType })
   @IsIn(ROUTE_TYPES)
   @IsOptional()
   routeType?: string;
+
+  @ApiPropertyOptional({ description: 'Route type master UUID (preferred over legacy routeType code)' })
+  @IsUUID('loose')
+  @IsOptional()
+  routeTypeId?: string;
 
   @ApiPropertyOptional({ description: 'Process step 1' })
   @IsString()
@@ -261,7 +266,7 @@ export class CreateItemDto {
 
 export class UpdateItemDto {
   @ApiPropertyOptional({ description: 'Company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
@@ -329,22 +334,22 @@ export class UpdateItemDto {
   model?: string;
 
   @ApiPropertyOptional({ description: 'Category ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   categoryId?: string;
 
   @ApiPropertyOptional({ description: 'Base UOM ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   baseUomId?: string;
 
   @ApiPropertyOptional({ description: 'Purchase UOM ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   purchaseUomId?: string;
 
   @ApiPropertyOptional({ description: 'Sales UOM ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   salesUomId?: string;
 
@@ -414,17 +419,17 @@ export class UpdateItemDto {
   leadTimeDays?: number;
 
   @ApiPropertyOptional({ description: 'Division ID (Division -> Section -> Department -> Item)' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Section ID within the division' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   sectionId?: string;
 
   @ApiPropertyOptional({ description: 'Department ID within the section' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   departmentId?: string;
 
@@ -434,10 +439,15 @@ export class UpdateItemDto {
   @IsOptional()
   wireSizeMm?: number;
 
-  @ApiPropertyOptional({ description: 'Routing rule for this item', enum: RouteType })
+  @ApiPropertyOptional({ description: 'Routing rule for this item (legacy code)', enum: RouteType })
   @IsIn(ROUTE_TYPES)
   @IsOptional()
   routeType?: string;
+
+  @ApiPropertyOptional({ description: 'Route type master UUID (preferred over legacy routeType code)' })
+  @IsUUID('loose')
+  @IsOptional()
+  routeTypeId?: string;
 
   @ApiPropertyOptional({ description: 'Process step 1' })
   @IsString()
@@ -529,34 +539,39 @@ export class ItemFilterDto {
   itemType?: string;
 
   @ApiPropertyOptional({ description: 'Filter by category ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   categoryId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by division ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by section ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   sectionId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by department ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   departmentId?: string;
 
-  @ApiPropertyOptional({ description: 'Filter by route type' })
+  @ApiPropertyOptional({ description: 'Filter by route type code' })
   @IsString()
   @IsOptional()
   routeType?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by route type master UUID' })
+  @IsUUID('loose')
+  @IsOptional()
+  routeTypeId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by exact wire size (mm)' })
   @IsNumber()
@@ -614,7 +629,7 @@ export class ConvertUomDto {
   quantity: number;
 
   @ApiPropertyOptional({ description: 'Source UOM ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   fromUomId?: string;
 
@@ -624,7 +639,7 @@ export class ConvertUomDto {
   fromUomCode?: string;
 
   @ApiPropertyOptional({ description: 'Target UOM ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   toUomId?: string;
 

@@ -1,0 +1,68 @@
+/* Production Dashboard — reuses the global ERP dashboard design system
+   (.erp-dashboard, .erp-section-card, .erp-kpi-card) plus these additions. */
+
+.erp-pd {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Toolbar / filters */
+.erp-pd__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* KPI grid — responsive */
+.erp-pd-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.erp-pd-kpi-grid .erp-kpi-card {
+  min-height: 74px;
+  padding: 12px 14px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-surface);
+  align-items: flex-start;
+}
+.erp-pd-kpi-grid .erp-kpi-card__value { padding-right: 2px; }
+
+/* Chart cards — two per row on desktop, stacked on smaller screens */
+.erp-pd-chart-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+.erp-pd-chart {
+  width: 100%;
+  height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.erp-pd-empty {
+  color: var(--theme-text-muted);
+  font-size: 12px;
+  padding: 32px 0;
+  text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .erp-pd-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 900px) {
+  .erp-pd-chart-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .erp-pd-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 430px) {
+  .erp-pd-kpi-grid { grid-template-columns: 1fr; }
+  .erp-pd__toolbar { justify-content: flex-start; }
+}

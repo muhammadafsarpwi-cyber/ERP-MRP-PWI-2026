@@ -293,8 +293,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           remarks: e.remarks ?? undefined,
           productionOrderId: e.productionOrderId ?? undefined,
           productionOrderOperationId: e.productionOrderOperationId ?? undefined,
-          postToInventory: !!e.inventoryReferenceId,
-          warehouseId: e.warehouseId ?? undefined,
+      postToInventory: !!e.inventoryReferenceId,
+      warehouseId: e.warehouseId ?? undefined,
+      rawMaterialWarehouseId: (e as any).rawMaterialWarehouseId ?? undefined,
         });
       } catch {
         message.error('Failed to load production entry');
@@ -535,6 +536,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       } else {
         delete payload.machineId;
       }
+      payload.rawMaterialWarehouseId = (values as { rawMaterialWarehouseId?: string }).rawMaterialWarehouseId ?? undefined;
 
       if (mode === 'create') {
         payload.postToInventory = !!(values as { postToInventory?: boolean }).postToInventory;
@@ -904,6 +906,28 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     >
                       <Select
                         allowClear showSearch optionFilterProp="label" placeholder="Select Warehouse"
+                        disabled={mode === 'edit'}
+                        options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
+                      />
+                    </Form.Item>
+                  ) : null
+                }
+              </Form.Item>
+
+              <Form.Item
+                noStyle
+                shouldUpdate={(p, c) => p.postToInventory !== c.postToInventory}
+              >
+                {({ getFieldValue }) =>
+                  getFieldValue('postToInventory') ? (
+                    <Form.Item
+                      name="rawMaterialWarehouseId"
+                      label="Raw Material Source Warehouse"
+                      tooltip="Warehouse that the ACTIVE BOM raw materials are automatically deducted from when this entry posts to inventory."
+                      style={{ marginTop: -12 }}
+                    >
+                      <Select
+                        allowClear showSearch optionFilterProp="label" placeholder="Where BOM raw materials are consumed from"
                         disabled={mode === 'edit'}
                         options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
                       />

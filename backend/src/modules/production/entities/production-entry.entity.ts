@@ -10,6 +10,7 @@ import { Company } from '../../organization/entities/company.entity';
 import { Division } from '../../organization/entities/division.entity';
 import { Section } from '../../organization/entities/section.entity';
 import { Department } from '../../organization/entities/department.entity';
+import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { ProductionOrder } from './production-order.entity';
@@ -170,6 +171,13 @@ export class ProductionEntry extends BaseEntity {
   // is the single authoritative posting point.
   @Column({ name: 'inventory_reference_id', type: 'uuid', nullable: true })
   inventoryReferenceId: string | null;
+
+  @Column({ name: 'raw_material_warehouse_id', type: 'uuid', nullable: true })
+  rawMaterialWarehouseId: string | null;
+
+  @ManyToOne(() => Warehouse, { nullable: true })
+  @JoinColumn({ name: 'raw_material_warehouse_id' })
+  rawMaterialWarehouse: Warehouse | null;
 
   @Column({ type: 'text', nullable: true })
   remarks: string | null;

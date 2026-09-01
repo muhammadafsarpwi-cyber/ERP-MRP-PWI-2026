@@ -37,6 +37,8 @@ export enum RouteType {
   CUSTOM = 'CUSTOM',
 }
 
+import { ItemRouteType } from './route-type.entity';
+
 @Entity('items')
 export class Item extends BaseEntity {
   @Column({ name: 'company_id', type: 'uuid' })
@@ -176,6 +178,13 @@ export class Item extends BaseEntity {
 
   @Column({ name: 'route_type', type: 'varchar', length: 50, nullable: true })
   routeType: string | null;
+
+  @Column({ name: 'route_type_id', type: 'uuid', nullable: true })
+  routeTypeId: string | null;
+
+  @ManyToOne(() => ItemRouteType, { nullable: true })
+  @JoinColumn({ name: 'route_type_id' })
+  routeTypeRef: ItemRouteType;
 
   @Column({ name: 'process_1', type: 'varchar', length: 255, nullable: true })
   process1: string | null;

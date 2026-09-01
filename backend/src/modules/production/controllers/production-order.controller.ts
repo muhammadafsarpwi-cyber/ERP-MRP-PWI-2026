@@ -95,6 +95,25 @@ export class ProductionOrderController {
     return { success: true, ...result };
   }
 
+  @Get('dashboard/summary')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.orders.view')
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'dateTo', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiOperation({ summary: 'Production Dashboard KPIs — order status counts and planned/completed quantities' })
+  async dashboardSummary(
+    @Req() req: any,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('divisionId') divisionId?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.productionOrderService.getDashboardSummary(companyId, { dateFrom, dateTo, divisionId });
+    return { success: true, data };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

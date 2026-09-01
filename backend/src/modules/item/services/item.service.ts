@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { Item, ItemStatus } from '../entities';
 import { CreateItemDto, UpdateItemDto, ItemFilterDto } from '../dto/item.dto';
+import { Division, Section, Department } from '../../organization/entities';
+import { ItemRouteType, RouteTypeStatus } from '../entities/route-type.entity';
 
 @Injectable()
 export class ItemService {
@@ -11,7 +13,66 @@ export class ItemService {
   constructor(
     @InjectRepository(Item)
     private readonly itemRepository: Repository<Item>,
+    @InjectRepository(Division)
+    private readonly divisionRepository: Repository<Division>,
+    @InjectRepository(Section)
+    private readonly sectionRepository: Repository<Section>,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(ItemRouteType)
+    private readonly routeTypeRepository: Repository<ItemRouteType>,
   ) {}
+
+  /**
+   * Resolves the route classification for an item. Accepts a route type master
+   * UUID (preferred) or a legacy route code, and returns the values to persist.
+   */
+  private async resolveRouteType(
+    companyId: string,
+    routeTypeId?: string | null,
+    routeTypeCode?: string | null,
+  ): Promise<{ routeTypeId: string | null; routeTypeCode: string | null }> {
+    if (routeTypeId) {
+      const rt = await this.routeTypeRepository.findOne({ where: { id: routeTypeId, companyId } });
+      if (!rt) throw new BadRequestException(`Route type '${routeTypeId}' does not exist in this company.`);
+      if (rt.status !== RouteTypeStatus.ACTIVE) throw new BadRequestException(`Route type '${rt.name}' is not active.`);
+      return { routeTypeId: rt.id, routeTypeCode: rt.routeCode };
+    }
+    if (routeTypeCode) {
+      const rt = await this.routeTypeRepository.findOne({ where: { routeCode: routeTypeCode, companyId } });
+      if (rt) {
+        if (rt.status !== RouteTypeStatus.ACTIVE) throw new BadRequestException(`Route type '${rt.name}' is not active.`);
+        return { routeTypeId: rt.id, routeTypeCode: rt.routeCode };
+      }
+      // Legacy free-form code not present in master: persist as-is for compatibility.
+      return { routeTypeId: null, routeTypeCode };
+    }
+    return { routeTypeId: null, routeTypeCode: null };
+  }
+
+  private async validateOrgHierarchy(companyId: string, divisionId?: string | null, sectionId?: string | null, departmentId?: string | null): Promise<void> {
+    if (divisionId) {
+      const division = await this.divisionRepository.findOne({ where: { id: divisionId, companyId } });
+      if (!division) throw new BadRequestException(`Division '${divisionId}' does not exist in this company.`);
+    }
+    if (sectionId) {
+      const section = await this.sectionRepository.findOne({ where: { id: sectionId } });
+      if (!section) throw new BadRequestException(`Section '${sectionId}' does not exist.`);
+      if (divisionId && section.divisionId && section.divisionId !== divisionId) {
+        throw new BadRequestException(`Section '${section.sectionCode}' does not belong to the selected Division.`);
+      }
+    }
+    if (departmentId) {
+      const department = await this.departmentRepository.findOne({ where: { id: departmentId } });
+      if (!department) throw new BadRequestException(`Department '${departmentId}' does not exist.`);
+      if (sectionId && department.sectionId && department.sectionId !== sectionId) {
+        throw new BadRequestException(`Department '${department.departmentCode}' does not belong to the selected Section.`);
+      }
+      if (divisionId && department.divisionId && department.divisionId !== divisionId) {
+        throw new BadRequestException(`Department '${department.departmentCode}' does not belong to the selected Division.`);
+      }
+    }
+  }
 
   async create(dto: CreateItemDto, userId?: string): Promise<Item> {
     const existingCode = await this.itemRepository.findOne({
@@ -27,9 +88,14 @@ export class ItemService {
     }
 
     this.validateTrackingFlags(dto);
+    await this.validateOrgHierarchy(dto.companyId, dto.divisionId, dto.sectionId, dto.departmentId);
+
+    const rt = await this.resolveRouteType(dto.companyId, dto.routeTypeId, dto.routeType);
 
     const item = this.itemRepository.create({
       ...dto,
+      routeTypeId: rt.routeTypeId,
+      routeType: rt.routeTypeCode,
       createdBy: userId || null,
       updatedBy: userId || null,
     });
@@ -37,7 +103,7 @@ export class ItemService {
   }
 
   async findAll(filter: ItemFilterDto): Promise<{ data: Item[]; total: number }> {
-    const { page = 1, limit = 20, search, status, itemType, categoryId, companyId, divisionId, sectionId, departmentId, routeType, wireSizeMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const { page = 1, limit = 20, search, status, itemType, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
 
     const qb = this.itemRepository.createQueryBuilder('item')
       .leftJoinAndSelect('item.category', 'category')
@@ -45,7 +111,8 @@ export class ItemService {
       .leftJoinAndSelect('item.company', 'company')
       .leftJoinAndSelect('item.division', 'division')
       .leftJoinAndSelect('item.section', 'section')
-      .leftJoinAndSelect('item.department', 'department');
+      .leftJoinAndSelect('item.department', 'department')
+      .leftJoinAndSelect('item.routeTypeRef', 'routeTypeRef');
 
     if (search) {
       qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.barcode ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search)', { search: `%${search}%` });
@@ -59,6 +126,7 @@ export class ItemService {
     if (sectionId) qb.andWhere('item.sectionId = :sectionId', { sectionId });
     if (departmentId) qb.andWhere('item.departmentId = :departmentId', { departmentId });
     if (routeType) qb.andWhere('item.routeType = :routeType', { routeType });
+    if (routeTypeId) qb.andWhere('item.routeTypeId = :routeTypeId', { routeTypeId });
     if (wireSizeMm !== undefined && wireSizeMm !== null && Number.isFinite(wireSizeMm)) qb.andWhere('item.wireSizeMm = :wireSizeMm', { wireSizeMm });
     if (isPurchasable !== undefined) qb.andWhere('item.isPurchasable = :isPurchasable', { isPurchasable });
     if (isSellable !== undefined) qb.andWhere('item.isSellable = :isSellable', { isSellable });
@@ -80,7 +148,7 @@ export class ItemService {
   async findOne(id: string): Promise<Item> {
     const item = await this.itemRepository.findOne({
       where: { id },
-      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'barcodes', 'specifications', 'specifications.uom', 'documents'],
+      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents'],
     });
     if (!item) throw new NotFoundException(`Item with ID '${id}' not found`);
     return item;
@@ -124,8 +192,38 @@ export class ItemService {
     const merged = { ...item, ...dto };
     this.validateTrackingFlags(merged);
 
-    Object.assign(item, dto, { updatedBy: userId || null });
-    return this.itemRepository.save(item);
+    await this.validateOrgHierarchy(
+      item.companyId,
+      dto.divisionId !== undefined ? dto.divisionId : item.divisionId,
+      dto.sectionId !== undefined ? dto.sectionId : item.sectionId,
+      dto.departmentId !== undefined ? dto.departmentId : item.departmentId,
+    );
+
+    // Resolve route type if supplied
+    if (dto.routeTypeId !== undefined || dto.routeType !== undefined) {
+      const rt = await this.resolveRouteType(
+        item.companyId,
+        dto.routeTypeId !== undefined ? dto.routeTypeId : item.routeTypeId,
+        dto.routeType !== undefined ? dto.routeType : item.routeType,
+      );
+      // Override scalar update with resolved values
+      (dto as any).routeTypeId = rt.routeTypeId;
+      (dto as any).routeType = rt.routeTypeCode;
+    }
+
+    // Build a clean column-level update that only touches defined fields —
+    // this bypasses the stale relation objects (division/section/department) that
+    // were loaded with the original entity, preventing TypeORM from persisting
+    // the old relation IDs instead of the newly supplied scalar FKs.
+    const scalarUpdate: Record<string, unknown> = { updatedBy: userId || null };
+    for (const [k, v] of Object.entries(dto)) {
+      if (v !== undefined) scalarUpdate[k] = v;
+    }
+
+    await this.itemRepository.update(id, scalarUpdate);
+
+    // Fresh read from the database so the returned object reflects the new state.
+    return this.findOne(id);
   }
 
   async activate(id: string, userId?: string): Promise<Item> {

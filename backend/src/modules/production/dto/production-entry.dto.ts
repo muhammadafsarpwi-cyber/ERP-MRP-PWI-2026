@@ -203,6 +203,11 @@ export class CreateProductionEntryDto {
   @IsUUID('loose')
   warehouseId?: string | null;
 
+  /** Warehouse the consumed BOM raw materials are deducted from (postToInventory only). */
+  @IsOptional()
+  @IsUUID('loose')
+  rawMaterialWarehouseId?: string | null;
+
   /** Repeatable production item lines (multi-item shift). */
   @IsOptional()
   @IsArray()
@@ -317,6 +322,11 @@ export class UpdateProductionEntryDto {
   @IsOptional()
   @IsString()
   remarks?: string | null;
+
+  /** Warehouse the consumed BOM raw materials are deducted from (postToInventory only). */
+  @IsOptional()
+  @IsUUID('loose')
+  rawMaterialWarehouseId?: string | null;
 
   /** Repeatable production item lines (multi-item shift). */
   @IsOptional()

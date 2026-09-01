@@ -47,6 +47,7 @@ import {
   ReservationManagement,
   StockLedgerView,
   InventoryReports,
+  InventoryReceiving,
 } from './pages/inventory';
 import Production from './pages/production/Production';
 import {
@@ -67,6 +68,7 @@ import {
 import {
   ItemManagement,
   CategoryManagement,
+  RouteTypeManagement,
   UomManagement,
   UomConversionManagement,
   MachineManagement,
@@ -118,6 +120,7 @@ const App: React.FC = () => {
                   <Route path="/sales/invoices" element={<SalesInvoiceManagement />} />
                   <Route path="/sales/returns" element={<SalesReturnManagement />} />
                   <Route path="/inventory" element={<Inventory />} />
+                <Route path="/inventory/receiving" element={<InventoryReceiving />} />
                   <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
                   <Route path="/inventory/batches" element={<BatchManagement />} />
                   <Route path="/inventory/adjustments" element={<StockAdjustmentManagement />} />
@@ -185,6 +188,7 @@ const App: React.FC = () => {
                   <Route path="/admin/permissions-matrix" element={<PermissionMatrix />} />
                   <Route path="/master-data/items" element={<ItemManagement />} />
                   <Route path="/master-data/categories" element={<CategoryManagement />} />
+                  <Route path="/master-data/route-types" element={<RouteTypeManagement />} />
                   <Route path="/master-data/uom" element={<UomManagement />} />
                   <Route path="/master-data/uom-conversions" element={<UomConversionManagement />} />
                   <Route path="/master-data/machines" element={<MachineManagement />} />
