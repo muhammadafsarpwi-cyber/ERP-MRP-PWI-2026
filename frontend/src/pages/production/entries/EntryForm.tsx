@@ -2,35 +2,37 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
-  message, Typography, Switch, Alert, Spin, AutoComplete,
+  message, Typography, Switch, Alert, Spin, AutoComplete, Tooltip,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import { useLookups } from './lookups';
 import {
-  DowntimeMode, deriveFromRunning, deriveFromDowntime, rebalancePair,
-  effectiveRunning, effectiveDowntime, round2,
+  DowntimeMode, deriveFromRunning, rebalancePair,
+  effectiveRunning, effectiveDowntime, round2, sumDowntimeLines,
+  lineToKg, aggregateProductionTotals,
 } from './downtimeHours';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 
 const { Title, Text } = Typography;
 
-/** Live downtime summary: planned / running / allocated / remaining. */
-const DowntimeSummary: React.FC = () => {
-  const running = toNum(Form.useWatch('runningHours', Form.useFormInstance() as any));
-  const downtimeLines = (Form.useWatch('downtimeEntries', Form.useFormInstance() as any) ?? []) as Array<{ downtimeHours?: number | string }>;
-  const planned = toNum(Form.useWatch('plannedHours', Form.useFormInstance() as any));
-  const allocated = downtimeLines.reduce((s, l) => s + toNum(l.downtimeHours), 0);
-  const available = Math.max(0, planned - running);
-  const remaining = Math.max(0, available - allocated);
+/** Live downtime summary: planned / running / total downtime / remaining.
+ *  plannedHours and runningHours are passed from the parent — the same
+ *  authoritative shift-derived planned hours used everywhere else — NOT read
+ *  from the form store (there is no `plannedHours` form field, so a
+ *  Form.useWatch would always resolve to 0 and show "Planned 0h"). */
+const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; runningHours: number }> = ({ totalDowntime, plannedHours, runningHours }) => {
+  const remaining = Math.max(0, plannedHours - runningHours - totalDowntime);
   return (
-    <div style={{ marginTop: 12, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-      <Text type="secondary">Planned <Text strong>{formatNumber(planned, 2)}h</Text></Text>
-      <Text type="secondary">Running <Text strong>{formatNumber(running, 2)}h</Text></Text>
-      <Text type="secondary">Allocated Downtime <Text strong>{formatNumber(allocated, 2)}h</Text></Text>
-      <Text type="secondary">Remaining <Text strong style={{ color: remaining <= 0 ? '#52c41a' : '#faad14' }}>{formatNumber(remaining, 2)}h</Text></Text>
+    <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+      <Text type="secondary">Planned <Text strong>{formatNumber(plannedHours, 2)}h</Text></Text>
+      <Text type="secondary">Running <Text strong>{formatNumber(runningHours, 2)}h</Text></Text>
+      <Text type="secondary">Total Downtime <Text strong style={{ color: '#fa541c' }}>{formatNumber(totalDowntime, 2)}h</Text></Text>
+      {plannedHours > 0 && (
+        <Text type="secondary">Remaining <Text strong style={{ color: remaining <= 0 ? '#52c41a' : '#faad14' }}>{formatNumber(remaining, 2)}h</Text></Text>
+      )}
     </div>
   );
 };
@@ -129,11 +131,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const uomId = Form.useWatch('uomId', form);
   const actualQty = Form.useWatch('actualQuantity', form);
   const runningHours = Form.useWatch('runningHours', form);
-  const downtimeHours = Form.useWatch('downtimeHours', form);
   const productionOrderId = Form.useWatch('productionOrderId', form);
   const shiftId = Form.useWatch('shiftId', form);
   const targetQty = Form.useWatch('targetQuantity', form);
   const scrapQty = Form.useWatch('scrapQuantity', form);
+  const downtimeEntriesWatch = Form.useWatch('downtimeEntries', form);
+  const productionItemsWatch = Form.useWatch('productionItems', form);
 
   // Context values that live OUTSIDE rendered fields: the locked machine-
   // selection flow passes them as query params and edit mode loads them from
@@ -291,15 +294,30 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           targetQuantity: toNum(e.targetQuantity),
           actualQuantity: toNum(e.actualQuantity),
           runningHours: toNum(e.runningHours),
-          downtimeHours: toNum(e.downtimeHours),
           scrapQuantity: toNum(e.scrapQuantity),
-          downtimeReasonId: e.downtimeReasonId ?? undefined,
           remarks: e.remarks ?? undefined,
           productionOrderId: e.productionOrderId ?? undefined,
           productionOrderOperationId: e.productionOrderOperationId ?? undefined,
       postToInventory: !!e.inventoryReferenceId,
       warehouseId: e.warehouseId ?? undefined,
       rawMaterialWarehouseId: (e as any).rawMaterialWarehouseId ?? undefined,
+      // Child lines: production items + downtime entries
+      productionItems: (e as any).items?.map((it: any) => ({
+        itemId: it.itemId,
+        uomId: it.uomId,
+        targetQuantity: toNum(it.targetQuantity),
+        actualQuantity: toNum(it.actualQuantity),
+        scrapQuantity: toNum(it.scrapQuantity),
+        runningHours: toNum(it.runningHours),
+        routingCode: it.routingCode ?? undefined,
+        remarks: it.remarks ?? undefined,
+      })) ?? [],
+      downtimeEntries: (e as any).downtimes?.map((dt: any) => ({
+        downtimeReasonId: dt.downtimeReasonId ?? undefined,
+        downtimeReason: dt.downtimeReasonText ?? dt.downtimeReason ?? undefined,
+        downtimeHours: toNum(dt.downtimeHours),
+        remarks: dt.remarks ?? undefined,
+      })) ?? [],
         });
       } catch {
         message.error('Failed to load production entry');
@@ -368,44 +386,56 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return toNum(src?.plannedHours, 0);
   }, [mode, entry?.shift, lookups.shifts, ctxShiftId]);
 
-  const downtimeVal = toNum(downtimeHours);
-
   // ── Downtime entry mode: AUTO (Running is input, Downtime derived) or
-  //    MANUAL (Downtime is input, Running derived). Both keep the invariant
-  //    Running + Downtime = Planned shift hours whenever a plan is configured.
-  //    When no shift planned hours exist (legacy entries), both fields remain
-  //    free-form so nothing regresses.
+  //    MANUAL (Downtime entries are input, Running derived). Both keep the
+  //    invariant Running + Downtime = Planned shift hours whenever a plan is
+  //    configured. When no shift planned hours exist (legacy entries), both
+  //    fields remain free-form so nothing regresses.
   const [downtimeMode, setDowntimeMode] = useState<DowntimeMode>('auto');
   const hoursInitRef = useRef(false);
 
+  // Total downtime = sum of all downtime line hours (from the Form.List)
+  const totalDowntime = useMemo(() => {
+    const entries = (downtimeEntriesWatch ?? []) as Array<{ downtimeHours?: number | string }>;
+    return sumDowntimeLines(entries);
+  }, [downtimeEntriesWatch]);
+
   // AUTO: running hours is the operator's input → downtime = planned − running
   const setHoursFromRunning = useCallback((v: number | null | undefined) => {
-    const derived = deriveFromRunning(v, plannedHours, toNum(form.getFieldValue('downtimeHours')));
+    const derived = deriveFromRunning(v, plannedHours, totalDowntime);
     if (Number.isNaN(derived.runningHours)) return;
-    form.setFieldsValue({ runningHours: derived.runningHours, downtimeHours: derived.downtimeHours });
-  }, [form, plannedHours]); // eslint-disable-line react-hooks/exhaustive-deps
+    form.setFieldsValue({ runningHours: derived.runningHours });
+  }, [form, plannedHours, totalDowntime]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // MANUAL: downtime hours is the operator's input → running = planned − downtime
-  const setHoursFromDowntime = useCallback((v: number | null | undefined) => {
-    const derived = deriveFromDowntime(v, plannedHours);
-    const patch: Record<string, number> = { downtimeHours: derived.downtimeHours };
-    if (!Number.isNaN(derived.runningHours)) patch.runningHours = derived.runningHours;
-    form.setFieldsValue(patch);
+  // MANUAL: total downtime from lines → running = planned − totalDowntime
+  // Called whenever any downtime line hours change.
+  const setRunningFromDowntimeLines = useCallback((total: number) => {
+    if (plannedHours > 0) {
+      const clamped = round2(Math.max(0, Math.min(plannedHours, total)));
+      form.setFieldsValue({ runningHours: round2(Math.max(0, plannedHours - clamped)) });
+    }
   }, [form, plannedHours]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Switching AUTO ↔ MANUAL preserves the current split and keeps the pair
   // consistent with the shift plan.
   const handleDowntimeModeChange = useCallback((next: DowntimeMode) => {
     setDowntimeMode(next);
-    const pair = rebalancePair(
-      toNum(form.getFieldValue('runningHours')),
-      toNum(form.getFieldValue('downtimeHours')),
-      plannedHours,
-      next,
-    );
-    form.setFieldsValue({ runningHours: pair.runningHours, downtimeHours: pair.downtimeHours });
+    if (next === 'manual') {
+      // Switching to MANUAL: running hours is derived from total downtime lines
+      setRunningFromDowntimeLines(totalDowntime);
+    } else {
+      // Switching to AUTO: downtime lines are informational breakdown only
+      // running hours is the input, derive from current state
+      const pair = rebalancePair(
+        toNum(form.getFieldValue('runningHours')),
+        totalDowntime,
+        plannedHours,
+        next,
+      );
+      form.setFieldsValue({ runningHours: pair.runningHours });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plannedHours]);
+  }, [plannedHours, totalDowntime]);
 
   // First derivation + shift changes. When planned hours first become known, a
   // fresh create starts at full running / zero downtime while an edit keeps its
@@ -415,28 +445,37 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     if (!(plannedHours > 0)) return;
     if (!hoursInitRef.current) {
       hoursInitRef.current = true;
-      if (mode === 'create') form.setFieldsValue({ runningHours: round2(plannedHours), downtimeHours: 0 });
+      if (mode === 'create') form.setFieldsValue({ runningHours: round2(plannedHours) });
       return;
     }
-    const pair = rebalancePair(
-      toNum(form.getFieldValue('runningHours')),
-      toNum(form.getFieldValue('downtimeHours')),
-      plannedHours,
-      downtimeMode,
-    );
-    form.setFieldsValue({ runningHours: pair.runningHours, downtimeHours: pair.downtimeHours });
+    if (downtimeMode === 'manual') {
+      setRunningFromDowntimeLines(totalDowntime);
+    } else {
+      const pair = rebalancePair(
+        toNum(form.getFieldValue('runningHours')),
+        totalDowntime,
+        plannedHours,
+        downtimeMode,
+      );
+      form.setFieldsValue({ runningHours: pair.runningHours });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plannedHours]);
 
-  const derivedRunning = effectiveRunning(toNum(runningHours), downtimeVal, plannedHours);
-  // Downtine mirror for display/KPIs: identical to the stored field whenever
-  // the pair is consistent, and always within 0..planned when derived.
-  const derivedDowntime = effectiveDowntime(toNum(runningHours), downtimeVal, plannedHours);
+  // When downtime entries change in MANUAL mode, re-derive running hours.
+  useEffect(() => {
+    if (downtimeMode === 'manual' && plannedHours > 0) {
+      setRunningFromDowntimeLines(totalDowntime);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalDowntime, downtimeMode]);
+
+  const derivedRunning = effectiveRunning(toNum(runningHours), totalDowntime, plannedHours);
+  const derivedDowntime = effectiveDowntime(toNum(runningHours), totalDowntime, plannedHours);
 
   // When a shift plan exists, AUTO keeps downtime read-only and MANUAL keeps
   // running read-only. Without a plan both stay free-form (legacy behaviour).
   const runningReadOnly = plannedHours > 0 && downtimeMode === 'manual';
-  const downtimeReadOnly = plannedHours > 0 && downtimeMode === 'auto';
 
   /** Target shown for a machine-linked entry: standard target pro-rated to the
    *  actual running hours — identical to what the server stores on save. */
@@ -453,9 +492,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
   const efficiency = useMemo(() => {
     if (plannedHours > 0) return Math.round((derivedRunning / plannedHours) * 10000) / 100;
-    const denom = derivedRunning + downtimeVal;
+    const denom = derivedRunning + totalDowntime;
     return denom > 0 ? Math.round((derivedRunning / denom) * 10000) / 100 : null;
-  }, [derivedRunning, downtimeVal, plannedHours]);
+  }, [derivedRunning, totalDowntime, plannedHours]);
 
   // Rejection % from the ERP's own quantities:
   //   Total Produced = Actual Good Production + Rejection/Scrap
@@ -480,12 +519,53 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     [lookups.items, itemId],
   );
 
+  // ── Multi-item production aggregate calculations ──────────────────────────
+  // When production items (Form.List) are used, aggregate quantities from all lines.
+  // Each line can have its own item, UOM, and weight-per-meter for KG conversion.
+  // Rejection % is computed in the comparable (KG) unit — never mixing KG ÷ METER.
+  const multiItemAggregate = useMemo(() => {
+    const items = (productionItemsWatch ?? []) as Array<{
+      itemId?: string; actualQuantity?: number | string; scrapQuantity?: number | string; uomId?: string;
+    }>;
+    if (!items.length) return null;
+    return aggregateProductionTotals(
+      items.map((line) => {
+        const item = lookups.items.find((i) => i.id === line.itemId);
+        if (!item) return { actualQuantity: line.actualQuantity, scrapQuantity: line.scrapQuantity };
+        const uomType = lookups.uoms.find((u) => u.id === line.uomId)?.uomType ?? null;
+        return { actualQuantity: line.actualQuantity, scrapQuantity: line.scrapQuantity, item: { ...item, uomType } };
+      }),
+    );
+  }, [productionItemsWatch, lookups.items, lookups.uoms]);
+
+  // Single-item KG conversion (legacy single-item fields), family-aware.
+  const singleItemKg = useMemo(() => {
+    if (!selectedItem) return null;
+    const uomType = lookups.uoms.find((u) => u.id === uomId)?.uomType ?? null;
+    const act = Math.max(0, toNum(actualQty));
+    const rej = Math.max(0, toNum(scrapQty));
+    const kg = lineToKg(act, { ...selectedItem, uomType });
+    const rejKg = lineToKg(rej, { ...selectedItem, uomType });
+    const total = act + rej;
+    const rejPct = total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
+    if (kg === null && rejKg === null) return null;
+    return { kg: kg ?? 0, rejKg: rejKg ?? 0, rejPct };
+  }, [selectedItem, actualQty, scrapQty, uomId, lookups.uoms]);
+
   const onFinish = useCallback(async (values: Record<string, unknown>) => {
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...values };
       delete payload.__computed;
       delete payload.postToInventory; // presentation flag; create decides posting via explicit field below
+      // The raw antd Form.List arrays (`downtimeEntries`, `productionItems`) are
+      // NOT part of the backend DTO contract — only the normalized `downtimes`
+      // and `items` arrays built below are accepted (the global ValidationPipe
+      // uses forbidNonWhitelisted: true, so stray keys fail with "property ...
+      // should not exist"). Strip them so the payload carries exactly the fields
+      // the DTO allows.
+      delete payload.downtimeEntries;
+      delete payload.productionItems;
       // allowClear on the reason Select yields undefined; send null so clearing persists
       payload.downtimeReasonId = (values.downtimeReasonId as string | undefined) ?? null;
       if (payload.productionOrderId === undefined) delete payload.productionOrderId;
@@ -508,7 +588,10 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             remarks: l.remarks ?? undefined,
           }));
       }
+
+      // ── Compute aggregate downtime from lines ──────────────────────────────
       const downtimeLines = (values.downtimeEntries as any[] | undefined) ?? [];
+      const computedDowntime = sumDowntimeLines(downtimeLines);
       if (downtimeLines.length) {
         payload.downtimes = downtimeLines.map((l: any, idx: number) => ({
           lineNumber: l.lineNumber ?? idx + 1,
@@ -517,6 +600,16 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           downtimeHours: Number(l.downtimeHours ?? 0),
           remarks: l.remarks ?? undefined,
         }));
+      }
+      // Authoritative aggregate downtime + running hours for the parent entry
+      payload.downtimeHours = computedDowntime;
+      if (downtimeMode === 'manual' && plannedHours > 0) {
+        payload.runningHours = round2(Math.max(0, plannedHours - computedDowntime));
+      }
+      // Validate downtime doesn't exceed planned hours
+      if (plannedHours > 0 && computedDowntime > plannedHours) {
+        message.error(`Total downtime (${formatNumber(computedDowntime, 2)}h) cannot exceed planned shift hours (${formatNumber(plannedHours, 2)}h)`);
+        return;
       }
 
       // ── Production context IDs ────────────────────────────────────────────
@@ -594,7 +687,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     } finally {
       setSaving(false);
     }
-  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds]);
+  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeSelection = () => {
     const qs = new URLSearchParams();
@@ -655,7 +748,10 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const submitBlocked = resolvingMt || (machineLinked && (!!mtError || displayTarget === null));
 
   const renderContextSummary = () => (
-    <Card size="small" style={{ marginBottom: 16 }} title="Production Context">
+    <Card
+      size="small" style={{ marginBottom: 16, borderLeft: '3px solid var(--theme-warning)', background: 'var(--theme-warning-soft)' }}
+      title={<span><InfoCircleOutlined style={{ marginRight: 6, color: 'var(--theme-warning)' }} />Production Context</span>}
+    >
       <Row justify="space-between" align="middle" gutter={[12, 8]}>
         <Col flex="auto">
           <Space size={[28, 10]} wrap>
@@ -774,14 +870,38 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           {/* ── Column 1: Manpower & Product + optional order linkage ── */}
           <Col xs={24} lg={8}>
             <Card title="Operator & Product" size="small">
-              <Form.Item name="operatorName" label="Operator Name" rules={[{ required: true, message: 'Operator name is required' }]}>
-                <Input maxLength={120} placeholder="Operator on duty" />
+              <Form.Item
+                name="operatorName"
+                label="Operator Name"
+                tooltip="Pick an HR-listed operator to auto-fill their name, or choose Manual to type a name not in HR."
+                rules={[{ required: true, message: 'Operator name is required' }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="Select HR operator or type manual name"
+                  notFoundContent="No HR operators — select 'Manual entry' to type a name"
+                  options={
+                    lookups.employeesForDepartment(departmentId).map((e) => ({
+                      value: lookups.employeeFullName(e),
+                      label: `${e.employeeCode} — ${lookups.employeeFullName(e)}${e.jobTitle ? ` (${e.jobTitle})` : ''}`,
+                    }))
+                  }
+                  onSelect={(val) => { form.setFieldsValue({ operatorName: val }); }}
+                  onSearch={(val) => {
+                    // Allow selecting a manual operator by typing a value not in the HR list
+                    if (val && val.length > 0) {
+                      const matches = lookups.employeesForDepartment(departmentId)
+                        .some((e) => lookups.employeeFullName(e).toLowerCase() === val.toLowerCase());
+                      if (!matches) {
+                        form.setFieldsValue({ operatorName: val });
+                      }
+                    }
+                  }}
+                />
               </Form.Item>
               <Form.Item name="supervisorName" label="Supervisor Name">
                 <Input maxLength={120} placeholder="Optional" />
-              </Form.Item>
-              <Form.Item name="coilSize" label="Coil Size">
-                <Input maxLength={50} placeholder='e.g. 2.5mm' />
               </Form.Item>
               <Form.Item
                 name="itemId"
@@ -795,6 +915,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     label: `${i.itemCode} — ${i.name}`,
                   }))}
                 />
+              </Form.Item>
+              <Form.Item
+                name="coilSize"
+                label="Coil Size (entry)"
+                tooltip="Free-text coil size for this production entry. The Item Master has no coil-size field, so this is the authoritative persisted value for the entry."
+              >
+                <Input maxLength={50} placeholder="e.g. 2.5mm (optional)" />
               </Form.Item>
               <Form.Item
                 name="uomId"
@@ -812,8 +939,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
             {selectedItem && (
               <Card
-                size="small" style={{ marginTop: 16 }}
-                title={<span><InfoCircleOutlined style={{ marginRight: 6 }} />Item Details</span>}
+                size="small" style={{ marginTop: 16, borderLeft: '3px solid var(--theme-success)', background: 'var(--theme-success-soft)' }}
+                title={<span><InfoCircleOutlined style={{ marginRight: 6, color: 'var(--theme-success)' }} />Item Details</span>}
               >
                 <Row gutter={[8, 4]}>
                   {selectedItem.wireSizeMm != null && (
@@ -831,25 +958,25 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   {selectedItem.weightPerPiece != null && (
                     <Col span={12}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Weight / Piece</Text>
-                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.weightPerPiece} kg</Text></div>
+                      <div><Text strong style={{ fontSize: 13 }}>{formatNumber(selectedItem.weightPerPiece, 5)} kg</Text></div>
                     </Col>
                   )}
                   {selectedItem.piecesPerKg != null && (
                     <Col span={12}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Pieces / KG</Text>
-                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.piecesPerKg}</Text></div>
+                      <div><Text strong style={{ fontSize: 13 }}>{formatNumber(selectedItem.piecesPerKg, 3)}</Text></div>
                     </Col>
                   )}
                   {selectedItem.weightPerMeter != null && (
                     <Col span={12}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Weight / Meter</Text>
-                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.weightPerMeter} kg</Text></div>
+                      <div><Text strong style={{ fontSize: 13 }}>{formatNumber(selectedItem.weightPerMeter, 6)} kg</Text></div>
                     </Col>
                   )}
                   {selectedItem.lengthPerPiece != null && (
                     <Col span={12}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Length / Piece</Text>
-                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.lengthPerPiece} m</Text></div>
+                      <div><Text strong style={{ fontSize: 13 }}>{formatNumber(selectedItem.lengthPerPiece, 4)} m</Text></div>
                     </Col>
                   )}
                   {selectedItem.baseUom && (
@@ -997,7 +1124,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                       initialValue={undefined}
                       rules={[{ required: true, message: 'Target is required' }]}
                     >
-                      <InputNumber style={{ width: '100%' }} min={0.000001} precision={3} />
+                      <InputNumber style={{ width: '100%' }} min={0.000001} />
                     </Form.Item>
                   )}
                   {machineLinked && (
@@ -1012,10 +1139,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   <Form.Item
                     name="actualQuantity"
                     label={<span>Actual Good Production <InputBadge type="input" /></span>}
-                    initialValue={0}
                     rules={[{ required: true, message: 'Actual is required' }]}
                   >
-                    <InputNumber style={{ width: '100%' }} min={0} precision={3} />
+                    <InputNumber style={{ width: '100%' }} min={0} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -1024,20 +1150,18 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   <Form.Item
                     name="runningHours"
                     label={<span>Running Hours <InputBadge type={plannedHours > 0 && downtimeMode === 'manual' ? 'auto' : 'input'} /></span>}
-                    initialValue={0}
                     rules={[
                       { required: true, message: 'Required' },
                       { type: 'number', min: 0, message: 'Running hours cannot be negative' },
-                      ({ getFieldValue }) => ({
+                      () => ({
                         validator: (_r: unknown, v: number | null) => {
                           if (v === null || v === undefined) return Promise.resolve();
                           if (v < 0) return Promise.reject(new Error('Running hours cannot be negative'));
                           if (plannedHours > 0 && v > plannedHours) {
                             return Promise.reject(new Error('Running hours cannot exceed planned shift hours.'));
                           }
-                          const d = toNum(getFieldValue('downtimeHours'));
-                          if (plannedHours > 0 && downtimeMode === 'manual' && Math.abs(round2(v + d) - plannedHours) > 0.01) {
-                            return Promise.reject(new Error('Running hours + Downtime hours must equal planned hours.'));
+                          if (plannedHours > 0 && downtimeMode === 'manual' && Math.abs(round2(v + totalDowntime) - plannedHours) > 0.01) {
+                            return Promise.reject(new Error('Running hours + Total Downtime must equal planned hours.'));
                           }
                           return Promise.resolve();
                         },
@@ -1046,7 +1170,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   >
                     <InputNumber
                       style={{ width: '100%' }}
-                      min={0} max={plannedHours > 0 ? plannedHours : 24} step={0.25} precision={2}
+                      min={0} max={plannedHours > 0 ? plannedHours : 24} step={0.25}
                       disabled={runningReadOnly}
                       onChange={setHoursFromRunning}
                     />
@@ -1056,10 +1180,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   <Form.Item
                     name="scrapQuantity"
                     label={<span>Rejection / Scrap <InputBadge type="input" /></span>}
-                    initialValue={0}
                     rules={[{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
                   >
-                    <InputNumber style={{ width: '100%' }} min={0} precision={3} />
+                    <InputNumber style={{ width: '100%' }} min={0} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -1086,6 +1209,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     label="Efficiency %"
                     hint={`running vs planned hours${plannedHours > 0 ? ` (${formatNumber(plannedHours, 2)}h)` : ''}`}
                     content={<KpiPercentage value={efficiency} fontSize={20} fontWeight={600} />}
+                    accent="var(--theme-success)"
                   />
                 </Col>
                 <Col span={8}>
@@ -1098,83 +1222,66 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={8}>
                   <StatisticMini
                     label="Rejection %"
-                    hint="scrap ÷ total produced (good + scrap)"
+                    hint={multiItemAggregate ? "rejection KG ÷ total KG (comparable unit)" : "scrap ÷ total produced (good + scrap)"}
                     content={
                       <Text strong style={{ fontSize: 20, fontWeight: 600, color: 'var(--theme-text)' }}>
-                        {formatNumber(rejectionPct, 2)}%
+                        {formatNumber(multiItemAggregate?.rejectionPct ?? singleItemKg?.rejPct ?? rejectionPct, 2)}%
                       </Text>
                     }
+                    accent="var(--theme-warning)"
                   />
                 </Col>
               </Row>
+              {(singleItemKg || multiItemAggregate) && (
+                <Row gutter={8} style={{ marginTop: 8 }}>
+                  <Col span={12}>
+                    <StatisticMini
+                      label="Production Weight (KG)"
+                      hint={multiItemAggregate ? "sum of all items × weight/meter" : "actual × weight/meter"}
+                      content={
+                        <Text strong style={{ fontSize: 16, color: 'var(--theme-text)' }}>
+                          {formatNumber(multiItemAggregate?.totalKg ?? singleItemKg?.kg ?? 0, 3)} KG
+                        </Text>
+                      }
+                      accent="var(--theme-success)"
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <StatisticMini
+                      label="Rejection Weight (KG)"
+                      hint={multiItemAggregate ? "sum of all items rejection × weight/meter" : "rejection × weight/meter"}
+                      content={
+                        <Text strong style={{ fontSize: 16, color: 'var(--theme-text)' }}>
+                          {formatNumber(multiItemAggregate?.totalRejectionKg ?? singleItemKg?.rejKg ?? 0, 3)} KG
+                        </Text>
+                      }
+                      accent="var(--theme-warning)"
+                    />
+                  </Col>
+                </Row>
+              )}
             </Card>
           </Col>
 
-          {/* ── Column 3: Downtime + Route ── */}
+          {/* ── Column 3: Downtime (CONSOLIDATED multi-line) + Route ── */}
           <Col xs={24} lg={8}>
-            <Card title="Downtime" size="small">
+            <Card
+              title={<span><ClockCircleOutlined style={{ marginRight: 6 }} />Downtime</span>}
+              size="small"
+            >
               {plannedHours > 0 && (
                 <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
                   Planned {formatNumber(plannedHours, 2)}h − Running {formatNumber(derivedRunning, 2)}h = Downtime {formatNumber(derivedDowntime, 2)}h
                 </Text>
               )}
-              <Row gutter={8}>
-                <Col span={12}>
-                  <Form.Item
-                    name="downtimeHours"
-                    label={
-                      <span>
-                        Downtime Hours{' '}
-                        {plannedHours > 0 ? (
-                          <InputBadge type={downtimeMode === 'auto' ? 'auto' : 'input'} />
-                        ) : (
-                          <InputBadge type="input" />
-                        )}
-                      </span>
-                    }
-                    initialValue={0}
-                    extra={
-                      plannedHours > 0
-                        ? downtimeMode === 'auto'
-                          ? `Derived: planned ${formatNumber(plannedHours, 2)}h − running ${formatNumber(derivedRunning, 2)}h`
-                          : `Enter downtime — running is derived as planned ${formatNumber(plannedHours, 2)}h − downtime`
-                        : 'No shift plan configured — enter directly'
-                    }
-                    rules={[
-                      { required: true, message: 'Required' },
-                      { type: 'number', min: 0, message: 'Downtime cannot be negative' },
-                      ({ getFieldValue }) => ({
-                        validator: (_r: unknown, v: number | null) => {
-                          if (v === null || v === undefined) return Promise.resolve();
-                          if (v < 0) return Promise.reject(new Error('Downtime cannot be negative'));
-                          if (plannedHours > 0 && v > plannedHours) {
-                            return Promise.reject(new Error(`Downtime cannot exceed planned shift hours (${formatNumber(plannedHours, 2)}h)`));
-                          }
-                          if (plannedHours > 0 && downtimeMode === 'auto') {
-                            const run = toNum(getFieldValue('runningHours'));
-                            if (Math.abs(round2(run + v) - plannedHours) > 0.01) {
-                              return Promise.reject(new Error('Running + Downtime must equal planned hours.'));
-                            }
-                          }
-                          return Promise.resolve();
-                        },
-                      }),
-                    ]}
-                  >
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      min={0}
-                      max={plannedHours > 0 ? plannedHours : 24}
-                      step={0.25} precision={2}
-                      disabled={downtimeReadOnly}
-                      onChange={setHoursFromDowntime}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
+
+              {/* Entry Mode toggle */}
+              <Row gutter={8} style={{ marginBottom: 8 }}>
+                <Col span={24}>
                   <Form.Item
                     label="Entry Mode"
-                    tooltip="AUTO: enter Running Hours and Downtime is derived from the shift plan. MANUAL: enter Downtime Hours and Running is derived."
+                    tooltip="AUTO: enter Running Hours and Downtime is derived from the shift plan. MANUAL: enter Downtime lines and Running is derived."
+                    style={{ marginBottom: 4 }}
                   >
                     <Select
                       value={downtimeMode}
@@ -1187,51 +1294,113 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   </Form.Item>
                 </Col>
               </Row>
-              <Row gutter={8}>
-                <Col span={12}>
-                  <Form.Item name="downtimeReasonId" label="Downtime Reason">
-                    <Select
-                      allowClear showSearch optionFilterProp="label"
-                      loading={lookups.downtimeReasonsLoading}
-                      placeholder={lookups.downtimeReasonsLoading ? 'Loading reasons…' : 'Reason'}
-                      notFoundContent={
-                        lookups.downtimeReasonsFailed ? (
-                          <Space direction="vertical" size={0}>
-                            <Text type="secondary">Failed to load downtime reasons.</Text>
-                            <Button type="link" size="small" onClick={() => void lookups.loadDowntimeReasons()}>Retry</Button>
-                          </Space>
-                        ) : (
-                          'No active downtime reasons configured'
-                        )
-                      }
-                      options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item
-                    noStyle
-                    shouldUpdate={(p, c) => p.downtimeReasonId !== c.downtimeReasonId}
-                  >
-                    {({ getFieldValue }) => {
-                      const reason = lookups.downtimeReasons.find((r) => r.id === getFieldValue('downtimeReasonId'));
-                      const isOther = reason?.name?.toLowerCase() === 'other';
-                      if (!isOther && reason) return null;
-                      return (
-                        <Form.Item
-                          name="downtimeReason"
-                          label={isOther ? 'Specify Downtime Reason' : 'Downtime Reason Details'}
-                          extra={isOther ? 'Describe the specific cause (e.g. power failure, setup).' : undefined}
-                        >
-                          <Input maxLength={200} placeholder={isOther ? 'Specify reason…' : 'Optional details'} />
+
+              {downtimeMode === 'auto' && (
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                  {plannedHours > 0
+                    ? `Enter Running Hours in Production Figures. Total downtime = planned ${formatNumber(plannedHours, 2)}h − running ${formatNumber(derivedRunning, 2)}h`
+                    : 'No shift plan — enter running hours directly'}
+                </Text>
+              )}
+
+              {downtimeMode === 'manual' && (
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                  {plannedHours > 0
+                    ? `Enter downtime lines below. Running = planned ${formatNumber(plannedHours, 2)}h − total downtime ${formatNumber(totalDowntime, 2)}h`
+                    : 'Enter downtime lines below'}
+                </Text>
+              )}
+
+              {/* Multi-line Downtime Entries */}
+              <Form.List name="downtimeEntries">
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map((f) => (
+                      <div key={f.key} style={{ padding: '8px 0', borderBottom: fields.length > 1 ? '1px solid var(--theme-border, #f0f0f0)' : undefined }}>
+                        <Row gutter={6} align="middle">
+                          <Col span={10}>
+                            <Form.Item
+                              name={[f.name, 'downtimeReasonId']}
+                              noStyle
+                              rules={[{ required: true, message: 'Required' }]}
+                            >
+                              <Select
+                                size="small"
+                                showSearch optionFilterProp="label"
+                                placeholder="Downtime reason"
+                                options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item
+                              name={[f.name, 'downtimeHours']}
+                              noStyle
+                              rules={[{ required: true, message: 'Required' }]}
+                            >
+                              <InputNumber
+                                size="small"
+                                min={0}
+                                max={plannedHours > 0 ? plannedHours : 24}
+                                step={0.25}
+                                placeholder="Hours"
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={4}>
+                            <Form.Item name={[f.name, 'remarks']} noStyle>
+                              <Input size="small" placeholder="Notes" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={2}>
+                            <Button
+                              type="text" danger size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={() => remove(f.name)}
+                              aria-label="Remove downtime entry"
+                            />
+                          </Col>
+                        </Row>
+                        {/* "Other" reason text field */}
+                        <Form.Item noStyle shouldUpdate={(p, c) =>
+                          p?.downtimeEntries?.[f.name]?.downtimeReasonId !== c?.downtimeEntries?.[f.name]?.downtimeReasonId
+                        }>
+                          {({ getFieldValue }) => {
+                            const reasonId = getFieldValue(['downtimeEntries', f.name, 'downtimeReasonId']);
+                            const reason = lookups.downtimeReasons.find((r) => r.id === reasonId);
+                            const isOther = reason?.name?.toLowerCase() === 'other';
+                            if (!isOther) return null;
+                            return (
+                              <Form.Item name={[f.name, 'downtimeReason']} noStyle>
+                                <Input
+                                  size="small"
+                                  maxLength={200}
+                                  placeholder="Specify reason…"
+                                  style={{ marginTop: 4 }}
+                                />
+                              </Form.Item>
+                            );
+                          }}
                         </Form.Item>
-                      );
-                    }}
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Form.Item name="remarks" label="Remarks">
-                <Input.TextArea rows={3} maxLength={500} showCount placeholder="Notes about this shift's production" />
+                      </div>
+                    ))}
+                    <Button
+                      type="dashed" size="small" block
+                      icon={<PlusOutlined />}
+                      onClick={() => add({})}
+                      style={{ marginTop: 8 }}
+                    >
+                      + Add Downtime
+                    </Button>
+                  </>
+                )}
+              </Form.List>
+
+              <DowntimeSummary totalDowntime={totalDowntime} plannedHours={plannedHours} runningHours={derivedRunning} />
+
+              <Form.Item name="remarks" label="Remarks" style={{ marginTop: 12 }}>
+                <Input.TextArea rows={2} maxLength={500} showCount placeholder="Notes about this shift's production" />
               </Form.Item>
             </Card>
 
@@ -1269,86 +1438,43 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           <Form.List name="productionItems">
             {(fields, { add, remove }) => (
               <>
-                {fields.map((f) => (
-                  <Row key={f.key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-                    <Col span={6}>
-                      <Form.Item name={[f.name, 'itemId']} noStyle rules={[{ required: true, message: 'Required' }]}>
-                        <Select showSearch optionFilterProp="label" placeholder="Item"
-                          options={lookups.items.map((i: any) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={3}>
-                      <Form.Item name={[f.name, 'runningHours']} noStyle initialValue={0}>
-                        <InputNumber min={0} max={24} placeholder="Run h" style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={3}>
-                      <Form.Item name={[f.name, 'targetQuantity']} noStyle initialValue={0}>
-                        <InputNumber min={0} placeholder="Target" style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={3}>
-                      <Form.Item name={[f.name, 'actualQuantity']} noStyle initialValue={0}>
-                        <InputNumber min={0} placeholder="Actual" style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={3}>
-                      <Form.Item name={[f.name, 'scrapQuantity']} noStyle initialValue={0}>
-                        <InputNumber min={0} placeholder="Scrap" style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={4}>
-                      <Form.Item name={[f.name, 'routingCode']} noStyle>
-                        <Input placeholder="Route code" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={2}>
-                      <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} aria-label="Remove production item" />
-                    </Col>
+                {/* Header row */}
+                {fields.length > 0 && (
+                  <Row gutter={6} style={{ marginBottom: 4, paddingBottom: 4, borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
+                    <Col span={5}><Text type="secondary" style={{ fontSize: 11 }}>Item</Text></Col>
+                    <Col span={3}><Text type="secondary" style={{ fontSize: 11 }}>Wire Size</Text></Col>
+                    <Col span={3}><Text type="secondary" style={{ fontSize: 11 }}>Target</Text></Col>
+                    <Col span={3}><Text type="secondary" style={{ fontSize: 11 }}>Actual</Text></Col>
+                    <Col span={3}><Text type="secondary" style={{ fontSize: 11 }}>Scrap</Text></Col>
+                    <Col span={3}><Text type="secondary" style={{ fontSize: 11 }}>UOM</Text></Col>
+                    <Col span={3}><Text type="secondary" style={{ fontSize: 11 }}>KG</Text></Col>
+                    <Col span={1}></Col>
                   </Row>
+                )}
+                {fields.map((f) => (
+                  <ProductionItemLine
+                    key={f.key}
+                    fieldName={f.name}
+                    lookups={lookups}
+                    machineLinked={machineLinked}
+                    mtResolution={mtResolution}
+                    remove={() => remove(f.name)}
+                  />
                 ))}
-                <Button type="dashed" icon={<PlusOutlined />} block onClick={() => add({ runningHours: 0, targetQuantity: 0, actualQuantity: 0, scrapQuantity: 0 })}>
+                <Button type="dashed" icon={<PlusOutlined />} block onClick={() => add({})}>
                   + Add Production Item
                 </Button>
-              </>
-            )}
-          </Form.List>
-        </Card>
-
-        <Card title="Downtime Entries" size="small" style={{ marginTop: 16 }}>
-          <Form.List name="downtimeEntries">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map((f) => (
-                  <Row key={f.key} gutter={8} align="middle" style={{ marginBottom: 8 }}>
-                    <Col span={10}>
-                      <Form.Item name={[f.name, 'downtimeReasonId']} noStyle rules={[{ required: true, message: 'Required' }]}>
-                        <Select showSearch optionFilterProp="label" placeholder="Downtime reason"
-                          options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: `${r.code} — ${r.name}` }))} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={6}>
-                      <Form.Item name={[f.name, 'downtimeHours']} noStyle rules={[{ required: true, message: 'Required' }]}>
-                        <InputNumber min={0} max={24} placeholder="Hours" style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={6}>
-                      <Form.Item name={[f.name, 'remarks']} noStyle>
-                        <Input placeholder="Remarks" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={2}>
-                      <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(f.name)} aria-label="Remove downtime entry" />
-                    </Col>
+                {multiItemAggregate && (
+                  <Row gutter={6} style={{ marginTop: 8, padding: '8px 0', borderTop: '1px solid var(--theme-border, #f0f0f0)' }}>
+                    <Col span={5}><Text strong style={{ fontSize: 12 }}>Totals ({fields.length} items)</Text></Col>
+                    <Col span={6}><Text type="secondary" style={{ fontSize: 11 }}>Actual: <Text strong>{formatNumber(multiItemAggregate.totalActual, 3)}</Text></Text></Col>
+                    <Col span={6}><Text type="secondary" style={{ fontSize: 11 }}>Scrap: <Text strong>{formatNumber(multiItemAggregate.totalScrap, 3)}</Text></Text></Col>
+                    <Col span={6}><Text type="secondary" style={{ fontSize: 11 }}>KG: <Text strong>{formatNumber(multiItemAggregate.totalKg, 3)}</Text></Text></Col>
                   </Row>
-                ))}
-                <Button type="dashed" icon={<PlusOutlined />} block onClick={() => add({ downtimeHours: 0 })}>
-                  + Add Downtime
-                </Button>
+                )}
               </>
             )}
           </Form.List>
-          <DowntimeSummary />
         </Card>
 
         <Button
@@ -1428,8 +1554,8 @@ const RouteChain: React.FC<{
   );
 };
 
-const StatisticMini: React.FC<{ label: string; hint: string; content: React.ReactNode }> = ({ label, hint, content }) => (
-  <div style={{ background: 'var(--theme-surface-alt)', borderRadius: 6, padding: '8px 12px' }}>
+const StatisticMini: React.FC<{ label: string; hint: string; content: React.ReactNode; accent?: string }> = ({ label, hint, content, accent }) => (
+  <div style={{ background: 'var(--theme-surface-alt)', borderRadius: 6, padding: '8px 12px', borderTop: `3px solid ${accent ?? 'var(--theme-primary)'}` }}>
     <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>
     <div>{content}</div>
     <Text type="secondary" style={{ fontSize: 11 }}>{hint}</Text>
@@ -1478,6 +1604,140 @@ const UomConversionHint: React.FC<{
       <Text type="secondary" style={{ fontSize: 11 }}>
         Conversion: <Text strong style={{ fontSize: 11 }}>{display}</Text>
       </Text>
+    </div>
+  );
+};
+
+/** Single production item line with wire size auto-fill and KG conversion. */
+const ProductionItemLine: React.FC<{
+  fieldName: number;
+  lookups: ReturnType<typeof useLookups>;
+  machineLinked: boolean;
+  mtResolution: MachineTargetResolution | null;
+  remove: () => void;
+}> = ({ fieldName, lookups, machineLinked, mtResolution, remove }) => {
+  const lineItemId = Form.useWatch(['productionItems', fieldName, 'itemId'], Form.useFormInstance() as any);
+  const lineActualQty = Form.useWatch(['productionItems', fieldName, 'actualQuantity'], Form.useFormInstance() as any);
+  const lineScrapQty = Form.useWatch(['productionItems', fieldName, 'scrapQuantity'], Form.useFormInstance() as any);
+  const lineUomId = Form.useWatch(['productionItems', fieldName, 'uomId'], Form.useFormInstance() as any);
+
+  const lineItem = useMemo(
+    () => lookups.items.find((i) => i.id === lineItemId) ?? null,
+    [lookups.items, lineItemId],
+  );
+
+  const validLineUoms = useMemo(() => {
+    if (machineLinked && mtResolution?.uom?.id) {
+      return lookups.uoms.filter((u) => u.id === mtResolution.uom!.id);
+    }
+    return lookups.validUomsForItem(lineItemId);
+  }, [machineLinked, mtResolution, lookups.uoms, lookups.uomConversions, lookups.items, lineItemId]); // eslint-disable-line
+
+  // Auto-fill UOM when item changes (non-machine-linked flow)
+  const form = Form.useFormInstance();
+  const prevLineItemRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!lineItemId || machineLinked) return;
+    if (prevLineItemRef.current === lineItemId) return;
+    prevLineItemRef.current = lineItemId;
+    const item = lookups.items.find((i) => i.id === lineItemId);
+    if (item?.baseUomId) {
+      form.setFieldValue(['productionItems', fieldName, 'uomId'], item.baseUomId);
+    }
+  }, [lineItemId, machineLinked]); // eslint-disable-line
+
+  // KG conversion: family-aware (LENGTH × weightPerMeter, COUNT × piece weight,
+  // WEIGHT stays as-is so M and KG are never mixed). No fabricated conversions.
+  const kgConversion = useMemo(() => {
+    if (!lineItem) return null;
+    const uomType = lookups.uoms.find((u) => u.id === lineUomId)?.uomType ?? null;
+    const actKg = lineToKg(lineActualQty, { ...lineItem, uomType });
+    const rejKg = lineToKg(lineScrapQty, { ...lineItem, uomType });
+    if (actKg === null && rejKg === null) return null;
+    return { kg: actKg ?? 0, rejKg: rejKg ?? 0 };
+  }, [lineItem, lineActualQty, lineScrapQty, lineUomId, lookups.uoms]);
+
+  // Wire size display from item master
+  const wireSizeDisplay = useMemo(() => {
+    if (!lineItem) return null;
+    if (lineItem.wireSizeMm != null) return `${formatNumber(Number(lineItem.wireSizeMm), 3)} mm`;
+    // Fallback: check thickness/width for flat wire
+    const item = lineItem as any;
+    if (item.thickness_mm != null && item.width_mm != null) {
+      return `${formatNumber(Number(item.thickness_mm), 2)} / ${formatNumber(Number(item.width_mm), 2)} mm`;
+    }
+    return null;
+  }, [lineItem]);
+
+  return (
+    <div style={{ padding: '6px 0', borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
+      <Row gutter={6} align="middle">
+        <Col span={5}>
+          <Form.Item name={[fieldName, 'itemId']} noStyle rules={[{ required: true, message: 'Required' }]}>
+            <Select
+              size="small"
+              showSearch optionFilterProp="label"
+              placeholder="Select item"
+              options={lookups.items.map((i: any) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
+            />
+          </Form.Item>
+        </Col>
+        <Col span={3}>
+          <Text
+            type={wireSizeDisplay ? undefined : 'secondary'}
+            style={{ fontSize: 11, lineHeight: '32px' }}
+          >
+            {wireSizeDisplay || '—'}
+          </Text>
+        </Col>
+        <Col span={3}>
+          <Form.Item name={[fieldName, 'targetQuantity']} noStyle>
+            <InputNumber size="small" min={0} placeholder="Target" style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+        <Col span={3}>
+          <Form.Item name={[fieldName, 'actualQuantity']} noStyle>
+            <InputNumber size="small" min={0} placeholder="Actual" style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+        <Col span={3}>
+          <Form.Item name={[fieldName, 'scrapQuantity']} noStyle>
+            <InputNumber size="small" min={0} placeholder="Scrap" style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+        <Col span={3}>
+          <Form.Item name={[fieldName, 'uomId']} noStyle>
+            <Select
+              size="small"
+              placeholder="UOM"
+              disabled={machineLinked}
+              options={validLineUoms.map((u) => ({ value: u.id, label: u.code }))}
+            />
+          </Form.Item>
+        </Col>
+        <Col span={3}>
+          {kgConversion ? (
+            <Tooltip title={`Rejection KG: ${formatNumber(kgConversion.rejKg, 3)}`}>
+              <Text style={{ fontSize: 11, lineHeight: '32px' }}>
+                <Text type="secondary" style={{ fontSize: 10 }}>KG:</Text> {formatNumber(kgConversion.kg, 3)}
+              </Text>
+            </Tooltip>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 11, lineHeight: '32px' }}>—</Text>
+          )}
+        </Col>
+        <Col span={1}>
+          <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={remove} aria-label="Remove production item" />
+        </Col>
+      </Row>
+      {/* Wire size detail card for flat wire (thickness × width) */}
+      {lineItem && lineItem.wireSizeMm == null && (lineItem as any).thickness_mm != null && (lineItem as any).width_mm != null && (
+        <div style={{ padding: '2px 0 2px 8px' }}>
+          <Text type="secondary" style={{ fontSize: 10 }}>
+            Wire: {formatNumber(Number((lineItem as any).thickness_mm), 2)} × {formatNumber(Number((lineItem as any).width_mm), 2)} mm
+          </Text>
+        </div>
+      )}
     </div>
   );
 };

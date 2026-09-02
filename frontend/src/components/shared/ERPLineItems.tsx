@@ -35,6 +35,9 @@ interface ItemOption {
   id: string;
   itemCode: string;
   name: string;
+  uomId?: string;
+  baseUomId?: string;
+  baseUom?: { id: string; code?: string; uomType?: string };
   uomCode?: string;
   sellingPrice?: number;
   costPrice?: number;
@@ -103,8 +106,8 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       itemId: item.id,
       itemCode: item.itemCode,
       itemName: item.name,
-      uomId: item.uomCode ? item.uomCode : undefined,
-      uomCode: item.uomCode,
+      uomId: item.baseUomId || item.uomId,
+      uomCode: item.baseUom?.code || item.uomCode,
       rate: item.sellingPrice ?? item.costPrice ?? 0,
     });
   };

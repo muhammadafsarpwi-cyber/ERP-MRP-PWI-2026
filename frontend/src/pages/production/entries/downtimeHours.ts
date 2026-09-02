@@ -119,3 +119,82 @@ function toNum2(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+const round6 = (v: number): number => Math.round(v * 1e6) / 1e6;
+
+/** Item conversion master data needed to express a production line in KG. */
+export interface KgConversionItem {
+  uomType?: string | null;
+  weightPerMeter?: number | string | null;
+  weightPerPiece?: number | string | null;
+  piecesPerKg?: number | string | null;
+}
+
+/**
+ * Convert a production quantity line to its KG equivalent using the item's own
+ * conversion master data AND the production line's UOM family. Family-aware so
+ * M and KG are never mixed (STEP 5/6):
+ *   LENGTH → kg = qty × weightPerMeter   (kg per meter)
+ *   WEIGHT → kg = qty                    (already KG — NO conversion)
+ *   COUNT  → kg = qty × weightPerPiece   (or qty ÷ piecesPerKg)
+ * Returns null when no valid conversion path exists — no fabricated value.
+ */
+export function lineToKg(quantity: number | string | null | undefined, item: KgConversionItem | null | undefined): number | null {
+  const q = toNum2(quantity);
+  const family = (item?.uomType || '').toUpperCase();
+  const wpm = toNum2(item?.weightPerMeter);
+  const wpp = toNum2(item?.weightPerPiece);
+  const ppk = toNum2(item?.piecesPerKg);
+  if (family === 'WEIGHT') return round6(q);
+  if (family === 'LENGTH') return wpm > 0 ? round6(q * wpm) : null;
+  if (family === 'COUNT') {
+    if (wpp > 0) return round6(q * wpp);
+    if (ppk > 0) return round6(q / ppk);
+    return null;
+  }
+  return null;
+}
+
+/** One production line, already paired with its KG-conversion facts. */
+export interface ProductionLineForAgg {
+  actualQuantity?: number | string | null;
+  scrapQuantity?: number | string | null;
+  item?: KgConversionItem | null;
+}
+
+export interface ProductionAggregate {
+  totalActual: number;
+  totalScrap: number;
+  totalKg: number;
+  totalRejectionKg: number;
+  rejectionPct: number;
+}
+
+/**
+ * Aggregate multi-item production KPI totals, and the rejection %, in the
+ * COMPARABLE unit (KG). Raw quantities are summed only for the per-line actual/
+ * scrap breakdown; the rejection % uses KG equivalents so KG, METER and PCS
+ * lines are never mixed (a line is only included once its KG equivalent
+ * exists, keeping numerator and denominator on the same subset).
+ */
+export function aggregateProductionTotals(
+  lines: ProductionLineForAgg[] | null | undefined,
+): ProductionAggregate {
+  let totalActual = 0;
+  let totalScrap = 0;
+  let totalKg = 0;
+  let totalRejectionKg = 0;
+  for (const line of lines ?? []) {
+    const act = Math.max(0, toNum2(line.actualQuantity));
+    const rej = Math.max(0, toNum2(line.scrapQuantity));
+    totalActual += act;
+    totalScrap += rej;
+    const actKg = line.item ? lineToKg(act, line.item) : null;
+    const rejKg = line.item ? lineToKg(rej, line.item) : null;
+    if (actKg !== null) totalKg += actKg;
+    if (rejKg !== null) totalRejectionKg += rejKg;
+  }
+  const totalProducedKg = totalKg + totalRejectionKg;
+  const rejectionPct = totalProducedKg > 0 ? round2((totalRejectionKg / totalProducedKg) * 100) : 0;
+  return { totalActual, totalScrap, totalKg, totalRejectionKg, rejectionPct };
+}
+

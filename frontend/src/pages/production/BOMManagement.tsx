@@ -89,14 +89,14 @@ const BomManagement: React.FC = () => {
 
   const fetchItems = useCallback(async () => {
     try {
-      const response = await apiService.get<{ data: Item[]; total: number }>('/items', { limit: 200 });
+      const response = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', { limit: 200 });
       setItems(response.data || []);
     } catch {}
   }, []);
 
   const fetchUoms = useCallback(async () => {
     try {
-      const response = await apiService.get<{ data: Uom[]; total: number }>('/uoms', { limit: 200 });
+      const response = await apiService.get<{ data: Uom[]; total: number }>('/master-data/uom', { limit: 200 });
       setUoms(response.data || []);
     } catch {}
   }, []);

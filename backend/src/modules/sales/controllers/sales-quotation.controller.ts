@@ -50,7 +50,7 @@ export class SalesQuotationController {
   async create(@Req() req: any, @Body() dto: CreateSalesQuotationDto) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    if (!dto.companyId) dto.companyId = companyId;
+    dto.companyId = companyId;
     const quotation = await this.service.create(dto, userId);
     return { success: true, data: quotation, message: 'Sales quotation created successfully' };
   }

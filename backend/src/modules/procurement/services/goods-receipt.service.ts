@@ -1,8 +1,12 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { GoodsReceipt, GoodsReceiptLine } from '../entities';
+import { GoodsReceipt, GoodsReceiptLine, PurchaseOrder, PurchaseOrderLine } from '../entities';
 import { CreateGoodsReceiptDto, GoodsReceiptFilterDto } from '../dto';
+import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
+import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+
+const GRN_REFERENCE_TYPE = 'GOODS_RECEIPT';
 
 @Injectable()
 export class GoodsReceiptService {
@@ -13,6 +17,12 @@ export class GoodsReceiptService {
     private readonly repo: Repository<GoodsReceipt>,
     @InjectRepository(GoodsReceiptLine)
     private readonly lineRepo: Repository<GoodsReceiptLine>,
+    @InjectRepository(PurchaseOrder)
+    private readonly poRepo: Repository<PurchaseOrder>,
+    @InjectRepository(PurchaseOrderLine)
+    private readonly poLineRepo: Repository<PurchaseOrderLine>,
+    private readonly stockLedgerService: StockLedgerService,
+    private readonly inventoryBalanceService: InventoryBalanceService,
   ) {}
 
   async create(dto: CreateGoodsReceiptDto, userId?: string): Promise<GoodsReceipt> {
@@ -114,6 +124,87 @@ export class GoodsReceiptService {
     if (receipt.status !== 'ACCEPTED' && receipt.status !== 'PARTIALLY_ACCEPTED') {
       throw new BadRequestException('Can only post receipts in ACCEPTED or PARTIALLY_ACCEPTED status');
     }
+
+    // Atomic posting: every accepted line moves into inventory (stock ledger +
+    // balance) and into the Purchase Order received-tracking fields, so either
+    // the whole goods receipt posts or nothing does. This is the counterpart of
+    // production entry posting — received goods must appear in stock or they can
+    // never be consumed by manufacturing/delivery.
+    await this.repo.manager.transaction(async (manager) => {
+      const poLineRepo = manager.getRepository(PurchaseOrderLine);
+      const poRepo = manager.getRepository(PurchaseOrder);
+
+      const poLines = await poLineRepo.find({ where: { poId: receipt.poId } });
+      const byId = new Map(poLines.map((l) => [l.id, l]));
+      // Money value of the goods physically accepted into stock this receipt —
+      // maintained alongside the existing received-quantity tracking so the PO
+      // carries BOTH a received quantity and a received value for reconciliation.
+      let receivedMoney = 0;
+
+      for (const line of receipt.lines || []) {
+        const acceptedQty = Number(line.quantityAccepted || 0);
+        if (acceptedQty <= 0) continue;
+
+        await this.stockLedgerService.create({
+          companyId: receipt.companyId,
+          transactionType: 'GOODS_RECEIPT',
+          transactionDate: receipt.receiptDate || undefined,
+          itemId: line.itemId,
+          warehouseId: receipt.warehouseId,
+          locationId: line.locationId || undefined,
+          batchId: line.batchId || undefined,
+          quantity: acceptedQty,
+          uomId: line.uomId,
+          direction: 'IN',
+          referenceType: GRN_REFERENCE_TYPE,
+          referenceId: receipt.id,
+          referenceNumber: receipt.grnNumber || receipt.receiptCode,
+          notes: `Goods receipt ${receipt.receiptCode}`,
+          createdBy: userId ?? undefined,
+        }, manager);
+        await this.inventoryBalanceService.updateBalance(
+          receipt.companyId, line.itemId, receipt.warehouseId,
+          line.locationId, line.batchId, line.uomId, acceptedQty, 'IN', manager,
+        );
+
+        const poLine = byId.get(line.poLineId);
+        if (poLine) {
+          const received = Number(poLine.receivedQuantity || 0) + acceptedQty;
+          await poLineRepo.update(poLine.id, { receivedQuantity: received });
+          byId.set(poLine.id, { ...poLine, receivedQuantity: received });
+          receivedMoney += acceptedQty * Number(poLine.unitPrice || 0);
+        }
+      }
+
+      // Advance the Purchase Order towards FULLY_RECEIVED / PARTIALLY_RECEIVED
+      // based on received-vs-ordered quantities, making the existing
+      // close() step reachable. The received VALUE (money) is also reflected.
+      const updatedLines = await poLineRepo.find({ where: { poId: receipt.poId } });
+      if (updatedLines.length > 0) {
+        const anyReceived = updatedLines.some((l) => Number(l.receivedQuantity || 0) > 0);
+        const allReceived = updatedLines.every(
+          (l) => Number(l.receivedQuantity || 0) >= Number(l.quantity || 0),
+        );
+        if (anyReceived || allReceived) {
+          const po = await poRepo.findOne({ where: { id: receipt.poId } });
+          if (po && (po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED' || po.status === 'FULLY_RECEIVED')) {
+            // Money value of the goods accepted this receipt (received_quantity is
+            // already maintained line-by-line above; keep the PO value in step).
+            if (receivedMoney > 0) {
+              const newReceivedAmount = Math.round((Number(po.receivedAmount || 0) + receivedMoney) * 100) / 100;
+              await poRepo.update(po.id, { receivedAmount: newReceivedAmount });
+            }
+            const nextStatus = allReceived ? 'FULLY_RECEIVED' : 'PARTIALLY_RECEIVED';
+            await poRepo.update(po.id, {
+              status: nextStatus,
+              receivedBy: userId || null,
+              receivedAt: new Date(),
+            });
+          }
+        }
+      }
+    });
+
     receipt.status = 'POSTED';
     receipt.postedBy = userId || null;
     receipt.postedAt = new Date();

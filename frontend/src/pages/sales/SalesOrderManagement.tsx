@@ -34,6 +34,21 @@ const statusColorMap: Record<string, string> = {
   Draft: 'default', Confirmed: 'blue', Processing: 'cyan', Shipped: 'geekblue', Delivered: 'green', Closed: 'green', Cancelled: 'red',
 };
 
+export function buildSalesOrderPayload(values: any, lineItems: ERPLine[]): any {
+  return {
+    ...values,
+    items: lineItems.map((l) => ({
+      itemId: l.itemId,
+      description: l.itemName,
+      quantity: l.quantity,
+      uomId: l.uomId,
+      unitPrice: l.rate,
+      discountPercent: l.discountPercent,
+      lineTotal: l.lineTotal,
+    })),
+  };
+}
+
 const SalesOrderManagement: React.FC = () => {
   const [data, setData] = useState<SalesOrder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -126,17 +141,7 @@ const SalesOrderManagement: React.FC = () => {
         message.warning('Add at least one line item');
         return;
       }
-      const payload = {
-        ...values,
-        items: lineItems.map((l) => ({
-          itemId: l.itemId,
-          description: l.itemName,
-          quantity: l.quantity,
-          unitPrice: l.rate,
-          discountPercent: l.discountPercent,
-          lineTotal: l.lineTotal,
-        })),
-      };
+      const payload = buildSalesOrderPayload(values, lineItems);
       if (editingItem) {
         await apiService.patch(`/sales/orders/${editingItem.id}`, payload);
         message.success('Order updated');

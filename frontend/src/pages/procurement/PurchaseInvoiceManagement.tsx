@@ -16,9 +16,15 @@ interface PurchaseInvoice {
   supplierName?: string;
   invoiceDate?: string;
   totalAmount: number;
+  paidAmount?: number;
   paymentStatus: string;
   matchingStatus: string;
+  varianceAmount?: number | null;
   status: string;
+  poTotalAmount?: number;
+  poReceivedAmount?: number;
+  poInvoicedAmount?: number;
+  remainingAmount?: number;
 }
 
 const STATUS_OPTIONS = ['DRAFT', 'APPROVED', 'POSTED', 'CANCELLED'];
@@ -32,7 +38,14 @@ const paymentStatusColorMap: Record<string, string> = {
 };
 
 const matchingStatusColorMap: Record<string, string> = {
-  PENDING: 'default', MATCHED: 'green', VARIANCE: 'orange', EXCEPTION: 'red',
+  PENDING: 'default',
+  MATCHED: 'green',
+  PARTIALLY_MATCHED: 'blue',
+  OVER_INVOICED: 'red',
+  OVER_RECEIVED: 'orange',
+  UNRECEIVED: 'gold',
+  VARIANCE: 'orange',
+  EXCEPTION: 'red',
 };
 
 const PurchaseInvoiceManagement: React.FC = () => {
@@ -45,6 +58,9 @@ const PurchaseInvoiceManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
+  const [paymentVisible, setPaymentVisible] = useState(false);
+  const [paymentInvoice, setPaymentInvoice] = useState<PurchaseInvoice | null>(null);
+  const [paymentForm] = Form.useForm();
 
   const fetchData = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -92,6 +108,26 @@ const PurchaseInvoiceManagement: React.FC = () => {
     }
   };
 
+  const handlePayment = (invoice: PurchaseInvoice) => {
+    const balance = Math.max(0, Number(invoice.totalAmount) - Number(invoice.paidAmount || 0));
+    setPaymentInvoice(invoice);
+    paymentForm.setFieldsValue({ paidAmount: balance });
+    setPaymentVisible(true);
+  };
+
+  const handlePaymentSubmit = async () => {
+    if (!paymentInvoice) return;
+    try {
+      const values = await paymentForm.validateFields();
+      await apiService.patch(`/procurement/invoices/${paymentInvoice.id}/record-payment`, { paidAmount: values.paidAmount });
+      message.success('Payment recorded successfully');
+      setPaymentVisible(false);
+      fetchData(page);
+    } catch (error) {
+      message.error('Failed to record payment');
+    }
+  };
+
   const columns: ColumnsType<PurchaseInvoice> = [
     { title: 'Code', dataIndex: 'invoiceCode', key: 'invoiceCode', width: 120 },
     { title: 'Supplier Inv #', dataIndex: 'supplierInvoiceNumber', key: 'supplierInvoiceNumber', width: 140 },
@@ -100,23 +136,49 @@ const PurchaseInvoiceManagement: React.FC = () => {
     { title: 'Date', dataIndex: 'invoiceDate', key: 'invoiceDate', width: 110 },
     { title: 'Total', dataIndex: 'totalAmount', key: 'totalAmount', width: 120, render: (v: unknown) => formatDecimal(v) },
     {
+      title: 'PO Total', dataIndex: 'poTotalAmount', key: 'poTotalAmount', width: 110,
+      render: (v: unknown) => formatDecimal(v),
+    },
+    {
+      title: 'PO Recv', dataIndex: 'poReceivedAmount', key: 'poReceivedAmount', width: 110, align: 'right',
+      render: (v: unknown) => formatDecimal(v),
+    },
+    {
+      title: 'PO Invd', dataIndex: 'poInvoicedAmount', key: 'poInvoicedAmount', width: 110, align: 'right',
+      render: (v: unknown) => formatDecimal(v),
+    },
+    {
+      title: 'Remaining', dataIndex: 'remainingAmount', key: 'remainingAmount', width: 110, align: 'right',
+      render: (v: unknown) => formatDecimal(v),
+    },
+    {
       title: 'Payment', dataIndex: 'paymentStatus', key: 'paymentStatus', width: 100,
       render: (s: string) => <Tag color={paymentStatusColorMap[s]}>{s}</Tag>,
     },
     {
-      title: 'Matching', dataIndex: 'matchingStatus', key: 'matchingStatus', width: 100,
-      render: (s: string) => <Tag color={matchingStatusColorMap[s]}>{s}</Tag>,
+      title: 'Matching', dataIndex: 'matchingStatus', key: 'matchingStatus', width: 130,
+      render: (s: string, record) => (
+        <Space size={0} direction="vertical">
+          <Tag color={matchingStatusColorMap[s]}>{s}</Tag>
+          {record.varianceAmount != null && Number(record.varianceAmount) !== 0 && (
+            <span style={{ fontSize: 11, color: '#888' }}>var {formatDecimal(record.varianceAmount)}</span>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 100,
       render: (status: string) => <Tag color={statusColorMap[status]}>{status}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions', width: 150,
+      title: 'Actions', key: 'actions', width: 190,
       render: (_, record) => (
         <Space>
           {record.status === 'DRAFT' && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'approve')}>Approve</Button>}
           {record.status === 'APPROVED' && <Button size="small" type="primary" onClick={() => handleAction(record.id, 'post')}>Post</Button>}
+          {record.status === 'POSTED' && record.paymentStatus !== 'PAID' && (
+            <Button size="small" onClick={() => handlePayment(record)}>Pay</Button>
+          )}
         </Space>
       ),
     },
@@ -199,6 +261,21 @@ const PurchaseInvoiceManagement: React.FC = () => {
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
+      </Modal>
+      <Modal title="Record Supplier Payment" open={paymentVisible}
+        onOk={handlePaymentSubmit} onCancel={() => setPaymentVisible(false)} width={480}>
+        {paymentInvoice && (
+          <Form form={paymentForm} layout="vertical">
+            <p style={{ marginBottom: 12 }}>
+              Invoice <b>{paymentInvoice.invoiceCode}</b> — Total {formatDecimal(paymentInvoice.totalAmount)},
+              Paid {formatDecimal(paymentInvoice.paidAmount ?? 0)}, Remaining{' '}
+              {formatDecimal(Math.max(0, Number(paymentInvoice.totalAmount) - Number(paymentInvoice.paidAmount || 0)))}
+            </p>
+            <Form.Item name="paidAmount" label="Paid Amount" rules={[{ required: true }]}>
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+            </Form.Item>
+          </Form>
+        )}
       </Modal>
     </Card>
   );

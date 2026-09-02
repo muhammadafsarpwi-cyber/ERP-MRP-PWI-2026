@@ -4,6 +4,7 @@ import {
   InputNumber, Row, Col,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined, SendOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
+import { Progress } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
@@ -17,6 +18,8 @@ interface PurchaseOrder {
   expectedDeliveryDate?: string;
   totalAmount: number;
   status: string;
+  orderedQty?: number;
+  receivedQty?: number;
 }
 
 const STATUS_OPTIONS = ['DRAFT', 'SUBMITTED', 'APPROVED', 'PARTIALLY_RECEIVED', 'FULLY_RECEIVED', 'CLOSED', 'CANCELLED'];
@@ -145,6 +148,15 @@ const PurchaseOrderManagement: React.FC = () => {
     { title: 'Order Date', dataIndex: 'orderDate', key: 'orderDate', width: 110 },
     { title: 'Delivery Date', dataIndex: 'expectedDeliveryDate', key: 'expectedDeliveryDate', width: 120 },
     { title: 'Total', dataIndex: 'totalAmount', key: 'totalAmount', width: 120, render: (v: unknown) => formatDecimal(v) },
+    {
+      title: 'Received', key: 'received', width: 180,
+      render: (_, record) => {
+        const received = Number(record.receivedQty || 0);
+        const ordered = Number(record.orderedQty || 0);
+        const pct = ordered > 0 ? Math.min(100, Math.round((received / ordered) * 100)) : 0;
+        return <Progress percent={pct} format={() => `${formatDecimal(received)} / ${formatDecimal(ordered)}`} size="small" />;
+      },
+    },
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 150,
       render: (status: string) => <Tag color={statusColorMap[status]}>{status}</Tag>,

@@ -6,10 +6,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateSalesInvoiceDto {
-  @ApiProperty({ description: 'Company ID' })
+  @ApiPropertyOptional({ description: 'Company ID (set from JWT if omitted)' })
   @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  @IsOptional()
+  companyId?: string;
 
   @ApiPropertyOptional({ description: 'Sales Order ID' })
   @IsUUID()

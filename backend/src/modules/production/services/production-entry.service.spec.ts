@@ -109,8 +109,8 @@ beforeEach(async () => {
   departmentRepo = { findOne: jest.fn() };
   productionOrderRepo = { findOne: jest.fn() };
   productionOrderOperationRepo = { findOne: jest.fn() };
-  entryItemRepo = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), delete: jest.fn().mockResolvedValue({ affected: 0 }) };
-  entryDowntimeRepo = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), delete: jest.fn().mockResolvedValue({ affected: 0 }) };
+  entryItemRepo = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), delete: jest.fn().mockResolvedValue({ affected: 0 }), find: jest.fn().mockResolvedValue([]) };
+  entryDowntimeRepo = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), delete: jest.fn().mockResolvedValue({ affected: 0 }), find: jest.fn().mockResolvedValue([]) };
   stockLedgerService = { create: jest.fn().mockResolvedValue({ id: 'ledger-ref-1' }) };
   balanceService = { updateBalance: jest.fn(), getAvailableStock: jest.fn() };
   bomRepo = { find: jest.fn().mockResolvedValue([]) };
@@ -426,6 +426,123 @@ describe('ProductionEntryService — update & delete', () => {
   it('remove enforces company isolation', async () => {
     entryRepo.findOne.mockResolvedValue(null);
     await expect(service.remove('e-other-company', COMPANY)).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('ProductionEntryService — multi-item & multi-downtime child persistence', () => {
+  it('create persists production item lines (multi-item production)', async () => {
+    makeOrgMocks();
+    entryItemRepo.save.mockClear();
+    entryItemRepo.create.mockClear();
+
+    await service.create({
+      ...validDto(),
+      items: [
+        { lineNumber: 1, itemId: 'item-1', uomId: 'uom-m', targetQuantity: 5000, actualQuantity: 4500, scrapQuantity: 100, runningHours: 7, remarks: 'spool 1' },
+        { lineNumber: 2, itemId: 'item-2', uomId: 'uom-m', targetQuantity: 3000, actualQuantity: 2700, scrapQuantity: 50, runningHours: 7, remarks: 'spool 2' },
+      ],
+    } as any, COMPANY);
+
+    expect(entryItemRepo.save).toHaveBeenCalledTimes(1);
+    const rows = entryItemRepo.create.mock.calls.map((c: any) => c[0]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ lineNumber: 1, itemId: 'item-1', actualQuantity: 4500, scrapQuantity: 100 });
+    expect(rows[1]).toMatchObject({ lineNumber: 2, itemId: 'item-2', actualQuantity: 2700 });
+  });
+
+  it('create persists downtime lines (multi-downtime shift)', async () => {
+    makeOrgMocks();
+    entryDowntimeRepo.save.mockClear();
+    entryDowntimeRepo.create.mockClear();
+
+    await service.create({
+      ...validDto(),
+      downtimeHours: 3,
+      downtimes: [
+        { lineNumber: 1, downtimeReasonId: 'reason-setup', downtimeReason: null, downtimeHours: 1, remarks: 'setup' },
+        { lineNumber: 2, downtimeReasonId: 'reason-power', downtimeReason: null, downtimeHours: 1, remarks: 'power failure' },
+        { lineNumber: 3, downtimeReasonId: 'reason-maint', downtimeReason: null, downtimeHours: 1, remarks: 'maintenance' },
+      ],
+    } as any, COMPANY);
+
+    expect(entryDowntimeRepo.save).toHaveBeenCalledTimes(1);
+    const rows = entryDowntimeRepo.create.mock.calls.map((c: any) => c[0]);
+    expect(rows).toHaveLength(3);
+    expect(rows.reduce((s: number, r: any) => s + Number(r.downtimeHours), 0)).toBe(3);
+    expect(rows[0]).toMatchObject({ downtimeReasonId: 'reason-setup', downtimeHours: 1 });
+  });
+
+  it('create persists an "Other" downtime reason text', async () => {
+    makeOrgMocks();
+    entryDowntimeRepo.create.mockClear();
+    await service.create({
+      ...validDto(),
+      downtimeHours: 0.5,
+      downtimes: [{ lineNumber: 1, downtimeReasonId: 'reason-other', downtimeReason: 'custom fault', downtimeHours: 0.5, remarks: '' }],
+    } as any, COMPANY);
+    const rows = entryDowntimeRepo.create.mock.calls.map((c: any) => c[0]);
+    expect(rows[0]).toMatchObject({ downtimeReasonText: 'custom fault' });
+  });
+
+  it('findOne attaches child production item + downtime lines ordered by line number', async () => {
+    makeOrgMocks();
+    entryRepo.findOne.mockResolvedValue({
+      id: 'entry-1', companyId: COMPANY, isActive: true, itemId: 'item-1',
+      runningHours: 5, downtimeHours: 3,
+    });
+    entryItemRepo.find.mockResolvedValue([
+      { id: 'item-line-1', lineNumber: 1, itemId: 'item-1', actualQuantity: 20, scrapQuantity: 0 },
+      { id: 'item-line-2', lineNumber: 2, itemId: 'item-2', actualQuantity: 30, scrapQuantity: 0 },
+    ]);
+    entryDowntimeRepo.find.mockResolvedValue([
+      { id: 'dt-1', lineNumber: 1, downtimeReasonId: 'reason-maint', downtimeReason: { name: 'Machine Maintenance' }, downtimeHours: 1, remarks: 'maintenance' },
+      { id: 'dt-2', lineNumber: 2, downtimeReasonId: 'reason-power', downtimeReason: { name: 'Power Failure' }, downtimeHours: 1, remarks: null },
+      { id: 'dt-3', lineNumber: 3, downtimeReasonId: 'reason-manpower', downtimeReason: { name: 'Manpower Unavailable' }, downtimeHours: 1, remarks: 'no operator' },
+    ]);
+
+    const found: any = await service.findOne('entry-1', COMPANY);
+
+    expect(found.items).toHaveLength(2);
+    expect(found.items[0]).toMatchObject({ lineNumber: 1, actualQuantity: 20 });
+    expect(found.downtimes).toHaveLength(3);
+    expect(found.downtimes.reduce((s: number, d: any) => s + Number(d.downtimeHours), 0)).toBe(3);
+    // The reason relation is loaded so the View can show the human-readable name.
+    expect(found.downtimes[0].downtimeReason.name).toBe('Machine Maintenance');
+    expect(entryDowntimeRepo.find).toHaveBeenCalledWith(expect.objectContaining({
+      where: { productionEntryId: 'entry-1' },
+      relations: ['downtimeReason'],
+    }));
+  });
+
+  it('update replaces child lines (delete then re-save)', async () => {
+    makeOrgMocks();
+    entryRepo.findOne
+      .mockResolvedValueOnce({
+        id: 'entry-1', companyId: COMPANY, isActive: true,
+        divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1',
+        entryDate: '2026-08-21', shiftId: 'shift-1', machineNo: 'SR-01',
+        itemId: 'item-1', uomId: 'uom-m', targetQuantity: 8000, actualQuantity: 7200,
+        scrapQuantity: 150, runningHours: 7, downtimeHours: 1,
+      })
+      .mockResolvedValue(null);
+    entryRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(null),
+    });
+    entryItemRepo.delete.mockClear();
+    entryDowntimeRepo.delete.mockClear();
+    entryItemRepo.save.mockClear();
+    entryDowntimeRepo.save.mockClear();
+
+    await service.update('entry-1', {
+      runningHours: 6,
+      items: [{ lineNumber: 1, itemId: 'item-1', uomId: 'uom-m', targetQuantity: 8000, actualQuantity: 6000, scrapQuantity: 0, runningHours: 6, remarks: null }],
+      downtimes: [{ lineNumber: 1, downtimeReasonId: 'reason-setup', downtimeReason: null, downtimeHours: 2, remarks: null }],
+    } as any, COMPANY);
+
+    expect(entryItemRepo.delete).toHaveBeenCalledWith({ productionEntryId: 'entry-1' });
+    expect(entryDowntimeRepo.delete).toHaveBeenCalledWith({ productionEntryId: 'entry-1' });
+    expect(entryItemRepo.save).toHaveBeenCalledTimes(1);
+    expect(entryDowntimeRepo.save).toHaveBeenCalledTimes(1);
   });
 });
 

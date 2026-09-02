@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import { FinanceJournal, FinanceJournalLine, JournalStatus, JournalType } from '../entities';
 import { FinanceAccount } from '../entities/finance-account.entity';
 import { FinanceAccountingPeriod } from '../entities/finance-accounting-period.entity';
@@ -36,12 +36,9 @@ export class FinanceAutoPostingService {
     @InjectRepository(FinanceFiscalYear) private readonly fyRepo: Repository<FinanceFiscalYear>,
   ) {}
 
-  private async resolveAccount(companyId: string, accountCode: string): Promise<FinanceAccount | null> {
-    return this.accountRepo.findOne({ where: { companyId, accountCode } });
-  }
-
-  private async nextJournalNumber(companyId: string): Promise<string> {
-    const r = await this.journalRepo
+  private async nextJournalNumber(companyId: string, manager?: EntityManager): Promise<string> {
+    const repo = manager ? manager.getRepository(FinanceJournal) : this.journalRepo;
+    const r = await repo
       .createQueryBuilder('j')
       .select('COUNT(*)::int', 'cnt')
       .where('j.company_id = :companyId', { companyId })
@@ -49,21 +46,29 @@ export class FinanceAutoPostingService {
     return `JV-AUTO-${String((Number(r?.cnt) || 0) + 1).padStart(6, '0')}`;
   }
 
-  private async resolvePeriod(companyId: string, entryDate: Date): Promise<{ periodId: string | null; fiscalYearId: string | null }> {
-    const period = await this.periodRepo
+  private async resolvePeriod(companyId: string, entryDate: Date, manager?: EntityManager): Promise<{ periodId: string | null; fiscalYearId: string | null }> {
+    const periodRepo = manager ? manager.getRepository(FinanceAccountingPeriod) : this.periodRepo;
+    const fyRepo = manager ? manager.getRepository(FinanceFiscalYear) : this.fyRepo;
+    const period = await periodRepo
       .createQueryBuilder('p')
       .innerJoinAndSelect('p.fiscalYear', 'fy')
       .where('p.start_date <= :d AND p.end_date >= :d', { d: entryDate })
       .andWhere('p.status = :st', { st: 'OPEN' })
       .getOne();
     if (period) return { periodId: period.id, fiscalYearId: period.fiscalYearId };
-    const fy = await this.fyRepo.findOne({ where: { companyId, status: 'OPEN' } });
+    const fy = await fyRepo.findOne({ where: { companyId, status: 'OPEN' } });
     return { periodId: null, fiscalYearId: fy?.id ?? null };
   }
 
   /**
    * Creates and immediately posts a balanced automatic journal.
    * Throws if lines do not balance or an account is missing.
+   *
+   * When an optional `manager` (EntityManager) is provided the whole journal is
+   * written inside that caller's transaction, so an auto-posting can be committed
+   * atomically together with the source transaction that triggered it (e.g. a
+   * purchase invoice POSTED + its AP journal + the Purchase Order invoiced amount).
+   * Without a manager it behaves exactly as before (independent, committed save).
    */
   async postAutoJournal(input: {
     companyId: string;
@@ -74,8 +79,13 @@ export class FinanceAutoPostingService {
     referenceId: string;
     lines: AutoPostingLine[];
     actorId?: string;
+    manager?: EntityManager;
   }): Promise<FinanceJournal> {
-    const { companyId, journalType, entryDate, description, referenceType, referenceId, lines, actorId } = input;
+    const { companyId, journalType, entryDate, description, referenceType, referenceId, lines, actorId, manager } = input;
+
+    const journalRepo = manager ? manager.getRepository(FinanceJournal) : this.journalRepo;
+    const lineRepo = manager ? manager.getRepository(FinanceJournalLine) : this.lineRepo;
+    const accountRepo = manager ? manager.getRepository(FinanceAccount) : this.accountRepo;
 
     const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
     const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
@@ -86,11 +96,11 @@ export class FinanceAutoPostingService {
     const journalLines: FinanceJournalLine[] = [];
     let lineNumber = 1;
     for (const l of lines) {
-      const account = await this.resolveAccount(companyId, l.accountCode);
+      const account = await accountRepo.findOne({ where: { companyId, accountCode: l.accountCode } });
       if (!account) {
         throw new Error(`Auto-journal account ${l.accountCode} not found for company ${companyId}`);
       }
-      journalLines.push(this.lineRepo.create({
+      journalLines.push(lineRepo.create({
         lineNumber: lineNumber++,
         accountId: account.id,
         description: l.description ?? description,
@@ -101,10 +111,10 @@ export class FinanceAutoPostingService {
       }));
     }
 
-    const { periodId, fiscalYearId } = await this.resolvePeriod(companyId, entryDate);
-    const journalNumber = await this.nextJournalNumber(companyId);
+    const { periodId, fiscalYearId } = await this.resolvePeriod(companyId, entryDate, manager);
+    const journalNumber = await this.nextJournalNumber(companyId, manager);
 
-    const journal = this.journalRepo.create({
+    const journal = journalRepo.create({
       companyId,
       journalNumber,
       journalType,
@@ -123,7 +133,7 @@ export class FinanceAutoPostingService {
       lines: journalLines,
     });
 
-    const saved = await this.journalRepo.save(journal);
+    const saved = await journalRepo.save(journal);
     this.logger.log(`Auto-journal ${journalNumber} posted (${referenceType}:${referenceId})`);
     return saved;
   }
@@ -163,7 +173,7 @@ export class FinanceAutoPostingService {
   }
 
   /** Purchase Invoice posted -> DR Expense, CR AP */
-  async postPurchaseInvoice(companyId: string, invoiceCode: string, invoiceId: string, amount: number, actorId?: string) {
+  async postPurchaseInvoice(companyId: string, invoiceCode: string, invoiceId: string, amount: number, actorId?: string, manager?: EntityManager) {
     return this.postAutoJournal({
       companyId,
       journalType: JournalType.PURCHASE_INVOICE,
@@ -172,6 +182,7 @@ export class FinanceAutoPostingService {
       referenceType: 'PURCHASE_INVOICE',
       referenceId: invoiceId,
       actorId,
+      manager,
       lines: [
         { accountCode: '5100', debit: amount, credit: 0, description: `Purchases - invoice ${invoiceCode}` },
         { accountCode: '2000', debit: 0, credit: amount, description: `AP - invoice ${invoiceCode}` },
@@ -180,7 +191,7 @@ export class FinanceAutoPostingService {
   }
 
   /** Supplier payment -> DR AP, CR Cash/Bank */
-  async postSupplierPayment(companyId: string, invoiceCode: string, invoiceId: string, amount: number, actorId?: string) {
+  async postSupplierPayment(companyId: string, invoiceCode: string, invoiceId: string, amount: number, actorId?: string, manager?: EntityManager) {
     return this.postAutoJournal({
       companyId,
       journalType: JournalType.PAYMENT,
@@ -189,6 +200,7 @@ export class FinanceAutoPostingService {
       referenceType: 'PURCHASE_INVOICE',
       referenceId: invoiceId,
       actorId,
+      manager,
       lines: [
         { accountCode: '2000', debit: amount, credit: 0, description: `AP reduction - invoice ${invoiceCode}` },
         { accountCode: '1000', debit: 0, credit: amount, description: `Cash paid - invoice ${invoiceCode}` },

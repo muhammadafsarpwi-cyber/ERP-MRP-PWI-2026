@@ -73,6 +73,38 @@ export class PurchaseOrderService {
     qb.orderBy(`po.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
     const [data, total] = await qb.getManyAndCount();
+
+    // Aggregate received-vs-ordered per PO (separate query to avoid a cartesian
+    // join inflating the row count) so the UI can show delivery fulfilment.
+    const poIds = data.map((po) => po.id);
+    if (poIds.length > 0) {
+      const agg = await this.lineRepo
+        .createQueryBuilder('line')
+        .select('line.poId', 'poId')
+        .addSelect('COALESCE(SUM(line.quantity), 0)', 'orderedQty')
+        .addSelect('COALESCE(SUM(line.receivedQuantity), 0)', 'receivedQty')
+        .where('line.poId IN (:...poIds)', { poIds })
+        .groupBy('line.poId')
+        .getRawMany();
+      const map = new Map<string, { orderedQty: number; receivedQty: number }>();
+      for (const row of agg) {
+        map.set(row.poId, {
+          orderedQty: Number(row.orderedQty),
+          receivedQty: Number(row.receivedQty),
+        });
+      }
+      for (const po of data) {
+        const a = map.get(po.id) || { orderedQty: 0, receivedQty: 0 };
+        (po as any).orderedQty = a.orderedQty;
+        (po as any).receivedQty = a.receivedQty;
+      }
+    } else {
+      for (const po of data) {
+        (po as any).orderedQty = 0;
+        (po as any).receivedQty = 0;
+      }
+    }
+
     return { data, total };
   }
 

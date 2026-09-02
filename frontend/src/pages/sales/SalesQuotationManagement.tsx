@@ -34,6 +34,16 @@ const statusColorMap: Record<string, string> = {
   Draft: 'default', Sent: 'blue', Accepted: 'green', Rejected: 'red', Cancelled: 'orange',
 };
 
+export function buildSalesQuotationPayload(values: any, lineItems: ERPLine[]): any {
+  return {
+    ...values,
+    items: lineItems.map((l) => ({
+      itemId: l.itemId, description: l.itemName, quantity: l.quantity,
+      uomId: l.uomId, unitPrice: l.rate, discountPercent: l.discountPercent, lineTotal: l.lineTotal,
+    })),
+  };
+}
+
 const SalesQuotationManagement: React.FC = () => {
   const [data, setData] = useState<SalesQuotation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -125,13 +135,7 @@ const SalesQuotationManagement: React.FC = () => {
         message.warning('Add at least one line item');
         return;
       }
-      const payload = {
-        ...values,
-        items: lineItems.map((l) => ({
-          itemId: l.itemId, description: l.itemName, quantity: l.quantity,
-          unitPrice: l.rate, discountPercent: l.discountPercent, lineTotal: l.lineTotal,
-        })),
-      };
+      const payload = buildSalesQuotationPayload(values, lineItems);
       if (editingItem) {
         await apiService.patch(`/sales/quotations/${editingItem.id}`, payload);
         message.success('Quotation updated');

@@ -1,15 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Descriptions, Tag, Button, Space, Spin, message, Typography, Divider, Popconfirm, Row, Col,
+  Card, Descriptions, Tag, Button, Space, Spin, message, Typography, Divider, Popconfirm, Row, Col, Table,
 } from 'antd';
-import { ArrowLeftOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, EditOutlined, DeleteOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 
 const { Title, Text } = Typography;
+
+interface DowntimeDetail {
+  id: string;
+  lineNumber: number;
+  downtimeReasonId: string | null;
+  downtimeReasonText?: string | null;
+  downtimeReason?: { id: string; name: string } | null;
+  downtimeHours: number | string;
+  remarks: string | null;
+}
+
+interface ProductionItemDetail {
+  id: string;
+  lineNumber: number;
+  itemId: string | null;
+  item?: { itemCode: string; name: string; wireSizeMm?: number | null; weightPerMeter?: number | null } | null;
+  uom?: { code: string; symbol: string } | null;
+  targetQuantity: number | string;
+  actualQuantity: number | string;
+  scrapQuantity: number | string;
+  runningHours: number | string;
+  remarks: string | null;
+}
 
 interface DetailData {
   id: string;
@@ -38,6 +61,9 @@ interface DetailData {
   productionOrderOperationId: string | null;
   inventoryReferenceId: string | null;
   createdByUser?: { fullName: string };
+  downtime?: { plannedHours: number } | null;
+  downtimes?: DowntimeDetail[];
+  items?: ProductionItemDetail[];
   route?: {
     routingCode?: string; name?: string;
     operations?: Array<{ sequenceNo: number; operationName?: string; department?: { name?: string } | null }>;
@@ -121,6 +147,39 @@ const EntryDetail: React.FC = () => {
               </Descriptions.Item>
             </Descriptions>
           </Card>
+
+          <Card
+            size="small"
+            title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ClockCircleOutlined /> Downtime
+            </span>}
+            style={{ marginTop: 16 }}
+          >
+            <DowntimeView downtimeHours={entry.downtimeHours} runningHours={entry.runningHours} plannedHours={entry.downtime?.plannedHours ?? null} lines={entry.downtimes ?? []} />
+          </Card>
+
+          {entry.items && entry.items.length > 0 && (
+            <Card size="small" title="Production Items" style={{ marginTop: 16 }}>
+              <Table rowKey="id" size="small" pagination={false}
+                dataSource={entry.items}
+                columns={[
+                  { title: '#', dataIndex: 'lineNumber', width: 40 },
+                  {
+                    title: 'Item', key: 'item',
+                    render: (_, r) => r.item ? <Text strong>{r.item.itemCode} — {r.item.name}</Text> : '—',
+                  },
+                  {
+                    title: 'Wire Size', key: 'wire', width: 110,
+                    render: (_, r) => r.item?.wireSizeMm != null ? `${formatNumber(r.item.wireSizeMm, 3)} mm` : '—',
+                  },
+                  { title: 'Actual', dataIndex: 'actualQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
+                  { title: 'Scrap', dataIndex: 'scrapQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
+                  { title: 'UOM', key: 'uom', width: 70, render: (_, r) => r.uom?.code ?? '—' },
+                  { title: 'KG', key: 'kg', width: 90, align: 'right', render: (_, r) => r.item?.weightPerMeter != null ? formatNumber(toNum(r.actualQuantity) * toNum(r.item.weightPerMeter), 3) : '—' },
+                ]}
+              />
+            </Card>
+          )}
 
           <Card size="small" title="Linkages & Posting" style={{ marginTop: 16 }}>
             <Descriptions column={2} size="small" bordered>
@@ -235,5 +294,58 @@ const PopconfirmDelete: React.FC<{ id: string; onDeleted: () => void }> = ({ id,
     <Button danger icon={<DeleteOutlined />} block>Delete Entry</Button>
   </Popconfirm>
 );
+
+/** Downtime breakdown card: planned / running / total summary + every line. */
+const DowntimeView: React.FC<{
+  downtimeHours: number | string;
+  runningHours: number | string;
+  plannedHours: number | null;
+  lines: DowntimeDetail[];
+}> = ({ downtimeHours, runningHours, plannedHours, lines }) => {
+  const total = toNum(downtimeHours);
+  const running = toNum(runningHours);
+  const summary = [
+    { label: 'Planned', value: plannedHours != null ? `${formatNumber(plannedHours, 2)}h` : '—' },
+    { label: 'Running', value: `${formatNumber(running, 2)}h` },
+    { label: 'Total Downtime', value: `${formatNumber(total, 2)}h`, accent: total > 0 },
+  ];
+  return (
+    <div>
+      <Row gutter={8} style={{ marginBottom: 8 }}>
+        {summary.map((s) => (
+          <Col span={8} key={s.label}>
+            <div style={{
+              background: s.accent ? 'var(--theme-warning-soft)' : 'var(--theme-surface-alt)',
+              borderRadius: 6, padding: '4px 8px',
+            }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>{s.label}</Text>
+              <div><Text strong>{s.value}</Text></div>
+            </div>
+          </Col>
+        ))}
+      </Row>
+      {lines.length === 0 ? (
+        <Text type="secondary" style={{ fontSize: 12 }}>No downtime recorded.</Text>
+      ) : (
+        lines.map((l, idx) => (
+          <div key={l.id || idx} style={{ paddingBottom: 6, marginBottom: 6, borderBottom: idx < lines.length - 1 ? '1px solid var(--theme-border)' : undefined }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <Text strong style={{ fontSize: 12 }}>
+                {idx + 1}. {l.downtimeReason?.name ?? l.downtimeReasonText ?? 'Downtime'}
+              </Text>
+              <Text strong style={{ fontSize: 12 }}>
+                {formatNumber(l.downtimeHours, 2)}h
+              </Text>
+            </div>
+            {l.downtimeReasonText && (!l.downtimeReason?.name || (l.downtimeReasonText.toLowerCase() === 'other' ? true : l.downtimeReasonText !== l.downtimeReason?.name)) && (
+              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Other: {l.downtimeReasonText}</Text>
+            )}
+            {l.remarks && <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Notes: {l.remarks}</Text>}
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
 
 export default EntryDetail;

@@ -123,8 +123,13 @@ const GoodsReceiptManagement: React.FC = () => {
     { title: 'Date', dataIndex: 'receiptDate', key: 'receiptDate', width: 110 },
     { title: 'GRN', dataIndex: 'grnNumber', key: 'grnNumber', width: 110 },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 120,
-      render: (status: string) => <Tag color={statusColorMap[status]}>{status}</Tag>,
+      title: 'Status', dataIndex: 'status', key: 'status', width: 160,
+      render: (status: string) => (
+        <Space>
+          <Tag color={statusColorMap[status]}>{status}</Tag>
+          {status === 'POSTED' && <Tag color="geekblue">Stock posted</Tag>}
+        </Space>
+      ),
     },
     {
       title: 'Actions', key: 'actions', width: 300,

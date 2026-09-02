@@ -30,6 +30,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { FinanceModule } from '../finance/finance.module';
+import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { FinanceModule } from '../finance/finance.module';
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
     forwardRef(() => FinanceModule),
+    forwardRef(() => InventoryModule),
   ],
   controllers: [
     SupplierController,

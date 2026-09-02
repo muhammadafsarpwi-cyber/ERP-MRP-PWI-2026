@@ -109,12 +109,12 @@ const RoutingManagement: React.FC = () => {
   const fetchLookupData = useCallback(async () => {
     try {
       const [itemsRes, bomRes, divRes, secRes, deptRes, uomRes] = await Promise.all([
-        apiService.get<{ data: Item[] }>('/items', { limit: 200 }),
+        apiService.get<{ data: Item[] }>('/master-data/items', { limit: 200 }),
         apiService.get<{ data: Bom[] }>('/bom'),
-        apiService.get<{ data: Division[] }>('/admin/divisions', { limit: 200 }),
-        apiService.get<{ data: Section[] }>('/admin/sections', { limit: 200 }),
-        apiService.get<{ data: Department[] }>('/admin/departments', { limit: 200 }),
-        apiService.get<{ data: Uom[] }>('/uoms', { limit: 200 }),
+        apiService.get<{ data: Division[] }>('/divisions', { limit: 200 }),
+        apiService.get<{ data: Section[] }>('/sections', { limit: 200 }),
+        apiService.get<{ data: Department[] }>('/departments', { limit: 200 }),
+        apiService.get<{ data: Uom[] }>('/master-data/uom', { limit: 200 }),
       ]);
       setItems(itemsRes.data || []);
       setBoms(bomRes.data || []);

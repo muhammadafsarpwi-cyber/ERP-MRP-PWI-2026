@@ -168,6 +168,19 @@ export class ProductionEntryService {
     if (!entry || !entry.isActive) {
       throw new NotFoundException(`Production Entry with ID '${id}' not found`);
     }
+    // Attach child production item lines + downtime lines for edit-mode UI
+    try {
+      const [items, downtimes] = await Promise.all([
+        this.entryItemRepo.find({ where: { productionEntryId: id }, order: { lineNumber: 'ASC' } }),
+        this.entryDowntimeRepo.find({
+          where: { productionEntryId: id },
+          order: { lineNumber: 'ASC' },
+          relations: ['downtimeReason'],
+        }),
+      ]);
+      (entry as any).items = items;
+      (entry as any).downtimes = downtimes;
+    } catch { /* child tables may not exist for legacy entries */ }
     // Attach the item's effective production route when available (for UI display).
     if (entry.itemId) {
       try {

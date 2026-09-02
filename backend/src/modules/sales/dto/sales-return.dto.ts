@@ -49,10 +49,10 @@ export class CreateSalesReturnLineDto {
 }
 
 export class CreateSalesReturnDto {
-  @ApiProperty({ description: 'Company ID' })
+  @ApiPropertyOptional({ description: 'Company ID (set from JWT if omitted)' })
   @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  @IsOptional()
+  companyId?: string;
 
   @ApiProperty({ description: 'Sales Order ID' })
   @IsUUID()

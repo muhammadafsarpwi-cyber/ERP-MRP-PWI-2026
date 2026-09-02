@@ -54,10 +54,10 @@ export class CreateSalesOrderItemDto {
 }
 
 export class CreateSalesOrderDto {
-  @ApiProperty({ description: 'Company ID' })
+  @ApiPropertyOptional({ description: 'Company ID (set from JWT if omitted)' })
   @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  @IsOptional()
+  companyId?: string;
 
   @ApiProperty({ description: 'Customer ID' })
   @IsUUID()

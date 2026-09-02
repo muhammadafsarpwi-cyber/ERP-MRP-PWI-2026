@@ -30,19 +30,26 @@ export function formatDecimal(value: unknown, decimals: number = 2): string {
 }
 
 /**
- * Format a numeric value with locale-aware thousand separators and fixed decimals.
- * Falls back gracefully for non-numeric values.
+ * Format a numeric value with locale-aware thousand separators and up to `decimals`
+ * fractional digits. Trailing zeros and unnecessary decimal points are stripped so
+ * that 20.500 → "20.5", 20.00 → "20", 0 → "0". `decimals` acts as the MAXIMUM number
+ * of fraction digits, never a fixed precision. Falls back gracefully for non-numeric.
  *
  *   formatNumber(1234567.89)           → "1,234,567.89"
  *   formatNumber("99.5", 0)            → "100"
+ *   formatNumber(20.5, 3)              → "20.5"
+ *   formatNumber(20.0, 2)              → "20"
+ *   formatNumber(0, 3)                 → "0"
+ *   formatNumber(1.650, 3)             → "1.65"
  */
 export function formatNumber(
   value: unknown,
   decimals: number = 2,
   locale: string = 'en-US',
 ): string {
-  return toNum(value).toLocaleString(locale, {
-    minimumFractionDigits: decimals,
+  const n = toNum(value);
+  return n.toLocaleString(locale, {
+    minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
   });
 }

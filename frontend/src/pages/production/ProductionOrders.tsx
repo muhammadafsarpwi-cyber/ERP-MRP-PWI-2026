@@ -6,7 +6,7 @@ import {
 import { PlusOutlined, SearchOutlined, EyeOutlined, SendOutlined, CloseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
-import { PageHeader, ERPLineItems, ERPLine } from '../../components/shared';
+import { PageHeader } from '../../components/shared';
 
 interface ProductionOrder {
   id: string;
@@ -19,12 +19,75 @@ interface ProductionOrder {
   orderDate?: string;
 }
 
+interface RoutingOption {
+  id: string;
+  routingCode: string;
+  name: string;
+  productId: string;
+  status: string;
+}
+
+interface UomOption {
+  id: string;
+  code: string;
+  symbol?: string;
+}
+
+interface ItemOption {
+  id: string;
+  itemCode: string;
+  name: string;
+  baseUomId?: string;
+  isManufacturable?: boolean;
+}
+
+interface BomOption {
+  id: string;
+  bomCode: string;
+  name: string;
+  productId: string;
+  status: string;
+}
+
 const STATUS_OPTIONS = ['DRAFT', 'RELEASED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+
+const PRIORITY_OPTIONS = ['LOW', 'NORMAL', 'HIGH', 'URGENT', 'CRITICAL'];
 
 const statusColorMap: Record<string, string> = {
   DRAFT: 'default', RELEASED: 'blue', IN_PROGRESS: 'orange',
   COMPLETED: 'green', CANCELLED: 'red',
 };
+
+/**
+ * Builds the POST /production/orders body from the create form values.
+ * Deliberately emits only fields declared by CreateProductionOrderDto so the
+ * global ValidationPipe (whitelist + forbidNonWhitelisted) accepts the payload.
+ * companyId is intentionally omitted — it is derived server-side from the
+ * authenticated user's org scope, never from the request body.
+ */
+export function buildCreateOrderPayload(values: {
+  productId?: string;
+  routingId?: string;
+  bomId?: string;
+  plannedQuantity?: number;
+  uomId?: string;
+  priority?: string;
+  plannedStartDate?: string;
+  plannedEndDate?: string;
+  dueDate?: string;
+}): Record<string, unknown> {
+  return {
+    productId: values.productId,
+    routingId: values.routingId,
+    ...(values.bomId ? { bomId: values.bomId } : {}),
+    plannedQuantity: values.plannedQuantity,
+    uomId: values.uomId,
+    priority: values.priority ?? 'NORMAL',
+    ...(values.plannedStartDate ? { plannedStartDate: values.plannedStartDate } : {}),
+    ...(values.plannedEndDate ? { plannedEndDate: values.plannedEndDate } : {}),
+    ...(values.dueDate ? { dueDate: values.dueDate } : {}),
+  };
+}
 
 const ProductionOrders: React.FC = () => {
   const [data, setData] = useState<ProductionOrder[]>([]);
@@ -34,12 +97,12 @@ const ProductionOrders: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [pageSize] = useState(20);
-  const [companyId, setCompanyId] = useState('');
-  const [boms, setBoms] = useState<Array<{ id: string; bomCode: string; name: string }>>([]);
-  const [items, setItems] = useState<Array<{ id: string; itemCode: string; name: string }>>([]);
+  const [boms, setBoms] = useState<BomOption[]>([]);
+  const [items, setItems] = useState<ItemOption[]>([]);
+  const [routings, setRoutings] = useState<RoutingOption[]>([]);
+  const [uoms, setUoms] = useState<UomOption[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [form] = Form.useForm();
-  const [lines, setLines] = useState<ERPLine[]>([]);
   const [detail, setDetail] = useState<ProductionOrder | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
   const [requirements, setRequirements] = useState<any[]>([]);
@@ -63,40 +126,63 @@ const ProductionOrders: React.FC = () => {
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 
   useEffect(() => {
-    const erpUser = localStorage.getItem('erp_user');
-    if (erpUser) {
-      try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
-    }
     (async () => {
-      try {
-        const b = await apiService.get<{ data: Array<{ id: string; bomCode: string; name: string }> }>('/bom', { limit: 100 });
-        setBoms(b.data || []);
-      } catch { /* ignore */ }
-      try {
-        const it = await apiService.get<{ data: Array<{ id: string; itemCode: string; name: string }> }>('/master-data/items', { limit: 100 });
-        setItems(it.data || []);
-      } catch { /* ignore */ }
+      const [b, it, rt, uo] = await Promise.all([
+        apiService
+          .get<{ data: BomOption[] }>('/bom', { limit: 200 })
+          .then((r) => r.data || [])
+          .catch(() => []),
+        apiService
+          .get<{ data: ItemOption[] }>('/master-data/items', { limit: 500 })
+          .then((r) => r.data || [])
+          .catch(() => []),
+        apiService
+          .get<{ data: RoutingOption[] }>('/production/routings')
+          .then((r) => r.data || [])
+          .catch(() => []),
+        apiService
+          .get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 })
+          .then((r) => r.data || [])
+          .catch(() => []),
+      ]);
+      const onlyManufacturable = it.filter((i) => i.isManufacturable !== false);
+      setBoms(b.filter((bm) => bm.status === 'ACTIVE'));
+      setItems(onlyManufacturable);
+      setRoutings(rt);
+      setUoms(uo);
     })();
   }, []);
 
   const handleCreate = () => {
     form.resetFields();
-    form.setFieldsValue({ companyId, plannedQuantity: 1 });
-    setLines([]);
+    form.setFieldsValue({ plannedQuantity: 1, priority: 'NORMAL' });
     setModalVisible(true);
+  };
+
+  const routingsForProduct = (productId?: string) =>
+    (productId ? routings.filter((r) => r.productId === productId) : []).sort((a, b) => {
+      if (a.status === 'ACTIVE' && b.status !== 'ACTIVE') return -1;
+      if (b.status === 'ACTIVE' && a.status !== 'ACTIVE') return 1;
+      return a.routingCode.localeCompare(b.routingCode);
+    });
+
+  const bomsForProduct = (productId?: string) =>
+    productId ? boms.filter((bm) => bm.productId === productId) : [];
+
+  const handleProductChange = (productId?: string) => {
+    const product = items.find((i) => i.id === productId);
+    if (product?.baseUomId) {
+      form.setFieldValue('uomId', product.baseUomId);
+    }
+    const productRoutings = routingsForProduct(productId);
+    const active = productRoutings.find((r) => r.status === 'ACTIVE') || productRoutings[0];
+    form.setFieldValue('routingId', active?.id);
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      const payload = {
-        ...values,
-        lines: lines.map((l) => ({
-          itemId: l.itemId,
-          quantity: l.quantity,
-          uomId: l.uomId,
-        })),
-      };
+      const payload = buildCreateOrderPayload(values);
       await apiService.post('/production/orders', payload);
       message.success('Production order created');
       setModalVisible(false);
@@ -150,6 +236,8 @@ const ProductionOrders: React.FC = () => {
     },
   ];
 
+  const selectedProductId = Form.useWatch('productId', form);
+
   return (
     <div>
       <PageHeader icon={<PlusOutlined />} title="Production Orders" showBreadcrumbs
@@ -171,39 +259,78 @@ const ProductionOrders: React.FC = () => {
           pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }} />
       </Card>
 
-      <Modal title="Create Production Order" open={modalVisible} onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={850}>
-        <Form form={form} layout="vertical">
-          <Form.Item name="companyId" hidden><Input /></Form.Item>
+      <Modal title="Create Production Order" open={modalVisible} onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={760}>
+        <Form form={form} layout="vertical" onValuesChange={(changed) => {
+          if (changed.productId) handleProductChange(changed.productId);
+        }}>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="bomId" label="BOM" rules={[{ required: true }]}>
-                <Select showSearch optionFilterProp="label" options={boms.map((b) => ({ value: b.id, label: `${b.bomCode} — ${b.name}` }))} placeholder="Select BOM" />
+              <Form.Item name="productId" label="Product" rules={[{ required: true, message: 'Select the product to manufacture' }]}>
+                <Select showSearch optionFilterProp="label"
+                  options={items.map((i) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
+                  placeholder="Select product" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="productId" label="Product" rules={[{ required: true }]}>
-                <Select showSearch optionFilterProp="label" options={items.map((i) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))} placeholder="Select product" />
+              <Form.Item name="routingId" label="Routing" rules={[{ required: true, message: 'Select a routing for this product' }]}>
+                <Select showSearch optionFilterProp="label"
+                  options={routingsForProduct(selectedProductId).map((r) => ({
+                    value: r.id,
+                    label: `${r.routingCode} — ${r.name}${r.status === 'ACTIVE' ? '' : ` (${r.status})`}`,
+                  }))}
+                  placeholder="Select routing" notFoundContent="No routing defined for this product" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="bomId" label="BOM (optional)">
+                <Select showSearch optionFilterProp="label" allowClear
+                  options={bomsForProduct(selectedProductId).map((bm) => ({
+                    value: bm.id,
+                    label: `${bm.bomCode} — ${bm.name}`,
+                  }))}
+                  placeholder="Select BOM" notFoundContent="No BOM defined for this product" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="plannedQuantity" label="Planned Quantity" rules={[{ required: true, message: 'Enter the planned quantity' }]}>
+                <InputNumber style={{ width: '100%' }} min={0.0001} step={1} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="uomId" label="UOM" rules={[{ required: true, message: 'Select the production UOM' }]}
+                extra="Automatically set to the product base UOM; change if needed.">
+                <Select showSearch optionFilterProp="label"
+                  options={uoms.map((u) => ({ value: u.id, label: `${u.code}${u.symbol && u.symbol !== u.code ? ` (${u.symbol})` : ''}` }))}
+                  placeholder="Select UOM" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="priority" label="Priority">
+                <Select options={PRIORITY_OPTIONS.map((p) => ({ value: p, label: p }))} />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={16}>
             <Col span={8}>
-              <Form.Item name="plannedQuantity" label="Planned Quantity" rules={[{ required: true }]}>
-                <InputNumber style={{ width: '100%' }} min={1} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="orderDate" label="Order Date">
+              <Form.Item name="plannedStartDate" label="Planned Start">
                 <Input type="date" />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="expectedCompletionDate" label="Expected Completion">
+              <Form.Item name="plannedEndDate" label="Planned End">
+                <Input type="date" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="dueDate" label="Due Date">
                 <Input type="date" />
               </Form.Item>
             </Col>
           </Row>
-          <ERPLineItems companyId={companyId} value={lines} onChange={setLines} showDiscount={false} showTax={false} label="Component Materials (optional)" />
         </Form>
       </Modal>
 
