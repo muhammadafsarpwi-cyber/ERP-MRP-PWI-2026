@@ -85,6 +85,7 @@ import {
 } from './pages/procurement';
 import DevelopmentStatus from './pages/development/DevelopmentStatus';
 import Settings from './pages/settings';
+import ProfilePage from './pages/profile/ProfilePage';
 import { MaintenanceDashboard, JobCardList, JobCardCreate, JobCardDetail, PmPlansList, PmSchedules, TeamsList, CategoriesList, MaintenanceReports } from './pages/maintenance';
 import './App.css';
 
@@ -111,6 +112,7 @@ const App: React.FC = () => {
                 <Routes>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/settings" element={<Settings />} />
+                  <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/change-password" element={<ChangePassword />} />
                   <Route path="/products/*" element={<Products />} />
                   <Route path="/customers" element={<CustomerManagement />} />

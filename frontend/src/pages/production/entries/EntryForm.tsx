@@ -9,6 +9,10 @@ import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import { useLookups } from './lookups';
+import {
+  DowntimeMode, deriveFromRunning, deriveFromDowntime, rebalancePair,
+  effectiveRunning, effectiveDowntime, round2,
+} from './downtimeHours';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 
 const { Title, Text } = Typography;
@@ -366,32 +370,47 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
   const downtimeVal = toNum(downtimeHours);
 
-  // ONE authoritative calculation (mirrors the documented formula):
-  //   Downtime Hours = Planned Shift Hours − Running Hours
-  // Running Hours is the operator's primary input; Downtime is derived and
-  // read-only whenever the shift declares planned hours. setFieldsValue never
-  // re-triggers onChange, so the update cannot loop. The server keeps final
-  // authority and re-validates both values on save.
+  // ── Downtime entry mode: AUTO (Running is input, Downtime derived) or
+  //    MANUAL (Downtime is input, Running derived). Both keep the invariant
+  //    Running + Downtime = Planned shift hours whenever a plan is configured.
+  //    When no shift planned hours exist (legacy entries), both fields remain
+  //    free-form so nothing regresses.
+  const [downtimeMode, setDowntimeMode] = useState<DowntimeMode>('auto');
   const hoursInitRef = useRef(false);
-  const round2 = (v: number) => Math.round(v * 100) / 100;
 
+  // AUTO: running hours is the operator's input → downtime = planned − running
   const setHoursFromRunning = useCallback((v: number | null | undefined) => {
-    if (v === null || v === undefined || Number.isNaN(v)) return;
-    // Only derive while the value is inside 0..planned; out-of-range input is
-    // left untouched so the field rules surface the exact validation error.
-    const valid = v >= 0 && !(plannedHours > 0 && v > plannedHours);
-    const r = round2(Math.min(Math.max(v, 0), plannedHours > 0 ? plannedHours : 24));
-    form.setFieldsValue({
-      runningHours: valid ? r : v,
-      downtimeHours: plannedHours > 0 && valid ? round2(plannedHours - r) : toNum(form.getFieldValue('downtimeHours')),
-    });
+    const derived = deriveFromRunning(v, plannedHours, toNum(form.getFieldValue('downtimeHours')));
+    if (Number.isNaN(derived.runningHours)) return;
+    form.setFieldsValue({ runningHours: derived.runningHours, downtimeHours: derived.downtimeHours });
   }, [form, plannedHours]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // MANUAL: downtime hours is the operator's input → running = planned − downtime
+  const setHoursFromDowntime = useCallback((v: number | null | undefined) => {
+    const derived = deriveFromDowntime(v, plannedHours);
+    const patch: Record<string, number> = { downtimeHours: derived.downtimeHours };
+    if (!Number.isNaN(derived.runningHours)) patch.runningHours = derived.runningHours;
+    form.setFieldsValue(patch);
+  }, [form, plannedHours]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Switching AUTO ↔ MANUAL preserves the current split and keeps the pair
+  // consistent with the shift plan.
+  const handleDowntimeModeChange = useCallback((next: DowntimeMode) => {
+    setDowntimeMode(next);
+    const pair = rebalancePair(
+      toNum(form.getFieldValue('runningHours')),
+      toNum(form.getFieldValue('downtimeHours')),
+      plannedHours,
+      next,
+    );
+    form.setFieldsValue({ runningHours: pair.runningHours, downtimeHours: pair.downtimeHours });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannedHours]);
 
   // First derivation + shift changes. When planned hours first become known, a
   // fresh create starts at full running / zero downtime while an edit keeps its
-  // loaded split. On a later planned-hours change (shift switch) the operator's
-  // RUNNING hours are preserved — clamped to the new plan — and downtime
-  // absorbs the difference, so no stale split survives.
+  // loaded split. On a later planned-hours change (shift switch) the pair is
+  // rebalanced around the new plan while respecting the active entry mode.
   useEffect(() => {
     if (!(plannedHours > 0)) return;
     if (!hoursInitRef.current) {
@@ -399,22 +418,25 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       if (mode === 'create') form.setFieldsValue({ runningHours: round2(plannedHours), downtimeHours: 0 });
       return;
     }
-    const r = round2(Math.min(Math.max(toNum(form.getFieldValue('runningHours')), 0), plannedHours));
-    form.setFieldsValue({ runningHours: r, downtimeHours: round2(plannedHours - r) });
+    const pair = rebalancePair(
+      toNum(form.getFieldValue('runningHours')),
+      toNum(form.getFieldValue('downtimeHours')),
+      plannedHours,
+      downtimeMode,
+    );
+    form.setFieldsValue({ runningHours: pair.runningHours, downtimeHours: pair.downtimeHours });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plannedHours]);
 
-  const derivedRunning = useMemo(() => {
-    if (plannedHours > 0) return round2(Math.max(0, Math.min(plannedHours, plannedHours - downtimeVal)));
-    return toNum(runningHours);
-  }, [plannedHours, downtimeVal, runningHours]);
-
+  const derivedRunning = effectiveRunning(toNum(runningHours), downtimeVal, plannedHours);
   // Downtine mirror for display/KPIs: identical to the stored field whenever
   // the pair is consistent, and always within 0..planned when derived.
-  const derivedDowntime = useMemo(
-    () => (plannedHours > 0 ? round2(Math.max(0, plannedHours - derivedRunning)) : downtimeVal),
-    [plannedHours, derivedRunning, downtimeVal],
-  );
+  const derivedDowntime = effectiveDowntime(toNum(runningHours), downtimeVal, plannedHours);
+
+  // When a shift plan exists, AUTO keeps downtime read-only and MANUAL keeps
+  // running read-only. Without a plan both stay free-form (legacy behaviour).
+  const runningReadOnly = plannedHours > 0 && downtimeMode === 'manual';
+  const downtimeReadOnly = plannedHours > 0 && downtimeMode === 'auto';
 
   /** Target shown for a machine-linked entry: standard target pro-rated to the
    *  actual running hours — identical to what the server stores on save. */
@@ -797,7 +819,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   {selectedItem.wireSizeMm != null && (
                     <Col span={12}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Wire Size</Text>
-                      <div><Text strong style={{ fontSize: 13 }}>{selectedItem.wireSizeMm} mm</Text></div>
+                      <div><Text strong style={{ fontSize: 13 }}>{formatNumber(Number(selectedItem.wireSizeMm), 3)} mm</Text></div>
                     </Col>
                   )}
                   {selectedItem.routeType && (
@@ -1001,7 +1023,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={12}>
                   <Form.Item
                     name="runningHours"
-                    label={<span>Running Hours <InputBadge type="input" /></span>}
+                    label={<span>Running Hours <InputBadge type={plannedHours > 0 && downtimeMode === 'manual' ? 'auto' : 'input'} /></span>}
                     initialValue={0}
                     rules={[
                       { required: true, message: 'Required' },
@@ -1013,6 +1035,10 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                           if (plannedHours > 0 && v > plannedHours) {
                             return Promise.reject(new Error('Running hours cannot exceed planned shift hours.'));
                           }
+                          const d = toNum(getFieldValue('downtimeHours'));
+                          if (plannedHours > 0 && downtimeMode === 'manual' && Math.abs(round2(v + d) - plannedHours) > 0.01) {
+                            return Promise.reject(new Error('Running hours + Downtime hours must equal planned hours.'));
+                          }
                           return Promise.resolve();
                         },
                       }),
@@ -1021,6 +1047,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     <InputNumber
                       style={{ width: '100%' }}
                       min={0} max={plannedHours > 0 ? plannedHours : 24} step={0.25} precision={2}
+                      disabled={runningReadOnly}
                       onChange={setHoursFromRunning}
                     />
                   </Form.Item>
@@ -1095,9 +1122,24 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={12}>
                   <Form.Item
                     name="downtimeHours"
-                    label={<span>Downtime Hours {plannedHours > 0 ? <InputBadge type="auto" /> : <InputBadge type="input" />}</span>}
+                    label={
+                      <span>
+                        Downtime Hours{' '}
+                        {plannedHours > 0 ? (
+                          <InputBadge type={downtimeMode === 'auto' ? 'auto' : 'input'} />
+                        ) : (
+                          <InputBadge type="input" />
+                        )}
+                      </span>
+                    }
                     initialValue={0}
-                    extra={plannedHours > 0 ? `Derived: planned ${formatNumber(plannedHours, 2)}h − running ${formatNumber(derivedRunning, 2)}h` : undefined}
+                    extra={
+                      plannedHours > 0
+                        ? downtimeMode === 'auto'
+                          ? `Derived: planned ${formatNumber(plannedHours, 2)}h − running ${formatNumber(derivedRunning, 2)}h`
+                          : `Enter downtime — running is derived as planned ${formatNumber(plannedHours, 2)}h − downtime`
+                        : 'No shift plan configured — enter directly'
+                    }
                     rules={[
                       { required: true, message: 'Required' },
                       { type: 'number', min: 0, message: 'Downtime cannot be negative' },
@@ -1107,6 +1149,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                           if (v < 0) return Promise.reject(new Error('Downtime cannot be negative'));
                           if (plannedHours > 0 && v > plannedHours) {
                             return Promise.reject(new Error(`Downtime cannot exceed planned shift hours (${formatNumber(plannedHours, 2)}h)`));
+                          }
+                          if (plannedHours > 0 && downtimeMode === 'auto') {
+                            const run = toNum(getFieldValue('runningHours'));
+                            if (Math.abs(round2(run + v) - plannedHours) > 0.01) {
+                              return Promise.reject(new Error('Running + Downtime must equal planned hours.'));
+                            }
                           }
                           return Promise.resolve();
                         },
@@ -1118,10 +1166,28 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                       min={0}
                       max={plannedHours > 0 ? plannedHours : 24}
                       step={0.25} precision={2}
-                      disabled={plannedHours > 0}
+                      disabled={downtimeReadOnly}
+                      onChange={setHoursFromDowntime}
                     />
                   </Form.Item>
                 </Col>
+                <Col span={12}>
+                  <Form.Item
+                    label="Entry Mode"
+                    tooltip="AUTO: enter Running Hours and Downtime is derived from the shift plan. MANUAL: enter Downtime Hours and Running is derived."
+                  >
+                    <Select
+                      value={downtimeMode}
+                      onChange={handleDowntimeModeChange}
+                      options={[
+                        { value: 'auto', label: 'AUTO (Running → Downtime)' },
+                        { value: 'manual', label: 'MANUAL (Downtime → Running)' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={8}>
                 <Col span={12}>
                   <Form.Item name="downtimeReasonId" label="Downtime Reason">
                     <Select
@@ -1140,6 +1206,27 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                       }
                       options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
                     />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(p, c) => p.downtimeReasonId !== c.downtimeReasonId}
+                  >
+                    {({ getFieldValue }) => {
+                      const reason = lookups.downtimeReasons.find((r) => r.id === getFieldValue('downtimeReasonId'));
+                      const isOther = reason?.name?.toLowerCase() === 'other';
+                      if (!isOther && reason) return null;
+                      return (
+                        <Form.Item
+                          name="downtimeReason"
+                          label={isOther ? 'Specify Downtime Reason' : 'Downtime Reason Details'}
+                          extra={isOther ? 'Describe the specific cause (e.g. power failure, setup).' : undefined}
+                        >
+                          <Input maxLength={200} placeholder={isOther ? 'Specify reason…' : 'Optional details'} />
+                        </Form.Item>
+                      );
+                    }}
                   </Form.Item>
                 </Col>
               </Row>

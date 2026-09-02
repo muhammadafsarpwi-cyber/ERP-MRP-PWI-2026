@@ -187,11 +187,23 @@ export class CreateItemDto {
   @IsOptional()
   departmentId?: string;
 
-  @ApiPropertyOptional({ description: 'Raw wire size in mm' })
+  @ApiPropertyOptional({ description: 'Raw wire size in mm (the item\'s own specification)' })
   @IsNumber()
   @Min(0)
   @IsOptional()
   wireSizeMm?: number;
+
+  @ApiPropertyOptional({ description: 'Thickness in mm (the item\'s own specification, e.g. flattened wire)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  thicknessMm?: number;
+
+  @ApiPropertyOptional({ description: 'Width in mm (the item\'s own specification, e.g. flattened wire)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  widthMm?: number;
 
   @ApiPropertyOptional({ description: 'Routing rule for this item (legacy code)', enum: RouteType })
   @IsIn(ROUTE_TYPES)
@@ -433,11 +445,23 @@ export class UpdateItemDto {
   @IsOptional()
   departmentId?: string;
 
-  @ApiPropertyOptional({ description: 'Raw wire size in mm' })
+  @ApiPropertyOptional({ description: 'Raw wire size in mm (the item\'s own specification)' })
   @IsNumber()
   @Min(0)
   @IsOptional()
   wireSizeMm?: number;
+
+  @ApiPropertyOptional({ description: 'Thickness in mm (the item\'s own specification, e.g. flattened wire)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  thicknessMm?: number;
+
+  @ApiPropertyOptional({ description: 'Width in mm (the item\'s own specification, e.g. flattened wire)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  widthMm?: number;
 
   @ApiPropertyOptional({ description: 'Routing rule for this item (legacy code)', enum: RouteType })
   @IsIn(ROUTE_TYPES)
@@ -578,6 +602,18 @@ export class ItemFilterDto {
   @IsOptional()
   @Type(() => Number)
   wireSizeMm?: number;
+
+  @ApiPropertyOptional({ description: 'Filter by exact thickness (mm)' })
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  thicknessMm?: number;
+
+  @ApiPropertyOptional({ description: 'Filter by exact width (mm)' })
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  widthMm?: number;
 
   @ApiPropertyOptional({ description: 'Filter by active flag (true = ACTIVE status only, false = non-ACTIVE)' })
   @IsBoolean()

@@ -6,6 +6,7 @@ import BomManagement from './BOMManagement';
 import RoutingManagement from './RoutingManagement';
 import ProductionEntries from './ProductionEntries';
 import TargetManagement from './TargetManagement';
+import Traceability from './Traceability';
 
 const Production: React.FC = () => (
   <Routes>
@@ -19,6 +20,7 @@ const Production: React.FC = () => (
     <Route path="routings/:id" element={<RoutingManagement />} />
     <Route path="targets" element={<TargetManagement />} />
     <Route path="targets/:id" element={<TargetManagement />} />
+    <Route path="traceability" element={<Traceability />} />
     <Route path="*" element={<Navigate to="/production/dashboard" replace />} />
   </Routes>
 );

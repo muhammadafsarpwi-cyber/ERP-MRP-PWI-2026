@@ -176,6 +176,12 @@ export class Item extends BaseEntity {
   @Column({ name: 'wire_size_mm', type: 'decimal', precision: 8, scale: 3, nullable: true })
   wireSizeMm: number | null;
 
+  @Column({ name: 'thickness_mm', type: 'decimal', precision: 8, scale: 3, nullable: true })
+  thicknessMm: number | null;
+
+  @Column({ name: 'width_mm', type: 'decimal', precision: 8, scale: 3, nullable: true })
+  widthMm: number | null;
+
   @Column({ name: 'route_type', type: 'varchar', length: 50, nullable: true })
   routeType: string | null;
 

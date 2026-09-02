@@ -43,6 +43,8 @@ export class ItemController {
   @ApiQuery({ name: 'routeType', required: false })
   @ApiQuery({ name: 'routeTypeId', required: false })
   @ApiQuery({ name: 'wireSizeMm', required: false })
+  @ApiQuery({ name: 'thicknessMm', required: false })
+  @ApiQuery({ name: 'widthMm', required: false })
   @ApiQuery({ name: 'active', required: false })
   @ApiQuery({ name: 'isPurchasable', required: false })
   @ApiQuery({ name: 'isSellable', required: false })
@@ -65,6 +67,8 @@ export class ItemController {
     @Query('routeType') routeType?: string,
     @Query('routeTypeId') routeTypeId?: string,
     @Query('wireSizeMm') wireSizeMm?: number,
+    @Query('thicknessMm') thicknessMm?: number,
+    @Query('widthMm') widthMm?: number,
     @Query('active') active?: string,
     @Query('isPurchasable') isPurchasable?: boolean,
     @Query('isSellable') isSellable?: boolean,
@@ -78,6 +82,8 @@ export class ItemController {
       page: Number(page) || 1, limit: Number(limit) || 20, search, status, itemType, categoryId, companyId,
       divisionId, sectionId, departmentId, routeType,
       wireSizeMm: wireSizeMm !== undefined && wireSizeMm !== null && `${wireSizeMm}` !== '' ? Number(wireSizeMm) : undefined,
+      thicknessMm: thicknessMm !== undefined && thicknessMm !== null && `${thicknessMm}` !== '' ? Number(thicknessMm) : undefined,
+      widthMm: widthMm !== undefined && widthMm !== null && `${widthMm}` !== '' ? Number(widthMm) : undefined,
       active: active === 'true' ? true : active === 'false' ? false : undefined,
       isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory,
       sortField, sortOrder,

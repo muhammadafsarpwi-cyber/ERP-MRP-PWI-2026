@@ -77,6 +77,8 @@ export interface Item {
   section?: { id: string; sectionCode: string; name: string } | null;
   department?: { id: string; departmentCode: string; name: string } | null;
   wireSizeMm?: number | null;
+  thicknessMm?: number | null;
+  widthMm?: number | null;
   routeType?: string | null;
   routeTypeId?: string | null;
   routeTypeRef?: { id: string; routeCode: string; name: string } | null;
@@ -141,5 +143,6 @@ export const IMPORT_COLUMNS = [
 ];
 
 export const TEMPLATE_CSV =
-  'itemCode,name,sku,shortName,itemType,uomCode,categoryName,divisionCodeOrName,sectionCodeOrName,departmentCodeOrName,wireSizeMm,routeType,process1,process2,process3,process4,finalProduct,packingNextStep,weightPerPiece,piecesPerKg,weightPerMeter,lengthPerPiece,barcode,remarks\n' +
-  'WIRE-3MM-001,Wire Rod 3mm,,W3,RAW_MATERIAL,KG,,,Spoke,Wire Drawing,3,DIRECT_SPOKE,Drawing,Annealing,Packing,,,,0.0555,18.02,,,,Sample remark\n';
+  'itemCode,name,sku,shortName,itemType,uomCode,categoryName,divisionCodeOrName,sectionCodeOrName,departmentCodeOrName,wireSizeMm,thicknessMm,widthMm,routeType,process1,process2,process3,process4,finalProduct,packingNextStep,weightPerPiece,piecesPerKg,weightPerMeter,lengthPerPiece,barcode,remarks\n' +
+  'WIRE-3MM-001,Wire Rod 3mm,,W3,RAW_MATERIAL,KG,,,Spoke,Wire Drawing,3,,,DIRECT_SPOKE,Drawing,Annealing,Packing,,,,0.0555,18.02,,,,Sample remark\n' +
+  'FLAT-040-260-001,0.40 x 2.60 mm Flat Wire [SAMPLE],,FLAT,SEMI_FINISHED,KG,,,Flat Wire,,,0.40,2.60,CCD,Flattening,Spiral,PVC,,,,0.1150,8.70,,,,Sample remark\n';

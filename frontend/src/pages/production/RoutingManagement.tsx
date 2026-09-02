@@ -293,10 +293,26 @@ const RoutingManagement: React.FC = () => {
   const opColumns: ColumnsType<RoutingOperation> = [
     { title: '#', dataIndex: 'sequenceNo', key: 'sequenceNo', width: 50 },
     { title: 'Code', dataIndex: 'operationCode', key: 'operationCode', width: 100 },
-    { title: 'Operation', dataIndex: 'operationName', key: 'operationName', width: 160 },
+    { title: 'Operation', dataIndex: 'operationName', key: 'operationName', width: 150 },
+    {
+      title: 'Input Item', key: 'inputItem', width: 210, render: (_, r) => (
+        <span>
+          <div>{r.inputItem ? `${r.inputItem.itemCode} - ${r.inputItem.name}` : '-'}</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{formatDecimal(toNum(r.inputQuantity))} {r.uom?.code || ''}</Typography.Text>
+        </span>
+      ),
+    },
+    {
+      title: 'Output Item', key: 'outputItem', width: 210, render: (_, r) => (
+        <span>
+          <div>{r.outputItem ? `${r.outputItem.itemCode} - ${r.outputItem.name}` : '-'}</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{formatDecimal(toNum(r.outputQuantity))} {r.uom?.code || ''}</Typography.Text>
+        </span>
+      ),
+    },
     { title: 'Division', key: 'division', width: 120, render: (_, r) => r.division?.name || '-' },
-    { title: 'Section', key: 'section', width: 120, render: (_, r) => r.section?.name || '-' },
-    { title: 'Department', key: 'department', width: 140, render: (_, r) => r.department?.name || '-' },
+    { title: 'Section', key: 'section', width: 110, render: (_, r) => r.section?.name || '-' },
+    { title: 'Department', key: 'department', width: 130, render: (_, r) => r.department?.name || '-' },
     { title: 'Setup', key: 'setup', width: 70, render: (_, r) => formatDecimal(toNum(r.setupTimeMinutes)) },
     { title: 'Run', key: 'run', width: 70, render: (_, r) => formatDecimal(toNum(r.runTimeMinutes)) },
     { title: 'Total', key: 'total', width: 70, render: (_, r) => formatDecimal(toNum(r.setupTimeMinutes) + toNum(r.runTimeMinutes) + toNum(r.queueTimeMinutes) + toNum(r.waitTimeMinutes)) },

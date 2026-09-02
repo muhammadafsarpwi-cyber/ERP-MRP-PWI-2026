@@ -1,0 +1,114 @@
+/* =====================================================================
+   Profile page — uses the ERP Command Center theme tokens.
+   ===================================================================== */
+
+.erp-profile-card {
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  background: var(--theme-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+.erp-profile-card .ant-card-body {
+  background: transparent;
+}
+
+.erp-profile-avatar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.erp-profile-avatar {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--theme-border-strong);
+  background: var(--theme-accent-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+}
+
+.erp-profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.erp-profile-avatar-initials {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--theme-accent);
+  line-height: 1;
+  user-select: none;
+}
+
+.erp-profile-avatar-edit {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--theme-surface);
+  background: var(--theme-accent);
+  color: var(--theme-on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+.erp-profile-avatar-edit:hover {
+  background: var(--theme-accent-hover);
+  transform: scale(1.05);
+}
+
+.erp-profile-avatar-edit:focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: 2px;
+}
+
+.erp-profile-avatar-edit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.erp-profile-avatar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.erp-profile-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.erp-profile-detail-row:last-child {
+  border-bottom: 0;
+}
+
+.erp-profile-detail-row > span:first-child {
+  font-size: 16px;
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .erp-profile-avatar-edit {
+    transition: none;
+  }
+}

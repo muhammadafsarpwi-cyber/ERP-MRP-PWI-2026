@@ -50,6 +50,8 @@ describe('ItemService', () => {
     sectionId: null,
     departmentId: null,
     wireSizeMm: null,
+    thicknessMm: null,
+    widthMm: null,
     routeType: null,
     routeTypeId: null,
     routeTypeRef: null as never,

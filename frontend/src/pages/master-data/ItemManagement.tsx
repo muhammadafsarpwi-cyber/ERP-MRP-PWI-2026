@@ -1,18 +1,23 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Alert, App, Badge, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Input,
+  Alert, App, Badge, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Grid, Input,
   InputNumber, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import {
   AppstoreOutlined, ClearOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
-  EyeOutlined, FileAddOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
-  PlusOutlined, PrinterOutlined, ReloadOutlined, SearchOutlined,
+  EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
+  PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined,
+  ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
+import { formatDimension } from '../../utils/numberFormat';
 import { PageHeader, StatusBadge, EmptyState, LoadingState } from '../../components/shared';
+import { usePermission } from '../../hooks/usePermission';
 import {
-  ITEM_TYPES, ROUTE_TYPES, statusColorMap, TRACKING_SWITCHES,
+  ITEM_TYPES, ROUTE_TYPES, STATUS_OPTIONS, statusColorMap, TRACKING_SWITCHES,
   routeColorMap, IMPORT_COLUMNS, TEMPLATE_CSV,
   type Item, type DivisionOption, type SectionOption, type DepartmentOption,
   type UomOption, type SimpleOption, type CategoryOption, type ConversionInfo,
@@ -79,8 +84,18 @@ function downloadText(filename: string, text: string, mime = 'text/csv;charset=u
 const num = (v: number | null | undefined): string =>
   v === null || v === undefined ? '' : String(Number(v));
 
+// Display only the human-readable business name (never expose codes/IDs in normal views).
+const divisionName = (r: Item): string | null =>
+  r.division ? r.division.name : (r.divisionName ?? null);
+const sectionName = (r: Item): string | null =>
+  r.section ? r.section.name : (r.sectionName ?? null);
+const departmentName = (r: Item): string | null =>
+  r.department ? r.department.name : (r.departmentName ?? null);
+
 const ItemManagement: React.FC = () => {
   const { message } = App.useApp();
+  const { can } = usePermission();
+  const screens = Grid.useBreakpoint();
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +126,10 @@ const ItemManagement: React.FC = () => {
   const [routeTypes, setRouteTypes] = useState<Array<{ id: string; routeCode: string; name: string; status: string }>>([]);
   const [routeTypesState, setRouteTypesState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [stats, setStats] = useState<{
+    total: number | null; active: number | null; inactive: number | null;
+    stock: number | null; manufactured: number | null;
+  }>({ total: null, active: null, inactive: null, stock: null, manufactured: null });
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
@@ -124,6 +143,7 @@ const ItemManagement: React.FC = () => {
 
   const [exporting, setExporting] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [pdfing, setPdfing] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
   const [importFileName, setImportFileName] = useState<string | null>(null);
@@ -247,8 +267,26 @@ const ItemManagement: React.FC = () => {
         setRouteTypesState('error');
       }
       setCompanyId(await resolveCompanyId());
+      if (can('item.view')) {
+        try {
+          const mk = async (params: Record<string, unknown>) => {
+            const res = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', { page: 1, limit: 1, ...params });
+            return res.total || 0;
+          };
+          const [totalCount, active, inactive, stock, manufactured] = await Promise.all([
+            mk({}),
+            mk({ status: 'ACTIVE' }),
+            mk({ status: 'INACTIVE' }),
+            mk({ isStockItem: true }),
+            mk({ isManufacturable: true }),
+          ]);
+          setStats({ total: totalCount, active, inactive, stock, manufactured });
+        } catch {
+          // keep page-derived fallback values on failure
+        }
+      }
     })();
-  }, [resolveCompanyId, message]);
+  }, [resolveCompanyId, message, can]);
 
   useEffect(() => {
     fetchItems();
@@ -256,7 +294,7 @@ const ItemManagement: React.FC = () => {
 
   const handleTabChange = (key: string) => {
     setActiveTab(key);
-    setFStatus(key === 'all' ? undefined : key);
+    setFItemType(key === 'all' ? undefined : key);
     setPage(1);
   };
 
@@ -320,6 +358,8 @@ const ItemManagement: React.FC = () => {
       sectionId: record.sectionId ?? undefined,
       departmentId: record.departmentId ?? undefined,
       wireSizeMm: record.wireSizeMm ?? undefined,
+      thicknessMm: record.thicknessMm ?? undefined,
+      widthMm: record.widthMm ?? undefined,
       routeType: record.routeType ?? undefined,
       routeTypeId: record.routeTypeId ?? (record.routeType ? routeTypes.find((rt) => rt.routeCode === record.routeType)?.id : undefined),
       process1: record.process1 ?? undefined,
@@ -464,7 +504,7 @@ const ItemManagement: React.FC = () => {
 
   const EXPORT_HEADERS = [
     'Item Code', 'Name', 'SKU', 'Short Name', 'Item Type', 'Category', 'Division', 'Section',
-    'Department', 'Wire Size (mm)', 'Route Type', 'Process 1', 'Process 2', 'Process 3',
+    'Department', 'Wire Size (mm)', 'Thickness (mm)', 'Width (mm)', 'Route Type', 'Process 1', 'Process 2', 'Process 3',
     'Process 4', 'Final Product', 'Packing / Next Step', 'Base UOM', 'Weight per Piece (KG)',
     'Pieces per KG', 'Weight per Meter (kg/m)', 'Length per Piece (m)', 'Barcode', 'Status', 'Remarks',
   ];
@@ -473,10 +513,12 @@ const ItemManagement: React.FC = () => {
     r.itemCode, r.name, r.sku ?? '', r.shortName ?? '',
     ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType,
     r.categoryName ?? '',
-    r.division ? `${r.division.divisionCode} - ${r.division.name}` : (r.divisionName ?? ''),
-    r.section ? `${r.section.sectionCode} - ${r.section.name}` : (r.sectionName ?? ''),
-    r.department ? `${r.department.departmentCode} - ${r.department.name}` : (r.departmentName ?? ''),
-    num(r.wireSizeMm),
+    divisionName(r) ?? '',
+    sectionName(r) ?? '',
+    departmentName(r) ?? '',
+    formatDimension(r.wireSizeMm),
+    formatDimension(r.thicknessMm),
+    formatDimension(r.widthMm),
     r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : '',
     r.process1 ?? '', r.process2 ?? '', r.process3 ?? '', r.process4 ?? '',
     r.finalProduct ?? '', r.packingNextStep ?? '', r.baseUomName ?? '',
@@ -511,7 +553,10 @@ const ItemManagement: React.FC = () => {
     if (dep) parts.push(`Department: ${dep}`);
     if (fCategory) parts.push(`Category: ${flatCategories.find((c) => c.id === fCategory)?.name ?? fCategory}`);
     if (fItemType) parts.push(`Type: ${ITEM_TYPES.find((t) => t.value === fItemType)?.label ?? fItemType}`);
-    if (fRouteType) parts.push(`Route: ${routeTypes.find((t) => t.id === fRouteType)?.routeCode ?? fRouteType}`);
+    if (fRouteType) {
+      const rt = routeTypes.find((t) => t.id === fRouteType);
+      if (rt) parts.push(`Route: ${rt.name?.trim() ? rt.name : rt.routeCode}`);
+    }
     if (fStatus) parts.push(`Status: ${fStatus}`);
     return parts.length ? parts.join('   |   ') : 'All items';
   };
@@ -528,10 +573,12 @@ const ItemManagement: React.FC = () => {
       const bodyRows = rows
         .map(
           (r) => `<tr>
-            <td><b>${r.itemCode}</b></td><td>${r.name}</td><td>${r.division ? `${r.division.divisionCode} - ${r.division.name}` : (r.divisionName ?? '')}</td>
-            <td>${r.section ? `${r.section.sectionCode} - ${r.section.name}` : (r.sectionName ?? '')}</td>
-            <td>${r.department ? `${r.department.departmentCode} - ${r.department.name}` : (r.departmentName ?? '')}</td>
-            <td class="num">${num(r.wireSizeMm)}</td>
+            <td><b>${r.itemCode}</b></td><td>${r.name}</td><td>${divisionName(r) ?? ''}</td>
+            <td>${sectionName(r) ?? ''}</td>
+            <td>${departmentName(r) ?? ''}</td>
+            <td class="num">${formatDimension(r.wireSizeMm)}</td>
+            <td class="num">${formatDimension(r.thicknessMm)}</td>
+            <td class="num">${formatDimension(r.widthMm)}</td>
             <td>${ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType}</td>
             <td>${r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : ''}</td>
             <td>${r.baseUomName ?? ''}</td><td class="status ${r.status.toLowerCase()}">${r.status}</td>
@@ -558,8 +605,8 @@ const ItemManagement: React.FC = () => {
   <div class="meta">Generated ${new Date().toLocaleString()} &nbsp;&middot;&nbsp; ${rows.length} items</div>
   <div class="filters"><b>Filters:</b> ${filterSummary()}</div>
   <table>
-    <thead><tr><th>Item Code</th><th>Name</th><th>Division</th><th>Section</th><th>Department</th><th class="num">Wire (mm)</th><th>Type</th><th>Route</th><th>UOM</th><th>Status</th></tr></thead>
-    <tbody>${bodyRows || '<tr><td colspan="10" style="text-align:center;color:#999">No items found</td></tr>'}</tbody>
+    <thead><tr><th>Item Code</th><th>Name</th><th>Division</th><th>Section</th><th>Department</th><th class="num">Wire (mm)</th><th class="num">Thk (mm)</th><th class="num">Wid (mm)</th><th>Type</th><th>Route</th><th>UOM</th><th>Status</th></tr></thead>
+    <tbody>${bodyRows || '<tr><td colspan="12" style="text-align:center;color:#999">No items found</td></tr>'}</tbody>
   </table>
 <script>window.onload = function () { window.print(); };</script>
 </body></html>`);
@@ -568,6 +615,61 @@ const ItemManagement: React.FC = () => {
       message.error(err?.response?.data?.message || 'Print failed');
     } finally {
       setPrinting(false);
+    }
+  };
+
+  const handlePdf = async () => {
+    setPdfing(true);
+    try {
+      const rows = await collectFilteredItems();
+      if (!rows.length) {
+        message.info('No items to export to PDF');
+        return;
+      }
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      doc.setFontSize(14);
+      doc.setTextColor(33);
+      doc.text('Products & Items Master Report', 40, 40);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      doc.text(`Generated ${new Date().toLocaleString()} \u00B7 ${rows.length} item(s)`, 40, 56);
+      doc.text(`Filters: ${filterSummary()}`, 40, 70);
+      const head = [['Item Code', 'Item Name', 'Division', 'Section', 'Department', 'Wire (mm)', 'Thk (mm)', 'Wid (mm)', 'Item Type', 'Route', 'UOM', 'Status']];
+      const body = rows.map((r) => [
+        r.itemCode,
+        r.name,
+        divisionName(r) ?? '',
+        sectionName(r) ?? '',
+        departmentName(r) ?? '',
+        formatDimension(r.wireSizeMm),
+        formatDimension(r.thicknessMm),
+        formatDimension(r.widthMm),
+        ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType,
+        routeTypeLabel(r),
+        r.baseUomName ?? '',
+        r.status,
+      ]);
+      autoTable(doc, {
+        head,
+        body,
+        startY: 84,
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [31, 41, 55], textColor: 255 },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+      });
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i += 1) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(120);
+        doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.getWidth() - 40, doc.internal.pageSize.getHeight() - 20, { align: 'right' });
+      }
+      doc.save(`item-master-${new Date().toISOString().slice(0, 10)}.pdf`);
+      message.success(`Exported ${rows.length} items to PDF`);
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'PDF export failed');
+    } finally {
+      setPdfing(false);
     }
   };
 
@@ -642,7 +744,8 @@ const ItemManagement: React.FC = () => {
     }
 
     const numericFields: Array<[string, string]> = [
-      ['wireSizeMm', 'Wire Size'], ['weightPerPiece', 'Weight per Piece'],
+      ['wireSizeMm', 'Wire Size'], ['thicknessMm', 'Thickness'], ['widthMm', 'Width'],
+      ['weightPerPiece', 'Weight per Piece'],
       ['piecesPerKg', 'Pieces per KG'], ['weightPerMeter', 'Weight per Meter'],
       ['lengthPerPiece', 'Length per Piece'],
     ];
@@ -688,6 +791,8 @@ const ItemManagement: React.FC = () => {
       ...(sectionId ? { sectionId } : {}),
       ...(departmentId ? { departmentId } : {}),
       ...(numbers.wireSizeMm !== undefined ? { wireSizeMm: numbers.wireSizeMm } : {}),
+      ...(numbers.thicknessMm !== undefined ? { thicknessMm: numbers.thicknessMm } : {}),
+      ...(numbers.widthMm !== undefined ? { widthMm: numbers.widthMm } : {}),
       ...(routeTypeId ? { routeTypeId } : {}),
       ...(get('process1') ? { process1: get('process1') } : {}),
       ...(get('process2') ? { process2: get('process2') } : {}),
@@ -799,16 +904,17 @@ const ItemManagement: React.FC = () => {
   };
 
   // Resolve a human-readable route label from the DB-backed master (or legacy code).
+  // Prioritize the clean business name; fall back to the route code only when no name exists.
   const routeTypeLabel = (r: Item): string => {
     const ref = r.routeTypeRef;
-    if (ref) return `${ref.routeCode} — ${ref.name}`;
+    if (ref) return ref.name?.trim() ? ref.name : ref.routeCode;
     if (r.routeTypeId) {
       const rt = routeTypes.find((x) => x.id === r.routeTypeId);
-      if (rt) return `${rt.routeCode} — ${rt.name}`;
+      if (rt) return rt.name?.trim() ? rt.name : rt.routeCode;
     }
     if (r.routeType) {
       const rt = routeTypes.find((x) => x.routeCode === r.routeType);
-      if (rt) return `${rt.routeCode} — ${rt.name}`;
+      if (rt) return rt.name?.trim() ? rt.name : rt.routeCode;
       return ROUTE_TYPES.find((x) => x.value === r.routeType)?.label || r.routeType;
     }
     return '';
@@ -816,107 +922,141 @@ const ItemManagement: React.FC = () => {
 
   const columns: ColumnsType<Item> = [
     {
-      title: 'Item Code', dataIndex: 'itemCode', key: 'itemCode', width: 150, fixed: 'left',
+      title: 'Item Code', dataIndex: 'itemCode', key: 'itemCode', width: 110, fixed: 'left',
       sorter: true,
-      render: (v: string) => <Text strong style={{ fontSize: 13 }}>{v}</Text>,
-    },
-    {
-      title: 'Item Name', dataIndex: 'name', key: 'name', width: 220, ellipsis: true,
-      sorter: true,
-      render: (_: unknown, r: Item) => (
-        <div>
-          <div style={{ fontSize: 13 }}>{r.name}</div>
-          {r.shortName && <Text type="secondary" style={{ fontSize: 12 }}>{r.shortName}</Text>}
-        </div>
+      render: (v: string, r: Item) => (
+        <Button
+          type="link"
+          size="small"
+          style={{ padding: 0, height: 'auto', fontSize: 13, fontWeight: 700, color: 'var(--theme-primary)' }}
+          onClick={() => openDetail(r)}
+          aria-label={`View item ${v}`}
+        >
+          {v}
+        </Button>
       ),
     },
     {
-      title: 'Division', key: 'division', width: 120, ellipsis: true,
-      render: (_: unknown, r: Item) => r.division ? `${r.division.divisionCode} - ${r.division.name}` : (r.divisionName ?? <Text type="secondary">—</Text>),
-    },
-    {
-      title: 'Section', key: 'section', width: 120, ellipsis: true,
-      render: (_: unknown, r: Item) => r.section ? `${r.section.sectionCode} - ${r.section.name}` : (r.sectionName ?? <Text type="secondary">—</Text>),
-    },
-    {
-      title: 'Department', key: 'department', width: 140, ellipsis: true,
-      render: (_: unknown, r: Item) => r.department ? `${r.department.departmentCode} - ${r.department.name}` : (r.departmentName ?? <Text type="secondary">—</Text>),
-    },
-    {
-      title: 'Wire Size', dataIndex: 'wireSizeMm', key: 'wireSizeMm', width: 100, align: 'right',
+      title: 'Item Name', dataIndex: 'name', key: 'name', width: 210, ellipsis: { showTitle: true },
       sorter: true,
-      render: (v: number | null) => (v !== null && v !== undefined ? `${Number(v)}` : <Text type="secondary">—</Text>),
+      render: (_: unknown, r: Item) => (
+        <Tooltip title={r.name}>
+          <div>
+            <div style={{ fontSize: 13, lineHeight: 1.3 }}>{r.name}</div>
+            {r.shortName && <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>{r.shortName}</Text>}
+          </div>
+        </Tooltip>
+      ),
     },
     {
-      title: 'Item Type', dataIndex: 'itemType', key: 'itemType', width: 130,
+      title: 'Division', key: 'division', width: 140, ellipsis: true,
+      render: (_: unknown, r: Item) => divisionName(r) ?? <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Section', key: 'section', width: 110, ellipsis: true,
+      render: (_: unknown, r: Item) => sectionName(r) ?? <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Department', key: 'department', width: 130, ellipsis: true,
+      render: (_: unknown, r: Item) => departmentName(r) ?? <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Wire Size', dataIndex: 'wireSizeMm', key: 'wireSizeMm', width: 80, align: 'right',
+      sorter: true,
+      render: (v: number | null) => (v !== null && v !== undefined
+        ? <Text strong style={{ fontSize: 13, color: 'var(--theme-primary)' }}>{formatDimension(v)}</Text>
+        : <Text type="secondary">—</Text>),
+    },
+    {
+      title: 'Flat Spec (mm)', key: 'flatSpec', width: 110, align: 'right',
+      render: (_: unknown, r: Item) => {
+        const t = r.thicknessMm;
+        const w = r.widthMm;
+        return (t !== null && t !== undefined) || (w !== null && w !== undefined)
+          ? <Text style={{ fontSize: 13 }}>{formatDimension(t)} × {formatDimension(w)}</Text>
+          : <Text type="secondary">—</Text>;
+      },
+    },
+    {
+      title: 'Item Type', dataIndex: 'itemType', key: 'itemType', width: 120,
       render: (v: string) => {
         const label = ITEM_TYPES.find((t) => t.value === v)?.label || v;
         return <Tag style={{ marginInlineEnd: 0 }}>{label}</Tag>;
       },
     },
     {
-      title: 'Route', dataIndex: 'routeType', key: 'routeType', width: 120,
+      title: 'Route', dataIndex: 'routeType', key: 'routeType', width: 140,
       sorter: true,
       render: (v: string | null, r: Item) => {
         const label = routeTypeLabel(r);
-        return label ? <Tag color={routeColorMap[r.routeType ?? ''] ?? 'default'} style={{ marginInlineEnd: 0 }}>{label}</Tag> : <Text type="secondary">—</Text>;
+        return label ? <span style={{ fontSize: 13 }}>{label}</span> : <Text type="secondary">—</Text>;
       },
     },
     {
-      title: 'UOM / Conversion', key: 'uom', width: 170,
+      title: 'UOM / Conversion', key: 'uom', width: 130,
       render: (_: unknown, r: Item) => (
         <div>
-          <div style={{ fontSize: 13 }}>{r.baseUomName ?? '—'}</div>
+          <div style={{ fontSize: 13, lineHeight: 1.3 }}>{r.baseUomName ?? '—'}</div>
           {convChips(r).length > 0 && (
-            <Text type="secondary" style={{ fontSize: 11 }}>{convChips(r).join(' · ')}</Text>
+            <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>{convChips(r).join(' · ')}</Text>
           )}
         </div>
       ),
     },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 110,
+      title: 'Status', dataIndex: 'status', key: 'status', width: 80,
       sorter: true,
       render: (s: string) => (
-        <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 74, textAlign: 'center' }} />
+        <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 60, textAlign: 'center' }} />
       ),
     },
     {
-      title: 'Actions', key: 'actions', width: 190, fixed: 'right',
+      title: 'Actions', key: 'actions', width: 116, fixed: 'right',
       render: (_: unknown, record: Item) => (
-        <Space size={2}>
-          <Tooltip title="View details">
-            <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} style={{ color: 'var(--theme-primary)' }} />
-          </Tooltip>
-          <Tooltip title="Edit">
-            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
-          </Tooltip>
+        <Space size={0}>
+          {can('item.view') && (
+            <Tooltip title="View">
+              <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} style={{ color: 'var(--theme-primary)' }} aria-label={`View ${record.itemCode}`} />
+            </Tooltip>
+          )}
+          {can('item.update') && (
+            <Tooltip title="Edit">
+              <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} aria-label={`Edit ${record.itemCode}`} />
+            </Tooltip>
+          )}
           {record.status === 'ACTIVE' ? (
-            <Popconfirm
-              title={`Deactivate '${record.itemCode}'?`}
-              description="Inactive items are hidden from most transaction screens."
-              onConfirm={() => handleStatusChange(record, 'deactivate')}
-            >
-              <Tooltip title="Deactivate">
-                <Button type="text" size="small" danger style={{ color: 'var(--theme-danger)' }}>Deact</Button>
-              </Tooltip>
-            </Popconfirm>
+            can('item.deactivate') && (
+              <Popconfirm
+                title={`Deactivate '${record.itemCode}'?`}
+                description="Inactive items are hidden from most transaction screens."
+                onConfirm={() => handleStatusChange(record, 'deactivate')}
+              >
+                <Tooltip title="Deactivate">
+                  <Button type="text" size="small" danger style={{ color: 'var(--theme-danger)' }} icon={<PauseCircleOutlined />} aria-label={`Deactivate ${record.itemCode}`} />
+                </Tooltip>
+              </Popconfirm>
+            )
           ) : (
-            <Popconfirm title={`Activate '${record.itemCode}'?`} onConfirm={() => handleStatusChange(record, 'activate')}>
-              <Tooltip title="Activate">
-                <Button type="text" size="small" style={{ color: 'var(--theme-success)' }}>Act</Button>
+            can('item.activate') && (
+              <Popconfirm title={`Activate '${record.itemCode}'?`} onConfirm={() => handleStatusChange(record, 'activate')}>
+                <Tooltip title="Activate">
+                  <Button type="text" size="small" style={{ color: 'var(--theme-success)' }} icon={<PlayCircleOutlined />} aria-label={`Activate ${record.itemCode}`} />
+                </Tooltip>
+              </Popconfirm>
+            )
+          )}
+          {can('item.delete') && (
+            <Popconfirm
+              title={`Delete '${record.itemCode}'?`}
+              description="Permanent. Blocked automatically if referenced by BOM, production, stock, routing or targets."
+              okButtonProps={{ danger: true }}
+              onConfirm={() => handleDelete(record)}
+            >
+              <Tooltip title="Delete">
+                <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Delete ${record.itemCode}`} />
               </Tooltip>
             </Popconfirm>
           )}
-          <Popconfirm
-            title={`Delete '${record.itemCode}'?`}
-            description="Permanent. Blocked automatically if referenced by BOM, production, stock, routing or targets."
-            okButtonProps={{ danger: true }}
-            onConfirm={() => handleDelete(record)}
-          >
-            <Tooltip title="Delete">
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
         </Space>
       ),
     },
@@ -949,76 +1089,93 @@ const ItemManagement: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 1440, margin: '0 auto' }}>
+    <div style={{ padding: '10px 14px', margin: '0 auto' }}>
       <PageHeader
         icon={<AppstoreOutlined />}
         title="Products & Items"
         subtitle="Manage your item master data — raw materials, finished goods, and production items"
         showBreadcrumbs
+        style={{ marginBottom: 8 }}
         extra={
           <>
             <Tooltip title="Refresh">
-              <Button icon={<ReloadOutlined />} onClick={() => fetchItems()} />
+              <Button size="middle" icon={<ReloadOutlined />} onClick={() => fetchItems()} />
             </Tooltip>
-            <Dropdown
-              menu={{
-                items: [{ key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' }],
-                onClick: handleExport,
-              }}
-            >
-              <Button icon={<DownloadOutlined />} loading={exporting}>Export</Button>
-            </Dropdown>
-            <Button icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
-            <Button icon={<ImportOutlined />} onClick={() => { setImportOpen(true); setImportRows([]); setImportSummary(null); setImportFileName(null); }}>
-              Import
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add Item</Button>
+            {can('item.view') && (
+              <Dropdown
+                menu={{
+                  items: [{ key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' }],
+                  onClick: handleExport,
+                }}
+              >
+                <Button size="middle" icon={<DownloadOutlined />} loading={exporting}>Export</Button>
+              </Dropdown>
+            )}
+            {can('item.view') && (
+              <Button size="middle" icon={<FilePdfOutlined />} loading={pdfing} onClick={handlePdf}>PDF</Button>
+            )}
+            {can('item.view') && (
+              <Button size="middle" icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
+            )}
+            {can('item.create') && (
+              <Button size="middle" icon={<ImportOutlined />} onClick={() => { setImportOpen(true); setImportRows([]); setImportSummary(null); setImportFileName(null); }}>
+                Import
+              </Button>
+            )}
+            {can('item.create') && (
+              <Button size="middle" type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add Item</Button>
+            )}
           </>
         }
       />
 
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={6}>
-          <Card size="small" styles={{ body: { padding: '16px 20px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-primary)' }}>
-            <Text style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>Total Items</Text>
-            <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--theme-primary)', lineHeight: 1.2, marginTop: 4 }}>{total}</div>
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card size="small" styles={{ body: { padding: '16px 20px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-success)' }}>
-            <Text style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>Active</Text>
-            <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--theme-success)', lineHeight: 1.2, marginTop: 4 }}>
-              {items.filter((i) => i.status === 'ACTIVE').length}
-            </div>
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card size="small" styles={{ body: { padding: '16px 20px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-accent)' }}>
-            <Text style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>Stock Items</Text>
-            <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--theme-accent)', lineHeight: 1.2, marginTop: 4 }}>
-              {items.filter((i) => i.isStockItem).length}
-            </div>
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card size="small" styles={{ body: { padding: '16px 20px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-warning)' }}>
-            <Text style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>Manufactured</Text>
-            <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--theme-warning)', lineHeight: 1.2, marginTop: 4 }}>
-              {items.filter((i) => i.isManufacturable).length}
-            </div>
-          </Card>
-        </Col>
-      </Row>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: screens.lg ? 'repeat(5, 1fr)' : screens.sm ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
+          gap: 8,
+          marginBottom: 10,
+        }}
+      >
+        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-primary)' }}>
+          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Total Items</Text>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-primary)', lineHeight: 1.2, marginTop: 1 }}>{stats.total ?? total}</div>
+        </Card>
+        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-success)' }}>
+          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Active</Text>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-success)', lineHeight: 1.2, marginTop: 1 }}>
+            {stats.active ?? items.filter((i) => i.status === 'ACTIVE').length}
+          </div>
+        </Card>
+        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-danger)' }}>
+          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Inactive</Text>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-danger)', lineHeight: 1.2, marginTop: 1 }}>
+            {stats.inactive ?? items.filter((i) => i.status === 'INACTIVE').length}
+          </div>
+        </Card>
+        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-accent)' }}>
+          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Stock Items</Text>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-accent)', lineHeight: 1.2, marginTop: 1 }}>
+            {stats.stock ?? items.filter((i) => i.isStockItem).length}
+          </div>
+        </Card>
+        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-warning)' }}>
+          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Manufactured</Text>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-warning)', lineHeight: 1.2, marginTop: 1 }}>
+            {stats.manufactured ?? items.filter((i) => i.isManufacturable).length}
+          </div>
+        </Card>
+      </div>
 
-      <Card style={{ marginBottom: 16, borderRadius: 8 }} styles={{ body: { padding: 0 } }}>
-        <div style={{ padding: '0 16px' }}>
+      <Card style={{ marginBottom: 12, borderRadius: 8 }} styles={{ body: { padding: 0 } }}>
+        <div style={{ padding: '0 12px' }}>
           <Tabs
             activeKey={activeTab}
             onChange={handleTabChange}
+            size="small"
             items={[
-              { key: 'all', label: <span>All <Badge count={total} showZero style={{ backgroundColor: 'var(--theme-primary)', marginLeft: 4 }} /></span> },
-              { key: 'ACTIVE', label: 'Active' },
-              { key: 'INACTIVE', label: 'Inactive' },
+              { key: 'all', label: <span>All Items <Badge count={total} showZero style={{ backgroundColor: 'var(--theme-primary)', marginLeft: 4 }} /></span> },
+              ...ITEM_TYPES.map((t) => ({ key: t.value, label: t.label })),
             ]}
             style={{ marginBottom: 0 }}
           />
@@ -1026,14 +1183,14 @@ const ItemManagement: React.FC = () => {
         <div
           style={{
             display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
-            padding: '10px 16px', borderTop: '1px solid var(--theme-border)',
+            padding: '6px 10px', borderTop: '1px solid var(--theme-border)',
           }}
         >
           <Input
             allowClear
             prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
             placeholder="Search by code, name, SKU, barcode, wire size..."
-            style={{ width: 320, maxWidth: '100%' }}
+            style={{ width: screens.md ? 300 : '100%' }}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
@@ -1047,35 +1204,40 @@ const ItemManagement: React.FC = () => {
               Clear
             </Button>
           )}
-          <div style={{ flex: 1 }} />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {total} items · Sorted by {sortField} ({sortOrder === 'ASC' ? 'ascending' : 'descending'})
-          </Text>
+          {screens.md && (
+            <div style={{ flex: 1 }} />
+          )}
+          {screens.lg && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {total} items · Sorted by {sortField}
+            </Text>
+          )}
         </div>
         {showFilters && (
           <div
             style={{
-              display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: 12, padding: '12px 16px 16px', borderTop: '1px solid var(--theme-border)',
+              display: 'grid',
+              gridTemplateColumns: screens.md ? 'repeat(auto-fit, minmax(160px, 1fr))' : '1fr',
+              gap: 8, padding: '8px 10px 10px', borderTop: '1px solid var(--theme-border)',
               background: 'var(--theme-surface-alt)',
             }}
           >
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Division"
               value={fDivision}
-              options={divisions.map((d) => ({ value: d.id, label: `${d.divisionCode} - ${d.name}` }))}
+              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
               onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
             />
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Section"
               value={fSection} disabled={!fDivision}
-              options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: `${s.sectionCode} - ${s.name}` }))}
+              options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
               onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
             />
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Department"
               value={fDepartment}
-              options={departmentsForSection(fDivision, fSection).map((d) => ({ value: d.id, label: `${d.departmentCode} - ${d.name}` }))}
+              options={departmentsForSection(fDivision, fSection).map((d) => ({ value: d.id, label: d.name }))}
               onChange={(v) => { setFDepartment(v); setPage(1); }}
             />
             <Select
@@ -1085,16 +1247,16 @@ const ItemManagement: React.FC = () => {
               onChange={(v) => { setFCategory(v); setPage(1); }}
             />
             <Select
-              allowClear placeholder="Item Type" options={ITEM_TYPES}
-              value={fItemType}
-              onChange={(v) => { setFItemType(v); setPage(1); }}
-            />
-            <Select
               allowClear showSearch optionFilterProp="label" placeholder="Route Type"
               value={fRouteType}
               loading={routeTypesState === 'loading'}
-              options={routeTypes.map((rt) => ({ value: rt.id, label: `${rt.routeCode} — ${rt.name}` }))}
+              options={routeTypes.map((rt) => ({ value: rt.id, label: rt.name?.trim() ? rt.name : rt.routeCode }))}
               onChange={(v) => { setFRouteType(v); setPage(1); }}
+            />
+            <Select
+              allowClear placeholder="Status" options={STATUS_OPTIONS.map((status) => ({ value: status, label: status }))}
+              value={fStatus}
+              onChange={(v) => { setFStatus(v); setPage(1); }}
             />
           </div>
         )}
@@ -1112,15 +1274,15 @@ const ItemManagement: React.FC = () => {
         />
       )}
 
-      <Card style={{ borderRadius: 8 }} styles={{ body: { padding: '8px 0 0' } }}>
+      <Card style={{ borderRadius: 8 }} styles={{ body: { padding: 0 } }}>
         <Table
           rowKey="id"
           columns={columns}
           dataSource={items}
           loading={loading}
-          scroll={{ x: 1600 }}
+          scroll={{ x: 1490 }}
           sticky
-          size="middle"
+          size="small"
           pagination={pagination}
           onChange={(_p, _f, sorter: any) => {
             if (sorter?.field && !Array.isArray(sorter.field)) {
@@ -1134,7 +1296,7 @@ const ItemManagement: React.FC = () => {
               <EmptyState
                 title={search || activeFilterCount > 0 ? 'No items match your filters' : 'No items found'}
                 description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by creating your first item.'}
-                actionLabel="Add Item"
+                actionLabel={can('item.create') ? 'Add Item' : undefined}
                 onAction={openCreate}
               />
             ),
@@ -1191,15 +1353,17 @@ const ItemManagement: React.FC = () => {
 
             <Card size="small" title="Organization" style={{ borderRadius: 8 }}>
               {detailDesc([
-                { label: 'Division', children: txt(detailItem.division ? `${detailItem.division.divisionCode} — ${detailItem.division.name}` : (detailItem.divisionName ?? null)) },
-                { label: 'Section', children: txt(detailItem.section ? `${detailItem.section.sectionCode} — ${detailItem.section.name}` : (detailItem.sectionName ?? null)) },
-                { label: 'Department', children: txt(detailItem.department ? `${detailItem.department.departmentCode} — ${detailItem.department.name}` : (detailItem.departmentName ?? null)) },
+                { label: 'Division', children: txt(divisionName(detailItem)) },
+                { label: 'Section', children: txt(sectionName(detailItem)) },
+                { label: 'Department', children: txt(departmentName(detailItem)) },
               ])}
             </Card>
 
             <Card size="small" title="Production / Routing" style={{ borderRadius: 8 }}>
               {detailDesc([
-                { label: 'Wire Size (mm)', children: detailItem.wireSizeMm != null ? String(Number(detailItem.wireSizeMm)) : null },
+                { label: 'Wire Size (mm)', children: detailItem.wireSizeMm != null ? formatDimension(detailItem.wireSizeMm) : null },
+                { label: 'Thickness (mm)', children: detailItem.thicknessMm != null ? formatDimension(detailItem.thicknessMm) : null },
+                { label: 'Width (mm)', children: detailItem.widthMm != null ? formatDimension(detailItem.widthMm) : null },
                 {
                   label: 'Route Type',
                   children: routeTypeLabel(detailItem) ? (
@@ -1220,8 +1384,18 @@ const ItemManagement: React.FC = () => {
             <Card size="small" title="Weight & UOM Conversion" style={{ borderRadius: 8 }}>
               {detailDesc([
                 { label: 'Base UOM', children: txt(detailItem.baseUomName) },
-                { label: 'Purchase UOM', children: txt(detailItem.purchaseUomId) },
-                { label: 'Sales UOM', children: txt(detailItem.salesUomId) },
+                {
+                  label: 'Purchase UOM',
+                  children: detailItem.purchaseUomId
+                    ? txt(uoms.find((u) => u.id === detailItem.purchaseUomId)?.name ?? null)
+                    : null,
+                },
+                {
+                  label: 'Sales UOM',
+                  children: detailItem.salesUomId
+                    ? txt(uoms.find((u) => u.id === detailItem.salesUomId)?.name ?? null)
+                    : null,
+                },
                 { label: 'Weight / Piece', children: detailItem.weightPerPiece != null ? `${Number(detailItem.weightPerPiece)} kg` : null },
                 { label: 'Pieces / KG', children: detailItem.piecesPerKg != null ? String(Number(detailItem.piecesPerKg)) : null },
                 { label: 'Weight / Meter', children: detailItem.weightPerMeter != null ? `${Number(detailItem.weightPerMeter)} kg/m` : null },
@@ -1243,8 +1417,8 @@ const ItemManagement: React.FC = () => {
               {(detailItem.barcodes?.length ?? 0) > 0 && (
                 <div style={{ marginTop: 10 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>Registered barcodes:</Text>{' '}
-                  {detailItem.barcodes!.map((b) => (
-                    <Tag key={b.id}>{b.barcodeValue ?? b.id}</Tag>
+                  {detailItem.barcodes!.filter((b) => b.barcodeValue).map((b) => (
+                    <Tag key={b.id}>{b.barcodeValue}</Tag>
                   ))}
                 </div>
               )}
@@ -1315,7 +1489,7 @@ const ItemManagement: React.FC = () => {
               <Form.Item name="divisionId" label="Division">
                 <Select
                   allowClear showSearch optionFilterProp="label" placeholder="Select division"
-                  options={divisions.map((d) => ({ value: d.id, label: `${d.divisionCode} - ${d.name}` }))}
+                  options={divisions.map((d) => ({ value: d.id, label: d.name }))}
                   onChange={() => form.setFieldsValue({ sectionId: undefined, departmentId: undefined })}
                 />
               </Form.Item>
@@ -1325,7 +1499,7 @@ const ItemManagement: React.FC = () => {
                     <Select
                       allowClear showSearch optionFilterProp="label" placeholder="Select section"
                       disabled={!getFieldValue('divisionId')}
-                      options={sectionsForDivision(getFieldValue('divisionId')).map((s) => ({ value: s.id, label: `${s.sectionCode} - ${s.name}` }))}
+                      options={sectionsForDivision(getFieldValue('divisionId')).map((s) => ({ value: s.id, label: s.name }))}
                       onChange={() => form.setFieldsValue({ departmentId: undefined })}
                     />
                   </Form.Item>
@@ -1337,7 +1511,7 @@ const ItemManagement: React.FC = () => {
                     <Select
                       allowClear showSearch optionFilterProp="label" placeholder="Select department"
                       disabled={!getFieldValue('sectionId')}
-                      options={departmentsForSection(getFieldValue('divisionId'), getFieldValue('sectionId')).map((d) => ({ value: d.id, label: `${d.departmentCode} - ${d.name}` }))}
+                      options={departmentsForSection(getFieldValue('divisionId'), getFieldValue('sectionId')).map((d) => ({ value: d.id, label: d.name }))}
                     />
                   </Form.Item>
                 )}
@@ -1349,13 +1523,13 @@ const ItemManagement: React.FC = () => {
           <Card size="small" title="Classification" style={{ marginBottom: 12, borderRadius: 8 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
               <Form.Item name="itemType" label="Item Type" rules={[{ required: true, message: 'Item Type is required' }]}>
-                <Select options={ITEM_TYPES} placeholder="e.g. RAW_MATERIAL" />
+                <Select options={ITEM_TYPES} placeholder="Select item type" />
               </Form.Item>
               <Form.Item name="categoryId" label="Item Category">
                 <Select
                   allowClear showSearch optionFilterProp="label"
                   options={flatCategories.map((c) => ({ value: c.id, label: c.name }))}
-                  placeholder="e.g. Copper / Metal"
+                  placeholder="Select category"
                 />
               </Form.Item>
               <Form.Item name="routeTypeId" label="Route Type">
@@ -1364,8 +1538,8 @@ const ItemManagement: React.FC = () => {
                   loading={routeTypesState === 'loading'}
                   status={routeTypesState === 'error' ? 'error' : undefined}
                   notFoundContent={routeTypesState === 'error' ? 'Route types could not be loaded' : 'No active route types'}
-                  options={routeTypes.map((rt) => ({ value: rt.id, label: `${rt.routeCode} — ${rt.name}` }))}
-                  placeholder="e.g. CONTROL_CABLE — Control Cable"
+                  options={routeTypes.map((rt) => ({ value: rt.id, label: rt.name?.trim() ? rt.name : rt.routeCode }))}
+                  placeholder="Select route type"
                 />
               </Form.Item>
             </div>
@@ -1412,6 +1586,12 @@ const ItemManagement: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
               <Form.Item name="wireSizeMm" label="Wire Size (mm)">
                 <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional" />
+              </Form.Item>
+              <Form.Item name="thicknessMm" label="Thickness (mm)" extra="Flattened / semi-finished wire">
+                <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 0.40" />
+              </Form.Item>
+              <Form.Item name="widthMm" label="Width (mm)" extra="Flattened / semi-finished wire">
+                <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 2.60" />
               </Form.Item>
               <Form.Item name="finalProduct" label="Final Product"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="packingNextStep" label="Packing / Next Step"><Input maxLength={255} placeholder="Optional" /></Form.Item>

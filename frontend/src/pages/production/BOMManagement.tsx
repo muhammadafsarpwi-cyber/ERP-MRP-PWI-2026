@@ -219,7 +219,7 @@ const BomManagement: React.FC = () => {
     {
       title: 'Product',
       key: 'product',
-      render: (_, r) => r.product?.name || r.productCode || '-',
+      render: (_, r) => r.product ? `${r.product.itemCode} - ${r.product.name}` : (r.productCode ? `${r.productCode} - ${r.productName || ''}` : '-'),
     },
     {
       title: 'Lines',
@@ -430,7 +430,7 @@ const BomManagement: React.FC = () => {
               size="small"
               columns={[
                 { title: '#', dataIndex: 'lineNumber', width: 50 },
-                { title: 'Item', key: 'item', render: (_, r) => r.item?.name || r.itemCode || r.itemId },
+                { title: 'Item', key: 'item', render: (_, r) => r.item ? `${r.item.itemCode} - ${r.item.name}` : (r.itemCode ? `${r.itemCode} - ${r.itemName || ''}` : r.itemId) },
                 { title: 'Qty', dataIndex: 'quantity', width: 80, render: (v: any) => formatDecimal(v, 2) },
                 { title: 'UOM', key: 'uom', width: 70, render: (_, r) => r.uom?.code || r.uomCode || '-' },
                 { title: 'Scrap %', dataIndex: 'scrapFactor', width: 80, render: (v: any) => `${toNum(v) * 100}%` },

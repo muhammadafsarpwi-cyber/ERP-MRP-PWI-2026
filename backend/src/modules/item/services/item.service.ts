@@ -103,7 +103,7 @@ export class ItemService {
   }
 
   async findAll(filter: ItemFilterDto): Promise<{ data: Item[]; total: number }> {
-    const { page = 1, limit = 20, search, status, itemType, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const { page = 1, limit = 20, search, status, itemType, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, thicknessMm, widthMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
 
     const qb = this.itemRepository.createQueryBuilder('item')
       .leftJoinAndSelect('item.category', 'category')
@@ -128,13 +128,15 @@ export class ItemService {
     if (routeType) qb.andWhere('item.routeType = :routeType', { routeType });
     if (routeTypeId) qb.andWhere('item.routeTypeId = :routeTypeId', { routeTypeId });
     if (wireSizeMm !== undefined && wireSizeMm !== null && Number.isFinite(wireSizeMm)) qb.andWhere('item.wireSizeMm = :wireSizeMm', { wireSizeMm });
+    if (thicknessMm !== undefined && thicknessMm !== null && Number.isFinite(thicknessMm)) qb.andWhere('item.thicknessMm = :thicknessMm', { thicknessMm });
+    if (widthMm !== undefined && widthMm !== null && Number.isFinite(widthMm)) qb.andWhere('item.widthMm = :widthMm', { widthMm });
     if (isPurchasable !== undefined) qb.andWhere('item.isPurchasable = :isPurchasable', { isPurchasable });
     if (isSellable !== undefined) qb.andWhere('item.isSellable = :isSellable', { isSellable });
     if (isManufacturable !== undefined) qb.andWhere('item.isManufacturable = :isManufacturable', { isManufacturable });
     if (isStockItem !== undefined) qb.andWhere('item.isStockItem = :isStockItem', { isStockItem });
     if (trackInventory !== undefined) qb.andWhere('item.trackInventory = :trackInventory', { trackInventory });
 
-    const validSortFields = ['itemCode', 'name', 'itemType', 'status', 'createdAt', 'routeType', 'wireSizeMm'];
+    const validSortFields = ['itemCode', 'name', 'itemType', 'status', 'createdAt', 'routeType', 'wireSizeMm', 'thicknessMm', 'widthMm'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     qb.orderBy(`item.${field}`, order);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import apiService from '../services/api';
+import { useUserStore } from '../store/userStore';
 
 interface UserData {
   id: string;
@@ -49,6 +50,7 @@ export function usePermission() {
       setIsLoaded(true);
       localStorage.setItem('erp_user', JSON.stringify(userData));
       localStorage.setItem('erp_permissions_ts', Date.now().toString());
+      useUserStore.getState().setUser(userData);
     } catch {
       setIsLoaded(true);
     } finally {

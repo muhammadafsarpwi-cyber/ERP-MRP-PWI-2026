@@ -10,7 +10,6 @@ import { Company } from '../../organization/entities/company.entity';
 import { Division } from '../../organization/entities/division.entity';
 import { Section } from '../../organization/entities/section.entity';
 import { Department } from '../../organization/entities/department.entity';
-import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { ProductionOrder } from './production-order.entity';
@@ -172,12 +171,15 @@ export class ProductionEntry extends BaseEntity {
   @Column({ name: 'inventory_reference_id', type: 'uuid', nullable: true })
   inventoryReferenceId: string | null;
 
-  @Column({ name: 'raw_material_warehouse_id', type: 'uuid', nullable: true })
+  /**
+   * Raw Material Source Warehouse for automatic BOM consumption when the entry
+   * posts to inventory. Intentionally NOT a mapped column: the live
+   * `production_entries` table does not contain `raw_material_warehouse_id`
+   * (migration erp_00012 added it only to `production_orders`). The value is
+   * passed directly into the posting transaction instead of being persisted,
+   * so production-entry inventory posting works against the existing schema.
+   */
   rawMaterialWarehouseId: string | null;
-
-  @ManyToOne(() => Warehouse, { nullable: true })
-  @JoinColumn({ name: 'raw_material_warehouse_id' })
-  rawMaterialWarehouse: Warehouse | null;
 
   @Column({ type: 'text', nullable: true })
   remarks: string | null;

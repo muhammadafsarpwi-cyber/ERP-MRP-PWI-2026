@@ -46,3 +46,18 @@ export function formatNumber(
     maximumFractionDigits: decimals,
   });
 }
+
+/**
+ * Format a dimension value for display (e.g. Wire Size, Thickness, Width).
+ * Always shows exactly 2 decimal places. Renders '—' for null/undefined.
+ *
+ *   formatDimension(1.2)     → "1.20"
+ *   formatDimension(2)       → "2.00"
+ *   formatDimension(null)    → "—"
+ *   formatDimension(1.45)    → "1.45"
+ */
+export function formatDimension(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '\u2014';
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : '\u2014';
+}

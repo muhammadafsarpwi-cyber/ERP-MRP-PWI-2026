@@ -1,17 +1,13 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Avatar, Dropdown, Space, Drawer, Grid, Button } from 'antd';
-import {
-  UserOutlined,
-  LogoutOutlined,
-  LockOutlined,
-  MenuOutlined,
-} from '@ant-design/icons';
+import { Layout, Menu, Drawer, Grid, Button } from 'antd';
+import { MenuOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
 import ThemeSettingsButton from './ThemeCustomizer';
 import NotificationBell from './NotificationBell';
 import EmailCommunicationIcon from './EmailCommunicationIcon';
 import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
+import ProfileMenu from './ProfileMenu';
 import './sidebar-nav.css';
 import { useThemeStore } from '../../theme/themeStore';
 import { usePermission } from '../../hooks/usePermission';
@@ -115,27 +111,6 @@ function buildMenuItems(
   return items;
 }
 
-const userMenuItems: MenuProps['items'] = [
-  {
-    key: 'profile',
-    icon: <UserOutlined />,
-    label: 'Profile',
-  },
-  {
-    key: 'change-password',
-    icon: <LockOutlined />,
-    label: 'Change Password',
-  },
-  {
-    type: 'divider',
-  },
-  {
-    key: 'logout',
-    icon: <LogoutOutlined />,
-    label: 'Logout',
-  },
-];
-
 interface MainLayoutProps {
   children: React.ReactNode;
 }
@@ -148,7 +123,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.lg;
-  const [userName, setUserName] = useState('Admin User');
   const navigate = useNavigate();
   const location = useLocation();
   const { can, isLoaded, user } = usePermission();
@@ -291,13 +265,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   React.useEffect(() => {
     useThemeStore.getState().initializeForUser();
-    try {
-      const stored = localStorage.getItem('erp_user');
-      if (stored) {
-        const user = JSON.parse(stored);
-        setUserName(user.firstName || user.displayName || user.email || 'Admin User');
-      }
-    } catch {}
   }, []);
 
   const handleMenuClick = (info: { key: string }) => {
@@ -313,17 +280,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const handleOpenChange = (nextOpenKeys: string[]) => {
     const latestOpenKey = nextOpenKeys.find((key) => !openKeys.includes(key));
     setOpenKeys(latestOpenKey ? [latestOpenKey] : []);
-  };
-
-  const handleUserMenuClick: MenuProps['onClick'] = (info) => {
-    if (info.key === 'logout') {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refresh_token');
-      localStorage.removeItem('erp_user');
-      navigate('/login');
-    } else if (info.key === 'change-password') {
-      navigate('/change-password');
-    }
   };
 
   return (
@@ -475,12 +431,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <EmailCommunicationIcon />
               <WhatsAppCommunicationIcon />
               <ThemeSettingsButton />
-              <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }}>
-                <Space style={{ cursor: 'pointer', flexShrink: 0 }}>
-                  <Avatar icon={<UserOutlined />} />
-                  <span>{userName}</span>
-                </Space>
-              </Dropdown>
+              <ProfileMenu />
             </div>
           </div>
 

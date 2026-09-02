@@ -676,14 +676,18 @@ export class ProductionEntryService {
       updatedBy: userId ?? null,
     });
 
-    const saved = await this.entryRepo.save(entry);
-
+    let saved: ProductionEntry;
     if (resolved.shouldPostInventory) {
-      // Atomic inventory operation: deduct ACTIVE BOM raw materials from the
-      // Raw Material Source Warehouse, then post the finished-good receipt.
-      await this.entryRepo.manager.transaction(async (manager) => {
+      // Atomic: entry creation + inventory posting in one transaction. If the
+      // posting fails (insufficient stock, invalid warehouse, etc.) the entry
+      // row is rolled back too — no orphaned/unposted production records.
+      saved = await this.entryRepo.manager.transaction(async (manager) => {
+        const saved = await manager.getRepository(ProductionEntry).save(entry);
         await this.postInventoryAndConsume(manager, companyId, saved, resolved.warehouseId!, rawMaterialWarehouseId, userId);
+        return saved;
       });
+    } else {
+      saved = await this.entryRepo.save(entry);
     }
 
     await this.persistChildren(saved.id, companyId, dto.items ?? [], dto.downtimes ?? [], userId, false);

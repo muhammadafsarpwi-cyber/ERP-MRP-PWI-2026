@@ -2,13 +2,24 @@ import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import * as path from 'path';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Global prefix
   app.setGlobalPrefix('api/v1');
+
+  // Serve uploaded profile avatars (STORAGE_PATH/avatars) at /uploads/...
+  const storagePath = process.env.STORAGE_PATH || './storage';
+  app.useStaticAssets(path.resolve(storagePath), {
+    prefix: '/uploads/',
+    index: false,
+    dotfiles: 'deny',
+    fallthrough: false,
+  });
 
   // Global validation pipe
   app.useGlobalPipes(

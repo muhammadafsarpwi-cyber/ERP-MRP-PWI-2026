@@ -1,0 +1,97 @@
+[31m[Nest] 2412  - [39m02/09/2026, 3:13:35 am [31m  ERROR[39m [38;5;3m[SupabaseAuthService] [39m[31mSUPABASE_JWT_SECRET appears to be a JWT token (anon key), not the HS256 signing secret. Set it to the JWT Secret from Supabase Dashboard > Settings > API > JWT Secret. Falling back to Supabase API for token verification.[39m
+[31m[Nest] 2412  - [39m02/09/2026, 3:23:39 am [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mrequest entity too large[39m
+PayloadTooLargeError: request entity too large
+    at readStream (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:163:17)
+    at getRawBody (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:116:12)
+    at read (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\read.js:79:3)
+    at jsonParser (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\types\json.js:138:5)
+    at Layer.handle [as handle_request] (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:328:13)
+    at D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:280:10)
+    at cors (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\cors\lib\index.js:188:7)
+[31m[Nest] 2412  - [39m02/09/2026, 3:23:44 am [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mrequest entity too large[39m
+PayloadTooLargeError: request entity too large
+    at readStream (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:163:17)
+    at getRawBody (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:116:12)
+    at read (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\read.js:79:3)
+    at jsonParser (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\types\json.js:138:5)
+    at Layer.handle [as handle_request] (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:328:13)
+    at D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:280:10)
+    at cors (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\cors\lib\index.js:188:7)
+[31m[Nest] 2412  - [39m02/09/2026, 3:28:54 am [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mrequest entity too large[39m
+PayloadTooLargeError: request entity too large
+    at readStream (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:163:17)
+    at getRawBody (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:116:12)
+    at read (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\read.js:79:3)
+    at jsonParser (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\types\json.js:138:5)
+    at Layer.handle [as handle_request] (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:328:13)
+    at D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:280:10)
+    at cors (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\cors\lib\index.js:188:7)
+[31m[Nest] 2412  - [39m02/09/2026, 3:29:03 am [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mrequest entity too large[39m
+PayloadTooLargeError: request entity too large
+    at readStream (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:163:17)
+    at getRawBody (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:116:12)
+    at read (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\read.js:79:3)
+    at jsonParser (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\types\json.js:138:5)
+    at Layer.handle [as handle_request] (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:328:13)
+    at D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:280:10)
+    at cors (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\cors\lib\index.js:188:7)
+[31m[Nest] 2412  - [39m02/09/2026, 3:29:23 am [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mrequest entity too large[39m
+PayloadTooLargeError: request entity too large
+    at readStream (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:163:17)
+    at getRawBody (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:116:12)
+    at read (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\read.js:79:3)
+    at jsonParser (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\types\json.js:138:5)
+    at Layer.handle [as handle_request] (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:328:13)
+    at D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:280:10)
+    at cors (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\cors\lib\index.js:188:7)
+[31m[Nest] 2412  - [39m02/09/2026, 3:35:42 am [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31minvalid input syntax for type uuid: "{"c1000000-0000-4000-8000-000000000006","c1000000-0000-4000-8000-000000000007","c1000000-0000-4000-8000-000000000008"}"[39m
+QueryFailedError: invalid input syntax for type uuid: "{"c1000000-0000-4000-8000-000000000006","c1000000-0000-4000-8000-000000000007","c1000000-0000-4000-8000-000000000008"}"
+    at PostgresQueryRunner.query (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\driver\postgres\PostgresQueryRunner.js:216:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async SelectQueryBuilder.loadRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2220:25)
+    at async SelectQueryBuilder.executeEntitiesAndRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2068:26)
+    at async SelectQueryBuilder.getRawAndEntities (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:662:29)
+    at async SelectQueryBuilder.getMany (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:728:25)
+    at async TraceabilityService.getItemChain (D:\ERP-MRP-PWI-2026\backend\dist\modules\traceability\services\traceability.service.js:293:26)
+    at async TraceabilityController.chain (D:\ERP-MRP-PWI-2026\backend\dist\modules\traceability\controllers\traceability.controller.js:66:24)
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[31m[Nest] 2412  - [39m02/09/2026, 3:50:38 am [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mrequest entity too large[39m
+PayloadTooLargeError: request entity too large
+    at readStream (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:163:17)
+    at getRawBody (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:116:12)
+    at read (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\read.js:79:3)
+    at jsonParser (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\types\json.js:138:5)
+    at Layer.handle [as handle_request] (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:328:13)
+    at D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:280:10)
+    at cors (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\cors\lib\index.js:188:7)
+[31m[Nest] 2412  - [39m02/09/2026, 4:53:51 am [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mrequest entity too large[39m
+PayloadTooLargeError: request entity too large
+    at readStream (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:163:17)
+    at getRawBody (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\raw-body\index.js:116:12)
+    at read (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\read.js:79:3)
+    at jsonParser (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\body-parser\lib\types\json.js:138:5)
+    at Layer.handle [as handle_request] (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\layer.js:95:5)
+    at trim_prefix (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:328:13)
+    at D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:286:9
+    at router.process_params (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:346:12)
+    at next (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\express\lib\router\index.js:280:10)
+    at cors (D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\platform-express\node_modules\cors\lib\index.js:188:7)

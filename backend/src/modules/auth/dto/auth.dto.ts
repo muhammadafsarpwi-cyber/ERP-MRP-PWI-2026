@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, IsOptional, MinLength, Matches } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, IsOptional, MinLength, Matches, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class InviteUserDto {
@@ -90,4 +90,48 @@ export class AdminResetPasswordDto {
     message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
   })
   newPassword: string;
+}
+
+export class UpdateOwnProfileDto {
+  @ApiPropertyOptional({ description: 'Display name' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  displayName?: string;
+
+  @ApiPropertyOptional({ description: 'First name' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  firstName?: string;
+
+  @ApiPropertyOptional({ description: 'Last name' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  lastName?: string;
+
+  @ApiPropertyOptional({ description: 'Phone number' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(20)
+  phone?: string;
+
+  @ApiPropertyOptional({ description: 'Username' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  username?: string;
+}
+
+export class AvatarUploadDto {
+  @ApiProperty({ description: 'Base64-encoded image data (without data URI prefix)' })
+  @IsString()
+  @IsNotEmpty()
+  data: string;
+
+  @ApiProperty({ description: 'MIME type of the image', example: 'image/jpeg' })
+  @IsString()
+  @IsNotEmpty()
+  mime: string;
 }

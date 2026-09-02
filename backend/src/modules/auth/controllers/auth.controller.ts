@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from '../services/auth.service';
 import { SupabaseJwtGuard } from '../guards/supabase-jwt.guard';
 import { Public } from '../decorators/public.decorator';
 import { AuthRateLimitGuard } from '../guards/auth-rate-limit.guard';
-import { LoginDto, ForgotPasswordDto, ResetPasswordDto, ChangePasswordDto } from '../dto/auth.dto';
+import { LoginDto, ForgotPasswordDto, ResetPasswordDto, ChangePasswordDto, UpdateOwnProfileDto, AvatarUploadDto } from '../dto/auth.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -31,6 +31,40 @@ export class AuthController {
   async getProfile(@Request() req: any) {
     const user = await this.authService.getProfile(req.user.id);
     return { success: true, data: user };
+  }
+
+  @Patch('me')
+  @UseGuards(SupabaseJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update current user profile' })
+  @ApiResponse({ status: 200, description: 'User profile updated' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async updateProfile(@Request() req: any, @Body() dto: UpdateOwnProfileDto) {
+    const user = await this.authService.updateOwnProfile(req.user.id, dto);
+    return { success: true, data: user, message: 'Profile updated successfully' };
+  }
+
+  @Post('me/avatar')
+  @UseGuards(SupabaseJwtGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Upload current user avatar image' })
+  @ApiResponse({ status: 200, description: 'Avatar uploaded successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid file type or size' })
+  async uploadAvatar(@Request() req: any, @Body() dto: AvatarUploadDto) {
+    const user = await this.authService.uploadAvatar(req.user.id, dto);
+    return { success: true, data: user, message: 'Avatar updated successfully' };
+  }
+
+  @Delete('me/avatar')
+  @UseGuards(SupabaseJwtGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove current user avatar' })
+  @ApiResponse({ status: 200, description: 'Avatar removed successfully' })
+  async removeAvatar(@Request() req: any) {
+    const user = await this.authService.removeAvatar(req.user.id);
+    return { success: true, data: user, message: 'Avatar removed successfully' };
   }
 
   @Post('forgot-password')

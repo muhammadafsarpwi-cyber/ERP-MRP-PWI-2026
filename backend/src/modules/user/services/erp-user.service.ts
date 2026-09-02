@@ -255,6 +255,36 @@ export class ErpUserService {
     return this.userRepository.save(user);
   }
 
+  /**
+   * Self-service update: allows the authenticated user to edit their own
+   * profile fields. Only the fields supplied in the DTO are applied and the
+   * row is always resolved by the caller's auth user id, so a user can never
+   * modify another user's profile.
+   */
+  async updateOwnProfile(
+    authUserId: string,
+    updates: Partial<Pick<ErpUser, 'displayName' | 'firstName' | 'lastName' | 'phone' | 'username'>>,
+    actorUserId?: string,
+  ): Promise<ErpUser> {
+    const user = await this.findByAuthUserId(authUserId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    Object.assign(user, updates, { updatedBy: actorUserId ?? user.id });
+    return this.userRepository.save(user);
+  }
+
+  /** Persist the avatar URL for the user resolved by their auth id. */
+  async setAvatarUrl(authUserId: string, avatarUrl: string | null, actorUserId?: string): Promise<ErpUser> {
+    const user = await this.findByAuthUserId(authUserId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    user.avatarUrl = avatarUrl;
+    user.updatedBy = actorUserId ?? user.id;
+    return this.userRepository.save(user);
+  }
+
   async activate(id: string, userId?: string): Promise<ErpUser> {
     const user = await this.findOne(id);
     if (user.status === ErpUserStatus.ACTIVE) {

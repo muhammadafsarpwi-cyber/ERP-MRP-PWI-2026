@@ -1,3 +1,4 @@
+import { getMetadataArgsStorage } from 'typeorm';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
@@ -74,7 +75,7 @@ beforeEach(async () => {
         cb({
           getRepository: jest.fn((e: any) => ({
             update: jest.fn().mockResolvedValue({ affected: 1 }),
-            save: jest.fn((x: any) => x),
+            save: jest.fn((x: any) => ({ ...x, id: x.id ?? 'entry-1' })),
             findOne: jest.fn().mockResolvedValue(null),
           })),
         })),
@@ -795,5 +796,77 @@ describe('ProductionEntryService — automatic BOM consumption', () => {
     setupBom();
     warehouseRepo.findOne.mockResolvedValue(null);
     await expect(service.create(entry(), COMPANY)).rejects.toThrow('Raw Material Source Warehouse not found');
+  });
+});
+
+describe('ProductionEntryService — atomic create (no orphan entries)', () => {
+  const setupBom = () => {
+    bomRepo.find.mockResolvedValue([{ id: 'bom-1', productId: 'item-1', baseQuantity: 1, status: 'ACTIVE', effectiveFrom: null, effectiveTo: null }]);
+    bomLineRepo.find.mockResolvedValue([
+      { id: 'bl-1', lineNumber: 1, itemId: 'raw-a', quantity: 1, uomId: 'uom-m', scrapFactor: 0, yieldPercentage: 100 },
+    ]);
+    itemRepo.findOne.mockImplementation(({ where }: any) =>
+      where.id === 'item-1'
+        ? Promise.resolve({ id: 'item-1', companyId: COMPANY, itemCode: 'FG', baseUomId: 'uom-m', status: 'ACTIVE' })
+        : Promise.resolve({ id: where.id, companyId: COMPANY, baseUomId: 'uom-m', status: 'ACTIVE' }),
+    );
+    uomRepo.findOne.mockResolvedValue({ id: 'uom-m', code: 'M' });
+    warehouseRepo.findOne.mockResolvedValue({ id: 'rw-wh-1', status: 'ACTIVE' });
+  };
+  const entryDto = () => ({ ...validDto(), postToInventory: true, warehouseId: 'wh-1', rawMaterialWarehouseId: 'rw-wh-1' } as any);
+
+  it('failed posting leaves NO orphan production entry (entry save is inside the atomic transaction)', async () => {
+    makeOrgMocks();
+    setupBom();
+    balanceService.getAvailableStock.mockResolvedValue(0); // insufficient
+    entryRepo.save.mockClear();
+
+    await expect(service.create(entryDto(), COMPANY)).rejects.toThrow('Raw material stock is insufficient');
+
+    // The entry must NOT have been committed via the plain repository —
+    // it is only saved inside the transaction, which rolled back.
+    expect(entryRepo.save).not.toHaveBeenCalled();
+    expect(stockLedgerService.create).not.toHaveBeenCalled();
+    expect(balanceService.updateBalance).not.toHaveBeenCalled();
+  });
+
+  it('retry after a failed posting succeeds once stock is available (no permanent duplicate block)', async () => {
+    makeOrgMocks();
+    setupBom();
+
+    // First attempt: insufficient stock → rejected, no entry committed.
+    balanceService.getAvailableStock.mockResolvedValue(0);
+    await expect(service.create(entryDto(), COMPANY)).rejects.toThrow('Raw material stock is insufficient');
+    expect(entryRepo.save).not.toHaveBeenCalled();
+
+    // Second attempt: stock available → succeeds.
+    balanceService.getAvailableStock.mockResolvedValue(100000);
+    const saved = await service.create(entryDto(), COMPANY);
+    expect(saved.id).toBe('entry-1');
+    const receipt = stockLedgerService.create.mock.calls.find((c: any) => c[0].transactionType === 'PRODUCTION_RECEIPT');
+    expect(receipt[0]).toMatchObject({ itemId: 'item-1', direction: 'IN', quantity: 7200 });
+  });
+
+  it('successful posting commits the entry once and sets inventory_reference_id', async () => {
+    makeOrgMocks();
+    setupBom();
+    balanceService.getAvailableStock.mockResolvedValue(100000);
+    entryRepo.save.mockClear();
+
+    const saved = await service.create(entryDto(), COMPANY);
+    // Atomic path: entry persisted through the transactional manager.
+    expect(entryRepo.save).not.toHaveBeenCalled();
+    expect(saved.inventoryReferenceId).toBeDefined();
+  });
+});
+
+describe('ProductionEntry entity — column mapping regression', () => {
+  it('must NOT map raw_material_warehouse_id (column does not exist in live DB)', () => {
+    const cols = getMetadataArgsStorage().columns.filter(
+      (c) => c.target === ProductionEntry,
+    );
+    const mapped = cols.map((c) => c.propertyName);
+    expect(mapped).not.toContain('rawMaterialWarehouseId');
+    expect(mapped).toContain('inventoryReferenceId');
   });
 });
