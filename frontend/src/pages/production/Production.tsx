@@ -7,6 +7,9 @@ import RoutingManagement from './RoutingManagement';
 import ProductionEntries from './ProductionEntries';
 import TargetManagement from './TargetManagement';
 import Traceability from './Traceability';
+import RawMaterialReceiving from './receiving/RawMaterialReceiving';
+import RawMaterialReturn from './returns/RawMaterialReturn';
+import ReceivingReport from './receiving/ReceivingReport';
 
 const Production: React.FC = () => (
   <Routes>
@@ -14,6 +17,9 @@ const Production: React.FC = () => (
     <Route path="dashboard" element={<ProductionDashboard />} />
     <Route path="reports" element={<ProductionReports />} />
     <Route path="entries/*" element={<ProductionEntries />} />
+    <Route path="receiving" element={<RawMaterialReceiving />} />
+    <Route path="returns" element={<RawMaterialReturn />} />
+    <Route path="receiving-report" element={<ReceivingReport />} />
     <Route path="bom" element={<BomManagement />} />
     <Route path="bom/:id" element={<BomManagement />} />
     <Route path="routings" element={<RoutingManagement />} />

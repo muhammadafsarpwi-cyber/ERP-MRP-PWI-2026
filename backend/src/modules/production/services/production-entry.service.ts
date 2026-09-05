@@ -161,7 +161,7 @@ export class ProductionEntryService {
     const entry = await this.entryRepo.findOne({
       where: { id, companyId },
       relations: [
-        'division', 'section', 'department', 'shift', 'item', 'uom',
+        'division', 'section', 'department', 'shift', 'item.productionInItem', 'uom',
         'machine', 'downtimeReason', 'productionOrder',
       ],
     });
@@ -1274,22 +1274,57 @@ export class ProductionEntryService {
     rawMaterialWarehouseId: string,
     userId?: string,
   ): Promise<void> {
+    // TASK #34B: the exact IN Item (Item Master productionInItemId) is the
+    // authoritative consumed material for the current production item.
+    const product = await this.itemRepo.findOne({ where: { id: entry.itemId } });
+    const authoritativeInItemId = product?.productionInItemId ?? null;
+
     const bom = await this.findActiveBom(companyId, entry.itemId);
-    if (!bom) {
+    if (!bom && !authoritativeInItemId) {
       throw new BadRequestException('No ACTIVE BOM exists for this production item.');
     }
-    const lines = await this.bomLineRepo.find({ where: { bomId: bom.id }, order: { lineNumber: 'ASC' } });
-    if (!lines.length) return;
+    const lines = bom ? await this.bomLineRepo.find({ where: { bomId: bom.id }, order: { lineNumber: 'ASC' } }) : [];
+    if (!lines.length && !authoritativeInItemId) return;
 
     const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number }> = [];
     for (const line of lines) {
-      const required = await this.computeBomRequirement(companyId, entry, bom, line);
+      const required = await this.computeBomRequirement(companyId, entry, bom!, line);
       const component = await this.itemRepo.findOne({ where: { id: line.itemId } });
       const uomCode = component?.baseUom?.code ?? (await this.uomRepo.findOne({ where: { id: line.uomId } }))?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
         companyId, line.itemId, rawMaterialWarehouseId, undefined, undefined, manager,
       );
       requirements.push({ line, required, uomCode, available });
+    }
+
+    // TASK #34B: guarantee the exact IN Item is consumed. When the ACTIVE BOM does
+    // not already deduct it, add a 1:1 per-unit requirement — the input material
+    // must always be subtracted from inventory for the production operation.
+    if (authoritativeInItemId && !requirements.some((r) => r.line.itemId === authoritativeInItemId)) {
+      const component = await this.itemRepo.findOne({ where: { id: authoritativeInItemId } });
+      const productBaseUomId = product?.baseUomId ?? entry.uomId;
+      const productionQty = Number(entry.actualQuantity);
+      const qtyInBase = entry.uomId === productBaseUomId ? productionQty : await this.convertQty(entry.uomId, productBaseUomId, productionQty);
+      const units = qtyInBase / Number(bom?.baseQuantity || 1);
+      const uomId = component?.baseUomId ?? entry.uomId;
+      const uomCode = component?.baseUom?.code ?? '';
+      const available = await this.inventoryBalanceService.getAvailableStock(
+        companyId, authoritativeInItemId, rawMaterialWarehouseId, undefined, undefined, manager,
+      );
+      requirements.push({
+        line: {
+          id: `auto-in-${authoritativeInItemId}`,
+          itemId: authoritativeInItemId,
+          quantity: 1,
+          uomId,
+          scrapFactor: 0,
+          yieldPercentage: 100,
+          lineNumber: 999,
+        } as BomLine,
+        required: this.round4(units),
+        uomCode,
+        available,
+      });
     }
 
     // Validate ALL components before touching stock — never partial.

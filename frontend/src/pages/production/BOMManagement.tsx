@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Divider,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -63,6 +63,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const BomManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [boms, setBoms] = useState<Bom[]>([]);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
@@ -85,7 +86,7 @@ const BomManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   const fetchItems = useCallback(async () => {
     try {

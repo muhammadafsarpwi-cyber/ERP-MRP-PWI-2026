@@ -1,14 +1,15 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUuid } from '../../../common/validators';
 
 export class CreateBusinessUnitDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   companyId: string;
 
   @ApiPropertyOptional({ description: 'Branch ID (optional)' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   branchId?: string;
 
@@ -39,7 +40,7 @@ export class UpdateBusinessUnitDto {
   code?: string;
 
   @ApiPropertyOptional({ description: 'Branch ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   branchId?: string;
 

@@ -54,10 +54,31 @@ describe('formatDimension — wire size / dimensions', () => {
   it('formats dimensions to 2 decimals', () => {
     expect(formatDimension(2)).toBe('2.00');
     expect(formatDimension(1.2)).toBe('1.20');
+    expect(formatDimension(0.4)).toBe('0.40');
+    expect(formatDimension(2.6)).toBe('2.60');
   });
 
   it('renders a dash for missing dimension', () => {
     expect(formatDimension(null)).toBe('\u2014');
     expect(formatDimension(undefined)).toBe('\u2014');
+  });
+});
+
+describe('TASK #34C — field-aware number formatting', () => {
+  it('quantities/weights trim unnecessary trailing zeros (never 100.000 / 0.5000)', () => {
+    expect(formatNumber('100.000', 3)).toBe('100');
+    expect(formatNumber(100, 3)).toBe('100');
+    expect(formatNumber('0.5000', 4)).toBe('0.5');
+    expect(formatNumber(0.5, 4)).toBe('0.5');
+    expect(formatNumber('20.000', 3)).toBe('20');
+    expect(formatNumber('0.0017', 4)).toBe('0.0017');
+  });
+
+  it('dimensions keep exactly 2 decimals while quantities do not', () => {
+    const qty = formatNumber('1.2000', 4);
+    const dim = formatDimension('1.2000');
+    expect(qty).toBe('1.2');
+    expect(dim).toBe('1.20');
+    expect(qty).not.toBe(dim);
   });
 });

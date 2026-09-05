@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Descriptions, Divider,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, CheckOutlined, CarOutlined, InboxOutlined, StopOutlined } from '@ant-design/icons';
@@ -50,6 +50,7 @@ export function buildSalesOrderPayload(values: any, lineItems: ERPLine[]): any {
 }
 
 const SalesOrderManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [data, setData] = useState<SalesOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -93,7 +94,7 @@ const SalesOrderManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize]);
+  }, [search, filterStatus, pageSize, message]);
 
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 

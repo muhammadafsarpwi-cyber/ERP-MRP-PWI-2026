@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card } from 'antd';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatApiError } from '../../utils/apiError';
 
 interface Company {
   id: string;
@@ -31,6 +32,7 @@ interface Section {
 }
 
 const SectionManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [sections, setSections] = useState<Section[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [divisions, setDivisions] = useState<Division[]>([]);
@@ -40,6 +42,7 @@ const SectionManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingSection, setEditingSection] = useState<Section | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
   const fetchSections = useCallback(async (pageNum: number = 1) => {
@@ -51,20 +54,20 @@ const SectionManagement: React.FC = () => {
       setSections(response.data);
       setTotal(response.total);
     } catch (error) {
-      message.error('Failed to fetch sections');
+      message.error(formatApiError(error, 'Failed to fetch sections'));
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, message]);
 
   const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
     } catch (error) {
-      message.error('Failed to fetch companies');
+      message.error(formatApiError(error, 'Failed to fetch companies'));
     }
-  }, []);
+  }, [message]);
 
   const fetchDivisions = useCallback(async (companyId?: string) => {
     try {
@@ -73,9 +76,9 @@ const SectionManagement: React.FC = () => {
       const response = await apiService.get<{ data: Division[] }>('/divisions', params);
       setDivisions(response.data);
     } catch (error) {
-      message.error('Failed to fetch divisions');
+      message.error(formatApiError(error, 'Failed to fetch divisions'));
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     fetchSections(page);
@@ -108,7 +111,7 @@ const SectionManagement: React.FC = () => {
       message.success('Section deleted successfully');
       fetchSections(page);
     } catch (error) {
-      message.error('Failed to delete section');
+      message.error(formatApiError(error, 'Failed to delete section'));
     }
   };
 
@@ -118,7 +121,7 @@ const SectionManagement: React.FC = () => {
       message.success('Section activated successfully');
       fetchSections(page);
     } catch (error) {
-      message.error('Failed to activate section');
+      message.error(formatApiError(error, 'Failed to activate section'));
     }
   };
 
@@ -128,15 +131,18 @@ const SectionManagement: React.FC = () => {
       message.success('Section deactivated successfully');
       fetchSections(page);
     } catch (error) {
-      message.error('Failed to deactivate section');
+      message.error(formatApiError(error, 'Failed to deactivate section'));
     }
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const values = await form.validateFields();
       if (editingSection) {
-        await apiService.patch(`/sections/${editingSection.id}`, values);
+        const { sectionCode: _sc, companyId: _co, ...editable } = values;
+        await apiService.patch(`/sections/${editingSection.id}`, editable);
         message.success('Section updated successfully');
       } else {
         await apiService.post('/sections', values);
@@ -144,8 +150,14 @@ const SectionManagement: React.FC = () => {
       }
       setModalVisible(false);
       fetchSections(page);
-    } catch (error) {
-      message.error('Operation failed');
+    } catch (error: any) {
+      if (error?.errorFields) {
+        message.error('Please complete all required fields.');
+      } else {
+        message.error(formatApiError(error, 'Operation failed'));
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -253,7 +265,10 @@ const SectionManagement: React.FC = () => {
         title={editingSection ? 'Edit Section' : 'Create Section'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        onCancel={() => {
+          if (!submitting) setModalVisible(false);
+        }}
         width={600}
       >
         <Form form={form} layout="vertical">

@@ -8,11 +8,11 @@ import { WarehouseStatus, WarehouseType } from '../entities';
 @ApiTags('organization/warehouses')
 @Controller('warehouses')
 @UseGuards(PermissionGuard)
-@RequirePermission('admin.users.update')
 export class WarehouseController {
   constructor(private readonly warehouseService: WarehouseService) {}
 
   @Post()
+  @RequirePermission('warehouse.create')
   @ApiOperation({ summary: 'Create a new warehouse' })
   @ApiResponse({ status: 201, description: 'Warehouse created successfully' })
   @ApiResponse({ status: 409, description: 'Warehouse code already exists' })
@@ -22,7 +22,7 @@ export class WarehouseController {
   }
 
   @Get()
-  @RequirePermission('inventory.view')
+  @RequirePermission('warehouse.view')
   @ApiOperation({ summary: 'Get all warehouses' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -49,7 +49,7 @@ export class WarehouseController {
   }
 
   @Get(':id')
-  @RequirePermission('inventory.view')
+  @RequirePermission('warehouse.view')
   @ApiOperation({ summary: 'Get a warehouse by ID' })
   @ApiParam({ name: 'id', description: 'Warehouse ID' })
   @ApiResponse({ status: 200, description: 'Warehouse found' })
@@ -60,6 +60,7 @@ export class WarehouseController {
   }
 
   @Patch(':id')
+  @RequirePermission('warehouse.update')
   @ApiOperation({ summary: 'Update a warehouse' })
   @ApiParam({ name: 'id', description: 'Warehouse ID' })
   @ApiResponse({ status: 200, description: 'Warehouse updated successfully' })
@@ -70,6 +71,7 @@ export class WarehouseController {
 
   @Patch(':id/activate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('warehouse.activate')
   @ApiOperation({ summary: 'Activate a warehouse' })
   @ApiParam({ name: 'id', description: 'Warehouse ID' })
   @ApiResponse({ status: 200, description: 'Warehouse activated successfully' })
@@ -80,6 +82,7 @@ export class WarehouseController {
 
   @Patch(':id/deactivate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('warehouse.deactivate')
   @ApiOperation({ summary: 'Deactivate a warehouse' })
   @ApiParam({ name: 'id', description: 'Warehouse ID' })
   @ApiResponse({ status: 200, description: 'Warehouse deactivated successfully' })
@@ -90,6 +93,7 @@ export class WarehouseController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('warehouse.delete')
   @ApiOperation({ summary: 'Delete a warehouse' })
   @ApiParam({ name: 'id', description: 'Warehouse ID' })
   @ApiResponse({ status: 204, description: 'Warehouse deleted successfully' })

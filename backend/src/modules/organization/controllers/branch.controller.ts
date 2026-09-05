@@ -8,11 +8,11 @@ import { BranchStatus } from '../entities';
 @ApiTags('organization/branches')
 @Controller('branches')
 @UseGuards(PermissionGuard)
-@RequirePermission('admin.users.update')
 export class BranchController {
   constructor(private readonly branchService: BranchService) {}
 
   @Post()
+  @RequirePermission('branch.create')
   @ApiOperation({ summary: 'Create a new branch' })
   @ApiResponse({ status: 201, description: 'Branch created successfully' })
   @ApiResponse({ status: 409, description: 'Branch code already exists' })
@@ -22,6 +22,7 @@ export class BranchController {
   }
 
   @Get()
+  @RequirePermission('branch.view')
   @ApiOperation({ summary: 'Get all branches' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -40,6 +41,7 @@ export class BranchController {
   }
 
   @Get(':id')
+  @RequirePermission('branch.view')
   @ApiOperation({ summary: 'Get a branch by ID' })
   @ApiParam({ name: 'id', description: 'Branch ID' })
   @ApiResponse({ status: 200, description: 'Branch found' })
@@ -50,6 +52,7 @@ export class BranchController {
   }
 
   @Patch(':id')
+  @RequirePermission('branch.update')
   @ApiOperation({ summary: 'Update a branch' })
   @ApiParam({ name: 'id', description: 'Branch ID' })
   @ApiResponse({ status: 200, description: 'Branch updated successfully' })
@@ -60,6 +63,7 @@ export class BranchController {
 
   @Patch(':id/activate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('branch.activate')
   @ApiOperation({ summary: 'Activate a branch' })
   @ApiParam({ name: 'id', description: 'Branch ID' })
   @ApiResponse({ status: 200, description: 'Branch activated successfully' })
@@ -70,6 +74,7 @@ export class BranchController {
 
   @Patch(':id/deactivate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('branch.deactivate')
   @ApiOperation({ summary: 'Deactivate a branch' })
   @ApiParam({ name: 'id', description: 'Branch ID' })
   @ApiResponse({ status: 200, description: 'Branch deactivated successfully' })
@@ -80,6 +85,7 @@ export class BranchController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('branch.delete')
   @ApiOperation({ summary: 'Delete a branch' })
   @ApiParam({ name: 'id', description: 'Branch ID' })
   @ApiResponse({ status: 204, description: 'Branch deleted successfully' })

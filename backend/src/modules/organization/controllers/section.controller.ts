@@ -8,11 +8,11 @@ import { SectionStatus } from '../entities';
 @ApiTags('organization/sections')
 @Controller('sections')
 @UseGuards(PermissionGuard)
-@RequirePermission('admin.users.update')
 export class SectionController {
   constructor(private readonly sectionService: SectionService) {}
 
   @Post()
+  @RequirePermission('section.create')
   @ApiOperation({ summary: 'Create a new section' })
   @ApiResponse({ status: 201, description: 'Section created successfully' })
   @ApiResponse({ status: 409, description: 'Section code already exists' })
@@ -22,6 +22,7 @@ export class SectionController {
   }
 
   @Get()
+  @RequirePermission('section.view')
   @ApiOperation({ summary: 'Get all sections' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -42,6 +43,7 @@ export class SectionController {
   }
 
   @Get(':id')
+  @RequirePermission('section.view')
   @ApiOperation({ summary: 'Get a section by ID' })
   @ApiParam({ name: 'id', description: 'Section ID' })
   @ApiResponse({ status: 200, description: 'Section found' })
@@ -52,6 +54,7 @@ export class SectionController {
   }
 
   @Patch(':id')
+  @RequirePermission('section.update')
   @ApiOperation({ summary: 'Update a section' })
   @ApiParam({ name: 'id', description: 'Section ID' })
   @ApiResponse({ status: 200, description: 'Section updated successfully' })
@@ -62,6 +65,7 @@ export class SectionController {
 
   @Patch(':id/activate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('section.activate')
   @ApiOperation({ summary: 'Activate a section' })
   @ApiParam({ name: 'id', description: 'Section ID' })
   @ApiResponse({ status: 200, description: 'Section activated successfully' })
@@ -72,6 +76,7 @@ export class SectionController {
 
   @Patch(':id/deactivate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('section.deactivate')
   @ApiOperation({ summary: 'Deactivate a section' })
   @ApiParam({ name: 'id', description: 'Section ID' })
   @ApiResponse({ status: 200, description: 'Section deactivated successfully' })
@@ -82,6 +87,7 @@ export class SectionController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('section.delete')
   @ApiOperation({ summary: 'Delete a section' })
   @ApiParam({ name: 'id', description: 'Section ID' })
   @ApiResponse({ status: 204, description: 'Section deleted successfully' })

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Button, Space, Modal, Form, Input, Select, message, Row, Col, Tag } from 'antd';
+import { Card, Table, Button, Space, Modal, Form, Input, Select, App, Row, Col, Tag } from 'antd';
 import { PlusOutlined, SearchOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -17,6 +17,7 @@ interface Journal {
 }
 
 const JournalEntries: React.FC = () => {
+  const { message } = App.useApp();
   const [data, setData] = useState<Journal[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -42,7 +43,7 @@ const JournalEntries: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [companyId, search, filterStatus]);
+  }, [companyId, search, filterStatus, message]);
 
   useEffect(() => {
     const erpUser = localStorage.getItem('erp_user');

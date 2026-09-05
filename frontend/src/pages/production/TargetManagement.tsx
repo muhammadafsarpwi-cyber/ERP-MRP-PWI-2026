@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, DatePicker, message,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, DatePicker, App,
   Popconfirm, Card, Drawer, Descriptions, InputNumber, Alert, Statistic,
 } from 'antd';
 import {
@@ -103,6 +103,7 @@ const calcPerHour = (qty: number, hours: number): number | null =>
   hours > 0 ? Number(((qty * 1) / hours).toFixed(4)) : null;
 
 const TargetManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [targets, setTargets] = useState<MachineTarget[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -182,7 +183,7 @@ const TargetManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, sortBy, sortDir, search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus]);
+  }, [page, pageSize, sortBy, sortDir, search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus, message]);
 
   useEffect(() => { fetchTargets(page); }, [page, pageSize, fetchTargets]);
 
@@ -219,7 +220,7 @@ const TargetManagement: React.FC = () => {
         message.warning(`Could not load ${failed.join(' / ')} lookups`);
       }
     })();
-  }, []);
+  }, [message]);
 
   const sectionsForDivision = useCallback(
     (divisionId?: string) => (divisionId ? sections.filter((s) => s.divisionId === divisionId) : sections),

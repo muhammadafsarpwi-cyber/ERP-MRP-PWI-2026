@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Descriptions, DatePicker, Tabs, List, Badge,
 } from 'antd';
 import {
@@ -90,6 +90,7 @@ const tierColorMap: Record<string, string> = {
 };
 
 const CustomerManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -125,7 +126,7 @@ const CustomerManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, filterType, filterTier, pageSize]);
+  }, [search, filterStatus, filterType, filterTier, pageSize, message]);
 
   useEffect(() => { fetchCustomers(page); }, [page, fetchCustomers]);
 

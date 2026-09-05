@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Rate, Descriptions,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
@@ -35,6 +35,7 @@ const statusColorMap: Record<string, string> = {
 };
 
 const SupplierManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -62,7 +63,7 @@ const SupplierManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize]);
+  }, [search, filterStatus, pageSize, message]);
 
   useEffect(() => { fetchSuppliers(page); }, [page, fetchSuppliers]);
 

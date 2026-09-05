@@ -8,3 +8,7 @@ export { StockTransfer } from './stock-transfer.entity';
 export { StockTransferLine } from './stock-transfer-line.entity';
 export { InventoryReservation } from './inventory-reservation.entity';
 export { SerialNumber } from './serial-number.entity';
+export { RawMaterialReceipt } from './raw-material-receipt.entity';
+export { RawMaterialReceiptLine } from './raw-material-receipt-line.entity';
+export { RawMaterialReturn } from './raw-material-return.entity';
+export { RawMaterialReturnLine } from './raw-material-return-line.entity';

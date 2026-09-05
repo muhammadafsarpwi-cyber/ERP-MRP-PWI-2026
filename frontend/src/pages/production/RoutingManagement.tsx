@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Descriptions, Layout,
 } from 'antd';
 import {
@@ -76,6 +76,7 @@ interface Uom extends LookupItem { code: string; }
 const STATUS_COLORS: Record<string, string> = { DRAFT: 'default', ACTIVE: 'green', OBSOLETE: 'red' };
 
 const RoutingManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [routings, setRoutings] = useState<Routing[]>([]);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
@@ -104,7 +105,7 @@ const RoutingManagement: React.FC = () => {
       setRoutings(res.data);
     } catch { message.error('Failed to fetch routings'); }
     finally { setLoading(false); }
-  }, []);
+  }, [message]);
 
   const fetchLookupData = useCallback(async () => {
     try {

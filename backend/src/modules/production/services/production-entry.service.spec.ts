@@ -544,6 +544,58 @@ describe('ProductionEntryService — multi-item & multi-downtime child persisten
     expect(entryItemRepo.save).toHaveBeenCalledTimes(1);
     expect(entryDowntimeRepo.save).toHaveBeenCalledTimes(1);
   });
+
+  it('round-trip: create persists child lines that findOne later returns (genuine save→load flow, not aggregate-derived)', async () => {
+    makeOrgMocks();
+    entryDowntimeRepo.create.mockClear();
+    entryItemRepo.create.mockClear();
+    entryDowntimeRepo.find.mockClear();
+    entryItemRepo.find.mockClear();
+
+    // Simulate the DB rows that create()'s persistChildren actually writes:
+    // capture the objects handed to the child repos' create()+save().
+    const persistedDowntimes: any[] = [];
+    const persistedItems: any[] = [];
+    entryDowntimeRepo.create.mockImplementation((row: any) => ({ id: `dt-${row.lineNumber}`, ...row }));
+    entryDowntimeRepo.save.mockImplementation(async (rows: any) => (Array.isArray(rows) ? rows : rows));
+    entryItemRepo.create.mockImplementation((row: any) => ({ id: `il-${row.lineNumber}`, ...row }));
+    entryItemRepo.save.mockImplementation(async (rows: any) => (Array.isArray(rows) ? rows : rows));
+
+    await service.create({
+      ...validDto(),
+      itemId: 'item-1', uomId: 'uom-m',
+      runningHours: 5, downtimeHours: 3,
+      items: [
+        { lineNumber: 1, itemId: 'item-1', uomId: 'uom-m', targetQuantity: 5000, actualQuantity: 4500, scrapQuantity: 100, runningHours: 5, remarks: 'spool 1' },
+        { lineNumber: 2, itemId: 'item-2', uomId: 'uom-m', targetQuantity: 3000, actualQuantity: 2700, scrapQuantity: 50, runningHours: 5, remarks: 'spool 2' },
+      ],
+      downtimes: [
+        { lineNumber: 1, downtimeReasonId: 'reason-maint', downtimeReason: null, downtimeHours: 2, remarks: 'maintenance' },
+        { lineNumber: 2, downtimeReasonId: 'reason-power', downtimeReason: null, downtimeHours: 1, remarks: 'power failure' },
+      ],
+    } as any, COMPANY);
+
+    persistedDowntimes.push(...entryDowntimeRepo.create.mock.calls.map((c: any) => c[0]).flat());
+    persistedItems.push(...entryItemRepo.create.mock.calls.map((c: any) => c[0]).flat());
+
+    // Now the DB holds the persisted child rows; findOne must return exactly those.
+    entryRepo.findOne.mockResolvedValue({ id: 'e-1', companyId: COMPANY, isActive: true, itemId: 'item-1', runningHours: 5, downtimeHours: 3 });
+    entryItemRepo.find.mockResolvedValue(persistedItems.sort((a: any, b: any) => a.lineNumber - b.lineNumber));
+    entryDowntimeRepo.find.mockResolvedValue(
+      persistedDowntimes.sort((a: any, b: any) => a.lineNumber - b.lineNumber)
+    );
+
+    const found: any = await service.findOne('e-1', COMPANY);
+
+    // The View renders these persisted child lines directly (not the aggregate downtimeHours).
+    expect(found.downtimes).toHaveLength(2);
+    expect(found.downtimes.reduce((s: number, d: any) => s + Number(d.downtimeHours), 0)).toBe(3);
+    expect(found.items).toHaveLength(2);
+    expect(found.items[0]).toMatchObject({ lineNumber: 1, actualQuantity: 4500, remarks: 'spool 1' });
+    // The persisted downtime reason ids survive the full create→findOne round-trip.
+    expect(found.downtimes.map((d: any) => d.downtimeReasonId).sort()).toEqual(['reason-maint', 'reason-power']);
+    expect(found.downtimes.map((d: any) => d.remarks).sort()).toEqual(['maintenance', 'power failure']);
+  });
 });
 
 describe('ProductionEntryService — machine entry status (duplicate pre-check)', () => {
@@ -913,6 +965,48 @@ describe('ProductionEntryService — automatic BOM consumption', () => {
     setupBom();
     warehouseRepo.findOne.mockResolvedValue(null);
     await expect(service.create(entry(), COMPANY)).rejects.toThrow('Raw Material Source Warehouse not found');
+  });
+
+  it('TASK34B-J: consumes the exact Item Master IN Item even when the ACTIVE BOM does not list it', async () => {
+    makeOrgMocks();
+    setupBom();
+    itemRepo.findOne.mockImplementation(({ where }: any) => {
+      if (where.id === 'item-1') return Promise.resolve({ id: 'item-1', companyId: COMPANY, itemCode: 'FG-SPIRAL', baseUomId: 'uom-m', status: 'ACTIVE', productionInItemId: 'raw-x' });
+      if (where.id === 'raw-a') return Promise.resolve({ id: 'raw-a', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' });
+      if (where.id === 'raw-b') return Promise.resolve({ id: 'raw-b', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' });
+      if (where.id === 'raw-x') return Promise.resolve({ id: 'raw-x', companyId: COMPANY, baseUomId: 'uom-m', status: 'ACTIVE' });
+      return Promise.resolve({ id: where.id, companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' });
+    });
+    balanceService.getAvailableStock.mockResolvedValue(100000);
+    await service.create(entry(), COMPANY);
+
+    const consumes = stockLedgerService.create.mock.calls.filter((c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION');
+    // BOM lines (raw-a, raw-b) PLUS the authoritative Item Master IN Item (raw-x) at 1:1 per unit.
+    expect(consumes.length).toBe(3);
+    expect(consumes[0][0]).toMatchObject({ itemId: 'raw-a', quantity: 5760, direction: 'OUT', warehouseId: 'rw-wh-1' });
+    expect(consumes[1][0]).toMatchObject({ itemId: 'raw-b', quantity: 720 });
+    expect(consumes[2][0]).toMatchObject({ itemId: 'raw-x', quantity: 7200, uomId: 'uom-m', direction: 'OUT' });
+  });
+
+  it('TASK34B-K: consumes the exact Item Master IN Item even when no BOM exists', async () => {
+    makeOrgMocks();
+    bomRepo.find.mockResolvedValue([]);
+    warehouseRepo.findOne.mockResolvedValue({ id: 'rw-wh-1', status: 'ACTIVE' });
+    itemRepo.findOne.mockImplementation(({ where }: any) => {
+      if (where.id === 'item-1') return Promise.resolve({ id: 'item-1', companyId: COMPANY, itemCode: 'FG-SPIRAL', baseUomId: 'uom-m', status: 'ACTIVE', productionInItemId: 'raw-x' });
+      if (where.id === 'raw-x') return Promise.resolve({ id: 'raw-x', companyId: COMPANY, baseUomId: 'uom-m', status: 'ACTIVE' });
+      return Promise.resolve({ id: where.id, companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' });
+    });
+    uomRepo.findOne.mockResolvedValue({ id: 'uom-m', code: 'M' });
+    balanceService.getAvailableStock.mockResolvedValue(100000);
+    await service.create(entry(), COMPANY);
+
+    const consumes = stockLedgerService.create.mock.calls.filter((c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION');
+    expect(consumes.length).toBe(1);
+    expect(consumes[0][0]).toMatchObject({ itemId: 'raw-x', quantity: 7200, direction: 'OUT', uomId: 'uom-m', referenceId: 'entry-1' });
+
+    const receipt = stockLedgerService.create.mock.calls.find((c: any) => c[0].transactionType === 'PRODUCTION_RECEIPT');
+    expect(receipt[0]).toMatchObject({ itemId: 'item-1', direction: 'IN', warehouseId: 'wh-1', quantity: 7200 });
   });
 });
 

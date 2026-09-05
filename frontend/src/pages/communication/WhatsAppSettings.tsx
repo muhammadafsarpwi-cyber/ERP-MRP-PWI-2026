@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Input, Switch, Button, Row, Col, Alert, Select, message, Space, Tag, Tooltip } from 'antd';
+import { Card, Form, Input, Switch, Button, Row, Col, Alert, Select, App, Space, Tag, Tooltip } from 'antd';
 import { WhatsAppOutlined, SaveOutlined, SendOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 
@@ -10,6 +10,7 @@ const PROVIDERS = [
 ];
 
 const WhatsAppSettingsPage: React.FC = () => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);

@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GoodsReceipt, GoodsReceiptLine, PurchaseOrder, PurchaseOrderLine } from '../entities';
 import { CreateGoodsReceiptDto, GoodsReceiptFilterDto } from '../dto';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+import { Warehouse } from '../../organization/entities/warehouse.entity';
 
 const GRN_REFERENCE_TYPE = 'GOODS_RECEIPT';
 
@@ -24,6 +25,19 @@ export class GoodsReceiptService {
     private readonly stockLedgerService: StockLedgerService,
     private readonly inventoryBalanceService: InventoryBalanceService,
   ) {}
+
+  /**
+   * Enforce server-derived company ownership for any goods-receipt state
+   * transition. The caller passes the company it is authorised for (never a
+   * client-supplied value). When provided, a receipt belonging to another
+   * company is rejected outright — a user from Company A can never post a
+   * Company B receipt / stock.
+   */
+  private assertCompanyOwned(receipt: GoodsReceipt, companyId?: string): void {
+    if (companyId && receipt.companyId !== companyId) {
+      throw new ForbiddenException('Goods receipt belongs to a different company');
+    }
+  }
 
   async create(dto: CreateGoodsReceiptDto, userId?: string): Promise<GoodsReceipt> {
     const existing = await this.repo.findOne({
@@ -85,16 +99,18 @@ export class GoodsReceiptService {
     return receipt;
   }
 
-  async receive(id: string, userId?: string): Promise<GoodsReceipt> {
+  async receive(id: string, userId?: string, companyId?: string): Promise<GoodsReceipt> {
     const receipt = await this.findOne(id);
+    this.assertCompanyOwned(receipt, companyId);
     if (receipt.status !== 'DRAFT') throw new BadRequestException('Can only receive receipts in DRAFT status');
     receipt.status = 'RECEIVED';
     receipt.updatedBy = userId || null;
     return this.repo.save(receipt);
   }
 
-  async inspect(id: string, userId?: string): Promise<GoodsReceipt> {
+  async inspect(id: string, userId?: string, companyId?: string): Promise<GoodsReceipt> {
     const receipt = await this.findOne(id);
+    this.assertCompanyOwned(receipt, companyId);
     if (receipt.status !== 'RECEIVED') throw new BadRequestException('Can only inspect receipts in RECEIVED status');
     receipt.status = 'INSPECTION';
     receipt.inspectedBy = userId || null;
@@ -103,67 +119,113 @@ export class GoodsReceiptService {
     return this.repo.save(receipt);
   }
 
-  async accept(id: string, userId?: string): Promise<GoodsReceipt> {
+  async accept(id: string, userId?: string, companyId?: string): Promise<GoodsReceipt> {
     const receipt = await this.findOne(id);
+    this.assertCompanyOwned(receipt, companyId);
     if (receipt.status !== 'INSPECTION') throw new BadRequestException('Can only accept receipts in INSPECTION status');
     receipt.status = 'ACCEPTED';
     receipt.updatedBy = userId || null;
     return this.repo.save(receipt);
   }
 
-  async reject(id: string, userId?: string): Promise<GoodsReceipt> {
+  async reject(id: string, userId?: string, companyId?: string): Promise<GoodsReceipt> {
     const receipt = await this.findOne(id);
+    this.assertCompanyOwned(receipt, companyId);
     if (receipt.status !== 'INSPECTION') throw new BadRequestException('Can only reject receipts in INSPECTION status');
     receipt.status = 'REJECTED';
     receipt.updatedBy = userId || null;
     return this.repo.save(receipt);
   }
 
-  async post(id: string, userId?: string): Promise<GoodsReceipt> {
+  /**
+   * Post an accepted goods receipt into inventory atomically.
+   *
+   * Everything — GRN header status flip, every stock-ledger entry, every
+   * inventory-balance update, and every Purchase Order received-quantity/value
+   * change — happens inside ONE database transaction. If any step fails the
+   * whole post rolls back, so the states `Inventory = POSTED` with
+   * `GRN = NOT POSTED` (or the reverse) can never occur.
+   *
+   * Idempotency: the receipt row is re-read with a pessimistic write lock
+   * inside the transaction so two concurrent post() calls cannot both pass the
+   * status guard. A receipt already carrying postedAt/postedBy (or already
+   * POSTED) is rejected — a GRN can never post inventory twice.
+   *
+   * Organisation scope: the optional companyId is server-derived (never
+   * client-supplied). A receipt belonging to another company is rejected, and
+   * its warehouse must belong to the same company and be ACTIVE.
+   */
+  async post(id: string, userId?: string, companyId?: string): Promise<GoodsReceipt> {
     const receipt = await this.findOne(id);
+    this.assertCompanyOwned(receipt, companyId);
     if (receipt.status !== 'ACCEPTED' && receipt.status !== 'PARTIALLY_ACCEPTED') {
       throw new BadRequestException('Can only post receipts in ACCEPTED or PARTIALLY_ACCEPTED status');
     }
 
-    // Atomic posting: every accepted line moves into inventory (stock ledger +
-    // balance) and into the Purchase Order received-tracking fields, so either
-    // the whole goods receipt posts or nothing does. This is the counterpart of
-    // production entry posting — received goods must appear in stock or they can
-    // never be consumed by manufacturing/delivery.
     await this.repo.manager.transaction(async (manager) => {
+      const receiptRepo = manager.getRepository(GoodsReceipt);
       const poLineRepo = manager.getRepository(PurchaseOrderLine);
       const poRepo = manager.getRepository(PurchaseOrder);
 
-      const poLines = await poLineRepo.find({ where: { poId: receipt.poId } });
+      // Re-read the receipt inside the transaction under a write lock so two
+      // concurrent post() attempts cannot both observe an unposted status.
+      const locked = await receiptRepo
+        .createQueryBuilder('gr')
+        .setLock('pessimistic_write')
+        .where('gr.id = :id', { id })
+        .leftJoinAndSelect('gr.lines', 'lines')
+        .getOne();
+      if (!locked) throw new NotFoundException(`Goods receipt with ID '${id}' not found`);
+      if (locked.postedAt || locked.postedBy || locked.status === 'POSTED') {
+        throw new BadRequestException('Goods receipt has already been posted');
+      }
+      this.assertCompanyOwned(locked, companyId);
+
+      // Warehouse must belong to the same company and be ACTIVE. Posting must
+      // not silently fall through to a random/default warehouse.
+      if (!locked.warehouseId) {
+        throw new BadRequestException('Goods receipt has no warehouse; cannot post inventory');
+      }
+      const wh = await manager
+        .getRepository(Warehouse)
+        .findOne({ where: { id: locked.warehouseId, companyId: locked.companyId } });
+      if (!wh) {
+        throw new BadRequestException(`Warehouse with ID '${locked.warehouseId}' not found in this company`);
+      }
+      if (wh.status !== 'ACTIVE') {
+        throw new BadRequestException(`Warehouse '${wh.warehouseCode}' is not ACTIVE`);
+      }
+
+      const poLines = await poLineRepo.find({ where: { poId: locked.poId } });
       const byId = new Map(poLines.map((l) => [l.id, l]));
       // Money value of the goods physically accepted into stock this receipt —
       // maintained alongside the existing received-quantity tracking so the PO
       // carries BOTH a received quantity and a received value for reconciliation.
       let receivedMoney = 0;
 
-      for (const line of receipt.lines || []) {
+      for (const line of locked.lines || []) {
         const acceptedQty = Number(line.quantityAccepted || 0);
         if (acceptedQty <= 0) continue;
 
         await this.stockLedgerService.create({
-          companyId: receipt.companyId,
+          companyId: locked.companyId,
           transactionType: 'GOODS_RECEIPT',
-          transactionDate: receipt.receiptDate || undefined,
+          transactionDate: locked.receiptDate || undefined,
           itemId: line.itemId,
-          warehouseId: receipt.warehouseId,
+          warehouseId: locked.warehouseId,
           locationId: line.locationId || undefined,
           batchId: line.batchId || undefined,
           quantity: acceptedQty,
           uomId: line.uomId,
           direction: 'IN',
           referenceType: GRN_REFERENCE_TYPE,
-          referenceId: receipt.id,
-          referenceNumber: receipt.grnNumber || receipt.receiptCode,
-          notes: `Goods receipt ${receipt.receiptCode}`,
+          referenceId: locked.id,
+          referenceNumber: locked.grnNumber || locked.receiptCode,
+          notes: `Goods receipt ${locked.receiptCode}`,
           createdBy: userId ?? undefined,
         }, manager);
         await this.inventoryBalanceService.updateBalance(
-          receipt.companyId, line.itemId, receipt.warehouseId,
+          locked.companyId, line.itemId, locked.warehouseId,
           line.locationId, line.batchId, line.uomId, acceptedQty, 'IN', manager,
         );
 
@@ -177,16 +239,16 @@ export class GoodsReceiptService {
       }
 
       // Advance the Purchase Order towards FULLY_RECEIVED / PARTIALLY_RECEIVED
-      // based on received-vs-ordered quantities, making the existing
-      // close() step reachable. The received VALUE (money) is also reflected.
-      const updatedLines = await poLineRepo.find({ where: { poId: receipt.poId } });
+      // based on received-vs-ordered quantities, making the existing close()
+      // step reachable. The received VALUE (money) is also reflected.
+      const updatedLines = await poLineRepo.find({ where: { poId: locked.poId } });
       if (updatedLines.length > 0) {
         const anyReceived = updatedLines.some((l) => Number(l.receivedQuantity || 0) > 0);
         const allReceived = updatedLines.every(
           (l) => Number(l.receivedQuantity || 0) >= Number(l.quantity || 0),
         );
         if (anyReceived || allReceived) {
-          const po = await poRepo.findOne({ where: { id: receipt.poId } });
+          const po = await poRepo.findOne({ where: { id: locked.poId } });
           if (po && (po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED' || po.status === 'FULLY_RECEIVED')) {
             // Money value of the goods accepted this receipt (received_quantity is
             // already maintained line-by-line above; keep the PO value in step).
@@ -203,12 +265,17 @@ export class GoodsReceiptService {
           }
         }
       }
+
+      // GRN header status flip is INSIDE the transaction so a GRN can never be
+      // posted without its inventory effect (and vice versa).
+      await receiptRepo.update(locked.id, {
+        status: 'POSTED',
+        postedBy: userId || null,
+        postedAt: new Date(),
+        updatedBy: userId || null,
+      });
     });
 
-    receipt.status = 'POSTED';
-    receipt.postedBy = userId || null;
-    receipt.postedAt = new Date();
-    receipt.updatedBy = userId || null;
-    return this.repo.save(receipt);
+    return this.findOne(id);
   }
 }

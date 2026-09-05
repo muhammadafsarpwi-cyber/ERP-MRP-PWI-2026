@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, DatePicker, Select, Button, Space, Typography, Spin,
-  Empty, Popover, Tag, Alert, Steps, message,
+  Empty, Popover, Tag, Alert, Steps, App,
 } from 'antd';
 import {
   ArrowLeftOutlined, ReloadOutlined, SelectOutlined, EditOutlined,
@@ -53,6 +53,7 @@ interface MachineStatusResponse {
  * data-entry happens. Only "Entry Required" machines can open a new entry form.
  */
 const EntryMachineSelect: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const lookups = useLookups();

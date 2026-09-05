@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { GoodsReceiptService } from '../services/goods-receipt.service';
 import { CreateGoodsReceiptDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
+import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 
 @ApiTags('procurement/receipts')
@@ -11,6 +12,14 @@ import { PermissionGuard, RequirePermission } from '../../auth/guards/permission
 @ApiBearerAuth()
 export class GoodsReceiptController {
   constructor(private readonly service: GoodsReceiptService) {}
+
+  private getCompanyId(req: any): string | undefined {
+    return req.erpUser?.defaultCompanyId || req.orgScopes?.[0]?.companyId;
+  }
+
+  private getUserId(req: any): string | undefined {
+    return req.erpUser?.id;
+  }
 
   @Post()
   @UseGuards(PermissionGuard)
@@ -86,12 +95,14 @@ export class GoodsReceiptController {
   }
 
   @Patch(':id/post')
+  @RequireOrgScope()
+  @UseGuards(OrgScopeGuard)
   @UseGuards(PermissionGuard)
   @RequirePermission('procurement.receipt.post')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Post goods receipt' })
-  async post(@Param('id') id: string) {
-    const receipt = await this.service.post(id);
+  async post(@Param('id') id: string, @Req() req: any) {
+    const receipt = await this.service.post(id, this.getUserId(req), this.getCompanyId(req));
     return { success: true, data: receipt, message: 'Goods receipt posted' };
   }
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Tag, Card, Input, Select, Space, message } from 'antd';
+import { Table, Tag, Card, Input, Select, Space, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 
@@ -30,6 +30,7 @@ interface Permission {
 }
 
 const PermissionManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [modules, setModules] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +53,7 @@ const PermissionManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filterModule, search]);
+  }, [filterModule, search, message]);
 
   const fetchModules = useCallback(async () => {
     try {
@@ -61,7 +62,7 @@ const PermissionManagement: React.FC = () => {
     } catch (error) {
       message.error(formatApiError(error, 'Failed to fetch modules'));
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => { fetchPermissions(page); fetchModules(); }, [page, fetchPermissions, fetchModules]);
 

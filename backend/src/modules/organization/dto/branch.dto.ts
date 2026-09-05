@@ -1,9 +1,10 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsEmail, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEmail, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUuid } from '../../../common/validators';
 
 export class CreateBranchDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   companyId: string;
 

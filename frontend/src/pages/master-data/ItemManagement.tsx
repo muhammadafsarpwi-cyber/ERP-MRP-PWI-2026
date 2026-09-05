@@ -23,6 +23,7 @@ import {
   type UomOption, type SimpleOption, type CategoryOption, type ConversionInfo,
   type ImportRow,
 } from './items/itemTypes';
+import InputMaterialSelect from './items/InputMaterialSelect';
 
 const { Text } = Typography;
 
@@ -135,6 +136,10 @@ const ItemManagement: React.FC = () => {
   const [editing, setEditing] = useState<Item | null>(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  // TASK #34B: live Item Code / Name so the read-only OUTPUT PRODUCT field on the
+  // form reflects the current item while it is being typed.
+  const watchedCode = Form.useWatch('itemCode', form);
+  const watchedName = Form.useWatch('name', form);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -327,11 +332,8 @@ const ItemManagement: React.FC = () => {
       isSellable: true,
       isManufacturable: false,
       isStockItem: true,
-      minimumStockLevel: 0,
-      maximumStockLevel: 0,
-      reorderLevel: 0,
-      safetyStockLevel: 0,
-      leadTimeDays: 0,
+      // TASK #34C: stock-level / lead-time numeric inputs start BLANK (no '0').
+      // The database defaults to 0 when left unset on create.
     });
     setFormOpen(true);
   };
@@ -385,6 +387,7 @@ const ItemManagement: React.FC = () => {
       reorderLevel: record.reorderLevel ?? undefined,
       safetyStockLevel: record.safetyStockLevel ?? undefined,
       leadTimeDays: record.leadTimeDays ?? undefined,
+      productionInItemId: record.productionInItemId ?? undefined,
     });
     setFormOpen(true);
   };
@@ -1088,6 +1091,20 @@ const ItemManagement: React.FC = () => {
     },
   };
 
+  // TASK #34B / #34C: The current Item IS the output product. The INPUT MATERIAL
+  // selector is rendered by <InputMaterialSelect/> — it loads the REAL Item Master
+  // dataset server-side (search + pagination + optional Source/Store Department
+  // filter), instead of the paginated page subset previously held in `items`.
+
+  const outputProductDisplay = useMemo(() => {
+    if (editing) {
+      return `${editing.itemCode}${editing.name && editing.name !== editing.itemCode ? ` — ${editing.name}` : ''}`;
+    }
+    const code = (watchedCode as string | undefined)?.trim() ?? '';
+    const name = (watchedName as string | undefined)?.trim() ?? '';
+    return [code, name].filter(Boolean).join(' — ') || '(new item)';
+  }, [editing, watchedCode, watchedName]);
+
   return (
     <div style={{ padding: '10px 14px', margin: '0 auto' }}>
       <PageHeader
@@ -1378,6 +1395,27 @@ const ItemManagement: React.FC = () => {
                 { label: 'Process 4', children: txt(detailItem.process4) },
                 { label: 'Final Product', children: txt(detailItem.finalProduct) },
                 { label: 'Packing / Next Step', children: txt(detailItem.packingNextStep) },
+                // TASK #34B/#34C: the item itself is the OUTPUT of its stage. The
+                // INPUT shows Item Master details (type, source department, wire size).
+                {
+                  label: 'Input Material',
+                  children: detailItem.productionInItem
+                    ? (() => {
+                        const pi = detailItem.productionInItem;
+                        const typeLabel = (pi.itemType && ITEM_TYPES.find((t) => t.value === pi.itemType)?.label) || pi.itemType || null;
+                        const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
+                        const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
+                        return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
+                      })()
+                    : null,
+                },
+                {
+                  label: 'Output Product',
+                  children: detailItem.productionOutItem
+                    ? `${detailItem.productionOutItem.itemCode} — ${detailItem.productionOutItem.name}`
+                    : detailItem.productionInItem
+                      ? `${detailItem.itemCode} — ${detailItem.name} (self)` : null,
+                },
               ])}
             </Card>
 
@@ -1599,6 +1637,25 @@ const ItemManagement: React.FC = () => {
               <Form.Item name="process2" label="Process 2"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="process3" label="Process 3"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="process4" label="Process 4"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+            </div>
+          </Card>
+
+          {/* SECTION 5b — TASK #34B: PRODUCTION FLOW
+              The current Item IS the output of its own production stage. The user
+              selects ONLY the INPUT MATERIAL; productionOutItemId is server-owned
+              and auto-synced to this Item's ID (kept only for backward compat). */}
+          <Card size="small" title="Production Flow" style={{ marginBottom: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 12px' }}>
+              <Form.Item
+                name="productionInItemId"
+                label="INPUT MATERIAL"
+                extra="The item consumed to produce this item — the current Item is ALWAYS the Output Product. Search the full Item Master by code, name, SKU or barcode, optionally narrowed to a Source / Store Department."
+              >
+                <InputMaterialSelect excludeItemId={editing?.id ?? null} departments={departments} />
+              </Form.Item>
+              <Form.Item label="OUTPUT PRODUCT" extra="Current Item is automatically the Production Output — this read-only value always equals the item being edited (auto-synchronized)">
+                <Input readOnly value={outputProductDisplay} />
+              </Form.Item>
             </div>
           </Card>
 

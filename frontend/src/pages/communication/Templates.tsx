@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Typography, Divider, Alert, Row, Col } from 'antd';
+import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, App, Popconfirm, Typography, Divider, Alert, Row, Col } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, MailOutlined, WhatsAppOutlined, BellOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 
@@ -28,6 +28,7 @@ interface TemplateRow {
 }
 
 const TemplatesPage: React.FC<{ channel: 'EMAIL' | 'WHATSAPP' | 'IN_APP'; title: string }> = ({ channel, title }) => {
+  const { message } = App.useApp();
   const [rows, setRows] = useState<TemplateRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);

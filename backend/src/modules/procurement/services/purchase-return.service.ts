@@ -3,6 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PurchaseReturn, PurchaseReturnLine } from '../entities';
 import { CreatePurchaseReturnDto, PurchaseReturnFilterDto } from '../dto';
+import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
+import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+
+const RETURN_REFERENCE_TYPE = 'PURCHASE_RETURN';
 
 @Injectable()
 export class PurchaseReturnService {
@@ -13,6 +17,8 @@ export class PurchaseReturnService {
     private readonly repo: Repository<PurchaseReturn>,
     @InjectRepository(PurchaseReturnLine)
     private readonly lineRepo: Repository<PurchaseReturnLine>,
+    private readonly stockLedgerService: StockLedgerService,
+    private readonly inventoryBalanceService: InventoryBalanceService,
   ) {}
 
   async create(dto: CreatePurchaseReturnDto, userId?: string): Promise<PurchaseReturn> {
@@ -96,6 +102,40 @@ export class PurchaseReturnService {
   async complete(id: string, userId?: string): Promise<PurchaseReturn> {
     const purchaseReturn = await this.findOne(id);
     if (purchaseReturn.status !== 'SHIPPED') throw new BadRequestException('Can only complete returns in SHIPPED status');
+
+    // Atomic stock reversal: every returned line actually leaves the warehouse.
+    // A goods receipt posts goods IN on acceptance, so a completed purchase
+    // return must post the exact reverse (stock ledger OUT entry + inventory
+    // balance reduction) or the returned quantity would remain in on-hand
+    // stock forever and corrupt inventory reconciliation / MRP. The return is
+    // only marked COMPLETED when every line has been reversed — or nothing is.
+    await this.repo.manager.transaction(async (manager) => {
+      for (const line of purchaseReturn.lines || []) {
+        const quantity = Number(line.quantity || 0);
+        if (quantity <= 0) continue;
+
+        await this.stockLedgerService.create({
+          companyId: purchaseReturn.companyId,
+          transactionType: 'PURCHASE_RETURN',
+          transactionDate: purchaseReturn.returnDate || undefined,
+          itemId: line.itemId,
+          warehouseId: purchaseReturn.warehouseId,
+          quantity,
+          uomId: line.uomId,
+          direction: 'OUT',
+          referenceType: RETURN_REFERENCE_TYPE,
+          referenceId: purchaseReturn.id,
+          referenceNumber: purchaseReturn.returnCode,
+          notes: `Purchase return ${purchaseReturn.returnCode}`,
+          createdBy: userId ?? undefined,
+        }, manager);
+        await this.inventoryBalanceService.updateBalance(
+          purchaseReturn.companyId, line.itemId, purchaseReturn.warehouseId,
+          null, null, line.uomId, quantity, 'OUT', manager,
+        );
+      }
+    });
+
     purchaseReturn.status = 'COMPLETED';
     purchaseReturn.postedBy = userId || null;
     purchaseReturn.postedAt = new Date();

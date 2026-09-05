@@ -80,6 +80,10 @@ describe('ItemService', () => {
     division: null as never,
     section: null as never,
     department: null as never,
+    productionInItemId: null,
+    productionInItem: null as never,
+    productionOutItemId: null,
+    productionOutItem: null as never,
     barcodes: [],
     attributeValues: [],
     specifications: [],
@@ -432,6 +436,174 @@ describe('ItemService', () => {
       repository.findOne.mockResolvedValue(null);
 
       await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('TASK #34B — production flow mapping (finalized IN/OUT model)', () => {
+    const withOrg = (overrides: Record<string, unknown> = {}) => ({
+      ...mockItem,
+      divisionId: 'div-1',
+      sectionId: 'sec-1',
+      departmentId: 'dept-1',
+      ...overrides,
+    });
+
+    // Route the findOne calls: first the item itself (create: duplicate check;
+    // update: entity load), then the input-item existence/chain lookups.
+    const mockServiceRepo = (
+      item: Partial<Item>,
+      inputs: Array<Partial<Item> | null>,
+    ) => {
+      const inputById: Record<string, Partial<Item> | null> = {};
+      inputs.forEach((inp) => { if (inp?.id) inputById[inp.id] = inp; });
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.itemCode) return null;
+        if (where?.id === item.id) return item as Item;
+        if (where?.id && inputById[where.id] !== undefined) return inputById[where.id] as Item | null;
+        return null;
+      });
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-1', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-1', divisionId: 'div-1', sectionId: 'sec-1' });
+    };
+
+    it('TASK34B-A: create auto-syncs productionOutItemId to the current item id and overrides any client-supplied OUT', async () => {
+      const input = { id: 'item-in', itemCode: 'IN-MAT', status: ItemStatus.ACTIVE, productionInItemId: null };
+      mockServiceRepo(mockItem, [input]);
+      repository.create.mockImplementation((entity: any) => ({ ...mockItem, ...entity } as Item));
+      repository.save.mockImplementation(async (entity: any) => ({ ...entity, createdAt: new Date(), updatedAt: new Date() } as Item));
+
+      const createDto = {
+        companyId: 'company-001',
+        itemCode: 'ITEM-001',
+        name: 'Test Item',
+        itemType: ItemType.FINISHED_GOOD,
+        baseUomId: 'uom-001',
+        productionInItemId: 'item-in',
+        productionOutItemId: 'client-sent-out',
+      };
+
+      const result = await service.create(createDto, 'user-001');
+
+      expect(result.productionInItemId).toBe('item-in');
+      expect(result.productionOutItemId).toBe(result.id);
+      // A client-supplied OUT is ignored — OUT is server-owned.
+      expect(result.productionOutItemId).not.toBe('client-sent-out');
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ productionInItemId: 'item-in' }));
+    });
+
+    it('TASK34B-B: update rejects when productionInItemId equals the item itself', async () => {
+      const loaded = withOrg({ productionInItemId: 'other-item' });
+      mockServiceRepo(loaded, []);
+      repository.update.mockResolvedValue({ affected: 1, raw: {}, generatedMaps: [] });
+      repository.findOne.mockResolvedValueOnce(loaded);
+
+      await expect(
+        service.update('item-001', { productionInItemId: 'item-001' }, 'user-001'),
+      ).rejects.toThrow('Production IN Item cannot be the item itself');
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('TASK34B-C: update auto-syncs OUT to the current item even when a client sends productionOutItemId', async () => {
+      const loaded = withOrg({ productionInItemId: 'item-in', productionOutItemId: 'stale-out' });
+      repository.findOne
+        .mockResolvedValueOnce(loaded as Item)
+        .mockResolvedValueOnce({ id: 'item-in', itemCode: 'IN-MAT', status: ItemStatus.ACTIVE, productionInItemId: null } as Item)
+        .mockResolvedValueOnce(loaded as Item); // final fresh read in update()
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-1', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-1', divisionId: 'div-1', sectionId: 'sec-1' });
+      repository.update.mockResolvedValue({ affected: 1, raw: {}, generatedMaps: [] });
+
+      const result = await service.update('item-001', { productionOutItemId: 'client-sent-out', name: 'Renamed' }, 'user-001');
+      expect(result.productionInItemId).toBe('item-in');
+      // The persisted OUT is always forced to the current item — the client value is ignored.
+      expect(repository.update).toHaveBeenCalledWith('item-001', expect.objectContaining({ productionOutItemId: 'item-001' }));
+    });
+
+    it('TASK34B-D: a stage with input accepts OUT equal to itself (self is now the norm), even across departments', async () => {
+      const input = { id: 'item-in', itemCode: 'IN-MAT', status: ItemStatus.ACTIVE, productionInItemId: null, departmentId: 'dept-other' };
+      mockServiceRepo(mockItem, [input]);
+      repository.create.mockImplementation((entity: any) => ({ ...mockItem, ...entity } as Item));
+      repository.save.mockImplementation(async (entity: any) => ({ ...entity, createdAt: new Date(), updatedAt: new Date() } as Item));
+
+      const result = await service.create({
+        companyId: 'company-001',
+        itemCode: 'ITEM-002',
+        name: 'Stage Item',
+        itemType: ItemType.SEMI_FINISHED,
+        baseUomId: 'uom-001',
+        productionInItemId: 'item-in',
+      }, 'user-001');
+
+      // Cross-department input accepted; OUT == the current item (self).
+      expect(result.productionInItemId).toBe('item-in');
+      expect(result.productionOutItemId).toBe(result.id);
+    });
+
+    it('TASK34B-E: rejects an INACTIVE input material', async () => {
+      const loaded = withOrg({ productionInItemId: 'item-in' });
+      repository.findOne
+        .mockResolvedValueOnce(loaded as Item)
+        .mockResolvedValueOnce({ id: 'item-in', itemCode: 'IN-MAT', status: ItemStatus.INACTIVE, productionInItemId: null } as Item);
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-1', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-1', divisionId: 'div-1', sectionId: 'sec-1' });
+
+      await expect(
+        service.update('item-001', { productionInItemId: 'item-in' }, 'user-001'),
+      ).rejects.toThrow('is not ACTIVE');
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('TASK34B-F: rejects a deleted / non-existent input material', async () => {
+      const loaded = withOrg({ productionInItemId: 'item-in' });
+      repository.findOne
+        .mockResolvedValueOnce(loaded as Item)
+        .mockResolvedValueOnce(null);
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-1', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-1', divisionId: 'div-1', sectionId: 'sec-1' });
+
+      await expect(
+        service.update('item-001', { productionInItemId: 'item-in' }, 'user-001'),
+      ).rejects.toThrow('does not exist in this company');
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('TASK34B-G: rejects a circular production chain (the input ultimately depends on the current item)', async () => {
+      const loaded = withOrg({ productionInItemId: 'item-in' });
+      // item-in consumes the current item → A ← B ← A is impossible.
+      repository.findOne
+        .mockResolvedValueOnce(loaded as Item)
+        .mockResolvedValueOnce({ id: 'item-in', itemCode: 'IN-MAT', status: ItemStatus.ACTIVE, productionInItemId: 'item-001' } as Item);
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-1', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-1', divisionId: 'div-1', sectionId: 'sec-1' });
+
+      await expect(
+        service.update('item-001', { productionInItemId: 'item-in' }, 'user-001'),
+      ).rejects.toThrow('Circular production chain detected');
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('TASK34B-H: accepts a valid input whose chain end resolves to null (no cycle)', async () => {
+      const loaded = withOrg({ productionInItemId: 'item-in', productionOutItemId: 'stale' });
+      // Chains: item-in → item-mid → null.
+      repository.findOne
+        .mockResolvedValueOnce(loaded as Item)
+        .mockResolvedValueOnce({ id: 'item-in', itemCode: 'IN-MAT', status: ItemStatus.ACTIVE, productionInItemId: 'item-mid' } as Item)
+        .mockResolvedValueOnce({ id: 'item-mid', itemCode: 'MID', status: ItemStatus.ACTIVE, productionInItemId: null } as Item)
+        .mockResolvedValueOnce(loaded as Item); // final fresh read in update()
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-1', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-1', divisionId: 'div-1', sectionId: 'sec-1' });
+      repository.update.mockResolvedValue({ affected: 1, raw: {}, generatedMaps: [] });
+
+      const result = await service.update('item-001', { productionInItemId: 'item-in' }, 'user-001');
+      expect(result.productionInItemId).toBe('item-in');
+      // The persisted OUT is always forced to the current item.
+      expect(repository.update).toHaveBeenCalledWith('item-001', expect.objectContaining({ productionOutItemId: 'item-001' }));
     });
   });
 });

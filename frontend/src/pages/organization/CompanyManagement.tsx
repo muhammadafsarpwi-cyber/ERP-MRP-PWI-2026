@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, message, Popconfirm, Card } from 'antd';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Popconfirm, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatApiError } from '../../utils/apiError';
 
 interface Company {
   id: string;
@@ -18,12 +19,14 @@ interface Company {
 }
 
 const CompanyManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
   const fetchCompanies = useCallback(async (pageNum: number = 1) => {
@@ -36,11 +39,11 @@ const CompanyManagement: React.FC = () => {
       setCompanies(response.data);
       setTotal(response.total);
     } catch (error) {
-      message.error('Failed to fetch companies');
+      message.error(formatApiError(error, 'Failed to fetch companies'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     fetchCompanies(page);
@@ -64,7 +67,7 @@ const CompanyManagement: React.FC = () => {
       message.success('Company deleted successfully');
       fetchCompanies(page);
     } catch (error) {
-      message.error('Failed to delete company');
+      message.error(formatApiError(error, 'Failed to delete company'));
     }
   };
 
@@ -74,7 +77,7 @@ const CompanyManagement: React.FC = () => {
       message.success('Company activated successfully');
       fetchCompanies(page);
     } catch (error) {
-      message.error('Failed to activate company');
+      message.error(formatApiError(error, 'Failed to activate company'));
     }
   };
 
@@ -84,11 +87,13 @@ const CompanyManagement: React.FC = () => {
       message.success('Company deactivated successfully');
       fetchCompanies(page);
     } catch (error) {
-      message.error('Failed to deactivate company');
+      message.error(formatApiError(error, 'Failed to deactivate company'));
     }
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const values = await form.validateFields();
       if (editingCompany) {
@@ -100,8 +105,14 @@ const CompanyManagement: React.FC = () => {
       }
       setModalVisible(false);
       fetchCompanies(page);
-    } catch (error) {
-      message.error('Operation failed');
+    } catch (error: any) {
+      if (error?.errorFields) {
+        message.error('Please complete all required fields.');
+      } else {
+        message.error(formatApiError(error, 'Operation failed'));
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -198,7 +209,10 @@ const CompanyManagement: React.FC = () => {
         title={editingCompany ? 'Edit Company' : 'Create Company'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        onCancel={() => {
+          if (!submitting) setModalVisible(false);
+        }}
         width={800}
       >
         <Form form={form} layout="vertical">

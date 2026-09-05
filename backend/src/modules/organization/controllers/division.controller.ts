@@ -8,11 +8,11 @@ import { DivisionStatus } from '../entities';
 @ApiTags('organization/divisions')
 @Controller('divisions')
 @UseGuards(PermissionGuard)
-@RequirePermission('admin.users.update')
 export class DivisionController {
   constructor(private readonly divisionService: DivisionService) {}
 
   @Post()
+  @RequirePermission('division.create')
   @ApiOperation({ summary: 'Create a new division' })
   @ApiResponse({ status: 201, description: 'Division created successfully' })
   @ApiResponse({ status: 409, description: 'Division code already exists' })
@@ -22,6 +22,7 @@ export class DivisionController {
   }
 
   @Get()
+  @RequirePermission('division.view')
   @ApiOperation({ summary: 'Get all divisions' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -40,6 +41,7 @@ export class DivisionController {
   }
 
   @Get(':id')
+  @RequirePermission('division.view')
   @ApiOperation({ summary: 'Get a division by ID' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division found' })
@@ -50,6 +52,7 @@ export class DivisionController {
   }
 
   @Patch(':id')
+  @RequirePermission('division.update')
   @ApiOperation({ summary: 'Update a division' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division updated successfully' })
@@ -60,6 +63,7 @@ export class DivisionController {
 
   @Patch(':id/activate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('division.activate')
   @ApiOperation({ summary: 'Activate a division' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division activated successfully' })
@@ -70,6 +74,7 @@ export class DivisionController {
 
   @Patch(':id/deactivate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('division.deactivate')
   @ApiOperation({ summary: 'Deactivate a division' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division deactivated successfully' })
@@ -80,6 +85,7 @@ export class DivisionController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('division.delete')
   @ApiOperation({ summary: 'Delete a division' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 204, description: 'Division deleted successfully' })

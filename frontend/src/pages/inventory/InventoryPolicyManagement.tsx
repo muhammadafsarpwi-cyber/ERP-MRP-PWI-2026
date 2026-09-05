@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Popconfirm, Card,
   InputNumber, Switch, Row, Col,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
@@ -50,6 +50,7 @@ const statusColorMap: Record<string, string> = {
 };
 
 const InventoryPolicyManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [policies, setPolicies] = useState<InventoryPolicy[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -85,7 +86,7 @@ const InventoryPolicyManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterWarehouse, filterStatus, filterTrackingType, pageSize]);
+  }, [search, filterWarehouse, filterStatus, filterTrackingType, pageSize, message]);
 
   const fetchDropdowns = async () => {
     try {

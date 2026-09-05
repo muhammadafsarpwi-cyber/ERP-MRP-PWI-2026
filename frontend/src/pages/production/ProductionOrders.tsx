@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card, Table, Button, Space, Tag, Modal, Form, Input, Select, message, Row, Col,
+  Card, Table, Button, Space, Tag, Modal, Form, Input, Select, App, Row, Col,
   InputNumber, Drawer, Descriptions, Divider, Typography,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, EyeOutlined, SendOutlined, CloseOutlined } from '@ant-design/icons';
@@ -90,6 +90,7 @@ export function buildCreateOrderPayload(values: {
 }
 
 const ProductionOrders: React.FC = () => {
+  const { message } = App.useApp();
   const [data, setData] = useState<ProductionOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -121,7 +122,7 @@ const ProductionOrders: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize]);
+  }, [search, filterStatus, pageSize, message]);
 
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 

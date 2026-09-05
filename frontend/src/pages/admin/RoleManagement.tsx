@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, message, Popconfirm, Card, Checkbox } from 'antd';
+import { Table, Button, Space, Tag, Modal, Form, Input, App, Popconfirm, Card, Checkbox } from 'antd';
 import { PlusOutlined, EditOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -42,6 +42,7 @@ interface Permission {
 }
 
 const RoleManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [loading, setLoading] = useState(false);
@@ -68,7 +69,7 @@ const RoleManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   const fetchPermissions = useCallback(async () => {
     try {
@@ -77,7 +78,7 @@ const RoleManagement: React.FC = () => {
     } catch (error) {
       message.error(formatApiError(error, 'Failed to fetch permissions'));
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => { fetchRoles(page); fetchPermissions(); }, [page, fetchRoles, fetchPermissions]);
 

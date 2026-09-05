@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Select, DatePicker, Input, Button, Typography, Row, Col, message } from 'antd';
+import { Card, Table, Tag, Select, DatePicker, Input, Button, Typography, Row, Col, App } from 'antd';
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 import dayjs from 'dayjs';
@@ -34,6 +34,7 @@ interface DeliveryRow {
 }
 
 const DeliveryLogsPage: React.FC<{ channel: 'EMAIL' | 'WHATSAPP'; title: string }> = ({ channel, title }) => {
+  const { message } = App.useApp();
   const [rows, setRows] = useState<DeliveryRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);

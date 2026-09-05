@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Descriptions,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, DollarOutlined } from '@ant-design/icons';
@@ -35,6 +35,7 @@ const statusColorMap: Record<string, string> = {
 };
 
 const SalesInvoiceManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [data, setData] = useState<SalesInvoice[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -65,7 +66,7 @@ const SalesInvoiceManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize]);
+  }, [search, filterStatus, pageSize, message]);
 
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 

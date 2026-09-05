@@ -1,29 +1,35 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUuid } from '../../../common/validators';
 
 export class CreateDepartmentDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
+  @IsUuid()
   @IsNotEmpty()
   companyId: string;
 
   @ApiPropertyOptional({ description: 'Branch ID (optional)' })
-  @IsUUID()
+  @IsString()
+  @IsUuid()
   @IsOptional()
   branchId?: string;
 
   @ApiPropertyOptional({ description: 'Business Unit ID (optional)' })
-  @IsUUID()
+  @IsString()
+  @IsUuid()
   @IsOptional()
   businessUnitId?: string;
 
   @ApiPropertyOptional({ description: 'Division ID (optional)' })
-  @IsUUID()
+  @IsString()
+  @IsUuid()
   @IsOptional()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Section ID (optional)' })
-  @IsUUID()
+  @IsString()
+  @IsUuid()
   @IsOptional()
   sectionId?: string;
 
@@ -46,7 +52,7 @@ export class CreateDepartmentDto {
   description?: string;
 
   @ApiPropertyOptional({ description: 'Parent department ID for hierarchy' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   parentDepartmentId?: string;
 }
@@ -59,22 +65,22 @@ export class UpdateDepartmentDto {
   departmentCode?: string;
 
   @ApiPropertyOptional({ description: 'Branch ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   branchId?: string;
 
   @ApiPropertyOptional({ description: 'Business Unit ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   businessUnitId?: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Section ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   sectionId?: string;
 
@@ -90,7 +96,7 @@ export class UpdateDepartmentDto {
   description?: string;
 
   @ApiPropertyOptional({ description: 'Parent department ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   parentDepartmentId?: string;
 }

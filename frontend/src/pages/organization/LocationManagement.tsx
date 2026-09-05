@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card, Tree } from 'antd';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card, Tree } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatApiError } from '../../utils/apiError';
 
 interface Warehouse {
   id: string;
@@ -24,6 +25,7 @@ interface WarehouseLocation {
 }
 
 const LocationManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [locations, setLocations] = useState<WarehouseLocation[]>([]);
   const [hierarchy, setHierarchy] = useState<WarehouseLocation[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -34,6 +36,7 @@ const LocationManagement: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingLocation, setEditingLocation] = useState<WarehouseLocation | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'tree'>('table');
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
   const fetchLocations = useCallback(async (pageNum: number = 1) => {
@@ -47,11 +50,11 @@ const LocationManagement: React.FC = () => {
       setLocations(response.data);
       setTotal(response.total);
     } catch (error) {
-      message.error('Failed to fetch locations');
+      message.error(formatApiError(error, 'Failed to fetch locations'));
     } finally {
       setLoading(false);
     }
-  }, [selectedWarehouse]);
+  }, [selectedWarehouse, message]);
 
   const fetchHierarchy = useCallback(async () => {
     if (!selectedWarehouse) return;
@@ -59,18 +62,18 @@ const LocationManagement: React.FC = () => {
       const response = await apiService.get<{ data: WarehouseLocation[] }>(`/warehouse-locations/hierarchy/${selectedWarehouse}`);
       setHierarchy(response.data);
     } catch (error) {
-      message.error('Failed to fetch location hierarchy');
+      message.error(formatApiError(error, 'Failed to fetch location hierarchy'));
     }
-  }, [selectedWarehouse]);
+  }, [selectedWarehouse, message]);
 
   const fetchWarehouses = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Warehouse[] }>('/warehouses', { limit: 100 });
       setWarehouses(response.data);
     } catch (error) {
-      message.error('Failed to fetch warehouses');
+      message.error(formatApiError(error, 'Failed to fetch warehouses'));
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     fetchWarehouses();
@@ -105,7 +108,7 @@ const LocationManagement: React.FC = () => {
       fetchLocations(page);
       fetchHierarchy();
     } catch (error) {
-      message.error('Failed to delete location');
+      message.error(formatApiError(error, 'Failed to delete location'));
     }
   };
 
@@ -116,7 +119,7 @@ const LocationManagement: React.FC = () => {
       fetchLocations(page);
       fetchHierarchy();
     } catch (error) {
-      message.error('Failed to activate location');
+      message.error(formatApiError(error, 'Failed to activate location'));
     }
   };
 
@@ -127,11 +130,13 @@ const LocationManagement: React.FC = () => {
       fetchLocations(page);
       fetchHierarchy();
     } catch (error) {
-      message.error('Failed to deactivate location');
+      message.error(formatApiError(error, 'Failed to deactivate location'));
     }
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const values = await form.validateFields();
       if (editingLocation) {
@@ -144,8 +149,14 @@ const LocationManagement: React.FC = () => {
       setModalVisible(false);
       fetchLocations(page);
       fetchHierarchy();
-    } catch (error) {
-      message.error('Operation failed');
+    } catch (error: any) {
+      if (error?.errorFields) {
+        message.error('Please complete all required fields.');
+      } else {
+        message.error(formatApiError(error, 'Operation failed'));
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -274,7 +285,10 @@ const LocationManagement: React.FC = () => {
         title={editingLocation ? 'Edit Location' : 'Create Location'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        onCancel={() => {
+          if (!submitting) setModalVisible(false);
+        }}
         width={600}
       >
         <Form form={form} layout="vertical">

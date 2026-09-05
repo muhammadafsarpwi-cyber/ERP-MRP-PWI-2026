@@ -485,7 +485,7 @@ export const JobCardDetail: React.FC = () => {
       </Col>
     </Row>
 
-    <Modal title="Edit job card" open={editOpen} confirmLoading={busy} onCancel={() => setEditOpen(false)} onOk={() => editForm.submit()}>
+    <Modal title="Edit job card" open={editOpen} confirmLoading={busy} onCancel={() => setEditOpen(false)} onOk={() => editForm.submit()} forceRender>
       <Form form={editForm} layout="vertical" onFinish={saveEdit}>
         <Form.Item name="complaint" label="Complaint" rules={[{ required: true }]}><Input.TextArea rows={3} /></Form.Item>
         <Form.Item name="complaintCategoryId" label="Complaint category"><Select allowClear options={categories.map(category => ({ value: category.id, label: category.name || category.code || 'Unnamed complaint category' }))} /></Form.Item>

@@ -47,7 +47,6 @@ import {
   ReservationManagement,
   StockLedgerView,
   InventoryReports,
-  InventoryReceiving,
 } from './pages/inventory';
 import Production from './pages/production/Production';
 import {
@@ -122,7 +121,7 @@ const App: React.FC = () => {
                   <Route path="/sales/invoices" element={<SalesInvoiceManagement />} />
                   <Route path="/sales/returns" element={<SalesReturnManagement />} />
                   <Route path="/inventory" element={<Inventory />} />
-                <Route path="/inventory/receiving" element={<InventoryReceiving />} />
+                <Route path="/inventory/receiving" element={<Navigate to="/production/receiving" replace />} />
                   <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
                   <Route path="/inventory/batches" element={<BatchManagement />} />
                   <Route path="/inventory/adjustments" element={<StockAdjustmentManagement />} />

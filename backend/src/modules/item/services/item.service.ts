@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
+import { randomUUID } from 'crypto';
 import { Item, ItemStatus } from '../entities';
 import { CreateItemDto, UpdateItemDto, ItemFilterDto } from '../dto/item.dto';
 import { Division, Section, Department } from '../../organization/entities';
@@ -90,10 +91,19 @@ export class ItemService {
     this.validateTrackingFlags(dto);
     await this.validateOrgHierarchy(dto.companyId, dto.divisionId, dto.sectionId, dto.departmentId);
 
+    // TASK #34B: The current Item IS the output of its own production stage —
+    // the user selects only the INPUT material; production_out_item_id is a
+    // backward-compat column that is always auto-synchronized to the current
+    // Item ID (or NULL for root raw materials).
+    const newItemId = randomUUID();
+    const syncedOut = await this.resolveProductionFlowMapping(dto.companyId, dto.productionInItemId, newItemId);
+
     const rt = await this.resolveRouteType(dto.companyId, dto.routeTypeId, dto.routeType);
 
     const item = this.itemRepository.create({
       ...dto,
+      id: newItemId,
+      productionOutItemId: syncedOut,
       routeTypeId: rt.routeTypeId,
       routeType: rt.routeTypeCode,
       createdBy: userId || null,
@@ -112,7 +122,9 @@ export class ItemService {
       .leftJoinAndSelect('item.division', 'division')
       .leftJoinAndSelect('item.section', 'section')
       .leftJoinAndSelect('item.department', 'department')
-      .leftJoinAndSelect('item.routeTypeRef', 'routeTypeRef');
+      .leftJoinAndSelect('item.routeTypeRef', 'routeTypeRef')
+      .leftJoinAndSelect('item.productionInItem', 'productionInItem')
+      .leftJoinAndSelect('item.productionOutItem', 'productionOutItem');
 
     if (search) {
       qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.barcode ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search)', { search: `%${search}%` });
@@ -150,7 +162,7 @@ export class ItemService {
   async findOne(id: string): Promise<Item> {
     const item = await this.itemRepository.findOne({
       where: { id },
-      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents'],
+      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionOutItem'],
     });
     if (!item) throw new NotFoundException(`Item with ID '${id}' not found`);
     return item;
@@ -201,6 +213,12 @@ export class ItemService {
       dto.departmentId !== undefined ? dto.departmentId : item.departmentId,
     );
 
+    // TASK #34B: Production IN/OUT mapping — the user supplies only the INPUT
+    // material; production_out_item_id is server-owned and always mirrored to the
+    // current Item ID (see resolveProductionFlowMapping below).
+    const effectiveInItemId = dto.productionInItemId !== undefined ? dto.productionInItemId : item.productionInItemId;
+    const syncedOut = await this.resolveProductionFlowMapping(item.companyId, effectiveInItemId, id);
+
     // Resolve route type if supplied
     if (dto.routeTypeId !== undefined || dto.routeType !== undefined) {
       const rt = await this.resolveRouteType(
@@ -221,6 +239,10 @@ export class ItemService {
     for (const [k, v] of Object.entries(dto)) {
       if (v !== undefined) scalarUpdate[k] = v;
     }
+    // Server-owned production OUT: a client-supplied productionOutItemId is
+    // overridden so the backward-compat column always equals the current Item ID
+    // (auto-sync), healing any stale pre-#34B sample data.
+    scalarUpdate.productionOutItemId = syncedOut;
 
     await this.itemRepository.update(id, scalarUpdate);
 
@@ -295,5 +317,77 @@ export class ItemService {
     if (item.serialTracked && !item.trackInventory) throw new BadRequestException('Serial tracking requires inventory tracking');
     if (item.batchTracked && !item.trackInventory) throw new BadRequestException('Batch tracking requires inventory tracking');
     if (item.expiryTracked && !item.trackInventory) throw new BadRequestException('Expiry tracking requires inventory tracking');
+  }
+
+  /**
+   * TASK #34B: Resolve + validate the Item Master production IN/OUT mapping and
+   * return the server-owned production OUT Item ID to persist.
+   *
+   * Model (the current Item IS the output of its own production stage):
+   *   · The user selects ONLY the INPUT material (`productionInItemId`).
+   *   · `production_out_item_id` is kept ONLY for backward compatibility and is
+   *     ALWAYS auto-synchronized to the current Item's id when an input is mapped
+   *     (NULL when the item is a root raw material, i.e. it has no input).
+   *   · Any client-supplied `productionOutItemId` is ignored / overridden.
+   *
+   * Validation:
+   *   · the input material can never be the item itself (self-input),
+   *   · the input must exist in this company and be ACTIVE (deleted/inactive
+   *     inputs are rejected),
+   *   · circular chains are rejected by walking the input's own input chain
+   *     backward (A ← B ← A can never be executed),
+   *   · chains may span departments (a later stage may consume an upstream
+   *     stage's output regardless of organizational placement).
+   */
+  private async resolveProductionFlowMapping(
+    companyId: string,
+    inItemId: string | null | undefined,
+    currentItemId: string,
+  ): Promise<string | null> {
+    const effectiveIn = inItemId ?? null;
+    if (!effectiveIn) {
+      // Root raw material / no production stage: no input and no output.
+      return null;
+    }
+
+    if (effectiveIn === currentItemId) {
+      throw new BadRequestException('Production IN Item cannot be the item itself');
+    }
+
+    // The input must exist in this company and be ACTIVE — a deleted or inactive
+    // input is never a valid raw material for a production stage.
+    const input = await this.itemRepository.findOne({ where: { id: effectiveIn, companyId } });
+    if (!input) {
+      throw new BadRequestException(
+        `Production IN Item '${effectiveIn}' does not exist in this company (invalid UUID or deleted item).`,
+      );
+    }
+    if (input.status !== ItemStatus.ACTIVE) {
+      throw new BadRequestException(`Production IN Item '${input.itemCode}' is not ACTIVE`);
+    }
+
+    // Circular-chain guard: walk the input's own input chain backward. If it ever
+    // reaches the current item (or revisits a node), the mapping would form a loop
+    // that can never be executed — reject it.
+    const seen = new Set<string>([effectiveIn]);
+    let probeId = input.productionInItemId;
+    let hops = 0;
+    while (probeId) {
+      if (hops++ > 50) {
+        throw new BadRequestException('Production IN chain is deeper than 50 stages — circular reference suspected');
+      }
+      if (probeId === currentItemId || seen.has(probeId)) {
+        throw new BadRequestException('Circular production chain detected (the input ultimately depends on this item)');
+      }
+      seen.add(probeId);
+      const probe = await this.itemRepository.findOne({ where: { id: probeId } });
+      if (!probe) {
+        throw new BadRequestException(`Production IN chain references missing item '${probeId}'`);
+      }
+      probeId = probe.productionInItemId;
+    }
+
+    // The current Item IS the output of its stage.
+    return currentItemId;
   }
 }

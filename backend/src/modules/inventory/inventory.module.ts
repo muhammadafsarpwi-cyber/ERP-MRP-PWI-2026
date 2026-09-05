@@ -1,6 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockTransfer, StockTransferLine, InventoryReservation, SerialNumber } from './entities';
+import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockTransfer, StockTransferLine, InventoryReservation, SerialNumber, RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine } from './entities';
 import { Division, Section, Department } from '../organization/entities';
 import { Warehouse } from '../organization/entities/warehouse.entity';
 import { Item } from '../item/entities/item.entity';
@@ -14,6 +14,7 @@ import { StockTransferService } from './services/stock-transfer.service';
 import { InventoryReservationService } from './services/inventory-reservation.service';
 import { OpeningStockService } from './services/opening-stock.service';
 import { SerialNumberService } from './services/serial-number.service';
+import { RawMaterialReceivingService } from './services/raw-material-receiving.service';
 import { InventoryPolicyController } from './controllers/inventory-policy.controller';
 import { BatchController } from './controllers/batch.controller';
 import { InventoryBalanceController } from './controllers/inventory-balance.controller';
@@ -34,6 +35,7 @@ import { UserModule } from '../user/user.module';
       InventoryPolicy, Batch, InventoryBalance, StockLedger,
       StockAdjustment, StockAdjustmentLine, StockTransfer, StockTransferLine,
       InventoryReservation, SerialNumber,
+      RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine,
       Division, Section, Department, Warehouse, Item, Uom,
     ]),
     forwardRef(() => AuthModule),
@@ -49,7 +51,7 @@ import { UserModule } from '../user/user.module';
   providers: [
     InventoryPolicyService, BatchService, InventoryBalanceService, StockLedgerService,
     StockAdjustmentService, StockTransferService, InventoryReservationService,
-    OpeningStockService, SerialNumberService,
+    OpeningStockService, SerialNumberService, RawMaterialReceivingService,
   ],
   exports: [InventoryBalanceService, StockLedgerService, InventoryPolicyService, BatchService],
 })

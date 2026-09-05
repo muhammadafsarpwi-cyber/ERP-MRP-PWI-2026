@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   Row, Col,
 } from 'antd';
 import { PlusOutlined, EditOutlined, SearchOutlined, SendOutlined, StopOutlined } from '@ant-design/icons';
@@ -28,6 +28,7 @@ const statusColorMap: Record<string, string> = {
 };
 
 const RfqManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [data, setData] = useState<Rfq[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -63,7 +64,7 @@ const RfqManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize]);
+  }, [search, filterStatus, pageSize, message]);
 
   const fetchSuppliers = async () => {
     try {

@@ -1,9 +1,10 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUuid } from '../../../common/validators';
 
 export class CreateWarehouseLocationDto {
   @ApiProperty({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   warehouseId: string;
 
@@ -26,7 +27,7 @@ export class CreateWarehouseLocationDto {
   description?: string;
 
   @ApiPropertyOptional({ description: 'Parent location ID for hierarchy' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   parentLocationId?: string;
 }
@@ -50,7 +51,7 @@ export class UpdateWarehouseLocationDto {
   description?: string;
 
   @ApiPropertyOptional({ description: 'Parent location ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   parentLocationId?: string;
 }

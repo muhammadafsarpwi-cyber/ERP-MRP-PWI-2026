@@ -111,6 +111,11 @@ export interface Item {
   createdBy?: string | null;
   updatedBy?: string | null;
   barcodes?: Array<{ id: string; barcodeType?: string; barcodeValue?: string; status?: string }>;
+  // TASK #33: Production Flow Mapping
+  productionInItemId?: string | null;
+  productionOutItemId?: string | null;
+  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; departmentId?: string | null; itemType?: string } | null;
+  productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; departmentId?: string | null; itemType?: string } | null;
 }
 
 export interface DivisionOption { id: string; divisionCode: string; name: string; }

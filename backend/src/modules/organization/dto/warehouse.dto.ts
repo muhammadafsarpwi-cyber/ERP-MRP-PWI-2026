@@ -1,20 +1,21 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsEnum, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { WarehouseType } from '../entities';
+import { IsUuid } from '../../../common/validators';
 
 export class CreateWarehouseDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   companyId: string;
 
   @ApiPropertyOptional({ description: 'Branch ID (optional)' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   branchId?: string;
 
   @ApiPropertyOptional({ description: 'Business Unit ID (optional)' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   businessUnitId?: string;
 
@@ -63,12 +64,12 @@ export class UpdateWarehouseDto {
   warehouseCode?: string;
 
   @ApiPropertyOptional({ description: 'Branch ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   branchId?: string;
 
   @ApiPropertyOptional({ description: 'Business Unit ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   businessUnitId?: string;
 

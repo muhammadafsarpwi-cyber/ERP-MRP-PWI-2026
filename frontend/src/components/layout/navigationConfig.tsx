@@ -222,7 +222,6 @@ export const NAV_ENTRIES: NavEntry[] = [
     color: 'indigo',
     children: [
       { key: '/inventory', label: 'Overview', icon: InboxOutlined, color: 'indigo', permissions: ['inventory.view'] },
-      { key: '/inventory/receiving', label: 'Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['inventory.opening_stock.create'] },
       { key: '/inventory/policies', label: 'Inventory Policies', icon: SafetyOutlined, color: 'indigo', permissions: ['inventory.policy.view'] },
       { key: '/inventory/batches', label: 'Batch Tracking', icon: AppstoreOutlined, color: 'indigo', permissions: ['inventory.batch.view'] },
       { key: '/inventory/adjustments', label: 'Stock Adjustments', icon: EditOutlined, color: 'indigo', permissions: ['inventory.view'] },
@@ -241,6 +240,9 @@ export const NAV_ENTRIES: NavEntry[] = [
     children: [
       { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.production.orders.view'] },
       { key: '/production/entries', label: 'Daily Production Entry', icon: EditOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/receiving', label: 'Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.material_receiving.view'] },
+      { key: '/production/returns', label: 'Raw Material Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.material_return.view'] },
+      { key: '/production/receiving-report', label: 'Receiving & Return Report', icon: BarChartOutlined, color: 'violet', permissions: ['manufacturing.material_receiving.report'] },
       { key: '/production/bom', label: 'Bill of Materials', icon: ClusterOutlined, color: 'cyan', permissions: ['manufacturing.bom.view'] },
       { key: '/production/routings', label: 'Routing', icon: ApartmentOutlined, color: 'cyan', permissions: ['manufacturing.routing.view'] },
       { key: '/production/traceability', label: 'Traceability', icon: BranchesOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
@@ -367,6 +369,8 @@ const NAV_DETAIL_ALIASES: Record<string, string> = {
 /** Detail routes of the form `/section/parent/:id` reuse their parent's icon/color. */
 const NAV_DETAIL_PATTERNS: Array<{ pattern: RegExp; key: string }> = [
   { pattern: /^\/production\/entries\//, key: '/production/entries' },
+  { pattern: /^\/production\/receiving\//, key: '/production/receiving' },
+  { pattern: /^\/production\/returns\//, key: '/production/returns' },
   { pattern: /^\/production\/bom\//, key: '/production/bom' },
   { pattern: /^\/production\/routings\//, key: '/production/routings' },
   { pattern: /^\/production\/targets\//, key: '/production/targets' },

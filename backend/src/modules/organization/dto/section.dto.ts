@@ -1,14 +1,15 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUuid } from '../../../common/validators';
 
 export class CreateSectionDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   companyId: string;
 
   @ApiProperty({ description: 'Division ID' })
-  @IsUUID()
+  @IsUuid()
   @IsNotEmpty()
   divisionId: string;
 
@@ -33,7 +34,7 @@ export class CreateSectionDto {
 
 export class UpdateSectionDto {
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUUID()
+  @IsUuid()
   @IsOptional()
   divisionId?: string;
 

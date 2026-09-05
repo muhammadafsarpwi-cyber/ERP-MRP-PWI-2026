@@ -8,11 +8,11 @@ import { BusinessUnitStatus } from '../entities';
 @ApiTags('organization/business-units')
 @Controller('business-units')
 @UseGuards(PermissionGuard)
-@RequirePermission('admin.users.update')
 export class BusinessUnitController {
   constructor(private readonly businessUnitService: BusinessUnitService) {}
 
   @Post()
+  @RequirePermission('branch.create')
   @ApiOperation({ summary: 'Create a new business unit' })
   @ApiResponse({ status: 201, description: 'Business unit created successfully' })
   @ApiResponse({ status: 409, description: 'Business unit code already exists' })
@@ -22,6 +22,7 @@ export class BusinessUnitController {
   }
 
   @Get()
+  @RequirePermission('branch.view')
   @ApiOperation({ summary: 'Get all business units' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -42,6 +43,7 @@ export class BusinessUnitController {
   }
 
   @Get(':id')
+  @RequirePermission('branch.view')
   @ApiOperation({ summary: 'Get a business unit by ID' })
   @ApiParam({ name: 'id', description: 'Business Unit ID' })
   @ApiResponse({ status: 200, description: 'Business unit found' })
@@ -52,6 +54,7 @@ export class BusinessUnitController {
   }
 
   @Patch(':id')
+  @RequirePermission('branch.update')
   @ApiOperation({ summary: 'Update a business unit' })
   @ApiParam({ name: 'id', description: 'Business Unit ID' })
   @ApiResponse({ status: 200, description: 'Business unit updated successfully' })
@@ -62,6 +65,7 @@ export class BusinessUnitController {
 
   @Patch(':id/activate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('branch.activate')
   @ApiOperation({ summary: 'Activate a business unit' })
   @ApiParam({ name: 'id', description: 'Business Unit ID' })
   @ApiResponse({ status: 200, description: 'Business unit activated successfully' })
@@ -72,6 +76,7 @@ export class BusinessUnitController {
 
   @Patch(':id/deactivate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('branch.deactivate')
   @ApiOperation({ summary: 'Deactivate a business unit' })
   @ApiParam({ name: 'id', description: 'Business Unit ID' })
   @ApiResponse({ status: 200, description: 'Business unit deactivated successfully' })
@@ -82,6 +87,7 @@ export class BusinessUnitController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('branch.delete')
   @ApiOperation({ summary: 'Delete a business unit' })
   @ApiParam({ name: 'id', description: 'Business Unit ID' })
   @ApiResponse({ status: 204, description: 'Business unit deleted successfully' })

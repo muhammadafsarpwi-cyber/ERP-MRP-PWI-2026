@@ -252,7 +252,7 @@ export const TeamsList: React.FC = () => {
         onCancel={() => setTechModalOpen(false)}
         onOk={() => techForm.submit()}
         width={620}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={techForm} layout="vertical" onFinish={saveTechnician}>
           <Row gutter={16}>

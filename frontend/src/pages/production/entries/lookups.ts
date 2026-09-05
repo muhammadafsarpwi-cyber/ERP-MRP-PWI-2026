@@ -12,12 +12,26 @@ export interface ItemLk extends LookupItem {
   itemType: string;
   isManufacturable: boolean;
   status: string;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  categoryId?: string | null;
+  categoryName?: string | null;
   wireSizeMm?: number | null;
   routeType?: string | null;
+  routeTypeId?: string | null;
   weightPerPiece?: number | null;
   piecesPerKg?: number | null;
   weightPerMeter?: number | null;
   lengthPerPiece?: number | null;
+  // TASK #33: Production Flow Mapping
+  productionInItemId?: string | null;
+  productionOutItemId?: string | null;
+  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string } } | null;
+  productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string } } | null;
 }
 export interface UomLk extends LookupItem { code: string; symbol: string; uomType: string; }
 export interface UomConversionLk { id: string; fromUomId: string; toUomId: string; conversionFactor: string | number; status: string; }

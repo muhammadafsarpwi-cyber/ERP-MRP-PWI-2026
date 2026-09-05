@@ -10,6 +10,8 @@ import { PermissionGuard, RequirePermission } from '../../auth/guards/permission
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { StockLedgerService } from '../services/stock-ledger.service';
 import { InventoryBalanceService } from '../services/inventory-balance.service';
+import { RawMaterialReceivingService } from '../services/raw-material-receiving.service';
+import { CreateRawMaterialReceiptDto, CreateRawMaterialReturnDto, UpdateRawMaterialReceiptDto, UpdateRawMaterialReturnDto, RawMaterialReceivingReportQuery } from '../dto/raw-material-receiving.dto';
 import { Division, Section, Department } from '../../organization/entities';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { Item } from '../../item/entities/item.entity';
@@ -154,6 +156,7 @@ export class InventoryReceiptController {
   constructor(
     private readonly ledgerService: StockLedgerService,
     private readonly balanceService: InventoryBalanceService,
+    private readonly rawMaterialService: RawMaterialReceivingService,
     @InjectRepository(Division)
     private readonly divisionRepo: Repository<Division>,
     @InjectRepository(Section)
@@ -316,6 +319,215 @@ export class InventoryReceiptController {
     });
 
     return { success: true, data: result };
+  }
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────
+   * Multi-item Raw Material Receiving / Return (Production workflow)
+   * Header + lines model with Gate Pass Weight vs Received Weight tracking.
+   * Stock movements post to the SAME stock ledger / inventory balances.
+   * ─────────────────────────────────────────────────────────────────────────
+   */
+
+  @Get('gate-pass/form-data')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.create')
+  @ApiOperation({ summary: 'Form reference data for the multi-item receiving/return form' })
+  async getGatePassFormData(@Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.getFormReferenceData(companyId);
+    return { success: true, data };
+  }
+
+  @Post('gate-pass')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.create')
+  @ApiOperation({ summary: 'Create a multi-item raw material receipt (Gate Pass). Posts stock IN for received quantities only.' })
+  async createMultiReceipt(@Body() dto: CreateRawMaterialReceiptDto, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.createReceipt(companyId, dto, req.erpUser?.id);
+    return { success: true, data };
+  }
+
+  @Get('gate-pass')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.view')
+  @ApiOperation({ summary: 'List multi-item raw material receipts' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiQuery({ name: 'sectionId', required: false })
+  @ApiQuery({ name: 'departmentId', required: false })
+  @ApiQuery({ name: 'warehouseId', required: false })
+  @ApiQuery({ name: 'gatePassNo', required: false })
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'dateTo', required: false })
+  async listMultiReceipts(
+    @Req() req: any,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('status') status?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('gatePassNo') gatePassNo?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const result = await this.rawMaterialService.findAllReceipts(companyId, {
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
+      status,
+      divisionId,
+      sectionId,
+      departmentId,
+      warehouseId,
+      gatePassNo,
+      dateFrom,
+      dateTo,
+    });
+    return { success: true, ...result };
+  }
+
+  @Get('gate-pass/:id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.view')
+  @ApiOperation({ summary: 'Receipt detail with lines + ledger entries' })
+  async getMultiReceipt(@Param('id') id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.findReceiptById(companyId, id);
+    return { success: true, data };
+  }
+
+  @Patch('gate-pass/:id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.update')
+  @ApiOperation({ summary: 'Update a multi-item receipt (delta-based stock handling)' })
+  async updateMultiReceipt(@Param('id') id: string, @Body() dto: UpdateRawMaterialReceiptDto, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.updateReceipt(id, companyId, dto, req.erpUser?.id);
+    return { success: true, data, message: 'Receipt updated successfully.' };
+  }
+
+  @Delete('gate-pass/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.delete')
+  @ApiOperation({ summary: 'Delete a multi-item receipt — reverses posted stock atomically' })
+  async removeMultiReceipt(@Param('id') id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    await this.rawMaterialService.removeReceipt(id, companyId);
+    return { success: true, message: 'Receipt deleted and inventory balance reversed.' };
+  }
+
+  @Post('return-multi')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.create')
+  @ApiOperation({ summary: 'Create a multi-item raw material return. Posts stock OUT (atomic).' })
+  async createMultiReturn(@Body() dto: CreateRawMaterialReturnDto, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.createReturn(companyId, dto, req.erpUser?.id);
+    return { success: true, data };
+  }
+
+  @Get('returns')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.view')
+  @ApiOperation({ summary: 'List raw material returns' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiQuery({ name: 'sectionId', required: false })
+  @ApiQuery({ name: 'departmentId', required: false })
+  @ApiQuery({ name: 'warehouseId', required: false })
+  @ApiQuery({ name: 'sourceNo', required: false })
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'dateTo', required: false })
+  async listMultiReturns(
+    @Req() req: any,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('status') status?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('sourceNo') sourceNo?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const result = await this.rawMaterialService.findAllReturns(companyId, {
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
+      status,
+      divisionId,
+      sectionId,
+      departmentId,
+      warehouseId,
+      sourceNo,
+      dateFrom,
+      dateTo,
+    });
+    return { success: true, ...result };
+  }
+
+  @Get('returns/:id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.view')
+  @ApiOperation({ summary: 'Return detail with lines + ledger entries' })
+  async getMultiReturn(@Param('id') id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.findReturnById(companyId, id);
+    return { success: true, data };
+  }
+
+  @Patch('returns/:id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.update')
+  @ApiOperation({ summary: 'Update a raw material return (delta-based stock handling)' })
+  async updateMultiReturn(@Param('id') id: string, @Body() dto: UpdateRawMaterialReturnDto, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.updateReturn(id, companyId, dto, req.erpUser?.id);
+    return { success: true, data, message: 'Return updated successfully.' };
+  }
+
+  @Delete('returns/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.delete')
+  @ApiOperation({ summary: 'Delete a raw material return — reverses posted stock atomically' })
+  async removeMultiReturn(@Param('id') id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    await this.rawMaterialService.removeReturn(id, companyId);
+    return { success: true, message: 'Return deleted and inventory balance reversed.' };
+  }
+
+  @Get('report')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.report')
+  @ApiOperation({ summary: 'Raw material receiving/return report (Gate Pass vs Received vs Difference) + legacy ledger' })
+  @ApiQuery({ type: RawMaterialReceivingReportQuery })
+  async getReport(@Req() req: any, @Query() query: RawMaterialReceivingReportQuery) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.getReport(companyId, query);
+    return { success: true, data };
   }
 
   @Get()

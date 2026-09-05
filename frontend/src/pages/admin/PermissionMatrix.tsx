@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Card, Tag, Button, Space, Input, Select, message, Spin, Tooltip, Popconfirm } from 'antd';
+import { Card, Tag, Button, Space, Input, Select, App, Spin, Tooltip, Popconfirm } from 'antd';
 import { SaveOutlined, SearchOutlined, ReloadOutlined, DownOutlined, RightOutlined, CompressOutlined, ExpandOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 
@@ -68,6 +68,7 @@ const ACTION_COLORS: Record<string, string> = {
 type ChangeMap = Map<string, boolean>;
 
 const PermissionMatrix: React.FC = () => {
+  const { message } = App.useApp();
   const [matrix, setMatrix] = useState<PermissionMatrixData | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -87,7 +88,7 @@ const PermissionMatrix: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => { fetchMatrix(); }, [fetchMatrix]);
 
@@ -173,7 +174,7 @@ const PermissionMatrix: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [matrix, localChanges, fetchMatrix]);
+  }, [matrix, localChanges, fetchMatrix, message]);
 
   const handleToggleAll = useCallback((roleId: string, action: string, value: boolean) => {
     if (!matrix) return;

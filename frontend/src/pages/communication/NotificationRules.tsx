@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm, Typography, Row, Col, Alert } from 'antd';
+import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, Switch, App, Popconfirm, Typography, Row, Col, Alert } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 
@@ -28,6 +28,7 @@ interface RuleRow {
 }
 
 const NotificationRulesPage: React.FC = () => {
+  const { message } = App.useApp();
   const [rows, setRows] = useState<RuleRow[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message, Card,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   Row, Col,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, CheckOutlined } from '@ant-design/icons';
@@ -26,6 +26,7 @@ const statusColorMap: Record<string, string> = {
 };
 
 const GoodsReceiptManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [data, setData] = useState<GoodsReceipt[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -71,7 +72,7 @@ const GoodsReceiptManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize]);
+  }, [search, filterStatus, pageSize, message]);
 
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 

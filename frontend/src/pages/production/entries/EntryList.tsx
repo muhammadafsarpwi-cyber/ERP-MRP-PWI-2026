@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Card, Table, Button, Space, Select, DatePicker, Tag, message, Tabs, Typography,
+  Card, Table, Button, Space, Select, DatePicker, Tag, App, Tabs, Typography,
   Popconfirm, Statistic, Row, Col, Input, Tooltip,
 } from 'antd';
 import {
@@ -72,6 +72,7 @@ interface ReportResponse {
 /** Visual-only KPI threshold presentation is centralized in components/kpi. */
 
 const EntryList: React.FC = () => {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const lookups = useLookups();
   const [rows, setRows] = useState<ProductionEntryRow[]>([]);
@@ -113,7 +114,7 @@ const EntryList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, buildFilters]);
+  }, [page, pageSize, buildFilters, message]);
 
   const fetchReport = useCallback(async () => {
     setReportLoading(true);
@@ -125,7 +126,7 @@ const EntryList: React.FC = () => {
     } finally {
       setReportLoading(false);
     }
-  }, [buildFilters]);
+  }, [buildFilters, message]);
 
   useEffect(() => { void fetchRows(); }, [fetchRows]);
   useEffect(() => { void fetchReport(); }, [fetchReport]);

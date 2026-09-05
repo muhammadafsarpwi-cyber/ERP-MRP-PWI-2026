@@ -8,11 +8,11 @@ import { DepartmentStatus } from '../entities';
 @ApiTags('organization/departments')
 @Controller('departments')
 @UseGuards(PermissionGuard)
-@RequirePermission('admin.users.update')
 export class DepartmentController {
   constructor(private readonly departmentService: DepartmentService) {}
 
   @Post()
+  @RequirePermission('department.create')
   @ApiOperation({ summary: 'Create a new department' })
   @ApiResponse({ status: 201, description: 'Department created successfully' })
   @ApiResponse({ status: 409, description: 'Department code already exists' })
@@ -22,6 +22,7 @@ export class DepartmentController {
   }
 
   @Get()
+  @RequirePermission('department.view')
   @ApiOperation({ summary: 'Get all departments' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -58,6 +59,7 @@ export class DepartmentController {
   }
 
   @Get('hierarchy')
+  @RequirePermission('department.view')
   @ApiOperation({ summary: 'Get department hierarchy' })
   @ApiQuery({ name: 'companyId', required: false, type: String })
   async getHierarchy(@Query('companyId') companyId?: string) {
@@ -66,6 +68,7 @@ export class DepartmentController {
   }
 
   @Get(':id')
+  @RequirePermission('department.view')
   @ApiOperation({ summary: 'Get a department by ID' })
   @ApiParam({ name: 'id', description: 'Department ID' })
   @ApiResponse({ status: 200, description: 'Department found' })
@@ -76,6 +79,7 @@ export class DepartmentController {
   }
 
   @Patch(':id')
+  @RequirePermission('department.update')
   @ApiOperation({ summary: 'Update a department' })
   @ApiParam({ name: 'id', description: 'Department ID' })
   @ApiResponse({ status: 200, description: 'Department updated successfully' })
@@ -86,6 +90,7 @@ export class DepartmentController {
 
   @Patch(':id/activate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('department.activate')
   @ApiOperation({ summary: 'Activate a department' })
   @ApiParam({ name: 'id', description: 'Department ID' })
   @ApiResponse({ status: 200, description: 'Department activated successfully' })
@@ -96,6 +101,7 @@ export class DepartmentController {
 
   @Patch(':id/deactivate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('department.deactivate')
   @ApiOperation({ summary: 'Deactivate a department' })
   @ApiParam({ name: 'id', description: 'Department ID' })
   @ApiResponse({ status: 200, description: 'Department deactivated successfully' })
@@ -106,6 +112,7 @@ export class DepartmentController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('department.delete')
   @ApiOperation({ summary: 'Delete a department' })
   @ApiParam({ name: 'id', description: 'Department ID' })
   @ApiResponse({ status: 204, description: 'Department deleted successfully' })

@@ -222,6 +222,24 @@ export class Item extends BaseEntity {
   @Column({ name: 'length_per_piece', type: 'decimal', precision: 15, scale: 6, nullable: true })
   lengthPerPiece: number | null;
 
+  // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
+  /** The raw-material / intermediate item consumed when producing this item. */
+  @Column({ name: 'production_in_item_id', type: 'uuid', nullable: true })
+  productionInItemId: string | null;
+
+  @ManyToOne(() => Item, { nullable: true })
+  @JoinColumn({ name: 'production_in_item_id' })
+  productionInItem: Item;
+
+  /** The output item produced by the operation that creates this item — TASK #34B: server-owned, always auto-synced to the current Item ID (backward-compat column). */
+  @Column({ name: 'production_out_item_id', type: 'uuid', nullable: true })
+  productionOutItemId: string | null;
+
+  @ManyToOne(() => Item, { nullable: true })
+  @JoinColumn({ name: 'production_out_item_id' })
+  productionOutItem: Item;
+  // ── END TASK #33 ─────────────────────────────────────────────────────────
+
   @Column({ name: 'cost_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
   costPrice: number | null;
 

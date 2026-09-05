@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, message,
+  Table, Button, Space, Tag, Modal, Form, Input, Select, App,
   Popconfirm, Card, Avatar, Row, Col, Divider, Typography, Badge, Tooltip,
   Statistic, Empty,
 } from 'antd';
@@ -81,6 +81,7 @@ function formatApiError(error: any, fallback: string): string {
 }
 
 const UserManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [users, setUsers] = useState<ErpUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(false);
@@ -121,7 +122,7 @@ const UserManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   const fetchRoles = useCallback(async () => {
     try {
@@ -130,7 +131,7 @@ const UserManagement: React.FC = () => {
     } catch (error) {
       message.error(formatApiError(error, 'Failed to fetch roles'));
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     fetchUsers(page, search || undefined, statusFilter);
@@ -530,7 +531,7 @@ const UserManagement: React.FC = () => {
         okText="Create User"
         confirmLoading={createLoading}
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Divider style={{ margin: '12px 0' }} />
         <Form form={createForm} layout="vertical" initialValues={{ roleIds: [] }}>
@@ -661,7 +662,7 @@ const UserManagement: React.FC = () => {
         okText="Save Changes"
         confirmLoading={editLoading}
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={editForm} layout="vertical">
           <Row gutter={16}>
@@ -717,7 +718,7 @@ const UserManagement: React.FC = () => {
         okText="Save Roles"
         confirmLoading={roleLoading}
         width={500}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={roleForm} layout="vertical">
           <Form.Item name="roleIds" label="Assigned Roles">
@@ -754,7 +755,7 @@ const UserManagement: React.FC = () => {
         okButtonProps={{ danger: true }}
         confirmLoading={resetLoading}
         width={480}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ marginBottom: 16, padding: 12, background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6 }}>
           <Space align="start">

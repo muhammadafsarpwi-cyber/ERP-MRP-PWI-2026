@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Button, Space, Modal, Form, Input, Select, message, Row, Col, Tag, DatePicker, Tabs } from 'antd';
+import { Card, Table, Button, Space, Modal, Form, Input, Select, App, Row, Col, Tag, DatePicker, Tabs } from 'antd';
 import { PlusOutlined,  CheckOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -8,6 +8,7 @@ import { PageHeader } from '../../components/shared';
 interface Employee { id: string; employeeCode: string; firstName: string; lastName?: string; }
 
 const AttendancePage: React.FC = () => {
+  const { message } = App.useApp();
   const [companyId, setCompanyId] = useState('');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
@@ -51,7 +52,7 @@ const AttendancePage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [companyId]);
+  }, [companyId, message]);
 
   useEffect(() => { load(); }, [load]);
 

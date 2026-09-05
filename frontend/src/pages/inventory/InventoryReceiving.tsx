@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Alert, Button, Card, Col, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, App } from 'antd';
 import { EyeOutlined, EditOutlined, DeleteOutlined, InboxOutlined, ReloadOutlined, PlusOutlined, RollbackOutlined, LoadingOutlined, SwapOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -72,6 +72,7 @@ const orgFields = (
 );
 
 const InventoryReceiving: React.FC = () => {
+  const { message } = App.useApp();
   const [recvForm] = Form.useForm();
   const [retForm] = Form.useForm();
 
@@ -478,7 +479,7 @@ const InventoryReceiving: React.FC = () => {
       <Modal
         title={<Space><InboxOutlined /> {editingId ? 'Edit Receive Raw Material' : 'Receive Raw Material'}</Space>}
         open={recvModalOpen} onCancel={clearRecvModal}
-        footer={null} width={800} destroyOnClose maskClosable={!recvSubmitting}
+        footer={null} width={800} destroyOnHidden maskClosable={!recvSubmitting}
       >
         {recvFormContent}
         <Space style={{ marginTop: 12 }}>
@@ -490,7 +491,7 @@ const InventoryReceiving: React.FC = () => {
       <Modal
         title={<Space><SwapOutlined /> {editingId ? 'Edit Return' : 'Raw Material Return'}</Space>}
         open={retModalOpen} onCancel={clearRetModal}
-        footer={null} width={800} destroyOnClose maskClosable={!retSubmitting}
+        footer={null} width={800} destroyOnHidden maskClosable={!retSubmitting}
       >
         {retFormContent}
         <Space style={{ marginTop: 12 }}>
@@ -502,7 +503,7 @@ const InventoryReceiving: React.FC = () => {
       <Modal
         title={<Space><EyeOutlined /> Transaction Details</Space>}
         open={viewTxOpen} onCancel={() => setViewTxOpen(false)}
-        footer={null} width={640} destroyOnClose
+        footer={null} width={640} destroyOnHidden
       >
         {viewTx && (
           <Descriptions column={1} bordered size="small" labelStyle={{ width: 160 }}>

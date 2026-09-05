@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Switch, message, Space, Tag, Typography, Button } from 'antd';
+import { Card, Table, Switch, App, Space, Tag, Typography, Button } from 'antd';
 import { BellOutlined, ReloadOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 
@@ -8,6 +8,7 @@ const { Text } = Typography;
 const MODULES = ['maintenance','procurement','sales','inventory','manufacturing','qc','hr','finance','approvals','system'];
 
 const NotificationPreferencesPage: React.FC = () => {
+  const { message } = App.useApp();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 

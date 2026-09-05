@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatApiError } from '../../utils/apiError';
 
 interface Company {
   id: string;
@@ -23,6 +24,7 @@ interface Division {
 }
 
 const DivisionManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,9 +32,10 @@ const DivisionManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingDivision, setEditingDivision] = useState<Division | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
-  const fetchDivisions = async (pageNum: number = 1) => {
+  const fetchDivisions = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const response = await apiService.get<{ data: Division[]; total: number }>('/divisions', {
@@ -42,25 +45,25 @@ const DivisionManagement: React.FC = () => {
       setDivisions(response.data);
       setTotal(response.total);
     } catch (error) {
-      message.error('Failed to fetch divisions');
+      message.error(formatApiError(error, 'Failed to fetch divisions'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [message]);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
     } catch (error) {
-      message.error('Failed to fetch companies');
+      message.error(formatApiError(error, 'Failed to fetch companies'));
     }
-  };
+  }, [message]);
 
   useEffect(() => {
     fetchDivisions(page);
     fetchCompanies();
-  }, [page]);
+  }, [page, fetchDivisions, fetchCompanies]);
 
   const handleCreate = () => {
     setEditingDivision(null);
@@ -80,7 +83,7 @@ const DivisionManagement: React.FC = () => {
       message.success('Division deleted successfully');
       fetchDivisions(page);
     } catch (error) {
-      message.error('Failed to delete division');
+      message.error(formatApiError(error, 'Failed to delete division'));
     }
   };
 
@@ -90,7 +93,7 @@ const DivisionManagement: React.FC = () => {
       message.success('Division activated successfully');
       fetchDivisions(page);
     } catch (error) {
-      message.error('Failed to activate division');
+      message.error(formatApiError(error, 'Failed to activate division'));
     }
   };
 
@@ -100,15 +103,18 @@ const DivisionManagement: React.FC = () => {
       message.success('Division deactivated successfully');
       fetchDivisions(page);
     } catch (error) {
-      message.error('Failed to deactivate division');
+      message.error(formatApiError(error, 'Failed to deactivate division'));
     }
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const values = await form.validateFields();
       if (editingDivision) {
-        await apiService.patch(`/divisions/${editingDivision.id}`, values);
+        const { divisionCode: _dc, companyId: _co, ...editable } = values;
+        await apiService.patch(`/divisions/${editingDivision.id}`, editable);
         message.success('Division updated successfully');
       } else {
         await apiService.post('/divisions', values);
@@ -116,8 +122,14 @@ const DivisionManagement: React.FC = () => {
       }
       setModalVisible(false);
       fetchDivisions(page);
-    } catch (error) {
-      message.error('Operation failed');
+    } catch (error: any) {
+      if (error?.errorFields) {
+        message.error('Please complete all required fields.');
+      } else {
+        message.error(formatApiError(error, 'Operation failed'));
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -205,7 +217,10 @@ const DivisionManagement: React.FC = () => {
         title={editingDivision ? 'Edit Division' : 'Create Division'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        onCancel={() => {
+          if (!submitting) setModalVisible(false);
+        }}
         width={600}
       >
         <Form form={form} layout="vertical">

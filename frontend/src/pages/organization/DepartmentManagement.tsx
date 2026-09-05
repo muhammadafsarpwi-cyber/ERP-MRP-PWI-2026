@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card, Tree } from 'antd';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card, Tree } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, CheckCircleOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatApiError } from '../../utils/apiError';
 
 interface Department {
   id: string;
@@ -52,6 +53,7 @@ interface Section {
 }
 
 const DepartmentManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [hierarchy, setHierarchy] = useState<Department[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -67,7 +69,12 @@ const DepartmentManagement: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'tree'>('table');
+  const [formDivisions, setFormDivisions] = useState<Division[]>([]);
+  const [formSections, setFormSections] = useState<Section[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const watchCompanyId = Form.useWatch('companyId', form);
+  const watchDivisionId = Form.useWatch('divisionId', form);
 
   const fetchDepartments = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -82,11 +89,11 @@ const DepartmentManagement: React.FC = () => {
       setDepartments(response.data);
       setTotal(response.total);
     } catch (error) {
-      message.error('Failed to fetch departments');
+      message.error(formatApiError(error, 'Failed to fetch departments'));
     } finally {
       setLoading(false);
     }
-  }, [filterCompanyId, filterDivisionId, filterSectionId, filterType]);
+  }, [filterCompanyId, filterDivisionId, filterSectionId, filterType, message]);
 
   const fetchHierarchy = useCallback(async () => {
     try {
@@ -95,18 +102,18 @@ const DepartmentManagement: React.FC = () => {
       const response = await apiService.get<{ data: Department[] }>('/departments/hierarchy', params);
       setHierarchy(response.data);
     } catch (error) {
-      message.error('Failed to fetch department hierarchy');
+      message.error(formatApiError(error, 'Failed to fetch department hierarchy'));
     }
-  }, [filterCompanyId]);
+  }, [filterCompanyId, message]);
 
   const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
     } catch (error) {
-      message.error('Failed to fetch companies');
+      message.error(formatApiError(error, 'Failed to fetch companies'));
     }
-  }, []);
+  }, [message]);
 
   const fetchDivisions = useCallback(async (companyId?: string) => {
     try {
@@ -115,9 +122,9 @@ const DepartmentManagement: React.FC = () => {
       const response = await apiService.get<{ data: Division[] }>('/divisions', params);
       setDivisions(response.data);
     } catch (error) {
-      message.error('Failed to fetch divisions');
+      message.error(formatApiError(error, 'Failed to fetch divisions'));
     }
-  }, []);
+  }, [message]);
 
   const fetchSections = useCallback(async (divisionId?: string) => {
     try {
@@ -126,9 +133,31 @@ const DepartmentManagement: React.FC = () => {
       const response = await apiService.get<{ data: Section[] }>('/sections', params);
       setSections(response.data);
     } catch (error) {
-      message.error('Failed to fetch sections');
+      message.error(formatApiError(error, 'Failed to fetch sections'));
     }
-  }, []);
+  }, [message]);
+
+  const loadFormDivisions = useCallback(async (companyId?: string) => {
+    try {
+      const params: any = { limit: 100, status: 'ACTIVE' };
+      if (companyId) params.companyId = companyId;
+      const response = await apiService.get<{ data: Division[] }>('/divisions', params);
+      setFormDivisions(response.data);
+    } catch (error) {
+      message.error(formatApiError(error, 'Failed to fetch divisions'));
+    }
+  }, [message]);
+
+  const loadFormSections = useCallback(async (divisionId?: string) => {
+    try {
+      const params: any = { limit: 100, status: 'ACTIVE' };
+      if (divisionId) params.divisionId = divisionId;
+      const response = await apiService.get<{ data: Section[] }>('/sections', params);
+      setFormSections(response.data);
+    } catch (error) {
+      message.error(formatApiError(error, 'Failed to fetch sections'));
+    }
+  }, [message]);
 
   useEffect(() => {
     fetchDepartments(page);
@@ -161,15 +190,28 @@ const DepartmentManagement: React.FC = () => {
   const handleCreate = () => {
     setEditingDepartment(null);
     form.resetFields();
-    if (filterCompanyId) form.setFieldValue('companyId', filterCompanyId);
-    if (filterDivisionId) form.setFieldValue('divisionId', filterDivisionId);
-    if (filterSectionId) form.setFieldValue('sectionId', filterSectionId);
+    setFormSections([]);
+    const defaultCompany = filterCompanyId || undefined;
+    if (defaultCompany) {
+      form.setFieldValue('companyId', defaultCompany);
+      loadFormDivisions(defaultCompany);
+      if (filterDivisionId) form.setFieldValue('divisionId', filterDivisionId);
+      if (filterSectionId) form.setFieldValue('sectionId', filterSectionId);
+    } else {
+      setFormDivisions([]);
+    }
     setModalVisible(true);
   };
 
   const handleEdit = (record: Department) => {
     setEditingDepartment(record);
     form.setFieldsValue(record);
+    loadFormDivisions(record.companyId);
+    if (record.divisionId) {
+      loadFormSections(record.divisionId);
+    } else {
+      setFormSections([]);
+    }
     setModalVisible(true);
   };
 
@@ -180,7 +222,7 @@ const DepartmentManagement: React.FC = () => {
       fetchDepartments(page);
       fetchHierarchy();
     } catch (error) {
-      message.error('Failed to delete department');
+      message.error(formatApiError(error, 'Failed to delete department'));
     }
   };
 
@@ -191,7 +233,7 @@ const DepartmentManagement: React.FC = () => {
       fetchDepartments(page);
       fetchHierarchy();
     } catch (error) {
-      message.error('Failed to activate department');
+      message.error(formatApiError(error, 'Failed to activate department'));
     }
   };
 
@@ -202,15 +244,18 @@ const DepartmentManagement: React.FC = () => {
       fetchDepartments(page);
       fetchHierarchy();
     } catch (error) {
-      message.error('Failed to deactivate department');
+      message.error(formatApiError(error, 'Failed to deactivate department'));
     }
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const values = await form.validateFields();
       if (editingDepartment) {
-        await apiService.patch(`/departments/${editingDepartment.id}`, values);
+        const { companyId: _co, ...editable } = values;
+        await apiService.patch(`/departments/${editingDepartment.id}`, editable);
         message.success('Department updated successfully');
       } else {
         await apiService.post('/departments', values);
@@ -219,8 +264,14 @@ const DepartmentManagement: React.FC = () => {
       setModalVisible(false);
       fetchDepartments(page);
       fetchHierarchy();
-    } catch (error) {
-      message.error('Operation failed');
+    } catch (error: any) {
+      if (error?.errorFields) {
+        message.error('Please complete all required fields.');
+      } else {
+        message.error(formatApiError(error, 'Operation failed'));
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -411,7 +462,10 @@ const DepartmentManagement: React.FC = () => {
         title={editingDepartment ? 'Edit Department' : 'Create Department'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        onCancel={() => {
+          if (!submitting) setModalVisible(false);
+        }}
         width={600}
       >
         <Form form={form} layout="vertical">
@@ -420,7 +474,14 @@ const DepartmentManagement: React.FC = () => {
             label="Company"
             rules={[{ required: true, message: 'Please select company' }]}
           >
-            <Select placeholder="Select company">
+            <Select
+              placeholder="Select company"
+              onChange={(value) => {
+                form.setFieldsValue({ divisionId: undefined, sectionId: undefined, parentDepartmentId: undefined });
+                loadFormDivisions(value);
+                setFormSections([]);
+              }}
+            >
               {companies.map((company) => (
                 <Select.Option key={company.id} value={company.id}>
                   {company.legalName}
@@ -429,8 +490,20 @@ const DepartmentManagement: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item name="divisionId" label="Division">
-            <Select placeholder="Select division (optional)" allowClear>
-              {divisions.map((division) => (
+            <Select
+              placeholder="Select division (optional)"
+              allowClear
+              disabled={!watchCompanyId}
+              onChange={(value) => {
+                form.setFieldsValue({ sectionId: undefined });
+                if (value) {
+                  loadFormSections(value);
+                } else {
+                  setFormSections([]);
+                }
+              }}
+            >
+              {formDivisions.map((division) => (
                 <Select.Option key={division.id} value={division.id}>
                   {division.divisionCode} - {division.name}
                 </Select.Option>
@@ -438,8 +511,12 @@ const DepartmentManagement: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item name="sectionId" label="Section">
-            <Select placeholder="Select section (optional)" allowClear>
-              {sections.map((section) => (
+            <Select
+              placeholder="Select section (optional)"
+              allowClear
+              disabled={!watchDivisionId}
+            >
+              {formSections.map((section) => (
                 <Select.Option key={section.id} value={section.id}>
                   {section.sectionCode} - {section.name}
                 </Select.Option>

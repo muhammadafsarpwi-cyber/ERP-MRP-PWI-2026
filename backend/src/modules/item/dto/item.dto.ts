@@ -274,6 +274,18 @@ export class CreateItemDto {
   @Min(0)
   @IsOptional()
   lengthPerPiece?: number;
+
+  // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
+  @ApiPropertyOptional({ description: 'Production IN Item ID — the raw material consumed to produce this item' })
+  @IsUUID('loose')
+  @IsOptional()
+  productionInItemId?: string;
+
+  @ApiPropertyOptional({ description: 'Production OUT Item ID — backward-compat column, server-owned: automatically equals the current Item ID when productionInItemId is set (NULL for root raw materials). Ignored when supplied.' })
+  @IsUUID('loose')
+  @IsOptional()
+  productionOutItemId?: string;
+  // ── END TASK #33 ─────────────────────────────────────────────────────────
 }
 
 export class UpdateItemDto {
@@ -532,6 +544,18 @@ export class UpdateItemDto {
   @Min(0)
   @IsOptional()
   lengthPerPiece?: number;
+
+  // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
+  @ApiPropertyOptional({ description: 'Production IN Item ID — the raw material consumed to produce this item' })
+  @IsUUID('loose')
+  @IsOptional()
+  productionInItemId?: string;
+
+  @ApiPropertyOptional({ description: 'Production OUT Item ID — the output item produced by this item\'s production stage (usually self)' })
+  @IsUUID('loose')
+  @IsOptional()
+  productionOutItemId?: string;
+  // ── END TASK #33 ─────────────────────────────────────────────────────────
 }
 
 export class ItemFilterDto {

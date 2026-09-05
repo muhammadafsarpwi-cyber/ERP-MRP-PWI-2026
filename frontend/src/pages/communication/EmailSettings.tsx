@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Input, Switch, Button, Row, Col, Alert, Divider, Typography, Select, message, Space, Tag, Tooltip } from 'antd';
+import { Card, Form, Input, Switch, Button, Row, Col, Alert, Divider, Typography, Select, App, Space, Tag, Tooltip } from 'antd';
 import { MailOutlined, SaveOutlined, SendOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 
@@ -12,6 +12,7 @@ const SECURITY_OPTIONS = [
 ];
 
 const EmailSettingsPage: React.FC = () => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);

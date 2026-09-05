@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Card } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatApiError } from '../../utils/apiError';
 
 interface Company {
   id: string;
@@ -25,6 +26,7 @@ interface Branch {
 }
 
 const BranchManagement: React.FC = () => {
+  const { message } = App.useApp();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
@@ -32,9 +34,10 @@ const BranchManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
-  const fetchBranches = async (pageNum: number = 1) => {
+  const fetchBranches = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const response = await apiService.get<{ data: Branch[]; total: number }>('/branches', {
@@ -44,25 +47,25 @@ const BranchManagement: React.FC = () => {
       setBranches(response.data);
       setTotal(response.total);
     } catch (error) {
-      message.error('Failed to fetch branches');
+      message.error(formatApiError(error, 'Failed to fetch branches'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [message]);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
     } catch (error) {
-      message.error('Failed to fetch companies');
+      message.error(formatApiError(error, 'Failed to fetch companies'));
     }
-  };
+  }, [message]);
 
   useEffect(() => {
     fetchBranches(page);
     fetchCompanies();
-  }, [page]);
+  }, [page, fetchBranches, fetchCompanies]);
 
   const handleCreate = () => {
     setEditingBranch(null);
@@ -82,7 +85,7 @@ const BranchManagement: React.FC = () => {
       message.success('Branch deleted successfully');
       fetchBranches(page);
     } catch (error) {
-      message.error('Failed to delete branch');
+      message.error(formatApiError(error, 'Failed to delete branch'));
     }
   };
 
@@ -92,7 +95,7 @@ const BranchManagement: React.FC = () => {
       message.success('Branch activated successfully');
       fetchBranches(page);
     } catch (error) {
-      message.error('Failed to activate branch');
+      message.error(formatApiError(error, 'Failed to activate branch'));
     }
   };
 
@@ -102,15 +105,18 @@ const BranchManagement: React.FC = () => {
       message.success('Branch deactivated successfully');
       fetchBranches(page);
     } catch (error) {
-      message.error('Failed to deactivate branch');
+      message.error(formatApiError(error, 'Failed to deactivate branch'));
     }
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const values = await form.validateFields();
       if (editingBranch) {
-        await apiService.patch(`/branches/${editingBranch.id}`, values);
+        const { companyId: _co, ...editable } = values;
+        await apiService.patch(`/branches/${editingBranch.id}`, editable);
         message.success('Branch updated successfully');
       } else {
         await apiService.post('/branches', values);
@@ -118,8 +124,14 @@ const BranchManagement: React.FC = () => {
       }
       setModalVisible(false);
       fetchBranches(page);
-    } catch (error) {
-      message.error('Operation failed');
+    } catch (error: any) {
+      if (error?.errorFields) {
+        message.error('Please complete all required fields.');
+      } else {
+        message.error(formatApiError(error, 'Operation failed'));
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -216,7 +228,10 @@ const BranchManagement: React.FC = () => {
         title={editingBranch ? 'Edit Branch' : 'Create Branch'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        onCancel={() => {
+          if (!submitting) setModalVisible(false);
+        }}
         width={800}
       >
         <Form form={form} layout="vertical">

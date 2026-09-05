@@ -198,3 +198,59 @@ export function aggregateProductionTotals(
   return { totalActual, totalScrap, totalKg, totalRejectionKg, rejectionPct };
 }
 
+/**
+ * Normalise the raw antd Form.List downtime lines into the backend's canonical
+ * `downtimes` payload array. This is the SAME mapping EntryForm's onFinish used
+ * to build inline — extracted so the contract (lineNumber / downtimeReasonId /
+ * downtimeReason / downtimeHours / remarks) is covered by a unit test and
+ * cannot drift from the DTO.
+ */
+export interface DowntimeLineDraft {
+  lineNumber?: number | null;
+  downtimeReasonId?: string | null;
+  downtimeReason?: string | null;
+  downtimeHours?: number | string | null;
+  remarks?: string | null;
+}
+
+export function buildDowntimePayload(lines: DowntimeLineDraft[] | null | undefined) {
+  return (lines ?? [])
+    .filter((l) => l.downtimeReasonId || toNum2(l.downtimeHours) > 0 || l.downtimeReason)
+    .map((l, idx) => ({
+      lineNumber: l.lineNumber ?? idx + 1,
+      downtimeReasonId: l.downtimeReasonId ?? undefined,
+      downtimeReason: l.downtimeReason ?? undefined,
+      downtimeHours: Number(l.downtimeHours ?? 0),
+      remarks: l.remarks ?? undefined,
+    }));
+}
+
+/** Normalise raw production-item Form.List lines into the backend `items` payload. */
+export interface ProductionItemDraft {
+  lineNumber?: number | null;
+  itemId?: string | null;
+  uomId?: string | null;
+  targetQuantity?: number | string | null;
+  actualQuantity?: number | string | null;
+  scrapQuantity?: number | string | null;
+  runningHours?: number | string | null;
+  routingCode?: string | null;
+  remarks?: string | null;
+}
+
+export function buildProductionItemsPayload(lines: ProductionItemDraft[] | null | undefined, fallbackUomId?: string | null) {
+  return (lines ?? [])
+    .filter((l) => l.itemId)
+    .map((l, idx) => ({
+      lineNumber: l.lineNumber ?? idx + 1,
+      itemId: l.itemId,
+      uomId: l.uomId ?? fallbackUomId ?? undefined,
+      targetQuantity: Number(l.targetQuantity ?? 0),
+      actualQuantity: Number(l.actualQuantity ?? 0),
+      scrapQuantity: Number(l.scrapQuantity ?? 0),
+      runningHours: Number(l.runningHours ?? 0),
+      routingCode: l.routingCode ?? undefined,
+      remarks: l.remarks ?? undefined,
+    }));
+}
+
