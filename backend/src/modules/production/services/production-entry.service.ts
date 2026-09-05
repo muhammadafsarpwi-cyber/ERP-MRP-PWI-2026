@@ -1217,6 +1217,13 @@ export class ProductionEntryService {
     rawMaterialWarehouseId: string | null,
     userId?: string,
   ): Promise<void> {
+    // TASK #35: idempotency guard — inventory movement happens EXACTLY ONCE per
+    // production entry. When the receipt ledger id is already recorded this entry
+    // has already posted its consumption + output; skipping prevents duplicate
+    // stock ledger transactions if the posting path is ever invoked again.
+    if (entry.inventoryReferenceId) {
+      return;
+    }
     if (rawMaterialWarehouseId) {
       await this.consumeRawMaterials(manager, companyId, entry, rawMaterialWarehouseId, userId);
     }

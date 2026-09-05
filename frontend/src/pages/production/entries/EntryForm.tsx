@@ -141,6 +141,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
   // TASK #32: Raw material data resolved by RawMaterialAvailability, keyed by production itemId.
   // Used by ItemDetailsStrip to show raw material info inline.
+  // TASK #35: Also carries the input UOM, source/store department and output name.
   const [rawMaterialData, setRawMaterialData] = useState<Record<string, {
     itemCode: string;
     itemName?: string | null;
@@ -149,6 +150,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     available?: number | null;
     productionInItemId?: string | null;
     productionOutItemId?: string | null;
+    productionInUomCode?: string | null;
+    productionInDepartmentName?: string | null;
+    productionOutItemName?: string | null;
     chainWarning?: string | null;
   }>>({});
 
@@ -1706,7 +1710,9 @@ const ItemMetadatum: React.FC<{ label: string; value: React.ReactNode }> = ({ la
 
 /** Compact professional horizontal single-line information strip for the selected item.
  *  TASK #32: When raw material data is provided, also shows raw material details
- *  below the production item info (Code, Name, Wire Size, UOM, Available). */
+ *  below the production item info (Code, Name, Wire Size, UOM, Available).
+ *  TASK #35: Shows the exact Production IN code/UOM, its source/store department,
+ *  and the read-only Production OUT product (the current Item itself). */
 const ItemDetailsStrip: React.FC<{
   item: ItemLk;
   rawMaterial?: {
@@ -1715,6 +1721,9 @@ const ItemDetailsStrip: React.FC<{
     wireSizeMm?: number | null;
     uomCode?: string | null;
     available?: number | null;
+    productionInUomCode?: string | null;
+    productionInDepartmentName?: string | null;
+    productionOutItemName?: string | null;
   } | null;
   productionInItemId?: string | null;
   productionOutItemId?: string | null;
@@ -1817,7 +1826,7 @@ const ItemDetailsStrip: React.FC<{
         )}
         {rawMaterial.uomCode && (
           <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="RM UOM" value={rawMaterial.uomCode} />
+            <ItemMetadatum label="RM UOM" value={rawMaterial.productionInUomCode ?? rawMaterial.uomCode} />
           </div>
         )}
         {rawMaterial.available != null && (
@@ -1845,6 +1854,16 @@ const ItemDetailsStrip: React.FC<{
             } />
           </div>
         )}
+        {productionInItemId && rawMaterial?.productionInUomCode && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Production IN UOM" value={rawMaterial.productionInUomCode} />
+          </div>
+        )}
+        {productionInItemId && rawMaterial?.productionInDepartmentName && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Production IN Source" value={rawMaterial.productionInDepartmentName} />
+          </div>
+        )}
         {productionOutItemId && (
           <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
             <ItemMetadatum label="Output Product" value={
@@ -1854,6 +1873,11 @@ const ItemDetailsStrip: React.FC<{
                   : `${allItems?.find((i) => i.id === productionOutItemId)?.itemCode ?? productionOutItemId} (unexpected)`}
               </span>
             } />
+          </div>
+        )}
+        {productionOutItemId && rawMaterial?.productionOutItemName && rawMaterial.productionOutItemName !== item.itemCode && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Output Product Name" value={rawMaterial.productionOutItemName} />
           </div>
         )}
       </div>
@@ -1953,14 +1977,18 @@ interface RawMatLine {
   loadingAvailable: boolean;
   availableError: boolean;
   /** 'bom' when the requirement source is the current item's ACTIVE BOM line;
+   *  'item-master' when it is the Item Master productionInItemId 1:1 rule
+   *  (mirrors the backend consumeRawMaterials auto-consumption);
    *  'routing' when it is the producing operation's `inputQuantity`. */
-  rawSource?: 'bom' | 'routing';
+  rawSource?: 'bom' | 'item-master' | 'routing';
   /** Wire size of the raw material Item Master record (for mismatch detection). */
   rawWireSizeMm?: number | null;
   /** Wire size of the production item (for mismatch detection). */
   prodWireSizeMm?: number | null;
   /** UOM code of the raw material's base UOM. */
   rawBaseUomCode?: string | null;
+  /** Source/store department of the raw material Item Master record. */
+  rawDepartmentName?: string | null;
 }
 
 interface RawMatItem {
@@ -1995,6 +2023,12 @@ interface RawMatItem {
   outUomCode?: string | null;
   outLoading?: boolean;
   outError?: boolean;
+  /** Output product display name (the current item name). */
+  outItemName?: string | null;
+  /** TASK #35: base UOM code of the exact input material. */
+  inUomCode?: string | null;
+  /** TASK #35: source/store department of the exact input material. */
+  sourceDepartmentName?: string | null;
 }
 
 /** A routing operation as returned by `GET /production/routings/item/:id/route`. */
@@ -2039,20 +2073,38 @@ function convertBetweenUoms(
  *    sequenceNo whose outputItemId == current item) → PREVIOUS STAGE OUTPUT ITEM
  *    → that item's BOM raw material lines → exact-item inventory availability.
  *
- *  TASK #32: Enhanced to show Raw Material Item Code + Name + Wire Size (2 decimals)
- *  + UOM from the Item Master, wire-size mismatch warnings, and professional ERP
- *  card styling with four-side border. Proper failure states for unmapped and
- *  unavailable inventory.
- *
- *  Nothing is hardcoded (no WIRE/FLATTENING/SPIRAL). All values come from
- *  `GET /production/routings/item/:id/route` and `GET /bom/product/:prevOutputId`.
- *  Required is quantity-reactive (mirrors the backend computeBomRequirement
- *  formula) and UOM-aware; Available comes from `/inventory/balances/available`. */
+*  TASK #32: Enhanced to show Raw Material Item Code + Name + Wire Size (2 decimals)
+  *  + UOM from the Item Master, wire-size mismatch warnings, and professional ERP
+  *  card styling with four-side border. Proper failure states for unmapped and
+  *  unavailable inventory.
+  *
+  *  TASK #35: the ITEM MASTER `productionInItemId` mapping is AUTHORITATIVE. The
+  *  routing chain is only a fallback for items that carry no Item Master mapping.
+  *  The resolved raw-material requirement falls back to the backend's 1:1
+  *  per-unit rule when the Item Master mapping exists but no BOM line quantifies
+  *  it — so a perfectly mapped production item NEVER shows "Unable to determine".
+  *
+  *  Nothing is hardcoded (no WIRE/FLATTENING/SPIRAL). All values come from
+  *  `GET /production/routings/item/:id/route` and `GET /bom/product/:prevOutputId`.
+  *  Required is quantity-reactive (mirrors the backend computeBomRequirement
+  *  formula) and UOM-aware; Available comes from `/inventory/balances/available`. */
 const RawMaterialAvailability: React.FC<{
   productionItems: Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string }>;
   lookups: ReturnType<typeof useLookups>;
   warehouseId?: string;
-  onData?: (data: Record<string, { itemCode: string; itemName?: string | null; wireSizeMm?: number | null; uomCode?: string | null; available?: number | null; productionInItemId?: string | null; productionOutItemId?: string | null; chainWarning?: string | null }>) => void;
+  onData?: (data: Record<string, {
+    itemCode: string;
+    itemName?: string | null;
+    wireSizeMm?: number | null;
+    uomCode?: string | null;
+    available?: number | null;
+    productionInItemId?: string | null;
+    productionOutItemId?: string | null;
+    productionInUomCode?: string | null;
+    productionInDepartmentName?: string | null;
+    productionOutItemName?: string | null;
+    chainWarning?: string | null;
+  }>) => void;
 }> = ({ productionItems, lookups, warehouseId, onData }) => {
   const [data, setData] = useState<Record<string, RawMatItem>>({});
   const selected = productionItems.filter((p) => !!p.itemId);
@@ -2081,40 +2133,62 @@ const RawMaterialAvailability: React.FC<{
       const itemId = p.itemId!;
       void (async () => {
         try {
-          // ── 1) Resolve the immediate previous stage from the item's routing.
-          const routeRes = await apiService.get<{ data?: RoutingLk | null }>(`/production/routings/item/${itemId}/route`);
-          const route = routeRes.data;
-          if (cancelled) return;
-          const ops = Array.isArray(route?.operations) ? [...route.operations].sort((a, b) => (a.sequenceNo ?? 0) - (b.sequenceNo ?? 0)) : [];
-          const idx = ops.findIndex((o) => o.outputItemId === itemId);
-          if (!route || !ops.length || idx < 0) {
-            setData((prev) => ({
-              ...prev,
-              [itemId]: { ...emptyTrace, itemId, loading: false, traceStatus: 'no-previous-stage' },
-            }));
-            return;
-          }
-          const producingOp = ops[idx];
-          const prevOp = idx > 0 ? ops[idx - 1] : undefined;
-
-          // ── 2) EXACT raw material (TASK #30 / #33):
-          //    Primary: Item Master `productionInItemId` — the ERP administrator's
-          //    explicit mapping. This is the single source of truth for IN/OUT.
-          //    Fallback: routing chain producing-op input → prev-op output.
+          // ── 1) TASK #35: ITEM MASTER mapping is AUTHORITATIVE. The ERP
+          //    administrator's explicit `productionInItemId` is the single source
+          //    of truth for the input material. Routing is consulted only as an
+          //    advisory display layer and for items without an Item Master mapping.
           const item = lookups.items.find((i) => i.id === itemId);
           const masterInItemId = item?.productionInItemId ?? item?.productionInItem?.id ?? null;
           const masterOutItemId = item?.productionOutItemId ?? item?.productionOutItem?.id ?? null;
-          // TASK #33: Prefer the relation object; fall back to the full lookup
-          // record so the item code/name still render when only the scalar FK is
-          // present on the Item Master record.
+          // Prefer the relation object; fall back to the full lookup record so the
+          // item code/name still render when only the scalar FK is present.
           const masterInItem = item?.productionInItem ?? (masterInItemId ? lookups.items.find((i) => i.id === masterInItemId) ?? null : null);
 
+          // Advisory routing resolution. When the Item Master mapping exists a
+          // routing failure (e.g. no active routing → 404) is NOT fatal — the
+          // Item Master relationship still fully resolves the input/output.
+          let producingOp: RoutingOpLk | undefined;
+          let prevOp: RoutingOpLk | undefined;
+          let routeLookupFailed = false;
+          try {
+            const routeRes = await apiService.get<{ data?: RoutingLk | null }>(`/production/routings/item/${itemId}/route`);
+            const route = routeRes.data;
+            if (cancelled) return;
+            const ops = Array.isArray(route?.operations) ? [...route.operations].sort((a, b) => (a.sequenceNo ?? 0) - (b.sequenceNo ?? 0)) : [];
+            const idx = ops.findIndex((o) => o.outputItemId === itemId);
+            if (route && ops.length && idx >= 0) {
+              producingOp = ops[idx];
+              prevOp = idx > 0 ? ops[idx - 1] : undefined;
+            }
+          } catch {
+            routeLookupFailed = true;
+          }
+          if (cancelled) return;
+
+          // Without an Item Master mapping the routing chain must provide the
+          // previous production stage.
+          if (!masterInItemId && !producingOp && !prevOp) {
+            setData((prev) => ({
+              ...prev,
+              [itemId]: {
+                ...emptyTrace, itemId, loading: false,
+                traceStatus: routeLookupFailed ? 'no-route' : 'no-previous-stage',
+              },
+            }));
+            return;
+          }
+
+          // ── 2) EXACT raw material (TASK #30 / #33 / #35):
+          //    Primary: Item Master `productionInItemId` — the ERP administrator's
+          //    explicit mapping (never inferred from name/wire/category/route).
+          //    Fallback: routing chain producing-op input → prev-op output.
           let rawItemRef: { itemId: string; item: { id?: string; itemCode?: string; name?: string; baseUomId?: string; baseUom?: { code?: string } | null } | null | undefined } | null = null;
           let prevStageItemId: string | null = null;
+          let rawSource: 'bom' | 'item-master' | 'routing' = 'routing';
           if (masterInItemId) {
-            // TASK #33: Use Item Master's explicit productionInItemId
             rawItemRef = { itemId: masterInItemId, item: masterInItem ?? null };
             prevStageItemId = masterInItemId;
+            rawSource = 'item-master';
           } else if (producingOp?.inputItem && producingOp.inputItemId) {
             rawItemRef = { itemId: producingOp.inputItemId, item: producingOp.inputItem };
             prevStageItemId = producingOp.inputItemId;
@@ -2177,10 +2251,12 @@ const RawMaterialAvailability: React.FC<{
 
           // ── 3) Required quantity. Primary source: the current item's ACTIVE BOM
           //    (authoritative MRP quantity, mirrors backend computeBomRequirement),
-          //    search for the resolved raw material by item id. Fallback: the
-          //    producing operation's `inputQuantity` (per unit) when no BOM line
-          //    matches — so the exact raw material is still quantified even when a
-          //    BOM is absent (real data often has routing inputs but no BOM seeds).
+          //    search for the resolved raw material by item id. When the Item
+          //    Master maps productionInItemId but no BOM line lists it, fall back
+          //    to the backend's 1:1 per-unit consumption rule (the production
+          //    entry service auto-consumes exactly that) — a mapped item is never
+          //    reported as "No raw material". Routing inputQuantity is used only
+          //    for the routing fallback path.
           const bomRes = await apiService.get<{ data?: ActiveBomLk | null }>(`/bom/product/${itemId}`);
           const bom = bomRes.data;
           if (cancelled) return;
@@ -2189,9 +2265,25 @@ const RawMaterialAvailability: React.FC<{
           const bomLine = (bom?.lines ?? []).find((l) => l.itemId === prevStageItemId);
           const component = rawItemRef.item;
           const componentBaseUomId = component?.baseUomId ?? bomLine?.uomId ?? null;
-          let rawQuantity = bomLine ? toNum(bomLine.quantity) : toNum(producingOp?.inputQuantity);
-          const rawScrapFactor = bomLine ? toNum(bomLine.scrapFactor) : 0;
-          const rawYield = Math.max(0.0001, bomLine ? toNum(bomLine.yieldPercentage, 100) : 100);
+
+          let rawQuantity: number;
+          let rawScrapFactor = 0;
+          let rawYield = 100;
+          let reqSource: 'bom' | 'item-master' | 'routing' = 'routing';
+          if (bomLine) {
+            rawQuantity = toNum(bomLine.quantity);
+            rawScrapFactor = toNum(bomLine.scrapFactor);
+            rawYield = Math.max(0.0001, toNum(bomLine.yieldPercentage, 100));
+            reqSource = 'bom';
+          } else if (masterInItemId) {
+            // Item Master mapping is authoritative: 1:1 per production unit,
+            // identical to the backend consumeRawMaterials auto requirement.
+            rawQuantity = 1;
+            reqSource = 'item-master';
+          } else {
+            rawQuantity = toNum(producingOp?.inputQuantity);
+            reqSource = 'routing';
+          }
           const lineUomId = bomLine?.uomId ?? componentBaseUomId;
           let req = units * rawQuantity * (1 + rawScrapFactor) / (rawYield / 100);
           req = convertBetweenUoms(lineUomId, componentBaseUomId, req, lookups.uomConversions);
@@ -2209,26 +2301,32 @@ const RawMaterialAvailability: React.FC<{
 
           // TASK #32: Fetch the raw material item's wire size + UOM from Item Master
           // for wire-size mismatch detection and display. The raw material is the
-          // exact Item Master record resolved via the routing chain — never guessed.
+          // exact Item Master record resolved via productionInItemId — never guessed.
           let rawWireSizeMm: number | null = null;
           let rawBaseUomCode: string | null = null;
+          let rawDepartmentName: string | null = null;
           if (prevStageItemId) {
             try {
-              const rawItemRes = await apiService.get<{ data?: { wireSizeMm?: number | null; baseUom?: { code?: string } | null } }>(
+              const rawItemRes = await apiService.get<{ data?: { wireSizeMm?: number | null; baseUom?: { code?: string } | null; department?: { name?: string } | null } | null }>(
                 `/master-data/items/${prevStageItemId}`,
               );
               if (cancelled) return;
               const rawItemData = rawItemRes.data;
               rawWireSizeMm = rawItemData?.wireSizeMm ?? null;
               rawBaseUomCode = rawItemData?.baseUom?.code ?? null;
+              rawDepartmentName = rawItemData?.department?.name ?? null;
             } catch { /* non-critical: display without wire size if fetch fails */ }
           }
+          // TASK #35: the raw material belongs to its source/store department —
+          // the input Item Master record's own department, NOT the production
+          // department. Prefer the already-loaded lookup, fall back to the
+          // single-item fetch above.
+          const sourceDepartmentName = lookups.items.find((i) => i.id === prevStageItemId)?.departmentName
+            ?? rawDepartmentName
+            ?? null;
 
           const prodWireSizeMm = item?.wireSizeMm ?? null;
 
-          // A BOM exists but does not list the resolved raw material → report the
-          // BOM's own components instead, keeping TASK #29's component view for full
-          // MRP disclosure while still leading with the routing-derived raw material.
           const lines: RawMatLine[] = [{
             lineId: `${prevStageItemId}`,
             rawItemId: prevStageItemId,
@@ -2246,10 +2344,11 @@ const RawMaterialAvailability: React.FC<{
             shortage: null,
             loadingAvailable: true,
             availableError: false,
-            rawSource: bomLine ? 'bom' : 'routing',
+            rawSource: reqSource,
             rawWireSizeMm,
             prodWireSizeMm,
             rawBaseUomCode,
+            rawDepartmentName: sourceDepartmentName,
           }];
           if (cancelled) return;
           setData((prev) => ({
@@ -2276,6 +2375,10 @@ const RawMaterialAvailability: React.FC<{
               outUomCode: item?.baseUom?.code ?? null,
               outLoading: true,
               outError: false,
+              // TASK #35
+              outItemName: item?.name ?? null,
+              inUomCode: rawBaseUomCode ?? component?.baseUom?.code ?? null,
+              sourceDepartmentName,
             },
           }));
 
@@ -2393,9 +2496,10 @@ const RawMaterialAvailability: React.FC<{
   // TASK #32: Expose resolved raw material data to the parent via onData callback.
   // This lets ItemDetailsStrip show raw material info inline.
   // TASK #33: Also exposes productionInItemId, productionOutItemId, chainWarning.
+  // TASK #35: Also exposes the input UOM, source/store department and output name.
   useEffect(() => {
     if (!onData) return;
-    const extracted: Record<string, { itemCode: string; itemName?: string | null; wireSizeMm?: number | null; uomCode?: string | null; available?: number | null; productionInItemId?: string | null; productionOutItemId?: string | null; chainWarning?: string | null }> = {};
+    const extracted: Record<string, { itemCode: string; itemName?: string | null; wireSizeMm?: number | null; uomCode?: string | null; available?: number | null; productionInItemId?: string | null; productionOutItemId?: string | null; productionInUomCode?: string | null; productionInDepartmentName?: string | null; productionOutItemName?: string | null; chainWarning?: string | null }> = {};
     for (const key of Object.keys(data)) {
       const it = data[key];
       if (it.traceStatus === 'ready' && it.lines.length > 0) {
@@ -2408,6 +2512,9 @@ const RawMaterialAvailability: React.FC<{
           available: line.available,
           productionInItemId: it.productionInItemId ?? null,
           productionOutItemId: it.productionOutItemId ?? null,
+          productionInUomCode: it.inUomCode ?? null,
+          productionInDepartmentName: it.sourceDepartmentName ?? null,
+          productionOutItemName: it.outItemName ?? null,
           chainWarning: it.chainWarning ?? null,
         };
       }
@@ -2482,10 +2589,20 @@ const RawMaterialAvailability: React.FC<{
                     {line.itemName && (
                       <Text style={{ fontSize: 12 }} data-testid={`material-flow-rawname-${index + 1}`}>{line.itemName}</Text>
                     )}
+                    {line.rawSource === 'item-master' && (
+                      <Text type="secondary" style={{ fontSize: 10 }}>[item master]</Text>
+                    )}
                     {line.rawSource === 'routing' && (
                       <Text type="secondary" style={{ fontSize: 10 }}>[routing input]</Text>
                     )}
                   </div>
+                  {/* TASK #35: Source / Store department of the exact input Item Master record
+                      (the production department may differ — consumption comes from the source). */}
+                  {line.rawDepartmentName && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 96 }}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Source <Text strong data-testid={`material-flow-source-${index + 1}`}>{line.rawDepartmentName}</Text></Text>
+                    </div>
+                  )}
                   {/* Wire Size + UOM row */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 96 }}>
                     {line.rawWireSizeMm != null && (
@@ -2509,7 +2626,7 @@ const RawMaterialAvailability: React.FC<{
                       style={{ fontSize: 11, padding: '4px 8px', marginTop: 0 }}
                     />
                   )}
-                  {/* Required / Available / Shortage */}
+                  {/* Required / Available / Shortage / Status */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 96 }}>
                     <Text type="secondary" style={{ fontSize: 11 }}>Required <Text strong data-testid={`material-flow-required-${index + 1}`}>{formatNumber(line.required, 3)} {line.uomCode}</Text></Text>
                     <Text type="secondary">·</Text>
@@ -2520,12 +2637,12 @@ const RawMaterialAvailability: React.FC<{
                     ) : line.shortage != null && line.shortage > 0 ? (
                       <span style={{ color: 'var(--theme-danger, #ff4d4f)' }}>
                         <Text type="secondary">Available <Text strong data-testid={`material-flow-available-${index + 1}`}>{formatNumber(line.available, 3)} {line.uomCode}</Text></Text>
-                        <Text type="danger" data-testid={`material-flow-status-${index + 1}`}>· Shortage <Text strong>{formatNumber(line.shortage, 3)} {line.uomCode}</Text></Text>
+                        <Text type="danger" data-testid={`material-flow-status-${index + 1}`}>· Shortage <Text strong>{formatNumber(line.shortage, 3)} {line.uomCode}</Text> · Status <Text strong>SHORT</Text></Text>
                       </span>
                     ) : (
                       <span style={{ color: 'var(--theme-success, #52c41a)' }}>
                         <Text type="secondary">Available <Text strong data-testid={`material-flow-available-${index + 1}`}>{formatNumber(line.available, 3)} {line.uomCode}</Text></Text>
-                        <Text style={{ color: 'var(--theme-success)' }} data-testid={`material-flow-status-${index + 1}`}>· Balance <Text strong>{formatNumber(line.balance ?? 0, 3)} {line.uomCode}</Text></Text>
+                        <Text style={{ color: 'var(--theme-success)' }} data-testid={`material-flow-status-${index + 1}`}>· Balance <Text strong>{formatNumber(line.balance ?? 0, 3)} {line.uomCode}</Text> · Status <Text strong>AVAILABLE</Text></Text>
                       </span>
                     )}
                   </div>
@@ -2572,10 +2689,12 @@ const RawMaterialAvailability: React.FC<{
                 </>
               ) : (
                 <>
-                  <Text type="secondary" style={{ fontSize: 12 }}>Inventory availability could not be determined.</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {info?.error ? info.error : 'Raw material resolved but its inventory balance could not be determined.'}
+                  </Text>
                   <div style={{ marginTop: 4 }}>
                     <Text data-testid={`material-flow-inventory-error-${index + 1}`} style={{ fontSize: 12, color: 'var(--theme-text-muted, #8c8c8c)' }}>Unable to determine</Text>
-                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>Raw material resolved but inventory balance could not be determined.</Text>
+                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>No raw-material Item is configured, or its production flow could not be resolved.</Text>
                   </div>
                 </>
               )}

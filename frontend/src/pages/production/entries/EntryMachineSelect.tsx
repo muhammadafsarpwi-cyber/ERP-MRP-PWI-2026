@@ -159,26 +159,6 @@ const EntryMachineSelect: React.FC = () => {
       <Card size="small" style={{ marginBottom: 12 }}>
         <Row gutter={12} wrap>
           <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Production Date</Text>
-            <DatePicker
-              style={{ width: 150 }}
-              value={entryDate}
-              onChange={(v) => setEntryDate(v)}
-              allowClear={false}
-            />
-          </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Shift</Text>
-            <Select
-              placeholder="Select Shift" style={{ width: 200 }} value={shiftId}
-              options={lookups.shifts.map((s) => ({
-                value: s.id,
-                label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''})`,
-              }))}
-              onChange={(v) => setShiftId(v)}
-            />
-          </Col>
-          <Col>
             <Text type="secondary" style={{ display: 'block' }}>Division</Text>
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
@@ -203,6 +183,26 @@ const EntryMachineSelect: React.FC = () => {
               style={{ width: 170 }} value={departmentId} disabled={!sectionId}
               options={departmentsFiltered.map((d) => ({ value: d.id, label: d.name }))}
               onChange={(v) => setDepartmentId(v)}
+            />
+          </Col>
+          <Col>
+            <Text type="secondary" style={{ display: 'block' }}>Shift</Text>
+            <Select
+              placeholder="Select Shift" style={{ width: 200 }} value={shiftId}
+              options={lookups.shifts.map((s) => ({
+                value: s.id,
+                label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''})`,
+              }))}
+              onChange={(v) => setShiftId(v)}
+            />
+          </Col>
+          <Col>
+            <Text type="secondary" style={{ display: 'block' }}>Production Date</Text>
+            <DatePicker
+              style={{ width: 150 }}
+              value={entryDate}
+              onChange={(v) => setEntryDate(v)}
+              allowClear={false}
             />
           </Col>
           <Col flex="auto" style={{ textAlign: 'right' }}>

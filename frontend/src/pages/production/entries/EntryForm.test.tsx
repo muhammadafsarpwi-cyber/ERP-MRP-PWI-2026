@@ -2648,3 +2648,185 @@ describe('TASK #34B — Finalize Master Item Production IN/OUT Flow', () => {
   });
 });
 
+// TASK #35 — Item Master `productionInItemId` is the AUTHORITATIVE input for the
+// production entry's raw material resolution. Routing is advisory only; a routing
+// 404 (no active routing) must NOT break resolution when the Item Master maps the
+// exact IN item. Requirement falls back to the backend's 1:1 per-unit consumption
+// when no BOM line lists the IN item. Real inventory availability is shown with an
+// explicit AVAILABLE / SHORT status. No hard-coded IDs, no wire-size guessing.
+describe('TASK #35 — Item Master IN/OUT mapping authoritative for Production Entry', () => {
+  const mappedItem35 = {
+    id: 'item-M', itemCode: 'WIP-DRW-001', name: 'Drawn Wire', wireSizeMm: 1.2,
+    baseUomId: 'uom-m', baseUom: { code: 'KG', symbol: 'kg' }, itemType: 'FINISHED_GOOD', status: 'ACTIVE',
+    productionInItemId: 'raw-ROD',
+    productionInItem: {
+      id: 'raw-ROD', itemCode: 'ROD-8MM', name: 'Copper Rod 8mm', wireSizeMm: 8,
+      baseUomId: 'uom-kg', baseUom: { code: 'KG', symbol: 'kg' }, department: { name: 'Rod Store' },
+    },
+    productionOutItemId: 'item-M',
+    productionOutItem: { id: 'item-M', itemCode: 'WIP-DRW-001', name: 'Drawn Wire' },
+  };
+  const rawROD35 = {
+    id: 'raw-ROD', itemCode: 'ROD-8MM', name: 'Copper Rod 8mm', wireSizeMm: 8,
+    baseUomId: 'uom-kg', baseUom: { code: 'KG', symbol: 'kg' }, department: { name: 'Rod Store' },
+    departmentName: 'Rod Store', itemType: 'RAW_MATERIAL', status: 'ACTIVE',
+  };
+  // Routing that prescribes a DIFFERENT input than the Item Master mapping —
+  // used to prove the mapping wins when both exist.
+  const routeOtherInput35 = {
+    id: 'rt-m', productId: 'item-M',
+    operations: [
+      { sequenceNo: 10, operationCode: 'DRAW', operationName: 'Drawing', outputItemId: 'item-M',
+        inputItemId: 'other-RM', inputItem: { itemCode: 'OTHER-RM', name: 'Other RM', baseUomId: 'uom-m', baseUom: { code: 'KG' } },
+        inputQuantity: 3, outputItem: { itemCode: 'WIP-DRW-001', name: 'Drawn Wire', baseUomId: 'uom-m', baseUom: { code: 'KG' } } },
+    ],
+  };
+
+  beforeEach(() => {
+    apiMock.get.mockReset();
+  });
+
+  const buildMock35 = (availableForRaw = 0, provideRouting = false) => {
+    apiMock.get.mockImplementation(async (url: any, params?: any) => {
+      const u = String(url);
+      if (u === '/master-data/items') return { data: [mappedItem35, rawROD35, itemA] as any };
+      const single = u.match(/^\/master-data\/items\/(.+)$/);
+      if (single) {
+        const id = decodeURIComponent(single[1]);
+        if (id === 'item-M') return { data: mappedItem35 } as any;
+        if (id === 'raw-ROD') return { data: rawROD35 } as any;
+        if (id === 'item-A') return { data: itemA } as any;
+        return { data: null } as any;
+      }
+      if (u === '/master-data/uom') return { data: [uomM] as any };
+      if (u === '/master-data/uom-conversions') return { data: [] as any };
+      if (u === '/production/shifts') return { data: [] as any };
+      if (u === '/production/downtime-reasons') return { data: [reasonMaint, reasonPower] as any };
+      if (u === '/divisions') return { data: [] as any };
+      if (u === '/sections') return { data: [] as any };
+      if (u === '/departments') return { data: [] as any };
+      if (u === '/production/orders') return { data: [] as any };
+      if (u === '/hr/employees') return { data: [] as any };
+      if (u === '/warehouses') return { data: [] as any };
+      if (u === '/production/machines') return { data: [] as any };
+      const routeMatch = u.match(/^\/production\/routings\/item\/([^/]+)\/route$/);
+      if (routeMatch) {
+        const id = decodeURIComponent(routeMatch[1]);
+        if (provideRouting && id === 'item-M') return { data: routeOtherInput35 };
+        return Promise.reject(new Error('no routing'));
+      }
+      if (/^\/bom\/product\//.test(u)) return { data: null } as any;
+      if (u.startsWith('/inventory/balances/available')) {
+        const itemId = params?.itemId;
+        return { data: itemId === 'raw-ROD' ? availableForRaw : 0 };
+      }
+      return { data: [] } as any;
+    });
+  };
+
+  const render35 = () => render(
+    <App>
+      <MemoryRouter initialEntries={['/production/entries/new']}>
+        <Routes><Route path="/production/entries/new" element={<EntryForm mode="create" />} /></Routes>
+      </MemoryRouter>
+    </App>,
+  );
+
+  const add35 = async () => {
+    await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
+    const row = await screen.findByTestId('production-item-row-1');
+    await pickItem(row, 'WIP-DRW-001 — Drawn Wire');
+    return row;
+  };
+
+  const setQty35 = (row: HTMLElement, value: string) => {
+    const qty = within(row).getByLabelText('Item quantity');
+    fireEvent.change(qty, { target: { value } });
+    fireEvent.blur(qty);
+  };
+
+  it('TASK35-A: routing 404 (no active routing) does NOT block resolution — Item Master IN mapping is authoritative', async () => {
+    buildMock35(0);
+    render35();
+    await add35();
+    // Raw material resolved from the exact Item Master productionInItemId.
+    const raw = await screen.findByTestId('material-flow-rawitem-1');
+    await waitFor(() => expect(raw.textContent).toContain('ROD-8MM'));
+    // Name + "item master" badge are on the component container.
+    const component = screen.getByTestId('raw-material-component-1-raw-ROD');
+    expect(component.textContent).toContain('Copper Rod 8mm');
+    expect(component.textContent).toContain('[item master]');
+    // No misleading "not configured" / "unable to determine" states.
+    await waitFor(() => expect(screen.queryByTestId('material-flow-notconfigured-1')).not.toBeInTheDocument());
+    expect(screen.queryByText(/Inventory availability could not be determined/i)).not.toBeInTheDocument();
+    // Output product is the current item itself.
+    const out = await screen.findByTestId('material-flow-output-1');
+    expect(out).toHaveTextContent('WIP-DRW-001');
+  });
+
+  it('TASK35-B: requirement defaults to the backend 1:1 per-unit consumption when no BOM lists the IN item', async () => {
+    buildMock35(0);
+    render35();
+    const row = await add35();
+    setQty35(row, '10');
+    const req = await screen.findByTestId('material-flow-required-1');
+    await waitFor(() => expect(req.textContent).toContain(`${formatNumber(10, 3)} KG`));
+    setQty35(row, '7');
+    await waitFor(() => expect(req.textContent).toContain(`${formatNumber(7, 3)} KG`));
+  });
+
+  it('TASK35-C: mapping beats routing — a different routing input is ignored in favor of productionInItemId', async () => {
+    buildMock35(0, true);
+    render35();
+    await add35();
+    const raw = await screen.findByTestId('material-flow-rawitem-1');
+    await waitFor(() => expect(raw.textContent).toContain('ROD-8MM'));
+    expect(raw.textContent).not.toContain('OTHER-RM');
+    expect(raw.textContent).not.toContain('Other RM');
+  });
+
+  it('TASK35-D: source/store department of the exact IN item is shown in the flow and the strip', async () => {
+    buildMock35(0);
+    render35();
+    await add35();
+    const src = await screen.findByTestId('material-flow-source-1');
+    await waitFor(() => expect(src.textContent).toContain('Rod Store'));
+    const strip = await screen.findByTestId('item-details-strip');
+    expect(strip.textContent).toContain('Production IN Source');
+    expect(strip.textContent).toContain('Rod Store');
+  });
+
+  it('TASK35-E: real availability — shortage shows Status SHORT', async () => {
+    buildMock35(8);
+    render35();
+    const row = await add35();
+    setQty35(row, '10');
+    const status = await screen.findByTestId('material-flow-status-1');
+    await waitFor(() => expect(status.textContent).toContain('Shortage'));
+    expect(status.textContent).toContain('SHORT');
+    const avail = await screen.findByTestId('material-flow-available-1');
+    expect(avail.textContent).toContain(`${formatNumber(8, 3)}`);
+  });
+
+  it('TASK35-F: real availability — sufficient stock shows Balance with Status AVAILABLE', async () => {
+    buildMock35(100);
+    render35();
+    await add35();
+    const status = await screen.findByTestId('material-flow-status-1');
+    await waitFor(() => expect(status.textContent).toContain('Balance'));
+    expect(status.textContent).toContain('AVAILABLE');
+  });
+
+  it('TASK35-G: strip shows Production IN UOM and read-only output product (self)', async () => {
+    buildMock35(100);
+    render35();
+    await add35();
+    const strip = await screen.findByTestId('item-details-strip');
+    expect(strip.textContent).toContain('Production IN UOM');
+    expect(strip.textContent).toContain('KG');
+    // Output product is the current Item itself (read-only, never a selector).
+    expect(strip.textContent).toContain('WIP-DRW-001');
+    expect(strip.textContent).toContain('(self)');
+  });
+});
+

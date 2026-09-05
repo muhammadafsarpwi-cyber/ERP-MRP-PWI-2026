@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { InventoryBalanceService } from '../services/inventory-balance.service';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
@@ -10,6 +10,16 @@ import { PermissionGuard, RequirePermission } from '../../auth/guards/permission
 @ApiBearerAuth()
 export class InventoryBalanceController {
   constructor(private readonly inventoryBalanceService: InventoryBalanceService) {}
+
+  /** Resolve the caller's company scope (authoritative when no explicit filter is sent). */
+  private resolveCompanyId(req: any, queryCompanyId?: string): string | undefined {
+    if (queryCompanyId) return queryCompanyId;
+    const companyId = req?.erpUser?.defaultCompanyId || req?.orgScopes?.[0]?.companyId;
+    if (!companyId) {
+      throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
+    }
+    return companyId;
+  }
 
   @Get()
   @UseGuards(PermissionGuard)
@@ -23,6 +33,7 @@ export class InventoryBalanceController {
   @ApiQuery({ name: 'sortField', required: false })
   @ApiQuery({ name: 'sortOrder', required: false })
   async findAll(
+    @Req() req: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('companyId') companyId?: string,
@@ -32,7 +43,8 @@ export class InventoryBalanceController {
     @Query('sortOrder') sortOrder?: string,
   ) {
     const result = await this.inventoryBalanceService.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, companyId, itemId, warehouseId,
+      page: Number(page) || 1, limit: Number(limit) || 20,
+      companyId: this.resolveCompanyId(req, companyId), itemId, warehouseId,
     });
     return { success: true, ...result };
   }
@@ -47,6 +59,7 @@ export class InventoryBalanceController {
   @ApiQuery({ name: 'locationId', required: false })
   @ApiQuery({ name: 'batchId', required: false })
   async getAvailableStock(
+    @Req() req: any,
     @Query('companyId') companyId?: string,
     @Query('itemId') itemId?: string,
     @Query('warehouseId') warehouseId?: string,
@@ -54,7 +67,7 @@ export class InventoryBalanceController {
     @Query('batchId') batchId?: string,
   ) {
     const result = await this.inventoryBalanceService.getAvailableStock(
-      companyId, itemId, warehouseId, locationId, batchId,
+      this.resolveCompanyId(req, companyId), itemId, warehouseId, locationId, batchId,
     );
     return { success: true, data: result };
   }

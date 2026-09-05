@@ -1069,6 +1069,63 @@ describe('ProductionEntryService — atomic create (no orphan entries)', () => {
     expect(entryRepo.save).not.toHaveBeenCalled();
     expect(saved.inventoryReferenceId).toBeDefined();
   });
+
+  it('TASK35-A: posting is idempotent — an entry with inventoryReferenceId does NOT create new stock movements', async () => {
+    makeOrgMocks();
+    setupBom();
+    balanceService.getAvailableStock.mockResolvedValue(100000);
+    stockLedgerService.create.mockClear();
+
+    // The in-transaction save already returns a persisted entry with a ledger
+    // reference (simulating a prior post/crash-retry). The idempotency guard in
+    // postInventoryAndConsume must short-circuit BEFORE any ledger write.
+    const originalTransaction = entryRepo.manager.transaction;
+    entryRepo.manager.transaction = jest.fn(async (cb: (m: any) => Promise<any>) =>
+      cb({
+        getRepository: jest.fn(() => ({
+          save: jest.fn((x: any) => ({ ...x, id: x.id ?? 'entry-1', inventoryReferenceId: 'ledger-already-posted' })),
+          update: jest.fn().mockResolvedValue({ affected: 1 }),
+          findOne: jest.fn().mockResolvedValue(null),
+        })),
+      }),
+    );
+
+    const saved = await service.create(entryDto(), COMPANY);
+    expect(saved.inventoryReferenceId).toBe('ledger-already-posted');
+    // No PRODUCTION_RECEIPT, no PRODUCTION_CONSUMPTION, no PRODUCTION_SCRAP created.
+    expect(stockLedgerService.create).not.toHaveBeenCalled();
+    expect(balanceService.updateBalance).not.toHaveBeenCalled();
+
+    entryRepo.manager.transaction = originalTransaction;
+  });
+
+  it('TASK35-B: movement references the entry and the input is the exact Item Master IN Item', async () => {
+    makeOrgMocks();
+    bomRepo.find.mockResolvedValue([]);
+    itemRepo.findOne.mockImplementation(({ where }: any) => {
+      if (where.id === 'item-1') return Promise.resolve({ id: 'item-1', companyId: COMPANY, itemCode: 'FG-SPIRAL', baseUomId: 'uom-m', status: 'ACTIVE', productionInItemId: 'raw-source' });
+      if (where.id === 'raw-source') return Promise.resolve({ id: 'raw-source', companyId: COMPANY, itemCode: '1.20mm-B4', baseUomId: 'uom-m', status: 'ACTIVE' });
+      return Promise.resolve({ id: where.id, companyId: COMPANY, baseUomId: 'uom-m', status: 'ACTIVE' });
+    });
+    uomRepo.findOne.mockResolvedValue({ id: 'uom-m', code: 'M' });
+    balanceService.getAvailableStock.mockResolvedValue(100000);
+    stockLedgerService.create.mockClear();
+    warehouseRepo.findOne.mockResolvedValue({ id: 'rw-wh-1', status: 'ACTIVE' });
+
+    await service.create(entryDto(), COMPANY);
+
+    const consume = stockLedgerService.create.mock.calls.find((c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION');
+    expect(consume[0]).toMatchObject({
+      itemId: 'raw-source',          // exact IN from Item Master (no BOM)
+      warehouseId: 'rw-wh-1',        // source/store warehouse, NOT the production warehouse
+      direction: 'OUT', referenceType: 'PRODUCTION_ENTRY', referenceId: 'entry-1',
+    });
+    const receipt = stockLedgerService.create.mock.calls.find((c: any) => c[0].transactionType === 'PRODUCTION_RECEIPT');
+    expect(receipt[0]).toMatchObject({
+      itemId: 'item-1',             // output = the current production item
+      direction: 'IN', warehouseId: 'wh-1', referenceId: 'entry-1',
+    });
+  });
 });
 
 describe('ProductionEntry entity — column mapping regression', () => {
