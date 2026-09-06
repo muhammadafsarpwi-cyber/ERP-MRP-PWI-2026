@@ -43,6 +43,20 @@ export class StockAdjustmentService {
     return this.repo.save(adjustment);
   }
 
+  async update(id: string, dto: Partial<CreateStockAdjustmentDto>, userId?: string): Promise<StockAdjustment> {
+    const adjustment = await this.findOne(id);
+    if (adjustment.status !== 'DRAFT') {
+      throw new BadRequestException(
+        `Cannot edit stock adjustment in '${adjustment.status}' status. Only DRAFT adjustments can be modified.`,
+      );
+    }
+    if (dto.warehouseId) adjustment.warehouseId = dto.warehouseId;
+    if (dto.adjustmentType) adjustment.adjustmentType = dto.adjustmentType;
+    if (dto.reason !== undefined) adjustment.reason = dto.reason;
+    adjustment.updatedBy = userId || null;
+    return this.repo.save(adjustment);
+  }
+
   async findAll(filter: StockAdjustmentFilterDto): Promise<{ data: StockAdjustment[]; total: number }> {
     const {
       page = 1,

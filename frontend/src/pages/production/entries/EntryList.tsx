@@ -75,10 +75,19 @@ const EntryList: React.FC = () => {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const lookups = useLookups();
+  const PAGE_SIZE_KEY = 'production_entry_pagesize';
   const [rows, setRows] = useState<ProductionEntryRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(PAGE_SIZE_KEY);
+      const parsed = saved ? parseInt(saved, 10) : 10;
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+    } catch {
+      return 10;
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [report, setReport] = useState<ReportResponse | null>(null);
@@ -156,50 +165,126 @@ const EntryList: React.FC = () => {
   const achIndicator = kpiIndicator(summary.ach);
 
   const columns: ColumnsType<ProductionEntryRow> = [
-    { title: 'Sr', width: 48, render: (_t, _r, i) => (page - 1) * pageSize + i + 1 },
-    { title: 'Date', dataIndex: 'entryDate', width: 100, sorter: true, render: (d: string) => d?.slice(0, 10) },
+    { title: 'Sr', width: 48, ellipsis: true, render: (_t, _r, i) => (page - 1) * pageSize + i + 1 },
     {
-      title: 'Division', width: 110,
-      render: (_t, r: ProductionEntryRow) => r.division?.divisionCode ?? '',
+      title: 'Date', dataIndex: 'entryDate', width: 105, sorter: true, ellipsis: true,
+      render: (d: string) => <span style={{ whiteSpace: 'nowrap' }}>{d?.slice(0, 10) || '—'}</span>,
     },
-    { title: 'Section', width: 110, render: (_t, r) => r.section?.name ?? '' },
-    { title: 'Department', width: 130, render: (_t, r) => r.department?.name ?? '' },
-    { title: 'Shift', width: 130, render: (_t, r) => r.shift?.name ?? '' },
-    { title: 'Machine', dataIndex: 'machineNo', width: 90 },
-    { title: 'Operator', dataIndex: 'operatorName', width: 140 },
     {
-      title: 'Item', width: 200,
+      title: 'Division', width: 140, ellipsis: true,
+      render: (_t, r: ProductionEntryRow) => {
+        const divName = r.division?.name || r.division?.divisionCode || '—';
+        return (
+          <Tooltip title={r.division?.divisionCode ? `${divName} (${r.division.divisionCode})` : divName}>
+            <span style={{ whiteSpace: 'nowrap' }}>{divName}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: 'Section', width: 110, ellipsis: true,
       render: (_t, r) => (
-        <Tooltip title={r.item?.name}>
-          <Text style={{ fontSize: 12 }}>{r.item?.itemCode}</Text>
+        <Tooltip title={r.section?.name}>
+          <span style={{ whiteSpace: 'nowrap' }}>{r.section?.name || '—'}</span>
         </Tooltip>
       ),
     },
-    { title: 'Target', align: 'right', width: 100, render: (_t, r) => formatNumber(r.targetQuantity, 0), sorter: true },
-    { title: 'Actual', align: 'right', width: 100, render: (_t, r) => formatNumber(r.actualQuantity, 0), sorter: true },
-    { title: 'UOM', width: 70, render: (_t, r) => r.uom?.code ?? '' },
     {
-      title: 'Eff %', align: 'right', width: 90,
+      title: 'Department', width: 130, ellipsis: true,
+      render: (_t, r) => (
+        <Tooltip title={r.department?.name}>
+          <span style={{ whiteSpace: 'nowrap' }}>{r.department?.name || '—'}</span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: 'Shift', width: 130, ellipsis: true,
+      render: (_t, r) => {
+        const sName = r.shift?.name || '—';
+        const sCode = (r.shift as ShiftLk | undefined)?.shiftCode;
+        return (
+          <Tooltip title={sCode ? `${sName} (${sCode})` : sName}>
+            <span style={{ whiteSpace: 'nowrap' }}>{sName}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: 'Machine', width: 95, ellipsis: true,
+      render: (_t, r) => {
+        const mLabel = r.machineNo || '—';
+        return (
+          <Tooltip title={mLabel}>
+            <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>{mLabel}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: 'Operator', width: 140, ellipsis: true,
+      render: (_t, r) => {
+        const emp = lookups.hrEmployees.find(
+          (e) => e.id === r.operatorName || e.employeeCode === r.operatorName,
+        );
+        const op = emp ? lookups.employeeFullName(emp) : (r.operatorName || '—');
+        return (
+          <Tooltip title={emp ? `${op} (${emp.employeeCode})` : op}>
+            <span style={{ whiteSpace: 'nowrap' }}>{op}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: 'Item', width: 220, ellipsis: true,
+      render: (_t, r) => {
+        const itemName = r.item?.name || r.item?.itemCode || '—';
+        return (
+          <Tooltip title={r.item?.itemCode ? `${itemName} (${r.item.itemCode})` : itemName}>
+            <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>{itemName}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: 'Target', align: 'right', width: 95, ellipsis: true, sorter: true,
+      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.targetQuantity, 0)}</span>,
+    },
+    {
+      title: 'Actual', align: 'right', width: 95, ellipsis: true, sorter: true,
+      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.actualQuantity, 0)}</span>,
+    },
+    {
+      title: 'UOM', width: 70, ellipsis: true,
+      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{r.uom?.code ?? ''}</span>,
+    },
+    {
+      title: 'Eff %', align: 'right', width: 90, ellipsis: true,
       render: (_t, r) => <KpiPercentage value={toNum(r.efficiencyPercentage)} />,
     },
     {
-      title: 'Achv %', align: 'right', width: 95,
+      title: 'Achv %', align: 'right', width: 95, ellipsis: true,
       render: (_t, r) => <KpiPercentage value={toNum(r.achievementPercentage)} />,
     },
-    { title: 'Run Hrs', align: 'right', width: 85, render: (_t, r) => formatNumber(r.runningHours, 2) },
     {
-      title: 'Down Hrs', align: 'right', width: 95,
+      title: 'Run Hrs', align: 'right', width: 85, ellipsis: true,
+      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.runningHours, 2)}</span>,
+    },
+    {
+      title: 'Down Hrs', align: 'right', width: 95, ellipsis: true,
       render: (_t, r) => (
         <Tooltip title={r.downtimeReasonText ?? undefined}>
-          {formatNumber(r.downtimeHours, 2)}
+          <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.downtimeHours, 2)}</span>
         </Tooltip>
       ),
     },
-    { title: 'Scrap', align: 'right', width: 90, render: (_t, r) => formatNumber(r.scrapQuantity, 0) },
+    {
+      title: 'Scrap', align: 'right', width: 85, ellipsis: true,
+      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.scrapQuantity, 0)}</span>,
+    },
     {
       title: 'Actions', fixed: 'right', width: 110,
       render: (_t, r) => (
-        <Space size="small">
+        <Space size="small" style={{ whiteSpace: 'nowrap' }}>
           <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/production/entries/${r.id}`)} />
           <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/production/entries/${r.id}/edit`)} />
           <Popconfirm
@@ -390,8 +475,17 @@ const EntryList: React.FC = () => {
                   bordered
                   pagination={{
                     current: page, pageSize, total, showSizeChanger: true,
+                    pageSizeOptions: ['10', '20', '50', '100'],
                     showTotal: (t) => `${t} production entries`,
-                    onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+                    onChange: (p, ps) => {
+                      setPage(ps !== pageSize ? 1 : p);
+                      setPageSize(ps);
+                      try {
+                        localStorage.setItem(PAGE_SIZE_KEY, String(ps));
+                      } catch {
+                        // ignore
+                      }
+                    },
                   }}
                   onChange={(pagination, _filters, sorter: any) => {
                     if (sorter?.field && sorter?.order) {

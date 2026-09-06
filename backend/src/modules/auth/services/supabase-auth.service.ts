@@ -177,6 +177,43 @@ export class SupabaseAuthService {
     };
   }
 
+  async refreshSession(
+    refreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
+    const supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY');
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new UnauthorizedException('Supabase not configured');
+    }
+
+    const response = await fetch(
+      `${supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: supabaseAnonKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      const msg = data.error_description || data.msg || 'Invalid refresh token';
+      this.logger.warn(`Token refresh failed: ${msg}`);
+      throw new UnauthorizedException(msg);
+    }
+
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      user: data.user,
+    };
+  }
+
   async sendPasswordResetEmail(email: string): Promise<void> {
     const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
     const supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY');

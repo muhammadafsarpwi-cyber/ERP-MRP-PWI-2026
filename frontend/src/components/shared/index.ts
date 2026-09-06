@@ -7,3 +7,4 @@ export { default as EmptyState } from './EmptyState';
 export { default as LoadingState } from './LoadingState';
 export { default as ERPLineItems, type ERPLine, type ERPLineItemsProps } from './ERPLineItems';
 export { default as FinanceJournalLineEditor, type JournalLine } from './FinanceJournalLineEditor';
+export { default as ERPTable, type ERPTableProps, DirectionTag, TableActions, TableToolbar } from './ERPTable';

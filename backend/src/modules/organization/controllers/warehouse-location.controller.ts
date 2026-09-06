@@ -5,7 +5,7 @@ import { WarehouseLocationService } from '../services';
 import { CreateWarehouseLocationDto, UpdateWarehouseLocationDto } from '../dto';
 import { WarehouseLocationStatus } from '../entities';
 
-@ApiTags('organization/warehouse-locations')
+@ApiTags('warehouse-locations')
 @Controller('warehouse-locations')
 @UseGuards(PermissionGuard)
 export class WarehouseLocationController {

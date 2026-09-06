@@ -1,28 +1,43 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { StockAdjustmentService } from '../services/stock-adjustment.service';
-import { CreateStockAdjustmentDto, CreateStockAdjustmentLineDto } from '../dto';
+import { CreateStockAdjustmentDto, CreateStockAdjustmentLineDto, UpdateStockAdjustmentDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 
 @ApiTags('inventory/adjustments')
 @Controller('inventory/adjustments')
-@UseGuards(SupabaseJwtGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
 @ApiBearerAuth()
 export class StockAdjustmentController {
   constructor(private readonly stockAdjustmentService: StockAdjustmentService) {}
 
+  private resolveCompanyId(req: any, queryCompanyId?: string): string {
+    if (queryCompanyId) return queryCompanyId;
+    const companyId = req?.erpUser?.defaultCompanyId || req?.orgScopes?.[0]?.companyId;
+    if (!companyId) {
+      throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
+    }
+    return companyId;
+  }
+
   @Post()
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.adjustment.create')
   @ApiOperation({ summary: 'Create a stock adjustment' })
-  async create(@Body() dto: CreateStockAdjustmentDto) {
+  async create(@Req() req: any, @Body() dto: CreateStockAdjustmentDto) {
+    if (!dto.companyId) {
+      dto.companyId = this.resolveCompanyId(req);
+    }
     const adjustment = await this.stockAdjustmentService.create(dto);
     return { success: true, data: adjustment, message: 'Stock adjustment created successfully' };
   }
 
   @Get()
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.view')
   @ApiOperation({ summary: 'List stock adjustments' })
   @ApiQuery({ name: 'page', required: false })
@@ -35,6 +50,7 @@ export class StockAdjustmentController {
   @ApiQuery({ name: 'sortField', required: false })
   @ApiQuery({ name: 'sortOrder', required: false })
   async findAll(
+    @Req() req: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
@@ -45,8 +61,9 @@ export class StockAdjustmentController {
     @Query('sortField') sortField?: string,
     @Query('sortOrder') sortOrder?: string,
   ) {
+    const resolvedCompanyId = this.resolveCompanyId(req, companyId);
     const result = await this.stockAdjustmentService.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, warehouseId,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId: resolvedCompanyId, warehouseId,
       adjustmentType, status, sortField, sortOrder,
     });
     return { success: true, ...result };
@@ -60,6 +77,22 @@ export class StockAdjustmentController {
   async findOne(@Param('id') id: string) {
     const adjustment = await this.stockAdjustmentService.findOne(id);
     return { success: true, data: adjustment };
+  }
+
+  @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('inventory.adjustment.create')
+  @ApiOperation({ summary: 'Update a draft stock adjustment' })
+  @ApiParam({ name: 'id' })
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateStockAdjustmentDto,
+    @Req() req: any,
+  ) {
+    const userId = req?.erpUser?.id;
+    const adjustment = await this.stockAdjustmentService.update(id, dto, userId);
+    return { success: true, data: adjustment, message: 'Stock adjustment updated successfully' };
   }
 
   @Post(':id/lines')

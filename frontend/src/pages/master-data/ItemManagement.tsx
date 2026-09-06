@@ -14,7 +14,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import { formatDimension } from '../../utils/numberFormat';
-import { PageHeader, StatusBadge, EmptyState, LoadingState } from '../../components/shared';
+import { PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
 import {
   ITEM_TYPES, ROUTE_TYPES, STATUS_OPTIONS, statusColorMap, TRACKING_SWITCHES,
@@ -173,16 +173,36 @@ const ItemManagement: React.FC = () => {
   );
 
   const flatCategories = useMemo(() => {
+    const seen = new Set<string>();
     const out: SimpleOption[] = [];
     const walk = (nodes: CategoryOption[]) => {
       nodes?.forEach((n) => {
-        out.push({ id: n.id, name: n.name });
-        if (n.children?.length) walk(n.children);
+        if (n && n.id && !seen.has(n.id)) {
+          seen.add(n.id);
+          out.push({ id: n.id, name: n.name });
+        }
+        if (n?.children?.length) walk(n.children);
       });
     };
     walk(categories || []);
     return out;
   }, [categories]);
+
+  const toUnique = useCallback(
+    <T extends { id?: string }>(list: T[], getLabel: (item: T) => React.ReactNode, getValue?: (item: T) => string) => {
+      const seen = new Set<string>();
+      const result: Array<{ value: string; label: React.ReactNode }> = [];
+      list?.forEach((item) => {
+        const val = getValue ? getValue(item) : item?.id;
+        if (val && !seen.has(val)) {
+          seen.add(val);
+          result.push({ value: val, label: getLabel(item) });
+        }
+      });
+      return result;
+    },
+    [],
+  );
 
   const sectionsForDivision = useCallback(
     (divisionId?: string) =>
@@ -584,7 +604,7 @@ const ItemManagement: React.FC = () => {
             <td class="num">${formatDimension(r.widthMm)}</td>
             <td>${ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType}</td>
             <td>${r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : ''}</td>
-            <td>${r.baseUomName ?? ''}</td><td class="status ${r.status.toLowerCase()}">${r.status}</td>
+            <td>${r.baseUomName ?? ''}</td><td class="status ${(r.status ? String(r.status).toLowerCase() : '')}">${r.status ?? ''}</td>
           </tr>`,
         )
         .join('');
@@ -683,13 +703,13 @@ const ItemManagement: React.FC = () => {
   ): string | undefined => {
     const v = value.trim().toLowerCase();
     if (!v) return undefined;
-    const byId = options.find((o) => o.id.toLowerCase() === v);
+    const byId = options.find((o) => (o?.id ? String(o.id).toLowerCase() : '') === v);
     if (byId) return byId.id;
     if (codeKey) {
       const byCode = options.find((o) => String(o[codeKey] ?? '').toLowerCase() === v);
       if (byCode) return byCode.id;
     }
-    const byName = options.find((o) => o.name.toLowerCase() === v);
+    const byName = options.find((o) => (o?.name ? String(o.name).toLowerCase() : '') === v);
     return byName?.id;
   };
 
@@ -1084,7 +1104,7 @@ const ItemManagement: React.FC = () => {
     total,
     showSizeChanger: true,
     pageSizeOptions: [10, 20, 50, 100],
-    showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} items`,
+    showTotal: (t, range) => `Showing ${range[0]}–${range[1]} of ${t} entries`,
     onChange: (p, ps) => {
       setPage(ps !== pageSize ? 1 : p);
       setPageSize(ps);
@@ -1242,32 +1262,32 @@ const ItemManagement: React.FC = () => {
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Division"
               value={fDivision}
-              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+              options={toUnique(divisions, (d) => d.name)}
               onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
             />
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Section"
               value={fSection} disabled={!fDivision}
-              options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
+              options={toUnique(sectionsForDivision(fDivision), (s) => s.name)}
               onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
             />
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Department"
               value={fDepartment}
-              options={departmentsForSection(fDivision, fSection).map((d) => ({ value: d.id, label: d.name }))}
+              options={toUnique(departmentsForSection(fDivision, fSection), (d) => d.name)}
               onChange={(v) => { setFDepartment(v); setPage(1); }}
             />
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Item Category"
               value={fCategory}
-              options={flatCategories.map((c) => ({ value: c.id, label: c.name }))}
+              options={toUnique(flatCategories, (c) => c.name)}
               onChange={(v) => { setFCategory(v); setPage(1); }}
             />
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Route Type"
               value={fRouteType}
               loading={routeTypesState === 'loading'}
-              options={routeTypes.map((rt) => ({ value: rt.id, label: rt.name?.trim() ? rt.name : rt.routeCode }))}
+              options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
               onChange={(v) => { setFRouteType(v); setPage(1); }}
             />
             <Select
@@ -1291,35 +1311,33 @@ const ItemManagement: React.FC = () => {
         />
       )}
 
-      <Card style={{ borderRadius: 8 }} styles={{ body: { padding: 0 } }}>
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={items}
-          loading={loading}
-          scroll={{ x: 1490 }}
-          sticky
-          size="small"
-          pagination={pagination}
-          onChange={(_p, _f, sorter: any) => {
-            if (sorter?.field && !Array.isArray(sorter.field)) {
-              const order = sorter.order === 'descend' ? 'DESC' : 'ASC';
-              setSortField(sorter.field as string);
-              setSortOrder(order);
-            }
-          }}
-          locale={{
-            emptyText: (
-              <EmptyState
-                title={search || activeFilterCount > 0 ? 'No items match your filters' : 'No items found'}
-                description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by creating your first item.'}
-                actionLabel={can('item.create') ? 'Add Item' : undefined}
-                onAction={openCreate}
-              />
-            ),
-          }}
-        />
-      </Card>
+      <ERPTable
+        rowKey="id"
+        columns={columns}
+        dataSource={items}
+        loading={loading}
+        scroll={{ x: 1490 }}
+        sticky
+        size="small"
+        pagination={pagination}
+        onChange={(_p, _f, sorter: any) => {
+          if (sorter?.field && !Array.isArray(sorter.field)) {
+            const order = sorter.order === 'descend' ? 'DESC' : 'ASC';
+            setSortField(sorter.field as string);
+            setSortOrder(order);
+          }
+        }}
+        locale={{
+          emptyText: (
+            <EmptyState
+              title={search || activeFilterCount > 0 ? 'No items match your filters' : 'No items found'}
+              description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by creating your first item.'}
+              actionLabel={can('item.create') ? 'Add Item' : undefined}
+              onAction={openCreate}
+            />
+          ),
+        }}
+      />
 
       <Drawer
         open={detailOpen}
@@ -1527,7 +1545,7 @@ const ItemManagement: React.FC = () => {
               <Form.Item name="divisionId" label="Division">
                 <Select
                   allowClear showSearch optionFilterProp="label" placeholder="Select division"
-                  options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                  options={toUnique(divisions, (d) => d.name)}
                   onChange={() => form.setFieldsValue({ sectionId: undefined, departmentId: undefined })}
                 />
               </Form.Item>
@@ -1537,7 +1555,7 @@ const ItemManagement: React.FC = () => {
                     <Select
                       allowClear showSearch optionFilterProp="label" placeholder="Select section"
                       disabled={!getFieldValue('divisionId')}
-                      options={sectionsForDivision(getFieldValue('divisionId')).map((s) => ({ value: s.id, label: s.name }))}
+                      options={toUnique(sectionsForDivision(getFieldValue('divisionId')), (s) => s.name)}
                       onChange={() => form.setFieldsValue({ departmentId: undefined })}
                     />
                   </Form.Item>
@@ -1549,7 +1567,7 @@ const ItemManagement: React.FC = () => {
                     <Select
                       allowClear showSearch optionFilterProp="label" placeholder="Select department"
                       disabled={!getFieldValue('sectionId')}
-                      options={departmentsForSection(getFieldValue('divisionId'), getFieldValue('sectionId')).map((d) => ({ value: d.id, label: d.name }))}
+                      options={toUnique(departmentsForSection(getFieldValue('divisionId'), getFieldValue('sectionId')), (d) => d.name)}
                     />
                   </Form.Item>
                 )}
@@ -1566,7 +1584,7 @@ const ItemManagement: React.FC = () => {
               <Form.Item name="categoryId" label="Item Category">
                 <Select
                   allowClear showSearch optionFilterProp="label"
-                  options={flatCategories.map((c) => ({ value: c.id, label: c.name }))}
+                  options={toUnique(flatCategories, (c) => c.name)}
                   placeholder="Select category"
                 />
               </Form.Item>
@@ -1576,7 +1594,7 @@ const ItemManagement: React.FC = () => {
                   loading={routeTypesState === 'loading'}
                   status={routeTypesState === 'error' ? 'error' : undefined}
                   notFoundContent={routeTypesState === 'error' ? 'Route types could not be loaded' : 'No active route types'}
-                  options={routeTypes.map((rt) => ({ value: rt.id, label: rt.name?.trim() ? rt.name : rt.routeCode }))}
+                  options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
                   placeholder="Select route type"
                 />
               </Form.Item>
@@ -1589,19 +1607,19 @@ const ItemManagement: React.FC = () => {
               <Form.Item name="baseUomId" label="Base UOM" rules={[{ required: true, message: 'Base UOM is required' }]}>
                 <Select
                   showSearch optionFilterProp="label" placeholder="e.g. KG"
-                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
+                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
                 />
               </Form.Item>
               <Form.Item name="purchaseUomId" label="Purchase UOM">
                 <Select
                   allowClear showSearch optionFilterProp="label" placeholder="Optional"
-                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
+                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
                 />
               </Form.Item>
               <Form.Item name="salesUomId" label="Sales UOM">
                 <Select
                   allowClear showSearch optionFilterProp="label" placeholder="Optional"
-                  options={uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
+                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
                 />
               </Form.Item>
               <Form.Item name="weightPerPiece" label="Weight per Piece (kg)" extra="Enables KG ↔ PCS">

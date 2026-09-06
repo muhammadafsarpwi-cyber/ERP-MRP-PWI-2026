@@ -366,6 +366,9 @@ const NAV_DETAIL_ALIASES: Record<string, string> = {
   '/production/entries/new': '/production/entries',
   '/production/entries/select': '/production/entries',
   '/maintenance/preventive-maintenance': '/maintenance/pm-plans',
+  '/finance': '/finance/accounts',
+  '/qc': '/qc/inspections',
+  '/communication': '/communication/email-settings',
 };
 
 /** Detail routes of the form `/section/parent/:id` reuse their parent's icon/color. */

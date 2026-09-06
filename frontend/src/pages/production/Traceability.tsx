@@ -200,7 +200,12 @@ const Traceability: React.FC = () => {
   const filteredItems = useMemo(() => {
     const q = itemSearch.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((i) => i.itemCode.toLowerCase().includes(q) || i.name.toLowerCase().includes(q) || i.itemType.toLowerCase().includes(q));
+    return items.filter(
+      (i) =>
+        (i.itemCode ? String(i.itemCode).toLowerCase().includes(q) : false) ||
+        (i.name ? String(i.name).toLowerCase().includes(q) : false) ||
+        (i.itemType ? String(i.itemType).toLowerCase().includes(q) : false),
+    );
   }, [items, itemSearch]);
 
   // ── Tables ─────────────────────────────────────────────────────────────

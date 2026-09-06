@@ -4,6 +4,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InventoryReceiptController } from './inventory-receipt.controller';
 import { StockLedgerService } from '../services/stock-ledger.service';
 import { InventoryBalanceService } from '../services/inventory-balance.service';
+import { RawMaterialReceivingService } from '../services/raw-material-receiving.service';
 import { Division, Section, Department } from '../../organization/entities';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { Item } from '../../item/entities/item.entity';
@@ -28,6 +29,7 @@ describe('InventoryReceiptController (return)', () => {
   let controller: InventoryReceiptController;
   let ledgerService: any;
   let balanceService: any;
+  let rawMaterialService: any;
   let ledgerRepo: any;
   let divisionRepo: any;
   let sectionRepo: any;
@@ -43,6 +45,13 @@ describe('InventoryReceiptController (return)', () => {
     warehouseRepo = makeMockRepo();
     itemRepo = makeMockRepo();
     uomRepo = makeMockRepo();
+    rawMaterialService = {
+      createReceipt: jest.fn(),
+      findAllReceipts: jest.fn(),
+      createReturn: jest.fn(),
+      findAllReturns: jest.fn(),
+      getReport: jest.fn(),
+    };
     ledgerService = { create: jest.fn().mockResolvedValue({ id: 'ledger-1' }),
       findOneByCompany: jest.fn().mockResolvedValue({ id: 'ledger-1', companyId: COMPANY, transactionType: 'RECEIPT', direction: 'IN', itemId: 'item-1', warehouseId: 'wh-1', quantity: 100, uomId: 'uom-kg', divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1' }),
       update: jest.fn().mockResolvedValue({ id: 'ledger-1' }),
@@ -65,6 +74,7 @@ describe('InventoryReceiptController (return)', () => {
       providers: [
         { provide: StockLedgerService, useValue: ledgerService },
         { provide: InventoryBalanceService, useValue: balanceService },
+        { provide: RawMaterialReceivingService, useValue: rawMaterialService },
         { provide: getRepositoryToken(Division), useValue: divisionRepo },
         { provide: getRepositoryToken(Section), useValue: sectionRepo },
         { provide: getRepositoryToken(Department), useValue: departmentRepo },

@@ -370,6 +370,33 @@ export class MachineTargetService {
   }
 
   /**
+   * Batch lookup active machine targets for a given shift and date.
+   * Powers the production machine cards and status summaries without N+1 queries.
+   */
+  async findActiveTargetsForShift(
+    companyId: string,
+    shiftId: string,
+    date: string,
+    machineIds?: string[],
+  ): Promise<MachineTarget[]> {
+    const qb = this.targetRepo
+      .createQueryBuilder('mt')
+      .leftJoinAndSelect('mt.uom', 'uom')
+      .where('mt.companyId = :companyId', { companyId })
+      .andWhere('mt.isActive = true')
+      .andWhere('mt.shiftId = :shiftId', { shiftId })
+      .andWhere('mt.status = :status', { status: MachineTargetStatus.ACTIVE })
+      .andWhere('mt.effectiveFrom <= :date', { date })
+      .andWhere('(mt.effectiveTo >= :date OR mt.effectiveTo IS NULL)', { date });
+
+    if (machineIds && machineIds.length > 0) {
+      qb.andWhere('mt.machineId IN (:...machineIds)', { machineIds });
+    }
+    qb.orderBy('mt.effectiveFrom', 'DESC');
+    return qb.getMany();
+  }
+
+  /**
    * Core resolution used by Production Entry integration.
    * Deterministic: ACTIVE + is_active + date inside [effective_from, effective_to].
    * Exactly one row may match — two matches are a configuration error, zero

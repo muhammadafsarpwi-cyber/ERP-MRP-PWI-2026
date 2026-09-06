@@ -33,14 +33,70 @@ class ApiService {
       }
     );
 
+    let isRefreshing = false;
+    let failedQueue: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = [];
+
+    const processQueue = (error: any, token: string | null = null) => {
+      failedQueue.forEach((prom) => {
+        if (error) {
+          prom.reject(error);
+        } else if (token) {
+          prom.resolve(token);
+        }
+      });
+      failedQueue = [];
+    };
+
     this.api.interceptors.response.use(
       (response: AxiosResponse) => response,
-      (error: AxiosError) => {
+      async (error: AxiosError) => {
+        const originalRequest = error.config as any;
         const status = error.response?.status;
         const currentPath = window.location.pathname;
-        const publicPaths = ['/login', '/forgot-password', '/reset-password'];
+        const publicPaths = ['/login', '/forgot-password', '/reset-password', '/auth/refresh'];
 
-        if (status === 401 && !publicPaths.includes(currentPath)) {
+        if (status === 401 && !publicPaths.includes(currentPath) && originalRequest && !originalRequest._retry) {
+          const refreshToken = localStorage.getItem('refresh_token');
+          if (refreshToken) {
+            if (isRefreshing) {
+              return new Promise((resolve, reject) => {
+                failedQueue.push({ resolve, reject });
+              })
+                .then((token) => {
+                  originalRequest.headers.Authorization = `Bearer ${token}`;
+                  return this.api(originalRequest);
+                })
+                .catch((err) => Promise.reject(err));
+            }
+
+            originalRequest._retry = true;
+            isRefreshing = true;
+
+            try {
+              const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+              const newToken = res.data?.token;
+              const newRefreshToken = res.data?.refreshToken;
+              if (newToken) {
+                localStorage.setItem('token', newToken);
+                if (newRefreshToken) {
+                  localStorage.setItem('refresh_token', newRefreshToken);
+                }
+                processQueue(null, newToken);
+                originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                return this.api(originalRequest);
+              }
+            } catch (refreshErr) {
+              processQueue(refreshErr, null);
+              localStorage.removeItem('token');
+              localStorage.removeItem('refresh_token');
+              localStorage.removeItem('erp_user');
+              window.location.href = '/login';
+              return Promise.reject(refreshErr);
+            } finally {
+              isRefreshing = false;
+            }
+          }
+
           localStorage.removeItem('token');
           localStorage.removeItem('refresh_token');
           localStorage.removeItem('erp_user');

@@ -5,7 +5,7 @@ import { CompanyService } from '../services';
 import { CreateCompanyDto, UpdateCompanyDto } from '../dto';
 import { CompanyStatus } from '../entities';
 
-@ApiTags('organization/companies')
+@ApiTags('companies')
 @Controller('companies')
 @UseGuards(PermissionGuard)
 export class CompanyController {

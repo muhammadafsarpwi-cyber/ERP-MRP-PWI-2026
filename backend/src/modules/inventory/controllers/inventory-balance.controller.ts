@@ -3,16 +3,17 @@ import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestj
 import { InventoryBalanceService } from '../services/inventory-balance.service';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 
 @ApiTags('inventory/balances')
 @Controller('inventory/balances')
-@UseGuards(SupabaseJwtGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
 @ApiBearerAuth()
 export class InventoryBalanceController {
   constructor(private readonly inventoryBalanceService: InventoryBalanceService) {}
 
   /** Resolve the caller's company scope (authoritative when no explicit filter is sent). */
-  private resolveCompanyId(req: any, queryCompanyId?: string): string | undefined {
+  private resolveCompanyId(req: any, queryCompanyId?: string): string {
     if (queryCompanyId) return queryCompanyId;
     const companyId = req?.erpUser?.defaultCompanyId || req?.orgScopes?.[0]?.companyId;
     if (!companyId) {
@@ -23,6 +24,7 @@ export class InventoryBalanceController {
 
   @Get()
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.view')
   @ApiOperation({ summary: 'List inventory balances' })
   @ApiQuery({ name: 'page', required: false })
@@ -51,6 +53,7 @@ export class InventoryBalanceController {
 
   @Get('available')
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.view')
   @ApiOperation({ summary: 'Get available stock' })
   @ApiQuery({ name: 'companyId', required: false })
@@ -74,6 +77,7 @@ export class InventoryBalanceController {
 
   @Get(':id')
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.view')
   @ApiOperation({ summary: 'Get inventory balance by ID' })
   @ApiParam({ name: 'id' })

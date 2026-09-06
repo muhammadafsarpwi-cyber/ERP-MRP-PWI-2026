@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  App, Table, Button, Space, Modal, Form, Input, Popconfirm, Card, TreeSelect,
+  App, Table, Button, Modal, Form, Input, Popconfirm, TreeSelect,
 } from 'antd';
-import { PlusOutlined, EditOutlined, TagsOutlined } from '@ant-design/icons';
+import { PlusOutlined, TagsOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
-import { PageHeader, StatusBadge, EmptyState, PageToolbar } from '../../components/shared';
+import { PageHeader, StatusBadge, PageToolbar, ERPTable, TableActions } from '../../components/shared';
 
 interface Category {
   id: string;
@@ -188,20 +188,22 @@ const CategoryManagement: React.FC = () => {
       render: (s: string) => <StatusBadge status={s} />,
     },
     {
-      title: 'Actions', key: 'actions', width: 140,
+      title: 'Actions', key: 'actions', width: 140, align: 'center',
       render: (_, record) => (
-        <Space size="small">
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          {record.status === 'INACTIVE' ? (
-            <Popconfirm title="Activate this category?" onConfirm={() => handleActivate(record.id)}>
-              <Button type="link">Activate</Button>
-            </Popconfirm>
-          ) : (
-            <Popconfirm title="Deactivate this category?" onConfirm={() => handleDeactivate(record.id)}>
-              <Button type="link" danger>Deactivate</Button>
-            </Popconfirm>
-          )}
-        </Space>
+        <TableActions
+          onEdit={() => handleEdit(record)}
+          extraActions={[
+            record.status === 'INACTIVE' ? (
+              <Popconfirm key="act" title="Activate this category?" onConfirm={() => handleActivate(record.id)}>
+                <Button type="text" size="small" style={{ color: 'var(--theme-success, #22c55e)' }}>Activate</Button>
+              </Popconfirm>
+            ) : (
+              <Popconfirm key="deact" title="Deactivate this category?" onConfirm={() => handleDeactivate(record.id)}>
+                <Button type="text" size="small" danger>Deactivate</Button>
+              </Popconfirm>
+            )
+          ]}
+        />
       ),
     },
   ];
@@ -227,45 +229,33 @@ const CategoryManagement: React.FC = () => {
         }
       />
 
-      <Card styles={{ body: { padding: '8px 0 0' } }}>
-        <Table
-          columns={columns}
-          dataSource={categories}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: page,
-            pageSize,
-            total,
-            onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100],
-            showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} categories`,
-          }}
-          expandable={{
-            expandedRowRender: (record) => (
-              <Table
-                columns={columns.filter(c => c.key !== 'actions')}
-                dataSource={record.children || []}
-                rowKey="id"
-                pagination={false}
-                size="small"
-              />
-            ),
-            rowExpandable: (record) => (record.children?.length ?? 0) > 0,
-          }}
-          locale={{
-            emptyText: (
-              <EmptyState
-                title={search ? 'No categories match your search' : 'No categories found'}
-                description={search ? 'Try adjusting your search criteria.' : 'Get started by adding your first category.'}
-                actionLabel="Add Category"
-                onAction={handleCreate}
-              />
-            ),
-          }}
-        />
-      </Card>
+      <ERPTable
+        columns={columns}
+        dataSource={categories}
+        rowKey="id"
+        loading={loading}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
+          showSizeChanger: true,
+          pageSizeOptions: [10, 20, 50, 100],
+        }}
+        expandable={{
+          expandedRowRender: (record) => (
+            <Table
+              columns={columns.filter(c => c.key !== 'actions')}
+              dataSource={record.children || []}
+              rowKey="id"
+              pagination={false}
+              size="small"
+            />
+          ),
+          rowExpandable: (record) => (record.children?.length ?? 0) > 0,
+        }}
+        emptyText={search ? 'No categories match your search' : 'No categories found'}
+      />
 
       <Modal
         title={editingCategory ? 'Edit Category' : 'Create Category'}

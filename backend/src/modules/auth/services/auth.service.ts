@@ -58,6 +58,32 @@ export class AuthService {
     };
   }
 
+  async refresh(refreshToken: string): Promise<{ token: string; refreshToken: string; user: any }> {
+    const result = await this.supabaseAuthService.refreshSession(refreshToken);
+
+    const erpUser = await this.userService.findByAuthUserId(result.user.id);
+    if (!erpUser || erpUser.status !== 'ACTIVE') {
+      throw new UnauthorizedException('User account is invalid or inactive');
+    }
+
+    const permissions = await this.permissionMatrixService.getUserPermissions(erpUser.id);
+
+    return {
+      token: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: {
+        id: erpUser.id,
+        email: erpUser.email,
+        displayName: erpUser.displayName,
+        firstName: erpUser.firstName,
+        lastName: erpUser.lastName,
+        defaultCompanyId: erpUser.defaultCompanyId,
+        status: erpUser.status,
+        permissions,
+      },
+    };
+  }
+
   async validateToken(token: string): Promise<any> {
     const supabaseUser = await this.supabaseAuthService.getUserFromToken(token);
     if (!supabaseUser || !supabaseUser.id) {

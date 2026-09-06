@@ -282,6 +282,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     setOpenKeys(latestOpenKey ? [latestOpenKey] : []);
   };
 
+  const themeMode = useThemeStore((state) => state.draft.mode);
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       {!isMobile && (
@@ -356,11 +358,24 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           width={300}
           open={mobileOpen}
           onClose={() => setMobileOpen(false)}
+          className="erp-mobile-nav-drawer"
+          rootClassName="erp-mobile-nav-drawer"
           styles={{ body: { padding: 0 } }}
-          title="ERP System"
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <img
+                src={`${process.env.PUBLIC_URL}/logo.png`}
+                alt="Company logo"
+                style={{ height: 26, width: 26, objectFit: 'contain' }}
+              />
+              <span style={{ fontWeight: 600, fontSize: 16 }}>
+                ERP System
+              </span>
+            </div>
+          }
         >
           <Menu
-            theme="dark"
+            theme={themeMode}
             mode="inline"
             selectedKeys={[activeKeys.selectedKey]}
             openKeys={openKeys}

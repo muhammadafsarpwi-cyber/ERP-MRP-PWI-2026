@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { App, Button, Modal, Form, Input, Select, Popconfirm } from 'antd';
+import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, ShopOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
+import { PageHeader, ERPTable, TableToolbar, TableActions, StatusBadge } from '../../components/shared';
 
 interface Company {
   id: string;
@@ -148,22 +149,26 @@ const WarehouseManagement: React.FC = () => {
       title: 'Code',
       dataIndex: 'warehouseCode',
       key: 'warehouseCode',
-      sorter: true,
+      width: 140,
+      render: (code: string) => <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{code}</span>,
     },
     {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
+      width: 200,
     },
     {
       title: 'Company',
       key: 'company',
-      render: (_, record) => record.company?.legalName || '-',
+      width: 180,
+      render: (_, record) => record.company?.legalName || '—',
     },
     {
       title: 'Type',
       dataIndex: 'warehouseType',
       key: 'warehouseType',
+      width: 160,
       render: (type: string) => {
         const typeObj = warehouseTypes.find((t) => t.value === type);
         return typeObj?.label || type;
@@ -173,52 +178,67 @@ const WarehouseManagement: React.FC = () => {
       title: 'City',
       dataIndex: 'city',
       key: 'city',
+      width: 130,
+      render: (c: string) => c || '—',
     },
     {
       title: 'Country',
       dataIndex: 'country',
       key: 'country',
+      width: 130,
+      render: (c: string) => c || '—',
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (status: string) => (
-        <Tag color={status === 'ACTIVE' ? 'green' : 'red'}>{status}</Tag>
-      ),
+      width: 110,
+      render: (status: string) => <StatusBadge status={status} />,
     },
     {
       title: 'Actions',
       key: 'actions',
+      width: 130,
+      align: 'center',
       render: (_, record) => (
-        <Space size="small">
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          {record.status === 'ACTIVE' ? (
-            <Popconfirm title="Deactivate this warehouse?" onConfirm={() => handleDeactivate(record.id)}>
-              <Button type="link" danger icon={<CloseCircleOutlined />} />
-            </Popconfirm>
-          ) : (
-            <Popconfirm title="Activate this warehouse?" onConfirm={() => handleActivate(record.id)}>
-              <Button type="link" icon={<CheckCircleOutlined />} />
-            </Popconfirm>
-          )}
-          <Popconfirm title="Delete this warehouse?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
+        <TableActions
+          onEdit={() => handleEdit(record)}
+          onDelete={() => handleDelete(record.id)}
+          extraActions={[
+            record.status === 'ACTIVE' ? (
+              <Popconfirm key="deact" title="Deactivate this warehouse?" onConfirm={() => handleDeactivate(record.id)}>
+                <Button type="text" size="small" danger icon={<CloseCircleOutlined />} title="Deactivate" />
+              </Popconfirm>
+            ) : (
+              <Popconfirm key="act" title="Activate this warehouse?" onConfirm={() => handleActivate(record.id)}>
+                <Button type="text" size="small" style={{ color: 'var(--theme-success, #22c55e)' }} icon={<CheckCircleOutlined />} title="Activate" />
+              </Popconfirm>
+            )
+          ]}
+        />
       ),
     },
   ];
 
   return (
-    <Card title="Warehouse Management">
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          Add Warehouse
-        </Button>
-      </Space>
+    <div>
+      <PageHeader
+        icon={<ShopOutlined />}
+        title="Warehouse Management"
+        subtitle={`Manage storage facilities, raw materials, and finished goods locations · ${total} records`}
+        showBreadcrumbs
+      />
 
-      <Table
+      <TableToolbar
+        primaryAction={{
+          label: 'Add Warehouse',
+          icon: <PlusOutlined />,
+          onClick: handleCreate,
+        }}
+        onRefresh={() => fetchWarehouses(page)}
+      />
+
+      <ERPTable
         columns={columns}
         dataSource={warehouses}
         rowKey="id"
@@ -229,6 +249,7 @@ const WarehouseManagement: React.FC = () => {
           pageSize: 20,
           onChange: setPage,
         }}
+        emptyText="No warehouses found"
       />
 
       <Modal
@@ -289,7 +310,7 @@ const WarehouseManagement: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 };
 

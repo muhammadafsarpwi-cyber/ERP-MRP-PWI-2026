@@ -45,6 +45,19 @@ interface StockBalance {
   uom?: { id: string; code: string; name: string };
 }
 
+interface LedgerMovement {
+  id: string;
+  transactionDate: string;
+  transactionType: string;
+  direction: string;
+  quantity: number | string;
+  notes?: string | null;
+  item?: { itemCode: string; name: string } | null;
+  warehouse?: { name: string } | null;
+  uom?: { code: string } | null;
+  referenceId?: string | null;
+}
+
 interface DetailData {
   id: string;
   entryDate: string;
@@ -56,6 +69,7 @@ interface DetailData {
   machineNo: string;
   operatorName: string;
   supervisorName: string | null;
+  coilSize: string | null;
   itemId: string;
   item?: {
     itemCode: string; name: string; wireSizeMm?: number | null; baseUom?: { code: string; symbol?: string } | null;
@@ -144,6 +158,11 @@ const EntryDetail: React.FC = () => {
   const [inputBalances, setInputBalances] = useState<StockBalance[]>([]);
   const [inputLoading, setInputLoading] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
+  // TASK #41 Part E/H: this entry's REAL stock-ledger movements (referenceId =
+  // entry id) — the basis of the on-screen inventory reconciliation.
+  const [movements, setMovements] = useState<LedgerMovement[]>([]);
+  const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsError, setMovementsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -204,6 +223,27 @@ const EntryDetail: React.FC = () => {
     return () => { cancelled = true; };
   }, [entry?.itemId, productionInItemId]);
 
+  // TASK #41 Part E/H: every stock-ledger row this entry posted. The backend
+  // stamps referenceType=PRODUCTION_ENTRY + referenceId=entry.id on each IN/OUT
+  // (PRODUCTION_RECEIPT / PRODUCTION_SCRAP / PRODUCTION_CONSUMPTION).
+  useEffect(() => {
+    if (!entry?.id) return;
+    let cancelled = false;
+    setMovementsLoading(true);
+    setMovementsError(null);
+    void (async () => {
+      try {
+        const r = await apiService.get<{ data: LedgerMovement[] }>('/inventory/reports/ledger', { referenceId: entry.id, referenceType: 'PRODUCTION_ENTRY', limit: 200 });
+        if (!cancelled) setMovements(r.data || []);
+      } catch {
+        if (!cancelled) setMovementsError('Stock ledger movements are unavailable (inventory.reports.view permission required).');
+      } finally {
+        if (!cancelled) setMovementsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [entry?.id]);
+
   if (loading) return <Card><Spin style={{ width: '100%', marginTop: 80 }} /></Card>;
   if (!entry) return <Card>Entry not found.</Card>;
 
@@ -219,6 +259,36 @@ const EntryDetail: React.FC = () => {
   const sourceStoreRow = inputBalances.find((b) => b.warehouse?.id === sourceStoreId) ?? null;
   const sourceStoreAvail =
     sourceStoreRow != null ? toNum(sourceStoreRow.available) : null;
+
+  // TASK #41 Part F: company-wide availability of the exact input material (sum
+  // of every ACTIVE balance row) — the single check that caught the same item
+  // stocked in ANOTHER store while the source store shows zero.
+  const aggregateInputAvail = inputBalances.reduce((s, b) => s + toNum(b.available), 0);
+
+  // ── TASK #41 Part E/H: real inventory reconciliation ─────────────────────
+  const goodQty = toNum(entry.actualQuantity);
+  const scrapQty = toNum(entry.scrapQuantity);
+  const demandTotal = goodQty + scrapQty;
+  const posted = !!entry.inventoryReferenceId;
+  const outputReceiptTotal = movements
+    .filter((m) => m.transactionType === 'PRODUCTION_RECEIPT' && m.direction === 'IN')
+    .reduce((s, m) => s + toNum(m.quantity), 0);
+  const scrapOutTotal = movements
+    .filter((m) => m.transactionType === 'PRODUCTION_SCRAP' && m.direction === 'OUT')
+    .reduce((s, m) => s + toNum(m.quantity), 0);
+  const consumptionOutTotal = movements
+    .filter((m) => m.transactionType === 'PRODUCTION_CONSUMPTION' && m.direction === 'OUT')
+    .reduce((s, m) => s + toNum(m.quantity), 0);
+  const near = (a: number, b: number) => Math.abs(a - b) <= 0.001;
+  const expectedConsumption = productionInItemId ? demandTotal : 0;
+  const reconciliationOk =
+    !posted ? movements.length === 0
+      : near(outputReceiptTotal, goodQty) && near(scrapOutTotal, scrapQty) && near(consumptionOutTotal, expectedConsumption);
+  const sourceShortage =
+    posted && productionInItemId && sourceStoreId && sourceStoreAvail !== null && sourceStoreAvail + 0.001 < demandTotal;
+  const aggregateShortage =
+    posted && productionInItemId && aggregateInputAvail + 0.001 < demandTotal;
+  const noBalancesAnywhere = inputBalances.length === 0;
 
   const sectionCtx = (
     <Descriptions column={3} size="small" bordered>
@@ -266,6 +336,7 @@ const EntryDetail: React.FC = () => {
       </Descriptions.Item>
       <Descriptions.Item label="Achievement %"><KpiPercentage value={ach} /></Descriptions.Item>
       <Descriptions.Item label="Efficiency %"><KpiPercentage value={eff} /></Descriptions.Item>
+      <Descriptions.Item label="Coil Size">{entry.coilSize ?? '—'}</Descriptions.Item>
     </Descriptions>
   );
 
@@ -311,6 +382,27 @@ const EntryDetail: React.FC = () => {
               </Text>
             </div>
           ) : null}
+          {!inputLoading && !inputError && (
+            <div style={{ marginTop: 6 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Aggregate available (all ACTIVE stores):{' '}
+                <Text strong style={{ color: noBalancesAnywhere ? undefined : (aggregateInputAvail > 0 ? 'var(--theme-success)' : undefined) }}>
+                  {noBalancesAnywhere ? 'no balance rows' : formatNumber(aggregateInputAvail, 3)}
+                </Text>
+                <Text type="secondary"> · Demand this stage: <Text strong>{formatNumber(demandTotal, 3)}</Text> {entry.uom?.code ?? ''}</Text>
+              </Text>
+              {aggregateShortage && (
+                <Alert type="error" showIcon style={{ marginTop: 6 }} data-testid="aggregate-shortage-alert"
+                  message={`Company-wide availability (${formatNumber(aggregateInputAvail, 3)}) is below this stage's consumption demand (${formatNumber(demandTotal, 3)}).`}
+                />
+              )}
+              {!aggregateShortage && sourceShortage && (
+                <Alert type="warning" showIcon style={{ marginTop: 6 }} data-testid="source-shortage-alert"
+                  message={`Source store availability (${formatNumber(sourceStoreAvail!, 3)}) is below this stage's consumption demand (${formatNumber(demandTotal, 3)}), but ${formatNumber(aggregateInputAvail, 3)} is available across other stores.`}
+                />
+              )}
+            </div>
+          )}
           <div style={{ marginTop: 6 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               The consumption basis for this stage is Good output + Scrap, deducted 1:1 from this store by the backend.
@@ -483,6 +575,83 @@ const EntryDetail: React.FC = () => {
     </div>
   );
 
+  const typeLabel = (t: string) =>
+    t === 'PRODUCTION_RECEIPT' ? 'Production Receipt' :
+    t === 'PRODUCTION_CONSUMPTION' ? 'Production Consumption' :
+    t === 'PRODUCTION_SCRAP' ? 'Production Scrap' : t;
+
+  const sectionMovements = (
+    <div data-testid="movements-section">
+      <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {entry.inventoryReferenceId ? (
+          <Tag color="green">Ledger movements available</Tag>
+        ) : (
+          <Tag>No ledger movements expected</Tag>
+        )}
+        {movementsLoading ? (
+          <Tag color="processing">Loading movements…</Tag>
+        ) : movementsError ? null : (
+          <Tag data-testid="reconciliation-status" color={reconciliationOk ? 'green' : 'red'}>
+            {!posted ? 'No movements expected' : reconciliationOk ? 'Inventory Reconciled' : 'Reconciliation Mismatch'}
+          </Tag>
+        )}
+      </div>
+
+      {movementsError ? (
+        <Alert type="warning" showIcon message={movementsError} />
+      ) : movementsLoading ? (
+        <Skeleton active paragraph={{ rows: 2 }} />
+      ) : !posted ? (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          This entry was not posted to inventory, so no stock movements are expected.
+        </Text>
+      ) : movements.length === 0 ? (
+        <Alert type="warning" showIcon message="This entry reports posted-to-stock but no stock ledger movements were found for it." />
+      ) : (
+        <div>
+          <Descriptions column={1} size="small" bordered style={{ marginBottom: 12 }}>
+            <Descriptions.Item label="Production Output (Receipt IN)">
+              <Text strong>{formatNumber(goodQty, 3)}</Text>
+              <Text type="secondary"> recorded · </Text>
+              <Text strong>{formatNumber(outputReceiptTotal, 3)}</Text>
+              <Text type="secondary"> in ledger</Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Scrap (OUT)">
+              <Text strong>{formatNumber(scrapQty, 3)}</Text>
+              <Text type="secondary"> recorded · </Text>
+              <Text strong>{formatNumber(scrapOutTotal, 3)}</Text>
+              <Text type="secondary"> in ledger</Text>
+            </Descriptions.Item>
+            {productionInItemId && (
+              <Descriptions.Item label="Raw Material Consumption (OUT)">
+                <Text strong>{formatNumber(demandTotal, 3)}</Text>
+                <Text type="secondary"> demanded · </Text>
+                <Text strong>{formatNumber(consumptionOutTotal, 3)}</Text>
+                <Text type="secondary"> in ledger</Text>
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+          <Table
+            rowKey="id" size="small" pagination={false}
+            dataSource={movements}
+            columns={[
+              { title: 'Date', key: 'date', width: 120, render: (_, m) => m.transactionDate ? dayjs(m.transactionDate).format('DD-MMM HH:mm') : '—' },
+              { title: 'Type', dataIndex: 'transactionType', render: (t) => typeLabel(t) },
+              {
+                title: 'Dir', dataIndex: 'direction', width: 70,
+                render: (d) => d === 'IN' ? <Tag color="green">IN</Tag> : <Tag color="red">OUT</Tag>,
+              },
+              { title: 'Item', key: 'item', render: (_, m) => m.item ? `${m.item.itemCode} — ${m.item.name}` : '—' },
+              { title: 'Warehouse', key: 'wh', render: (_, m) => m.warehouse?.name ?? '—' },
+              { title: 'Qty', dataIndex: 'quantity', align: 'right' as const, width: 100, render: (v) => formatNumber(v, 3) },
+              { title: 'Notes', key: 'notes', render: (_, m) => m.notes ?? '—' },
+            ]}
+          />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div>
       {/* ── Global header: identity + machine/department + date + actions ── */}
@@ -573,6 +742,10 @@ const EntryDetail: React.FC = () => {
               <Descriptions.Item label="Created By">{entry.createdByUser?.fullName ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
             </Descriptions>
+          </Section>
+
+          <Section letter="K" title="Inventory Movements & Reconciliation">
+            {sectionMovements}
           </Section>
         </Col>
 

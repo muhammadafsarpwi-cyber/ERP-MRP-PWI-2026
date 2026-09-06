@@ -326,6 +326,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           machineNo: e.machineNo,
           operatorName: e.operatorName,
           supervisorName: e.supervisorName ?? undefined,
+          coilSize: (e as any).coilSize ?? undefined,
           itemId: e.itemId,
           uomId: e.uomId,
           targetQuantity: toNum(e.targetQuantity),
@@ -340,6 +341,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       rawMaterialWarehouseId: (e as any).rawMaterialWarehouseId ?? undefined,
       // Child lines: production items + downtime entries
       productionItems: (e as any).items?.map((it: any) => ({
+        id: it.id,
+        lineNumber: it.lineNumber,
         itemId: it.itemId,
         uomId: it.uomId,
         targetQuantity: toNum(it.targetQuantity),
@@ -350,6 +353,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         remarks: it.remarks ?? undefined,
       })) ?? [],
       downtimeEntries: (e as any).downtimes?.map((dt: any) => ({
+        id: dt.id,
+        lineNumber: dt.lineNumber,
         downtimeReasonId: dt.downtimeReasonId ?? undefined,
         downtimeReason: dt.downtimeReasonText ?? dt.downtimeReason ?? undefined,
         downtimeHours: toNum(dt.downtimeHours),
@@ -702,8 +707,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       // the DTO allows.
       delete payload.downtimeEntries;
       delete payload.productionItems;
-      // allowClear on the reason Select yields undefined; send null so clearing persists
-      payload.downtimeReasonId = (values.downtimeReasonId as string | undefined) ?? null;
+      if (values.downtimeReasonId !== undefined) {
+        payload.downtimeReasonId = (values.downtimeReasonId as string | null) ?? null;
+      } else {
+        delete payload.downtimeReasonId;
+      }
       if (payload.productionOrderId === undefined) delete payload.productionOrderId;
       if (payload.productionOrderOperationId === undefined) delete payload.productionOrderOperationId;
 
@@ -786,6 +794,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         delete payload.machineId;
       }
       payload.rawMaterialWarehouseId = (values as { rawMaterialWarehouseId?: string }).rawMaterialWarehouseId ?? undefined;
+      const coilSizeVal = (values as { coilSize?: string }).coilSize;
+      if (typeof coilSizeVal === 'string' && coilSizeVal.trim().length > 0) {
+        payload.coilSize = coilSizeVal.trim();
+      } else {
+        delete payload.coilSize;
+      }
 
       if (mode === 'create') {
         payload.postToInventory = !!(values as { postToInventory?: boolean }).postToInventory;
@@ -1099,6 +1113,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col xs={24} md={12}>
                   <Form.Item name="supervisorName" label="Supervisor Name">
                     <Input maxLength={120} placeholder="Optional" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={12}>
+                <Col xs={24} md={12}>
+                  <Form.Item name="coilSize" label="Coil Size" tooltip="Optional coil identifier for this production run.">
+                    <Input maxLength={50} placeholder="Optional" />
                   </Form.Item>
                 </Col>
               </Row>
@@ -1420,6 +1441,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                                 {/* Hidden visual-state flag (never sent to the backend DTO). */}
                                 <Form.Item name={[f.name, 'confirmed']} noStyle hidden initialValue={false}>
                                   <Input type="hidden" />
+                                </Form.Item>
+                                <Form.Item name={[f.name, 'id']} noStyle hidden>
+                                  <Input type="hidden" />
+                                </Form.Item>
+                                <Form.Item name={[f.name, 'lineNumber']} noStyle hidden>
+                                  <InputNumber min={1} />
                                 </Form.Item>
                                 <Row gutter={6} align="middle">
                                   <Col span={9}>
@@ -2894,6 +2921,21 @@ const ProductionItemLine: React.FC<{
       </Form.Item>
       <Form.Item name={[fieldName, 'scrapQuantity']} noStyle hidden>
         <InputNumber min={0} />
+      </Form.Item>
+      <Form.Item name={[fieldName, 'id']} noStyle hidden>
+        <Input type="hidden" />
+      </Form.Item>
+      <Form.Item name={[fieldName, 'lineNumber']} noStyle hidden>
+        <InputNumber min={1} />
+      </Form.Item>
+      <Form.Item name={[fieldName, 'runningHours']} noStyle hidden>
+        <InputNumber min={0} />
+      </Form.Item>
+      <Form.Item name={[fieldName, 'routingCode']} noStyle hidden>
+        <Input type="hidden" />
+      </Form.Item>
+      <Form.Item name={[fieldName, 'remarks']} noStyle hidden>
+        <Input type="hidden" />
       </Form.Item>
       {kgNote && (
         <Text type="secondary" style={{ fontSize: 10, display: 'block', paddingLeft: 8 }}>

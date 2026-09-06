@@ -8,6 +8,7 @@ export const ITEM_TYPES = [
   { value: 'SERVICE', label: 'Service' },
   { value: 'ASSET', label: 'Asset' },
   { value: 'OTHER', label: 'Other' },
+  { value: 'WORK_IN_PROGRESS', label: 'Work in Progress' },
 ];
 
 export const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'DISCONTINUED'];

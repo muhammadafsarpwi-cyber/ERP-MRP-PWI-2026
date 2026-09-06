@@ -26,7 +26,7 @@ interface OrderSummaryProps {
 }
 
 const statusClass = (status: string): string =>
-  status.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  (status ? String(status).toLowerCase().replace(/[^a-z0-9_]/g, '_') : 'unknown');
 
 const OrderSummary: React.FC<OrderSummaryProps> = ({
   title, icon, subtitle, rows, breakdown, loading, emptyTitle, emptyDesc, nav,

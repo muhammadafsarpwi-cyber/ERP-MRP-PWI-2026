@@ -166,3 +166,152 @@
 .ant-layout-sider-children::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.35);
 }
+
+/* ── Mobile Sidebar Navigation Drawer ────────────────────────────────────────
+   Dedicated styles for the mobile slide-out navigation drawer. Ensures:
+   1. Strong, accessible text contrast in both light and dark themes.
+   2. Approximately 25% larger navigation icons for touch interaction.
+   3. Comfortable 44px tap targets and clean vertical alignment.
+   4. Desktop sidebar navigation remains completely untouched. */
+
+.erp-mobile-nav-drawer .ant-drawer-content {
+  background: var(--theme-surface, #ffffff);
+}
+
+.erp-mobile-nav-drawer .ant-drawer-body {
+  padding: 0;
+  background: var(--theme-surface, #ffffff);
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border-strong, rgba(15, 23, 42, 0.2)) transparent;
+}
+
+.erp-mobile-nav-drawer .ant-drawer-header {
+  background: var(--theme-surface, #ffffff);
+  border-bottom: 1px solid var(--theme-border, rgba(15, 23, 42, 0.08));
+  padding: 14px 16px;
+}
+
+.erp-mobile-nav-drawer .ant-drawer-title {
+  color: var(--theme-text, rgba(15, 23, 42, 0.88));
+}
+
+.erp-mobile-nav-drawer .ant-drawer-close {
+  color: var(--theme-text-muted, rgba(15, 23, 42, 0.55));
+}
+
+/* ── Light theme mobile drawer navigation ─────────────────────────────────── */
+.erp-mobile-nav-drawer .ant-menu-light {
+  background: transparent;
+  color: var(--theme-text, rgba(15, 23, 42, 0.88));
+}
+
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-item,
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-submenu-title {
+  color: var(--theme-text, rgba(15, 23, 42, 0.88));
+  font-size: 14px;
+}
+
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-item .erp-nav-label-text,
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-submenu-title .erp-nav-label-text {
+  color: var(--theme-text, rgba(15, 23, 42, 0.88));
+}
+
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-item:hover,
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-submenu-title:hover {
+  color: var(--theme-accent, #1d4fd7);
+  background: var(--theme-hover, rgba(15, 23, 42, 0.05));
+}
+
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-item:hover .erp-nav-label-text,
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-submenu-title:hover .erp-nav-label-text {
+  color: var(--theme-accent, #1d4fd7);
+}
+
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-item-selected {
+  color: var(--theme-accent, #1d4fd7);
+  background: var(--theme-active, rgba(29, 79, 215, 0.1));
+  font-weight: 600;
+}
+
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-item-selected .erp-nav-label-text {
+  color: var(--theme-accent, #1d4fd7);
+  font-weight: 600;
+}
+
+.erp-mobile-nav-drawer .ant-menu-light .ant-menu-submenu-arrow {
+  color: var(--theme-text-muted, rgba(15, 23, 42, 0.55));
+}
+
+.erp-mobile-nav-drawer .ant-menu-light .erp-nav-chip:not(.erp-nav-chip--hot) {
+  color: var(--theme-text-muted, rgba(15, 23, 42, 0.65));
+  border-color: var(--theme-border, rgba(15, 23, 42, 0.15));
+  background: var(--theme-hover, rgba(15, 23, 42, 0.05));
+}
+
+/* ── Dark theme mobile drawer navigation ──────────────────────────────────── */
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-drawer-content,
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-drawer-body {
+  background: var(--theme-surface, #1e293b);
+  scrollbar-color: var(--theme-border-strong, rgba(255, 255, 255, 0.2)) transparent;
+}
+
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-drawer-header {
+  background: var(--theme-surface, #1e293b);
+  border-bottom-color: var(--theme-border, rgba(255, 255, 255, 0.09));
+}
+
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-drawer-title {
+  color: var(--theme-text, rgba(226, 232, 255, 0.92));
+}
+
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-drawer-close {
+  color: var(--theme-text-muted, rgba(199, 204, 235, 0.55));
+}
+
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-menu-dark {
+  background: transparent;
+}
+
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-menu-dark .ant-menu-item,
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-menu-dark .ant-menu-submenu-title,
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-menu-dark .erp-nav-label-text {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="dark"] .erp-mobile-nav-drawer .ant-menu-dark .ant-menu-item-selected {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.18);
+  font-weight: 600;
+}
+
+/* ── Mobile Sidebar Icon Sizing (+25% increase) ─────────────────────────────
+   Desktop standard: lg = 20px inside 22px box; sm = 18px inside 20px box.
+   Mobile (+25%):    lg = 25px inside 28px box; sm = 22.5px inside 25px box. */
+
+.erp-mobile-nav-drawer .erp-nav-icon--lg {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  font-size: 25px;
+}
+
+.erp-mobile-nav-drawer .erp-nav-icon--sm {
+  width: 25px;
+  min-width: 25px;
+  height: 25px;
+  font-size: 22px;
+}
+
+/* Row height & touch target for mobile */
+.erp-mobile-nav-drawer .ant-menu-item,
+.erp-mobile-nav-drawer .ant-menu-submenu-title {
+  height: 44px;
+  line-height: 44px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+.erp-mobile-nav-drawer .ant-menu-item > .erp-nav-icon,
+.erp-mobile-nav-drawer .ant-menu-submenu-title > .erp-nav-icon {
+  margin-right: 12px;
+}

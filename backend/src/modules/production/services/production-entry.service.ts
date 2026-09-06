@@ -171,7 +171,11 @@ export class ProductionEntryService {
     // Attach child production item lines + downtime lines for edit-mode UI
     try {
       const [items, downtimes] = await Promise.all([
-        this.entryItemRepo.find({ where: { productionEntryId: id }, order: { lineNumber: 'ASC' } }),
+        this.entryItemRepo.find({
+          where: { productionEntryId: id },
+          order: { lineNumber: 'ASC' },
+          relations: ['item', 'uom'],
+        }),
         this.entryDowntimeRepo.find({
           where: { productionEntryId: id },
           order: { lineNumber: 'ASC' },
@@ -475,12 +479,18 @@ export class ProductionEntryService {
       sectionId: string | null;
       departmentId: string | null;
       departmentName: string | null;
+      targetQuantity?: number | null;
+      actualQuantity?: number;
+      uom?: string | null;
+      achievementPercentage?: number | null;
+      variance?: number | null;
       entries: Array<{
         id: string;
         itemId: string;
         itemName: string | null;
         targetQuantity: number;
         actualQuantity: number;
+        uom?: string | null;
       }>;
     }>;
     meta: {
@@ -514,6 +524,7 @@ export class ProductionEntryService {
     const entriesQb = this.entryRepo
       .createQueryBuilder('pe')
       .leftJoin('pe.item', 'item')
+      .leftJoin('pe.uom', 'uom')
       .select([
         'pe.id',
         'pe.machineNo',
@@ -521,6 +532,8 @@ export class ProductionEntryService {
         'pe.targetQuantity',
         'pe.actualQuantity',
         'item.name',
+        'uom.code',
+        'uom.symbol',
       ])
       .where('pe.companyId = :companyId', { companyId })
       .andWhere('pe.isActive = true')
@@ -530,6 +543,26 @@ export class ProductionEntryService {
     if (sectionId) entriesQb.andWhere('pe.sectionId = :sectionId', { sectionId });
     if (departmentId) entriesQb.andWhere('pe.departmentId = :departmentId', { departmentId });
     const entries = await entriesQb.getMany();
+
+    let activeTargets: any[] = [];
+    if (typeof (this.machineTargetService as any)?.findActiveTargetsForShift === 'function') {
+      try {
+        activeTargets = await this.machineTargetService.findActiveTargetsForShift(
+          companyId,
+          shiftId,
+          entryDate,
+          machines.map((m) => m.id),
+        );
+      } catch {
+        activeTargets = [];
+      }
+    }
+    const targetsByMachineId = new Map<string, any>();
+    for (const t of activeTargets) {
+      if (t.machineId && !targetsByMachineId.has(t.machineId)) {
+        targetsByMachineId.set(t.machineId, t);
+      }
+    }
 
     const entriesByMachineNo = new Map<string, ProductionEntry[]>();
     for (const e of entries) {
@@ -542,23 +575,55 @@ export class ProductionEntryService {
 
     const data = machines.map((m) => {
       const machineEntries = entriesByMachineNo.get(m.machineCode.trim().toLowerCase()) ?? [];
+      const hasEntries = machineEntries.length > 0;
+      const targetRecord = targetsByMachineId.get(m.id);
+
+      let targetQuantity: number | null = null;
+      let actualQuantity = 0;
+      let uom: string | null = null;
+
+      if (hasEntries) {
+        actualQuantity = machineEntries.reduce((sum, e) => sum + Number(e.actualQuantity || 0), 0);
+        targetQuantity = machineEntries.reduce((sum, e) => sum + Number(e.targetQuantity || 0), 0);
+        const firstWithUom = machineEntries.find((e: any) => e.uom?.code || e.uom?.symbol);
+        uom = (firstWithUom as any)?.uom?.code ?? (firstWithUom as any)?.uom?.symbol ?? targetRecord?.uom?.code ?? null;
+      } else {
+        actualQuantity = 0;
+        targetQuantity = targetRecord ? Number(targetRecord.targetQuantity) : null;
+        uom = targetRecord?.uom?.code ?? targetRecord?.uom?.symbol ?? null;
+      }
+
+      const achievementPercentage = targetQuantity && targetQuantity > 0
+        ? Number(((actualQuantity / targetQuantity) * 100).toFixed(2))
+        : null;
+
+      const variance = targetQuantity !== null
+        ? Number((actualQuantity - targetQuantity).toFixed(4))
+        : null;
+
       return {
         id: m.id,
         systemCode: m.machineId,
         machineCode: m.machineCode,
         name: m.name,
-        status: (machineEntries.length > 0 ? 'ENTERED' : 'ENTRY_REQUIRED') as 'ENTERED' | 'ENTRY_REQUIRED',
+        status: (hasEntries ? 'ENTERED' : 'ENTRY_REQUIRED') as 'ENTERED' | 'ENTRY_REQUIRED',
         entryCount: machineEntries.length,
         divisionId: m.divisionId,
         sectionId: m.sectionId,
         departmentId: m.departmentId,
         departmentName: m.department?.name ?? null,
+        targetQuantity,
+        actualQuantity,
+        uom,
+        achievementPercentage,
+        variance,
         entries: machineEntries.map((e) => ({
           id: e.id,
           itemId: e.itemId,
           itemName: (e.item as { name?: string } | null)?.name ?? null,
           targetQuantity: Number(e.targetQuantity),
           actualQuantity: Number(e.actualQuantity),
+          uom: (e.uom as any)?.code ?? (e.uom as any)?.symbol ?? null,
         })),
       };
     });

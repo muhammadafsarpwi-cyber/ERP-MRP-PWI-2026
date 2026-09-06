@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Popconfirm, Card,
+  Button, Tag, Modal, Form, Select, App,
   InputNumber, Switch, Row, Col,
 } from 'antd';
-import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, StopOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
-import { formatDecimal } from '../../utils/numberFormat';
+import { formatNumber } from '../../utils/numberFormat';
+import { ERPTable, TableToolbar, TableActions } from '../../components/shared';
 
 const TRACKING_TYPES = [
   { value: 'NONE', label: 'None' },
@@ -91,17 +92,18 @@ const InventoryPolicyManagement: React.FC = () => {
   const fetchDropdowns = useCallback(async () => {
     try {
       const [companyRes, itemRes, warehouseRes, locationRes] = await Promise.all([
-        apiService.get<{ data: DropdownOption[] }>('/organization/companies', { limit: 100 }),
+        apiService.get<{ data: DropdownOption[] }>('/companies', { limit: 100 }),
         apiService.get<{ data: DropdownOption[] }>('/master-data/items', { limit: 200 }),
-        apiService.get<{ data: DropdownOption[] }>('/organization/warehouses', { limit: 100 }),
-        apiService.get<{ data: DropdownOption[] }>('/organization/locations', { limit: 200 }),
+        apiService.get<{ data: DropdownOption[] }>('/warehouses', { limit: 100 }),
+        apiService.get<{ data: DropdownOption[] }>('/warehouse-locations', { limit: 200 }),
       ]);
-      setCompanies(companyRes.data);
-      setItems(itemRes.data);
-      setWarehouses(warehouseRes.data);
-      setLocations(locationRes.data);
-    } catch (error) {
-      message.error('Failed to load dropdown data');
+      setCompanies(Array.isArray(companyRes?.data) ? companyRes.data : []);
+      setItems(Array.isArray(itemRes?.data) ? itemRes.data : []);
+      setWarehouses(Array.isArray(warehouseRes?.data) ? warehouseRes.data : []);
+      setLocations(Array.isArray(locationRes?.data) ? locationRes.data : []);
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || error?.message || 'Failed to load policy dropdowns';
+      message.error(`Unable to load policy options: ${Array.isArray(msg) ? msg[0] : msg}`);
     }
   }, [message]);
 
@@ -131,7 +133,20 @@ const InventoryPolicyManagement: React.FC = () => {
 
   const handleEdit = (record: InventoryPolicy) => {
     setEditingItem(record);
-    form.setFieldsValue(record);
+    form.setFieldsValue({
+      companyId: record.companyId,
+      itemId: record.itemId,
+      warehouseId: record.warehouseId,
+      minimumStock: Number(record.minimumStock),
+      maximumStock: Number(record.maximumStock),
+      reorderLevel: Number(record.reorderLevel),
+      reorderQuantity: Number(record.reorderQuantity),
+      safetyStock: Number(record.safetyStock),
+      leadTimeDays: Number(record.leadTimeDays),
+      preferredLocationId: record.preferredLocationId,
+      trackingType: record.trackingType,
+      allowNegativeStock: Boolean(record.allowNegativeStock),
+    });
     setModalVisible(true);
   };
 
@@ -173,92 +188,162 @@ const InventoryPolicyManagement: React.FC = () => {
   };
 
   const columns: ColumnsType<InventoryPolicy> = [
-    { title: 'Item', dataIndex: 'itemName', key: 'itemName', ellipsis: true },
-    { title: 'Warehouse', dataIndex: 'warehouseName', key: 'warehouseName', width: 150 },
-    { title: 'Min Stock', dataIndex: 'minimumStock', key: 'minimumStock', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
-    { title: 'Max Stock', dataIndex: 'maximumStock', key: 'maximumStock', width: 100, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
-    { title: 'Reorder Level', dataIndex: 'reorderLevel', key: 'reorderLevel', width: 110, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
     {
-      title: 'Tracking Type', dataIndex: 'trackingType', key: 'trackingType', width: 120,
+      title: 'Item',
+      dataIndex: 'itemName',
+      key: 'itemName',
+      ellipsis: true,
+      render: (name) => <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{name || '—'}</span>,
+    },
+    {
+      title: 'Warehouse',
+      dataIndex: 'warehouseName',
+      key: 'warehouseName',
+      width: 150,
+      render: (wh) => <span>{wh || '—'}</span>,
+    },
+    {
+      title: 'Min Stock',
+      dataIndex: 'minimumStock',
+      key: 'minimumStock',
+      width: 100,
+      align: 'right' as const,
+      render: (v: unknown) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(v, 4)}</span>,
+    },
+    {
+      title: 'Max Stock',
+      dataIndex: 'maximumStock',
+      key: 'maximumStock',
+      width: 100,
+      align: 'right' as const,
+      render: (v: unknown) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(v, 4)}</span>,
+    },
+    {
+      title: 'Reorder Level',
+      dataIndex: 'reorderLevel',
+      key: 'reorderLevel',
+      width: 110,
+      align: 'right' as const,
+      render: (v: unknown) => (
+        <span style={{ fontWeight: 600, color: 'var(--theme-warning)', fontVariantNumeric: 'tabular-nums' }}>
+          {formatNumber(v, 4)}
+        </span>
+      ),
+    },
+    {
+      title: 'Tracking Type',
+      dataIndex: 'trackingType',
+      key: 'trackingType',
+      width: 120,
       render: (v: string) => TRACKING_TYPES.find(t => t.value === v)?.label || v,
     },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 110,
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
       render: (s: string) => <Tag color={statusColorMap[s] || 'default'}>{s}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions', width: 160, fixed: 'right',
+      title: 'Actions',
+      key: 'actions',
+      width: 80,
+      fixed: 'right',
+      align: 'center' as const,
       render: (_, record) => (
-        <Space size="small">
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          {record.status === 'ACTIVE' && (
-            <Popconfirm title="Deactivate this policy?" onConfirm={() => handleDeactivate(record.id)}>
-              <Button type="link" danger>Deactivate</Button>
-            </Popconfirm>
-          )}
-          {record.status === 'INACTIVE' && (
-            <Popconfirm title="Activate this policy?" onConfirm={() => handleActivate(record.id)}>
-              <Button type="link">Activate</Button>
-            </Popconfirm>
-          )}
-        </Space>
+        <TableActions
+          actions={[
+            {
+              key: 'edit',
+              label: 'Edit Policy',
+              icon: <EditOutlined />,
+              onClick: () => handleEdit(record),
+            },
+            ...(record.status === 'ACTIVE' ? [{
+              key: 'deactivate',
+              label: 'Deactivate Policy',
+              icon: <StopOutlined />,
+              danger: true,
+              confirm: {
+                title: 'Deactivate this policy?',
+                description: 'This policy will no longer trigger automatic reorder alerts.',
+                onConfirm: () => handleDeactivate(record.id),
+              },
+            }] : [{
+              key: 'activate',
+              label: 'Activate Policy',
+              icon: <CheckCircleOutlined />,
+              confirm: {
+                title: 'Activate this policy?',
+                onConfirm: () => handleActivate(record.id),
+              },
+            }]),
+          ]}
+        />
       ),
     },
   ];
 
   return (
-    <Card title="Inventory Policies">
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          placeholder="Search policies..."
-          prefix={<SearchOutlined />}
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          style={{ width: 250 }}
-          allowClear
-        />
-        <Select
-          placeholder="Warehouse"
-          value={filterWarehouse}
-          onChange={(v) => { setFilterWarehouse(v); setPage(1); }}
-          style={{ width: 180 }}
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          options={warehouses.map(w => ({ value: w.id, label: w.name }))}
-        />
-        <Select
-          placeholder="Status"
-          value={filterStatus}
-          onChange={(v) => { setFilterStatus(v); setPage(1); }}
-          style={{ width: 140 }}
-          allowClear
-        >
-          {STATUS_OPTIONS.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
-        </Select>
-        <Select
-          placeholder="Tracking Type"
-          value={filterTrackingType}
-          onChange={(v) => { setFilterTrackingType(v); setPage(1); }}
-          style={{ width: 150 }}
-          allowClear
-          options={TRACKING_TYPES}
-        />
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Policy</Button>
-      </Space>
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--theme-text)' }}>Inventory Policies</h2>
+        <span style={{ fontSize: 13, color: 'var(--theme-text-muted)' }}>
+          Manage reorder points, min/max thresholds, safety stocks, and warehouse fulfillment rules
+        </span>
+      </div>
 
-      <Table
+      <TableToolbar
+        searchPlaceholder="Search policies..."
+        searchValue={search}
+        onSearchChange={(v: string) => { setSearch(v); setPage(1); }}
+        filters={[
+          {
+            key: 'warehouse',
+            placeholder: 'Warehouse',
+            value: filterWarehouse,
+            options: warehouses.map(w => ({ value: w.id, label: w.name })),
+            onChange: (v: any) => { setFilterWarehouse(v as string); setPage(1); },
+            width: 170,
+          },
+          {
+            key: 'status',
+            placeholder: 'Status',
+            value: filterStatus,
+            options: STATUS_OPTIONS.map(s => ({ value: s, label: s })),
+            onChange: (v: any) => { setFilterStatus(v as string); setPage(1); },
+            width: 130,
+          },
+          {
+            key: 'tracking',
+            placeholder: 'Tracking Type',
+            value: filterTrackingType,
+            options: TRACKING_TYPES,
+            onChange: (v: any) => { setFilterTrackingType(v as string); setPage(1); },
+            width: 150,
+          },
+        ]}
+        onRefresh={() => fetchPolicies(page)}
+        actions={
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            Add Policy
+          </Button>
+        }
+      />
+
+      <ERPTable
         columns={columns}
         dataSource={policies}
         rowKey="id"
         loading={loading}
-        scroll={{ x: 1200 }}
+        scroll={{ x: 1100 }}
         pagination={{
           current: page,
           total,
           pageSize,
           onChange: setPage,
           showSizeChanger: false,
+          showTotal: (t, r) => `Showing ${r[0]}–${r[1]} of ${t} entries`,
         }}
       />
 
@@ -352,7 +437,7 @@ const InventoryPolicyManagement: React.FC = () => {
           </Row>
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 };
 

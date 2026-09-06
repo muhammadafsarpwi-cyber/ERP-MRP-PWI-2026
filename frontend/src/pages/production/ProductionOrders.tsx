@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card, Table, Button, Space, Tag, Modal, Form, Input, Select, App, Row, Col,
-  InputNumber, Drawer, Descriptions, Divider, Typography,
+  Tag, Modal, Form, Input, Select, App, Row, Col,
+  InputNumber, Drawer, Descriptions, Divider, Typography, Button, Table,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, EyeOutlined, SendOutlined, CloseOutlined } from '@ant-design/icons';
+import { PlusOutlined, EyeOutlined, SendOutlined, CloseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
-import { PageHeader } from '../../components/shared';
+import { formatNumber } from '../../utils/numberFormat';
+import { PageHeader, ERPTable, TableToolbar, TableActions } from '../../components/shared';
 
 interface ProductionOrder {
   id: string;
@@ -216,23 +217,92 @@ const ProductionOrders: React.FC = () => {
   };
 
   const columns: ColumnsType<ProductionOrder> = [
-    { title: 'Order #', dataIndex: 'orderNumber', key: 'orderNumber', width: 130 },
-    { title: 'Product', dataIndex: 'productName', key: 'product', width: 180 },
-    { title: 'Planned Qty', dataIndex: 'plannedQuantity', key: 'planned', width: 110 },
-    { title: 'Produced', dataIndex: 'producedQuantity', key: 'produced', width: 100 },
-    { title: 'Scrap', dataIndex: 'scrapQuantity', key: 'scrap', width: 90 },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 120,
+      title: 'Order #',
+      dataIndex: 'orderNumber',
+      key: 'orderNumber',
+      width: 140,
+      render: (num) => <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{num || '—'}</span>,
+    },
+    {
+      title: 'Product',
+      dataIndex: 'productName',
+      key: 'product',
+      width: 200,
+      ellipsis: true,
+      render: (name) => <span>{name || '—'}</span>,
+    },
+    {
+      title: 'Planned Qty',
+      dataIndex: 'plannedQuantity',
+      key: 'planned',
+      width: 110,
+      align: 'right' as const,
+      render: (v) => <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatNumber(v, 4)}</span>,
+    },
+    {
+      title: 'Produced',
+      dataIndex: 'producedQuantity',
+      key: 'produced',
+      width: 100,
+      align: 'right' as const,
+      render: (v) => <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--theme-success)' }}>{formatNumber(v, 4)}</span>,
+    },
+    {
+      title: 'Scrap',
+      dataIndex: 'scrapQuantity',
+      key: 'scrap',
+      width: 90,
+      align: 'right' as const,
+      render: (v) => (
+        <span style={{ fontVariantNumeric: 'tabular-nums', color: Number(v) > 0 ? 'var(--theme-danger)' : undefined }}>
+          {formatNumber(v, 4)}
+        </span>
+      ),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
       render: (s: string) => <Tag color={statusColorMap[s]}>{s}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions', width: 260,
+      title: 'Actions',
+      key: 'actions',
+      width: 110,
+      fixed: 'right',
+      align: 'center' as const,
       render: (_, record) => (
-        <Space>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => showDetail(record)}>Detail</Button>
-          {record.status === 'DRAFT' && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleAction(record.id, 'release')}>Release</Button>}
-          {record.status !== 'CANCELLED' && record.status !== 'COMPLETED' && <Button size="small" danger icon={<CloseOutlined />} onClick={() => handleAction(record.id, 'cancel')}>Cancel</Button>}
-        </Space>
+        <TableActions
+          actions={[
+            {
+              key: 'detail',
+              label: 'View Order Details',
+              icon: <EyeOutlined />,
+              onClick: () => showDetail(record),
+            },
+            ...(record.status === 'DRAFT' ? [{
+              key: 'release',
+              label: 'Release Order',
+              icon: <SendOutlined />,
+              confirm: {
+                title: `Release order ${record.orderNumber || ''}?`,
+                onConfirm: () => handleAction(record.id, 'release'),
+              },
+            }] : []),
+            ...(record.status !== 'CANCELLED' && record.status !== 'COMPLETED' ? [{
+              key: 'cancel',
+              label: 'Cancel Order',
+              icon: <CloseOutlined />,
+              danger: true,
+              confirm: {
+                title: `Cancel order ${record.orderNumber || ''}?`,
+                onConfirm: () => handleAction(record.id, 'cancel'),
+              },
+            }] : []),
+          ]}
+        />
       ),
     },
   ];
@@ -241,24 +311,50 @@ const ProductionOrders: React.FC = () => {
 
   return (
     <div>
-      <PageHeader icon={<PlusOutlined />} title="Production Orders" showBreadcrumbs
+      <PageHeader
+        icon={<PlusOutlined />}
+        title="Production Orders"
+        showBreadcrumbs
         subtitle="Plan and manage manufacturing orders"
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Create Order</Button>} />
-      <Card style={{ marginTop: 12 }}>
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={8}>
-            <Input placeholder="Search orders..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} />
-          </Col>
-          <Col span={6}>
-            <Select placeholder="Filter by status" allowClear style={{ width: '100%' }} value={filterStatus} onChange={setFilterStatus}>
-              {STATUS_OPTIONS.map((s) => <Select.Option key={s} value={s}>{s}</Select.Option>)}
-            </Select>
-          </Col>
-          <Col span={4}><Button onClick={() => fetchData(1)}>Search</Button></Col>
-        </Row>
-        <Table columns={columns} dataSource={data} rowKey="id" loading={loading}
-          pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }} />
-      </Card>
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            Create Order
+          </Button>
+        }
+      />
+
+      <TableToolbar
+        searchPlaceholder="Search orders..."
+        searchValue={search}
+        onSearchChange={(v: string) => { setSearch(v); setPage(1); }}
+        filters={[
+          {
+            key: 'status',
+            placeholder: 'Status',
+            value: filterStatus,
+            options: STATUS_OPTIONS.map((s) => ({ value: s, label: s })),
+            onChange: (v: any) => { setFilterStatus(v as string); setPage(1); },
+            width: 150,
+          },
+        ]}
+        onRefresh={() => fetchData(page)}
+      />
+
+      <ERPTable
+        columns={columns}
+        dataSource={data}
+        rowKey="id"
+        loading={loading}
+        scroll={{ x: 950 }}
+        pagination={{
+          current: page,
+          total,
+          pageSize,
+          onChange: setPage,
+          showSizeChanger: false,
+          showTotal: (t, r) => `Showing ${r[0]}–${r[1]} of ${t} entries`,
+        }}
+      />
 
       <Modal title="Create Production Order" open={modalVisible} onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={760}>
         <Form form={form} layout="vertical" onValuesChange={(changed) => {

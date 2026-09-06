@@ -100,11 +100,15 @@ export function useLookups() {
     })();
   }, []);
 
-  /** HR operators filtered to the selected department (Phase 12 org filtering). */
-  const employeesForDepartment = (departmentId?: string): HrEmployeeLk[] =>
-    departmentId
-      ? hrEmployees.filter((e) => e.departmentId === departmentId)
-      : hrEmployees;
+  /** HR operators filtered to the selected department (Phase 12 org filtering).
+   * If department has no directly assigned employees, fall back to all company active employees
+   * so the operator dropdown is never empty.
+   */
+  const employeesForDepartment = (departmentId?: string): HrEmployeeLk[] => {
+    if (!departmentId) return hrEmployees;
+    const deptEmployees = hrEmployees.filter((e) => e.departmentId === departmentId);
+    return deptEmployees.length > 0 ? deptEmployees : hrEmployees;
+  };
 
   /** Full display name of an HR employee. */
   const employeeFullName = (e?: HrEmployeeLk): string =>

@@ -57,6 +57,7 @@ const entry = {
   downtimeHours: 0.5,
   downtimeReasonText: null,
   scrapQuantity: 2,
+  coilSize: null,
   remarks: 'Demo entry',
   productionOrder: null,
   productionOrderOperationId: null,
@@ -81,10 +82,11 @@ const inBalances = [
   { id: 'bal-in-other', item: { id: RM_ITEM_ID, name: '1.20mm Wire', itemCode: 'RM-WIRE-001' }, warehouse: { id: 'wh-other', name: 'Other Store' }, onHand: 90, reserved: 0, available: 90, uom: { id: 'uom-kg', code: 'KG', name: 'Kilogram' } },
 ];
 
-function mockEntryApi(e: any, opts: { outBalances?: any[]; inBalances?: any[] } = {}) {
+function mockEntryApi(e: any, opts: { outBalances?: any[]; inBalances?: any[]; movements?: any[] } = {}) {
   apiMock.get.mockImplementation(async (url: any, params?: any) => {
     const u = String(url);
     if (u === '/production/entries/entry-1') return { success: true, data: e };
+    if (u === '/inventory/reports/ledger') return { data: opts.movements ?? [] };
     if (u === '/inventory/balances') {
       if (params?.itemId === OUT_ITEM_ID) return { data: opts.outBalances ?? [] };
       if (params?.itemId === RM_ITEM_ID) return { data: opts.inBalances ?? [] };
@@ -94,7 +96,7 @@ function mockEntryApi(e: any, opts: { outBalances?: any[]; inBalances?: any[] } 
   });
 }
 
-function renderDetail(e: any, opts?: { outBalances?: any[]; inBalances?: any[] }) {
+function renderDetail(e: any, opts?: { outBalances?: any[]; inBalances?: any[]; movements?: any[] }) {
   mockEntryApi(e, opts);
   return render(
     <App>
@@ -131,6 +133,7 @@ describe('EntryDetail redesign (TASK #39 Part A)', () => {
     expect(screen.getByText('Linkages')).toBeInTheDocument();
     expect(screen.getByText('Remarks & Entry Metadata')).toBeInTheDocument();
     expect(screen.getByText('Inventory Posting Summary')).toBeInTheDocument();
+    expect(screen.getByText('Inventory Movements & Reconciliation')).toBeInTheDocument();
   });
 
   it('A2: production summary shows target/actual/scrap + input material with the exact item', async () => {
@@ -194,6 +197,88 @@ describe('EntryDetail — raw material availability at the exact source store (T
   it('C3: an entry with no inventory posting exposes the availability without crashes (no balances rows)', async () => {
     renderDetail({ ...entry, inventoryReferenceId: null }, { outBalances: [], inBalances: [inBalances[0]] });
     expect(await screen.findByText(/Not posted to stock/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText('5,000')).toBeInTheDocument());
+    await waitFor(async () => expect((await screen.findAllByText('5,000')).length).toBeGreaterThan(0));
+  });
+});
+
+describe('EntryDetail — coil size + real inventory reconciliation (TASK #41 Parts E/F/H)', () => {
+  const postedEntry = { ...entry, inventoryReferenceId: 'ledger-abcdef123456' };
+  const movements = [
+    { id: 'l1', transactionDate: '2026-09-11T08:00:00', transactionType: 'PRODUCTION_RECEIPT', direction: 'IN', quantity: 48, notes: 'Output retrieved', item: { itemCode: 'FLAT-001', name: 'Flat Wire 1.20mm' }, warehouse: { name: 'Main Warehouse' }, uom: { code: 'KG' } },
+    { id: 'l2', transactionDate: '2026-09-11T08:05:00', transactionType: 'PRODUCTION_SCRAP', direction: 'OUT', quantity: 2, notes: null, item: { itemCode: 'FLAT-001', name: 'Flat Wire 1.20mm' }, warehouse: { name: 'Main Warehouse' }, uom: { code: 'KG' } },
+    { id: 'l3', transactionDate: '2026-09-11T08:10:00', transactionType: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 50, notes: 'RM consumed', item: { itemCode: 'RM-WIRE-001', name: '1.20mm Wire' }, warehouse: { name: 'CCD Production Department Stores' }, uom: { code: 'KG' } },
+  ];
+
+  it('E1: fetches the entry stock-ledger rows scoped by referenceId (never the whole ledger)', async () => {
+    renderDetail(postedEntry, { inBalances, movements });
+    await screen.findByTestId('movements-section');
+    await waitFor(() => {
+      const calls = apiMock.get.mock.calls.filter((c) => c[0] === '/inventory/reports/ledger');
+      expect(calls).toHaveLength(1);
+      expect((calls[0][1] as any).referenceId).toBe('entry-1');
+      expect((calls[0][1] as any).limit).toBe(200);
+      expect((calls[0][1] as any).referenceType).toBe('PRODUCTION_ENTRY');
+    });
+  });
+
+  it('E2: green "Inventory Reconciled" tag when every ledger IN/OUT matches the entry quantities', async () => {
+    renderDetail(postedEntry, { inBalances, movements });
+    const status = await screen.findByTestId('reconciliation-status');
+    expect(status).toHaveTextContent('Inventory Reconciled');
+    // The demand figure (48 good + 2 scrap) is reported as the expected consumption.
+    expect(screen.getAllByText('50').length).toBeGreaterThan(0);
+  });
+
+  it('E3: red "Reconciliation Mismatch" when the ledger receipt does not equal actual good output', async () => {
+    const mismatched = movements.map((m) => (m.transactionType === 'PRODUCTION_RECEIPT' ? { ...m, quantity: 47 } : m));
+    renderDetail(postedEntry, { inBalances, movements: mismatched });
+    const status = await screen.findByTestId('reconciliation-status');
+    expect(status).toHaveTextContent('Reconciliation Mismatch');
+  });
+
+  it('E4: coil size renders on the production summary when set, without breaking the rest', async () => {
+    renderDetail({ ...entry, coilSize: '1.20' }, { inBalances });
+    expect(await screen.findByText('1.20')).toBeInTheDocument();
+    expect(screen.getByText(/Coil Size/)).toBeInTheDocument();
+  });
+
+  it('E5: aggregate availability sums every ACTIVE store (source + other), independent of the source store row', async () => {
+    renderDetail(entry, { inBalances });
+    await screen.findByTestId('movements-section');
+    await waitFor(() => expect(screen.getByText('5,090')).toBeInTheDocument());
+    // The source-store number is still shown on its own row too.
+    expect(screen.getAllByText('5,000').length).toBeGreaterThan(0);
+  });
+
+  it('E6: red aggregate-shortage alert when the whole company is below the consumption demand', async () => {
+    const scarce = [
+      { ...inBalances[0], onHand: 40, reserved: 0, available: 40 },
+      { ...inBalances[1], onHand: 5, reserved: 0, available: 5 },
+    ];
+    renderDetail(postedEntry, { inBalances: scarce });
+    const alert = await screen.findByTestId('aggregate-shortage-alert');
+    expect(alert).toHaveTextContent('45');
+    expect(alert).toHaveTextContent('50');
+    expect(screen.queryByTestId('source-shortage-alert')).not.toBeInTheDocument();
+  });
+
+  it('E7: source-store shortage warns while other stores still cover the demand (warning, not error)', async () => {
+    const storeScarce = [
+      { ...inBalances[0], onHand: 20, reserved: 0, available: 20 },
+      inBalances[1],
+    ];
+    renderDetail(postedEntry, { inBalances: storeScarce });
+    const alert = await screen.findByTestId('source-shortage-alert');
+    expect(alert).toHaveTextContent('20');
+    expect(alert).toHaveTextContent('110');
+    expect(screen.queryByTestId('aggregate-shortage-alert')).not.toBeInTheDocument();
+  });
+
+  it('E8: an entry that was never posted explains that no movements are expected (never a mismatch)', async () => {
+    renderDetail(entry, { inBalances });
+    expect(await screen.findByText(/not posted to inventory/)).toBeInTheDocument();
+    const status = screen.getByTestId('reconciliation-status');
+    expect(status).toHaveTextContent('No movements expected');
+    expect(screen.queryByText(/Reconciliation Mismatch/)).not.toBeInTheDocument();
   });
 });

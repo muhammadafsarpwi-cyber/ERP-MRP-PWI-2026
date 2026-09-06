@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, App as AntApp, Button, Card, Col, Dropdown, Input, Modal, Pagination, Row, Select,
-  Space, Table, Tag, Tooltip, Typography,
+  Space, Tag, Tooltip, Typography,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, SearchOutlined, DownloadOutlined,
@@ -13,7 +13,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
-import { EmptyState, LoadingState, StatusBadge } from '../../components/shared';
+import { StatusBadge, ERPTable } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
 import {
   JOB_CARD_BASE, JOB_CARD_STATUSES, JOB_CARD_PRIORITIES, MAINTENANCE_TYPES,
@@ -743,26 +743,33 @@ export const JobCardList: React.FC = () => {
 
     {error && <Alert type="error" showIcon message="Unable to load job cards" description={error} action={<Button onClick={() => { load(); loadQueue(); }}>Retry</Button>} style={{ marginBottom: 16, borderRadius: 6 }} />}
 
-    {loading ? <LoadingState /> : rows.length === 0 ? (
-      <Card><EmptyState title="No Job Cards Found" description="Create a new job card to begin maintenance tracking." actionLabel="Create Job Card" onAction={() => navigate('/maintenance/job-cards/new', { state: { context: createContext() } })} /></Card>
-    ) : (
-      <Card styles={{ body: { padding: 0 } }}>
-        <Table rowKey="id" columns={columns} dataSource={rows} pagination={false} scroll={{ x: 1500 }} size="middle" loading={loading} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap', padding: '12px 16px', borderTop: '1px solid var(--theme-border)' }}>
-          <div>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              Showing <Text strong>{rows.length}</Text> of <Text strong>{total}</Text> job cards
-            </Text>
-          </div>
-          <Space size="middle">
-            <Space size={6}><Text type="secondary" style={{ fontSize: 13 }}>Rows per page:</Text>
-              <Select size="small" value={pageSize} onChange={v => { setPage(1); setPageSize(v); }} options={PAGE_SIZE_OPTIONS.map(v => ({ value: v, label: String(v) }))} style={{ width: 90 }} />
-            </Space>
-            <Pagination current={page} pageSize={pageSize} total={total} onChange={setPage} showSizeChanger={false} showLessItems />
-          </Space>
+    <div>
+      <ERPTable
+        rowKey="id"
+        columns={columns}
+        dataSource={rows}
+        pagination={false}
+        scroll={{ x: 1500 }}
+        loading={loading}
+        emptyTitle="No Job Cards Found"
+        emptyDescription="Create a new job card to begin maintenance tracking."
+        emptyActionLabel={canCreate ? 'Create Job Card' : undefined}
+        onEmptyAction={() => navigate('/maintenance/job-cards/new', { state: { context: createContext() } })}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap', padding: '12px 16px', borderTop: '1px solid var(--theme-border)' }}>
+        <div>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Showing <Text strong>{rows.length}</Text> of <Text strong>{total}</Text> job cards
+          </Text>
         </div>
-      </Card>
-    )}
+        <Space size="middle">
+          <Space size={6}><Text type="secondary" style={{ fontSize: 13 }}>Rows per page:</Text>
+            <Select size="small" value={pageSize} onChange={v => { setPage(1); setPageSize(v); }} options={PAGE_SIZE_OPTIONS.map(v => ({ value: v, label: String(v) }))} style={{ width: 90 }} />
+          </Space>
+          <Pagination current={page} pageSize={pageSize} total={total} onChange={setPage} showSizeChanger={false} showLessItems />
+        </Space>
+      </div>
+    </div>
     <input ref={fileInputRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={onFileSelected} />
 
     {importResult && (

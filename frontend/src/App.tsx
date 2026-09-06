@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from 'antd';
 import MainLayout from './components/layout/MainLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -15,7 +15,6 @@ import FinancePage from './pages/finance/FinancePage';
 import ChartOfAccounts from './pages/finance/ChartOfAccounts';
 import JournalEntries from './pages/finance/JournalEntries';
 import FinanceReports from './pages/finance/FinanceReports';
-import ProductionOrders from './pages/production/ProductionOrders';
 import EmployeesPage from './pages/hr/Employees';
 import AttendanceLeave from './pages/hr/AttendanceLeave';
 import QcPage from './pages/qc/QcPage';
@@ -90,11 +89,6 @@ import './App.css';
 
 const { Content } = Layout;
 
-const MachineMasterDeepLink: React.FC = () => {
-  const { machineId } = useParams();
-  return <MachineManagement initialMachineId={machineId} />;
-};
-
 const App: React.FC = () => {
   return (
     <Routes>
@@ -153,7 +147,6 @@ const App: React.FC = () => {
                   <Route path="/finance/journals" element={<JournalEntries />} />
                   <Route path="/finance/journals/new" element={<JournalEntries />} />
                   <Route path="/finance/reports/*" element={<FinanceReports />} />
-                  <Route path="/production/orders" element={<ProductionOrders />} />
                   <Route path="/hr/employees" element={<EmployeesPage />} />
                   <Route path="/hr/attendance" element={<AttendanceLeave />} />
                   <Route path="/hr/leave" element={<AttendanceLeave />} />
@@ -193,8 +186,6 @@ const App: React.FC = () => {
                   <Route path="/master-data/uom" element={<UomManagement />} />
                   <Route path="/master-data/uom-conversions" element={<UomConversionManagement />} />
                   <Route path="/master-data/machines" element={<MachineManagement />} />
-                  <Route path="/production/machines" element={<Navigate to="/master-data/machines" replace />} />
-                  <Route path="/production/machines/:machineId" element={<MachineMasterDeepLink />} />
                   {process.env.NODE_ENV !== 'production' && (
                     <Route path="/development/status" element={<DevelopmentStatus />} />
                   )}

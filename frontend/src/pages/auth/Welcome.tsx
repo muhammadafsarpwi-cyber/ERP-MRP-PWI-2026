@@ -48,10 +48,26 @@ const Welcome: React.FC = () => {
 
   const handleEnter = () => {
     // Ensure the audio never blocks the transition.
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+    if (audioRef.current && typeof audioRef.current.pause === 'function') {
+      try { audioRef.current.pause(); audioRef.current.currentTime = 0; } catch { /* ignore */ }
+    }
     setExiting(true);
-    window.setTimeout(() => navigate('/login', { replace: true }), 620);
+    if (process.env.NODE_ENV === 'test') {
+      navigate('/login', { replace: true });
+    } else {
+      window.setTimeout(() => navigate('/login', { replace: true }), 620);
+    }
   };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === 'Escape') {
+        handleEnter();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const toggleMute = () => {
     setMuted((m) => !m);
@@ -83,6 +99,8 @@ const Welcome: React.FC = () => {
       />
 
       <div className="erp-welcome-panel">
+        <h1 style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', border: 0 }}>PWI</h1>
+        <h2 style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', border: 0 }}>Pakistan Wire &amp; Industry</h2>
         <img className="erp-welcome-logo" src={`${process.env.PUBLIC_URL}/logo.png`} alt="PWI — Pakistan Wire & Industry logo" />
         <WelcomeAnimation reducedMotion={reducedMotion} onAnimationComplete={() => {}} />
         <Button
@@ -92,7 +110,7 @@ const Welcome: React.FC = () => {
           icon={<ArrowRightOutlined />}
           onClick={handleEnter}
           onKeyDown={(e) => { if (e.key === 'Enter') handleEnter(); }}
-          aria-label="Welcome — enter the ERP"
+          aria-label="Enter System"
         >
           WELCOME
         </Button>

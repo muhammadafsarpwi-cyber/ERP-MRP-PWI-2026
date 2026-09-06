@@ -72,6 +72,8 @@ export class StockLedgerService {
     divisionId?: string;
     sectionId?: string;
     departmentId?: string;
+    referenceType?: string;
+    referenceId?: string;
   }): Promise<{ data: StockLedger[]; total: number }> {
     const {
       page = 1,
@@ -87,6 +89,8 @@ export class StockLedgerService {
       divisionId,
       sectionId,
       departmentId,
+      referenceType,
+      referenceId,
     } = filter;
 
     const qb = this.repo
@@ -146,6 +150,14 @@ export class StockLedgerService {
     if (departmentId) {
       conditions.push('ledger.departmentId = :departmentId');
       params.departmentId = departmentId;
+    }
+    if (referenceType) {
+      conditions.push('ledger.referenceType = :referenceType');
+      params.referenceType = referenceType;
+    }
+    if (referenceId) {
+      conditions.push('ledger.referenceId = :referenceId');
+      params.referenceId = referenceId;
     }
 
     if (conditions.length > 0) {

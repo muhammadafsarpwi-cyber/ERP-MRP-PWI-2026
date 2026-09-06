@@ -1,28 +1,43 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { InventoryPolicyService } from '../services/inventory-policy.service';
 import { CreateInventoryPolicyDto, UpdateInventoryPolicyDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 
 @ApiTags('inventory/policies')
 @Controller('inventory/policies')
-@UseGuards(SupabaseJwtGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
 @ApiBearerAuth()
 export class InventoryPolicyController {
   constructor(private readonly inventoryPolicyService: InventoryPolicyService) {}
 
+  private resolveCompanyId(req: any, queryCompanyId?: string): string {
+    if (queryCompanyId) return queryCompanyId;
+    const companyId = req?.erpUser?.defaultCompanyId || req?.orgScopes?.[0]?.companyId;
+    if (!companyId) {
+      throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
+    }
+    return companyId;
+  }
+
   @Post()
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.policy.create')
   @ApiOperation({ summary: 'Create an inventory policy' })
-  async create(@Body() dto: CreateInventoryPolicyDto) {
+  async create(@Req() req: any, @Body() dto: CreateInventoryPolicyDto) {
+    if (!dto.companyId) {
+      dto.companyId = this.resolveCompanyId(req);
+    }
     const policy = await this.inventoryPolicyService.create(dto);
     return { success: true, data: policy, message: 'Inventory policy created successfully' };
   }
 
   @Get()
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.policy.view')
   @ApiOperation({ summary: 'List inventory policies' })
   @ApiQuery({ name: 'page', required: false })
@@ -36,6 +51,7 @@ export class InventoryPolicyController {
   @ApiQuery({ name: 'sortField', required: false })
   @ApiQuery({ name: 'sortOrder', required: false })
   async findAll(
+    @Req() req: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
@@ -47,8 +63,9 @@ export class InventoryPolicyController {
     @Query('sortField') sortField?: string,
     @Query('sortOrder') sortOrder?: string,
   ) {
+    const resolvedCompanyId = this.resolveCompanyId(req, companyId);
     const result = await this.inventoryPolicyService.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, warehouseId, itemId,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId: resolvedCompanyId, warehouseId, itemId,
       status, trackingType, sortField, sortOrder,
     });
     return { success: true, ...result };

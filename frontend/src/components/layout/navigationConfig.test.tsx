@@ -3,8 +3,9 @@ import {
   findNavEntry,
   isNavGroup,
   resolveNavActiveKeys,
+  NavItem,
+  NavGroup,
 } from './navigationConfig';
-import type { NavItem } from './navigationConfig';
 
 /**
  * Canonical permission seeds loaded from the RPC permission migrations.
@@ -17,7 +18,7 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'department.view', 'warehouse.view',
   'admin.users.view', 'admin.roles.view', 'admin.permissions.view',
   // item / master data — 20260819100000_item_master.sql
-  'item.view', 'item_category.view', 'uom.view', 'uom_conversion.view',
+  'item.view', 'item_category.view', 'item_route_type.view', 'uom.view', 'uom_conversion.view',
   // inventory — 20260819140000_inventory_management.sql
   'inventory.view', 'inventory.reports.view', 'inventory.policy.view',
   'inventory.reservation.view', 'inventory.batch.view',
@@ -31,12 +32,17 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   // sales — 20260820120000_sales_module.sql
   'sales.quotations.view', 'sales.orders.view', 'sales.deliveries.view',
   'sales.invoices.view', 'sales.returns.view',
-  // manufacturing — BOM / routing / workflow / entries / machine / targets
+  // manufacturing — BOM / routing / workflow / entries / machine / targets / receiving / returns
   'manufacturing.bom.view',
   'manufacturing.routing.view',
   'manufacturing.production.entries.view',
+  'manufacturing.production.orders.view',
+  'manufacturing.production.entries.report',
   'manufacturing.machine.view',
   'manufacturing.machine_target.view',
+  'manufacturing.material_receiving.view',
+  'manufacturing.material_return.view',
+  'manufacturing.material_receiving.report',
   // maintenance — 20260826100000_erp_00021_maintenance_module.sql
   'maintenance.job_card.view', 'maintenance.job_card.create',
   'maintenance.job_card.assign', 'maintenance.job_card.start',
@@ -45,6 +51,13 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'maintenance.team.view',
   'maintenance.category.view', 'maintenance.pm.view',
   'maintenance.reports.view',
+  // finance, HR, QC, communication, notifications
+  'finance.account.view', 'finance.journal.view', 'finance.report.trial_balance',
+  'hr.employee.view', 'hr.attendance.view', 'hr.leave.view',
+  'qc.inspection.view', 'qc.ncr.view', 'qc.capa.view',
+  'notifications.view', 'notifications.rules.view',
+  'email.settings.manage', 'email.template.manage', 'email.log.view',
+  'whatsapp.settings.manage', 'whatsapp.template.manage', 'whatsapp.log.view',
 ];
 
 /** Every authenticated route registered in App.tsx / Production routers. */
@@ -60,20 +73,31 @@ const DISCOVERED_ROUTES: string[] = [
   '/procurement/suppliers', '/procurement/requisitions', '/procurement/rfqs',
   '/procurement/quotations', '/procurement/orders', '/procurement/receipts',
   '/procurement/returns', '/procurement/invoices',
-  '/production/entries', '/production/bom', '/production/routings',
-  '/production/targets',
+  '/production/dashboard', '/production/entries', '/production/receiving',
+  '/production/returns', '/production/receiving-report',
+  '/production/bom', '/production/routings', '/production/targets',
+  '/production/traceability', '/production/reports', '/production/inventory-report',
+  '/production/orders',
   '/maintenance', '/maintenance/job-cards', '/maintenance/job-cards/new',
   '/maintenance/teams',
   '/maintenance/categories', '/maintenance/pm-plans',
   '/maintenance/pm-schedules', '/maintenance/reports',
+  '/finance', '/finance/accounts', '/finance/journals', '/finance/reports',
+  '/hr/employees', '/hr/attendance', '/hr/leave',
+  '/qc', '/qc/inspections', '/qc/ncr', '/qc/capa',
+  '/notifications', '/notifications/settings',
+  '/communication', '/communication/email-settings', '/communication/email-templates',
+  '/communication/email-logs', '/communication/whatsapp-settings',
+  '/communication/whatsapp-templates', '/communication/whatsapp-logs',
+  '/communication/rules',
   '/organization/companies', '/organization/branches',
   '/organization/divisions', '/organization/sections',
   '/organization/departments', '/organization/warehouses',
   '/organization/locations',
   '/admin/users', '/admin/roles', '/admin/permissions',
   '/admin/permissions-matrix',
-  '/master-data/items', '/master-data/categories', '/master-data/uom',
-  '/master-data/uom-conversions', '/master-data/machines',
+  '/master-data/items', '/master-data/categories', '/master-data/route-types',
+  '/master-data/uom', '/master-data/uom-conversions', '/master-data/machines',
 ];
 
 /** Routes that redirect or render inside a parent entry (not in the menu). */
@@ -118,8 +142,8 @@ describe('navigationConfig canonical reconciliation', () => {
 
   it('shows the complete Master Data route inventory in the sidebar', () => {
     const masterKeys = NAV_ENTRIES
-      .filter((e) => isNavGroup(e) && e.key === 'master-data')
-      .flatMap((e) => (e as { children: NavItem[] }).children.map((c) => c.key));
+      .filter((e): e is NavGroup => isNavGroup(e) && e.key === 'master-data')
+      .flatMap((e) => e.children.map((c) => c.key));
     expect(masterKeys).toEqual(expect.arrayContaining([
       '/master-data/items',
       '/master-data/categories',
@@ -131,8 +155,8 @@ describe('navigationConfig canonical reconciliation', () => {
 
   it('shows the complete Organization route inventory in the sidebar', () => {
     const orgKeys = NAV_ENTRIES
-      .filter((e) => isNavGroup(e) && e.key === 'organization')
-      .flatMap((e) => (e as { children: NavItem[] }).children.map((c) => c.key));
+      .filter((e): e is NavGroup => isNavGroup(e) && e.key === 'organization')
+      .flatMap((e) => e.children.map((c) => c.key));
     expect(orgKeys).toEqual(expect.arrayContaining([
       '/organization/companies',
       '/organization/branches',

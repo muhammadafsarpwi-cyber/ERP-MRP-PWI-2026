@@ -19,6 +19,7 @@ interface MachineEntryMini {
   itemName: string | null;
   targetQuantity: number;
   actualQuantity: number;
+  uom?: string | null;
 }
 
 interface MachineStatusRow {
@@ -32,7 +33,27 @@ interface MachineStatusRow {
   sectionId: string | null;
   departmentId: string | null;
   departmentName: string | null;
+  targetQuantity?: number | null;
+  actualQuantity?: number;
+  uom?: string | null;
+  achievementPercentage?: number | null;
+  variance?: number | null;
   entries: MachineEntryMini[];
+}
+
+/** Formats numeric quantities cleanly without unnecessary trailing zeros: 70.0000 -> 70, 68.5000 -> 68.5 */
+function formatQty(val: number | string | null | undefined): string {
+  if (val === null || val === undefined || val === '') return '0';
+  const num = Number(val);
+  if (isNaN(num)) return '0';
+  return parseFloat(num.toFixed(4)).toString();
+}
+
+/** Formats achievement percentage cleanly: 97.14 -> 97.14%, 100 -> 100% */
+function formatPercent(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(val)) return '—';
+  const rounded = Math.round(val * 100) / 100;
+  return `${parseFloat(rounded.toFixed(2))}%`;
 }
 
 interface MachineStatusResponse {
@@ -290,6 +311,58 @@ const MachineTile: React.FC<{
   const statusColor = entered ? 'var(--theme-success)' : 'var(--theme-danger)';
   const softBg = entered ? 'var(--theme-success-soft)' : 'transparent';
 
+  // ── Metrics resolution (uses real machine targets & entry data) ───────────
+  const hasEntries = machine.entries && machine.entries.length > 0;
+  const target = machine.targetQuantity !== undefined && machine.targetQuantity !== null
+    ? machine.targetQuantity
+    : hasEntries
+      ? machine.entries.reduce((sum, e) => sum + (Number(e.targetQuantity) || 0), 0)
+      : null;
+
+  const production = machine.actualQuantity !== undefined && machine.actualQuantity !== null
+    ? machine.actualQuantity
+    : hasEntries
+      ? machine.entries.reduce((sum, e) => sum + (Number(e.actualQuantity) || 0), 0)
+      : 0;
+
+  const uom = machine.uom || (hasEntries ? machine.entries[0]?.uom : null) || 'KG';
+
+  const achievement = machine.achievementPercentage !== undefined && machine.achievementPercentage !== null
+    ? machine.achievementPercentage
+    : target && target > 0
+      ? Number(((production / target) * 100).toFixed(2))
+      : null;
+
+  const variance = machine.variance !== undefined && machine.variance !== null
+    ? machine.variance
+    : target !== null && target !== undefined
+      ? Number((production - target).toFixed(4))
+      : null;
+
+  // Variance indicator: ↑ positive (green), ↓ negative (red), – zero (neutral)
+  let varianceNode: React.ReactNode = null;
+  if (variance !== null) {
+    if (variance > 0) {
+      varianceNode = (
+        <span style={{ color: 'var(--theme-success, #16a34a)', fontWeight: 600 }}>
+          ↑ {formatQty(variance)} {uom}
+        </span>
+      );
+    } else if (variance < 0) {
+      varianceNode = (
+        <span style={{ color: 'var(--theme-danger, #dc2626)', fontWeight: 600 }}>
+          ↓ {formatQty(Math.abs(variance))} {uom}
+        </span>
+      );
+    } else {
+      varianceNode = (
+        <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontWeight: 600 }}>
+          – 0 {uom}
+        </span>
+      );
+    }
+  }
+
   const entriesList = (
     <div style={{ minWidth: 240 }}>
       {machine.entries.map((e, idx) => (
@@ -305,7 +378,7 @@ const MachineTile: React.FC<{
             <Text strong style={{ fontSize: 12 }}>{e.itemName ?? e.itemId}</Text>
             <br />
             <Text type="secondary" style={{ fontSize: 11 }}>
-              Actual {e.actualQuantity} / Target {e.targetQuantity}
+              Actual {formatQty(e.actualQuantity)} {e.uom || uom} / Target {formatQty(e.targetQuantity)} {e.uom || uom}
             </Text>
           </div>
           <Button size="small" icon={<EditOutlined />} onClick={() => onViewEdit(e.id)}>
@@ -321,12 +394,12 @@ const MachineTile: React.FC<{
       style={{
         border: `1px solid ${entered ? 'var(--theme-success)' : 'var(--theme-border-strong)'}`,
         borderRadius: 8,
-        padding: '10px 12px',
+        padding: '8px 10px',
         background: softBg,
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
-        opacity: entered ? 0.92 : 1,
+        opacity: entered ? 0.96 : 1,
       }}
     >
       <div>
@@ -343,14 +416,59 @@ const MachineTile: React.FC<{
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span
           aria-hidden
-          style={{ flex: 'none', width: 9, height: 9, borderRadius: '50%', background: statusColor }}
+          style={{ flex: 'none', width: 8, height: 8, borderRadius: '50%', background: statusColor }}
         />
-        <Text strong style={{ fontSize: 12, color: statusColor }}>
+        <Text strong style={{ fontSize: 11, color: statusColor }}>
           {entered ? 'Already Entered' : 'Entry Required'}
         </Text>
       </div>
 
-      <div style={{ marginTop: 'auto' }}>
+      {/* ── Compact Machine KPI Section ─────────────────────────────────── */}
+      <div
+        style={{
+          border: '1px solid var(--theme-border-secondary, rgba(0, 0, 0, 0.08))',
+          borderRadius: 6,
+          padding: '4px 8px',
+          background: 'var(--theme-bg-subtle, rgba(0, 0, 0, 0.02))',
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 4,
+          fontSize: 11,
+          lineHeight: 1.25,
+        }}
+      >
+        <div>
+          <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500 }}>Target</div>
+          <div style={{ fontWeight: 600, fontSize: 12 }}>
+            {target !== null ? `${formatQty(target)} ${uom}` : '—'}
+          </div>
+        </div>
+        <div>
+          <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500 }}>Production</div>
+          <div style={{ fontWeight: 600, fontSize: 12 }}>
+            {entered || target !== null ? `${formatQty(production)} ${uom}` : '—'}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500 }}>Achievement</div>
+          <div
+            style={{
+              fontWeight: 600,
+              fontSize: 12,
+              color: achievement !== null && achievement >= 100 ? 'var(--theme-success, #16a34a)' : undefined,
+            }}
+          >
+            {achievement !== null ? formatPercent(achievement) : '—'}
+          </div>
+          {varianceNode && (
+            <div style={{ fontSize: 10, lineHeight: 1.2, marginTop: 1 }}>
+              {varianceNode}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 'auto', paddingTop: 2 }}>
         {entered ? (
           machine.entries.length === 1 ? (
             <Button block size="small" icon={<EditOutlined />} onClick={() => onViewEdit(machine.entries[0].id)}>

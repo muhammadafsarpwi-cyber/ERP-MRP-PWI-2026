@@ -21,6 +21,7 @@ export enum ItemType {
   SERVICE = 'SERVICE',
   ASSET = 'ASSET',
   OTHER = 'OTHER',
+  WORK_IN_PROGRESS = 'WORK_IN_PROGRESS',
 }
 
 export enum ItemStatus {

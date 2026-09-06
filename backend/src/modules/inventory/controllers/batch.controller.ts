@@ -1,28 +1,43 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { BatchService } from '../services/batch.service';
 import { CreateBatchDto, UpdateBatchDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 
 @ApiTags('inventory/batches')
 @Controller('inventory/batches')
-@UseGuards(SupabaseJwtGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
 @ApiBearerAuth()
 export class BatchController {
   constructor(private readonly batchService: BatchService) {}
 
+  private resolveCompanyId(req: any, queryCompanyId?: string): string {
+    if (queryCompanyId) return queryCompanyId;
+    const companyId = req?.erpUser?.defaultCompanyId || req?.orgScopes?.[0]?.companyId;
+    if (!companyId) {
+      throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
+    }
+    return companyId;
+  }
+
   @Post()
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.batch.manage')
   @ApiOperation({ summary: 'Create a batch' })
-  async create(@Body() dto: CreateBatchDto) {
+  async create(@Req() req: any, @Body() dto: CreateBatchDto) {
+    if (!dto.companyId) {
+      dto.companyId = this.resolveCompanyId(req);
+    }
     const batch = await this.batchService.create(dto);
     return { success: true, data: batch, message: 'Batch created successfully' };
   }
 
   @Get()
   @UseGuards(PermissionGuard)
+  @RequireOrgScope()
   @RequirePermission('inventory.batch.view')
   @ApiOperation({ summary: 'List batches' })
   @ApiQuery({ name: 'page', required: false })
@@ -35,6 +50,7 @@ export class BatchController {
   @ApiQuery({ name: 'sortField', required: false })
   @ApiQuery({ name: 'sortOrder', required: false })
   async findAll(
+    @Req() req: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
@@ -45,8 +61,9 @@ export class BatchController {
     @Query('sortField') sortField?: string,
     @Query('sortOrder') sortOrder?: string,
   ) {
+    const resolvedCompanyId = this.resolveCompanyId(req, companyId);
     const result = await this.batchService.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, itemId, warehouseId,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId: resolvedCompanyId, itemId, warehouseId,
       status, sortField, sortOrder,
     });
     return { success: true, ...result };

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
-  Row, Col,
+  Button, Tag, Modal, Form, Input, Select, App, Row, Col,
 } from 'antd';
-import { PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
-import { formatDecimal } from '../../utils/numberFormat';
+import { formatNumber } from '../../utils/numberFormat';
+import { ERPTable, TableToolbar, TableActions } from '../../components/shared';
 
 const STATUS_OPTIONS = ['ACTIVE', 'EXPIRED', 'CONSUMED', 'QUARANTINE'];
 
@@ -45,7 +45,6 @@ const BatchManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<Batch | null>(null);
-  const [form] = Form.useForm();
 
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
@@ -74,12 +73,13 @@ const BatchManagement: React.FC = () => {
     try {
       const [itemRes, warehouseRes] = await Promise.all([
         apiService.get<{ data: DropdownOption[] }>('/master-data/items', { limit: 200 }),
-        apiService.get<{ data: DropdownOption[] }>('/organization/warehouses', { limit: 100 }),
+        apiService.get<{ data: DropdownOption[] }>('/warehouses', { limit: 100 }),
       ]);
-      setItems(itemRes.data);
-      setWarehouses(warehouseRes.data);
-    } catch (error) {
-      message.error('Failed to load dropdown data');
+      setItems(Array.isArray(itemRes?.data) ? itemRes.data : []);
+      setWarehouses(Array.isArray(warehouseRes?.data) ? warehouseRes.data : []);
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || error?.message || 'Failed to load batch dropdowns';
+      message.error(`Unable to load batch options: ${Array.isArray(msg) ? msg[0] : msg}`);
     }
   }, [message]);
 
@@ -93,139 +93,277 @@ const BatchManagement: React.FC = () => {
 
   const handleCreate = () => {
     setEditingItem(null);
-    form.resetFields();
     setModalVisible(true);
   };
 
   const handleEdit = (record: Batch) => {
     setEditingItem(record);
-    form.setFieldsValue(record);
     setModalVisible(true);
   };
 
-  const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      if (editingItem) {
-        await apiService.patch(`/inventory/batches/${editingItem.id}`, values);
-        message.success('Batch updated');
-      } else {
-        await apiService.post('/inventory/batches', values);
-        message.success('Batch created');
-      }
-      setModalVisible(false);
-      fetchBatches(page);
-    } catch (error) {
-      message.error('Operation failed');
-    }
-  };
-
   const columns: ColumnsType<Batch> = [
-    { title: 'Batch Number', dataIndex: 'batchNumber', key: 'batchNumber', width: 150 },
-    { title: 'Item', dataIndex: 'itemName', key: 'itemName', ellipsis: true },
-    { title: 'Warehouse', dataIndex: 'warehouseName', key: 'warehouseName', width: 150 },
-    { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right' as const, render: (v: unknown) => formatDecimal(v) },
-    { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70 },
     {
-      title: 'Mfg Date', dataIndex: 'manufacturingDate', key: 'manufacturingDate', width: 120,
-      render: (v: string) => v ? new Date(v).toLocaleDateString() : '-',
+      title: 'Batch Number',
+      dataIndex: 'batchNumber',
+      key: 'batchNumber',
+      width: 160,
+      render: (text) => <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{text}</span>,
     },
     {
-      title: 'Expiry Date', dataIndex: 'expiryDate', key: 'expiryDate', width: 120,
-      render: (v: string) => v ? new Date(v).toLocaleDateString() : '-',
+      title: 'Item',
+      dataIndex: 'itemName',
+      key: 'itemName',
+      ellipsis: true,
+      render: (name) => <span>{name || '—'}</span>,
     },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 110,
+      title: 'Warehouse',
+      dataIndex: 'warehouseName',
+      key: 'warehouseName',
+      width: 150,
+      render: (wh) => <span>{wh || '—'}</span>,
+    },
+    {
+      title: 'Qty',
+      dataIndex: 'quantity',
+      key: 'quantity',
+      width: 100,
+      align: 'right' as const,
+      render: (v: unknown) => (
+        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+          {formatNumber(v, 4)}
+        </span>
+      ),
+    },
+    {
+      title: 'UOM',
+      dataIndex: 'uomCode',
+      key: 'uomCode',
+      width: 75,
+      render: (uom) => <span style={{ color: 'var(--theme-text-muted)', fontSize: 12 }}>{uom || '—'}</span>,
+    },
+    {
+      title: 'Mfg Date',
+      dataIndex: 'manufacturingDate',
+      key: 'manufacturingDate',
+      width: 120,
+      render: (v: string) => <span style={{ fontSize: 12 }}>{v ? new Date(v).toLocaleDateString() : '—'}</span>,
+    },
+    {
+      title: 'Expiry Date',
+      dataIndex: 'expiryDate',
+      key: 'expiryDate',
+      width: 120,
+      render: (v: string) => <span style={{ fontSize: 12 }}>{v ? new Date(v).toLocaleDateString() : '—'}</span>,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 110,
       render: (s: string) => <Tag color={statusColorMap[s] || 'default'}>{s}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions', width: 80, fixed: 'right',
+      title: 'Actions',
+      key: 'actions',
+      width: 70,
+      fixed: 'right',
+      align: 'center' as const,
       render: (_, record) => (
-        <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+        <TableActions
+          actions={[
+            {
+              key: 'edit',
+              label: 'Edit Batch',
+              icon: <EditOutlined />,
+              onClick: () => handleEdit(record),
+            },
+          ]}
+        />
       ),
     },
   ];
 
   return (
-    <Card title="Batch Tracking">
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          placeholder="Search batches..."
-          prefix={<SearchOutlined />}
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          style={{ width: 250 }}
-          allowClear
-        />
-        <Select
-          placeholder="Status"
-          value={filterStatus}
-          onChange={(v) => { setFilterStatus(v); setPage(1); }}
-          style={{ width: 140 }}
-          allowClear
-        >
-          {STATUS_OPTIONS.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
-        </Select>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Batch</Button>
-      </Space>
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--theme-text)' }}>Batch Tracking</h2>
+        <span style={{ fontSize: 13, color: 'var(--theme-text-muted)' }}>
+          Track raw material and finished goods batches, expiry dates, and lot numbers
+        </span>
+      </div>
 
-      <Table
+      <TableToolbar
+        searchPlaceholder="Search batches..."
+        searchValue={search}
+        onSearchChange={(v) => { setSearch(v); setPage(1); }}
+        filters={[
+          {
+            key: 'status',
+            placeholder: 'Status',
+            value: filterStatus,
+            options: STATUS_OPTIONS.map(s => ({ value: s, label: s })),
+            onChange: (v) => { setFilterStatus(v as string); setPage(1); },
+            width: 140,
+          },
+        ]}
+        onRefresh={() => fetchBatches(page)}
+        actions={
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            Add Batch
+          </Button>
+        }
+      />
+
+      <ERPTable
         columns={columns}
         dataSource={batches}
         rowKey="id"
         loading={loading}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1050 }}
         pagination={{
           current: page,
           total,
           pageSize,
           onChange: setPage,
           showSizeChanger: false,
+          showTotal: (t, r) => `Showing ${r[0]}–${r[1]} of ${t} entries`,
         }}
       />
 
-      <Modal
-        title={editingItem ? 'Edit Batch' : 'Create Batch'}
+      <BatchModal
         open={modalVisible}
-        onOk={handleSubmit}
+        editingItem={editingItem}
+        items={items}
+        warehouses={warehouses}
         onCancel={() => setModalVisible(false)}
-        width={600}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="batchNumber" label="Batch Number" rules={[{ required: true }]}>
-                <Input disabled={!!editingItem} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="itemId" label="Item" rules={[{ required: true }]}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  options={items.map(i => ({ value: i.id, label: i.name }))}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="warehouseId" label="Warehouse" rules={[{ required: true }]}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  options={warehouses.map(w => ({ value: w.id, label: w.name }))}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="status" label="Status" rules={[{ required: true }]}>
-                <Select options={STATUS_OPTIONS.map(s => ({ value: s, label: s }))} />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
-    </Card>
+        onSuccess={() => {
+          setModalVisible(false);
+          fetchBatches(page);
+        }}
+      />
+    </div>
+  );
+};
+
+interface BatchModalProps {
+  open: boolean;
+  editingItem: Batch | null;
+  items: DropdownOption[];
+  warehouses: DropdownOption[];
+  onCancel: () => void;
+  onSuccess: () => void;
+}
+
+const BatchModal: React.FC<BatchModalProps> = ({
+  open,
+  editingItem,
+  items,
+  warehouses,
+  onCancel,
+  onSuccess,
+}) => {
+  const { message } = App.useApp();
+  const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      if (editingItem) {
+        form.setFieldsValue({
+          batchNumber: editingItem.batchNumber,
+          itemId: editingItem.itemId,
+          warehouseId: editingItem.warehouseId,
+          status: editingItem.status,
+        });
+      } else {
+        form.resetFields();
+        form.setFieldsValue({ status: 'ACTIVE' });
+      }
+    }
+  }, [open, editingItem, form]);
+
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validateFields();
+      setSubmitting(true);
+      if (editingItem) {
+        await apiService.patch(`/inventory/batches/${editingItem.id}`, {
+          batchNumber: values.batchNumber,
+          itemId: values.itemId,
+          warehouseId: values.warehouseId,
+          status: values.status,
+        });
+        message.success('Batch updated');
+      } else {
+        await apiService.post('/inventory/batches', {
+          batchNumber: values.batchNumber,
+          itemId: values.itemId,
+          warehouseId: values.warehouseId,
+          status: values.status,
+        });
+        message.success('Batch created');
+      }
+      onSuccess();
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || error?.message || 'Operation failed';
+      message.error(Array.isArray(msg) ? msg[0] : msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={editingItem ? 'Edit Batch' : 'Create Batch'}
+      open={open}
+      onOk={handleSubmit}
+      confirmLoading={submitting}
+      onCancel={onCancel}
+      width={600}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical">
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item name="batchNumber" label="Batch Number" rules={[{ required: true, message: 'Batch number is required' }]}>
+              <Input disabled={!!editingItem} placeholder="e.g. BATCH-001" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="itemId" label="Item" rules={[{ required: true, message: 'Please select an item' }]}>
+              <Select
+                showSearch
+                placeholder="Select item"
+                optionFilterProp="label"
+                options={items.map((i: any) => ({
+                  value: i.id,
+                  label: i.itemCode ? `${i.itemCode} — ${i.name}` : i.name || i.id,
+                }))}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="warehouseId" label="Warehouse" rules={[{ required: true, message: 'Please select warehouse' }]}>
+              <Select
+                showSearch
+                placeholder="Select warehouse"
+                optionFilterProp="label"
+                options={warehouses.map((w: any) => ({
+                  value: w.id,
+                  label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name || w.id,
+                }))}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="status" label="Status" rules={[{ required: true }]}>
+              <Select options={STATUS_OPTIONS.map(s => ({ value: s, label: s }))} />
+            </Form.Item>
+          </Col>
+        </Row>
+      </Form>
+    </Modal>
   );
 };
 

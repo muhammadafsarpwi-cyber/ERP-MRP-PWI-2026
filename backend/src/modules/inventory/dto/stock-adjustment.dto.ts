@@ -127,3 +127,21 @@ export class StockAdjustmentFilterDto {
   @IsIn(['ASC', 'DESC'])
   sortOrder?: string;
 }
+
+export class UpdateStockAdjustmentDto {
+  @ApiPropertyOptional({ description: 'Warehouse ID' })
+  @IsUUID()
+  @IsOptional()
+  warehouseId?: string;
+
+  @ApiPropertyOptional({ description: 'Adjustment type', enum: ['INCREASE', 'DECREASE', 'REVALUATION'] })
+  @IsString()
+  @IsOptional()
+  @IsIn(['INCREASE', 'DECREASE', 'REVALUATION'])
+  adjustmentType?: string;
+
+  @ApiPropertyOptional({ description: 'Reason for adjustment' })
+  @IsString()
+  @IsOptional()
+  reason?: string;
+}

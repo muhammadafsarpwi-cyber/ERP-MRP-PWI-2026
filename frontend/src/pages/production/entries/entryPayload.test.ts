@@ -70,3 +70,44 @@ describe('buildProductionItemsPayload — backend canonical `items` contract', (
     expect(payload[0].itemId).toBe('i1');
   });
 });
+
+// TASK #41 Part C — edit round-trip preservation. The edit form loads persisted
+// child rows (with their id + lineNumber) into the Form.List drafts; the payload
+// builders must carry that identity/order PLUS the per-line content fields so a
+// remarks-only re-save never renumbers lines or zeroes running hours.
+describe('TASK #41 Part C — edit round-trip payload preservation', () => {
+  it('C1: production item payload preserves explicit lineNumber and id order', () => {
+    const payload = buildProductionItemsPayload([
+      { lineNumber: 7, itemId: 'i1', actualQuantity: 10 },
+      { lineNumber: 12, itemId: 'i2', actualQuantity: 5 },
+    ], 'u-fallback');
+    expect(payload[0].lineNumber).toBe(7);
+    expect(payload[1].lineNumber).toBe(12);
+  });
+
+  it('C2: production item payload passes runningHours / routingCode / remarks through unchanged', () => {
+    const payload = buildProductionItemsPayload([
+      { itemId: 'i1', runningHours: 7.5, routingCode: 'RC-001', remarks: 'keep me' },
+    ], 'u');
+    expect(Number(payload[0].runningHours)).toBe(7.5);
+    expect(payload[0].routingCode).toBe('RC-001');
+    expect(payload[0].remarks).toBe('keep me');
+  });
+
+  it('C3: downtime payload renumbers sequentially when lineNumber is missing (new lines remain 1..n)', () => {
+    const payload = buildDowntimePayload([
+      { downtimeReasonId: 'r1', downtimeHours: 1 },
+      { downtimeReasonId: 'r2', downtimeHours: 0.5 },
+    ]);
+    expect(payload.map((l) => l.lineNumber)).toEqual([1, 2]);
+  });
+
+  it('C4: downtime payload keeps id-free lines working while honoring explicit lineNumber', () => {
+    const payload = buildDowntimePayload([
+      { lineNumber: 4, downtimeReasonId: 'r1', downtimeHours: 1 },
+      { downtimeReasonId: 'r2', downtimeHours: 0.5, remarks: 'x' },
+    ]);
+    expect(payload[0].lineNumber).toBe(4);
+    expect(payload[1].lineNumber).toBe(2);
+  });
+});
