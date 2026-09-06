@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+﻿import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ProductionRouting, RoutingStatus, RoutingOperation } from '../entities';
@@ -9,6 +9,8 @@ import { Division } from '../../organization/entities/division.entity';
 import { Section } from '../../organization/entities/section.entity';
 import { Department } from '../../organization/entities/department.entity';
 import { Uom } from '../../item/entities/uom.entity';
+import { Machine } from '../../production/entities/machine.entity';
+import { Operation } from '../../operation/entities/operation.entity';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   [RoutingStatus.DRAFT]: [RoutingStatus.ACTIVE],
@@ -37,6 +39,10 @@ export class ProductionRoutingService {
     private readonly departmentRepo: Repository<Department>,
     @InjectRepository(Uom)
     private readonly uomRepo: Repository<Uom>,
+    @InjectRepository(Machine)
+    private readonly machineRepo: Repository<Machine>,
+    @InjectRepository(Operation)
+    private readonly operationMasterRepo: Repository<Operation>,
   ) {}
 
   async findAll(companyId: string): Promise<ProductionRouting[]> {
@@ -52,6 +58,8 @@ export class ProductionRoutingService {
         'operations.inputItem',
         'operations.outputItem',
         'operations.uom',
+        'operations.operation',
+        'operations.machine',
       ],
       order: { routingCode: 'ASC' },
     });
@@ -72,6 +80,8 @@ export class ProductionRoutingService {
         'operations.inputItem',
         'operations.outputItem',
         'operations.uom',
+        'operations.operation',
+        'operations.machine',
       ],
     });
     if (!routing) {
@@ -94,6 +104,8 @@ export class ProductionRoutingService {
         'operations.inputItem',
         'operations.outputItem',
         'operations.uom',
+        'operations.operation',
+        'operations.machine',
       ],
     });
     if (routing) this.sortOperations(routing);
@@ -308,10 +320,43 @@ export class ProductionRoutingService {
     };
     await this.validateOrgHierarchy([merged as CreateRoutingOperationDto], companyId);
 
+    const nextOperationId = dto.operationId !== undefined ? dto.operationId : operation.operationId;
+    if (nextOperationId) {
+      const master = await this.operationMasterRepo.findOne({
+        where: { id: nextOperationId, companyId, isActive: true },
+      });
+      if (!master) {
+        throw new BadRequestException(`Operation not found with id ${nextOperationId} for this company`);
+      }
+    }
+    const nextMachineId = dto.machineId !== undefined ? dto.machineId : operation.machineId;
+    if (nextMachineId) {
+      const machine = await this.machineRepo.findOne({
+        where: { id: nextMachineId, companyId, isActive: true },
+      });
+      if (!machine) {
+        throw new BadRequestException(`Machine not found with id ${nextMachineId} for this company`);
+      }
+    }
+
+    let opCode = dto.operationCode ?? operation.operationCode;
+    let opName = dto.operationName ?? operation.operationName;
+    const operationMasterChanged = nextOperationId !== operation.operationId;
+    if (nextOperationId && (operationMasterChanged || !opCode || !opName)) {
+      const master = await this.operationMasterRepo.findOne({
+        where: { id: nextOperationId, companyId, isActive: true },
+      });
+      if (master) {
+        opCode = opCode || master.operationCode;
+        opName = opName || master.operationName;
+      }
+    }
+
     Object.assign(operation, {
       sequenceNo: dto.sequenceNo ?? operation.sequenceNo,
-      operationCode: dto.operationCode ?? operation.operationCode,
-      operationName: dto.operationName ?? operation.operationName,
+      operationId: nextOperationId,
+      operationCode: opCode,
+      operationName: opName,
       description: dto.description ?? operation.description,
       divisionId: dto.divisionId ?? operation.divisionId,
       sectionId: dto.sectionId ?? operation.sectionId,
@@ -322,6 +367,7 @@ export class ProductionRoutingService {
       waitTimeMinutes: dto.waitTimeMinutes ?? operation.waitTimeMinutes,
       laborRequired: dto.laborRequired ?? operation.laborRequired,
       machineRequired: dto.machineRequired ?? operation.machineRequired,
+      machineId: nextMachineId,
       inputItemId: dto.inputItemId ?? operation.inputItemId,
       outputItemId: dto.outputItemId ?? operation.outputItemId,
       inputQuantity: dto.inputQuantity ?? operation.inputQuantity,
@@ -392,12 +438,14 @@ export class ProductionRoutingService {
   ): Promise<RoutingOperation[]> {
     const operations: RoutingOperation[] = [];
     for (const opDto of operationDtos) {
+      const resolved = await this.resolveOperationIdentity(opDto, companyId);
       const operation = this.operationRepo.create({
         companyId,
         routingId,
         sequenceNo: opDto.sequenceNo,
-        operationCode: opDto.operationCode,
-        operationName: opDto.operationName,
+        operationId: resolved.operationId,
+        operationCode: resolved.operationCode,
+        operationName: resolved.operationName,
         description: opDto.description || null,
         divisionId: opDto.divisionId || null,
         sectionId: opDto.sectionId || null,
@@ -408,6 +456,7 @@ export class ProductionRoutingService {
         waitTimeMinutes: opDto.waitTimeMinutes || 0,
         laborRequired: opDto.laborRequired ?? true,
         machineRequired: opDto.machineRequired ?? false,
+        machineId: opDto.machineId || null,
         inputItemId: opDto.inputItemId || null,
         outputItemId: opDto.outputItemId || null,
         inputQuantity: opDto.inputQuantity || 0,
@@ -552,5 +601,52 @@ export class ProductionRoutingService {
         throw new BadRequestException(`UOMs not found: ${missing.join(', ')}`);
       }
     }
+
+    const operationIds = [...new Set(operations.map((op) => op.operationId).filter((id): id is string => !!id))];
+    if (operationIds.length > 0) {
+      const ops = await this.operationMasterRepo.find({ where: { id: In(operationIds), companyId, isActive: true } });
+      if (ops.length !== operationIds.length) {
+        const found = new Set(ops.map((o) => o.id));
+        const missing = operationIds.filter((id) => !found.has(id));
+        throw new BadRequestException(`Operations not found for this company: ${missing.join(', ')}`);
+      }
+    }
+
+    const machineIds = [...new Set(operations.map((op) => op.machineId).filter((id): id is string => !!id))];
+    if (machineIds.length > 0) {
+      const machines = await this.machineRepo.find({ where: { id: In(machineIds), companyId, isActive: true } });
+      if (machines.length !== machineIds.length) {
+        const found = new Set(machines.map((m) => m.id));
+        const missing = machineIds.filter((id) => !found.has(id));
+        throw new BadRequestException(`Machines not found for this company: ${missing.join(', ')}`);
+      }
+    }
+  }
+
+  /**
+   * Returns the effective Operation Master identity for a routing step.
+   * When operationId references a master record, the denormalized
+   * operationCode / operationName columns are derived from the master unless
+   * explicitly overridden by the caller.
+   */
+  private async resolveOperationIdentity(
+    op: CreateRoutingOperationDto | any,
+    companyId: string,
+  ): Promise<{ operationId: string | null; operationCode: string; operationName: string }> {
+    const operationId = op.operationId || null;
+    let operationCode = op.operationCode || '';
+    let operationName = op.operationName || '';
+
+    if (operationId && !operationCode && !operationName) {
+      const master = await this.operationMasterRepo.findOne({
+        where: { id: operationId, companyId, isActive: true },
+      });
+      if (master) {
+        operationCode = master.operationCode;
+        operationName = master.operationName;
+      }
+    }
+
+    return { operationId, operationCode, operationName };
   }
 }

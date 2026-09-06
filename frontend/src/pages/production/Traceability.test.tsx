@@ -105,4 +105,32 @@ describe('Production Traceability report', () => {
     expect(getCalls()).not.toContain('/admin/sections');
     expect(getCalls()).not.toContain('/admin/departments');
   });
+
+  it('TASK39-K: renders the Item Overview tab when currentBalance is null (no crash)', async () => {
+    apiMock.get.mockImplementation((url: any) => {
+      const u = String(url);
+      if (u === '/master-data/items') return Promise.resolve({ data: [itemOption] });
+      if (u === `/production/traceability/item/${ITEM_ID}`) return Promise.resolve({ data: { item: { ...itemOption, uom: { code: 'M' }, division: { name: 'D1' } }, currentBalance: null } });
+      if (u === `/production/traceability/${ITEM_ID}/statement`) return Promise.resolve({ data: { openingBalance: 0, categories: {}, closingBalance: 0, currentBalance: { onHand: 0, reserved: 0, available: 0 }, reconciliation: { status: 'RECONCILED', inventoryBalance: 0, ledgerBalance: 0, difference: 0 } } });
+      if (u === `/production/traceability/${ITEM_ID}/ledger`) return Promise.resolve({ data: [], total: 0 });
+      if (u === `/production/traceability/${ITEM_ID}/history`) return Promise.resolve({ data: [], total: 0 });
+      if (u === `/production/traceability/${ITEM_ID}/chain`) return Promise.resolve({ data: { hasRouting: false, nodes: [] } });
+      if (u === '/production/traceability/wip') return Promise.resolve({ data: [] });
+      if (u === '/production/traceability/department-wise') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: [] });
+    });
+    render(
+      <MemoryRouter>
+        <Traceability />
+      </MemoryRouter>
+    );
+    await screen.findByText(/No item selected/i);
+    const combobox = screen.getByRole('combobox');
+    fireEvent.mouseDown(combobox);
+    fireEvent.click(await screen.findByText(/RM-WIRE-120/i));
+    // Item Name survives the overview render; the balance cells fall back to 0.
+    expect(await screen.findByText('1.20mm Wire [SAMPLE]')).toBeInTheDocument();
+    expect(screen.getAllByText('On Hand').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Available').length).toBeGreaterThan(0);
+  });
 });

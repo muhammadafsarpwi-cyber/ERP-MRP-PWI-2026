@@ -11,7 +11,7 @@ import {
 } from '../entities';
 import { CreateProductionEntryDto, UpdateProductionEntryDto, CreateMachineDto } from '../dto';
 import { Item, Uom, UomConversion } from '../../item/entities';
-import { Division, Section, Department, Warehouse } from '../../organization/entities';
+import { Division, Section, Department, Warehouse, WarehouseType } from '../../organization/entities';
 import { BillOfMaterials, BomLine, BomStatus } from '../../bom/entities';
 import { ProductionOrder, ProductionOrderOperation } from '../entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
@@ -645,12 +645,17 @@ export class ProductionEntryService {
 
     await this.assertNoDuplicate(companyId, dto.departmentId, dto.entryDate, dto.shiftId, resolved.machineNo, dto.itemId);
 
-    // Raw Material Source Warehouse — where ACTIVE BOM raw materials are deducted
-    // when the entry is posted to inventory (optional; improves backward compatibility).
-    const rawMaterialWarehouseId = dto.rawMaterialWarehouseId ?? null;
-    if (rawMaterialWarehouseId) {
-      await this.validateRawMaterialWarehouse(rawMaterialWarehouseId, companyId);
+    // Raw Material Source Warehouse — where the exact Item Master production IN
+    // items are deducted when the entry posts to inventory. TASK #37: resolved
+    // server-side (explicit value validated, else the company's ACTIVE
+    // RAW_MATERIAL store, else its first ACTIVE warehouse) — never hardcoded.
+    const requestedSource = dto.rawMaterialWarehouseId ?? null;
+    if (requestedSource) {
+      await this.validateRawMaterialWarehouse(requestedSource, companyId);
     }
+    const sourceStoreId = resolved.shouldPostInventory
+      ? await this.resolveRawMaterialSourceStore(companyId, requestedSource)
+      : null;
 
     const entry = this.entryRepo.create({
       companyId,
@@ -684,7 +689,7 @@ export class ProductionEntryService {
       downtimeReasonText: dto.downtimeReason ?? null,
       scrapQuantity: dto.scrapQuantity,
       remarks: dto.remarks ?? null,
-      rawMaterialWarehouseId,
+      rawMaterialWarehouseId: sourceStoreId,
       createdBy: userId ?? null,
       updatedBy: userId ?? null,
     });
@@ -692,11 +697,14 @@ export class ProductionEntryService {
     let saved: ProductionEntry;
     if (resolved.shouldPostInventory) {
       // Atomic: entry creation + inventory posting in one transaction. If the
-      // posting fails (insufficient stock, invalid warehouse, etc.) the entry
-      // row is rolled back too — no orphaned/unposted production records.
+      // posting fails (insufficient stock, unknown source store, etc.) the entry
+      // row is rolled back too — no orphaned/unposted production records. Every
+      // production item (max 2, independent) posts its own OUT/IN pair.
       saved = await this.entryRepo.manager.transaction(async (manager) => {
         const saved = await manager.getRepository(ProductionEntry).save(entry);
-        await this.postInventoryAndConsume(manager, companyId, saved, resolved.warehouseId!, rawMaterialWarehouseId, userId);
+        await this.postInventoryAndConsume(
+          manager, companyId, saved, resolved.warehouseId!, sourceStoreId, dto.items ?? [], userId,
+        );
         return saved;
       });
     } else {
@@ -783,7 +791,7 @@ export class ProductionEntryService {
     });
 
     const saved = await this.entryRepo.save(entry);
-    await this.persistChildren(saved.id, companyId, dto.items ?? [], dto.downtimes ?? [], userId, true);
+    await this.persistChildren(saved.id, companyId, dto.items, dto.downtimes, userId, true);
     return saved;
   }
 
@@ -798,8 +806,12 @@ export class ProductionEntryService {
     replace = false,
   ): Promise<void> {
     if (replace) {
-      await this.entryItemRepo.delete({ productionEntryId: entryId });
-      await this.entryDowntimeRepo.delete({ productionEntryId: entryId });
+      // PATCH semantics (TASK #39 round-trip): only replace a child collection
+      // when the request actually carries it. Omitting the array must never wipe
+      // persisted child rows — this is what made a remarks-only PATCH silently
+      // delete every production item + downtime line of an entry.
+      if (items !== undefined) await this.entryItemRepo.delete({ productionEntryId: entryId });
+      if (downtimes !== undefined) await this.entryDowntimeRepo.delete({ productionEntryId: entryId });
     }
     if (items && items.length) {
       const rows = items.map((it, idx) =>
@@ -1209,114 +1221,192 @@ export class ProductionEntryService {
    *  2. then post the finished-good production receipt exactly as before.
    * Runs inside a DB transaction so either all inventory changes commit or none do.
    */
+  /**
+   * The set of production items no longer than 2 (TASK #37-F), each an
+   * independent OUTPUT: its own Item Master production IN consumed OUT and its
+   * own good output received IN. The entry's own item is always included
+   * (it is the first/primary production item); repeatable child lines are the
+   * additional items, de-duplicated by item id (lines are authoritative).
+   */
+  private buildProductionOutputs(
+    entry: ProductionEntry,
+    lines?: Array<{
+      itemId?: string | null;
+      uomId?: string | null;
+      actualQuantity?: number;
+      scrapQuantity?: number;
+    }>,
+  ): Array<{ itemId: string; uomId: string; actualQuantity: number; scrapQuantity: number }> {
+    const outputs = new Map<string, { itemId: string; uomId: string; actualQuantity: number; scrapQuantity: number }>();
+    for (const line of lines ?? []) {
+      if (!line.itemId) continue;
+      if (!outputs.has(line.itemId)) {
+        // The entry's own item is the primary/first production item: its
+        // quantity is the authoritative ENTRY-level good output + rejection
+        // (the UI row for the main item mirrors the entry record). Child rows
+        // with any other item id carry their own quantities.
+        const isMain = line.itemId === entry.itemId;
+        outputs.set(line.itemId, {
+          itemId: line.itemId,
+          uomId: line.uomId ?? entry.uomId,
+          actualQuantity: isMain ? Number(entry.actualQuantity) : Number(line.actualQuantity ?? 0),
+          scrapQuantity: isMain ? Number(entry.scrapQuantity) : Number(line.scrapQuantity ?? 0),
+        });
+      }
+    }
+    if (!outputs.has(entry.itemId)) {
+      outputs.set(entry.itemId, {
+        itemId: entry.itemId,
+        uomId: entry.uomId,
+        actualQuantity: Number(entry.actualQuantity),
+        scrapQuantity: Number(entry.scrapQuantity),
+      });
+    }
+    const result = [...outputs.values()];
+    if (result.length > 2) {
+      throw new BadRequestException('A maximum of 2 production items per entry is allowed');
+    }
+    return result;
+  }
+
   private async postInventoryAndConsume(
     manager: EntityManager,
     companyId: string,
     entry: ProductionEntry,
     warehouseId: string,
-    rawMaterialWarehouseId: string | null,
+    sourceStoreId: string | null,
+    lines: Array<{
+      itemId?: string | null;
+      uomId?: string | null;
+      actualQuantity?: number;
+      scrapQuantity?: number;
+    }>,
     userId?: string,
   ): Promise<void> {
-    // TASK #35: idempotency guard — inventory movement happens EXACTLY ONCE per
+    // TASK #35/#37: idempotency guard — inventory movement happens EXACTLY ONCE per
     // production entry. When the receipt ledger id is already recorded this entry
     // has already posted its consumption + output; skipping prevents duplicate
     // stock ledger transactions if the posting path is ever invoked again.
     if (entry.inventoryReferenceId) {
       return;
     }
-    if (rawMaterialWarehouseId) {
-      await this.consumeRawMaterials(manager, companyId, entry, rawMaterialWarehouseId, userId);
-    }
 
-    const receipt = await this.stockLedgerService.create({
-      companyId,
-      transactionType: 'PRODUCTION_RECEIPT',
-      itemId: entry.itemId,
-      warehouseId,
-      quantity: Number(entry.actualQuantity),
-      uomId: entry.uomId,
-      direction: 'IN',
-      referenceType: ENTRY_REFERENCE_TYPE,
-      referenceId: entry.id,
-      notes: `Daily production receipt (${entry.machineNo}, ${entry.entryDate})`,
-      createdBy: userId ?? undefined,
-    }, manager);
-    // Write the ledger reference back onto the entry (audit + double-posting guard)
-    entry.inventoryReferenceId = receipt.id;
-    await manager.getRepository(ProductionEntry).update(entry.id, { inventoryReferenceId: receipt.id });
-    await this.inventoryBalanceService.updateBalance(
-      companyId, entry.itemId, warehouseId, null, null, entry.uomId, Number(entry.actualQuantity), 'IN', manager,
-    );
+    // Each production item posts independently (input OUT → output IN).
+    const outputs = this.buildProductionOutputs(entry, lines);
 
-    if (Number(entry.scrapQuantity) > 0) {
-      await this.stockLedgerService.create({
+    for (const output of outputs) {
+      await this.consumeForProductionItem(manager, companyId, output, entry, sourceStoreId, userId);
+
+      const receipt = await this.stockLedgerService.create({
         companyId,
-        transactionType: 'PRODUCTION_SCRAP',
-        itemId: entry.itemId,
+        transactionType: 'PRODUCTION_RECEIPT',
+        itemId: output.itemId,
         warehouseId,
-        quantity: Number(entry.scrapQuantity),
-        uomId: entry.uomId,
-        direction: 'OUT',
+        quantity: output.actualQuantity,
+        uomId: output.uomId,
+        direction: 'IN',
         referenceType: ENTRY_REFERENCE_TYPE,
         referenceId: entry.id,
-        notes: `Scrap/rejection recorded for daily production entry (audit trail; no balance impact)`,
+        notes: `Daily production receipt (${entry.machineNo}, ${entry.entryDate})`,
         createdBy: userId ?? undefined,
       }, manager);
+      if (!entry.inventoryReferenceId) {
+        // Write the ledger reference back onto the entry (audit + double-posting guard)
+        entry.inventoryReferenceId = receipt.id;
+        await manager.getRepository(ProductionEntry).update(entry.id, { inventoryReferenceId: receipt.id });
+      }
+      await this.inventoryBalanceService.updateBalance(
+        companyId, output.itemId, warehouseId, null, null, output.uomId, output.actualQuantity, 'IN', manager,
+      );
+
+      if (output.scrapQuantity > 0) {
+        await this.stockLedgerService.create({
+          companyId,
+          transactionType: 'PRODUCTION_SCRAP',
+          itemId: output.itemId,
+          warehouseId,
+          quantity: output.scrapQuantity,
+          uomId: output.uomId,
+          direction: 'OUT',
+          referenceType: ENTRY_REFERENCE_TYPE,
+          referenceId: entry.id,
+          notes: `Scrap/rejection recorded for daily production entry (audit trail; no balance impact)`,
+          createdBy: userId ?? undefined,
+        }, manager);
+      }
     }
   }
 
-  // ─── Automatic BOM raw-material consumption ───────────────────────────────────
+  // ─── Automatic raw-material consumption per production item ──────────────────
 
   /**
-   * Finds the production item's ACTIVE BOM (respecting effective dates) and
-   * deducts the computed requirement of every raw-material line from the Raw
-   * Material Source Warehouse, in one transaction. Validates ALL component
-   * stock before any deduction, so an insufficient component rejects the whole
-   * posting with no partial consumption.
+   * Deducts the raw materials required to produce ONE output item from the Raw
+   * Material Source Warehouse, in the same transaction as the output receipt.
+   * The exact IN Item (Item Master productionInItemId) is the authoritative
+   * consumed material for the output; ACTIVE BOM lines are consumed in addition,
+   * and the IN Item is auto-added 1:1 per production unit when the BOM does not
+   * already deduct it. Validates ALL component stock before any deduction, so an
+   * insufficient component rejects the whole posting with no partial deduction.
+   * The consumption basis is the total output (good + scrap) — raw material is
+   * consumed for the rejected output too.
    */
-  private async consumeRawMaterials(
+  private async consumeForProductionItem(
     manager: EntityManager,
     companyId: string,
-    entry: ProductionEntry,
-    rawMaterialWarehouseId: string,
+    output: { itemId: string; uomId: string; actualQuantity: number; scrapQuantity: number },
+    entryRef: { id: string; machineNo: string; entryDate: string },
+    sourceStoreId: string | null,
     userId?: string,
   ): Promise<void> {
-    // TASK #34B: the exact IN Item (Item Master productionInItemId) is the
-    // authoritative consumed material for the current production item.
-    const product = await this.itemRepo.findOne({ where: { id: entry.itemId } });
+    const product = await this.itemRepo.findOne({ where: { id: output.itemId } });
     const authoritativeInItemId = product?.productionInItemId ?? null;
 
-    const bom = await this.findActiveBom(companyId, entry.itemId);
+    const bom = await this.findActiveBom(companyId, output.itemId);
     if (!bom && !authoritativeInItemId) {
-      throw new BadRequestException('No ACTIVE BOM exists for this production item.');
+      // No input defined for this output — nothing to consume. An explicitly
+      // assigned source store signals intent to consume, so its absence of any
+      // mapped input is a configuration error; otherwise this is a valid
+      // receipt-only production item.
+      if (sourceStoreId) {
+        throw new BadRequestException('No ACTIVE BOM exists for this production item and no Item Master production IN item is mapped.');
+      }
+      return;
     }
+    if (!sourceStoreId) {
+      throw new BadRequestException(
+        'Raw Material Source Warehouse could not be determined for this company. Assign an ACTIVE RAW MATERIAL warehouse or pass rawMaterialWarehouseId.',
+      );
+    }
+
     const lines = bom ? await this.bomLineRepo.find({ where: { bomId: bom.id }, order: { lineNumber: 'ASC' } }) : [];
-    if (!lines.length && !authoritativeInItemId) return;
+    // Production basis includes scrap: both the good output and the rejected
+    // output consumed raw material.
+    const productionQty = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
 
     const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number }> = [];
     for (const line of lines) {
-      const required = await this.computeBomRequirement(companyId, entry, bom!, line);
+      const required = await this.computeBomRequirement(companyId, output, bom!, line, productionQty);
       const component = await this.itemRepo.findOne({ where: { id: line.itemId } });
       const uomCode = component?.baseUom?.code ?? (await this.uomRepo.findOne({ where: { id: line.uomId } }))?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
-        companyId, line.itemId, rawMaterialWarehouseId, undefined, undefined, manager,
+        companyId, line.itemId, sourceStoreId, undefined, undefined, manager,
       );
       requirements.push({ line, required, uomCode, available });
     }
 
-    // TASK #34B: guarantee the exact IN Item is consumed. When the ACTIVE BOM does
-    // not already deduct it, add a 1:1 per-unit requirement — the input material
-    // must always be subtracted from inventory for the production operation.
+    // The exact IN Item is always consumed. When the ACTIVE BOM does not already
+    // deduct it, add a 1:1 per-unit requirement (scrap-inclusive basis).
     if (authoritativeInItemId && !requirements.some((r) => r.line.itemId === authoritativeInItemId)) {
       const component = await this.itemRepo.findOne({ where: { id: authoritativeInItemId } });
-      const productBaseUomId = product?.baseUomId ?? entry.uomId;
-      const productionQty = Number(entry.actualQuantity);
-      const qtyInBase = entry.uomId === productBaseUomId ? productionQty : await this.convertQty(entry.uomId, productBaseUomId, productionQty);
+      const productBaseUomId = product?.baseUomId ?? output.uomId;
+      const qtyInBase = output.uomId === productBaseUomId
+        ? productionQty
+        : await this.convertQty(output.uomId, productBaseUomId, productionQty);
       const units = qtyInBase / Number(bom?.baseQuantity || 1);
-      const uomId = component?.baseUomId ?? entry.uomId;
+      const uomId = component?.baseUomId ?? output.uomId;
       const uomCode = component?.baseUom?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
-        companyId, authoritativeInItemId, rawMaterialWarehouseId, undefined, undefined, manager,
+        companyId, authoritativeInItemId, sourceStoreId, undefined, undefined, manager,
       );
       requirements.push({
         line: {
@@ -1347,17 +1437,17 @@ export class ProductionEntryService {
         companyId,
         transactionType: 'PRODUCTION_CONSUMPTION',
         itemId: r.line.itemId,
-        warehouseId: rawMaterialWarehouseId,
+        warehouseId: sourceStoreId,
         quantity: r.required,
         uomId: r.line.uomId,
         direction: 'OUT',
         referenceType: ENTRY_REFERENCE_TYPE,
-        referenceId: entry.id,
-        notes: `Automatic raw material consumption for production entry (${entry.machineNo}, ${entry.entryDate})`,
+        referenceId: entryRef.id,
+        notes: `Automatic raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate})`,
         createdBy: userId ?? undefined,
       }, manager);
       await this.inventoryBalanceService.updateBalance(
-        companyId, r.line.itemId, rawMaterialWarehouseId, null, null, r.line.uomId, r.required, 'OUT', manager,
+        companyId, r.line.itemId, sourceStoreId, null, null, r.line.uomId, r.required, 'OUT', manager,
       );
     }
   }
@@ -1374,15 +1464,23 @@ export class ProductionEntryService {
   }
 
   /**
-   * Correct BOM requirement for the entry's actual production quantity:
-   *   productionQty (entry UOM) → product base UOM → divide by BOM base quantity
+   * Correct BOM requirement for the output's total production quantity
+   * (good + scrap):
+   *   productionQty (output UOM) → product base UOM → divide by BOM base quantity
    *   → × line quantity → × (1 + scrapFactor) ÷ (yield%/100) → line UOM → item base UOM.
    */
-  private async computeBomRequirement(companyId: string, entry: ProductionEntry, bom: BillOfMaterials, line: BomLine): Promise<number> {
-    const product = await this.itemRepo.findOne({ where: { id: entry.itemId } });
-    const productBaseUomId = product?.baseUomId ?? entry.uomId;
-    const productionQty = Number(entry.actualQuantity);
-    const qtyInBase = entry.uomId === productBaseUomId ? productionQty : await this.convertQty(entry.uomId, productBaseUomId, productionQty);
+  private async computeBomRequirement(
+    companyId: string,
+    output: { itemId: string; uomId: string },
+    bom: BillOfMaterials,
+    line: BomLine,
+    productionQty: number,
+  ): Promise<number> {
+    const product = await this.itemRepo.findOne({ where: { id: output.itemId } });
+    const productBaseUomId = product?.baseUomId ?? output.uomId;
+    const qtyInBase = output.uomId === productBaseUomId
+      ? productionQty
+      : await this.convertQty(output.uomId, productBaseUomId, productionQty);
     const units = qtyInBase / Number(bom.baseQuantity || 1);
     let req = units * Number(line.quantity) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
     const component = await this.itemRepo.findOne({ where: { id: line.itemId } });
@@ -1405,6 +1503,27 @@ export class ProductionEntryService {
     const wh = await this.warehouseRepo.findOne({ where: { id: warehouseId, companyId } });
     if (!wh) throw new BadRequestException('Raw Material Source Warehouse not found for this company.');
     if (wh.status !== 'ACTIVE') throw new BadRequestException('Raw Material Source Warehouse is not ACTIVE.');
+  }
+
+  /**
+   * TASK #37-C: resolve the store where the Item Master production IN items are
+   * deducted from. An explicit value is validated and honored; otherwise the
+   * company's ACTIVE RAW_MATERIAL warehouse is used, falling back to its first
+   * ACTIVE warehouse. Never hardcoded, and independent of the production
+   * department (the input belongs to its own source store).
+   */
+  private async resolveRawMaterialSourceStore(companyId: string, explicitId: string | null): Promise<string | null> {
+    if (explicitId) {
+      await this.validateRawMaterialWarehouse(explicitId, companyId);
+      return explicitId;
+    }
+    let stores = await this.warehouseRepo.find({
+      where: { companyId, warehouseType: WarehouseType.RAW_MATERIAL, status: 'ACTIVE' } as any,
+    });
+    if (!stores?.length) {
+      stores = await this.warehouseRepo.find({ where: { companyId, status: 'ACTIVE' } as any });
+    }
+    return stores?.[0]?.id ?? null;
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────

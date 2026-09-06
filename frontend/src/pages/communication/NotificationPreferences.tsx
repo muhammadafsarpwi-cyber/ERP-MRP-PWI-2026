@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { Card, Table, Switch, App, Space, Tag, Typography, Button } from 'antd';
 import { BellOutlined, ReloadOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
@@ -12,7 +12,7 @@ const NotificationPreferencesPage: React.FC = () => {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       // Use existing preferences from DB if any, else create defaults
@@ -25,9 +25,9 @@ const NotificationPreferencesPage: React.FC = () => {
       setRows(merged);
     } catch { message.error('Unable to load preferences'); }
     setLoading(false);
-  };
+  }, [message]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const toggle = async (module: string, field: string, value: boolean) => {
     setRows(prev => prev.map(r => r.module === module ? { ...r, [field]: value } : r));

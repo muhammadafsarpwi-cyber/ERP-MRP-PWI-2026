@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Descriptions, Tag, Button, Space, Spin, App, Typography, Divider, Popconfirm, Row, Col, Table, Alert, Skeleton,
 } from 'antd';
-import { ArrowLeftOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, formatDimension, toNum } from '../../../utils/numberFormat';
@@ -79,17 +79,19 @@ interface DetailData {
   downtime?: { plannedHours: number } | null;
   downtimes?: DowntimeDetail[];
   items?: ProductionItemDetail[];
+  warehouseId?: string | null;
+  rawMaterialWarehouseId?: string | null;
   route?: {
     routingCode?: string; name?: string;
     operations?: Array<{ sequenceNo: number; operationName?: string; department?: { name?: string } | null }>;
   } | null;
 }
 
-/** Short, reusable lettered section header (hierarchical A–I view). */
+/** Short, reusable hierarchical section header (lettered one-screen view). */
 const Section: React.FC<{ letter: string; title: string; children: React.ReactNode }> = ({ letter, title, children }) => (
   <Card
     size="small"
-    style={{ marginTop: 16 }}
+    style={{ marginTop: 12 }}
     title={
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span
@@ -109,6 +111,25 @@ const Section: React.FC<{ letter: string; title: string; children: React.ReactNo
   </Card>
 );
 
+/** Compact KPI strip cell (Part A redesign — one-screen ERP dashboard strip). */
+const KpiCell: React.FC<{ label: string; value: React.ReactNode; sub?: string; accent?: 'warn' | 'ok' }> = ({ label, value, sub, accent }) => (
+  <Col xs={12} sm={8} md={6} lg={3}>
+    <div
+      style={{
+        background: accent === 'warn' ? 'var(--theme-warning-soft)' : 'var(--theme-surface-alt)',
+        border: '1px solid var(--theme-border)',
+        borderRadius: 6, padding: '6px 10px', height: '100%',
+      }}
+    >
+      <Text type="secondary" style={{ fontSize: 11, display: 'block', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+        {label}
+      </Text>
+      <div style={{ fontSize: 17, fontWeight: 700, lineHeight: '22px' }}>{value}</div>
+      {sub ? <Text type="secondary" style={{ fontSize: 11 }}>{sub}</Text> : null}
+    </div>
+  </Col>
+);
+
 const EntryDetail: React.FC = () => {
   const { message } = App.useApp();
   const { id } = useParams<{ id: string }>();
@@ -118,6 +139,11 @@ const EntryDetail: React.FC = () => {
   const [balances, setBalances] = useState<StockBalance[]>([]);
   const [balancesLoading, setBalancesLoading] = useState(false);
   const [balancesError, setBalancesError] = useState<string | null>(null);
+  // TASK #39 Part C: the ENTRY's own output-item balances are loaded above; the
+  // input material availability additionally queries the exact source store.
+  const [inputBalances, setInputBalances] = useState<StockBalance[]>([]);
+  const [inputLoading, setInputLoading] = useState(false);
+  const [inputError, setInputError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -155,6 +181,29 @@ const EntryDetail: React.FC = () => {
     return () => { cancelled = true; };
   }, [entry?.itemId]);
 
+  // TASK #39 Part C: raw-material availability at the EXACT source store.
+  // The resource consumed by the current stage is the Item Master `productionInItemId`
+  // and its balance must be read from the entry's `rawMaterialWarehouseId` store —
+  // never fabricated and never guessed from the produced item's balance.
+  const productionInItemId = entry?.item?.productionInItem?.id ?? null;
+  useEffect(() => {
+    if (!entry?.itemId || !productionInItemId) return;
+    let cancelled = false;
+    setInputLoading(true);
+    setInputError(null);
+    void (async () => {
+      try {
+        const r = await apiService.get<{ data: StockBalance[] }>('/inventory/balances', { itemId: productionInItemId, limit: 100 });
+        if (!cancelled) setInputBalances(r.data || []);
+      } catch {
+        if (!cancelled) setInputError('Input material balances are unavailable (inventory.view permission required).');
+      } finally {
+        if (!cancelled) setInputLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [entry?.itemId, productionInItemId]);
+
   if (loading) return <Card><Spin style={{ width: '100%', marginTop: 80 }} /></Card>;
   if (!entry) return <Card>Entry not found.</Card>;
 
@@ -165,9 +214,14 @@ const EntryDetail: React.FC = () => {
   const running = toNum(entry.runningHours);
   const remaining = planned != null ? Math.max(0, planned - running - totalDowntime) : null;
   const wireSize = entry.item?.wireSizeMm != null ? `${formatDimension(entry.item.wireSizeMm)} mm` : '—';
+  const productionInItem = entry.item?.productionInItem ?? null;
+  const sourceStoreId = entry.rawMaterialWarehouseId ?? null;
+  const sourceStoreRow = inputBalances.find((b) => b.warehouse?.id === sourceStoreId) ?? null;
+  const sourceStoreAvail =
+    sourceStoreRow != null ? toNum(sourceStoreRow.available) : null;
 
   const sectionCtx = (
-    <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered>
+    <Descriptions column={3} size="small" bordered>
       <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
       <Descriptions.Item label="Division">{entry.division?.divisionCode} — {entry.division?.name}</Descriptions.Item>
       <Descriptions.Item label="Section">{entry.section?.name}</Descriptions.Item>
@@ -182,44 +236,25 @@ const EntryDetail: React.FC = () => {
     </Descriptions>
   );
 
-  const sectionItem = (
-    <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered>
+  const sectionSummary = (
+    <Descriptions column={3} size="small" bordered>
       <Descriptions.Item label="Item" span={2}>
         <Text strong>{entry.item?.itemCode}</Text> — {entry.item?.name}
       </Descriptions.Item>
-      <Descriptions.Item label="Wire Size">
-        <Text strong>{wireSize}</Text>
+      <Descriptions.Item label="Wire Size"><Text strong>{wireSize}</Text></Descriptions.Item>
+      {/* TASK #39: explicit "Not configured" state instead of a bare dash. */}
+      <Descriptions.Item label="Input Material" span={2}>
+        {productionInItem ? (
+          <span style={{ color: 'var(--theme-primary)' }}>
+            <Text strong>{productionInItem.itemCode}</Text> — {productionInItem.name}
+          </span>
+        ) : (
+          <Text type="secondary">Input Material: Not configured</Text>
+        )}
       </Descriptions.Item>
+      <Descriptions.Item label="Target Production">{formatNumber(entry.targetQuantity, 3)}</Descriptions.Item>
       <Descriptions.Item label="UOM">{entry.uom?.code}{entry.uom?.symbol ? ` (${entry.uom.symbol})` : ''}</Descriptions.Item>
       <Descriptions.Item label="Base UOM">{entry.item?.baseUom?.code ?? '—'}</Descriptions.Item>
-      {/* TASK #34B/#34C: the current item IS the output product; show its exact input
-          material together with useful Item Master details (type, wire size). */}
-      <Descriptions.Item label="Input Material" span={2}>
-        {(() => {
-          const productionInput = entry.item?.productionInItem ?? null;
-          if (!productionInput) {
-            return <Text type="secondary">— (raw material / root item)</Text>;
-          }
-          const typeLabel =
-            (productionInput.itemType &&
-              ITEM_TYPES.find((t) => t.value === productionInput.itemType)?.label) ||
-            productionInput.itemType ||
-            '';
-          return (
-            <span style={{ color: 'var(--theme-primary)' }}>
-              <Text strong>{productionInput.itemCode}</Text> — {productionInput.name}
-              {typeLabel ? ` · ${typeLabel}` : ''}
-              {productionInput.wireSizeMm != null ? ` · Wire ${formatDimension(productionInput.wireSizeMm)} mm` : ''}
-            </span>
-          );
-        })()}
-      </Descriptions.Item>
-    </Descriptions>
-  );
-
-  const sectionFigures = (
-    <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered>
-      <Descriptions.Item label="Target Production">{formatNumber(entry.targetQuantity, 3)}</Descriptions.Item>
       <Descriptions.Item label="Actual Good Production"><Text strong>{formatNumber(entry.actualQuantity, 3)}</Text></Descriptions.Item>
       <Descriptions.Item label="Rejection / Scrap">{formatNumber(entry.scrapQuantity, 3)}</Descriptions.Item>
       <Descriptions.Item label="Running Hours">{formatNumber(running, 2)}h</Descriptions.Item>
@@ -232,6 +267,133 @@ const EntryDetail: React.FC = () => {
       <Descriptions.Item label="Achievement %"><KpiPercentage value={ach} /></Descriptions.Item>
       <Descriptions.Item label="Efficiency %"><KpiPercentage value={eff} /></Descriptions.Item>
     </Descriptions>
+  );
+
+  const inputTypeLabel =
+    productionInItem?.itemType && ITEM_TYPES.find((t) => t.value === productionInItem.itemType)?.label
+      ? ITEM_TYPES.find((t) => t.value === productionInItem.itemType)!.label
+      : productionInItem?.itemType ?? '';
+
+  const sectionInputMaterial = (
+    <div>
+      {!productionInItem ? (
+        <Text type="secondary">Input Material: Not configured.</Text>
+      ) : (
+        <div>
+          <Descriptions column={3} size="small" bordered>
+            <Descriptions.Item label="Input Item" span={2}>
+              <Text strong>{productionInItem.itemCode}</Text> — {productionInItem.name}
+            </Descriptions.Item>
+            <Descriptions.Item label="Type">{inputTypeLabel || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Wire Size">
+              {productionInItem.wireSizeMm != null ? `${formatDimension(productionInItem.wireSizeMm)} mm` : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item
+              label={sourceStoreId ? 'Available at Source Store' : 'Available'}
+              contentStyle={sourceStoreAvail === 0 ? { background: 'var(--theme-warning-soft)' } : undefined}
+            >
+              {inputLoading ? <Skeleton active paragraph={{ rows: 1 }} /> : inputError ? (
+                <Alert type="warning" showIcon message={inputError} />
+              ) : sourceStoreAvail != null ? (
+                <Text strong style={{ color: sourceStoreAvail > 0 ? 'var(--theme-success)' : undefined }}>
+                  {formatNumber(sourceStoreAvail, 3)}
+                </Text>
+              ) : (
+                <Text type="secondary">No balance row</Text>
+              )}
+            </Descriptions.Item>
+          </Descriptions>
+          {sourceStoreId && sourceStoreRow?.warehouse?.name ? (
+            <div style={{ marginTop: 6 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Source store: <Text strong>{sourceStoreRow.warehouse.name}</Text> · on-hand{' '}
+                {formatNumber(toNum(sourceStoreRow.onHand), 3)} · reserved {formatNumber(toNum(sourceStoreRow.reserved), 3)}
+              </Text>
+            </div>
+          ) : null}
+          <div style={{ marginTop: 6 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              The consumption basis for this stage is Good output + Scrap, deducted 1:1 from this store by the backend.
+            </Text>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Material flow (Part A redesign): the raw material consumed in this stage →
+  // the current produced item (→ any extra output lines).
+  const flowUnits = entry.uom?.code ?? '';
+  const sectionMaterialFlow = (
+    <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {productionInItem && (
+          <React.Fragment>
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 8px', background: 'var(--theme-surface-alt)', borderRadius: 4,
+                border: '1px solid var(--theme-border)',
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-text-muted)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
+                IN
+              </span>
+              <Text strong style={{ fontSize: 12 }}>{productionInItem.itemCode}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>— {productionInItem.name}</Text>
+              {productionInItem.wireSizeMm != null && (
+                <Text type="secondary" style={{ fontSize: 12 }}>· {formatDimension(productionInItem.wireSizeMm)} mm</Text>
+              )}
+            </div>
+            <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 14, lineHeight: '16px' }}>
+              ▾ consumed {formatNumber(toNum(entry.actualQuantity) + toNum(entry.scrapQuantity), 3)} {flowUnits} (good + scrap)
+            </div>
+          </React.Fragment>
+        )}
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '5px 8px', background: 'var(--theme-success-soft)', borderRadius: 4,
+            border: '1px solid var(--theme-success)',
+          }}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-success)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
+            OUT
+          </span>
+          <Text strong style={{ fontSize: 12 }}>{entry.item?.itemCode}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>— {entry.item?.name}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>· {wireSize}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            → {formatNumber(toNum(entry.actualQuantity), 3)} {flowUnits}{toNum(entry.scrapQuantity) > 0 ? ` + scrap ${formatNumber(toNum(entry.scrapQuantity), 3)}` : ''}
+          </Text>
+        </div>
+        {(entry.items ?? []).filter((l) => l.item && l.itemId !== entry.itemId).map((line) => (
+          <React.Fragment key={line.id}>
+            <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 14, lineHeight: '16px' }}>
+              <ArrowRightOutlined /> secondary output
+            </div>
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 8px', background: 'var(--theme-surface-alt)', borderRadius: 4,
+                border: '1px solid var(--theme-border)',
+              }}
+            >
+              <Text strong style={{ fontSize: 12 }}>{line.item?.itemCode}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>— {line.item?.name}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                → {formatNumber(toNum(line.actualQuantity), 3)} {line.uom?.code ?? ''}
+              </Text>
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+      {entry.uom?.code && entry.item?.baseUom?.code && entry.uom.code !== entry.item.baseUom.code && (
+        <div style={{ marginTop: 6 }}>
+          <Tag color="blue">UOM conversion: entry UOM {entry.uom.code} → base {entry.item.baseUom.code}</Tag>
+        </div>
+      )}
+    </div>
   );
 
   const sectionDowntime = (
@@ -323,25 +485,45 @@ const EntryDetail: React.FC = () => {
 
   return (
     <div>
-      <Space style={{ marginBottom: 12 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
-        <Title level={4} style={{ margin: 0 }}>Production Entry — {dayjs(entry.entryDate).format('YYYY-MM-DD')}</Title>
+      {/* ── Global header: identity + machine/department + date + actions ── */}
+      <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }} align="start">
+        <Space>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
+          <Title level={4} style={{ margin: 0 }}>
+            Production Entry — {dayjs(entry.entryDate).format('DD-MMM-YYYY')}
+          </Title>
+        </Space>
+        <Space>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {entry.department?.name} · {entry.machineNo} · {dayjs(entry.entryDate).format('YYYY-MM-DD')}
+          </Text>
+          <Button icon={<EditOutlined />} onClick={() => navigate(`/production/entries/${id}/edit`)}>
+            Edit
+          </Button>
+          <PopconfirmDelete onDeleted={() => navigate('/production/entries')} id={id!} />
+        </Space>
       </Space>
+
+      {/* ── Compact KPI strip ── */}
+      <Row gutter={[8, 8]} style={{ marginBottom: 4 }}>
+        <KpiCell label="Target" value={formatNumber(entry.targetQuantity, 3)} sub={entry.uom?.code} />
+        <KpiCell label="Actual Good" value={formatNumber(entry.actualQuantity, 3)} sub={entry.uom?.code} />
+        <KpiCell label="Scrap" value={formatNumber(entry.scrapQuantity, 3)} sub={entry.uom?.code} accent={toNum(entry.scrapQuantity) > 0 ? 'warn' : undefined} />
+        <KpiCell label="Achievement" value={<KpiPercentage value={ach} fontSize={16} fontWeight={700} />} sub="% of target" />
+        <KpiCell label="Efficiency" value={<KpiPercentage value={eff} fontSize={16} fontWeight={700} />} sub="% of shift" />
+        <KpiCell label="Running" value={`${formatNumber(running, 2)}h`} sub={planned != null ? `of ${formatNumber(planned, 2)}h` : undefined} />
+        <KpiCell label="Downtime" value={`${formatNumber(totalDowntime, 2)}h`} sub={remaining != null ? `remaining ${formatNumber(remaining, 2)}h` : undefined} accent={totalDowntime > 0 ? 'warn' : undefined} />
+      </Row>
 
       <Row gutter={16}>
         <Col xs={24} lg={16}>
           <Section letter="A" title="Production Context">{sectionCtx}</Section>
 
-          <Row gutter={16}>
-            <Col xs={24} md={12}>
-              <Section letter="B" title="Item & Wire Size">{sectionItem}</Section>
-            </Col>
-            <Col xs={24} md={12}>
-              <Section letter="C" title="Production Figures">{sectionFigures}</Section>
-            </Col>
-          </Row>
+          <Section letter="B" title="Production Summary">{sectionSummary}</Section>
 
-          <Section letter="D" title="Downtime Breakdown">{sectionDowntime}</Section>
+          <Section letter="C" title="Input Material & Raw Material Availability">{sectionInputMaterial}</Section>
+
+          <Section letter="D" title="Material Flow">{sectionMaterialFlow}</Section>
 
           {entry.items && entry.items.length > 0 && (
             <Section letter="E" title="Production Output Lines">
@@ -366,9 +548,9 @@ const EntryDetail: React.FC = () => {
             </Section>
           )}
 
-          <Section letter="F" title="Production Route">{sectionRoute}</Section>
+          <Section letter="F" title="Downtime Breakdown">{sectionDowntime}</Section>
 
-          <Section letter="G" title="Stock & Posting">{sectionStock}</Section>
+          <Section letter="G" title="Production Route">{sectionRoute}</Section>
 
           <Section letter="H" title="Linkages">
             <Descriptions column={2} size="small" bordered>
@@ -386,7 +568,7 @@ const EntryDetail: React.FC = () => {
           </Section>
 
           <Section letter="I" title="Remarks & Entry Metadata">
-            <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered>
+            <Descriptions column={2} size="small" bordered>
               <Descriptions.Item label="Remarks" span={2}>{entry.remarks ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Created By">{entry.createdByUser?.fullName ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
@@ -395,8 +577,8 @@ const EntryDetail: React.FC = () => {
         </Col>
 
         <Col xs={24} lg={8}>
-          <Card size="small">
-            <div style={{ textAlign: 'center', padding: '12px 0' }}>
+          <Card size="small" style={{ marginTop: 12 }}>
+            <div style={{ textAlign: 'center', padding: '4px 0 12px' }}>
               <Text type="secondary">Achievement vs Target</Text>
               <div>
                 <KpiPercentage value={ach} fontSize={40} fontWeight={700} />
@@ -413,6 +595,9 @@ const EntryDetail: React.FC = () => {
               </div>
             </div>
           </Card>
+
+          <Section letter="J" title="Inventory Posting Summary">{sectionStock}</Section>
+
           <Space direction="vertical" style={{ width: '100%', marginTop: 16 }}>
             <Button type="primary" icon={<EditOutlined />} block onClick={() => navigate(`/production/entries/${id}/edit`)}>
               Edit Entry

@@ -72,7 +72,7 @@ const StockTransferManagement: React.FC = () => {
     }
   }, [search, filterStatus, pageSize, message]);
 
-  const fetchDropdowns = async () => {
+  const fetchDropdowns = useCallback(async () => {
     try {
       const [itemRes, warehouseRes] = await Promise.all([
         apiService.get<{ data: DropdownOption[] }>('/master-data/items', { limit: 200 }),
@@ -83,11 +83,11 @@ const StockTransferManagement: React.FC = () => {
     } catch (error) {
       message.error('Failed to load dropdown data');
     }
-  };
+  }, [message]);
 
   useEffect(() => {
     fetchDropdowns();
-  }, []);
+  }, [fetchDropdowns]);
 
   useEffect(() => {
     fetchTransfers(page);

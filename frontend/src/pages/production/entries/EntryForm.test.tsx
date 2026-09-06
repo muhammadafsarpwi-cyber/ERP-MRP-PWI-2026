@@ -2830,3 +2830,127 @@ describe('TASK #35 — Item Master IN/OUT mapping authoritative for Production E
   });
 });
 
+// TASK #37 — REAL production inventory posting (UI side). The Raw Material
+// requirement's consumption basis is GOOD output + SCRAP (actual + rejection),
+// exactly like the backend consumeForProductionItem — the demo chain is
+// RM-WIRE-001 (copper rod) → FLAT-WIRE-001: "100 KG in, 48 KG good + 2 KG scrap,
+// 50 KG consumed". With no ACTIVE BOM the Item Master productionInItemId drives
+// the 1:1 requirement. The company's first ACTIVE RAW_MATERIAL warehouse is
+// auto-selected as the source store and shown in the flow.
+describe('TASK #37 — scrap-inclusive raw consumption + RAW_MATERIAL source store', () => {
+  const RM_ID = 'rm-wire-001';
+  const FLAT_ID = 'flat-wire-001';
+  const RM_STORE = { id: 'rw-store-001', warehouseCode: 'RM-STORE', name: 'Raw Material Store', warehouseType: 'RAW_MATERIAL' };
+
+  const buildMock37 = (opts: { stores: boolean; availableForRm?: number }) => {
+    const flat = {
+      id: FLAT_ID, itemCode: 'FLAT-WIRE-001', name: 'Flat Wire 2.0x1.2', wireSizeMm: 2,
+      baseUomId: 'uom-m', baseUom: { code: 'KG', symbol: 'kg' }, itemType: 'FINISHED_GOOD', status: 'ACTIVE',
+      productionInItemId: RM_ID,
+      productionInItem: { id: RM_ID, itemCode: 'RM-WIRE-001', name: '1.20mm Wire', baseUomId: 'uom-m', baseUom: { code: 'KG', symbol: 'kg' } },
+      productionOutItemId: FLAT_ID,
+      productionOutItem: { id: FLAT_ID, itemCode: 'FLAT-WIRE-001', name: 'Flat Wire 2.0x1.2' },
+    };
+    const rm = {
+      id: RM_ID, itemCode: 'RM-WIRE-001', name: '1.20mm Wire', wireSizeMm: 1.2,
+      baseUomId: 'uom-m', baseUom: { code: 'KG', symbol: 'kg' }, department: { name: 'Wire Store' },
+      departmentName: 'Wire Store', itemType: 'RAW_MATERIAL', status: 'ACTIVE',
+    };
+    apiMock.get.mockImplementation(async (url: any, params?: any) => {
+      const u = String(url);
+      if (u === '/master-data/items') return { data: [flat, rm, itemA] as any };
+      const single = u.match(/^\/master-data\/items\/(.+)$/);
+      if (single) {
+        const id = decodeURIComponent(single[1]);
+        return { data: id === RM_ID ? rm : id === FLAT_ID ? flat : (id === 'item-A' ? itemA : null) } as any;
+      }
+      if (u === '/master-data/uom') return { data: [uomM] as any };
+      if (u === '/master-data/uom-conversions') return { data: [] as any };
+      if (u === '/production/shifts') return { data: [] as any };
+      if (u === '/production/downtime-reasons') return { data: [reasonMaint, reasonPower] as any };
+      if (u === '/divisions') return { data: [] as any };
+      if (u === '/sections') return { data: [] as any };
+      if (u === '/departments') return { data: [] as any };
+      if (u === '/production/orders') return { data: [] as any };
+      if (u === '/hr/employees') return { data: [] as any };
+      if (u === '/warehouses') return { data: opts.stores ? [RM_STORE] : [] as any };
+      if (u === '/production/machines') return { data: [] as any };
+      const routeMatch = u.match(/^\/production\/routings\/item\/([^/]+)\/route$/);
+      if (routeMatch) return Promise.reject(new Error('no routing'));
+      if (/^\/bom\/product\//.test(u)) return { data: null } as any;
+      if (u.startsWith('/inventory/balances/available')) {
+        const itemId = params?.itemId;
+        return { data: itemId === RM_ID ? (opts.availableForRm ?? 80) : 0 };
+      }
+      return { data: [] } as any;
+    });
+  };
+
+  const render37 = () => render(
+    <App>
+      <MemoryRouter initialEntries={['/production/entries/new']}>
+        <Routes><Route path="/production/entries/new" element={<EntryForm mode="create" />} /></Routes>
+      </MemoryRouter>
+    </App>,
+  );
+
+  const add37 = async () => {
+    await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
+    const row = await screen.findByTestId('production-item-row-1');
+    await pickItem(row, 'FLAT-WIRE-001 — Flat Wire 2.0x1.2');
+    return row;
+  };
+
+  const setQty37 = (row: HTMLElement, value: string) => {
+    const qty = within(row).getByLabelText('Item quantity');
+    fireEvent.change(qty, { target: { value } });
+    fireEvent.blur(qty);
+  };
+
+  const setTopScrap = (value: string) => {
+    const scrap = screen.getByLabelText(/rejection \/ scrap/i) as HTMLInputElement;
+    fireEvent.change(scrap, { target: { value } });
+    fireEvent.blur(scrap);
+  };
+
+  it('TASK37-F1: required consumption basis = GOOD output (48) + scrap (2) → 50 KG (demo)', async () => {
+    buildMock37({ stores: true });
+    render37();
+    const row = await add37();
+    setQty37(row, '48');
+    setTopScrap('2');
+    const req = await screen.findByTestId('material-flow-required-1');
+    await waitFor(() => expect(req.textContent).toContain(`${formatNumber(50, 3)} KG`));
+    // The requirement must never ignore the rejection.
+    await waitFor(() => expect(req.textContent).not.toContain(`${formatNumber(48, 3)} KG`));
+  });
+
+  it('TASK37-F2: ACTIVE RAW_MATERIAL store is auto-selected and shown as the Source Store', async () => {
+    buildMock37({ stores: true, availableForRm: 80 });
+    render37();
+    await add37();
+    // Reveal the inventory fields (postToInventory switch) — the preselected
+    // RAW_MATERIAL source store must already be the select's value.
+    const sw = await screen.findByRole('switch', { name: /post directly to inventory/i });
+    await userEvent.click(sw);
+    const sourceSelect = await screen.findByTestId('raw-source-store-select');
+    expect(sourceSelect.textContent).toContain('RM-STORE');
+    // Shown in the raw material flow card.
+    const storeLine = await screen.findByTestId('material-flow-store-1');
+    await waitFor(() => expect(storeLine.textContent).toContain('Raw Material Store'));
+    // Availability for RM-WIRE-001 is queried (80 available – 50 required = 30).
+    const status = await screen.findByTestId('material-flow-status-1');
+    await waitFor(() => expect(status.textContent).toContain('Balance'));
+    expect(status.textContent).toContain('AVAILABLE');
+    expect(screen.getByTestId('material-flow-available-1').textContent).toContain(`${formatNumber(80, 3)}`);
+  });
+
+  it('TASK37-F3: no RAW_MATERIAL store → no Source Store line (auto-select no-ops on empty)', async () => {
+    buildMock37({ stores: false, availableForRm: 80 });
+    render37();
+    await add37();
+    await screen.findByTestId('material-flow-rawitem-1');
+    await waitFor(() => expect(screen.queryByTestId('material-flow-store-1')).not.toBeInTheDocument());
+  });
+});
+

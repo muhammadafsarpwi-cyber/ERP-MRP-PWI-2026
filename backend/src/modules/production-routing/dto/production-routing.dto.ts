@@ -21,6 +21,11 @@ export class CreateRoutingOperationDto {
   @Min(1)
   sequenceNo: number;
 
+  @ApiPropertyOptional({ description: 'Reference to the Operation Master record' })
+  @IsUUID()
+  @IsOptional()
+  operationId?: string;
+
   @ApiProperty({ description: 'Operation code' })
   @IsString()
   @IsNotEmpty()
@@ -87,6 +92,11 @@ export class CreateRoutingOperationDto {
   @IsOptional()
   machineRequired?: boolean;
 
+  @ApiPropertyOptional({ description: 'Reference to the Machine Master record' })
+  @IsUUID()
+  @IsOptional()
+  machineId?: string;
+
   @ApiPropertyOptional({ description: 'Input item ID' })
   @IsUUID()
   @IsOptional()
@@ -143,6 +153,11 @@ export class UpdateRoutingOperationDto {
   @IsOptional()
   @Min(1)
   sequenceNo?: number;
+
+  @ApiPropertyOptional({ description: 'Reference to the Operation Master record' })
+  @IsUUID()
+  @IsOptional()
+  operationId?: string;
 
   @ApiPropertyOptional({ description: 'Operation code' })
   @IsString()
@@ -209,6 +224,11 @@ export class UpdateRoutingOperationDto {
   @IsBoolean()
   @IsOptional()
   machineRequired?: boolean;
+
+  @ApiPropertyOptional({ description: 'Reference to the Machine Master record' })
+  @IsUUID()
+  @IsOptional()
+  machineId?: string;
 
   @ApiPropertyOptional({ description: 'Input item ID' })
   @IsUUID()

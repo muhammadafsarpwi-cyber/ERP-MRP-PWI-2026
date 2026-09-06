@@ -11,6 +11,7 @@ import {
   IsBoolean,
   IsArray,
   ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -208,9 +209,10 @@ export class CreateProductionEntryDto {
   @IsUUID('loose')
   rawMaterialWarehouseId?: string | null;
 
-  /** Repeatable production item lines (multi-item shift). */
+  /** Repeatable production item lines (multi-item shift; max 2 independent production items). */
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(2, { message: 'A maximum of 2 production items per entry is allowed' })
   @ValidateNested({ each: true })
   @Type(() => ProductionEntryItemDto)
   items?: ProductionEntryItemDto[];
@@ -328,9 +330,10 @@ export class UpdateProductionEntryDto {
   @IsUUID('loose')
   rawMaterialWarehouseId?: string | null;
 
-  /** Repeatable production item lines (multi-item shift). */
+  /** Repeatable production item lines (multi-item shift; max 2 independent production items). */
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(2, { message: 'A maximum of 2 production items per entry is allowed' })
   @ValidateNested({ each: true })
   @Type(() => ProductionEntryItemDto)
   items?: ProductionEntryItemDto[];

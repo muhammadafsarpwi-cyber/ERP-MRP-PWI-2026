@@ -17,6 +17,7 @@ import { ProductionOrderOperation } from './production-order-operation.entity';
 import { Machine } from './machine.entity';
 import { Shift } from './shift.entity';
 import { DowntimeReason } from './downtime-reason.entity';
+import { Warehouse } from '../../organization/entities/warehouse.entity';
 
 @Entity('production_entries')
 @Index(['companyId'])
@@ -172,14 +173,20 @@ export class ProductionEntry extends BaseEntity {
   inventoryReferenceId: string | null;
 
   /**
-   * Raw Material Source Warehouse for automatic BOM consumption when the entry
-   * posts to inventory. Intentionally NOT a mapped column: the live
-   * `production_entries` table does not contain `raw_material_warehouse_id`
-   * (migration erp_00012 added it only to `production_orders`). The value is
-   * passed directly into the posting transaction instead of being persisted,
-   * so production-entry inventory posting works against the existing schema.
+   * Raw Material Source Warehouse for automatic raw-material consumption when
+   * the entry posts to inventory (make-to-stock). Server-resolved when the
+   * client does not supply one (TASK #37): the company's ACTIVE RAW_MATERIAL
+   * store, falling back to its first ACTIVE warehouse — never hardcoded, and
+   * independent of the production department (inputs belong to their own
+   * source store). Persisted (migration 1789500000000) so the audited source
+   * of the PRODUCTION_CONSUMPTION OUT movements is recoverable per entry.
    */
+  @Column({ name: 'raw_material_warehouse_id', type: 'uuid', nullable: true })
   rawMaterialWarehouseId: string | null;
+
+  @ManyToOne(() => Warehouse, { nullable: true })
+  @JoinColumn({ name: 'raw_material_warehouse_id' })
+  rawMaterialWarehouse: Warehouse | null;
 
   @Column({ type: 'text', nullable: true })
   remarks: string | null;

@@ -66,16 +66,16 @@ const RfqManagement: React.FC = () => {
     }
   }, [search, filterStatus, pageSize, message]);
 
-  const fetchSuppliers = async () => {
+  const fetchSuppliers = useCallback(async () => {
     try {
       const res = await apiService.get<{ data: DropdownOption[] }>('/procurement/suppliers', { limit: 200 });
       setSuppliers(res.data);
     } catch (error) {
       message.error('Failed to load suppliers');
     }
-  };
+  }, [message]);
 
-  useEffect(() => { fetchSuppliers(); }, []);
+  useEffect(() => { fetchSuppliers(); }, [fetchSuppliers]);
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 
   const handleCreate = () => {

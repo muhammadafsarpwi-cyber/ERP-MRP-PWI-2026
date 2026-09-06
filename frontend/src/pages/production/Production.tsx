@@ -7,6 +7,7 @@ import RoutingManagement from './RoutingManagement';
 import ProductionEntries from './ProductionEntries';
 import TargetManagement from './TargetManagement';
 import Traceability from './Traceability';
+import ProductionInventoryReport from './ProductionInventoryReport';
 import RawMaterialReceiving from './receiving/RawMaterialReceiving';
 import RawMaterialReturn from './returns/RawMaterialReturn';
 import ReceivingReport from './receiving/ReceivingReport';
@@ -27,6 +28,7 @@ const Production: React.FC = () => (
     <Route path="targets" element={<TargetManagement />} />
     <Route path="targets/:id" element={<TargetManagement />} />
     <Route path="traceability" element={<Traceability />} />
+    <Route path="inventory-report" element={<ProductionInventoryReport />} />
     <Route path="*" element={<Navigate to="/production/dashboard" replace />} />
   </Routes>
 );

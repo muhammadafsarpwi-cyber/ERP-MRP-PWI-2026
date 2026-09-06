@@ -456,12 +456,13 @@ export class DashboardService {
   async getItemOverview(companyId: string, filters?: DashboardFilters) {
     const qb = this.itemRepo
       .createQueryBuilder('i')
+      .leftJoinAndSelect('i.department', 'department')
       .select([
-        'i.id', 'i.item_code', 'i.name', 'i.item_type', 'i.status',
-        'i.is_manufacturable', 'i.is_purchasable', 'i.is_sellable',
-        'i.cost_price', 'i.selling_price',
-        'i.minimum_stock_level', 'i.maximum_stock_level', 'i.reorder_level',
-        'i.department_id',
+        'i.id', 'i.itemCode', 'i.name', 'i.itemType', 'i.status',
+        'i.isManufacturable', 'i.isPurchasable', 'i.isSellable',
+        'i.costPrice', 'i.sellingPrice',
+        'i.minimumStockLevel', 'i.maximumStockLevel', 'i.reorderLevel',
+        'i.departmentId', 'department.name',
       ])
       .where('i."company_id" = :companyId', { companyId });
 
@@ -515,6 +516,7 @@ export class DashboardService {
       id: item.id,
       itemCode: item.itemCode,
       name: item.name,
+      departmentName: (item.department as any)?.name ?? null,
       itemType: item.itemType,
       status: item.status,
       isManufacturable: item.isManufacturable,
@@ -849,7 +851,7 @@ export class DashboardService {
       .where('i."company_id" = :companyId', { companyId })
       .andWhere('i.status = :status', { status: 'ACTIVE' })
       .andWhere('i.is_manufacturable = true')
-      .select(['i.id', 'i.item_code', 'i.name'])
+      .select(['i.id', 'i.itemCode', 'i.name'])
       .getMany();
 
     const itemsWithRoutes = await this.entryRepo

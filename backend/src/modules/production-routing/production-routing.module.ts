@@ -13,6 +13,8 @@ import { BillOfMaterials } from '../bom/entities/bill-of-materials.entity';
 import { Division } from '../organization/entities/division.entity';
 import { Section } from '../organization/entities/section.entity';
 import { Department } from '../organization/entities/department.entity';
+import { Machine } from '../production/entities/machine.entity';
+import { Operation } from '../operation/entities/operation.entity';
 
 @Module({
   imports: [
@@ -25,6 +27,8 @@ import { Department } from '../organization/entities/department.entity';
       Division,
       Section,
       Department,
+      Machine,
+      Operation,
     ]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),

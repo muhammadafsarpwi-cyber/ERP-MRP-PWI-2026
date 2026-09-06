@@ -8,6 +8,7 @@ const { Text } = Typography;
 
 interface ItemOverviewProps {
   items: ItemOverviewType[];
+  totalItems?: number;
   loading: boolean;
   search: string;
   onSearch: (value: string) => void;
@@ -22,6 +23,7 @@ const typeClass = (t: string): string => {
 };
 
 const stockHealth = (item: ItemOverviewType): 'healthy' | 'low' | 'reserved' => {
+  if (!item.stock) return 'healthy';
   const min = item.minimumStockLevel ?? 0;
   if (item.stock.onHand <= min) return 'low';
   if (item.stock.available <= 0) return 'reserved';
@@ -29,7 +31,7 @@ const stockHealth = (item: ItemOverviewType): 'healthy' | 'low' | 'reserved' => 
 };
 
 const ItemOverview: React.FC<ItemOverviewProps> = ({
-  items, loading, search, onSearch, onOpen, nav,
+  items, totalItems, loading, search, onSearch, onOpen, nav,
 }) => {
   if (loading && items.length === 0) {
     return (
@@ -45,7 +47,11 @@ const ItemOverview: React.FC<ItemOverviewProps> = ({
     <SectionCard
       icon={<ApartmentOutlined />}
       title="Item Overview"
-      subtitle={`${items.length} items`}
+      subtitle={
+        totalItems != null && totalItems !== items.length
+          ? `${items.length} of ${totalItems} items`
+          : `${items.length} items`
+      }
       extra={
         <div className="erp-chart-header__actions">
           <Input
@@ -82,6 +88,7 @@ const ItemOverview: React.FC<ItemOverviewProps> = ({
             <tbody>
               {items.map((item) => {
                 const health = stockHealth(item);
+                const stock = item.stock ?? { onHand: 0, reserved: 0, available: 0 };
                 return (
                   <tr
                     key={item.id}
@@ -105,15 +112,15 @@ const ItemOverview: React.FC<ItemOverviewProps> = ({
                       </span>
                     </td>
                     <td className="erp-num">
-                      <span className={health === 'low' ? 'erp-num--danger' : undefined}>{item.stock.onHand}</span>
+                      <span className={health === 'low' ? 'erp-num--danger' : undefined}>{stock.onHand}</span>
                     </td>
-                    <td className="erp-num erp-num--muted">{item.stock.reserved}</td>
+                    <td className="erp-num erp-num--muted">{stock.reserved}</td>
                     <td className="erp-num">
                       <span className={health === 'reserved' ? 'erp-num--warning' : 'erp-num--success'}>
-                        {item.stock.available}
+                        {stock.available}
                       </span>
                     </td>
-                    <td className="erp-num">{item.production.entryCount}</td>
+                    <td className="erp-num">{item.production?.entryCount ?? 0}</td>
                     <td style={{ textAlign: 'center' }}>
                       <span className={`erp-bool-chip ${item.isManufacturable ? 'erp-bool-chip--yes' : 'erp-bool-chip--no'}`}>
                         {item.isManufacturable ? 'Yes' : 'No'}

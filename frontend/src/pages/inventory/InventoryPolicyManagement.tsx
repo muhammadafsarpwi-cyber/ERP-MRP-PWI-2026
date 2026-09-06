@@ -88,7 +88,7 @@ const InventoryPolicyManagement: React.FC = () => {
     }
   }, [search, filterWarehouse, filterStatus, filterTrackingType, pageSize, message]);
 
-  const fetchDropdowns = async () => {
+  const fetchDropdowns = useCallback(async () => {
     try {
       const [companyRes, itemRes, warehouseRes, locationRes] = await Promise.all([
         apiService.get<{ data: DropdownOption[] }>('/organization/companies', { limit: 100 }),
@@ -103,11 +103,11 @@ const InventoryPolicyManagement: React.FC = () => {
     } catch (error) {
       message.error('Failed to load dropdown data');
     }
-  };
+  }, [message]);
 
   useEffect(() => {
     fetchDropdowns();
-  }, []);
+  }, [fetchDropdowns]);
 
   useEffect(() => {
     fetchPolicies(page);

@@ -37,7 +37,7 @@ const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; r
   );
 };
 
-interface WarehouseLk { id: string; name: string; warehouseCode: string; }
+interface WarehouseLk { id: string; name: string; warehouseCode: string; warehouseType?: string; }
 interface OrderOperation { id: string; sequenceNo: number; departmentId: string | null; operationName?: string; name?: string; }
 interface OrderDetail {
   id: string; orderNumber: string; productId: string; uomId: string;
@@ -136,6 +136,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const shiftId = Form.useWatch('shiftId', form);
   const targetQty = Form.useWatch('targetQuantity', form);
   const scrapQty = Form.useWatch('scrapQuantity', form);
+  const rawMatWarehouseWatch = Form.useWatch('rawMaterialWarehouseId', form);
   const downtimeEntriesWatch = Form.useWatch('downtimeEntries', form);
   const productionItemsWatch = Form.useWatch('productionItems', form);
 
@@ -221,6 +222,16 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // TASK #37: default the Raw Material source store to the company's first
+  // ACTIVE RAW_MATERIAL warehouse when no explicit one is supplied (no-op when
+  // none exist, e.g. inventory-independent test scenarios).
+  useEffect(() => {
+    if (mode !== 'create' || form.getFieldValue('rawMaterialWarehouseId')) return;
+    const rawStore = warehouses.find((w) => w.warehouseType === 'RAW_MATERIAL');
+    if (rawStore) form.setFieldValue('rawMaterialWarehouseId', rawStore.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warehouses, mode]);
 
   // Prefill the locked context coming from the machine-selection step. This
   // only feeds display helpers; the submit payload uses ctxIds above because
@@ -1193,9 +1204,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
             {/* ── Raw Material Availability (real BOM + inventory) ── */}
             <RawMaterialAvailability
-              productionItems={(productionItemsWatch ?? []) as Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string }>}
+              productionItems={(productionItemsWatch ?? []) as Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string; scrapQuantity?: number | string }>}
               lookups={lookups}
-              warehouseId={form.getFieldValue('rawMaterialWarehouseId') as string | undefined}
+              warehouseId={rawMatWarehouseWatch as string | undefined}
+              sourceStoreLabel={rawMatWarehouseWatch ? (warehouses.find((w) => w.id === rawMatWarehouseWatch)?.name ?? undefined) : undefined}
+              fallbackScrapQty={scrapQty}
               onData={setRawMaterialData}
             />
 
@@ -1568,13 +1581,14 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     <Form.Item
                       name="rawMaterialWarehouseId"
                       label="Raw Material Source Warehouse"
-                      tooltip="Warehouse that the ACTIVE BOM raw materials are automatically deducted from when this entry posts to inventory."
+                      tooltip="Warehouse that the Item Master production IN items / ACTIVE BOM raw materials are automatically deducted from when this entry posts to inventory. Defaults to the company's first ACTIVE RAW MATERIAL warehouse when left empty."
                       style={{ marginTop: -12 }}
                     >
                       <Select
-                        allowClear showSearch optionFilterProp="label" placeholder="Where BOM raw materials are consumed from"
+                        allowClear showSearch optionFilterProp="label" placeholder="Auto: first ACTIVE RAW MATERIAL store"
                         disabled={mode === 'edit'}
-                        options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
+                        data-testid="raw-source-store-select"
+                        options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
                       />
                     </Form.Item>
                   ) : null
@@ -2085,13 +2099,22 @@ function convertBetweenUoms(
   *  it — so a perfectly mapped production item NEVER shows "Unable to determine".
   *
   *  Nothing is hardcoded (no WIRE/FLATTENING/SPIRAL). All values come from
-  *  `GET /production/routings/item/:id/route` and `GET /bom/product/:prevOutputId`.
-  *  Required is quantity-reactive (mirrors the backend computeBomRequirement
-  *  formula) and UOM-aware; Available comes from `/inventory/balances/available`. */
+*  `GET /production/routings/item/:id/route` and `GET /bom/product/:prevOutputId`.
+   *  Required is quantity-reactive (mirrors the backend computeBomRequirement
+   *  formula) and UOM-aware; Available comes from `/inventory/balances/available`.
+   *  TASK #37: the consumption basis is GOOD output + SCRAP (actual + scrap),
+   *  exactly like the backend consumeForProductionItem — raw material is
+   *  consumed for the rejected output too. */
 const RawMaterialAvailability: React.FC<{
-  productionItems: Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string }>;
+  productionItems: Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string; scrapQuantity?: number | string }>;
   lookups: ReturnType<typeof useLookups>;
   warehouseId?: string;
+  /** TASK #37: human-readable name of the selected source store warehouse. */
+  sourceStoreLabel?: string;
+  /** TASK #37: the entry's own Rejection/Scrap feeds the MAIN production item's
+   *  consumption basis (row 1 = the entry item) when the row itself carries no
+   *  scrap — mirroring backend consumeForProductionItem (entry-level fields). */
+  fallbackScrapQty?: number | string;
   onData?: (data: Record<string, {
     itemCode: string;
     itemName?: string | null;
@@ -2105,10 +2128,18 @@ const RawMaterialAvailability: React.FC<{
     productionOutItemName?: string | null;
     chainWarning?: string | null;
   }>) => void;
-}> = ({ productionItems, lookups, warehouseId, onData }) => {
+}> = ({ productionItems, lookups, warehouseId, sourceStoreLabel, fallbackScrapQty, onData }) => {
   const [data, setData] = useState<Record<string, RawMatItem>>({});
   const selected = productionItems.filter((p) => !!p.itemId);
   const selectedIds = selected.map((p) => p.itemId).join('|');
+  // Row 1 is the MAIN production item (matches buildProductionItemsPayload); its
+  // scrap falls back to the entry-level rejection when the row carries none.
+  const mainRow = selected[0] ?? null;
+  const rowScrap = (p: { scrapQuantity?: number | string }): number => {
+    const s = toNum(p.scrapQuantity);
+    if (mainRow && p === mainRow && s < 0.0001) return toNum(fallbackScrapQty);
+    return s;
+  };
 
   const emptyTrace: Required<Pick<RawMatItem, 'itemId' | 'itemCode' | 'itemName' | 'traceStatus' | 'bomFound' | 'baseQuantity' | 'lines' | 'loading'>> = {
     itemId: '', itemCode: '', itemName: '', traceStatus: 'loading',
@@ -2184,11 +2215,9 @@ const RawMaterialAvailability: React.FC<{
           //    Fallback: routing chain producing-op input → prev-op output.
           let rawItemRef: { itemId: string; item: { id?: string; itemCode?: string; name?: string; baseUomId?: string; baseUom?: { code?: string } | null } | null | undefined } | null = null;
           let prevStageItemId: string | null = null;
-          let rawSource: 'bom' | 'item-master' | 'routing' = 'routing';
           if (masterInItemId) {
             rawItemRef = { itemId: masterInItemId, item: masterInItem ?? null };
             prevStageItemId = masterInItemId;
-            rawSource = 'item-master';
           } else if (producingOp?.inputItem && producingOp.inputItemId) {
             rawItemRef = { itemId: producingOp.inputItemId, item: producingOp.inputItem };
             prevStageItemId = producingOp.inputItemId;
@@ -2204,7 +2233,9 @@ const RawMaterialAvailability: React.FC<{
           const prevStageItemName = rawItemRef?.item?.name ?? null;
 
           const productBaseUomId = item?.baseUomId ?? p.uomId;
-          const prodQty = Math.max(0, toNum(p.actualQuantity));
+          // TASK #37: consumption basis = GOOD output (actual) + REJECTED (scrap),
+          // mirroring the backend consumeForProductionItem.
+          const prodQty = Math.max(0, toNum(p.actualQuantity) + rowScrap(p));
           const qtyInBase = convertBetweenUoms(p.uomId, productBaseUomId, prodQty, lookups.uomConversions);
 
           if (!rawItemRef || !prevStageItemId) {
@@ -2241,7 +2272,11 @@ const RawMaterialAvailability: React.FC<{
             let cursorId: string | null | undefined = masterInItemId;
             let hops = 0;
             while (cursorId && hops < 50) {
-              const cursor = lookups.items.find((i) => i.id === cursorId);
+              // Snapshot this iteration's cursor in a block-scoped constant so the
+              // search callback never captures the reassigned loop variable.
+              const currentCursorId: string = cursorId;
+              const cursor: typeof lookups.items[number] | undefined =
+                lookups.items.find((i) => i.id === currentCursorId);
               if (!cursor) break;
               inputChain.push(cursor.itemCode);
               cursorId = cursor.productionInItemId ?? cursor.productionInItem?.id ?? null;
@@ -2459,7 +2494,7 @@ const RawMaterialAvailability: React.FC<{
   // production quantity or UOM changes, without refetching routing/BOM/inventory.
   // Mirrors the backend computeBomRequirement formula: units = qtyInBase / baseQuantity,
   // req = units * line.quantity * (1 + scrapFactor) / (yield% / 100).
-  const qtySig = selected.map((p) => `${p.itemId}:${toNum(p.actualQuantity)}:${p.uomId ?? ''}`).join('|');
+  const qtySig = selected.map((p) => `${p.itemId}:${toNum(p.actualQuantity) + rowScrap(p)}:${p.uomId ?? ''}`).join('|');
   useEffect(() => {
     setData((prev) => {
       const next: Record<string, RawMatItem> = {};
@@ -2470,7 +2505,8 @@ const RawMaterialAvailability: React.FC<{
         if (!prod) { next[key] = it; continue; }
         const item = lookups.items.find((i) => i.id === key);
         const productBaseUomId = item?.baseUomId ?? prod.uomId;
-        const qtyInBase = convertBetweenUoms(prod.uomId, productBaseUomId, Math.max(0, toNum(prod.actualQuantity)), lookups.uomConversions);
+        // TASK #37: consumption basis = actual + scrap, mirroring the backend.
+        const qtyInBase = convertBetweenUoms(prod.uomId, productBaseUomId, Math.max(0, toNum(prod.actualQuantity) + rowScrap(prod)), lookups.uomConversions);
         const units = qtyInBase / it.baseQuantity;
         next[key] = {
           ...it,
@@ -2601,6 +2637,12 @@ const RawMaterialAvailability: React.FC<{
                   {line.rawDepartmentName && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 96 }}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Source <Text strong data-testid={`material-flow-source-${index + 1}`}>{line.rawDepartmentName}</Text></Text>
+                    </div>
+                  )}
+                  {/* TASK #37: source STORE warehouse the consumption is actually applied to. */}
+                  {sourceStoreLabel && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 96 }}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Source Store <Text strong data-testid={`material-flow-store-${index + 1}`}>{sourceStoreLabel}</Text></Text>
                     </div>
                   )}
                   {/* Wire Size + UOM row */}

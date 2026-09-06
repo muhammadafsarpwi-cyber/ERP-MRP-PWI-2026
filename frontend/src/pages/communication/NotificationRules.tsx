@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, Switch, App, Popconfirm, Typography, Row, Col, Alert } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
@@ -38,15 +38,15 @@ const NotificationRulesPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiService.get<any>('/notifications/admin/rules');
       setRows(res.data || []);
     } catch { message.error('Unable to load rules'); }
     setLoading(false);
-  };
-  const loadMeta = async () => {
+  }, [message]);
+  const loadMeta = useCallback(async () => {
     try {
       const [e, t] = await Promise.all([
         apiService.get<any>('/notifications/admin/events'),
@@ -55,9 +55,9 @@ const NotificationRulesPage: React.FC = () => {
       setEvents(e.data || []);
       setTemplates(t.data || []);
     } catch { /* ignore */ }
-  };
+  }, []);
 
-  useEffect(() => { load(); loadMeta(); }, []);
+  useEffect(() => { load(); loadMeta(); }, [load, loadMeta]);
 
   const openCreate = () => {
     setEditing(null);

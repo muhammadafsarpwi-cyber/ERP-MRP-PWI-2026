@@ -164,6 +164,7 @@ export interface ItemOverview {
   id: string;
   itemCode: string;
   name: string;
+  departmentName?: string | null;
   itemType: string;
   status: string;
   isManufacturable: boolean;

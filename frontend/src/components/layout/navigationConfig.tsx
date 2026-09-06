@@ -7,6 +7,7 @@ import {
   BarChartOutlined,
   BellOutlined,
   BranchesOutlined,
+  PieChartOutlined,
   BugOutlined,
   BuildOutlined,
   CalculatorOutlined,
@@ -247,6 +248,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/production/routings', label: 'Routing', icon: ApartmentOutlined, color: 'cyan', permissions: ['manufacturing.routing.view'] },
       { key: '/production/traceability', label: 'Traceability', icon: BranchesOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
       { key: '/production/reports', label: 'Production Reports', icon: BarChartOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
+      { key: '/production/inventory-report', label: 'Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['manufacturing.production.entries.report'] },
     ],
   },
 

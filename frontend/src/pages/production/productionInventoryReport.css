@@ -1,0 +1,14 @@
+/* Production Inventory Report — reuses the global ERP design system. */
+
+.erp-pir { display: flex; flex-direction: column; gap: 12px; }
+
+.erp-pir__cards .ant-card { height: 100%; }
+
+.erp-num--success { color: #389e0d; font-variant-numeric: tabular-nums; }
+.erp-num--danger { color: #cf1322; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.erp-pir .ant-table-row:hover td { background: #f0f7ff; }
+
+@media (max-width: 640px) {
+  .erp-pir .ant-statistic-title { font-size: 12px; }
+}

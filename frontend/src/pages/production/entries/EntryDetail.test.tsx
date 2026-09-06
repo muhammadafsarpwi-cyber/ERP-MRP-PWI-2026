@@ -1,13 +1,14 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { App } from 'antd';
 import EntryDetail from './EntryDetail';
 import apiService from '../../../services/api';
 
 jest.mock('../../../services/api');
 
-const apiMock = apiService as jest.Mocked<typeof apiService>;
+const apiMock: jest.Mocked<typeof apiService> = apiService as unknown as jest.Mocked<typeof apiService>;
 
 beforeAll(() => {
   window.matchMedia = (query: string) =>
@@ -23,182 +24,176 @@ beforeAll(() => {
     }) as MediaQueryList;
 });
 
+const OUT_ITEM_ID = 'item-FLAT';
+const RM_ITEM_ID = 'rm-WIRE';
+const SOURCE_STORE = 'wh-ccd';
+const OUT_WH = 'wh-main';
+
 const entry = {
   id: 'entry-1',
-  entryDate: '2026-09-03',
-  division: { divisionCode: 'D1', name: 'Division One' },
-  section: { name: 'Section A' },
-  department: { departmentCode: 'DEP-1', name: 'Dept One' },
-  shift: { id: 's1', name: 'Shift A', startTime: '06:00', endTime: '14:00', plannedHours: 8 },
-  machineNo: 'M-01',
-  operatorName: 'John Doe',
-  supervisorName: 'Jane Smith',
-  itemId: 'item-1',
-  item: { itemCode: 'ITM-1', name: 'Wire Coil 2.5', wireSizeMm: 2.5 },
-  uom: { code: 'M', symbol: 'm' },
-  targetQuantity: 1000,
-  actualQuantity: 900,
-  achievementPercentage: 90,
+  entryDate: '2026-09-11',
+  division: { divisionCode: 'DIV1', name: 'Cables Division' },
+  section: { name: 'Production Section' },
+  department: { departmentCode: 'CCD-DEPT001', name: 'Flattening' },
+  shiftId: 'shift-1',
+  shift: { id: 'shift-1', name: 'A', startTime: '07:00', endTime: '15:00', plannedHours: 8 },
+  machineNo: 'FT-04',
+  operatorName: 'Asif',
+  supervisorName: 'Supervisor One',
+  itemId: OUT_ITEM_ID,
+  item: {
+    itemCode: 'FLAT-001',
+    name: 'Flat Wire 1.20mm',
+    wireSizeMm: 1.2,
+    baseUom: { code: 'KG', symbol: 'kg' },
+    productionInItem: { id: RM_ITEM_ID, itemCode: 'RM-WIRE-001', name: '1.20mm Wire', wireSizeMm: 1.2, itemType: 'RAW_MATERIAL' },
+  },
+  uom: { code: 'KG', symbol: 'kg' },
+  targetQuantity: 50,
+  actualQuantity: 48,
+  achievementPercentage: 96,
   efficiencyPercentage: 87.5,
   runningHours: 7,
-  downtimeHours: 1,
-  scrapQuantity: 20,
-  remarks: 'Good shift',
-  productionOrder: { id: 'po-1', orderNumber: 'PO-100' },
+  downtimeHours: 0.5,
+  downtimeReasonText: null,
+  scrapQuantity: 2,
+  remarks: 'Demo entry',
+  productionOrder: null,
   productionOrderOperationId: null,
   inventoryReferenceId: null,
-  createdByUser: { fullName: 'Admin User' },
+  createdByUser: { fullName: 'Tester' },
   downtime: { plannedHours: 8 },
-  downtimes: [
-    {
-      id: 'dt-1', lineNumber: 1, downtimeReasonId: 'r-maint', downtimeReason: { id: 'r-maint', name: 'Machine Maintenance' },
-      downtimeReasonText: null, downtimeHours: 0.5, remarks: 'Lubrication',
-    },
-    {
-      id: 'dt-2', lineNumber: 2, downtimeReasonId: 'r-other', downtimeReason: { id: 'r-other', name: 'Other' },
-      downtimeReasonText: 'Material shortage', downtimeHours: 0.5, remarks: '',
-    },
-  ],
+  downtimes: [{ id: 'dt-1', lineNumber: 1, downtimeReasonId: null, downtimeReasonText: 'Setup', downtimeReason: null, downtimeHours: 0.5, remarks: 'roll change' }],
   items: [
-    { id: 'pi-1', lineNumber: 1, itemId: 'item-1', item: { itemCode: 'ITM-1', name: 'Wire Coil 2.5', wireSizeMm: 2.5, weightPerMeter: 2 }, uom: { code: 'M', symbol: 'm' }, targetQuantity: 1000, actualQuantity: 900, scrapQuantity: 20, runningHours: 7, remarks: null },
+    { id: 'il-1', lineNumber: 1, itemId: OUT_ITEM_ID, item: { itemCode: 'FLAT-001', name: 'Flat Wire 1.20mm', wireSizeMm: 1.2, weightPerMeter: 0.1 }, uom: { code: 'KG', symbol: 'kg' }, targetQuantity: 50, actualQuantity: 48, scrapQuantity: 2, runningHours: 7, remarks: null },
   ],
-  route: { routingCode: 'RT-1', name: 'Coil Route', operations: [{ sequenceNo: 10, operationName: 'Draw', department: { name: 'Drawing' } }] },
+  warehouseId: OUT_WH,
+  rawMaterialWarehouseId: SOURCE_STORE,
+  route: null,
 };
 
-function getCalls(): Array<{ url: string; params?: any }> {
-  return (apiMock.get as jest.Mock).mock.calls.map((c: any[]) => ({ url: String(c[0]), params: c[1] }));
+const outBalances = [
+  { id: 'bal-out', item: { id: OUT_ITEM_ID, name: 'Flat Wire 1.20mm', itemCode: 'FLAT-001' }, warehouse: { id: OUT_WH, name: 'Main Warehouse' }, onHand: 288, reserved: 0, available: 288, uom: { id: 'uom-kg', code: 'KG', name: 'Kilogram' } },
+];
+
+const inBalances = [
+  { id: 'bal-in', item: { id: RM_ITEM_ID, name: '1.20mm Wire', itemCode: 'RM-WIRE-001' }, warehouse: { id: SOURCE_STORE, name: 'CCD Production Department Stores' }, onHand: 5000, reserved: 0, available: 5000, uom: { id: 'uom-kg', code: 'KG', name: 'Kilogram' } },
+  { id: 'bal-in-other', item: { id: RM_ITEM_ID, name: '1.20mm Wire', itemCode: 'RM-WIRE-001' }, warehouse: { id: 'wh-other', name: 'Other Store' }, onHand: 90, reserved: 0, available: 90, uom: { id: 'uom-kg', code: 'KG', name: 'Kilogram' } },
+];
+
+function mockEntryApi(e: any, opts: { outBalances?: any[]; inBalances?: any[] } = {}) {
+  apiMock.get.mockImplementation(async (url: any, params?: any) => {
+    const u = String(url);
+    if (u === '/production/entries/entry-1') return { success: true, data: e };
+    if (u === '/inventory/balances') {
+      if (params?.itemId === OUT_ITEM_ID) return { data: opts.outBalances ?? [] };
+      if (params?.itemId === RM_ITEM_ID) return { data: opts.inBalances ?? [] };
+      return { data: [] };
+    }
+    return { data: [] };
+  });
 }
 
-describe('EntryDetail (TASK #19 professional View)', () => {
-  beforeEach(() => {
-    apiMock.get.mockReset();
-    apiMock.get.mockImplementation((url: any, params?: any) => {
-      const u = String(url);
-      if (u === '/production/entries/entry-1') {
-        return Promise.resolve({ success: true, data: entry });
-      }
-      if (u === '/inventory/balances') {
-        if (params?.itemId === 'item-1') {
-          return Promise.resolve({
-            data: [
-              { id: 'b-1', item: { id: 'item-1', name: 'Wire', itemCode: 'ITM-1' }, warehouse: { id: 'w-1', name: 'Main WH' }, onHand: 500, reserved: 100, available: 400, uom: { id: 'u1', code: 'M', name: 'Meter' } },
-            ],
-          });
-        }
-        return Promise.resolve({ data: [] });
-      }
-      return Promise.resolve({ data: [] });
-    });
-  });
-
-  it('renders hierarchical A–I section headers', async () => {
-    render(
+function renderDetail(e: any, opts?: { outBalances?: any[]; inBalances?: any[] }) {
+  mockEntryApi(e, opts);
+  return render(
+    <App>
       <MemoryRouter initialEntries={['/production/entries/entry-1']}>
         <Routes>
           <Route path="/production/entries/:id" element={<EntryDetail />} />
         </Routes>
       </MemoryRouter>
-    );
-    await screen.findByText(/Production Entry/);
-    for (const label of ['Production Context', 'Item & Wire Size', 'Production Figures', 'Downtime Breakdown', 'Production Output Lines', 'Production Route', 'Stock & Posting', 'Linkages', 'Remarks & Entry Metadata']) {
-      expect(screen.getByText(label)).toBeInTheDocument();
+    </App>,
+  );
+}
+
+describe('EntryDetail redesign (TASK #39 Part A)', () => {
+  it('A1: renders the global header, KPI strip and all hierarchy sections in one screen', async () => {
+    renderDetail(entry, { outBalances, inBalances });
+    expect((await screen.findAllByText(/FLAT-001/)).length).toBeGreaterThan(0);
+
+    // Global header identity: department + machine + date.
+    expect(screen.getAllByText(/Flattening/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/FT-04/).length).toBeGreaterThan(0);
+
+    // Compact KPI strip labels are present.
+    for (const label of ['Target', 'Actual Good', 'Scrap', 'Achievement', 'Efficiency', 'Running']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
+
+    // Lettered hierarchy sections render.
+    expect(screen.getByText('Production Context')).toBeInTheDocument();
+    expect(screen.getByText('Production Summary')).toBeInTheDocument();
+    expect(screen.getByText('Input Material & Raw Material Availability')).toBeInTheDocument();
+    expect(screen.getByText('Material Flow')).toBeInTheDocument();
+    expect(screen.getByText('Downtime Breakdown')).toBeInTheDocument();
+    expect(screen.getByText('Production Route')).toBeInTheDocument();
+    expect(screen.getByText('Linkages')).toBeInTheDocument();
+    expect(screen.getByText('Remarks & Entry Metadata')).toBeInTheDocument();
+    expect(screen.getByText('Inventory Posting Summary')).toBeInTheDocument();
   });
 
-  it('shows the authoritative Wire Size and does NOT show a manual Coil Size field', async () => {
-    render(
-      <MemoryRouter initialEntries={['/production/entries/entry-1']}>
-        <Routes>
-          <Route path="/production/entries/:id" element={<EntryDetail />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    await screen.findByText(/Production Entry/);
-    expect(screen.getAllByText(/2\.5/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Coil Size/i)).not.toBeInTheDocument();
+  it('A2: production summary shows target/actual/scrap + input material with the exact item', async () => {
+    renderDetail(entry, { outBalances, inBalances });
+    expect((await screen.findAllByText(/RM-WIRE-001/)).length).toBeGreaterThan(0);
+    // Actual good + scrap: formatted without trailing zeros (48, 2), and they
+    // appear in the KPI strip / summary / flow.
+    expect(screen.getAllByText('48').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0);
   });
 
-  it('renders every downtime line with reason, hours and notes', async () => {
-    render(
-      <MemoryRouter initialEntries={['/production/entries/entry-1']}>
-        <Routes>
-          <Route path="/production/entries/:id" element={<EntryDetail />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    await screen.findByText(/Production Entry/);
-    expect(screen.getByText(/Machine Maintenance/)).toBeInTheDocument();
-    expect(screen.getByText(/Lubrication/)).toBeInTheDocument();
-    expect(screen.getByText(/Material shortage/)).toBeInTheDocument();
+  it('A3: input material renders "Input Material: Not configured" when the item has no production IN mapping', async () => {
+    const noInput = {
+      ...entry,
+      item: { ...entry.item, productionInItem: null },
+    };
+    renderDetail(noInput);
+    expect((await screen.findAllByText(/Input Material: Not configured/)).length).toBeGreaterThan(0);
+    // No availability query fires for the missing input item (nothing to fetch).
+    const balanceCalls = apiMock.get.mock.calls.filter((c) => c[0] === '/inventory/balances');
+    expect(balanceCalls.map((c) => c[1]?.itemId)).not.toContain(RM_ITEM_ID);
   });
 
-  it('shows the downtime summary with Planned / Running / Total / Remaining', async () => {
-    render(
-      <MemoryRouter initialEntries={['/production/entries/entry-1']}>
-        <Routes>
-          <Route path="/production/entries/:id" element={<EntryDetail />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    await screen.findByText(/Production Entry/);
-    for (const label of ['Planned', 'Running', 'Total Downtime', 'Remaining']) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
-  });
+  it('A4: "Not posted to stock" and "Posted to stock" tags reflect the entry reference', async () => {
+    renderDetail(entry, { outBalances, inBalances });
+    expect(await screen.findByText(/Not posted to stock/)).toBeInTheDocument();
 
-  it('fetches real inventory balances scoped to the entry item (no fabricated quantities)', async () => {
-    render(
-      <MemoryRouter initialEntries={['/production/entries/entry-1']}>
-        <Routes>
-          <Route path="/production/entries/:id" element={<EntryDetail />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    await screen.findByText(/Production Entry/);
-    await screen.findByText('Main WH');
-    expect(screen.getByText('Main WH')).toBeInTheDocument();
-    const balanceCalls = getCalls().filter((c) => c.url === '/inventory/balances');
-    expect(balanceCalls.length).toBeGreaterThan(0);
-    expect(balanceCalls[0].params.itemId).toBe('item-1');
+    const posted = { ...entry, inventoryReferenceId: 'ledger-abcdef123456' };
+    renderDetail(posted, { outBalances, inBalances });
+    expect(await screen.findByText(/Posted to stock/)).toBeInTheDocument();
   });
+});
 
-  it('downtime renders as a professional table with # | Reason | Hours | Other/Custom Text | Notes', async () => {
-    render(
-      <MemoryRouter initialEntries={['/production/entries/entry-1']}>
-        <Routes>
-          <Route path="/production/entries/:id" element={<EntryDetail />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    await screen.findByText(/Production Entry/);
-    // Table headers (professional downtime table).
-    expect(screen.getByText('Reason')).toBeInTheDocument();
-    expect(screen.getByText('Hours')).toBeInTheDocument();
-    expect(screen.getByText('Other / Custom Text')).toBeInTheDocument();
-    expect(screen.getByText('Notes')).toBeInTheDocument();
-    // Persisted rows + "Other" custom text + per-row notes all appear.
-    expect(screen.getByText(/Machine Maintenance/)).toBeInTheDocument();
-    expect(screen.getByText(/Lubrication/)).toBeInTheDocument();
-    expect(screen.getByText(/Material shortage/)).toBeInTheDocument();
-  });
+describe('EntryDetail — raw material availability at the exact source store (TASK #39 Part C)', () => {
+  it('C1: reads the raw material balance from the productionInItem id and the entry source store', async () => {
+    renderDetail(entry, { outBalances, inBalances });
+    expect((await screen.findAllByText(/RM-WIRE-001/)).length).toBeGreaterThan(0);
 
-  it('shows the professional empty state when NO downtime rows exist', async () => {
-    const emptyEntry = { ...entry, downtimes: [] };
-    apiMock.get.mockImplementation((url: any, params?: any) => {
-      const u = String(url);
-      if (u === '/production/entries/entry-1') return Promise.resolve({ success: true, data: emptyEntry });
-      if (u === '/inventory/balances') return Promise.resolve({ data: [] });
-      return Promise.resolve({ data: [] });
+    await waitFor(() => {
+      // The output-item balances and the input-item balances are both fetched
+      // scoped by the exact item ids (never by name/sku/wire-size/department).
+      const calls = apiMock.get.mock.calls.filter((c) => c[0] === '/inventory/balances');
+      expect(calls.map((c) => c[1] === undefined ? undefined : (c[1] as any)?.itemId)).toContain(OUT_ITEM_ID);
+      expect(calls.map((c) => c[1] === undefined ? undefined : (c[1] as any)?.itemId)).toContain(RM_ITEM_ID);
     });
-    render(
-      <MemoryRouter initialEntries={['/production/entries/entry-1']}>
-        <Routes>
-          <Route path="/production/entries/:id" element={<EntryDetail />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    await screen.findByText(/Production Entry/);
-    expect(screen.queryByText(/Machine Maintenance/)).not.toBeInTheDocument();
-    expect(screen.getByText(/No downtime entries were recorded for this production entry\./)).toBeInTheDocument();
+
+    // The real source-store availability (5000 KG — never fabricated and never
+    // the 0 caused by querying a store where the item does not live).
+    expect((await screen.findAllByText('5,000')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/CCD Production Department Stores/).length).toBeGreaterThan(0);
+  });
+
+  it('C2: when the source store has a real balance the UI shows that number — never a fabricated zero', async () => {
+    renderDetail(entry, { outBalances, inBalances });
+    await waitFor(async () => expect((await screen.findAllByText('5,000')).length).toBeGreaterThan(0));
+    // Stock parked in a different store (90) must NOT be reported as the source
+    // store's availability — the exact store row wins.
+    expect(screen.queryByText('90')).not.toBeInTheDocument();
+  });
+
+  it('C3: an entry with no inventory posting exposes the availability without crashes (no balances rows)', async () => {
+    renderDetail({ ...entry, inventoryReferenceId: null }, { outBalances: [], inBalances: [inBalances[0]] });
+    expect(await screen.findByText(/Not posted to stock/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('5,000')).toBeInTheDocument());
   });
 });

@@ -6,6 +6,8 @@ import { Section } from '../../organization/entities/section.entity';
 import { Department } from '../../organization/entities/department.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
+import { Machine } from '../../production/entities/machine.entity';
+import { Operation } from '../../operation/entities/operation.entity';
 import { ProductionRouting } from './production-routing.entity';
 
 @Entity('routing_operations')
@@ -26,6 +28,14 @@ export class RoutingOperation extends BaseEntity {
 
   @Column({ name: 'sequence_no', type: 'integer', default: 10 })
   sequenceNo: number;
+
+  /** Reference to the Operation Master record (ERP-00047). Nullable for legacy rows. */
+  @Column({ name: 'operation_id', type: 'uuid', nullable: true })
+  operationId: string | null;
+
+  @ManyToOne(() => Operation, { nullable: true })
+  @JoinColumn({ name: 'operation_id' })
+  operation: Operation | null;
 
   @Column({ name: 'operation_code', type: 'varchar', length: 50 })
   operationCode: string;
@@ -74,6 +84,14 @@ export class RoutingOperation extends BaseEntity {
 
   @Column({ name: 'machine_required', type: 'boolean', default: false })
   machineRequired: boolean;
+
+  /** Reference to the Machine Master record (ERP-00047). Nullable for legacy rows. */
+  @Column({ name: 'machine_id', type: 'uuid', nullable: true })
+  machineId: string | null;
+
+  @ManyToOne(() => Machine, { nullable: true })
+  @JoinColumn({ name: 'machine_id' })
+  machine: Machine | null;
 
   @Column({ name: 'input_item_id', type: 'uuid', nullable: true })
   inputItemId: string | null;

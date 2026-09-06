@@ -377,9 +377,9 @@ const Traceability: React.FC = () => {
                       <DescriptionsItem label="Division">{overview.item.division?.name || '-'}</DescriptionsItem>
                       <DescriptionsItem label="Section">{overview.item.section?.name || '-'}</DescriptionsItem>
                       <DescriptionsItem label="Department">{overview.item.department?.name || '-'}</DescriptionsItem>
-                      <DescriptionsItem label="On Hand"><Statistic value={overview.currentBalance.onHand} precision={2} valueStyle={{ fontSize: 16 }} /></DescriptionsItem>
-                      <DescriptionsItem label="Reserved"><Statistic value={overview.currentBalance.reserved} precision={2} valueStyle={{ fontSize: 16 }} /></DescriptionsItem>
-                      <DescriptionsItem label="Available"><Statistic value={overview.currentBalance.available} precision={2} valueStyle={{ fontSize: 16 }} /></DescriptionsItem>
+                      <DescriptionsItem label="On Hand"><Statistic value={overview.currentBalance?.onHand ?? 0} precision={2} valueStyle={{ fontSize: 16 }} /></DescriptionsItem>
+                      <DescriptionsItem label="Reserved"><Statistic value={overview.currentBalance?.reserved ?? 0} precision={2} valueStyle={{ fontSize: 16 }} /></DescriptionsItem>
+                      <DescriptionsItem label="Available"><Statistic value={overview.currentBalance?.available ?? 0} precision={2} valueStyle={{ fontSize: 16 }} /></DescriptionsItem>
                     </RowGrid>
                     <ReconCard reconciliation={statement?.reconciliation} />
                   </Card>

@@ -76,10 +76,29 @@ export class InventoryBalanceService {
     batchId?: string,
     manager?: EntityManager,
   ): Promise<number> {
-    if (!companyId || !itemId || !warehouseId) return 0;
-    const balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId, batchId, manager);
-    if (!balance) return 0;
-    return Number(balance.onHand) - Number(balance.reserved);
+    if (!companyId || !itemId) return 0;
+
+    // Specific balance: exact on-hand − reserved in that warehouse/location/batch.
+    if (warehouseId) {
+      const balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId, batchId, manager);
+      if (!balance) return 0;
+      return Number(balance.onHand) - Number(balance.reserved);
+    }
+
+    // No warehouse selected: aggregate the item's real available stock across
+    // every ACTIVE balance in this company, so callers (e.g. the Production
+    // Entry raw-material availability) never see a fabricated zero.
+    const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
+    const qb = repo
+      .createQueryBuilder('balance')
+      .select('COALESCE(SUM(balance.on_hand - balance.reserved), 0)', 'available')
+      .where('balance.companyId = :companyId', { companyId })
+      .andWhere('balance.itemId = :itemId', { itemId })
+      .andWhere('balance.status = :status', { status: 'ACTIVE' });
+    if (locationId) qb.andWhere('balance.locationId = :locationId', { locationId });
+    if (batchId) qb.andWhere('balance.batchId = :batchId', { batchId });
+    const row = await qb.getRawOne();
+    return Number(row?.available) || 0;
   }
 
   async updateBalance(

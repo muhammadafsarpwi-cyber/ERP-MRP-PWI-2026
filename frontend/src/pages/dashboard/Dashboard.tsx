@@ -17,6 +17,7 @@ import ProductionPerformance from '../../components/dashboard/ProductionPerforma
 import ProductionTrend from '../../components/dashboard/ProductionTrend';
 import QuickActions from '../../components/dashboard/QuickActions';
 import './dashboard.css';
+import { filterItemOverview } from './itemSearch';
 import dashboardService, {
   ActivityItem, AlertItem, DashboardFilters as DashboardFiltersType, DashboardSummary, InventorySummary,
   ItemOverview as ItemOverviewType, ItemRoute, MachinePerformanceItem,
@@ -162,11 +163,13 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const filteredItems = itemOverview.filter(item =>
-    !itemSearch
-    || item.itemCode.toLowerCase().includes(itemSearch.toLowerCase())
-    || item.name.toLowerCase().includes(itemSearch.toLowerCase())
-  );
+  // Null-safe item search (itemCode/name/department may be missing from the API).
+  const filteredItems = filterItemOverview(itemOverview, itemSearch);
+
+  // Compact dashboard: keep the Item Overview focused, point "View All" at the
+  // real inventory report instead of rendering every master-data item inline.
+  const MAX_DASHBOARD_ITEMS = 25;
+  const visibleItems = filteredItems.slice(0, MAX_DASHBOARD_ITEMS);
 
   const hasPartialData =
     summary !== null || prodSummary !== null || trend.length > 0 || machinePerf.length > 0
@@ -246,12 +249,13 @@ const Dashboard: React.FC = () => {
       <div className="erp-row erp-row--a">
         <div className="erp-col erp-col--wide">
           <ItemOverview
-            items={filteredItems}
+            items={visibleItems}
+            totalItems={filteredItems.length}
             loading={loading}
             search={itemSearch}
             onSearch={setItemSearch}
             onOpen={openItemDetail}
-            nav={() => navigate('/master-data/items')}
+            nav={() => navigate('/production/inventory-report')}
           />
         </div>
         <div className="erp-col erp-col--narrow">

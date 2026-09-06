@@ -14,14 +14,16 @@ import {
 import { ProductionRouting, RoutingOperation } from '../production-routing/entities';
 import { BillOfMaterials, BomLine } from '../bom/entities';
 import { Item, Uom, UomConversion } from '../item/entities';
-import { Division, Section, Department, DepartmentDivisionScope, Warehouse } from '../organization/entities';
+import { Division, Section, Department, DepartmentDivisionScope, Warehouse, Company } from '../organization/entities';
 import { SalesOrderItem } from '../sales/entities';
+import { StockLedger, InventoryBalance } from '../inventory/entities';
 import {
   ProductionOrderService,
   ProductionPlanningService,
   ProductionEntryService,
+  ProductionInventoryReportService,
 } from './services';
-import { ProductionOrderController, ProductionEntryController } from './controllers';
+import { ProductionOrderController, ProductionEntryController, ProductionInventoryReportController } from './controllers';
 import { InventoryModule } from '../inventory/inventory.module';
 import { MachineTargetModule } from '../machine-target/machine-target.module';
 import { ProductionRoutingModule } from '../production-routing/production-routing.module';
@@ -53,7 +55,10 @@ import { UserModule } from '../user/user.module';
       Department,
       DepartmentDivisionScope,
       Warehouse,
+      Company,
       SalesOrderItem,
+      StockLedger,
+      InventoryBalance,
     ]),
     InventoryModule,
     MachineTargetModule,
@@ -62,8 +67,8 @@ import { UserModule } from '../user/user.module';
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
   ],
-  controllers: [ProductionOrderController, ProductionEntryController],
-  providers: [ProductionOrderService, ProductionPlanningService, ProductionEntryService],
+  controllers: [ProductionOrderController, ProductionEntryController, ProductionInventoryReportController],
+  providers: [ProductionOrderService, ProductionPlanningService, ProductionEntryService, ProductionInventoryReportService],
   exports: [ProductionOrderService, ProductionPlanningService, ProductionEntryService],
 })
 export class ProductionModule {}
