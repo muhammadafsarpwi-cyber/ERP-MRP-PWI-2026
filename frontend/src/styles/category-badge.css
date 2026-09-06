@@ -1,0 +1,203 @@
+/* ============================================================================
+   ERP CATEGORY & ENTITY BADGE STYLES
+   Provides compact, enterprise-grade badges with colored dots & subtle backgrounds.
+   Automatically adapts to Light and Dark themes.
+============================================================================ */
+
+.erp-category-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1.5px 7px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  max-width: 100%;
+  border: 1px solid var(--badge-border, rgba(15, 23, 42, 0.12));
+  background: var(--badge-bg, rgba(15, 23, 42, 0.03));
+  color: var(--badge-text, var(--theme-text, #0f172a));
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+  vertical-align: middle;
+}
+
+.erp-category-badge--clickable {
+  cursor: pointer;
+}
+
+.erp-category-badge--clickable:hover {
+  filter: brightness(0.96);
+}
+
+[data-theme="dark"] .erp-category-badge--clickable:hover {
+  filter: brightness(1.1);
+}
+
+.erp-category-badge__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--badge-dot, currentColor);
+  flex-shrink: 0;
+}
+
+.erp-category-badge__icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  flex-shrink: 0;
+  color: var(--badge-dot, currentColor);
+}
+
+.erp-category-badge__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Palette Modifiers (Light Theme Defaults) ── */
+
+.erp-category-badge--blue {
+  --badge-dot: #2563eb;
+  --badge-text: #1d4ed8;
+  --badge-bg: #eff6ff;
+  --badge-border: #bfdbfe;
+}
+
+.erp-category-badge--teal {
+  --badge-dot: #0d9488;
+  --badge-text: #0f766e;
+  --badge-bg: #f0fdfa;
+  --badge-border: #99f6e4;
+}
+
+.erp-category-badge--indigo {
+  --badge-dot: #4f46e5;
+  --badge-text: #4338ca;
+  --badge-bg: #eef2ff;
+  --badge-border: #c7d2fe;
+}
+
+.erp-category-badge--amber {
+  --badge-dot: #d97706;
+  --badge-text: #b45309;
+  --badge-bg: #fffbeb;
+  --badge-border: #fde68a;
+}
+
+.erp-category-badge--emerald {
+  --badge-dot: #059669;
+  --badge-text: #047857;
+  --badge-bg: #ecfdf5;
+  --badge-border: #a7f3d0;
+}
+
+.erp-category-badge--purple {
+  --badge-dot: #9333ea;
+  --badge-text: #7e22ce;
+  --badge-bg: #faf5ff;
+  --badge-border: #e9d5ff;
+}
+
+.erp-category-badge--rose {
+  --badge-dot: #e11d48;
+  --badge-text: #be123c;
+  --badge-bg: #fff1f2;
+  --badge-border: #fecdd3;
+}
+
+.erp-category-badge--cyan {
+  --badge-dot: #0891b2;
+  --badge-text: #0e7490;
+  --badge-bg: #ecfeff;
+  --badge-border: #a5f3fc;
+}
+
+.erp-category-badge--orange {
+  --badge-dot: #ea580c;
+  --badge-text: #c2410c;
+  --badge-bg: #fff7ed;
+  --badge-border: #fed7aa;
+}
+
+.erp-category-badge--slate {
+  --badge-dot: #64748b;
+  --badge-text: #334155;
+  --badge-bg: #f8fafc;
+  --badge-border: #cbd5e1;
+}
+
+/* ── Dark Theme Overrides ── */
+
+[data-theme="dark"] .erp-category-badge--blue {
+  --badge-dot: #60a5fa;
+  --badge-text: #93c5fd;
+  --badge-bg: rgba(37, 99, 235, 0.16);
+  --badge-border: rgba(59, 130, 246, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--teal {
+  --badge-dot: #2dd4bf;
+  --badge-text: #5eead4;
+  --badge-bg: rgba(13, 148, 136, 0.16);
+  --badge-border: rgba(20, 184, 166, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--indigo {
+  --badge-dot: #818cf8;
+  --badge-text: #a5b4fc;
+  --badge-bg: rgba(79, 70, 229, 0.16);
+  --badge-border: rgba(99, 102, 241, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--amber {
+  --badge-dot: #fbbf24;
+  --badge-text: #fcd34d;
+  --badge-bg: rgba(217, 119, 6, 0.16);
+  --badge-border: rgba(245, 158, 11, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--emerald {
+  --badge-dot: #34d399;
+  --badge-text: #6ee7b7;
+  --badge-bg: rgba(5, 150, 105, 0.16);
+  --badge-border: rgba(16, 185, 129, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--purple {
+  --badge-dot: #c084fc;
+  --badge-text: #d8b4fe;
+  --badge-bg: rgba(147, 51, 234, 0.16);
+  --badge-border: rgba(168, 85, 247, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--rose {
+  --badge-dot: #fb7185;
+  --badge-text: #fda4af;
+  --badge-bg: rgba(225, 29, 72, 0.16);
+  --badge-border: rgba(244, 63, 94, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--cyan {
+  --badge-dot: #67e8f9;
+  --badge-text: #a5f3fc;
+  --badge-bg: rgba(8, 145, 178, 0.16);
+  --badge-border: rgba(6, 182, 212, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--orange {
+  --badge-dot: #fb923c;
+  --badge-text: #fed7aa;
+  --badge-bg: rgba(234, 88, 12, 0.16);
+  --badge-border: rgba(249, 115, 22, 0.35);
+}
+
+[data-theme="dark"] .erp-category-badge--slate {
+  --badge-dot: #94a3b8;
+  --badge-text: #cbd5e1;
+  --badge-bg: rgba(71, 85, 105, 0.22);
+  --badge-border: rgba(148, 163, 184, 0.35);
+}

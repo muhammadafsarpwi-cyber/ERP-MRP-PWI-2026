@@ -1,12 +1,39 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Card, Table, Button, Space, Select, DatePicker, Tag, App, Tabs, Typography,
-  Popconfirm, Statistic, Row, Col, Input, Tooltip,
+  Card,
+  Button,
+  Space,
+  Select,
+  DatePicker,
+  App,
+  Tabs,
+  Typography,
+  Statistic,
+  Row,
+  Col,
+  Input,
+  Tooltip,
 } from 'antd';
 import {
-  PlusOutlined, ReloadOutlined, EyeOutlined, EditOutlined, DeleteOutlined,
-  SearchOutlined, BarChartOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  BarChartOutlined,
+  CalendarOutlined,
+  ApartmentOutlined,
+  TeamOutlined,
+  ClockCircleOutlined,
+  ToolOutlined,
+  UserOutlined,
+  AppstoreOutlined,
+  AimOutlined,
+  PercentageOutlined,
+  CheckCircleOutlined,
+  SettingOutlined,
+  DownloadOutlined,
+  FieldTimeOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -14,11 +41,19 @@ import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import { useLookups, Department, ShiftLk } from './lookups';
 import KpiPercentage, { kpiIndicator } from '../../../components/kpi/KpiPercentage';
+import {
+  ERPTable,
+  TableActions,
+  StatusBadge,
+  DepartmentBadge,
+  ShiftBadge,
+  ItemBadge,
+} from '../../../components/shared';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-interface ProductionEntryRow {
+export interface ProductionEntryRow {
   id: string;
   entryDate: string;
   divisionId: string;
@@ -27,16 +62,19 @@ interface ProductionEntryRow {
   division?: { id: string; name: string; divisionCode: string };
   section?: { id: string; name: string; sectionCode: string };
   department?: { id: string; name: string; departmentCode: string };
-  shift?: ShiftLk | { id: string; name: string; shiftCode: string };
+  shift?: ShiftLk | { id: string; name: string; shiftCode: string; startTime?: string | null; endTime?: string | null };
+  machineId?: string | null;
+  machine?: { id: string; machineCode: string; name: string; status?: string };
   machineNo: string;
   operatorName: string;
   supervisorName: string | null;
   coilSize: string | null;
   itemId: string;
-  item?: { id: string; name: string; itemCode: string };
+  item?: { id: string; name: string; itemCode: string; sku?: string; shortName?: string };
   uomId: string;
-  uom?: { id: string; code: string; symbol: string };
+  uom?: { id: string; code: string; symbol: string; name?: string };
   targetQuantity: number | string;
+  calculatedTarget?: number | string;
   actualQuantity: number | string;
   achievementPercentage: number | string;
   efficiencyPercentage: number | string;
@@ -45,37 +83,71 @@ interface ProductionEntryRow {
   downtimeReasonText: string | null;
   scrapQuantity: number | string;
   remarks: string | null;
+  status?: string;
+  isActive?: boolean;
+  inventoryReferenceId?: string | null;
+  rawMaterialWarehouseId?: string | null;
 }
 
 interface ReportItemGroup {
-  itemId: string; itemCode: string; itemName: string; uomCode: string;
-  targetQuantity: number; actualQuantity: number; scrapQuantity: number;
-  runningHours: number; downtimeHours: number;
-  achievementPercentage: number | null; efficiencyPercentage: number | null; entryCount: number;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  uomCode: string;
+  targetQuantity: number;
+  actualQuantity: number;
+  scrapQuantity: number;
+  runningHours: number;
+  downtimeHours: number;
+  achievementPercentage: number | null;
+  efficiencyPercentage: number | null;
+  entryCount: number;
 }
+
 interface ReportDept {
-  departmentId: string; departmentCode: string; departmentName: string;
-  divisionName: string; sectionName: string;
+  departmentId: string;
+  departmentCode: string;
+  departmentName: string;
+  divisionName: string;
+  sectionName: string;
   items: ReportItemGroup[];
   totalsByUom: Array<{
-    uomCode: string; targetQuantity: number; actualQuantity: number; scrapQuantity: number;
-    runningHours: number; downtimeHours: number;
-    achievementPercentage: number | null; efficiencyPercentage: number | null; entryCount: number;
+    uomCode: string;
+    targetQuantity: number;
+    actualQuantity: number;
+    scrapQuantity: number;
+    runningHours: number;
+    downtimeHours: number;
+    achievementPercentage: number | null;
+    efficiencyPercentage: number | null;
+    entryCount: number;
   }>;
 }
+
 interface ReportResponse {
   entryCount: number;
   departments: ReportDept[];
   grandTotalsByUom: ReportDept['totalsByUom'];
 }
 
-/** Visual-only KPI threshold presentation is centralized in components/kpi. */
+/**
+ * Derives an authoritative enterprise status for a production entry row.
+ * Respects row.status if provided by the API; otherwise uses posted/completion states.
+ */
+export function getEntryStatus(row: ProductionEntryRow): string {
+  if (row.status) return row.status;
+  if (row.isActive === false) return 'CANCELLED';
+  if (row.inventoryReferenceId) return 'COMPLETED';
+  if (toNum(row.actualQuantity) > 0) return 'COMPLETED';
+  return 'DRAFT';
+}
 
 const EntryList: React.FC = () => {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const lookups = useLookups();
   const PAGE_SIZE_KEY = 'production_entry_pagesize';
+
   const [rows, setRows] = useState<ProductionEntryRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -88,33 +160,38 @@ const EntryList: React.FC = () => {
       return 10;
     }
   });
+
   const [loading, setLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [report, setReport] = useState<ReportResponse | null>(null);
 
-  // filters
+  // Filters
+  const [fSearch, setFSearch] = useState<string>('');
   const [fDivision, setFDivision] = useState<string>();
   const [fSection, setFSection] = useState<string>();
   const [fDepartment, setFDepartment] = useState<string>();
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
   const [fShift, setFShift] = useState<string>();
-  const [fMachineNo, setFMachineNo] = useState<string>();
+  const [fMachineNo, setFMachineNo] = useState<string>('');
+  const [fStatus, setFStatus] = useState<string>();
 
   const buildFilters = useCallback(() => ({
+    search: fSearch.trim() || undefined,
     divisionId: fDivision,
     sectionId: fSection,
     departmentId: fDepartment,
     dateFrom: dateRange[0]?.format('YYYY-MM-DD'),
     dateTo: dateRange[1]?.format('YYYY-MM-DD'),
     shiftId: fShift,
-    machineNo: fMachineNo || undefined,
-  }), [fDivision, fSection, fDepartment, dateRange, fShift, fMachineNo]);
+    machineNo: fMachineNo.trim() || undefined,
+  }), [fSearch, fDivision, fSection, fDepartment, dateRange, fShift, fMachineNo]);
 
   const fetchRows = useCallback(async (p = page, ps = pageSize) => {
     setLoading(true);
     try {
       const res = await apiService.get<{ success: boolean; data: ProductionEntryRow[]; total: number }>(
-        '/production/entries', { page: p, limit: ps, ...buildFilters() },
+        '/production/entries',
+        { page: p, limit: ps, ...buildFilters() },
       );
       setRows(res.data || []);
       setTotal(res.total || 0);
@@ -128,7 +205,10 @@ const EntryList: React.FC = () => {
   const fetchReport = useCallback(async () => {
     setReportLoading(true);
     try {
-      const res = await apiService.get<{ success: boolean } & ReportResponse>('/production/entries/report', buildFilters());
+      const res = await apiService.get<{ success: boolean } & ReportResponse>(
+        '/production/entries/report',
+        buildFilters(),
+      );
       setReport(res);
     } catch {
       message.error('Failed to load production report');
@@ -137,8 +217,13 @@ const EntryList: React.FC = () => {
     }
   }, [buildFilters, message]);
 
-  useEffect(() => { void fetchRows(); }, [fetchRows]);
-  useEffect(() => { void fetchReport(); }, [fetchReport]);
+  useEffect(() => {
+    void fetchRows();
+  }, [fetchRows]);
+
+  useEffect(() => {
+    void fetchReport();
+  }, [fetchReport]);
 
   const handleSearch = () => {
     setPage(1);
@@ -147,206 +232,527 @@ const EntryList: React.FC = () => {
   };
 
   const handleReset = () => {
-    setFDivision(undefined); setFSection(undefined); setFDepartment(undefined);
-    setDateRange([null, null]); setFShift(undefined); setFMachineNo('');
+    setFSearch('');
+    setFDivision(undefined);
+    setFSection(undefined);
+    setFDepartment(undefined);
+    setDateRange([null, null]);
+    setFShift(undefined);
+    setFMachineNo('');
+    setFStatus(undefined);
     setPage(1);
     setTimeout(() => {
       void fetchRows(1, pageSize).then(() => fetchReport());
     }, 0);
   };
 
+  // Client-side status filter
+  const displayedRows = useMemo(() => {
+    if (!fStatus) return rows;
+    return rows.filter((r) => getEntryStatus(r) === fStatus);
+  }, [rows, fStatus]);
+
+  // Aggregate KPI summary
   const summary = useMemo(() => {
-    const target = rows.reduce((s, r) => s + toNum(r.targetQuantity), 0);
-    const actual = rows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
-    const scrap = rows.reduce((s, r) => s + toNum(r.scrapQuantity), 0);
-    return { target, actual, scrap, ach: target > 0 ? Math.round((actual / target) * 10000) / 100 : null };
-  }, [rows]);
+    const target = displayedRows.reduce((s, r) => s + toNum(r.targetQuantity), 0);
+    const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
+    const scrap = displayedRows.reduce((s, r) => s + toNum(r.scrapQuantity), 0);
+    return {
+      target,
+      actual,
+      scrap,
+      ach: target > 0 ? Math.round((actual / target) * 10000) / 100 : null,
+    };
+  }, [displayedRows]);
 
   const achIndicator = kpiIndicator(summary.ach);
 
+  // CSV Export
+  const exportToCsv = () => {
+    if (!displayedRows || displayedRows.length === 0) {
+      message.warning('No production entries to export');
+      return;
+    }
+    const headers = [
+      'Sr',
+      'Date',
+      'Division',
+      'Section',
+      'Department',
+      'Shift',
+      'Machine',
+      'Operator',
+      'Item Code',
+      'Item Name',
+      'Target Qty',
+      'Actual Qty',
+      'UOM',
+      'Achievement %',
+      'Efficiency %',
+      'Running Hours',
+      'Downtime Hours',
+      'Scrap Qty',
+      'Status',
+    ];
+
+    const csvLines = displayedRows.map((r, i) => {
+      const emp = lookups.hrEmployees.find(
+        (e) => e.id === r.operatorName || e.employeeCode === r.operatorName,
+      );
+      const op = emp ? lookups.employeeFullName(emp) : (r.operatorName || '');
+      const itemCode = r.item?.itemCode || '';
+      const itemName = r.item?.name || '';
+      const status = getEntryStatus(r);
+
+      return [
+        (page - 1) * pageSize + i + 1,
+        r.entryDate || '',
+        `"${(r.division?.name || '').replace(/"/g, '""')}"`,
+        `"${(r.section?.name || '').replace(/"/g, '""')}"`,
+        `"${(r.department?.name || '').replace(/"/g, '""')}"`,
+        `"${(r.shift?.name || '').replace(/"/g, '""')}"`,
+        `"${(r.machineNo || '').replace(/"/g, '""')}"`,
+        `"${op.replace(/"/g, '""')}"`,
+        `"${itemCode.replace(/"/g, '""')}"`,
+        `"${itemName.replace(/"/g, '""')}"`,
+        r.targetQuantity ?? 0,
+        r.actualQuantity ?? 0,
+        r.uom?.code || '',
+        r.achievementPercentage ?? 0,
+        r.efficiencyPercentage ?? 0,
+        r.runningHours ?? 0,
+        r.downtimeHours ?? 0,
+        r.scrapQuantity ?? 0,
+        status,
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...csvLines].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `daily-production-entries-${dayjs().format('YYYY-MM-DD')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    message.success('Exported production entries to CSV');
+  };
+
+  // Table Columns
   const columns: ColumnsType<ProductionEntryRow> = [
-    { title: 'Sr', width: 48, ellipsis: true, render: (_t, _r, i) => (page - 1) * pageSize + i + 1 },
     {
-      title: 'Date', dataIndex: 'entryDate', width: 105, sorter: true, ellipsis: true,
-      render: (d: string) => <span style={{ whiteSpace: 'nowrap' }}>{d?.slice(0, 10) || '—'}</span>,
+      title: 'Sr',
+      width: 46,
+      align: 'center',
+      ellipsis: true,
+      render: (_t, _r, i) => (
+        <span style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 11 }}>
+          {(page - 1) * pageSize + i + 1}
+        </span>
+      ),
     },
     {
-      title: 'Division', width: 140, ellipsis: true,
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <CalendarOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Date</span>
+        </span>
+      ),
+      dataIndex: 'entryDate',
+      width: 105,
+      sorter: true,
+      ellipsis: true,
+      render: (d: string) => {
+        const dateObj = dayjs(d);
+        const formatted = dateObj.isValid() ? dateObj.format('DD MMM YYYY') : (d?.slice(0, 10) || '—');
+        return <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>{formatted}</span>;
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <ApartmentOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Division</span>
+        </span>
+      ),
+      width: 130,
+      ellipsis: true,
+      responsive: ['xl'],
       render: (_t, r: ProductionEntryRow) => {
         const divName = r.division?.name || r.division?.divisionCode || '—';
         return (
           <Tooltip title={r.division?.divisionCode ? `${divName} (${r.division.divisionCode})` : divName}>
-            <span style={{ whiteSpace: 'nowrap' }}>{divName}</span>
+            <span style={{ whiteSpace: 'nowrap', color: 'var(--theme-text-secondary, #475569)' }}>{divName}</span>
           </Tooltip>
         );
       },
     },
     {
-      title: 'Section', width: 110, ellipsis: true,
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <TeamOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Department</span>
+        </span>
+      ),
+      width: 140,
+      ellipsis: true,
       render: (_t, r) => (
-        <Tooltip title={r.section?.name}>
-          <span style={{ whiteSpace: 'nowrap' }}>{r.section?.name || '—'}</span>
-        </Tooltip>
+        <DepartmentBadge
+          department={r.department}
+          fallback={r.departmentId ? r.departmentId.slice(0, 8) : '—'}
+        />
       ),
     },
     {
-      title: 'Department', width: 130, ellipsis: true,
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <ClockCircleOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Shift</span>
+        </span>
+      ),
+      width: 120,
+      ellipsis: true,
       render: (_t, r) => (
-        <Tooltip title={r.department?.name}>
-          <span style={{ whiteSpace: 'nowrap' }}>{r.department?.name || '—'}</span>
-        </Tooltip>
+        <ShiftBadge shift={r.shift} fallback="—" />
       ),
     },
     {
-      title: 'Shift', width: 130, ellipsis: true,
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <ToolOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Machine</span>
+        </span>
+      ),
+      width: 105,
+      ellipsis: true,
       render: (_t, r) => {
-        const sName = r.shift?.name || '—';
-        const sCode = (r.shift as ShiftLk | undefined)?.shiftCode;
+        const mCode = r.machine?.machineCode || r.machineNo || '—';
+        const mFullName = r.machine?.name ? `${r.machine.name} (${mCode})` : mCode;
         return (
-          <Tooltip title={sCode ? `${sName} (${sCode})` : sName}>
-            <span style={{ whiteSpace: 'nowrap' }}>{sName}</span>
+          <Tooltip title={mFullName}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <ToolOutlined style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }} />
+              <span>{mCode}</span>
+            </span>
           </Tooltip>
         );
       },
     },
     {
-      title: 'Machine', width: 95, ellipsis: true,
-      render: (_t, r) => {
-        const mLabel = r.machineNo || '—';
-        return (
-          <Tooltip title={mLabel}>
-            <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>{mLabel}</span>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: 'Operator', width: 140, ellipsis: true,
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <UserOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Operator</span>
+        </span>
+      ),
+      width: 140,
+      ellipsis: true,
       render: (_t, r) => {
         const emp = lookups.hrEmployees.find(
           (e) => e.id === r.operatorName || e.employeeCode === r.operatorName,
         );
         const op = emp ? lookups.employeeFullName(emp) : (r.operatorName || '—');
+        const tooltipText = emp ? `${op} (${emp.employeeCode})` : op;
         return (
-          <Tooltip title={emp ? `${op} (${emp.employeeCode})` : op}>
-            <span style={{ whiteSpace: 'nowrap' }}>{op}</span>
+          <Tooltip title={tooltipText}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+              <UserOutlined style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>{op}</span>
+            </span>
           </Tooltip>
         );
       },
     },
     {
-      title: 'Item', width: 220, ellipsis: true,
-      render: (_t, r) => {
-        const itemName = r.item?.name || r.item?.itemCode || '—';
-        return (
-          <Tooltip title={r.item?.itemCode ? `${itemName} (${r.item.itemCode})` : itemName}>
-            <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>{itemName}</span>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: 'Target', align: 'right', width: 95, ellipsis: true, sorter: true,
-      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.targetQuantity, 0)}</span>,
-    },
-    {
-      title: 'Actual', align: 'right', width: 95, ellipsis: true, sorter: true,
-      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.actualQuantity, 0)}</span>,
-    },
-    {
-      title: 'UOM', width: 70, ellipsis: true,
-      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{r.uom?.code ?? ''}</span>,
-    },
-    {
-      title: 'Eff %', align: 'right', width: 90, ellipsis: true,
-      render: (_t, r) => <KpiPercentage value={toNum(r.efficiencyPercentage)} />,
-    },
-    {
-      title: 'Achv %', align: 'right', width: 95, ellipsis: true,
-      render: (_t, r) => <KpiPercentage value={toNum(r.achievementPercentage)} />,
-    },
-    {
-      title: 'Run Hrs', align: 'right', width: 85, ellipsis: true,
-      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.runningHours, 2)}</span>,
-    },
-    {
-      title: 'Down Hrs', align: 'right', width: 95, ellipsis: true,
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <AppstoreOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Item / Product</span>
+        </span>
+      ),
+      width: 220,
+      ellipsis: true,
       render: (_t, r) => (
-        <Tooltip title={r.downtimeReasonText ?? undefined}>
-          <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.downtimeHours, 2)}</span>
-        </Tooltip>
+        <ItemBadge item={r.item} fallback="—" />
       ),
     },
     {
-      title: 'Scrap', align: 'right', width: 85, ellipsis: true,
-      render: (_t, r) => <span style={{ whiteSpace: 'nowrap' }}>{formatNumber(r.scrapQuantity, 0)}</span>,
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <AimOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Target</span>
+        </span>
+      ),
+      align: 'right',
+      width: 95,
+      ellipsis: true,
+      sorter: true,
+      dataIndex: 'targetQuantity',
+      render: (_t, r) => {
+        const uom = r.uom?.code || '';
+        return (
+          <span style={{ whiteSpace: 'nowrap', color: 'var(--theme-text-secondary, #475569)' }}>
+            {formatNumber(r.targetQuantity, 2)}{' '}
+            {uom && <span style={{ fontSize: 11, opacity: 0.85 }}>{uom}</span>}
+          </span>
+        );
+      },
     },
     {
-      title: 'Actions', fixed: 'right', width: 110,
-      render: (_t, r) => (
-        <Space size="small" style={{ whiteSpace: 'nowrap' }}>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/production/entries/${r.id}`)} />
-          <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/production/entries/${r.id}/edit`)} />
-          <Popconfirm
-            title="Delete this production entry?"
-            onConfirm={async () => {
-              try {
-                await apiService.delete(`/production/entries/${r.id}`);
-                message.success('Entry deleted');
-                void fetchRows();
-                void fetchReport();
-              } catch { message.error('Failed to delete entry'); }
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <BarChartOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Production</span>
+        </span>
+      ),
+      align: 'right',
+      width: 100,
+      ellipsis: true,
+      sorter: true,
+      dataIndex: 'actualQuantity',
+      render: (_t, r) => {
+        const uom = r.uom?.code || '';
+        return (
+          <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--theme-text, #0f172a)' }}>
+            {formatNumber(r.actualQuantity, 2)}{' '}
+            {uom && <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.85 }}>{uom}</span>}
+          </span>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <PercentageOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Achievement</span>
+        </span>
+      ),
+      align: 'right',
+      width: 115,
+      ellipsis: true,
+      render: (_t, r) => {
+        const ach = toNum(r.achievementPercentage);
+        const target = toNum(r.targetQuantity);
+        const actual = toNum(r.actualQuantity);
+        const uom = r.uom?.code || '';
+        const diff = actual - target;
+
+        let varianceNode: React.ReactNode = null;
+        if (target > 0) {
+          if (diff > 0) {
+            varianceNode = (
+              <span style={{ color: 'var(--theme-success, #16a34a)', fontWeight: 600 }}>
+                ↑ +{formatNumber(diff, 2)} {uom}
+              </span>
+            );
+          } else if (diff < 0) {
+            varianceNode = (
+              <span style={{ color: 'var(--theme-danger, #dc2626)', fontWeight: 600 }}>
+                ↓ -{formatNumber(Math.abs(diff), 2)} {uom}
+              </span>
+            );
+          } else {
+            varianceNode = (
+              <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>
+                – 0 {uom}
+              </span>
+            );
+          }
+        }
+
+        return (
+          <div style={{ textAlign: 'right', lineHeight: 1.25, whiteSpace: 'nowrap' }}>
+            <KpiPercentage value={ach} fontSize={12} fontWeight={600} />
+            {varianceNode && (
+              <div style={{ fontSize: 10.5, marginTop: 1.5 }}>
+                {varianceNode}
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Run / Down</span>
+        </span>
+      ),
+      align: 'right',
+      width: 105,
+      ellipsis: true,
+      responsive: ['md'],
+      render: (_t, r) => {
+        const runH = toNum(r.runningHours);
+        const downH = toNum(r.downtimeHours);
+        const reason = r.downtimeReasonText;
+        return (
+          <div style={{ textAlign: 'right', lineHeight: 1.25, whiteSpace: 'nowrap', fontSize: 12 }}>
+            <span>{formatNumber(runH, 1)}h</span>
+            <span style={{ color: 'var(--theme-text-muted, #94a3b8)', margin: '0 3px' }}>/</span>
+            <Tooltip title={reason ? `Downtime reason: ${reason}` : undefined}>
+              <span
+                style={{
+                  color: downH > 0 ? 'var(--theme-warning, #d97706)' : 'var(--theme-text-muted, #94a3b8)',
+                  fontWeight: downH > 0 ? 500 : 400,
+                }}
+              >
+                {formatNumber(downH, 1)}h
+              </span>
+            </Tooltip>
+          </div>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <DeleteOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Scrap</span>
+        </span>
+      ),
+      align: 'right',
+      width: 80,
+      ellipsis: true,
+      responsive: ['lg'],
+      render: (_t, r) => {
+        const scrap = toNum(r.scrapQuantity);
+        const uom = r.uom?.code || '';
+        return (
+          <span
+            style={{
+              whiteSpace: 'nowrap',
+              color: scrap > 0 ? 'var(--theme-danger, #e11d48)' : 'var(--theme-text-muted, #94a3b8)',
+              fontWeight: scrap > 0 ? 500 : 400,
             }}
           >
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
+            {formatNumber(scrap, 0)} {scrap > 0 && <span style={{ fontSize: 10.5 }}>{uom}</span>}
+          </span>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <CheckCircleOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Status</span>
+        </span>
+      ),
+      align: 'center',
+      width: 105,
+      render: (_t, r) => {
+        const status = getEntryStatus(r);
+        return <StatusBadge status={status} />;
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <SettingOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Actions</span>
+        </span>
+      ),
+      fixed: 'right',
+      width: 95,
+      render: (_t, r) => (
+        <TableActions
+          onView={() => navigate(`/production/entries/${r.id}`)}
+          onEdit={() => navigate(`/production/entries/${r.id}/edit`)}
+          onDelete={async () => {
+            try {
+              await apiService.delete(`/production/entries/${r.id}`);
+              message.success('Production entry deleted successfully');
+              void fetchRows();
+              void fetchReport();
+            } catch {
+              message.error('Failed to delete production entry');
+            }
+          }}
+          deleteConfirmTitle="Delete this daily production entry?"
+        />
       ),
     },
   ];
 
   const reportColumns = [
-    { title: 'Division', dataIndex: 'divisionName', key: 'divisionName' },
-    { title: 'Section', dataIndex: 'sectionName', key: 'sectionName' },
-    { title: 'Department', dataIndex: 'departmentName', key: 'departmentName' },
+    { title: 'Division', dataIndex: 'divisionName', key: 'divisionName', width: 140 },
+    { title: 'Section', dataIndex: 'sectionName', key: 'sectionName', width: 130 },
     {
-      title: 'Detail', key: 'detail',
+      title: 'Department',
+      dataIndex: 'departmentName',
+      key: 'departmentName',
+      width: 150,
+      render: (v: string, d: ReportDept) => (
+        <DepartmentBadge department={{ id: d.departmentId, departmentCode: d.departmentCode, name: v }} />
+      ),
+    },
+    {
+      title: 'Item Details',
+      key: 'detail',
       render: (_t: unknown, d: ReportDept) => (
         <div>
           {d.items.map((g) => (
-            <div key={`${g.itemId}-${g.uomCode}`} style={{ padding: '4px 0', borderBottom: '1px dashed var(--theme-border)' }}>
-              <Text strong>{g.itemCode}</Text> — {g.itemName}{' '}
-              <Tag>{g.uomCode}</Tag>
-              <Text>Target {formatNumber(g.targetQuantity, 0)} · Actual {formatNumber(g.actualQuantity, 0)}</Text>{' '}
-              {g.achievementPercentage !== null && (
-                <span style={{ marginRight: 8 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>Achv </Text>
-                  <KpiPercentage value={g.achievementPercentage} fontSize={12} fontWeight={400} />
+            <div
+              key={`${g.itemId}-${g.uomCode}`}
+              style={{
+                padding: '6px 0',
+                borderBottom: '1px dashed var(--theme-border, rgba(15, 23, 42, 0.08))',
+              }}
+            >
+              <Space size="middle" wrap>
+                <ItemBadge item={{ id: g.itemId, itemCode: g.itemCode, name: g.itemName }} showCode />
+                <span style={{ fontSize: 12 }}>
+                  Target <Text strong>{formatNumber(g.targetQuantity, 0)} {g.uomCode}</Text> · Actual{' '}
+                  <Text strong>{formatNumber(g.actualQuantity, 0)} {g.uomCode}</Text>
                 </span>
-              )}
-              {g.efficiencyPercentage !== null && (
-                <span>
-                  <Text type="secondary" style={{ fontSize: 12 }}>Eff </Text>
-                  <KpiPercentage value={g.efficiencyPercentage} fontSize={12} fontWeight={400} />
-                </span>
-              )}
-              <Text type="secondary">
-                Run {formatNumber(g.runningHours, 1)}h · Down {formatNumber(g.downtimeHours, 1)}h · Scrap {formatNumber(g.scrapQuantity, 0)}
-              </Text>
+                {g.achievementPercentage !== null && (
+                  <span style={{ fontSize: 12 }}>
+                    <Text type="secondary">Achv </Text>
+                    <KpiPercentage value={g.achievementPercentage} fontSize={12} fontWeight={600} />
+                  </span>
+                )}
+                {g.efficiencyPercentage !== null && (
+                  <span style={{ fontSize: 12 }}>
+                    <Text type="secondary">Eff </Text>
+                    <KpiPercentage value={g.efficiencyPercentage} fontSize={12} fontWeight={600} />
+                  </span>
+                )}
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  Run {formatNumber(g.runningHours, 1)}h · Down {formatNumber(g.downtimeHours, 1)}h · Scrap{' '}
+                  {formatNumber(g.scrapQuantity, 0)} {g.uomCode}
+                </Text>
+              </Space>
             </div>
           ))}
         </div>
       ),
     },
     {
-      title: 'Totals by UOM', key: 'totals',
+      title: 'Totals by UOM',
+      key: 'totals',
+      width: 220,
       render: (_t: unknown, d: ReportDept) => (
         <div>
           {d.totalsByUom.map((t) => (
-            <div key={t.uomCode} style={{ padding: '2px 0' }}>
+            <div key={t.uomCode} style={{ padding: '3px 0' }}>
               <Text strong>{t.uomCode}: </Text>
-              <Text>T {formatNumber(t.targetQuantity, 0)} / A {formatNumber(t.actualQuantity, 0)}</Text>{' '}
-              {t.achievementPercentage !== null && <KpiPercentage value={t.achievementPercentage} fontSize={12} fontWeight={400} />}
+              <Text>
+                T {formatNumber(t.targetQuantity, 0)} / A {formatNumber(t.actualQuantity, 0)}
+              </Text>{' '}
+              {t.achievementPercentage !== null && (
+                <KpiPercentage value={t.achievementPercentage} fontSize={12} />
+              )}
             </div>
           ))}
         </div>
@@ -355,69 +761,129 @@ const EntryList: React.FC = () => {
   ];
 
   return (
-    <div>
-      <Title level={4}>Daily Production Entry</Title>
+    <div style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          Daily Production Entry
+        </Title>
+      </div>
 
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Row gutter={[12, 12]} align="bottom">
-          <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Division</Text>
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
-              style={{ width: 180 }} value={fDivision}
-              options={lookups.divisions.map((d) => ({ value: d.id, label: `${d.divisionCode} — ${d.name}` }))}
-              onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); }}
+      {/* ── Filter / Search Toolbar ───────────────────────────────────────── */}
+      <Card size="small" style={{ marginBottom: 14 }}>
+        <Row gutter={[10, 10]} align="middle">
+          <Col xs={24} sm={12} md={6} lg={4}>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+              Quick Search
+            </Text>
+            <Input
+              allowClear
+              placeholder="Search entries..."
+              prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+              value={fSearch}
+              onChange={(e) => setFSearch(e.target.value)}
+              onPressEnter={handleSearch}
             />
           </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Section</Text>
+
+          <Col xs={12} sm={6} md={4} lg={3}>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+              Department
+            </Text>
             <Select
-              allowClear showSearch optionFilterProp="label" placeholder="All Sections"
-              style={{ width: 170 }} value={fSection}
-              options={lookups.sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
-              onChange={(v) => { setFSection(v); setFDepartment(undefined); }}
-            />
-          </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Department</Text>
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="All Departments"
-              style={{ width: 170 }} value={fDepartment}
-              options={lookups.departmentsForSection(fSection).map((d: Department) => ({ value: d.id, label: d.name }))}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="All Departments"
+              style={{ width: '100%' }}
+              value={fDepartment}
+              options={lookups.departments.map((d: Department) => ({ value: d.id, label: d.name }))}
               onChange={(v) => setFDepartment(v)}
             />
           </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Date From → To</Text>
-            <RangePicker
-              value={dateRange as never}
-              onChange={(v) => setDateRange([(v as never as unknown[])[0] as dayjs.Dayjs ?? null, (v as never as unknown[])[1] as dayjs.Dayjs ?? null])}
-            />
-          </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Shift</Text>
+
+          <Col xs={12} sm={6} md={4} lg={3}>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+              Shift
+            </Text>
             <Select
-              allowClear placeholder="All Shifts" style={{ width: 150 }} value={fShift}
+              allowClear
+              placeholder="All Shifts"
+              style={{ width: '100%' }}
+              value={fShift}
               options={(lookups.shifts || []).map((s) => ({ value: s.id, label: s.name }))}
               onChange={(v) => setFShift(v)}
             />
           </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Machine No.</Text>
+
+          <Col xs={12} sm={6} md={4} lg={3}>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+              Machine
+            </Text>
             <Input
-              allowClear placeholder="e.g. SR-01" style={{ width: 120 }}
-              value={fMachineNo} onChange={(e) => setFMachineNo(e.target.value)}
+              allowClear
+              placeholder="e.g. FT-04"
+              value={fMachineNo}
+              onChange={(e) => setFMachineNo(e.target.value)}
               onPressEnter={handleSearch}
             />
           </Col>
-          <Col>
-            <Space>
-              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>Search</Button>
-              <Button icon={<ReloadOutlined />} onClick={handleReset}>Reset</Button>
+
+          <Col xs={12} sm={6} md={4} lg={3}>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+              Status
+            </Text>
+            <Select
+              allowClear
+              placeholder="All Statuses"
+              style={{ width: '100%' }}
+              value={fStatus}
+              options={[
+                { value: 'COMPLETED', label: 'Completed' },
+                { value: 'IN_PROGRESS', label: 'In Progress' },
+                { value: 'DRAFT', label: 'Draft' },
+                { value: 'CANCELLED', label: 'Cancelled' },
+              ]}
+              onChange={(v) => setFStatus(v)}
+            />
+          </Col>
+
+          <Col xs={24} sm={12} md={8} lg={4}>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+              Date Range
+            </Text>
+            <RangePicker
+              style={{ width: '100%' }}
+              value={dateRange as never}
+              onChange={(v) =>
+                setDateRange([
+                  (v as never as unknown[])[0] as dayjs.Dayjs ?? null,
+                  (v as never as unknown[])[1] as dayjs.Dayjs ?? null,
+                ])
+              }
+            />
+          </Col>
+
+          <Col xs={24} sm={12} md={12} lg={4}>
+            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2, visibility: 'hidden' }}>
+              Actions
+            </Text>
+            <Space wrap size={6}>
+              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
+                Search
+              </Button>
+              <Tooltip title="Reset filters">
+                <Button icon={<ReloadOutlined />} onClick={handleReset} />
+              </Tooltip>
+              <Tooltip title="Export current rows to CSV">
+                <Button icon={<DownloadOutlined />} onClick={exportToCsv}>
+                  Export
+                </Button>
+              </Tooltip>
               <Button
-                type="primary" ghost icon={<PlusOutlined />}
+                type="primary"
+                ghost
+                icon={<PlusOutlined />}
                 onClick={() => {
-                  // Step 1 of the flow: machine availability screen (duplicate pre-check).
                   const qs = new URLSearchParams();
                   if (fDivision) qs.set('divisionId', fDivision);
                   if (fSection) qs.set('sectionId', fSection);
@@ -428,13 +894,14 @@ const EntryList: React.FC = () => {
                   navigate(`/production/entries/select${s ? `?${s}` : ''}`);
                 }}
               >
-                Add Production Entry
+                Add Entry
               </Button>
             </Space>
           </Col>
         </Row>
       </Card>
 
+      {/* ── Main Production Tabs ─────────────────────────────────────────── */}
       <Tabs
         defaultActiveKey="entries"
         items={[
@@ -443,12 +910,23 @@ const EntryList: React.FC = () => {
             label: 'Production Records',
             children: (
               <>
+                {/* ── KPI Summary Cards ───────────────────────────────────── */}
                 <Card size="small" style={{ marginBottom: 12 }}>
-                  <Row gutter={16}>
-                    <Col span={6}><Statistic title={`Target (${total} entries)`} value={summary.target} precision={0} /></Col>
-                    <Col span={6}><Statistic title="Actual Good Production" value={summary.actual} precision={0} /></Col>
-                    <Col span={6}><Statistic title="Rejection / Scrap" value={summary.scrap} precision={0} /></Col>
-                    <Col span={6}>
+                  <Row gutter={[16, 12]}>
+                    <Col xs={12} sm={6}>
+                      <Statistic
+                        title={`Target (${displayedRows.length}${total !== displayedRows.length ? ` / ${total}` : ''} entries)`}
+                        value={summary.target}
+                        precision={0}
+                      />
+                    </Col>
+                    <Col xs={12} sm={6}>
+                      <Statistic title="Actual Good Production" value={summary.actual} precision={0} />
+                    </Col>
+                    <Col xs={12} sm={6}>
+                      <Statistic title="Rejection / Scrap" value={summary.scrap} precision={0} />
+                    </Col>
+                    <Col xs={12} sm={6}>
                       <Statistic
                         title="Achievement (this page)"
                         value={summary.ach ?? 0}
@@ -465,16 +943,20 @@ const EntryList: React.FC = () => {
                     </Col>
                   </Row>
                 </Card>
-                <Table
+
+                {/* ── Enterprise Production Entry Table ───────────────────── */}
+                <ERPTable<ProductionEntryRow>
                   rowKey="id"
                   columns={columns}
-                  dataSource={rows}
+                  dataSource={displayedRows}
                   loading={loading}
-                  scroll={{ x: 1900 }}
-                  size="small"
-                  bordered
+                  scroll={{ x: 1680 }}
+                  dense
                   pagination={{
-                    current: page, pageSize, total, showSizeChanger: true,
+                    current: page,
+                    pageSize,
+                    total,
+                    showSizeChanger: true,
                     pageSizeOptions: ['10', '20', '50', '100'],
                     showTotal: (t) => `${t} production entries`,
                     onChange: (p, ps) => {
@@ -487,7 +969,7 @@ const EntryList: React.FC = () => {
                       }
                     },
                   }}
-                  onChange={(pagination, _filters, sorter: any) => {
+                  onChange={(_pagination, _filters, sorter: any) => {
                     if (sorter?.field && sorter?.order) {
                       const fieldMap: Record<string, string> = {
                         entryDate: 'entryDate',
@@ -497,10 +979,19 @@ const EntryList: React.FC = () => {
                       const sortBy = fieldMap[sorter.field];
                       if (sortBy) {
                         setLoading(true);
-                        apiService.get<{ data: ProductionEntryRow[]; total: number }>('/production/entries', {
-                          page, limit: pageSize, sortBy, sortDir: sorter.order === 'ascend' ? 'ASC' : 'DESC', ...buildFilters(),
-                        }).then((res) => { setRows(res.data || []); setTotal(res.total || 0); })
-                          .catch(() => message.error('Failed to sort'))
+                        apiService
+                          .get<{ data: ProductionEntryRow[]; total: number }>('/production/entries', {
+                            page,
+                            limit: pageSize,
+                            sortBy,
+                            sortDir: sorter.order === 'ascend' ? 'ASC' : 'DESC',
+                            ...buildFilters(),
+                          })
+                          .then((res) => {
+                            setRows(res.data || []);
+                            setTotal(res.total || 0);
+                          })
+                          .catch(() => message.error('Failed to sort production entries'))
                           .finally(() => setLoading(false));
                       }
                     }
@@ -512,7 +1003,9 @@ const EntryList: React.FC = () => {
           {
             key: 'report',
             label: (
-              <span><BarChartOutlined /> Department-Wise Report</span>
+              <span>
+                <BarChartOutlined /> Department-Wise Report
+              </span>
             ),
             children: (
               <>
@@ -531,20 +1024,21 @@ const EntryList: React.FC = () => {
                                 : ''
                             }
                           />
-                          <Text type="secondary">Target {formatNumber(t.targetQuantity, 0)} · Scrap {formatNumber(t.scrapQuantity, 0)}</Text>
+                          <Text type="secondary">
+                            Target {formatNumber(t.targetQuantity, 0)} · Scrap {formatNumber(t.scrapQuantity, 0)}
+                          </Text>
                         </Col>
                       ))}
                     </Row>
                   </Card>
                 )}
-                <Table
+                <ERPTable
                   rowKey="departmentId"
                   columns={reportColumns as never}
                   dataSource={report?.departments ?? []}
                   loading={reportLoading}
                   pagination={false}
-                  size="small"
-                  bordered
+                  dense
                 />
               </>
             ),

@@ -3,7 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Descriptions, Tag, Button, Space, Spin, App, Typography, Divider, Popconfirm, Row, Col, Table, Alert, Skeleton,
 } from 'antd';
-import { ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import {
+  ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined,
+  AimOutlined, AppstoreFilled, DeleteFilled, TrophyFilled, ThunderboltFilled, ClockCircleFilled, FieldTimeOutlined,
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, formatDimension, toNum } from '../../../utils/numberFormat';
@@ -125,16 +128,42 @@ const Section: React.FC<{ letter: string; title: string; children: React.ReactNo
   </Card>
 );
 
-/** Compact KPI strip cell (Part A redesign — one-screen ERP dashboard strip). */
-const KpiCell: React.FC<{ label: string; value: React.ReactNode; sub?: string; accent?: 'warn' | 'ok' }> = ({ label, value, sub, accent }) => (
+/** Compact KPI strip cell with watermark background icon */
+const KpiCell: React.FC<{
+  label: string;
+  value: React.ReactNode;
+  sub?: string;
+  accent?: 'warn' | 'ok';
+  icon?: React.ReactNode;
+}> = ({ label, value, sub, accent, icon }) => (
   <Col xs={12} sm={8} md={6} lg={3}>
     <div
       style={{
         background: accent === 'warn' ? 'var(--theme-warning-soft)' : 'var(--theme-surface-alt)',
         border: '1px solid var(--theme-border)',
-        borderRadius: 6, padding: '6px 10px', height: '100%',
+        borderRadius: 6,
+        padding: '8px 12px',
+        height: '100%',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      {icon && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 4,
+            bottom: -6,
+            fontSize: 48,
+            opacity: 0.13,
+            color: 'var(--theme-text)',
+            pointerEvents: 'none',
+            lineHeight: 1,
+          }}
+        >
+          {icon}
+        </div>
+      )}
       <Text type="secondary" style={{ fontSize: 11, display: 'block', textTransform: 'uppercase', letterSpacing: 0.3 }}>
         {label}
       </Text>
@@ -142,6 +171,143 @@ const KpiCell: React.FC<{ label: string; value: React.ReactNode; sub?: string; a
       {sub ? <Text type="secondary" style={{ fontSize: 11 }}>{sub}</Text> : null}
     </div>
   </Col>
+);
+
+/** 2-Line Material Flow & Inventory Balance Impact Report (Before vs Movement vs After) */
+const InventoryImpactReport: React.FC<{
+  posted: boolean;
+  rawItemCode?: string;
+  rawItemName?: string;
+  rawStoreName?: string;
+  rawBefore: number;
+  rawConsumed: number;
+  rawAfter: number;
+  rawUom: string;
+  outItemCode?: string;
+  outItemName?: string;
+  outStoreName?: string;
+  outBefore: number;
+  outProduced: number;
+  outAfter: number;
+  outUom: string;
+}> = ({
+  posted,
+  rawItemCode, rawItemName, rawStoreName, rawBefore, rawConsumed, rawAfter, rawUom,
+  outItemCode, outItemName, outStoreName, outBefore, outProduced, outAfter, outUom,
+}) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+    {/* LINE 1: INPUT (RAW MATERIAL INFLOW & DEDUCTION) */}
+    <div style={{
+      background: 'rgba(239, 68, 68, 0.04)',
+      border: '1px solid rgba(239, 68, 68, 0.28)',
+      borderRadius: 8,
+      padding: '10px 14px',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{
+            background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
+            fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '2px 8px', letterSpacing: 0.3,
+          }}>
+            📥 INPUT (RAW MATERIAL INFLOW)
+          </span>
+          <Text strong style={{ fontSize: 12 }}>{rawItemCode ?? 'Raw Material'}</Text>
+          {rawItemName && <Text type="secondary" style={{ fontSize: 12 }}>— {rawItemName}</Text>}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', background: 'var(--theme-surface-alt)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
+          Source: <strong style={{ color: 'var(--theme-text)' }}>{rawStoreName ?? '—'}</strong>
+        </span>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr auto 1fr auto 1fr',
+        gap: 6,
+        alignItems: 'center',
+        textAlign: 'center',
+      }}>
+        {/* Before */}
+        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 8px' }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block' }}>
+            {posted ? 'Opening Available' : 'Current Available'}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{formatNumber(rawBefore, 3)} {rawUom}</span>
+        </div>
+        <span style={{ fontSize: 18, fontWeight: 800, color: '#ef4444' }}>−</span>
+        {/* Consumed */}
+        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '6px 8px' }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#991b1b', fontWeight: 700, display: 'block' }}>
+            Consumed (Out)
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#b91c1c' }}>−{formatNumber(rawConsumed, 3)} {rawUom}</span>
+        </div>
+        <span style={{ fontSize: 18, fontWeight: 800, color: '#64748b' }}>=</span>
+        {/* After */}
+        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, padding: '6px 8px' }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>
+            {posted ? 'Remaining Balance' : 'Projected Balance'}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>{formatNumber(rawAfter, 3)} {rawUom}</span>
+        </div>
+      </div>
+    </div>
+
+    {/* LINE 2: OUTPUT (GOOD PRODUCTION OUTFLOW & ADDITION) */}
+    <div style={{
+      background: 'rgba(16, 185, 129, 0.04)',
+      border: '1px solid rgba(16, 185, 129, 0.28)',
+      borderRadius: 8,
+      padding: '10px 14px',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{
+            background: '#dcfce7', color: '#166534', border: '1px solid #86efac',
+            fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '2px 8px', letterSpacing: 0.3,
+          }}>
+            📤 OUTPUT (GOOD PRODUCTION OUTFLOW)
+          </span>
+          <Text strong style={{ fontSize: 12 }}>{outItemCode ?? 'Produced Item'}</Text>
+          {outItemName && <Text type="secondary" style={{ fontSize: 12 }}>— {outItemName}</Text>}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', background: 'var(--theme-surface-alt)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
+          Receipt: <strong style={{ color: 'var(--theme-text)' }}>{outStoreName ?? '—'}</strong>
+        </span>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr auto 1fr auto 1fr',
+        gap: 6,
+        alignItems: 'center',
+        textAlign: 'center',
+      }}>
+        {/* Before */}
+        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 8px' }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block' }}>
+            {posted ? 'Opening Balance' : 'Current Balance'}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{formatNumber(outBefore, 3)} {outUom}</span>
+        </div>
+        <span style={{ fontSize: 18, fontWeight: 800, color: '#10b981' }}>+</span>
+        {/* Produced */}
+        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 6, padding: '6px 8px' }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>
+            Produced (In)
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>+{formatNumber(outProduced, 3)} {outUom}</span>
+        </div>
+        <span style={{ fontSize: 18, fontWeight: 800, color: '#64748b' }}>=</span>
+        {/* After */}
+        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, padding: '6px 8px' }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>
+            {posted ? 'New Balance in Store' : 'Projected Balance'}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d', textDecoration: 'underline' }}>{formatNumber(outAfter, 3)} {outUom}</span>
+        </div>
+      </div>
+    </div>
+  </div>
 );
 
 const EntryDetail: React.FC = () => {
@@ -290,6 +456,23 @@ const EntryDetail: React.FC = () => {
     posted && productionInItemId && aggregateInputAvail + 0.001 < demandTotal;
   const noBalancesAnywhere = inputBalances.length === 0;
 
+  // ── Calculations for 2-Line Material Movement & Balance Impact Report ──
+  const rawItem = productionInItem;
+  const rawStoreName = sourceStoreRow?.warehouse?.name ?? (entry as any).rawMaterialWarehouse?.name ?? 'CCD Stores';
+  const rawConsumed = demandTotal;
+  const rawUom = rawItem?.wireSizeMm != null ? 'KG' : (entry.uom?.code ?? 'KG');
+  const rawCurrentAvail = sourceStoreAvail ?? 0;
+  const rawBefore = posted ? rawCurrentAvail + rawConsumed : rawCurrentAvail;
+  const rawAfter = posted ? rawCurrentAvail : Math.max(0, rawCurrentAvail - rawConsumed);
+
+  const outItem = entry.item;
+  const receiptStoreName = (entry as any).warehouse?.name ?? (movements.find(m => m.transactionType === 'PRODUCTION_RECEIPT')?.warehouse?.name) ?? balances[0]?.warehouse?.name ?? 'FT Production Department';
+  const outProduced = goodQty;
+  const outUom = entry.uom?.code ?? 'KG';
+  const outCurrentAvail = balances.find(b => b.warehouse?.name === receiptStoreName)?.available ?? balances[0]?.available ?? 0;
+  const outAfter = posted ? outCurrentAvail : outCurrentAvail + outProduced;
+  const outBefore = posted ? Math.max(0, outCurrentAvail - outProduced) : outCurrentAvail;
+
   const sectionCtx = (
     <Descriptions column={3} size="small" bordered>
       <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
@@ -418,6 +601,23 @@ const EntryDetail: React.FC = () => {
   const flowUnits = entry.uom?.code ?? '';
   const sectionMaterialFlow = (
     <div>
+      <InventoryImpactReport
+        posted={posted}
+        rawItemCode={rawItem?.itemCode}
+        rawItemName={rawItem?.name}
+        rawStoreName={rawStoreName}
+        rawBefore={rawBefore}
+        rawConsumed={rawConsumed}
+        rawAfter={rawAfter}
+        rawUom={rawUom}
+        outItemCode={outItem?.itemCode}
+        outItemName={outItem?.name}
+        outStoreName={receiptStoreName}
+        outBefore={outBefore}
+        outProduced={outProduced}
+        outAfter={outAfter}
+        outUom={outUom}
+      />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
         {productionInItem && (
           <React.Fragment>
@@ -550,6 +750,23 @@ const EntryDetail: React.FC = () => {
           <Tag>Not posted to stock</Tag>
         )}
       </div>
+      <InventoryImpactReport
+        posted={posted}
+        rawItemCode={rawItem?.itemCode}
+        rawItemName={rawItem?.name}
+        rawStoreName={rawStoreName}
+        rawBefore={rawBefore}
+        rawConsumed={rawConsumed}
+        rawAfter={rawAfter}
+        rawUom={rawUom}
+        outItemCode={outItem?.itemCode}
+        outItemName={outItem?.name}
+        outStoreName={receiptStoreName}
+        outBefore={outBefore}
+        outProduced={outProduced}
+        outAfter={outAfter}
+        outUom={outUom}
+      />
       {balancesLoading ? (
         <Skeleton active paragraph={{ rows: 1 }} />
       ) : balancesError ? (
@@ -675,13 +892,13 @@ const EntryDetail: React.FC = () => {
 
       {/* ── Compact KPI strip ── */}
       <Row gutter={[8, 8]} style={{ marginBottom: 4 }}>
-        <KpiCell label="Target" value={formatNumber(entry.targetQuantity, 3)} sub={entry.uom?.code} />
-        <KpiCell label="Actual Good" value={formatNumber(entry.actualQuantity, 3)} sub={entry.uom?.code} />
-        <KpiCell label="Scrap" value={formatNumber(entry.scrapQuantity, 3)} sub={entry.uom?.code} accent={toNum(entry.scrapQuantity) > 0 ? 'warn' : undefined} />
-        <KpiCell label="Achievement" value={<KpiPercentage value={ach} fontSize={16} fontWeight={700} />} sub="% of target" />
-        <KpiCell label="Efficiency" value={<KpiPercentage value={eff} fontSize={16} fontWeight={700} />} sub="% of shift" />
-        <KpiCell label="Running" value={`${formatNumber(running, 2)}h`} sub={planned != null ? `of ${formatNumber(planned, 2)}h` : undefined} />
-        <KpiCell label="Downtime" value={`${formatNumber(totalDowntime, 2)}h`} sub={remaining != null ? `remaining ${formatNumber(remaining, 2)}h` : undefined} accent={totalDowntime > 0 ? 'warn' : undefined} />
+        <KpiCell label="Target" value={formatNumber(entry.targetQuantity, 3)} sub={entry.uom?.code} icon={<AimOutlined />} />
+        <KpiCell label="Actual Good" value={formatNumber(entry.actualQuantity, 3)} sub={entry.uom?.code} icon={<AppstoreFilled />} />
+        <KpiCell label="Scrap" value={formatNumber(entry.scrapQuantity, 3)} sub={entry.uom?.code} accent={toNum(entry.scrapQuantity) > 0 ? 'warn' : undefined} icon={<DeleteFilled />} />
+        <KpiCell label="Achievement" value={<KpiPercentage value={ach} fontSize={16} fontWeight={700} />} sub="% of target" icon={<TrophyFilled />} />
+        <KpiCell label="Efficiency" value={<KpiPercentage value={eff} fontSize={16} fontWeight={700} />} sub="% of shift" icon={<ThunderboltFilled />} />
+        <KpiCell label="Running" value={`${formatNumber(running, 2)}h`} sub={planned != null ? `of ${formatNumber(planned, 2)}h` : undefined} icon={<ClockCircleFilled />} />
+        <KpiCell label="Downtime" value={`${formatNumber(totalDowntime, 2)}h`} sub={remaining != null ? `remaining ${formatNumber(remaining, 2)}h` : undefined} accent={totalDowntime > 0 ? 'warn' : undefined} icon={<FieldTimeOutlined />} />
       </Row>
 
       <Row gutter={16}>

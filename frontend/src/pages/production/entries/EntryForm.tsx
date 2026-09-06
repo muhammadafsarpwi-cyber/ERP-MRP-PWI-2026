@@ -4,9 +4,16 @@ import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
   App, Typography, Switch, Alert, Spin, AutoComplete, Tooltip,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined, ThunderboltOutlined, WarningOutlined, GoldOutlined, CloseCircleOutlined, TrophyOutlined, CheckOutlined, UndoOutlined, DatabaseOutlined } from '@ant-design/icons';
+import {
+  ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined,
+  PlusOutlined, DeleteOutlined, ClockCircleOutlined, ThunderboltOutlined,
+  WarningOutlined, GoldOutlined, CloseCircleOutlined, TrophyOutlined,
+  CheckOutlined, UndoOutlined, DatabaseOutlined, CalendarOutlined,
+  ToolOutlined, TeamOutlined, ApartmentOutlined,
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
+import { useUserStore } from '../../../store/userStore';
 import { formatNumber, formatDimension, toNum } from '../../../utils/numberFormat';
 import { useLookups, ItemLk } from './lookups';
 import {
@@ -25,14 +32,73 @@ const { Title, Text } = Typography;
  *  Form.useWatch would always resolve to 0 and show "Planned 0h"). */
 const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; runningHours: number }> = ({ totalDowntime, plannedHours, runningHours }) => {
   const remaining = Math.max(0, plannedHours - runningHours - totalDowntime);
+  const isBalanced = plannedHours > 0 && Math.abs(runningHours + totalDowntime - plannedHours) < 0.01;
+
   return (
-    <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-      <Text type="secondary">Planned <Text strong>{formatNumber(plannedHours, 2)}h</Text></Text>
-      <Text type="secondary">Running <Text strong>{formatNumber(runningHours, 2)}h</Text></Text>
-      <Text type="secondary">Total Downtime <Text strong style={{ color: '#fa541c' }}>{formatNumber(totalDowntime, 2)}h</Text></Text>
-      {plannedHours > 0 && (
-        <Text type="secondary">Remaining <Text strong style={{ color: remaining <= 0 ? '#52c41a' : '#faad14' }}>{formatNumber(remaining, 2)}h</Text></Text>
-      )}
+    <div style={{ marginTop: 14, marginBottom: 6 }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+        gap: 8,
+      }}>
+        {/* Planned */}
+        <div style={{
+          background: '#f1f5f9',
+          border: '1px solid #cbd5e1',
+          borderRadius: 6,
+          padding: '6px 10px',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#475569', fontWeight: 700, letterSpacing: 0.5 }}>Planned Shift</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>{formatNumber(plannedHours, 2)}h</span>
+        </div>
+
+        {/* Running */}
+        <div style={{
+          background: '#dcfce7',
+          border: '1px solid #86efac',
+          borderRadius: 6,
+          padding: '6px 10px',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#14532d', fontWeight: 700, letterSpacing: 0.5 }}>Running</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#000000' }}>{formatNumber(runningHours, 2)}h</span>
+        </div>
+
+        {/* Downtime */}
+        <div style={{
+          background: totalDowntime > 0 ? '#ffedd5' : '#f8fafc',
+          border: `1px solid ${totalDowntime > 0 ? '#fdba74' : '#e2e8f0'}`,
+          borderRadius: 6,
+          padding: '6px 10px',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: totalDowntime > 0 ? '#9a3412' : '#64748b', fontWeight: 700, letterSpacing: 0.5 }}>Total Downtime</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: totalDowntime > 0 ? '#c2410c' : '#000000' }}>{formatNumber(totalDowntime, 2)}h</span>
+        </div>
+
+        {/* Remaining / Balance */}
+        {plannedHours > 0 && (
+          <div style={{
+            background: isBalanced ? '#dcfce7' : '#fee2e2',
+            border: `1px solid ${isBalanced ? '#86efac' : '#fca5a5'}`,
+            borderRadius: 6,
+            padding: '6px 10px',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <span style={{ fontSize: 10, textTransform: 'uppercase', color: isBalanced ? '#14532d' : '#991b1b', fontWeight: 700, letterSpacing: 0.5 }}>
+              {isBalanced ? 'Shift Balanced' : 'Unaccounted'}
+            </span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: isBalanced ? '#15803d' : '#b91c1c' }}>
+              {isBalanced ? '✓ OK (0.00h)' : `${formatNumber(remaining, 2)}h`}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -137,8 +203,36 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const targetQty = Form.useWatch('targetQuantity', form);
   const scrapQty = Form.useWatch('scrapQuantity', form);
   const rawMatWarehouseWatch = Form.useWatch('rawMaterialWarehouseId', form);
+  const warehouseWatch = Form.useWatch('warehouseId', form);
+  const operatorWatch = Form.useWatch('operatorName', form);
+  const supervisorWatch = Form.useWatch('supervisorName', form);
   const downtimeEntriesWatch = Form.useWatch('downtimeEntries', form);
   const productionItemsWatch = Form.useWatch('productionItems', form);
+
+  // Auto-fill Supervisor Name from currently logged-in user
+  const currentUser = useUserStore((s) => s.user);
+  const currentUserName = useMemo(() => {
+    if (!currentUser) {
+      try {
+        const raw = localStorage.getItem('erp_user');
+        if (raw) {
+          const u = JSON.parse(raw);
+          return u.displayName || `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || u.email || '';
+        }
+      } catch {}
+      return '';
+    }
+    return currentUser.displayName || `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.username || currentUser.email || '';
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (mode === 'create' && currentUserName) {
+      const existing = form.getFieldValue('supervisorName');
+      if (!existing) {
+        form.setFieldValue('supervisorName', currentUserName);
+      }
+    }
+  }, [mode, currentUserName, form]);
 
   // TASK #32: Raw material data resolved by RawMaterialAvailability, keyed by production itemId.
   // Used by ItemDetailsStrip to show raw material info inline.
@@ -303,6 +397,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   useEffect(() => {
     if (!id || mode !== 'edit') return;
     void (async () => {
+      console.log('ENTRY_LOAD_START:', { id, mode });
       setLoadingEntry(true);
       try {
         const res = await apiService.get<{ success: boolean } & { data: EntryDetailData & { productionOrder?: { id: string; orderNumber: string } } }>(`/production/entries/${id}`);
@@ -318,6 +413,23 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         // Only scalar/field values go into the form store — spreading the whole
         // entity (with division/section/item/uom relation objects) triggers
         // antd's "circular references" clone warning.
+        let loadedWarehouseId = e.warehouseId;
+        if (!loadedWarehouseId && e.inventoryReferenceId) {
+          try {
+            const ledgerRes = await apiService.get<{ data: any[] }>('/inventory/reports/ledger', {
+              referenceId: e.id,
+              referenceType: 'PRODUCTION_ENTRY',
+            });
+            const movements = ledgerRes.data || [];
+            const receiptMov = movements.find((m: any) => m.transactionType === 'PRODUCTION_RECEIPT' && m.warehouseId);
+            if (receiptMov?.warehouseId) {
+              loadedWarehouseId = receiptMov.warehouseId;
+            }
+          } catch {
+            // fallback lookup
+          }
+        }
+
         form.setFieldsValue({
           id: e.id,
           entryDate: dayjs(e.entryDate),
@@ -336,9 +448,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           remarks: e.remarks ?? undefined,
           productionOrderId: e.productionOrderId ?? undefined,
           productionOrderOperationId: e.productionOrderOperationId ?? undefined,
-      postToInventory: !!e.inventoryReferenceId,
-      warehouseId: e.warehouseId ?? undefined,
-      rawMaterialWarehouseId: (e as any).rawMaterialWarehouseId ?? undefined,
+          postToInventory: !!e.inventoryReferenceId,
+          warehouseId: loadedWarehouseId ?? undefined,
+          rawMaterialWarehouseId: (e as any).rawMaterialWarehouseId ?? undefined,
       // Child lines: production items + downtime entries
       productionItems: (e as any).items?.map((it: any) => ({
         id: it.id,
@@ -355,16 +467,18 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       downtimeEntries: (e as any).downtimes?.map((dt: any) => ({
         id: dt.id,
         lineNumber: dt.lineNumber,
-        downtimeReasonId: dt.downtimeReasonId ?? undefined,
-        downtimeReason: dt.downtimeReasonText ?? dt.downtimeReason ?? undefined,
+        downtimeReasonId: dt.downtimeReasonId ?? dt.downtimeReason?.id ?? undefined,
+        downtimeReason: dt.downtimeReasonText ?? (typeof dt.downtimeReason === 'string' ? dt.downtimeReason : dt.downtimeReason?.reasonName || dt.downtimeReason?.name || dt.downtimeReason?.description) ?? undefined,
         downtimeHours: toNum(dt.downtimeHours),
         remarks: dt.remarks ?? undefined,
         confirmed: true,
       })) ?? [],
         });
-      } catch {
+      } catch (err) {
+        console.error('ENTRY_LOAD_ERROR:', err);
         message.error('Failed to load production entry');
       } finally {
+        console.log('ENTRY_LOAD_FINALLY');
         setLoadingEntry(false);
       }
     })();
@@ -553,9 +667,15 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   /** Target shown for a machine-linked entry: standard target pro-rated to the
    *  actual running hours — identical to what the server stores on save. */
   const displayTarget = useMemo(() => {
-    if (!machineLinked || !mtResolution || !(mtResolution.standardHours > 0)) return null;
-    return prorateTarget(mtResolution.standardTarget, mtResolution.standardHours, derivedRunning);
-  }, [machineLinked, mtResolution, derivedRunning]);
+    if (!machineLinked) return null;
+    if (mtResolution && mtResolution.standardHours > 0) {
+      return prorateTarget(mtResolution.standardTarget, mtResolution.standardHours, derivedRunning);
+    }
+    if (mode === 'edit' && entry?.targetQuantity != null) {
+      return toNum(entry.targetQuantity);
+    }
+    return null;
+  }, [machineLinked, mtResolution, derivedRunning, mode, entry?.targetQuantity]);
 
   const achievement = useMemo(() => {
     const t = machineLinked ? displayTarget : toNum(targetQty);
@@ -569,16 +689,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return denom > 0 ? Math.round((derivedRunning / denom) * 10000) / 100 : null;
   }, [derivedRunning, totalDowntime, plannedHours]);
 
-  // Rejection % from the ERP's own quantities:
-  //   Total Produced = Actual Good Production + Rejection/Scrap
-  //   Rejection %    = Rejection ÷ Total Produced × 100
-  // Zero-safe (0.00 when nothing was produced), never negative, live-updating.
-  const rejectionPct = useMemo(() => {
-    const good = Math.max(0, toNum(actualQty));
-    const rej = Math.max(0, toNum(scrapQty));
-    const total = good + rej;
-    return total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
-  }, [actualQty, scrapQty]);
+
 
   const selectedItem = useMemo(
     () => lookups.items.find((i) => i.id === itemId) ?? null,
@@ -606,23 +717,52 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const primaryUomType = useMemo(() => {
     const rows = (productionItemsWatch ?? []) as Array<{ itemId?: string; uomId?: string }>;
     const first = rows.find((it) => !!it.itemId);
-    const uomIdForType = first?.uomId ?? uomId;
-    return lookups.uoms.find((u) => u.id === uomIdForType)?.uomType ?? null;
-  }, [productionItemsWatch, uomId, lookups.uoms]);
+    const uomIdForType = first?.uomId ?? uomId ?? primaryItem?.baseUomId;
+    const foundUom = lookups.uoms.find((u) => u.id === uomIdForType);
+    if (foundUom?.uomType) return foundUom.uomType;
+    if (foundUom?.code === 'KG' || primaryItem?.baseUom?.code === 'KG') return 'WEIGHT';
+    if (foundUom?.code === 'M' || foundUom?.code === 'METER' || primaryItem?.baseUom?.code === 'M' || primaryItem?.baseUom?.code === 'METER') return 'LENGTH';
+    return null;
+  }, [productionItemsWatch, uomId, primaryItem, lookups.uoms]);
 
   const scrapWeightKg = useMemo(() => {
-    const val = lineToKg(Math.max(0, toNum(scrapQty)), { ...primaryItem, uomType: primaryUomType });
+    const rows = (productionItemsWatch ?? []) as Array<{ itemId?: string; uomId?: string; scrapQuantity?: number | string }>;
+    const first = rows.find((it) => !!it.itemId);
+    const uomIdForType = first?.uomId ?? uomId ?? primaryItem?.baseUomId;
+    const foundUom = lookups.uoms.find((u) => u.id === uomIdForType);
+    const val = lineToKg(Math.max(0, toNum(scrapQty)), {
+      ...primaryItem,
+      uomType: primaryUomType,
+      uomCode: foundUom?.code || primaryItem?.baseUom?.code,
+    });
     return val == null ? 0 : val;
-  }, [scrapQty, primaryItem, primaryUomType]);
+  }, [scrapQty, primaryItem, primaryUomType, productionItemsWatch, uomId, lookups.uoms]);
 
   // ── Multi-item details (TASK #26): render one compact Item Details strip for
-  //    EVERY selected production item, never hiding the second item's details.
+  //    EVERY selected production item, falling back to selectedItem for single-item entries.
   const selectedProductionItems = useMemo(() => {
     const items = (productionItemsWatch ?? []) as Array<{ itemId?: string }>;
-    return items
+    const fromRows = items
       .map((it) => it.itemId ? lookups.items.find((i) => i.id === it.itemId) ?? null : null)
       .filter((x): x is ItemLk => !!x);
-  }, [productionItemsWatch, lookups.items]);
+    if (fromRows.length > 0) return fromRows;
+    if (selectedItem) return [selectedItem];
+    return [];
+  }, [productionItemsWatch, lookups.items, selectedItem]);
+
+  const effectiveProductionItems = useMemo(() => {
+    const items = ((productionItemsWatch ?? []) as Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string; scrapQuantity?: number | string }>).filter((p) => !!p.itemId);
+    if (items.length > 0) return items;
+    if (itemId) {
+      return [{
+        itemId,
+        actualQuantity: actualQty,
+        scrapQuantity: scrapQty,
+        uomId,
+      }];
+    }
+    return [];
+  }, [productionItemsWatch, itemId, actualQty, scrapQty, uomId]);
 
   // ── Department-based item filtering ────────────────────────────────────────
   // Items available in the Production Items row dropdowns are scoped to the
@@ -657,8 +797,22 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       items.map((line) => {
         const item = lookups.items.find((i) => i.id === line.itemId);
         if (!item) return { actualQuantity: line.actualQuantity, scrapQuantity: line.scrapQuantity };
-        const uomType = lookups.uoms.find((u) => u.id === line.uomId)?.uomType ?? null;
-        return { actualQuantity: line.actualQuantity, scrapQuantity: line.scrapQuantity, item: { ...item, uomType } };
+        const resolvedUomId = line.uomId || item.baseUomId;
+        const foundUom = lookups.uoms.find((u) => u.id === resolvedUomId);
+        let uomType = foundUom?.uomType ?? null;
+        if (!uomType) {
+          if (foundUom?.code === 'KG' || item.baseUom?.code === 'KG') uomType = 'WEIGHT';
+          else if (foundUom?.code === 'M' || foundUom?.code === 'METER' || item.baseUom?.code === 'M' || item.baseUom?.code === 'METER') uomType = 'LENGTH';
+        }
+        return {
+          actualQuantity: line.actualQuantity,
+          scrapQuantity: line.scrapQuantity,
+          item: {
+            ...item,
+            uomType,
+            uomCode: foundUom?.code || item.baseUom?.code,
+          },
+        };
       }),
     );
   }, [productionItemsWatch, lookups.items, lookups.uoms]);
@@ -693,10 +847,37 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return { kg: kg ?? 0, rejKg: rejKg ?? 0, rejPct };
   }, [primaryItem, actualQty, scrapQty, uomId, lookups.uoms]);
 
+  // Combined scrap weight: prefer line-aggregated scrap KG if present, else single-item scrap KG
+  const effectiveScrapWeightKg = useMemo(() => {
+    if (multiItemAggregate && multiItemAggregate.totalRejectionKg > 0) {
+      return multiItemAggregate.totalRejectionKg;
+    }
+    return scrapWeightKg;
+  }, [multiItemAggregate, scrapWeightKg]);
+
+  // Unified Rejection %:
+  // Derived from Production Weight (KG) and Rejection Weight (KG).
+  // When item is in METERS or PIECES, converting both to KG provides true like-for-like comparison.
+  // Rejection % = Rejection Weight (KG) ÷ (Production Weight (KG) + Rejection Weight (KG)) × 100.
+  const rejectionPct = useMemo(() => {
+    const prodKg = multiItemAggregate?.totalKg ?? singleItemKg?.kg ?? 0;
+    const rejKg = effectiveScrapWeightKg;
+    const totalKg = prodKg + rejKg;
+    if (totalKg > 0) {
+      return Math.round((rejKg / totalKg) * 10000) / 100;
+    }
+    const good = Math.max(0, toNum(actualQty));
+    const rej = Math.max(0, toNum(scrapQty));
+    const total = good + rej;
+    return total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
+  }, [actualQty, scrapQty, multiItemAggregate, singleItemKg, effectiveScrapWeightKg]);
+
   const onFinish = useCallback(async (values: Record<string, unknown>) => {
+    console.log('ON_FINISH_START', values);
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...values };
+      delete payload.id;
       delete payload.__computed;
       delete payload.postToInventory; // presentation flag; create decides posting via explicit field below
       // The raw antd Form.List arrays (`downtimeEntries`, `productionItems`) are
@@ -781,7 +962,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         return;
       }
 
-      if (machineLinked) {
+      if (machineLinked && mode === 'create') {
         // ERP-00016: target + UOM are owned by the resolved Machine Target.
         // The server resolves them authoritatively — never send client copies.
         delete payload.targetQuantity;
@@ -822,12 +1003,22 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         // Inventory posting is a CREATE-only decision (stock is posted once at
         // creation; the update API does not accept postToInventory/warehouseId).
         delete payload.warehouseId;
+        console.log('SENDING_PUT_PAYLOAD:', JSON.stringify(payload));
+        console.log('BEFORE_API_PUT');
         await apiService.put(`/production/entries/${id}`, payload);
-        message.success('Production entry updated');
+        console.log('AFTER_API_PUT_SUCCESS');
+        try {
+          message.success('Production entry updated');
+        } catch (mErr) {
+          console.error('MESSAGE_ERR:', mErr);
+        }
+        console.log('CALLING_NAVIGATE_TO:', `/production/entries/${id}`);
         navigate(`/production/entries/${id}`);
+        console.log('NAVIGATE_CALLED_FINISHED');
       }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string | string[] } } };
+      console.error('ENTRY_SAVE_ERROR_RESPONSE:', JSON.stringify(axiosErr.response?.data));
       const msg = Array.isArray(axiosErr.response?.data?.message)
         ? axiosErr.response!.data!.message!.join(', ')
         : axiosErr.response?.data?.message ?? 'Failed to save entry';
@@ -893,34 +1084,143 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     };
   }, [showSummary, mode, lookups.divisions, lookups.sections, lookups.departments, lookups.shifts, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, ctxMachineCode, entry]);
 
-  const submitBlocked = resolvingMt || (machineLinked && (!!mtError || displayTarget === null));
+  const submitBlocked = mode === 'create' && (resolvingMt || (machineLinked && (!!mtError || displayTarget === null)));
 
   const renderContextSummary = () => (
     <Card
-      size="small" style={{ marginBottom: 16, borderLeft: '3px solid var(--theme-warning)', background: 'var(--theme-warning-soft)' }}
-      title={<span><InfoCircleOutlined style={{ marginRight: 6, color: 'var(--theme-warning)' }} />Production Context</span>}
+      size="small"
+      style={{
+        marginBottom: 16,
+        borderRadius: 8,
+        border: '1px solid #fed7aa',
+        background: 'linear-gradient(180deg, #fffdf8 0%, #fff7ed 100%)',
+        boxShadow: '0 1px 4px rgba(234, 88, 12, 0.06)',
+      }}
+      bodyStyle={{ padding: '12px 16px' }}
     >
-      <Row justify="space-between" align="middle" gutter={[12, 8]}>
-        <Col flex="auto">
-          <Space size={[28, 10]} wrap>
-            <CtxItem label="Date" value={summaryCtx?.date?.format('DD MMM YYYY')} />
-            <CtxItem label="Shift" value={summaryCtx?.shiftLabel} />
-            <CtxItem label="Machine No." value={summaryCtx?.machineLabel} strong />
-            <CtxItem label="Department" value={summaryCtx?.depLabel} />
-            <CtxItem label="Section" value={summaryCtx?.secLabel} />
-            <CtxItem label="Division" value={summaryCtx?.divLabel} />
-          </Space>
-        </Col>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              background: '#ffedd5',
+              color: '#ea580c',
+              fontSize: 15,
+            }}
+          >
+            <ThunderboltOutlined />
+          </span>
+          <div>
+            <span style={{ fontWeight: 700, fontSize: 14, color: '#9a3412', marginRight: 8 }}>
+              Production Context
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                background: '#fef3c7',
+                color: '#b45309',
+                padding: '2px 8px',
+                borderRadius: 12,
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <LockOutlined style={{ fontSize: 10 }} />
+              {mode === 'create' ? 'Locked Selection' : 'Existing Entry Identity'}
+            </span>
+          </div>
+        </div>
         {mode === 'create' && lockedContext && (
-          <Col>
-            <Button size="small" onClick={changeSelection}>Change Selection</Button>
-          </Col>
+          <Button
+            size="small"
+            style={{
+              borderColor: '#fdba74',
+              color: '#c2410c',
+              fontWeight: 600,
+              background: '#fff',
+              borderRadius: 6,
+            }}
+            icon={<UndoOutlined />}
+            onClick={changeSelection}
+          >
+            Change Selection
+          </Button>
         )}
+      </div>
+
+      <Row gutter={[10, 10]}>
+        <Col xs={12} sm={8} md={4}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.85)', border: '1px solid #ffedd5', borderRadius: 6, padding: '6px 10px' }}>
+            <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, color: '#c2410c', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <CalendarOutlined /> Date
+            </Text>
+            <Text strong style={{ fontSize: 13, color: '#1e293b' }}>
+              {summaryCtx?.date?.format('DD MMM YYYY') ?? '—'}
+            </Text>
+          </div>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.85)', border: '1px solid #ffedd5', borderRadius: 6, padding: '6px 10px' }}>
+            <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, color: '#c2410c', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <ClockCircleOutlined /> Shift
+            </Text>
+            <Text strong style={{ fontSize: 13, color: '#1e293b' }}>
+              {summaryCtx?.shiftLabel ?? '—'}
+            </Text>
+          </div>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.95)', border: '1px solid #ea580c', borderRadius: 6, padding: '6px 10px', boxShadow: '0 1px 2px rgba(234, 88, 12, 0.1)' }}>
+            <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, color: '#ea580c', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <ToolOutlined /> Machine No.
+            </Text>
+            <Text strong style={{ fontSize: 14, color: '#ea580c' }}>
+              {summaryCtx?.machineLabel ?? '—'}
+            </Text>
+          </div>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.85)', border: '1px solid #ffedd5', borderRadius: 6, padding: '6px 10px' }}>
+            <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, color: '#c2410c', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <ApartmentOutlined /> Department
+            </Text>
+            <Text strong style={{ fontSize: 13, color: '#1e293b' }}>
+              {summaryCtx?.depLabel ?? '—'}
+            </Text>
+          </div>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.85)', border: '1px solid #ffedd5', borderRadius: 6, padding: '6px 10px' }}>
+            <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, color: '#c2410c', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <GoldOutlined /> Section
+            </Text>
+            <Text strong style={{ fontSize: 13, color: '#1e293b' }}>
+              {summaryCtx?.secLabel ?? '—'}
+            </Text>
+          </div>
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.85)', border: '1px solid #ffedd5', borderRadius: 6, padding: '6px 10px' }}>
+            <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, color: '#c2410c', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <TeamOutlined /> Division
+            </Text>
+            <Text strong style={{ fontSize: 13, color: '#1e293b' }}>
+              {summaryCtx?.divLabel ?? '—'}
+            </Text>
+          </div>
+        </Col>
       </Row>
-      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8, color: '#9a3412' }}>
         {mode === 'create'
-          ? 'Locked by the machine-selection step — a duplicate date/shift/machine entry is impossible here.'
-          : 'Identity of an existing entry — edit the production figures below.'}
+          ? '• Machine-selection locked: duplicate date / shift / machine entry is prevented.'
+          : '• Editing existing production entry figures.'}
       </Text>
     </Card>
   );
@@ -965,6 +1265,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           <Form.Item name="shiftId" label="Shift" rules={[{ required: true, message: 'Shift is required' }]}>
             <Select
               showSearch optionFilterProp="label" placeholder="Select Shift"
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 380 }}
               options={lookups.shifts.map((s) => ({
                 value: s.id,
                 label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''}) · planned ${s.plannedHours}h`,
@@ -1003,7 +1305,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         </Title>
       </Space>
 
-      <Form form={form} layout="vertical" onFinish={onFinish} autoComplete="off">
+      <Form form={form} layout="vertical" onFinish={onFinish} onFinishFailed={(err) => console.log('ON_FINISH_FAILED', JSON.stringify(err))} autoComplete="off">
         {loadingEntry && (
           <Card>
             <Spin style={{ width: '100%', marginTop: 80 }} />
@@ -1030,6 +1332,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               label="Achievement %"
               hint="actual vs target"
               content={<KpiPercentage value={achievement} fontSize={20} fontWeight={600} />}
+              accent="#1890ff"
               icon={<TrophyOutlined />}
             />
           </Col>
@@ -1065,7 +1368,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               hint="Rejection / Scrap × item weight"
               content={
                 <Text strong style={{ fontSize: 16, color: 'var(--theme-text)' }}>
-                  {formatNumber(scrapWeightKg, 3)} KG
+                  {formatNumber(effectiveScrapWeightKg, 3)} KG
                 </Text>
               }
               accent="var(--theme-warning)"
@@ -1091,6 +1394,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                       optionFilterProp="label"
                       placeholder="Select HR operator or type manual name"
                       notFoundContent="No HR operators — select 'Manual entry' to type a name"
+                      popupMatchSelectWidth={false}
+                      className={operatorWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                      dropdownStyle={{ minWidth: 360 }}
                       options={
                         lookups.employeesForDepartment(departmentId).map((e) => ({
                           value: lookups.employeeFullName(e),
@@ -1112,7 +1418,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item name="supervisorName" label="Supervisor Name">
-                    <Input maxLength={120} placeholder="Optional" />
+                    <Input
+                      maxLength={120}
+                      placeholder="Optional"
+                      className={supervisorWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                    />
                   </Form.Item>
                 </Col>
               </Row>
@@ -1225,10 +1535,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
             {/* ── Raw Material Availability (real BOM + inventory) ── */}
             <RawMaterialAvailability
-              productionItems={(productionItemsWatch ?? []) as Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string; scrapQuantity?: number | string }>}
+              productionItems={effectiveProductionItems}
               lookups={lookups}
               warehouseId={rawMatWarehouseWatch as string | undefined}
+              receiptWarehouseId={warehouseWatch as string | undefined}
               sourceStoreLabel={rawMatWarehouseWatch ? (warehouses.find((w) => w.id === rawMatWarehouseWatch)?.name ?? undefined) : undefined}
+              receiptStoreLabel={warehouseWatch ? (warehouses.find((w) => w.id === warehouseWatch)?.name ?? undefined) : undefined}
               fallbackScrapQty={scrapQty}
               onData={setRawMaterialData}
             />
@@ -1252,7 +1564,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                           ) : displayTarget !== null ? (
                             <Text strong style={{ fontSize: 18 }}>
                               {formatNumber(displayTarget, 3)}
-                              {mtResolution?.uom?.code ? <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{mtResolution.uom.code}</Text> : null}
+                              {mtResolution?.uom?.code ? (
+                                <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{mtResolution.uom.code}</Text>
+                              ) : entry?.uom?.code ? (
+                                <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{entry.uom.code}</Text>
+                              ) : null}
                             </Text>
                           ) : (
                             <Text type="secondary">—</Text>
@@ -1275,6 +1591,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: -14, marginBottom: 8 }}>
                       {mtResolution
                         ? `Auto-resolved from the Machine Target master${mtResolution.item ? ` (${mtResolution.item.code})` : ''} — standard ${formatNumber(mtResolution.standardTarget, 0)} ${mtResolution.uom?.code ?? ''} / ${formatNumber(mtResolution.standardHours, 2)}h${mtResolution.targetPerHour ? ` · ${formatNumber(mtResolution.targetPerHour, 2)} ${mtResolution.uom?.code ?? ''}/h` : ''}${plannedHours > 0 ? ` · planned ${formatNumber(plannedHours, 2)}h` : ''}${mtResolution.usedGeneralFallback ? ' · GENERAL-shift fallback' : ''}${mtResolution.route?.operations?.length ? ` · route: ${mtResolution.route.operations.length} op(s)` : ''}`
+                        : mode === 'edit'
+                        ? `Entry target from saved record (${formatNumber(entry?.targetQuantity ?? 0, 3)} ${entry?.uom?.code ?? ''})`
                         : 'Resolving from the Machine Target master…'}
                     </Text>
                   )}
@@ -1317,6 +1635,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                       style={{ width: '100%' }}
                       min={0} max={plannedHours > 0 ? plannedHours : 24} step={0.25}
                       disabled={runningReadOnly}
+                      className={(runningHours !== undefined && runningHours !== null && runningHours !== '') ? 'erp-field-filled' : 'erp-field-unfilled'}
                       onChange={setHoursFromRunning}
                     />
                   </Form.Item>
@@ -1327,7 +1646,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     label={<span>Rejection / Scrap <InputBadge type="input" /></span>}
                     rules={[{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
                   >
-                    <InputNumber style={{ width: '100%' }} min={0} />
+                    <InputNumber
+                      style={{ width: '100%' }}
+                      min={0}
+                      className={(scrapQty !== undefined && scrapQty !== null && scrapQty !== '') ? 'erp-field-filled' : 'erp-field-unfilled'}
+                    />
                   </Form.Item>
                 </Col>
               </Row>
@@ -1351,7 +1674,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           {/* ── RIGHT: Downtime (top) + Production Order Linkage + Production Route ── */}
           <Col xs={24} xl={9}>
             <Card
-              title={<span><ClockCircleOutlined style={{ marginRight: 6 }} />Downtime</span>}
+              title={<span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6, color: '#f97316' }} />Downtime Tracking</span>}
               size="small"
               extra={
                 <Button
@@ -1363,13 +1686,35 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               }
             >
               {plannedHours > 0 && (
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
-                  Planned {formatNumber(plannedHours, 2)}h − Running {formatNumber(derivedRunning, 2)}h = Downtime {formatNumber(derivedDowntime, 2)}h
-                </Text>
+                <div style={{
+                  background: 'rgba(0, 0, 0, 0.04)',
+                  border: '1px solid var(--theme-border, #e2e8f0)',
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  marginBottom: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  flexWrap: 'wrap',
+                  fontSize: 12,
+                }}>
+                  <span style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0f172a', fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>
+                    Planned: {formatNumber(plannedHours, 2)}h
+                  </span>
+                  <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>−</span>
+                  <span style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#000000', fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>
+                    Running: {formatNumber(derivedRunning, 2)}h
+                  </span>
+                  <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>=</span>
+                  <span style={{ background: derivedDowntime > 0 ? '#ffedd5' : '#f8fafc', border: `1px solid ${derivedDowntime > 0 ? '#fdba74' : '#cbd5e1'}`, color: '#000000', fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>
+                    Downtime: {formatNumber(derivedDowntime, 2)}h
+                  </span>
+                </div>
               )}
 
               {/* Entry Mode toggle */}
-              <Row gutter={8} style={{ marginBottom: 8 }}>
+              <Row gutter={8} style={{ marginBottom: 6 }}>
                 <Col span={24}>
                   <Form.Item
                     label="Entry Mode"
@@ -1389,19 +1734,37 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               </Row>
 
               {downtimeMode === 'auto' && (
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                <div style={{
+                  fontSize: 11,
+                  background: 'rgba(59, 130, 246, 0.08)',
+                  border: '1px solid rgba(59, 130, 246, 0.25)',
+                  borderRadius: 4,
+                  padding: '5px 8px',
+                  marginBottom: 10,
+                  color: 'var(--theme-text, #334155)',
+                  lineHeight: 1.4,
+                }}>
                   {plannedHours > 0
-                    ? `Enter Running Hours in Production Figures. Total downtime = planned ${formatNumber(plannedHours, 2)}h − running ${formatNumber(derivedRunning, 2)}h`
-                    : 'No shift plan — enter running hours directly'}
-                </Text>
+                    ? <span><strong>AUTO Mode:</strong> Enter Running Hours under Production Figures. Downtime is derived as planned ({formatNumber(plannedHours, 2)}h) − running ({formatNumber(derivedRunning, 2)}h).</span>
+                    : <span>No shift plan — enter running hours directly.</span>}
+                </div>
               )}
 
               {downtimeMode === 'manual' && (
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                <div style={{
+                  fontSize: 11,
+                  background: 'rgba(249, 115, 22, 0.08)',
+                  border: '1px solid rgba(249, 115, 22, 0.25)',
+                  borderRadius: 4,
+                  padding: '5px 8px',
+                  marginBottom: 10,
+                  color: 'var(--theme-text, #334155)',
+                  lineHeight: 1.4,
+                }}>
                   {plannedHours > 0
-                    ? `Enter downtime lines below. Running = planned ${formatNumber(plannedHours, 2)}h − total downtime ${formatNumber(totalDowntime, 2)}h`
-                    : 'Enter downtime lines below'}
-                </Text>
+                    ? <span><strong>MANUAL Mode:</strong> Enter downtime lines below. Running hours will be derived as planned ({formatNumber(plannedHours, 2)}h) − total downtime ({formatNumber(totalDowntime, 2)}h).</span>
+                    : <span>Enter downtime lines below.</span>}
+                </div>
               )}
 
               {/* Multi-line Downtime Entries */}
@@ -1415,12 +1778,15 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                         <Form.Item
                           noStyle
                           shouldUpdate={(p, c) =>
-                            p?.downtimeEntries?.[f.name]?.confirmed !== c?.downtimeEntries?.[f.name]?.confirmed
+                            p?.downtimeEntries?.[f.name]?.confirmed !== c?.downtimeEntries?.[f.name]?.confirmed ||
+                            p?.downtimeEntries?.[f.name]?.downtimeReasonId !== c?.downtimeEntries?.[f.name]?.downtimeReasonId ||
+                            p?.downtimeEntries?.[f.name]?.downtimeHours !== c?.downtimeEntries?.[f.name]?.downtimeHours
                           }
                         >
                           {({ getFieldValue }) => {
                             const confirmed = getFieldValue(['downtimeEntries', f.name, 'confirmed']) === true;
                             const reasonId = getFieldValue(['downtimeEntries', f.name, 'downtimeReasonId']);
+                            const hours = getFieldValue(['downtimeEntries', f.name, 'downtimeHours']);
                             const reason = lookups.downtimeReasons.find((r) => r.id === reasonId);
                             const isOther = reason?.name?.toLowerCase() === 'other';
                             return (
@@ -1431,10 +1797,10 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                                   borderRadius: 6,
                                   padding: '6px 8px',
                                   background: confirmed
-                                    ? 'rgba(82, 196, 26, 0.07)'
-                                    : (reasonId ? 'rgba(255, 77, 79, 0.07)' : 'transparent'),
+                                    ? 'rgba(82, 196, 26, 0.08)'
+                                    : (reasonId ? 'rgba(255, 77, 79, 0.06)' : 'transparent'),
                                   border: `1px solid ${
-                                    confirmed ? 'rgba(82, 196, 26, 0.35)' : (reasonId ? 'rgba(255, 77, 79, 0.30)' : 'var(--theme-border)')
+                                    confirmed ? 'rgba(82, 196, 26, 0.40)' : (reasonId ? 'rgba(255, 77, 79, 0.35)' : 'var(--theme-border)')
                                   }`,
                                 }}
                               >
@@ -1459,6 +1825,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                                         size="small"
                                         showSearch optionFilterProp="label"
                                         placeholder="Downtime reason"
+                                        popupMatchSelectWidth={false}
+                                        dropdownStyle={{ minWidth: 280 }}
+                                        className={reasonId ? 'erp-field-filled' : 'erp-field-unfilled'}
                                         options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
                                       />
                                     </Form.Item>
@@ -1476,6 +1845,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                                         step={0.25}
                                         placeholder="Hours"
                                         style={{ width: '100%' }}
+                                        className={(hours !== undefined && hours !== null && hours !== '') ? 'erp-field-filled' : 'erp-field-unfilled'}
                                       />
                                     </Form.Item>
                                   </Col>
@@ -1586,12 +1956,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     <Form.Item
                       name="warehouseId"
                       label="Receipt Warehouse"
-                      rules={[{ required: true, message: 'Warehouse is required for direct posting' }]}
+                      rules={mode === 'edit' ? [] : [{ required: true, message: 'Warehouse is required for direct posting' }]}
                       style={{ marginTop: -12 }}
                     >
                       <Select
                         allowClear showSearch optionFilterProp="label" placeholder="Select Warehouse"
-                        disabled={mode === 'edit'}
+                        disabled={mode === 'edit' && Boolean(getFieldValue('warehouseId'))}
+                        className={warehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
                         options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
                       />
                     </Form.Item>
@@ -1615,6 +1986,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                         allowClear showSearch optionFilterProp="label" placeholder="Auto: first ACTIVE RAW MATERIAL store"
                         disabled={mode === 'edit'}
                         data-testid="raw-source-store-select"
+                        className={rawMatWarehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
                         options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
                       />
                     </Form.Item>
@@ -1731,13 +2103,53 @@ const RouteChain: React.FC<{
 };
 
 const StatisticMini: React.FC<{ label: string; hint: string; content: React.ReactNode; accent?: string; icon?: React.ReactNode }> = ({ label, hint, content, accent, icon }) => (
-  <div style={{ background: 'var(--theme-surface-alt)', borderRadius: 6, padding: '8px 12px', borderTop: `3px solid ${accent ?? 'var(--theme-primary)'}`, height: '100%' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: accent ?? 'var(--theme-primary)' }}>
-      {icon}
-      <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>
+  <div
+    style={{
+      position: 'relative',
+      overflow: 'hidden',
+      background: 'var(--theme-surface-alt, #ffffff)',
+      borderRadius: 8,
+      padding: '10px 14px',
+      border: '1px solid var(--theme-border, #e2e8f0)',
+      borderTopWidth: 3,
+      borderTopColor: accent ?? 'var(--theme-primary)',
+      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+    }}
+  >
+    {/* Large subtle background watermark icon */}
+    {icon && (
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          right: -6,
+          bottom: -8,
+          fontSize: 72,
+          color: accent ?? 'var(--theme-primary)',
+          opacity: 0.13,
+          pointerEvents: 'none',
+          userSelect: 'none',
+          lineHeight: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {icon}
+      </div>
+    )}
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: accent ?? 'var(--theme-primary)', marginBottom: 2 }}>
+        <span style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center' }}>{icon}</span>
+        <Text type="secondary" style={{ fontSize: 12, fontWeight: 500 }}>{label}</Text>
+      </div>
+      <div style={{ position: 'relative', zIndex: 1, margin: '2px 0' }}>{content}</div>
     </div>
-    <div>{content}</div>
-    <Text type="secondary" style={{ fontSize: 11 }}>{hint}</Text>
+    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4, position: 'relative', zIndex: 1 }}>{hint}</Text>
   </div>
 );
 
@@ -2136,8 +2548,10 @@ const RawMaterialAvailability: React.FC<{
   productionItems: Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string; scrapQuantity?: number | string }>;
   lookups: ReturnType<typeof useLookups>;
   warehouseId?: string;
+  receiptWarehouseId?: string;
   /** TASK #37: human-readable name of the selected source store warehouse. */
   sourceStoreLabel?: string;
+  receiptStoreLabel?: string;
   /** TASK #37: the entry's own Rejection/Scrap feeds the MAIN production item's
    *  consumption basis (row 1 = the entry item) when the row itself carries no
    *  scrap — mirroring backend consumeForProductionItem (entry-level fields). */
@@ -2155,7 +2569,7 @@ const RawMaterialAvailability: React.FC<{
     productionOutItemName?: string | null;
     chainWarning?: string | null;
   }>) => void;
-}> = ({ productionItems, lookups, warehouseId, sourceStoreLabel, fallbackScrapQty, onData }) => {
+}> = ({ productionItems, lookups, warehouseId, receiptWarehouseId, sourceStoreLabel, receiptStoreLabel, fallbackScrapQty, onData }) => {
   const [data, setData] = useState<Record<string, RawMatItem>>({});
   const selected = productionItems.filter((p) => !!p.itemId);
   const selectedIds = selected.map((p) => p.itemId).join('|');
@@ -2191,10 +2605,6 @@ const RawMaterialAvailability: React.FC<{
       const itemId = p.itemId!;
       void (async () => {
         try {
-          // ── 1) TASK #35: ITEM MASTER mapping is AUTHORITATIVE. The ERP
-          //    administrator's explicit `productionInItemId` is the single source
-          //    of truth for the input material. Routing is consulted only as an
-          //    advisory display layer and for items without an Item Master mapping.
           const item = lookups.items.find((i) => i.id === itemId);
           const masterInItemId = item?.productionInItemId ?? item?.productionInItem?.id ?? null;
           const masterOutItemId = item?.productionOutItemId ?? item?.productionOutItem?.id ?? null;
@@ -2480,12 +2890,12 @@ const RawMaterialAvailability: React.FC<{
           });
 
           // ── 5) TASK #34B: OUTPUT INVENTORY — the produced item's own real balance
-          //    (the current Item IS the output of its stage; read from the SAME
-          //    existing inventory API keyed by the exact Item ID).
+          //    (read from receiptWarehouseId if available, or warehouseId, keyed by the exact Item ID).
           void (async () => {
             try {
+              const targetWh = receiptWarehouseId || warehouseId;
               const params: Record<string, unknown> = { itemId };
-              if (warehouseId) params.warehouseId = warehouseId;
+              if (targetWh) params.warehouseId = targetWh;
               const avail = await apiService.get<{ data?: number | { available?: number } }>(
                 '/inventory/balances/available',
                 params,
@@ -2504,7 +2914,8 @@ const RawMaterialAvailability: React.FC<{
               }));
             }
           })();
-        } catch {
+        } catch (err) {
+          console.error('[DEBUG RMA] catch error:', err);
           if (cancelled) return;
           setData((prev) => ({
             ...prev,
@@ -2515,7 +2926,7 @@ const RawMaterialAvailability: React.FC<{
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, warehouseId, lookups.uomConversions, lookups.items]);
+  }, [selectedIds, warehouseId, receiptWarehouseId, lookups.uomConversions, lookups.items]);
 
   // Recompute each line's "Required" (and derived balance/shortage) whenever the
   // production quantity or UOM changes, without refetching routing/BOM/inventory.
@@ -2609,18 +3020,47 @@ const RawMaterialAvailability: React.FC<{
                 <Text style={{ fontSize: 12 }} data-testid={`material-flow-outputname-${index + 1}`}>{info.itemName}</Text>
               )}
             </div>
-            {/* TASK #34B: OUTPUT INVENTORY — real current balance of the produced item. */}
+            {/* TASK #34B: OUTPUT INVENTORY — real current balance of the produced item + projected balance */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 96 }}>
-              <Text type="secondary" style={{ fontSize: 11 }}>Output Inventory</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                Output Inventory {receiptStoreLabel ? `(${receiptStoreLabel})` : ''}
+              </Text>
               {info.outLoading ? (
                 <Spin size="small" />
               ) : info.outError || info.outAvailable == null ? (
                 <Text type="secondary" data-testid={`material-flow-outputinv-${index + 1}`} style={{ color: 'var(--theme-text-muted, #8c8c8c)' }}>—</Text>
-              ) : (
-                <Text strong data-testid={`material-flow-outputinv-${index + 1}`} style={{ fontSize: 12, color: 'var(--theme-primary)' }}>
-                  {formatNumber(info.outAvailable, 3)} {info.outUomCode ?? ''}
-                </Text>
-              )}
+              ) : (() => {
+                const prodLine = selected.find((p) => p.itemId === itemId);
+                const actualQty = toNum(prodLine?.actualQuantity);
+                const projected = info.outAvailable + actualQty;
+                return (
+                  <Space size={8} wrap align="center">
+                    <Text strong data-testid={`material-flow-outputinv-${index + 1}`} style={{ fontSize: 12, color: 'var(--theme-primary)' }}>
+                      {formatNumber(info.outAvailable, 3)} {info.outUomCode ?? ''}
+                    </Text>
+                    {actualQty > 0 && (
+                      <span style={{
+                        fontSize: 11,
+                        background: '#dcfce7',
+                        color: '#000000',
+                        padding: '2px 10px',
+                        borderRadius: 4,
+                        border: '1px solid #86efac',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}>
+                        <span style={{ color: '#000000' }}>Current:</span> <strong style={{ color: '#000000' }}>{formatNumber(info.outAvailable, 3)}</strong>
+                        <span style={{ margin: '0 2px', color: '#000000' }}>+</span>
+                        <span style={{ color: '#000000' }}>Produced:</span> <strong style={{ color: '#000000' }}>+{formatNumber(actualQty, 3)}</strong>
+                        <span style={{ margin: '0 4px', color: '#000000' }}>→</span>
+                        <span style={{ color: '#000000' }}>Projected:</span> <strong style={{ color: '#000000', textDecoration: 'underline' }}>{formatNumber(projected, 3)} {info.outUomCode ?? ''}</strong>
+                      </span>
+                    )}
+                  </Space>
+                );
+              })()}
             </div>
             {/* PREVIOUS STAGE */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -2718,6 +3158,121 @@ const RawMaterialAvailability: React.FC<{
                 </div>
               );
             })}
+            {/* 2-Line Material Movement & Balance Impact Report (Before vs Movement vs After) */}
+            {info.lines.length > 0 && (
+              <div style={{
+                marginTop: 10,
+                padding: '10px 12px',
+                background: 'var(--theme-surface-alt, #f9fafb)',
+                border: '1px solid var(--theme-border, #e5e7eb)',
+                borderRadius: 6,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Stock Balance & Movement Impact (Before → Movement → After)
+                </div>
+
+                {/* Line 1: INPUT Raw Material */}
+                {info.lines.map((rawLine, rIdx) => {
+                  const rawBefore = rawLine.available ?? 0;
+                  const rawConsumed = rawLine.required ?? 0;
+                  const rawAfter = rawLine.balance ?? (rawBefore - rawConsumed);
+                  const rawUom = rawLine.uomCode ?? rawLine.rawBaseUomCode ?? '';
+                  return (
+                    <div key={rawLine.lineId || rIdx} style={{
+                      background: 'rgba(239, 68, 68, 0.04)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      borderRadius: 6,
+                      padding: '8px 10px',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
+                            fontWeight: 700, fontSize: 10, borderRadius: 3, padding: '1px 6px',
+                          }}>
+                            📥 INPUT (RAW MATERIAL)
+                          </span>
+                          <Text strong style={{ fontSize: 11 }}>{rawLine.itemCode}</Text>
+                          {rawLine.itemName && <Text type="secondary" style={{ fontSize: 11 }}>— {rawLine.itemName}</Text>}
+                        </div>
+                        <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', background: 'var(--theme-surface)', padding: '1px 6px', borderRadius: 3, border: '1px solid var(--theme-border)' }}>
+                          Source: <strong style={{ color: 'var(--theme-text)' }}>{sourceStoreLabel || rawLine.rawDepartmentName || 'Source Store'}</strong>
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', gap: 4, alignItems: 'center', textAlign: 'center' }}>
+                        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 6px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block' }}>Opening Available</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{formatNumber(rawBefore, 3)} {rawUom}</span>
+                        </div>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: '#ef4444' }}>−</span>
+                        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, padding: '4px 6px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#991b1b', fontWeight: 700, display: 'block' }}>Deducted (Inflow Consumed)</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>−{formatNumber(rawConsumed, 3)} {rawUom}</span>
+                        </div>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: '#64748b' }}>=</span>
+                        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 4, padding: '4px 6px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>Remaining Balance</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{formatNumber(rawAfter, 3)} {rawUom}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Line 2: OUTPUT Produced Product */}
+                {(() => {
+                  const prodLine = selected.find((p) => p.itemId === itemId);
+                  const actualQty = toNum(prodLine?.actualQuantity);
+                  const outBefore = info.outAvailable ?? 0;
+                  const outProduced = actualQty;
+                  const outAfter = outBefore + outProduced;
+                  const outUom = info.outUomCode ?? '';
+                  return (
+                    <div style={{
+                      background: 'rgba(16, 185, 129, 0.04)',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      borderRadius: 6,
+                      padding: '8px 10px',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            background: '#dcfce7', color: '#166534', border: '1px solid #86efac',
+                            fontWeight: 700, fontSize: 10, borderRadius: 3, padding: '1px 6px',
+                          }}>
+                            📤 OUTPUT (GOOD PRODUCTION)
+                          </span>
+                          <Text strong style={{ fontSize: 11 }}>{info.itemCode}</Text>
+                          {info.itemName && <Text type="secondary" style={{ fontSize: 11 }}>— {info.itemName}</Text>}
+                        </div>
+                        <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', background: 'var(--theme-surface)', padding: '1px 6px', borderRadius: 3, border: '1px solid var(--theme-border)' }}>
+                          Receipt: <strong style={{ color: 'var(--theme-text)' }}>{receiptStoreLabel || 'Receipt Warehouse'}</strong>
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', gap: 4, alignItems: 'center', textAlign: 'center' }}>
+                        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 6px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block' }}>Current Stock</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{formatNumber(outBefore, 3)} {outUom}</span>
+                        </div>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981' }}>+</span>
+                        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, padding: '4px 6px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>Produced (Addition)</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>+{formatNumber(outProduced, 3)} {outUom}</span>
+                        </div>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: '#64748b' }}>=</span>
+                        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 4, padding: '4px 6px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>Projected Stock in Store</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d', textDecoration: 'underline' }}>{formatNumber(outAfter, 3)} {outUom}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ marginTop: 4, border: '1px solid var(--theme-border, #d9d9d9)', borderRadius: 6, padding: '8px 10px' }}>
@@ -2819,18 +3374,19 @@ const ProductionItemLine: React.FC<{
     return lookups.validUomsForItem(lineItemId);
   }, [machineLinked, mtResolution, lookups.uoms, lookups.uomConversions, lookups.items, lineItemId]); // eslint-disable-line
 
-  // Auto-fill UOM when item changes (non-machine-linked flow)
+  // Auto-fill UOM when item changes (both machine-linked and standard flow)
   const form = Form.useFormInstance();
   const prevLineItemRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (!lineItemId || machineLinked) return;
+    if (!lineItemId) return;
     if (prevLineItemRef.current === lineItemId) return;
     prevLineItemRef.current = lineItemId;
     const item = lookups.items.find((i) => i.id === lineItemId);
-    if (item?.baseUomId) {
-      form.setFieldValue(['productionItems', fieldName, 'uomId'], item.baseUomId);
+    const targetUomId = (machineLinked && mtResolution?.uom?.id) ? mtResolution.uom.id : item?.baseUomId;
+    if (targetUomId) {
+      form.setFieldValue(['productionItems', fieldName, 'uomId'], targetUomId);
     }
-  }, [lineItemId, machineLinked]); // eslint-disable-line
+  }, [lineItemId, machineLinked, mtResolution]); // eslint-disable-line
 
   // KG conversion: family-aware (LENGTH × weightPerMeter, COUNT × piece weight,
   // WEIGHT stays as-is so M and KG are never mixed). No fabricated conversions.
@@ -2869,10 +3425,20 @@ const ProductionItemLine: React.FC<{
         <Col xs={24} sm={10} lg={12}>
           <Form.Item name={[fieldName, 'itemId']} noStyle rules={[{ required: true, message: 'Required' }]}>
             <Select
-              showSearch optionFilterProp="label"
+              style={{ width: '100%' }}
+              showSearch
+              optionFilterProp="label"
               placeholder="Select item"
               aria-label={`Production item ${rowNumber}`}
-              options={departmentItems.map((i: ItemLk) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
+              popupMatchSelectWidth={false}
+              popupClassName="production-item-select-popup"
+              className={lineItemId ? 'erp-field-filled' : 'erp-field-unfilled'}
+              dropdownStyle={{ minWidth: 540, maxWidth: '95vw' }}
+              options={departmentItems.map((i: ItemLk) => ({
+                value: i.id,
+                label: `${i.itemCode} — ${i.name}`,
+                title: `${i.itemCode} — ${i.name}`,
+              }))}
             />
           </Form.Item>
         </Col>
@@ -2906,6 +3472,7 @@ const ProductionItemLine: React.FC<{
               min={0}
               placeholder="Qty"
               style={{ width: '100%' }}
+              className={(lineActualQty !== undefined && lineActualQty !== null && lineActualQty !== '') ? 'erp-field-filled' : 'erp-field-unfilled'}
               aria-label="Item quantity"
             />
           </Form.Item>

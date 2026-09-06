@@ -11,4 +11,94 @@ body {
 }
 
 @import './styles/erp-table.css';
+@import './styles/category-badge.css';
+
+/* Production item select dropdown full-width and readable figures */
+.production-item-select-popup {
+  min-width: 540px !important;
+  max-width: 95vw !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
+.production-item-select-popup .ant-select-item-option {
+  padding: 8px 12px !important;
+  min-height: 38px;
+}
+
+.production-item-select-popup .ant-select-item-option-content {
+  white-space: normal !important;
+  word-break: break-word !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+
+/* ERP Smart Field Guidance: Red when empty/unfilled, Green when filled */
+.erp-field-unfilled .ant-select-selector,
+.erp-field-unfilled.ant-input,
+.erp-field-unfilled.ant-input-number,
+.erp-field-unfilled .ant-input-number-input,
+.erp-field-unfilled input,
+.erp-field-unfilled textarea,
+.erp-field-unfilled.ant-input-affix-wrapper {
+  border-color: #ef4444 !important;
+  background-color: #fee2e2 !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.35) !important;
+  transition: all 0.25s ease-in-out;
+}
+
+.erp-field-unfilled .ant-select-selection-placeholder,
+.erp-field-unfilled input::placeholder,
+.erp-field-unfilled textarea::placeholder {
+  color: #7f1d1d !important;
+  opacity: 0.9 !important;
+}
+
+.erp-field-unfilled .ant-select-selection-item,
+.erp-field-unfilled .ant-select-selection-item *,
+.erp-field-unfilled.ant-input,
+.erp-field-unfilled .ant-input,
+.erp-field-unfilled.ant-input-number input,
+.erp-field-unfilled .ant-input-number-input,
+.erp-field-unfilled input,
+.erp-field-unfilled textarea {
+  color: #000000 !important;
+  -webkit-text-fill-color: #000000 !important;
+  font-weight: 500 !important;
+}
+
+.erp-field-unfilled .ant-select-arrow {
+  color: #991b1b !important;
+}
+
+/* Filled fields: solid light emerald with bold, pitch black text */
+.erp-field-filled .ant-select-selector,
+.erp-field-filled.ant-input,
+.erp-field-filled.ant-input-number,
+.erp-field-filled .ant-input-number-input,
+.erp-field-filled input,
+.erp-field-filled textarea,
+.erp-field-filled.ant-input-affix-wrapper {
+  border-color: #10b981 !important;
+  background-color: #dcfce7 !important;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.35) !important;
+  transition: all 0.25s ease-in-out;
+}
+
+.erp-field-filled .ant-select-selection-item,
+.erp-field-filled .ant-select-selection-item *,
+.erp-field-filled .ant-select-selection-search-input,
+.erp-field-filled.ant-input,
+.erp-field-filled .ant-input,
+.erp-field-filled.ant-input-number input,
+.erp-field-filled .ant-input-number-input,
+.erp-field-filled input,
+.erp-field-filled textarea {
+  color: #000000 !important;
+  -webkit-text-fill-color: #000000 !important;
+  font-weight: 600 !important;
+}
+
+.erp-field-filled .ant-select-arrow {
+  color: #065f46 !important;
+}
 

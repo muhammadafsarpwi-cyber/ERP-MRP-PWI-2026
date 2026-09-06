@@ -124,6 +124,8 @@ const round6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 /** Item conversion master data needed to express a production line in KG. */
 export interface KgConversionItem {
   uomType?: string | null;
+  uomCode?: string | null;
+  baseUom?: { code?: string; uomType?: string } | null;
   weightPerMeter?: number | string | null;
   weightPerPiece?: number | string | null;
   piecesPerKg?: number | string | null;
@@ -140,13 +142,14 @@ export interface KgConversionItem {
  */
 export function lineToKg(quantity: number | string | null | undefined, item: KgConversionItem | null | undefined): number | null {
   const q = toNum2(quantity);
-  const family = (item?.uomType || '').toUpperCase();
+  const family = (item?.uomType || item?.baseUom?.uomType || '').toUpperCase();
+  const uomCode = (item?.uomCode || item?.baseUom?.code || '').toUpperCase();
   const wpm = toNum2(item?.weightPerMeter);
   const wpp = toNum2(item?.weightPerPiece);
   const ppk = toNum2(item?.piecesPerKg);
-  if (family === 'WEIGHT') return round6(q);
-  if (family === 'LENGTH') return wpm > 0 ? round6(q * wpm) : null;
-  if (family === 'COUNT') {
+  if (family === 'WEIGHT' || uomCode === 'KG') return round6(q);
+  if (family === 'LENGTH' || uomCode === 'M' || uomCode === 'METER') return wpm > 0 ? round6(q * wpm) : null;
+  if (family === 'COUNT' || uomCode === 'PCS' || uomCode === 'EA') {
     if (wpp > 0) return round6(q * wpp);
     if (ppk > 0) return round6(q / ppk);
     return null;
@@ -216,13 +219,18 @@ export interface DowntimeLineDraft {
 export function buildDowntimePayload(lines: DowntimeLineDraft[] | null | undefined) {
   return (lines ?? [])
     .filter((l) => l.downtimeReasonId || toNum2(l.downtimeHours) > 0 || l.downtimeReason)
-    .map((l, idx) => ({
-      lineNumber: l.lineNumber ?? idx + 1,
-      downtimeReasonId: l.downtimeReasonId ?? undefined,
-      downtimeReason: l.downtimeReason ?? undefined,
-      downtimeHours: Number(l.downtimeHours ?? 0),
-      remarks: l.remarks ?? undefined,
-    }));
+    .map((l, idx) => {
+      const reasonStr = typeof l.downtimeReason === 'string'
+        ? l.downtimeReason
+        : (l.downtimeReason as any)?.reasonName || (l.downtimeReason as any)?.name || (l.downtimeReason as any)?.description || undefined;
+      return {
+        lineNumber: l.lineNumber ?? idx + 1,
+        downtimeReasonId: l.downtimeReasonId ?? (l as any).downtimeReason?.id ?? undefined,
+        downtimeReason: reasonStr || undefined,
+        downtimeHours: Number(l.downtimeHours ?? 0),
+        remarks: l.remarks ?? undefined,
+      };
+    });
 }
 
 /** Normalise raw production-item Form.List lines into the backend `items` payload. */

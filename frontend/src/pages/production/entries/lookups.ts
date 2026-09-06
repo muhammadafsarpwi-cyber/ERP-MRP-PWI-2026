@@ -49,12 +49,14 @@ export interface HrEmployeeLk {
   status: string;
 }
 
-interface ListResponse<T> { success: boolean; data: T[]; total?: number; }
+interface ListResponse<T> { success?: boolean; data?: T[]; total?: number; }
 
 async function fetchList<T>(url: string, params?: Record<string, unknown>): Promise<T[]> {
   try {
-    const res = await apiService.get<ListResponse<T>>(url, params);
-    return (res.data || []) as T[];
+    const res = await apiService.get<any>(url, params);
+    if (Array.isArray(res)) return res as T[];
+    if (Array.isArray(res?.data)) return res.data as T[];
+    return [];
   } catch {
     return [];
   }
@@ -77,7 +79,7 @@ export function useLookups() {
 
   useEffect(() => {
     void (async () => {
-      const [div, sec, dep, itm, uom, conv, shf, po, emp] = await Promise.all([
+      const [div, sec, dep, itm, uom, conv, shf, po, emp, mch] = await Promise.all([
         fetchList<Division>('/divisions', { limit: 200 }),
         fetchList<Section>('/sections', { limit: 500 }),
         fetchList<Department>('/departments', { limit: 500 }),
@@ -87,6 +89,7 @@ export function useLookups() {
         fetchList<ShiftLk>('/production/shifts'),
         fetchList<ProductionOrderLk>('/production/orders', { limit: 200 }),
         fetchList<HrEmployeeLk>('/hr/employees', { limit: 500, status: 'ACTIVE' }),
+        fetchList<MachineLk>('/production/machines', { limit: 500 }),
       ]);
       setDivisions(div);
       setSections(sec);
@@ -96,7 +99,25 @@ export function useLookups() {
       setUomConversions(conv.filter((c) => c.status === 'ACTIVE'));
       setShifts(shf);
       setProductionOrders(po);
-      setHrEmployees(emp);
+      setMachines(mch);
+      let finalEmployees = emp;
+      if (!finalEmployees || finalEmployees.length === 0) {
+        try {
+          const users = await fetchList<any>('/admin/users', { limit: 200, status: 'ACTIVE' });
+          if (users && users.length > 0) {
+            finalEmployees = users.map((u: any) => ({
+              id: u.id,
+              employeeCode: u.username || (u.email ? u.email.split('@')[0] : 'OP'),
+              firstName: u.fullName || u.firstName || (u.displayName ? u.displayName.split(' ')[0] : 'Operator'),
+              lastName: u.lastName || (u.displayName ? u.displayName.split(' ').slice(1).join(' ') : ''),
+              jobTitle: u.userRoles?.[0]?.role?.name || 'Operator',
+              departmentId: u.defaultDepartmentId ?? undefined,
+              status: u.status || 'ACTIVE',
+            }));
+          }
+        } catch {}
+      }
+      setHrEmployees(finalEmployees);
     })();
   }, []);
 

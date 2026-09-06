@@ -185,6 +185,22 @@ export class ProductionEntryService {
       (entry as any).items = items;
       (entry as any).downtimes = downtimes;
     } catch { /* child tables may not exist for legacy entries */ }
+    // Attach the receipt warehouse from stock ledger when entry posted to inventory
+    if (entry.inventoryReferenceId) {
+      try {
+        const ledgerRes = await this.stockLedgerService.findAll({
+          companyId,
+          referenceId: entry.id,
+          referenceType: 'PRODUCTION_ENTRY',
+          limit: 10,
+        });
+        const receiptMvt = (ledgerRes.data || []).find((m) => m.transactionType === 'PRODUCTION_RECEIPT');
+        if (receiptMvt) {
+          (entry as any).warehouseId = receiptMvt.warehouseId;
+          (entry as any).warehouse = receiptMvt.warehouse;
+        }
+      } catch { /* ledger lookup non-critical */ }
+    }
     // Attach the item's effective production route when available (for UI display).
     if (entry.itemId) {
       try {
