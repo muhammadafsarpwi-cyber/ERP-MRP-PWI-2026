@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Button, Popover, Tooltip } from 'antd';
-import { SettingOutlined } from '@ant-design/icons';
+import { Button, Modal, Tooltip } from 'antd';
+import { BgColorsOutlined } from '@ant-design/icons';
 import ThemePreferences from '../../theme/ThemePreferences';
 import { selectIsDirty, useThemeStore } from '../../theme/themeStore';
 
@@ -8,43 +8,50 @@ export const ThemeSettingsButton: React.FC = () => {
   const [open, setOpen] = useState(false);
   const revertDraft = useThemeStore((state) => state.revertDraft);
 
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      if (!next && selectIsDirty(useThemeStore.getState())) {
-        revertDraft();
-      }
-      setOpen(next);
-    },
-    [revertDraft]
-  );
+  const handleClose = useCallback(() => {
+    if (selectIsDirty(useThemeStore.getState())) {
+      revertDraft();
+    }
+    setOpen(false);
+  }, [revertDraft]);
 
   return (
-    <Popover
-      content={
-        <ThemePreferences
-          onApplied={() => setOpen(false)}
-          onRequestClose={() => handleOpenChange(false)}
-        />
-      }
-      trigger="click"
-      open={open}
-      onOpenChange={handleOpenChange}
-      placement="bottomRight"
-      overlayClassName="erp-theme-popover"
-      arrow={false}
-    >
-      <Tooltip title="Theme Settings">
+    <>
+      <Tooltip title="Theme Studio (34 Curated Themes)">
         <Button
           className="erp-theme-trigger-btn"
           type="text"
           shape="circle"
-          aria-label="Theme Settings"
+          aria-label="Theme Studio"
           aria-expanded={open}
           aria-haspopup="dialog"
-          icon={<SettingOutlined style={{ fontSize: 17 }} />}
+          onClick={() => setOpen(true)}
+          icon={<BgColorsOutlined style={{ fontSize: 18 }} />}
         />
       </Tooltip>
-    </Popover>
+
+      <Modal
+        open={open}
+        onCancel={handleClose}
+        footer={null}
+        width={1040}
+        centered
+        destroyOnClose={false}
+        className="erp-theme-studio-modal"
+        styles={{
+          body: {
+            padding: 0,
+            maxHeight: '85vh',
+            overflowY: 'auto',
+          },
+        }}
+      >
+        <ThemePreferences
+          onApplied={() => setOpen(false)}
+          onRequestClose={handleClose}
+        />
+      </Modal>
+    </>
   );
 };
 

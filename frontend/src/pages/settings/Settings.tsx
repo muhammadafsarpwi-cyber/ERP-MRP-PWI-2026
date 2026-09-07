@@ -7,25 +7,24 @@ const { Title, Text } = Typography;
 
 const Settings: React.FC = () => {
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: 1100, margin: '0 auto', width: '100%' }}>
       <div style={{ marginBottom: 16 }}>
         <Title level={4} style={{ marginBottom: 4 }}>
-          Settings
+          Settings & Visual Studio
         </Title>
         <Text type="secondary">
-          Personal preferences for your account. Changes are previewed instantly and
-          saved only when you apply them.
+          Personalize your ERP experience with 34 enterprise themes, real-time live preview, and dark mode controls.
         </Text>
       </div>
       <Card
         title={
           <span>
             <BgColorsOutlined style={{ marginRight: 8, color: 'var(--theme-accent)' }} />
-            Appearance
+            Theme Studio & Appearance
           </span>
         }
         bordered
-        styles={{ body: { display: 'flex', justifyContent: 'center' } }}
+        styles={{ body: { padding: 0 } }}
       >
         <ThemePreferences embedded />
       </Card>
