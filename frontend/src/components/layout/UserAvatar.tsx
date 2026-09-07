@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Avatar } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '../../services/api';
@@ -40,10 +40,15 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
   className,
   alt,
 }) => {
+  const [hasError, setHasError] = useState(false);
   const src = resolveSrc(avatarUrl);
   const initials = displayName ? getInitials(displayName) : undefined;
 
-  if (src) {
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  if (src && !hasError) {
     return (
       <Avatar
         src={src}
@@ -52,7 +57,10 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
         className={className}
         alt={alt || (displayName ? `${displayName} avatar` : 'User avatar')}
         draggable={false}
-        onError={() => false}
+        onError={() => {
+          setHasError(true);
+          return false;
+        }}
       />
     );
   }

@@ -169,6 +169,17 @@
   white-space: nowrap;
 }
 
+.erp-filter-bar__apply-btn {
+  font-weight: 600;
+  border-radius: 5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: all 0.2s ease;
+}
+
+.erp-filter-bar__apply-btn--pending {
+  box-shadow: 0 0 0 2px var(--theme-info-soft, rgba(37, 99, 235, 0.25));
+}
+
 .erp-filter-bar__clear { font-size: 11px; }
 
 .erp-filter-chips {
@@ -233,6 +244,8 @@
 .erp-kpi-card {
   --kpi-tone: var(--theme-info);
   --kpi-soft: var(--theme-info-soft);
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -241,18 +254,22 @@
   border-radius: 6px;
   background: var(--theme-surface);
   cursor: pointer;
-  transition: border-color 0.16s ease, transform 0.16s ease;
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
 }
 
 .erp-kpi-card:hover {
   border-color: var(--theme-border-strong);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .erp-kpi-card:focus-visible {
   outline: 2px solid var(--theme-info);
   outline-offset: 1px;
 }
+
+.erp-kpi-card--success { --kpi-tone: var(--theme-success); --kpi-soft: var(--theme-success-soft); }
+.erp-kpi-card--danger  { --kpi-tone: var(--theme-danger);  --kpi-soft: var(--theme-danger-soft); }
 
 .erp-kpi-card__icon {
   display: inline-flex;
@@ -269,6 +286,27 @@
 
 .erp-kpi-card__icon--success { --kpi-tone: var(--theme-success); --kpi-soft: var(--theme-success-soft); }
 .erp-kpi-card__icon--danger  { --kpi-tone: var(--theme-danger);  --kpi-soft: var(--theme-danger-soft); }
+
+.erp-kpi-card__watermark {
+  position: absolute;
+  right: -6px;
+  bottom: -8px;
+  font-size: 56px;
+  color: var(--kpi-tone);
+  opacity: 0.12;
+  pointer-events: none;
+  user-select: none;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+
+.erp-kpi-card:hover .erp-kpi-card__watermark {
+  transform: scale(1.1) translateY(-2px);
+  opacity: 0.20;
+}
 
 .erp-kpi-card__body {
   display: flex;

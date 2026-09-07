@@ -1,6 +1,6 @@
 import React from 'react';
-import { Button, Select } from 'antd';
-import { SearchOutlined, CloseOutlined } from '@ant-design/icons';
+import { Button, Select, Space, Tooltip } from 'antd';
+import { SearchOutlined, CloseOutlined, ReloadOutlined, FilterOutlined } from '@ant-design/icons';
 import type { DashboardFilters as SystemFilters, FilterOption, MachinePerformanceItem } from '../../services/dashboardService';
 
 interface DashboardFiltersProps {
@@ -10,9 +10,13 @@ interface DashboardFiltersProps {
   shifts: FilterOption[];
   machines: MachinePerformanceItem[];
   filters: SystemFilters;
+  appliedFilters: SystemFilters;
   optionsLoading: boolean;
+  loading?: boolean;
   onChange: (key: string, value?: string) => void;
-  onClearAll: () => void;
+  onApply: () => void;
+  onReset: () => void;
+  onRemove: (key: string) => void;
 }
 
 const buildChips = (
@@ -48,16 +52,30 @@ const buildChips = (
 };
 
 const DashboardFilters: React.FC<DashboardFiltersProps> = ({
-  divisions, sections, departments, shifts, machines, filters,
-  optionsLoading, onChange, onClearAll,
+  divisions, sections, departments, shifts, machines, filters, appliedFilters,
+  optionsLoading, loading, onChange, onApply, onReset, onRemove,
 }) => {
-  const chips = buildChips(filters, divisions, sections, departments, shifts, machines);
+  const chips = buildChips(appliedFilters, divisions, sections, departments, shifts, machines);
+
+  const hasDraftChanges =
+    filters.divisionId !== appliedFilters.divisionId ||
+    filters.sectionId !== appliedFilters.sectionId ||
+    filters.departmentId !== appliedFilters.departmentId ||
+    filters.shiftId !== appliedFilters.shiftId ||
+    filters.machineId !== appliedFilters.machineId;
+
+  const hasAnyFilter = !!(
+    filters.divisionId || filters.sectionId || filters.departmentId ||
+    filters.shiftId || filters.machineId ||
+    appliedFilters.divisionId || appliedFilters.sectionId || appliedFilters.departmentId ||
+    appliedFilters.shiftId || appliedFilters.machineId
+  );
 
   return (
     <section className="erp-filter-bar" aria-label="Dashboard filters">
       <div className="erp-filter-bar__top">
         <div className="erp-filter-bar__label">
-          <SearchOutlined aria-hidden="true" /> Filters
+          <FilterOutlined aria-hidden="true" /> Filters
         </div>
         <div className="erp-filter-bar__selects">
           <Select
@@ -118,16 +136,33 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
           />
         </div>
         <div className="erp-filter-bar__actions">
-          {chips.length > 0 && (
-            <span className="erp-filter-bar__count">
-              {chips.length} active
-            </span>
-          )}
-          {chips.length > 0 && (
-            <Button size="small" className="erp-filter-bar__clear" onClick={onClearAll}>
-              Clear All
+          <Space size={6}>
+            <Button
+              type="primary"
+              size="small"
+              icon={<SearchOutlined />}
+              loading={loading}
+              onClick={onApply}
+              className={`erp-filter-bar__apply-btn${hasDraftChanges ? ' erp-filter-bar__apply-btn--pending' : ''}`}
+            >
+              {hasDraftChanges ? 'Apply Filters *' : 'Apply'}
             </Button>
-          )}
+            <Tooltip title="Reset all filters">
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={onReset}
+                disabled={!hasAnyFilter}
+              >
+                Reset
+              </Button>
+            </Tooltip>
+            {chips.length > 0 && (
+              <span className="erp-filter-bar__count">
+                {chips.length} active
+              </span>
+            )}
+          </Space>
         </div>
       </div>
       {chips.length > 0 && (
@@ -139,7 +174,7 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
               <button
                 type="button"
                 className="erp-filter-chip__remove"
-                onClick={() => onChange(chip.key, undefined)}
+                onClick={() => onRemove(chip.key)}
                 aria-label={`Remove ${chip.label} filter`}
               >
                 <CloseOutlined aria-hidden="true" />

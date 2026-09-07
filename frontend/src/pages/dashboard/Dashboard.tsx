@@ -30,7 +30,8 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
 
   // ── Global Filters ──
-  const [filters, setFilters] = useState<DashboardFiltersType>({});
+  const [appliedFilters, setAppliedFilters] = useState<DashboardFiltersType>({});
+  const [draftFilters, setDraftFilters] = useState<DashboardFiltersType>({});
   const [divisions, setDivisions] = useState<Array<{ id: string; name: string; divisionCode?: string }>>([]);
   const [sections, setSections] = useState<Array<{ id: string; name: string }>>([]);
   const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
@@ -68,29 +69,33 @@ const Dashboard: React.FC = () => {
     });
   }, []);
 
-  // ── Cascading filter: Division → Sections → Departments ──
+  // ── Cascading filter options: Division → Sections → Departments ──
   useEffect(() => {
     setSections([]);
     setDepartments([]);
-    setFilters(prev => ({ ...prev, sectionId: undefined, departmentId: undefined }));
-    dashboardService.getFilterSections(filters.divisionId).then(res => {
-      if (res.success) setSections(res.data);
-    });
-  }, [filters.divisionId]);
+    setDraftFilters(prev => ({ ...prev, sectionId: undefined, departmentId: undefined }));
+    if (draftFilters.divisionId) {
+      dashboardService.getFilterSections(draftFilters.divisionId).then(res => {
+        if (res.success) setSections(res.data);
+      });
+    }
+  }, [draftFilters.divisionId]);
 
   useEffect(() => {
     setDepartments([]);
-    setFilters(prev => ({ ...prev, departmentId: undefined }));
-    dashboardService.getFilterDepartments(filters.divisionId, filters.sectionId).then(res => {
-      if (res.success) setDepartments(res.data);
-    });
-  }, [filters.divisionId, filters.sectionId]);
+    setDraftFilters(prev => ({ ...prev, departmentId: undefined }));
+    if (draftFilters.divisionId || draftFilters.sectionId) {
+      dashboardService.getFilterDepartments(draftFilters.divisionId, draftFilters.sectionId).then(res => {
+        if (res.success) setDepartments(res.data);
+      });
+    }
+  }, [draftFilters.divisionId, draftFilters.sectionId]);
 
   // ── Data Loading ──
   const loadAll = useCallback(async (f?: DashboardFiltersType) => {
     setLoading(true);
     setError(null);
-    const effectiveFilters = f ?? filters;
+    const effectiveFilters = f ?? appliedFilters;
     try {
       const [sumRes, prodRes, trendRes, machineRes, invRes, alertRes, actRes, poRes, soRes, itemRes] = await Promise.allSettled([
         dashboardService.getSummary(effectiveFilters),
@@ -124,13 +129,17 @@ const Dashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [appliedFilters]);
 
-  useEffect(() => { void loadAll(); }, [loadAll]);
+  // Initial load on mount
+  useEffect(() => {
+    void loadAll({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── Filter change handler (preserves original cascade semantics) ──
+  // ── Filter change handler (updates draft selections) ──
   const handleFilterChange = useCallback((key: string, value?: string) => {
-    setFilters(prev => {
+    setDraftFilters(prev => {
       const next = { ...prev, [key]: value ?? undefined };
       if (key === 'divisionId') {
         next.sectionId = undefined;
@@ -142,9 +151,24 @@ const Dashboard: React.FC = () => {
     });
   }, []);
 
-  const clearAllFilters = useCallback(() => {
-    setFilters({});
+  const handleApplyFilters = useCallback(() => {
+    setAppliedFilters(draftFilters);
+    void loadAll(draftFilters);
+  }, [draftFilters, loadAll]);
+
+  const handleResetFilters = useCallback(() => {
+    setDraftFilters({});
+    setAppliedFilters({});
     void loadAll({});
+  }, [loadAll]);
+
+  const handleRemoveFilter = useCallback((key: string) => {
+    setDraftFilters(prev => {
+      const next = { ...prev, [key]: undefined };
+      setAppliedFilters(next);
+      void loadAll(next);
+      return next;
+    });
   }, [loadAll]);
 
   // ── Item Detail ──
@@ -213,10 +237,14 @@ const Dashboard: React.FC = () => {
         departments={departments}
         shifts={shifts}
         machines={machinePerf}
-        filters={filters}
+        filters={draftFilters}
+        appliedFilters={appliedFilters}
         optionsLoading={false}
+        loading={loading}
         onChange={handleFilterChange}
-        onClearAll={clearAllFilters}
+        onApply={handleApplyFilters}
+        onReset={handleResetFilters}
+        onRemove={handleRemoveFilter}
       />
 
       {/* ━━━ KPI SUMMARY ROW ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}

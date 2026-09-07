@@ -46,6 +46,8 @@ lerna-debug.log*
 # Storage
 /storage/*
 !/storage/.gitkeep
+!/storage/avatars/
+!/storage/avatars/**
 
 # Dev utility scripts (contain credentials or DB access)
 test-*.js

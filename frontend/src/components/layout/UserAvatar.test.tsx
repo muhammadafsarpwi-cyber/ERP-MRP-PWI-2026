@@ -45,4 +45,12 @@ describe('UserAvatar', () => {
     const { container } = render(<UserAvatar />);
     expect(container.querySelector('.anticon-user')).toBeInTheDocument();
   });
+
+  it('falls back to initials when avatar image fails to load', () => {
+    render(<UserAvatar displayName="Muhammad Afsar" avatarUrl="https://cdn.example.com/broken.jpg" size={32} />);
+    const img = screen.getByRole('img');
+    const { fireEvent } = require('@testing-library/react');
+    fireEvent.error(img);
+    expect(screen.getByText('MA')).toBeInTheDocument();
+  });
 });

@@ -41,6 +41,11 @@ const Login: React.FC = () => {
     document.title = 'Sign In | PWI — Pakistan Wire & Industry';
     if (redirecting) {
       navigate('/dashboard', { replace: true });
+    } else {
+      // Pre-warm backend container if cold-started on Render/cloud
+      apiService.get('/health').catch(() => {
+        /* silent warm-up ping */
+      });
     }
   }, [redirecting, navigate]);
 
@@ -78,7 +83,7 @@ const Login: React.FC = () => {
       } else if (status === 403) {
         setError('Your account has been deactivated. Contact your administrator.');
       } else if (status === 0 || !err.response) {
-        setError('Unable to connect to the ERP server. Please try again.');
+        setError('Unable to connect to the ERP server. The cloud server may be waking up from sleep — please wait a moment and try again.');
       } else {
         const serverMessage = err.response?.data?.message || err.response?.data?.error;
         setError(serverMessage || 'An unexpected error occurred. Please try again.');

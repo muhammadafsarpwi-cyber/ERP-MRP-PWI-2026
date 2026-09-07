@@ -107,7 +107,7 @@ const KpiStrip: React.FC<KpiStripProps> = ({ summary, loading, nav }) => {
       {kpis.map((kpi) => (
         <div
           key={kpi.key}
-          className="erp-kpi-card"
+          className={`erp-kpi-card erp-kpi-card--${kpi.tone}`}
           role="button"
           tabIndex={0}
           aria-label={`${kpi.label}: ${kpi.value}. ${kpi.context}`}
@@ -127,6 +127,9 @@ const KpiStrip: React.FC<KpiStripProps> = ({ summary, loading, nav }) => {
             <div className={`erp-kpi-card__detail${kpi.tone !== 'info' ? ` erp-kpi-card__detail--${kpi.tone}` : ''}`}>
               {kpi.context}
             </div>
+          </div>
+          <div className="erp-kpi-card__watermark" aria-hidden="true">
+            {kpi.icon}
           </div>
         </div>
       ))}
