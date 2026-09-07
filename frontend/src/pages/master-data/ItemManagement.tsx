@@ -460,31 +460,114 @@ const ItemManagement: React.FC = () => {
     try {
       const values = await form.validateFields();
       const payload: Record<string, unknown> = {};
+
+      const CLEARABLE_FIELDS = [
+        'weightPerMeter',
+        'weightPerPiece',
+        'piecesPerKg',
+        'lengthPerPiece',
+        'wireSizeMm',
+        'diameterMm',
+        'thicknessMm',
+        'widthMm',
+        'purchaseUomId',
+        'salesUomId',
+        'categoryId',
+        'divisionId',
+        'sectionId',
+        'departmentId',
+        'routeTypeId',
+        'routeType',
+        'productionInItemId',
+        'finalProduct',
+        'packingNextStep',
+        'sku',
+        'shortName',
+        'description',
+        'notes',
+        'barcode',
+        'manufacturerPartNumber',
+        'brand',
+        'model',
+        'minimumStockLevel',
+        'maximumStockLevel',
+        'reorderLevel',
+        'safetyStockLevel',
+        'leadTimeDays',
+      ] as const;
+
+      const NUMERIC_FIELDS = new Set([
+        'weightPerMeter',
+        'weightPerPiece',
+        'piecesPerKg',
+        'lengthPerPiece',
+        'wireSizeMm',
+        'diameterMm',
+        'thicknessMm',
+        'widthMm',
+        'minimumStockLevel',
+        'maximumStockLevel',
+        'reorderLevel',
+        'safetyStockLevel',
+        'leadTimeDays',
+      ]);
+
       Object.entries(values).forEach(([k, v]) => {
         if (v === undefined || v === null) return;
         if (typeof v === 'string') {
           const trimmed = v.trim();
           if (trimmed === '') return;
-          payload[k] = trimmed;
+          if (NUMERIC_FIELDS.has(k)) {
+            const num = Number(trimmed);
+            payload[k] = isNaN(num) ? null : num;
+          } else {
+            payload[k] = trimmed;
+          }
         } else {
           payload[k] = v;
         }
       });
+
+      // When editing an existing item, any clearable field that is empty in the form
+      // must be explicitly sent as null to persist the clearance in the database.
+      if (editing) {
+        for (const field of CLEARABLE_FIELDS) {
+          const val = values[field];
+          const isEmpty =
+            val === undefined ||
+            val === null ||
+            (typeof val === 'string' && val.trim() === '');
+          if (isEmpty) {
+            payload[field] = null;
+          }
+        }
+        // If routeTypeId was cleared to null, ensure routeType legacy code is also nullified
+        if (payload.routeTypeId === null) {
+          payload.routeType = null;
+        }
+      }
+
       // Defensive: strip any non-UUID display text from org fields (should never happen, but safe)
       const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       for (const field of ['divisionId', 'sectionId', 'departmentId', 'categoryId', 'baseUomId', 'purchaseUomId', 'salesUomId', 'routeTypeId'] as const) {
-        if (payload[field] !== undefined && typeof payload[field] === 'string') {
+        if (payload[field] !== undefined && payload[field] !== null && typeof payload[field] === 'string') {
           const val = (payload[field] as string).trim();
           if (!UUID_RE.test(val)) {
-            delete payload[field];
+            if (editing) {
+              payload[field] = null;
+            } else {
+              delete payload[field];
+            }
           }
         }
       }
+
       // Route type: submit the UUID (routeTypeId). Remove the legacy display-code field
       // so the backend authoritative route-types master decides the stored code.
-      if (payload.routeType !== undefined && payload.routeTypeId !== undefined) {
+      if (payload.routeTypeId && payload.routeType !== undefined) {
         delete payload.routeType;
       }
+
       // Sanitize and normalize process keys so no aliases with spaces or underscores reach the backend
       for (let i = 1; i <= 6; i++) {
         const canonical = `process${i}`;
@@ -509,26 +592,22 @@ const ItemManagement: React.FC = () => {
         for (let i = 1; i <= 6; i++) {
           payload[`process${i}`] = cleanProcs[i - 1]?.name || null;
         }
-      }
-
-      // Handle explicit physical specifications nullification if cleared on edit
-      if (values.diameterMm !== undefined && values.diameterMm !== null && values.diameterMm !== '') {
-        payload.diameterMm = Number(values.diameterMm);
-      } else if (editing && editing.diameterMm != null) {
-        payload.diameterMm = null;
-      }
-
-      if (values.lengthPerPiece !== undefined && values.lengthPerPiece !== null && values.lengthPerPiece !== '') {
-        payload.lengthPerPiece = Number(values.lengthPerPiece);
-      } else if (editing && editing.lengthPerPiece != null) {
-        payload.lengthPerPiece = null;
+      } else if (editing) {
+        // If processes array wasn't provided, ensure any cleared individual process fields are nullified
+        for (let i = 1; i <= 6; i++) {
+          const canonical = `process${i}`;
+          const val = values[canonical];
+          if (val === undefined || val === null || (typeof val === 'string' && val.trim() === '')) {
+            payload[canonical] = null;
+          }
+        }
       }
 
       if (editing) {
         if (editing.companyId) payload.companyId = editing.companyId;
         // TASK #45: If the user deliberately cleared the production input material,
         // send null so the backend clears productionInItemId and productionOutItemId.
-        if (!values.productionInItemId && editing.productionInItemId) {
+        if (!values.productionInItemId) {
           payload.productionInItemId = null;
         }
       } else if (companyId) {
