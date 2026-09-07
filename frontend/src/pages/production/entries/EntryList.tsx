@@ -62,7 +62,7 @@ import {
   ItemBadge,
 } from '../../../components/shared';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
 export interface ProductionEntryRow {

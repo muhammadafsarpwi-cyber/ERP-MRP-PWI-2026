@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { Space } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { resolveNavMeta } from '../layout/navigationConfig';
 import { useHeaderActions } from '../layout/headerActionsStore';

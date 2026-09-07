@@ -2044,13 +2044,6 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   );
 };
 
-const CtxItem: React.FC<{ label: string; value?: React.ReactNode; strong?: boolean }> = ({ label, value, strong }) => (
-  <div style={{ minWidth: 90 }}>
-    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>{label}</Text>
-    <Text strong={strong} style={{ fontSize: 13 }}>{value ?? '—'}</Text>
-  </div>
-);
-
 const RouteChain: React.FC<{
   route: { routingCode?: string; name?: string; operations?: Array<{ sequenceNo: number; operationName?: string; department?: { name?: string } | null }> };
 }> = ({ route }) => {
