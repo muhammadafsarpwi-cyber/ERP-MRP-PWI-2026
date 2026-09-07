@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Button, Card, Col, DatePicker, Descriptions, Divider, Drawer, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, App,
+  Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, App as AntApp,
 } from 'antd';
 import {
   DeleteOutlined, EditOutlined, EyeOutlined, InboxOutlined, PlusOutlined, ReloadOutlined, SaveOutlined,
@@ -74,7 +74,7 @@ interface LineRow {
 const emptyLine = (): LineRow => ({ key: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`, gatePassQuantity: 0, receivedQuantity: 0 });
 
 const RawMaterialReceiving: React.FC = () => {
-  const { message } = App.useApp();
+  const { message } = AntApp.useApp();
   const [form] = Form.useForm();
   const [refData, setRefData] = useState<FormRefData | null>(null);
   const [refState, setRefState] = useState<'loading' | 'error' | 'ready'>('loading');

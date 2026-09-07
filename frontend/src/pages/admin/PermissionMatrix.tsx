@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Card, Tag, Button, Space, Input, Select, App, Spin, Tooltip, Popconfirm } from 'antd';
+import { Card, Tag, Button, Space, Input, Select, App as AntApp, Spin, Tooltip, Popconfirm } from 'antd';
 import { SaveOutlined, SearchOutlined, ReloadOutlined, DownOutlined, RightOutlined, CompressOutlined, ExpandOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 
@@ -68,7 +68,7 @@ const ACTION_COLORS: Record<string, string> = {
 type ChangeMap = Map<string, boolean>;
 
 const PermissionMatrix: React.FC = () => {
-  const { message } = App.useApp();
+  const { message } = AntApp.useApp();
   const [matrix, setMatrix] = useState<PermissionMatrixData | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
