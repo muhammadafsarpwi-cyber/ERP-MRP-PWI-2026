@@ -321,7 +321,7 @@ const BatchModal: React.FC<BatchModalProps> = ({
       confirmLoading={submitting}
       onCancel={onCancel}
       width={600}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical">
         <Row gutter={16}>

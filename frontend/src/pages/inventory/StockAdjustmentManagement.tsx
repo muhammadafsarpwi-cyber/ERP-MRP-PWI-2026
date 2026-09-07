@@ -286,7 +286,7 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
       confirmLoading={submitting}
       onCancel={onCancel}
       width={600}
-      destroyOnClose
+      destroyOnHidden
       footer={isReadOnly ? [
         <Button key="close" type="primary" onClick={onCancel}>Close</Button>
       ] : undefined}

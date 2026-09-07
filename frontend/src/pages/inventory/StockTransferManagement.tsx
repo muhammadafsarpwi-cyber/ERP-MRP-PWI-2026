@@ -472,7 +472,7 @@ const StockTransferModal: React.FC<StockTransferModalProps> = ({
       onCancel={onCancel}
       width={720}
       style={{ top: 20 }}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical">
         <Row gutter={16}>

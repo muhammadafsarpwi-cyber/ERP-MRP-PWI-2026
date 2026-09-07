@@ -286,25 +286,30 @@ const ItemManagement: React.FC = () => {
 
   useEffect(() => {
     (async () => {
-      try {
-        const [uomRes, catRes, divRes, secRes, depRes, rtRes] = await Promise.all([
-          apiService.get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 }),
-          apiService.get<{ data: CategoryOption[] }>('/master-data/categories', { limit: 500 }),
-          apiService.get<{ data: DivisionOption[] }>('/divisions', { limit: 200 }),
-          apiService.get<{ data: SectionOption[] }>('/sections', { limit: 500 }),
-          apiService.get<{ data: DepartmentOption[] }>('/departments', { limit: 500 }),
-          apiService.get<{ data: Array<{ id: string; routeCode: string; name: string; status: string }> }>('/master-data/route-types', { limit: 200 }),
-        ]);
-        setUoms(uomRes.data || []);
-        setCategories(catRes.data || []);
-        setDivisions(divRes.data || []);
-        setSections(secRes.data || []);
-        setDepartments(depRes.data || []);
-        setRouteTypes((rtRes.data || []).filter((rt) => rt.status === 'ACTIVE'));
+      const [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled] = await Promise.allSettled([
+        apiService.get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 }),
+        apiService.get<{ data: CategoryOption[] }>('/master-data/categories', { limit: 500 }),
+        apiService.get<{ data: DivisionOption[] }>('/divisions', { limit: 200 }),
+        apiService.get<{ data: SectionOption[] }>('/sections', { limit: 500 }),
+        apiService.get<{ data: DepartmentOption[] }>('/departments', { limit: 500 }),
+        apiService.get<{ data: Array<{ id: string; routeCode: string; name: string; status: string }> }>('/master-data/route-types', { limit: 200 }),
+      ]);
+
+      if (uomSettled.status === 'fulfilled') setUoms(uomSettled.value.data || []);
+      if (catSettled.status === 'fulfilled') setCategories(catSettled.value.data || []);
+      if (divSettled.status === 'fulfilled') setDivisions(divSettled.value.data || []);
+      if (secSettled.status === 'fulfilled') setSections(secSettled.value.data || []);
+      if (depSettled.status === 'fulfilled') setDepartments(depSettled.value.data || []);
+      if (rtSettled.status === 'fulfilled') {
+        setRouteTypes((rtSettled.value.data || []).filter((rt) => rt.status === 'ACTIVE'));
         setRouteTypesState('ready');
-      } catch {
-        message.warning('Could not load lookup data (UOM / categories / organization / route types)');
+      } else {
         setRouteTypesState('error');
+      }
+
+      const allFailed = [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled].every(s => s.status === 'rejected');
+      if (allFailed) {
+        message.warning('Could not connect to server to load master data. Please check your network or try again.');
       }
       setCompanyId(await resolveCompanyId());
       if (can('item.view')) {

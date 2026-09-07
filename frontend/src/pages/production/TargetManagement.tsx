@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, DatePicker, App,
   Popconfirm, Card, Drawer, Descriptions, InputNumber, Alert, Statistic,
+  Grid, Row, Col,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, ReloadOutlined,
@@ -104,6 +105,8 @@ const calcPerHour = (qty: number, hours: number): number | null =>
 
 const TargetManagement: React.FC = () => {
   const { message } = App.useApp();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const [targets, setTargets] = useState<MachineTarget[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -617,7 +620,9 @@ const TargetManagement: React.FC = () => {
         onOk={handleSave}
         confirmLoading={saving}
         onCancel={() => setModalVisible(false)}
-        width={760}
+        width={isMobile ? '96vw' : 760}
+        style={{ top: isMobile ? 10 : 24, maxWidth: '100vw' }}
+        bodyStyle={{ maxHeight: isMobile ? '82vh' : '78vh', overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '14px 10px' : '20px 24px' }}
         okText={editing ? 'Save Changes' : 'Create Target'}
         destroyOnHidden
       >
@@ -639,7 +644,7 @@ const TargetManagement: React.FC = () => {
 
           {selectedMachine && (
             <Card size="small" style={{ marginBottom: 16, background: 'var(--theme-surface-alt)' }} title={<span><AimOutlined /> Selected Machine</span>}>
-              <Descriptions size="small" column={3}>
+              <Descriptions size="small" column={isMobile ? 1 : 3}>
                 <Descriptions.Item label="Machine ID">
                   <code>{selectedMachine.machineId ?? '—'}</code>
                 </Descriptions.Item>
@@ -672,7 +677,7 @@ const TargetManagement: React.FC = () => {
 
           {selectedItem && (
             <Card size="small" style={{ marginBottom: 16, background: 'var(--theme-surface-alt)' }} title={<span><AimOutlined /> Selected Item</span>}>
-              <Descriptions size="small" column={3}>
+              <Descriptions size="small" column={isMobile ? 1 : 3}>
                 <Descriptions.Item label="Code">{selectedItem.itemCode}</Descriptions.Item>
                 <Descriptions.Item label="Name">{selectedItem.name}</Descriptions.Item>
                 <Descriptions.Item label="Type">{selectedItem.itemType ?? '—'}</Descriptions.Item>
@@ -703,75 +708,82 @@ const TargetManagement: React.FC = () => {
             </Card>
           )}
 
-          <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item
-              name="shiftId"
-              label="Shift"
-              rules={[{ required: true, message: 'Select a shift' }]}
-              style={{ flex: 1, minWidth: 220 }}
-            >
-              <Select
-                showSearch optionFilterProp="label"
-                placeholder="e.g. SHIFT-A / GENERAL"
-                onChange={handleShiftChange}
-                options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name}` }))}
-              />
-            </Form.Item>
-            <Form.Item
-              name="uomId"
-              label="UOM (production unit)"
-              tooltip="Only KG, PCS and METER are allowed for production targets"
-              rules={[{ required: true, message: 'Select a production UOM' }]}
-              style={{ flex: 1, minWidth: 180 }}
-            >
-              <Select
-                placeholder="KG / PCS / METER"
-                options={uoms.map((u) => ({ value: u.id, label: `${u.code} · ${u.name}` }))}
-              />
-            </Form.Item>
-            <Form.Item
-              name="status"
-              label="Status"
-              initialValue="ACTIVE"
-              style={{ flex: 1, minWidth: 130 }}
-            >
-              <Select options={['ACTIVE', 'INACTIVE'].map((s) => ({ value: s, label: s }))} />
-            </Form.Item>
-          </Space>
+          <Row gutter={[12, 0]}>
+            <Col xs={24} sm={8}>
+              <Form.Item
+                name="shiftId"
+                label="Shift"
+                rules={[{ required: true, message: 'Select a shift' }]}
+              >
+                <Select
+                  showSearch optionFilterProp="label"
+                  placeholder="e.g. SHIFT-A / GENERAL"
+                  onChange={handleShiftChange}
+                  options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name}` }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item
+                name="uomId"
+                label="UOM (production unit)"
+                tooltip="Only KG, PCS and METER are allowed for production targets"
+                rules={[{ required: true, message: 'Select a production UOM' }]}
+              >
+                <Select
+                  placeholder="KG / PCS / METER"
+                  options={uoms.map((u) => ({ value: u.id, label: `${u.code} · ${u.name}` }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item
+                name="status"
+                label="Status"
+                initialValue="ACTIVE"
+              >
+                <Select options={['ACTIVE', 'INACTIVE'].map((s) => ({ value: s, label: s }))} />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item
-              name="targetQuantity"
-              label="Standard Target"
-              tooltip={`Production quantity over the standard hours`}
-              rules={[
-                { required: true, message: 'Standard target is required' },
-                { type: 'number', min: 0.0001, message: 'Must be greater than 0' },
-              ]}
-              style={{ flex: 1, minWidth: 180 }}
-            >
-              <InputNumber min={0.0001} step={1} style={{ width: '100%' }} placeholder="e.g. 5000" />
-            </Form.Item>
-            <Form.Item
-              name="standardHours"
-              label="Standard Hours"
-              tooltip={`Working hours the target is based on (max ${MAX_STANDARD_HOURS})`}
-              rules={[
-                { required: true, message: 'Standard hours are required' },
-                { type: 'number', min: 0.01, max: MAX_STANDARD_HOURS, message: `Between 0.01 and ${MAX_STANDARD_HOURS}` },
-              ]}
-              style={{ flex: 1, minWidth: 160 }}
-            >
-              <InputNumber min={0.01} max={MAX_STANDARD_HOURS} step={0.5} style={{ width: '100%' }} placeholder="e.g. 8" />
-            </Form.Item>
-            <Form.Item label="Target Per Hour (auto)" style={{ flex: 1, minWidth: 180 }}>
-              <Input
-                disabled
-                value={perHourPreview !== null ? `${fmtQty(perHourPreview)}${previewUomLabel ? ` ${previewUomLabel}` : ''}/h` : ''}
-                placeholder="Auto-calculated"
-              />
-            </Form.Item>
-          </Space>
+          <Row gutter={[12, 0]}>
+            <Col xs={24} sm={8}>
+              <Form.Item
+                name="targetQuantity"
+                label="Standard Target"
+                tooltip={`Production quantity over the standard hours`}
+                rules={[
+                  { required: true, message: 'Standard target is required' },
+                  { type: 'number', min: 0.0001, message: 'Must be greater than 0' },
+                ]}
+              >
+                <InputNumber min={0.0001} step={1} style={{ width: '100%' }} placeholder="e.g. 5000" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item
+                name="standardHours"
+                label="Standard Hours"
+                tooltip={`Working hours the target is based on (max ${MAX_STANDARD_HOURS})`}
+                rules={[
+                  { required: true, message: 'Standard hours are required' },
+                  { type: 'number', min: 0.01, max: MAX_STANDARD_HOURS, message: `Between 0.01 and ${MAX_STANDARD_HOURS}` },
+                ]}
+              >
+                <InputNumber min={0.01} max={MAX_STANDARD_HOURS} step={0.5} style={{ width: '100%' }} placeholder="e.g. 8" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item label="Target Per Hour (auto)">
+                <Input
+                  disabled
+                  value={perHourPreview !== null ? `${fmtQty(perHourPreview)}${previewUomLabel ? ` ${previewUomLabel}` : ''}/h` : ''}
+                  placeholder="Auto-calculated"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
           {perHourPreview !== null && previewUomLabel && (
             <Alert
@@ -788,33 +800,35 @@ const TargetManagement: React.FC = () => {
             />
           )}
 
-          <Space size={16} style={{ display: 'flex' }}>
-            <Form.Item
-              name="effectiveFrom"
-              label="Effective From"
-              rules={[{ required: true, message: 'Effective from date is required' }]}
-              style={{ flex: 1, minWidth: 180 }}
-            >
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item
-              name="effectiveTo"
-              label="Effective To"
-              dependencies={['effectiveFrom']}
-              rules={[
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    const from = getFieldValue('effectiveFrom');
-                    if (!value || !from || value.isAfter(from)) return Promise.resolve();
-                    return Promise.reject(new Error('Effective To must be after Effective From'));
-                  },
-                }),
-              ]}
-              style={{ flex: 1, minWidth: 180 }}
-            >
-              <DatePicker style={{ width: '100%' }} placeholder="(open-ended)" />
-            </Form.Item>
-          </Space>
+          <Row gutter={[12, 0]}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="effectiveFrom"
+                label="Effective From"
+                rules={[{ required: true, message: 'Effective from date is required' }]}
+              >
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="effectiveTo"
+                label="Effective To"
+                dependencies={['effectiveFrom']}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      const from = getFieldValue('effectiveFrom');
+                      if (!value || !from || value.isAfter(from)) return Promise.resolve();
+                      return Promise.reject(new Error('Effective To must be after Effective From'));
+                    },
+                  }),
+                ]}
+              >
+                <DatePicker style={{ width: '100%' }} placeholder="(open-ended)" />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item name="remarks" label="Remarks">
             <Input.TextArea rows={2} maxLength={2000} />
@@ -825,7 +839,7 @@ const TargetManagement: React.FC = () => {
       <Drawer
         title={detail ? `Target — ${detail.machine?.machineCode ?? ''}${detail.item ? ` · ${detail.item.itemCode}` : ''} · ${detail.shift?.shiftCode ?? ''}` : ''}
         placement="right"
-        width={480}
+        width={isMobile ? '100vw' : 480}
         open={!!detail}
         onClose={() => setDetail(null)}
         extra={

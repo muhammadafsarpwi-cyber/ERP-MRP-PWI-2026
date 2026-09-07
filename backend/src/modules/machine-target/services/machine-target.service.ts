@@ -244,6 +244,12 @@ export class MachineTargetService {
     }
 
     Object.assign(existing, merged, { updatedBy: userId ?? null });
+    // Remove populated relation objects so TypeORM persists the updated foreign keys (itemId, machineId, shiftId, uomId)
+    delete (existing as any).machine;
+    delete (existing as any).shift;
+    delete (existing as any).uom;
+    delete (existing as any).item;
+
     try {
       await this.targetRepo.save(existing);
       return await this.findOne(id, companyId);
