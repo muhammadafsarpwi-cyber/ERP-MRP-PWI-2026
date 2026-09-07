@@ -177,6 +177,9 @@ export class Item extends BaseEntity {
   @Column({ name: 'wire_size_mm', type: 'decimal', precision: 8, scale: 3, nullable: true })
   wireSizeMm: number | null;
 
+  @Column({ name: 'diameter_mm', type: 'decimal', precision: 8, scale: 3, nullable: true })
+  diameterMm: number | null;
+
   @Column({ name: 'thickness_mm', type: 'decimal', precision: 8, scale: 3, nullable: true })
   thicknessMm: number | null;
 
@@ -207,6 +210,12 @@ export class Item extends BaseEntity {
 
   @Column({ name: 'process_5', type: 'varchar', length: 255, nullable: true })
   process5: string | null;
+
+  @Column({ name: 'process_6', type: 'varchar', length: 255, nullable: true })
+  process6: string | null;
+
+  @Column({ name: 'processes', type: 'jsonb', nullable: true, default: () => "'[]'::jsonb" })
+  processes: { sequence: number; name: string }[] | null;
 
   @Column({ name: 'final_product', type: 'varchar', length: 255, nullable: true })
   finalProduct: string | null;

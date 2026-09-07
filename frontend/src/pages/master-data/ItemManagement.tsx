@@ -4,7 +4,7 @@ import {
   InputNumber, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import {
-  ApartmentOutlined, AppstoreOutlined, ClearOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
+  ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
   EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined,
   ReloadOutlined, SearchOutlined,
@@ -140,11 +140,14 @@ const ItemManagement: React.FC = () => {
   // form reflects the current item while it is being typed.
   const watchedCode = Form.useWatch('itemCode', form);
   const watchedName = Form.useWatch('name', form);
+  const watchedDivisionId = Form.useWatch('divisionId', form);
   const watchedDepartmentId = Form.useWatch('departmentId', form);
   const watchedItemType = Form.useWatch('itemType', form);
   const watchedWireSizeMm = Form.useWatch('wireSizeMm', form);
+  const watchedDiameterMm = Form.useWatch('diameterMm', form);
   const watchedThicknessMm = Form.useWatch('thicknessMm', form);
   const watchedWidthMm = Form.useWatch('widthMm', form);
+  const watchedLengthPerPiece = Form.useWatch('lengthPerPiece', form);
   const watchedRouteTypeId = Form.useWatch('routeTypeId', form);
   const watchedRouteType = Form.useWatch('routeType', form);
   const watchedFinalProduct = Form.useWatch('finalProduct', form);
@@ -154,6 +157,8 @@ const ItemManagement: React.FC = () => {
   const watchedProcess3 = Form.useWatch('process3', form);
   const watchedProcess4 = Form.useWatch('process4', form);
   const watchedProcess5 = Form.useWatch('process5', form);
+  const watchedProcess6 = Form.useWatch('process6', form);
+  const watchedProcesses = Form.useWatch('processes', form);
   const [selectedInputDetail, setSelectedInputDetail] = useState<Partial<Item> | null>(null);
 
   const [detailOpen, setDetailOpen] = useState(false);
@@ -373,6 +378,7 @@ const ItemManagement: React.FC = () => {
       isSellable: true,
       isManufacturable: false,
       isStockItem: true,
+      processes: [],
       // TASK #34C: stock-level / lead-time numeric inputs start BLANK (no '0').
       // The database defaults to 0 when left unset on create.
     });
@@ -382,6 +388,18 @@ const ItemManagement: React.FC = () => {
   const openEdit = (record: Item) => {
     setEditing(record);
     setSelectedInputDetail(record.productionInItem ?? null);
+
+    const initialProcs = (record.processes && record.processes.length > 0)
+      ? record.processes.map((p, idx) => ({ sequence: p.sequence ?? (idx + 1), name: p.name }))
+      : [
+          record.process1 ? { sequence: 1, name: record.process1 } : null,
+          record.process2 ? { sequence: 2, name: record.process2 } : null,
+          record.process3 ? { sequence: 3, name: record.process3 } : null,
+          record.process4 ? { sequence: 4, name: record.process4 } : null,
+          record.process5 ? { sequence: 5, name: record.process5 } : null,
+          record.process6 ? { sequence: 6, name: record.process6 } : null,
+        ].filter(Boolean) as { sequence: number; name: string }[];
+
     form.setFieldsValue({
       itemCode: record.itemCode,
       sku: record.sku ?? undefined,
@@ -402,6 +420,7 @@ const ItemManagement: React.FC = () => {
       sectionId: record.sectionId ?? undefined,
       departmentId: record.departmentId ?? undefined,
       wireSizeMm: record.wireSizeMm ?? undefined,
+      diameterMm: record.diameterMm ?? (record.division?.name?.toLowerCase().includes('spoke') || record.name?.toLowerCase().includes('spoke') ? record.wireSizeMm ?? undefined : undefined),
       thicknessMm: record.thicknessMm ?? undefined,
       widthMm: record.widthMm ?? undefined,
       routeType: record.routeType ?? undefined,
@@ -411,6 +430,8 @@ const ItemManagement: React.FC = () => {
       process3: record.process3 ?? undefined,
       process4: record.process4 ?? undefined,
       process5: record.process5 ?? undefined,
+      process6: record.process6 ?? undefined,
+      processes: initialProcs,
       finalProduct: record.finalProduct ?? undefined,
       packingNextStep: record.packingNextStep ?? undefined,
       weightPerPiece: record.weightPerPiece ?? undefined,
@@ -465,7 +486,7 @@ const ItemManagement: React.FC = () => {
         delete payload.routeType;
       }
       // Sanitize and normalize process keys so no aliases with spaces or underscores reach the backend
-      for (let i = 1; i <= 5; i++) {
+      for (let i = 1; i <= 6; i++) {
         const canonical = `process${i}`;
         const aliases = [`process ${i}`, `Process ${i}`, `process_${i}`];
         for (const alias of aliases) {
@@ -475,6 +496,34 @@ const ItemManagement: React.FC = () => {
           }
         }
       }
+
+      // Handle repeatable processes array from Form.List
+      if (Array.isArray(values.processes)) {
+        const cleanProcs = values.processes
+          .filter((p: any) => p && (typeof p === 'string' ? p.trim() : (p.name && String(p.name).trim())))
+          .map((p: any, idx: number) => ({
+            sequence: idx + 1,
+            name: typeof p === 'string' ? p.trim() : String(p.name).trim(),
+          }));
+        payload.processes = cleanProcs;
+        for (let i = 1; i <= 6; i++) {
+          payload[`process${i}`] = cleanProcs[i - 1]?.name || null;
+        }
+      }
+
+      // Handle explicit physical specifications nullification if cleared on edit
+      if (values.diameterMm !== undefined && values.diameterMm !== null && values.diameterMm !== '') {
+        payload.diameterMm = Number(values.diameterMm);
+      } else if (editing && editing.diameterMm != null) {
+        payload.diameterMm = null;
+      }
+
+      if (values.lengthPerPiece !== undefined && values.lengthPerPiece !== null && values.lengthPerPiece !== '') {
+        payload.lengthPerPiece = Number(values.lengthPerPiece);
+      } else if (editing && editing.lengthPerPiece != null) {
+        payload.lengthPerPiece = null;
+      }
+
       if (editing) {
         if (editing.companyId) payload.companyId = editing.companyId;
         // TASK #45: If the user deliberately cleared the production input material,
@@ -566,8 +615,9 @@ const ItemManagement: React.FC = () => {
 
   const EXPORT_HEADERS = [
     'Item Code', 'Name', 'SKU', 'Short Name', 'Item Type', 'Category', 'Division', 'Section',
-    'Department', 'Wire Size (mm)', 'Thickness (mm)', 'Width (mm)', 'Route Type', 'Process 1', 'Process 2', 'Process 3',
-    'Process 4', 'Process 5', 'Final Product', 'Packing / Next Step', 'Base UOM', 'Weight per Piece (KG)',
+    'Department', 'Wire Size (mm)', 'Diameter (mm)', 'Thickness (mm)', 'Width (mm)', 'Route Type',
+    'Process 1', 'Process 2', 'Process 3', 'Process 4', 'Process 5', 'Process 6',
+    'Final Product', 'Packing / Next Step', 'Base UOM', 'Weight per Piece (KG)',
     'Pieces per KG', 'Weight per Meter (kg/m)', 'Length per Piece (m)', 'Barcode', 'Status', 'Remarks',
   ];
 
@@ -579,10 +629,11 @@ const ItemManagement: React.FC = () => {
     sectionName(r) ?? '',
     departmentName(r) ?? '',
     formatDimension(r.wireSizeMm),
+    formatDimension(r.diameterMm),
     formatDimension(r.thicknessMm),
     formatDimension(r.widthMm),
     r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : '',
-    r.process1 ?? '', r.process2 ?? '', r.process3 ?? '', r.process4 ?? '', r.process5 ?? '',
+    r.process1 ?? '', r.process2 ?? '', r.process3 ?? '', r.process4 ?? '', r.process5 ?? '', r.process6 ?? '',
     r.finalProduct ?? '', r.packingNextStep ?? '', r.baseUomName ?? '',
     num(r.weightPerPiece), num(r.piecesPerKg), num(r.weightPerMeter), num(r.lengthPerPiece),
     r.barcode ?? '', r.status, r.notes ?? '',
@@ -811,7 +862,7 @@ const ItemManagement: React.FC = () => {
     }
 
     const numericFields: Array<[string, string]> = [
-      ['wireSizeMm', 'Wire Size'], ['thicknessMm', 'Thickness'], ['widthMm', 'Width'],
+      ['wireSizeMm', 'Wire Size'], ['diameterMm', 'Diameter'], ['thicknessMm', 'Thickness'], ['widthMm', 'Width'],
       ['weightPerPiece', 'Weight per Piece'],
       ['piecesPerKg', 'Pieces per KG'], ['weightPerMeter', 'Weight per Meter'],
       ['lengthPerPiece', 'Length per Piece'],
@@ -858,6 +909,7 @@ const ItemManagement: React.FC = () => {
       ...(sectionId ? { sectionId } : {}),
       ...(departmentId ? { departmentId } : {}),
       ...(numbers.wireSizeMm !== undefined ? { wireSizeMm: numbers.wireSizeMm } : {}),
+      ...(numbers.diameterMm !== undefined ? { diameterMm: numbers.diameterMm } : {}),
       ...(numbers.thicknessMm !== undefined ? { thicknessMm: numbers.thicknessMm } : {}),
       ...(numbers.widthMm !== undefined ? { widthMm: numbers.widthMm } : {}),
       ...(routeTypeId ? { routeTypeId } : {}),
@@ -866,6 +918,7 @@ const ItemManagement: React.FC = () => {
       ...(get('process3') ? { process3: get('process3') } : {}),
       ...(get('process4') ? { process4: get('process4') } : {}),
       ...(get('process5') ? { process5: get('process5') } : {}),
+      ...(get('process6') ? { process6: get('process6') } : {}),
       ...(get('finalProduct') ? { finalProduct: get('finalProduct') } : {}),
       ...(get('packingNextStep') ? { packingNextStep: get('packingNextStep') } : {}),
       ...(numbers.weightPerPiece !== undefined ? { weightPerPiece: numbers.weightPerPiece } : {}),
@@ -1036,10 +1089,20 @@ const ItemManagement: React.FC = () => {
       render: (_: unknown, r: Item) => departmentName(r) ?? <Text type="secondary">—</Text>,
     },
     {
-      title: 'Wire Size', dataIndex: 'wireSizeMm', key: 'wireSizeMm', width: 80, align: 'right',
+      title: 'Wire / Dia', key: 'wireDia', width: 95, align: 'right',
+      sorter: (a: Item, b: Item) => (Number(a.diameterMm ?? a.wireSizeMm ?? 0) - Number(b.diameterMm ?? b.wireSizeMm ?? 0)),
+      render: (_: unknown, r: Item) => {
+        const val = r.diameterMm != null ? r.diameterMm : r.wireSizeMm;
+        return (val !== null && val !== undefined
+          ? <Text strong style={{ fontSize: 13, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}>{formatDimension(val)}</Text>
+          : <Text type="secondary">—</Text>);
+      },
+    },
+    {
+      title: 'Length', dataIndex: 'lengthPerPiece', key: 'lengthPerPiece', width: 85, align: 'right',
       sorter: true,
       render: (v: number | null) => (v !== null && v !== undefined
-        ? <Text strong style={{ fontSize: 13, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}>{formatDimension(v)}</Text>
+        ? <Text style={{ fontSize: 13 }}>{formatDimension(v)}</Text>
         : <Text type="secondary">—</Text>),
     },
     {
@@ -1446,11 +1509,20 @@ const ItemManagement: React.FC = () => {
               ])}
             </Card>
 
-            <Card size="small" title="Production / Routing" style={{ borderRadius: 8 }}>
+            {/* DRAWER: PRODUCTION SPECIFICATIONS */}
+            <Card size="small" title="Production Specifications" style={{ borderRadius: 8, marginBottom: 12 }}>
               {detailDesc([
                 { label: 'Wire Size (mm)', children: detailItem.wireSizeMm != null ? formatDimension(detailItem.wireSizeMm) : null },
+                { label: 'Diameter (mm)', children: detailItem.diameterMm != null ? formatDimension(detailItem.diameterMm) : null },
                 { label: 'Thickness (mm)', children: detailItem.thicknessMm != null ? formatDimension(detailItem.thicknessMm) : null },
                 { label: 'Width (mm)', children: detailItem.widthMm != null ? formatDimension(detailItem.widthMm) : null },
+                { label: 'Length', children: detailItem.lengthPerPiece != null ? `${formatDimension(detailItem.lengthPerPiece)} ${detailItem.baseUomName || ''}`.trim() : null },
+              ])}
+            </Card>
+
+            {/* DRAWER: PRODUCTION ROUTE & FLOW */}
+            <Card size="small" title="Production Route / Process" style={{ borderRadius: 8 }}>
+              {detailDesc([
                 {
                   label: 'Route Type',
                   children: routeTypeLabel(detailItem) ? (
@@ -1459,15 +1531,8 @@ const ItemManagement: React.FC = () => {
                     </Tag>
                   ) : null,
                 },
-                { label: 'Process 1', children: txt(detailItem.process1) },
-                { label: 'Process 2', children: txt(detailItem.process2) },
-                { label: 'Process 3', children: txt(detailItem.process3) },
-                { label: 'Process 4', children: txt(detailItem.process4) },
-                { label: 'Process 5', children: txt(detailItem.process5) },
                 { label: 'Final Product', children: txt(detailItem.finalProduct) },
                 { label: 'Packing / Next Step', children: txt(detailItem.packingNextStep) },
-                // TASK #34B/#34C: the item itself is the OUTPUT of its stage. The
-                // INPUT shows Item Master details (type, source department, wire size).
                 {
                   label: 'Input Material',
                   children: detailItem.productionInItem
@@ -1489,21 +1554,83 @@ const ItemManagement: React.FC = () => {
                 },
               ])}
 
+              {/* Repeatable Process Sequence Display in Drawer */}
+              {(() => {
+                const drawerProcs = (detailItem.processes && detailItem.processes.length > 0)
+                  ? detailItem.processes
+                  : [
+                      detailItem.process1 ? { sequence: 1, name: detailItem.process1 } : null,
+                      detailItem.process2 ? { sequence: 2, name: detailItem.process2 } : null,
+                      detailItem.process3 ? { sequence: 3, name: detailItem.process3 } : null,
+                      detailItem.process4 ? { sequence: 4, name: detailItem.process4 } : null,
+                      detailItem.process5 ? { sequence: 5, name: detailItem.process5 } : null,
+                      detailItem.process6 ? { sequence: 6, name: detailItem.process6 } : null,
+                    ].filter(Boolean) as { sequence: number; name: string }[];
+
+                if (drawerProcs.length === 0) return null;
+
+                return (
+                  <div style={{ marginTop: 10, marginBottom: 12 }}>
+                    <Text strong style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted)', display: 'block', marginBottom: 6 }}>
+                      Configured Operations Sequence ({drawerProcs.length})
+                    </Text>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {drawerProcs.map((proc, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            background: 'var(--theme-surface-alt, rgba(255,255,255,0.03))',
+                            border: '1px solid var(--theme-border, rgba(255,255,255,0.08))',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: 'var(--theme-accent, #0284c7)',
+                              background: 'rgba(2, 132, 199, 0.1)',
+                              padding: '2px 6px',
+                              borderRadius: 3,
+                              border: '1px solid rgba(2, 132, 199, 0.25)',
+                              minWidth: 28,
+                              textAlign: 'center',
+                            }}
+                          >
+                            {String(proc.sequence ?? (idx + 1)).padStart(2, '0')}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 500 }}>{proc.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* TASK #45: Visual Production Flow Pipeline in Drawer */}
               {(() => {
-                const detailProcesses = [
-                  detailItem.process1,
-                  detailItem.process2,
-                  detailItem.process3,
-                  detailItem.process4,
-                  detailItem.process5,
-                ].filter(Boolean) as string[];
+                const detailProcesses = (detailItem.processes && detailItem.processes.length > 0)
+                  ? detailItem.processes.map((p) => p.name).filter(Boolean)
+                  : [
+                      detailItem.process1,
+                      detailItem.process2,
+                      detailItem.process3,
+                      detailItem.process4,
+                      detailItem.process5,
+                      detailItem.process6,
+                    ].filter(Boolean) as string[];
 
                 const hasFlow = Boolean(
                   detailItem.productionInItem ||
                   detailProcesses.length > 0 ||
                   detailItem.finalProduct ||
-                  detailItem.wireSizeMm != null
+                  detailItem.wireSizeMm != null ||
+                  detailItem.diameterMm != null
                 );
 
                 if (!hasFlow) return null;
@@ -1953,35 +2080,206 @@ const ItemManagement: React.FC = () => {
               <Form.Item name="weightPerMeter" label="Weight per Meter (kg/m)" extra="Enables KG ↔ METER">
                 <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="Optional" />
               </Form.Item>
-              <Form.Item name="lengthPerPiece" label="Length per Piece (m)" extra="Enables PCS ↔ METER">
-                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="Optional" />
-              </Form.Item>
+            </div>
+            <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
+              💡 Length is managed under <strong>Production Specifications</strong> below.
             </div>
           </Card>
 
           {/* SECTION 5 — PRODUCTION */}
-          <Card size="small" title="Production" style={{ marginBottom: 12, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
-              <Form.Item name="wireSizeMm" label="Wire Size (mm)">
-                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional" />
-              </Form.Item>
-              <Form.Item name="thicknessMm" label="Thickness (mm)" extra="Flattened / semi-finished wire">
-                <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 0.40" />
-              </Form.Item>
-              <Form.Item name="widthMm" label="Width (mm)" extra="Flattened / semi-finished wire">
-                <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 2.60" />
-              </Form.Item>
-              <Form.Item name="finalProduct" label="Final Product"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="packingNextStep" label="Packing / Next Step"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="process1" label="Process 1"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="process2" label="Process 2"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="process3" label="Process 3"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="process4" label="Process 4"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="process5" label="Process 5"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+          <Card
+            size="small"
+            title={
+              <Space>
+                <AppstoreOutlined style={{ color: '#10b981' }} />
+                <span style={{ fontWeight: 600 }}>Production</span>
+              </Space>
+            }
+            style={{ marginBottom: 12, borderRadius: 8 }}
+          >
+            {/* 5A: PRODUCTION SPECIFICATIONS */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
+                  Production Specifications
+                </Text>
+                {(() => {
+                  const div = divisions.find((d) => d.id === (watchedDivisionId || editing?.divisionId));
+                  const divName = (div?.name || '').toLowerCase();
+                  if (divName.includes('spoke')) {
+                    return <Tag color="blue">Spoke Division: Primary specs are Diameter (mm) and Length</Tag>;
+                  }
+                  if (divName.includes('wire') || divName.includes('flatten')) {
+                    return <Tag color="green">Wire Division: Primary specs are Wire Size (mm), Thickness, Width</Tag>;
+                  }
+                  if (divName.includes('pvc')) {
+                    return <Tag color="cyan">PVC Division: Primary specs are Diameter (mm) and Length</Tag>;
+                  }
+                  return null;
+                })()}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0 12px' }}>
+                <Form.Item name="wireSizeMm" label="Wire Size (mm)" extra="Raw wire dimension">
+                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="Optional (e.g. 1.20)" />
+                </Form.Item>
+                <Form.Item name="diameterMm" label="Diameter (mm)" extra="Authoritative diameter (Spoke/PVC/Wire)">
+                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 3.14" />
+                </Form.Item>
+                <Form.Item name="thicknessMm" label="Thickness (mm)" extra="Flattened / semi-finished wire">
+                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 0.90" />
+                </Form.Item>
+                <Form.Item name="widthMm" label="Width (mm)" extra="Flattened / semi-finished wire">
+                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 3.20" />
+                </Form.Item>
+                <Form.Item name="lengthPerPiece" label="Length" extra="Authoritative piece length">
+                  <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="e.g. 250" />
+                </Form.Item>
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: 'var(--theme-border, rgba(255, 255, 255, 0.08))', margin: '12px 0' }} />
+
+            {/* 5B: PRODUCTION ROUTE / PROCESS */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
+                  Production Route / Process
+                </Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  Sequential manufacturing operations (supports 6+ repeatable steps)
+                </Text>
+              </div>
+
+              <Form.List name="processes">
+                {(fields, { add, remove, move }) => (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {fields.map((field, index) => {
+                      const seqNumber = String(index + 1).padStart(2, '0');
+                      return (
+                        <div
+                          key={field.key}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '6px 10px',
+                            borderRadius: 6,
+                            border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                            background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.02))',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: 'var(--theme-accent, #0284c7)',
+                              background: 'rgba(2, 132, 199, 0.12)',
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(2, 132, 199, 0.25)',
+                              minWidth: 32,
+                              textAlign: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {seqNumber}
+                          </span>
+
+                          <Form.Item
+                            {...field}
+                            name={[field.name, 'sequence']}
+                            initialValue={index + 1}
+                            style={{ display: 'none' }}
+                          >
+                            <Input type="hidden" />
+                          </Form.Item>
+
+                          <Form.Item
+                            {...field}
+                            name={[field.name, 'name']}
+                            rules={[{ required: true, message: 'Operation name is required' }]}
+                            style={{ flex: 1, marginBottom: 0 }}
+                          >
+                            <Input
+                              placeholder={`e.g. ${
+                                index === 0 ? 'Straightener / Drawing / Flattening' :
+                                index === 1 ? 'Swagging / Spiral Winding' :
+                                index === 2 ? 'Spoke / PVC Extrusion' :
+                                index === 3 ? 'Spoke Plating / Cable Packing' :
+                                index === 4 ? 'Spoke Packing / Testing' :
+                                index === 5 ? 'Final Inspection / Quality Signoff' : 'Next Operation'
+                              }`}
+                              maxLength={255}
+                            />
+                          </Form.Item>
+
+                          <Tooltip title="Move Up">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<ArrowUpOutlined />}
+                              disabled={index === 0}
+                              onClick={() => move(index, index - 1)}
+                            />
+                          </Tooltip>
+
+                          <Tooltip title="Move Down">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<ArrowDownOutlined />}
+                              disabled={index === fields.length - 1}
+                              onClick={() => move(index, index + 1)}
+                            />
+                          </Tooltip>
+
+                          <Tooltip title="Remove Operation">
+                            <Button
+                              type="text"
+                              danger
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={() => remove(field.name)}
+                            />
+                          </Tooltip>
+                        </div>
+                      );
+                    })}
+
+                    <Button
+                      type="dashed"
+                      onClick={() => add({ sequence: fields.length + 1, name: '' })}
+                      icon={<PlusOutlined />}
+                      style={{ width: '100%', marginTop: 4 }}
+                    >
+                      + Add Process
+                    </Button>
+                  </div>
+                )}
+              </Form.List>
+            </div>
+
+            <div style={{ height: 1, background: 'var(--theme-border, rgba(255, 255, 255, 0.08))', margin: '12px 0' }} />
+
+            {/* 5C: OUTPUT / NEXT STEP */}
+            <div>
+              <Text strong style={{ display: 'block', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)', marginBottom: 8 }}>
+                Output / Next Step
+              </Text>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
+                <Form.Item name="finalProduct" label="Final Product" extra="Resulting product/output associated with this flow">
+                  <Input maxLength={255} placeholder="e.g. 250 × 17 B or Finished Wire" />
+                </Form.Item>
+                <Form.Item name="packingNextStep" label="Packing / Next Step" extra="Next operation or destination stage">
+                  <Input maxLength={255} placeholder="e.g. Straightener / Finished Store" />
+                </Form.Item>
+              </div>
             </div>
           </Card>
 
-          {/* SECTION 5b — TASK #45: PRODUCTION FLOW
+          {/* SECTION 5D — TASK #45: PRODUCTION FLOW
               The current Item IS the output of its own production stage. The user
               selects ONLY the INPUT MATERIAL; productionOutItemId is server-owned
               and auto-synced to this Item's ID. */}
@@ -2014,18 +2312,31 @@ const ItemManagement: React.FC = () => {
 
             {/* TASK #45: Live Flow Preview Card matching Authoritative Structure */}
             {(() => {
-              const modalProcesses = [
-                watchedProcess1 ?? editing?.process1,
-                watchedProcess2 ?? editing?.process2,
-                watchedProcess3 ?? editing?.process3,
-                watchedProcess4 ?? editing?.process4,
-                watchedProcess5 ?? editing?.process5,
-              ].filter(Boolean) as string[];
+              const modalProcesses = (() => {
+                if (Array.isArray(watchedProcesses) && watchedProcesses.length > 0) {
+                  return watchedProcesses
+                    .map((p: any) => (typeof p === 'string' ? p.trim() : (p?.name ? String(p.name).trim() : '')))
+                    .filter(Boolean);
+                }
+                const editingProcs = (editing?.processes && editing.processes.length > 0)
+                  ? editing.processes.map((p: any) => p.name).filter(Boolean)
+                  : [];
+                if (editingProcs.length > 0) return editingProcs;
+                return [
+                  watchedProcess1 ?? editing?.process1,
+                  watchedProcess2 ?? editing?.process2,
+                  watchedProcess3 ?? editing?.process3,
+                  watchedProcess4 ?? editing?.process4,
+                  watchedProcess5 ?? editing?.process5,
+                  watchedProcess6 ?? editing?.process6,
+                ].filter(Boolean) as string[];
+              })();
 
               const hasProductionFlow = Boolean(
                 selectedInputDetail ||
                 modalProcesses.length > 0 ||
                 watchedFinalProduct || editing?.finalProduct ||
+                watchedDiameterMm != null || editing?.diameterMm != null ||
                 watchedWireSizeMm != null || editing?.wireSizeMm != null
               );
 
@@ -2043,8 +2354,8 @@ const ItemManagement: React.FC = () => {
                     }}
                   >
                     {(watchedItemType || editing?.itemType) === 'RAW_MATERIAL'
-                      ? 'Root raw material — enter Wire Size, Processes 1–5, or Final Product in Section 5 above to view the live production sequence.'
-                      : 'Select an Input Material above, or enter Processes 1–5 in Section 5 to configure the manufacturing route.'}
+                      ? 'Root raw material — enter Diameter, Wire Size, Processes, or Final Product in Section 5 above to view the live production sequence.'
+                      : 'Select an Input Material above, or enter Production Processes in Section 5 to configure the manufacturing route.'}
                   </div>
                 );
               }
@@ -2072,8 +2383,10 @@ const ItemManagement: React.FC = () => {
               })();
 
               const wireVal = watchedWireSizeMm ?? editing?.wireSizeMm;
+              const diaVal = watchedDiameterMm ?? editing?.diameterMm;
               const thkVal = watchedThicknessMm ?? editing?.thicknessMm;
               const widVal = watchedWidthMm ?? editing?.widthMm;
+              const lenVal = watchedLengthPerPiece ?? editing?.lengthPerPiece;
               const finalProdName = watchedFinalProduct || editing?.finalProduct;
               const nextStepName = watchedPackingNextStep || editing?.packingNextStep;
 
@@ -2114,7 +2427,10 @@ const ItemManagement: React.FC = () => {
                       {resolvedRouteName && (
                         <Tag color="purple" style={{ margin: 0 }}>Route: {resolvedRouteName}</Tag>
                       )}
-                      {wireVal != null && (
+                      {diaVal != null && (
+                        <Tag color="green" style={{ margin: 0 }}>Diameter: {formatDimension(diaVal)} mm</Tag>
+                      )}
+                      {wireVal != null && diaVal == null && (
                         <Tag color="gold" style={{ margin: 0 }}>Wire: {formatDimension(wireVal)} mm</Tag>
                       )}
                       {(thkVal != null || widVal != null) && (
@@ -2122,7 +2438,10 @@ const ItemManagement: React.FC = () => {
                           Flattened: {formatDimension(thkVal)} × {formatDimension(widVal)} mm
                         </Tag>
                       )}
-                      <Tag color="cyan" style={{ margin: 0 }}>Operation: {operationName}</Tag>
+                      {lenVal != null && (
+                        <Tag color="cyan" style={{ margin: 0 }}>Length: {formatDimension(lenVal)}</Tag>
+                      )}
+                      <Tag color="geekblue" style={{ margin: 0 }}>Operation: {operationName}</Tag>
                     </Space>
                   </div>
 

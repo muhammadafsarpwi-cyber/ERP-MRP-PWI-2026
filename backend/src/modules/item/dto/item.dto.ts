@@ -11,6 +11,7 @@ import {
   Matches,
   IsIn,
   Min,
+  IsArray,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -193,6 +194,30 @@ export class CreateItemDto {
   @IsOptional()
   wireSizeMm?: number;
 
+  @ApiPropertyOptional({ description: 'Diameter in mm (authoritative specification for Spoke/PVC/etc.)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  diameterMm?: number;
+
+  @ApiPropertyOptional({ description: 'Diameter alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  diameter?: number;
+
+  @ApiPropertyOptional({ description: 'Diameter capitalized alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  Diameter?: number;
+
+  @ApiPropertyOptional({ description: 'Diameter snake_case alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  diameter_mm?: number;
+
   @ApiPropertyOptional({ description: 'Thickness in mm (the item\'s own specification, e.g. flattened wire)' })
   @IsNumber()
   @Min(0)
@@ -335,6 +360,35 @@ export class CreateItemDto {
   @MaxLength(255)
   'Process 5'?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 6' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process6?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 6 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_6?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 6 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 6'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 6 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 6'?: string;
+
+  @ApiPropertyOptional({ description: 'Repeatable ordered list of production processes' })
+  @IsArray()
+  @IsOptional()
+  processes?: { sequence: number; name: string }[];
+
   @ApiPropertyOptional({ description: 'Final produced product' })
   @IsString()
   @IsOptional()
@@ -370,6 +424,24 @@ export class CreateItemDto {
   @Min(0)
   @IsOptional()
   lengthPerPiece?: number;
+
+  @ApiPropertyOptional({ description: 'Length alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  length?: number;
+
+  @ApiPropertyOptional({ description: 'Length capitalized alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  Length?: number;
+
+  @ApiPropertyOptional({ description: 'Length snake_case alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  length_per_piece?: number;
 
   // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
   @ApiPropertyOptional({ description: 'Production IN Item ID — the raw material consumed to produce this item' })
@@ -559,6 +631,30 @@ export class UpdateItemDto {
   @IsOptional()
   wireSizeMm?: number;
 
+  @ApiPropertyOptional({ description: 'Diameter in mm (authoritative specification for Spoke/PVC/etc.)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  diameterMm?: number;
+
+  @ApiPropertyOptional({ description: 'Diameter alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  diameter?: number;
+
+  @ApiPropertyOptional({ description: 'Diameter capitalized alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  Diameter?: number;
+
+  @ApiPropertyOptional({ description: 'Diameter snake_case alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  diameter_mm?: number;
+
   @ApiPropertyOptional({ description: 'Thickness in mm (the item\'s own specification, e.g. flattened wire)' })
   @IsNumber()
   @Min(0)
@@ -701,6 +797,35 @@ export class UpdateItemDto {
   @MaxLength(255)
   'Process 5'?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 6' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process6?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 6 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_6?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 6 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 6'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 6 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 6'?: string;
+
+  @ApiPropertyOptional({ description: 'Repeatable ordered list of production processes' })
+  @IsArray()
+  @IsOptional()
+  processes?: { sequence: number; name: string }[];
+
   @ApiPropertyOptional({ description: 'Final produced product' })
   @IsString()
   @IsOptional()
@@ -736,6 +861,24 @@ export class UpdateItemDto {
   @Min(0)
   @IsOptional()
   lengthPerPiece?: number;
+
+  @ApiPropertyOptional({ description: 'Length alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  length?: number;
+
+  @ApiPropertyOptional({ description: 'Length capitalized alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  Length?: number;
+
+  @ApiPropertyOptional({ description: 'Length snake_case alias' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  length_per_piece?: number;
 
   // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
   @ApiPropertyOptional({ description: 'Production IN Item ID — the raw material consumed to produce this item' })

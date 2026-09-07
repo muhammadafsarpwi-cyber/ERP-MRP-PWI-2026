@@ -117,6 +117,7 @@ export class ItemService implements OnModuleInit {
 
     const rt = await this.resolveRouteType(dto.companyId, dto.routeTypeId, dto.routeType);
 
+    this.normalizeDtoAliases(dto as any);
     const processes = this.extractProcesses(dto as any);
     const cleanDto = { ...dto, ...processes };
     this.cleanProcessAliases(cleanDto);
@@ -130,7 +131,9 @@ export class ItemService implements OnModuleInit {
       createdBy: userId || null,
       updatedBy: userId || null,
     });
-    return this.itemRepository.save(item);
+    const saved = await this.itemRepository.save(item);
+    this.ensureProcessesArray(saved);
+    return saved;
   }
 
   async findAll(filter: ItemFilterDto): Promise<{ data: Item[]; total: number }> {
@@ -148,7 +151,7 @@ export class ItemService implements OnModuleInit {
       .leftJoinAndSelect('item.productionOutItem', 'productionOutItem');
 
     if (search) {
-      qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.barcode ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search)', { search: `%${search}%` });
+      qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.barcode ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search OR CAST(item.diameterMm AS TEXT) ILIKE :search)', { search: `%${search}%` });
     }
     if (status) qb.andWhere('item.status = :status', { status });
     if (active !== undefined) qb.andWhere(active ? 'item.status = :activeStatus' : 'item.status != :activeStatus', { activeStatus: 'ACTIVE' });
@@ -176,6 +179,7 @@ export class ItemService implements OnModuleInit {
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
+    data.forEach(item => this.ensureProcessesArray(item));
 
     return { data, total };
   }
@@ -186,24 +190,28 @@ export class ItemService implements OnModuleInit {
       relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionOutItem'],
     });
     if (!item) throw new NotFoundException(`Item with ID '${id}' not found`);
+    this.ensureProcessesArray(item);
     return item;
   }
 
   async findByItemCode(companyId: string, itemCode: string): Promise<Item> {
     const item = await this.itemRepository.findOne({ where: { companyId, itemCode }, relations: ['category', 'baseUom'] });
     if (!item) throw new NotFoundException(`Item '${itemCode}' not found in this company`);
+    this.ensureProcessesArray(item);
     return item;
   }
 
   async findBySku(companyId: string, sku: string): Promise<Item> {
     const item = await this.itemRepository.findOne({ where: { companyId, sku }, relations: ['category', 'baseUom'] });
     if (!item) throw new NotFoundException(`Item with SKU '${sku}' not found in this company`);
+    this.ensureProcessesArray(item);
     return item;
   }
 
   async findByBarcode(companyId: string, barcode: string): Promise<Item> {
     const item = await this.itemRepository.findOne({ where: { companyId, barcode }, relations: ['category', 'baseUom'] });
     if (!item) throw new NotFoundException(`Item with barcode '${barcode}' not found in this company`);
+    this.ensureProcessesArray(item);
     return item;
   }
 
@@ -256,6 +264,7 @@ export class ItemService implements OnModuleInit {
     // this bypasses the stale relation objects (division/section/department) that
     // were loaded with the original entity, preventing TypeORM from persisting
     // the old relation IDs instead of the newly supplied scalar FKs.
+    this.normalizeDtoAliases(dto as any);
     const processes = this.extractProcesses(dto as any);
     const scalarUpdate: Record<string, unknown> = { updatedBy: userId || null };
     for (const [k, v] of Object.entries(dto)) {
@@ -417,24 +426,83 @@ export class ItemService implements OnModuleInit {
   }
 
   private extractProcesses(source: Record<string, any>): {
-    process1?: string;
-    process2?: string;
-    process3?: string;
-    process4?: string;
-    process5?: string;
+    process1?: string | null;
+    process2?: string | null;
+    process3?: string | null;
+    process4?: string | null;
+    process5?: string | null;
+    process6?: string | null;
+    processes?: { sequence: number; name: string }[];
   } {
+    let procArray: { sequence: number; name: string }[] | undefined;
+    if (Array.isArray(source.processes)) {
+      procArray = source.processes
+        .filter((p: any) => p && (typeof p === 'string' ? p.trim() : (p.name && String(p.name).trim())))
+        .map((p: any, idx: number) => ({
+          sequence: typeof p.sequence === 'number' ? p.sequence : (idx + 1),
+          name: typeof p === 'string' ? p.trim() : String(p.name).trim(),
+        }));
+    }
+
     const p1 = source.process1 ?? source['process 1'] ?? source.process_1 ?? source['Process 1'];
     const p2 = source.process2 ?? source['process 2'] ?? source.process_2 ?? source['Process 2'];
     const p3 = source.process3 ?? source['process 3'] ?? source.process_3 ?? source['Process 3'];
     const p4 = source.process4 ?? source['process 4'] ?? source.process_4 ?? source['Process 4'];
     const p5 = source.process5 ?? source['process 5'] ?? source.process_5 ?? source['Process 5'];
+    const p6 = source.process6 ?? source['process 6'] ?? source.process_6 ?? source['Process 6'];
+
+    if (procArray !== undefined) {
+      return {
+        process1: procArray[0]?.name ?? null,
+        process2: procArray[1]?.name ?? null,
+        process3: procArray[2]?.name ?? null,
+        process4: procArray[3]?.name ?? null,
+        process5: procArray[4]?.name ?? null,
+        process6: procArray[5]?.name ?? null,
+        processes: procArray,
+      };
+    }
+
+    const hasAnyScalar = [p1, p2, p3, p4, p5, p6].some(p => p !== undefined);
+    if (!hasAnyScalar) {
+      return {};
+    }
+
+    const list: { sequence: number; name: string }[] = [];
+    [p1, p2, p3, p4, p5, p6].forEach((p, idx) => {
+      if (p && typeof p === 'string' && p.trim()) {
+        list.push({ sequence: idx + 1, name: p.trim() });
+      }
+    });
+
     return {
       ...(p1 !== undefined ? { process1: p1 } : {}),
       ...(p2 !== undefined ? { process2: p2 } : {}),
       ...(p3 !== undefined ? { process3: p3 } : {}),
       ...(p4 !== undefined ? { process4: p4 } : {}),
       ...(p5 !== undefined ? { process5: p5 } : {}),
+      ...(p6 !== undefined ? { process6: p6 } : {}),
+      processes: list,
     };
+  }
+
+  private normalizeDtoAliases(dto: Record<string, any>): void {
+    if (dto.diameterMm === undefined) {
+      const d = dto.diameter ?? dto.Diameter ?? dto.diameter_mm;
+      if (d !== undefined && d !== null && d !== '') {
+        dto.diameterMm = Number(d);
+      }
+    }
+    if (dto.lengthPerPiece === undefined) {
+      const l = dto.length ?? dto.Length ?? dto.length_per_piece;
+      if (l !== undefined && l !== null && l !== '') {
+        dto.lengthPerPiece = Number(l);
+      }
+    }
+    // Backward compatibility: If diameter is set and wireSizeMm is not set, sync wireSizeMm
+    if (dto.diameterMm !== undefined && dto.diameterMm !== null && (dto.wireSizeMm === undefined || dto.wireSizeMm === null)) {
+      dto.wireSizeMm = dto.diameterMm;
+    }
   }
 
   private cleanProcessAliases(target: Record<string, any>): void {
@@ -444,9 +512,27 @@ export class ItemService implements OnModuleInit {
       'process 3', 'Process 3', 'process_3',
       'process 4', 'Process 4', 'process_4',
       'process 5', 'Process 5', 'process_5',
+      'process 6', 'Process 6', 'process_6',
+      'diameter', 'Diameter', 'diameter_mm',
+      'length', 'Length', 'length_per_piece',
     ];
     for (const a of aliases) {
       delete target[a];
     }
+  }
+
+  private ensureProcessesArray(item: Item): void {
+    if (!item) return;
+    if (item.processes && Array.isArray(item.processes) && item.processes.length > 0) {
+      return;
+    }
+    const list: { sequence: number; name: string }[] = [];
+    const scalars = [item.process1, item.process2, item.process3, item.process4, item.process5, item.process6];
+    scalars.forEach((val, idx) => {
+      if (val && typeof val === 'string' && val.trim()) {
+        list.push({ sequence: idx + 1, name: val.trim() });
+      }
+    });
+    item.processes = list;
   }
 }

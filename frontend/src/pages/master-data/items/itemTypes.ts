@@ -48,6 +48,11 @@ export const routeColorMap: Record<string, string> = {
   SPOKE: 'geekblue',
 };
 
+export interface ProcessStep {
+  sequence: number;
+  name: string;
+}
+
 export interface Item {
   id: string;
   companyId?: string;
@@ -78,6 +83,7 @@ export interface Item {
   section?: { id: string; sectionCode: string; name: string } | null;
   department?: { id: string; departmentCode: string; name: string } | null;
   wireSizeMm?: number | null;
+  diameterMm?: number | null;
   thicknessMm?: number | null;
   widthMm?: number | null;
   routeType?: string | null;
@@ -88,6 +94,8 @@ export interface Item {
   process3?: string | null;
   process4?: string | null;
   process5?: string | null;
+  process6?: string | null;
+  processes?: ProcessStep[] | null;
   finalProduct?: string | null;
   packingNextStep?: string | null;
   weightPerPiece?: number | null;
@@ -115,8 +123,8 @@ export interface Item {
   barcodes?: Array<{ id: string; barcodeType?: string; barcodeValue?: string; status?: string }>;
   // TASK #33: Production Flow Mapping
   productionInItemId?: string | null;
-  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; departmentId?: string | null; itemType?: string; baseUomName?: string | null } | null;
-  productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; departmentId?: string | null; itemType?: string; baseUomName?: string | null } | null;
+  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; diameterMm?: number | null; lengthPerPiece?: number | null; departmentId?: string | null; itemType?: string; baseUomName?: string | null } | null;
+  productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; diameterMm?: number | null; lengthPerPiece?: number | null; departmentId?: string | null; itemType?: string; baseUomName?: string | null } | null;
 }
 
 export interface DivisionOption { id: string; divisionCode: string; name: string; }
