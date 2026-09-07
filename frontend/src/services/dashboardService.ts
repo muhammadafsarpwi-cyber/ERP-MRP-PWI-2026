@@ -165,6 +165,7 @@ export interface ItemOverview {
   itemCode: string;
   name: string;
   departmentName?: string | null;
+  wireSizeMm?: number | null;
   itemType: string;
   status: string;
   isManufacturable: boolean;
@@ -177,6 +178,54 @@ export interface ItemOverview {
   reorderLevel: number | null;
   stock: { onHand: number; reserved: number; available: number };
   production: { entryCount: number; totalActual: number };
+}
+
+export interface ProductionChainStage {
+  stageOrder: number;
+  stageName: string;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  itemType: string;
+  departmentName: string | null;
+  wireSizeMm?: number | null;
+  uom?: string | null;
+  isCurrent: boolean;
+}
+
+export interface ProductionFlowInfo {
+  isRawMaterial: boolean;
+  hasConfiguredRoute: boolean;
+  statusMessage: string;
+  operationName: string | null;
+  departmentName: string | null;
+  inputItem: {
+    id: string;
+    itemCode: string;
+    name: string;
+    itemType: string;
+    wireSizeMm?: number | null;
+    uom?: string | null;
+    departmentName?: string | null;
+    storeWarehouseName?: string | null;
+  } | null;
+  outputItem: {
+    id: string;
+    itemCode: string;
+    name: string;
+    itemType: string;
+    wireSizeMm?: number | null;
+    uom?: string | null;
+    departmentName?: string | null;
+  };
+  routeTypeName?: string | null;
+  wireSizeMm?: number | null;
+  thicknessMm?: number | null;
+  widthMm?: number | null;
+  finalProduct?: string | null;
+  packingNextStep?: string | null;
+  processes?: Array<{ step: number; name: string }>;
+  chain: ProductionChainStage[];
 }
 
 export interface ItemRoute {
@@ -204,6 +253,7 @@ export interface ItemRoute {
     scrapPercentage: number;
     status: string;
   }>;
+  productionFlow?: ProductionFlowInfo | null;
 }
 
 export interface FilterOption {

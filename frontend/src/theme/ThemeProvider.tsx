@@ -19,8 +19,12 @@ const buildCssVars = (
   const { primary, surface, accent, background } = roles;
   if (dark) {
     return {
-      '--theme-primary': primary,
-      '--theme-primary-deep': darkenHex(primary, 0.28),
+      // In dark mode, primary brand/accent text & interactive elements should use accent (high-contrast, bright)
+      // while primary represents the dark sider background
+      '--theme-primary': accent,
+      '--theme-primary-deep': darkenHex(accent, 0.28),
+      '--theme-sider-bg': primary,
+      '--theme-link': accent,
       '--theme-on-primary': '#ffffff',
       '--theme-surface': surface,
       '--theme-surface-alt': lightenHex(surface, 0.05),

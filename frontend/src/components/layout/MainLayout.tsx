@@ -398,12 +398,12 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           className="erp-app-header"
           style={{
             height: 'auto',
-            minHeight: isMobile ? 96 : 116,
-            padding: isMobile ? '8px 12px' : '10px 24px',
+            minHeight: 'auto',
+            padding: isMobile ? '6px 8px' : '6px 10px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            gap: isMobile ? 6 : 8,
+            gap: 4,
             lineHeight: 'normal',
             position: 'sticky',
             top: 0,
@@ -525,11 +525,14 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           className="erp-app-content"
           style={{
             margin: 0,
-            padding: isMobile ? '8px 12px 24px' : '16px 24px 32px',
+            padding: isMobile ? '4px 6px 12px' : '6px 8px 16px',
             borderRadius: 0,
             border: 'none',
             background: 'transparent',
             minHeight: 280,
+            width: '100%',
+            maxWidth: '100%',
+            boxSizing: 'border-box',
             overflowX: 'auto',
           }}
         >

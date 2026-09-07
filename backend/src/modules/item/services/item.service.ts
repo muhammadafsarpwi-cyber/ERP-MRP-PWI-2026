@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { randomUUID } from 'crypto';
@@ -8,7 +8,7 @@ import { Division, Section, Department } from '../../organization/entities';
 import { ItemRouteType, RouteTypeStatus } from '../entities/route-type.entity';
 
 @Injectable()
-export class ItemService {
+export class ItemService implements OnModuleInit {
   private readonly logger = new Logger(ItemService.name);
 
   constructor(
@@ -23,6 +23,23 @@ export class ItemService {
     @InjectRepository(ItemRouteType)
     private readonly routeTypeRepository: Repository<ItemRouteType>,
   ) {}
+
+  async onModuleInit() {
+    try {
+      // TASK #45: Heal any legacy records where production_in_item_id is set
+      // but production_out_item_id is NULL or out of sync (current item is the output).
+      await this.itemRepository
+        .createQueryBuilder()
+        .update(Item)
+        .set({ productionOutItemId: () => 'id' })
+        .where('production_in_item_id IS NOT NULL')
+        .andWhere('(production_out_item_id IS NULL OR production_out_item_id != id)')
+        .execute();
+      this.logger.log('Production OUT item auto-sync check completed successfully.');
+    } catch (err: any) {
+      this.logger.warn(`Could not run production OUT auto-sync check: ${err?.message}`);
+    }
+  }
 
   /**
    * Resolves the route classification for an item. Accepts a route type master

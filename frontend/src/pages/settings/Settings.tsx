@@ -7,7 +7,7 @@ const { Title, Text } = Typography;
 
 const Settings: React.FC = () => {
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', width: '100%' }}>
+    <div style={{ width: '100%', padding: '4px 6px' }}>
       <div style={{ marginBottom: 16 }}>
         <Title level={4} style={{ marginBottom: 4 }}>
           Settings & Visual Studio

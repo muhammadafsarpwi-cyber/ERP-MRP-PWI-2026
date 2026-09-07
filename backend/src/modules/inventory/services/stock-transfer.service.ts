@@ -5,7 +5,7 @@ import {
   StockTransfer,
   StockTransferLine,
 } from '../entities';
-import { CreateStockTransferDto, CreateStockTransferLineDto, StockTransferFilterDto } from '../dto';
+import { CreateStockTransferDto, CreateStockTransferLineDto, StockTransferFilterDto, UpdateStockTransferDto } from '../dto';
 import { StockLedgerService } from './stock-ledger.service';
 import { InventoryBalanceService } from './inventory-balance.service';
 
@@ -27,6 +27,12 @@ export class StockTransferService {
       throw new BadRequestException(`Source and destination warehouses must be different`);
     }
 
+    if (!dto.transferCode) {
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const rand = Math.floor(1000 + Math.random() * 9000);
+      dto.transferCode = `TRF-${dateStr}-${rand}`;
+    }
+
     const existing = await this.repo.findOne({
       where: { transferCode: dto.transferCode, companyId: dto.companyId },
     });
@@ -36,13 +42,66 @@ export class StockTransferService {
       );
     }
 
+    const hasSingleStepLine = Boolean(dto.itemId && dto.quantity && Number(dto.quantity) > 0);
+    const initialStatus = hasSingleStepLine && dto.autoPost !== false ? 'APPROVED' : 'DRAFT';
+
+    let uomId = dto.uomId;
+    if (hasSingleStepLine) {
+      const availableStock = await this.balanceService.getAvailableStock(
+        dto.companyId!,
+        dto.itemId!,
+        dto.fromWarehouseId,
+        dto.fromLocationId,
+      );
+      if (availableStock < Number(dto.quantity)) {
+        throw new BadRequestException(
+          `Insufficient stock in source warehouse: requested ${dto.quantity}, but only ${availableStock} is available`,
+        );
+      }
+
+      if (!uomId) {
+        const item: any = await this.repo.manager.getRepository('Item').findOne({ where: { id: dto.itemId } });
+        uomId = item?.baseUomId;
+        if (!uomId) {
+          throw new BadRequestException('UOM could not be resolved for the transfer item');
+        }
+      }
+    }
+
     const transfer = this.repo.create({
-      ...dto,
-      status: 'DRAFT',
+      companyId: dto.companyId,
+      transferCode: dto.transferCode,
+      fromWarehouseId: dto.fromWarehouseId,
+      toWarehouseId: dto.toWarehouseId,
+      fromLocationId: dto.fromLocationId || null,
+      toLocationId: dto.toLocationId || null,
+      notes: dto.notes || null,
+      status: initialStatus,
       createdBy: userId || null,
       updatedBy: userId || null,
+      approvedBy: initialStatus === 'APPROVED' ? (userId || null) : null,
+      approvedAt: initialStatus === 'APPROVED' ? new Date() : null,
     });
-    return this.repo.save(transfer);
+    const saved = await this.repo.save(transfer);
+
+    if (hasSingleStepLine) {
+      const line = this.lineRepo.create({
+        transferId: saved.id,
+        itemId: dto.itemId!,
+        uomId: uomId!,
+        quantity: Number(dto.quantity),
+        fromLocationId: dto.fromLocationId || null,
+        toLocationId: dto.toLocationId || null,
+        notes: dto.notes || null,
+      });
+      await this.lineRepo.save(line);
+
+      if (dto.autoPost !== false) {
+        return this.post(saved.id, userId);
+      }
+    }
+
+    return this.findOne(saved.id);
   }
 
   async findAll(filter: StockTransferFilterDto): Promise<{ data: StockTransfer[]; total: number }> {
@@ -60,7 +119,10 @@ export class StockTransferService {
     const qb = this.repo
       .createQueryBuilder('transfer')
       .leftJoinAndSelect('transfer.fromWarehouse', 'fromWarehouse')
-      .leftJoinAndSelect('transfer.toWarehouse', 'toWarehouse');
+      .leftJoinAndSelect('transfer.toWarehouse', 'toWarehouse')
+      .leftJoinAndSelect('transfer.lines', 'lines')
+      .leftJoinAndSelect('lines.item', 'item')
+      .leftJoinAndSelect('lines.uom', 'uom');
 
     if (companyId) qb.where('transfer.companyId = :companyId', { companyId });
     if (fromWarehouseId) qb[companyId ? 'andWhere' : 'where']('transfer.fromWarehouseId = :fromWarehouseId', { fromWarehouseId });
@@ -95,6 +157,49 @@ export class StockTransferService {
     });
     if (!transfer) throw new NotFoundException(`Stock transfer with ID '${id}' not found`);
     return transfer;
+  }
+
+  async update(id: string, dto: UpdateStockTransferDto, userId?: string): Promise<StockTransfer> {
+    const transfer = await this.findOne(id);
+    if (!transfer) throw new NotFoundException(`Stock transfer with ID '${id}' not found`);
+
+    // Always allow updating notes/remarks on any transfer (even if POSTED)
+    if (dto.notes !== undefined) {
+      transfer.notes = dto.notes;
+    }
+
+    // For DRAFT transfers, also allow updating warehouses and line items
+    if (transfer.status === 'DRAFT') {
+      if (dto.fromWarehouseId) transfer.fromWarehouseId = dto.fromWarehouseId;
+      if (dto.toWarehouseId) transfer.toWarehouseId = dto.toWarehouseId;
+
+      if (dto.itemId || dto.quantity != null) {
+        if (transfer.lines && transfer.lines.length > 0) {
+          const line = transfer.lines[0];
+          if (dto.itemId) line.itemId = dto.itemId;
+          if (dto.quantity != null) line.quantity = dto.quantity;
+          if (dto.uomId) line.uomId = dto.uomId;
+          await this.lineRepo.save(line);
+        } else if (dto.itemId && dto.quantity != null) {
+          let uomId = dto.uomId;
+          if (!uomId) {
+            const itemRows = await this.repo.query(`SELECT base_uom_id FROM items WHERE id = $1`, [dto.itemId]);
+            uomId = itemRows[0]?.base_uom_id;
+          }
+          if (uomId) {
+            await this.addLine(transfer.id, {
+              itemId: dto.itemId,
+              quantity: dto.quantity,
+              uomId,
+            });
+          }
+        }
+      }
+    }
+
+    transfer.updatedBy = userId || null;
+    await this.repo.save(transfer);
+    return this.findOne(id);
   }
 
   async addLine(transferId: string, dto: CreateStockTransferLineDto): Promise<StockTransferLine> {

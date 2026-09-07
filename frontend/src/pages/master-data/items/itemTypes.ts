@@ -87,6 +87,7 @@ export interface Item {
   process2?: string | null;
   process3?: string | null;
   process4?: string | null;
+  process5?: string | null;
   finalProduct?: string | null;
   packingNextStep?: string | null;
   weightPerPiece?: number | null;
@@ -114,9 +115,8 @@ export interface Item {
   barcodes?: Array<{ id: string; barcodeType?: string; barcodeValue?: string; status?: string }>;
   // TASK #33: Production Flow Mapping
   productionInItemId?: string | null;
-  productionOutItemId?: string | null;
-  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; departmentId?: string | null; itemType?: string } | null;
-  productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; departmentId?: string | null; itemType?: string } | null;
+  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; departmentId?: string | null; itemType?: string; baseUomName?: string | null } | null;
+  productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; departmentId?: string | null; itemType?: string; baseUomName?: string | null } | null;
 }
 
 export interface DivisionOption { id: string; divisionCode: string; name: string; }
@@ -143,12 +143,12 @@ export interface ImportRow {
 export const IMPORT_COLUMNS = [
   'itemCode', 'name', 'sku', 'shortName', 'itemType', 'uomCode', 'categoryName',
   'divisionCodeOrName', 'sectionCodeOrName', 'departmentCodeOrName', 'wireSizeMm',
-  'routeType', 'process1', 'process2', 'process3', 'process4', 'finalProduct',
+  'routeType', 'process1', 'process2', 'process3', 'process4', 'process5', 'finalProduct',
   'packingNextStep', 'weightPerPiece', 'piecesPerKg', 'weightPerMeter',
   'lengthPerPiece', 'barcode', 'remarks',
 ];
 
 export const TEMPLATE_CSV =
-  'itemCode,name,sku,shortName,itemType,uomCode,categoryName,divisionCodeOrName,sectionCodeOrName,departmentCodeOrName,wireSizeMm,thicknessMm,widthMm,routeType,process1,process2,process3,process4,finalProduct,packingNextStep,weightPerPiece,piecesPerKg,weightPerMeter,lengthPerPiece,barcode,remarks\n' +
-  'WIRE-3MM-001,Wire Rod 3mm,,W3,RAW_MATERIAL,KG,,,Spoke,Wire Drawing,3,,,DIRECT_SPOKE,Drawing,Annealing,Packing,,,,0.0555,18.02,,,,Sample remark\n' +
-  'FLAT-040-260-001,0.40 x 2.60 mm Flat Wire [SAMPLE],,FLAT,SEMI_FINISHED,KG,,,Flat Wire,,,0.40,2.60,CCD,Flattening,Spiral,PVC,,,,0.1150,8.70,,,,Sample remark\n';
+  'itemCode,name,sku,shortName,itemType,uomCode,categoryName,divisionCodeOrName,sectionCodeOrName,departmentCodeOrName,wireSizeMm,thicknessMm,widthMm,routeType,process1,process2,process3,process4,process5,finalProduct,packingNextStep,weightPerPiece,piecesPerKg,weightPerMeter,lengthPerPiece,barcode,remarks\n' +
+  'WIRE-3MM-001,Wire Rod 3mm,,W3,RAW_MATERIAL,KG,,,Spoke,Wire Drawing,3,,,DIRECT_SPOKE,Drawing,Annealing,Packing,,,,,0.0555,18.02,,,,Sample remark\n' +
+  'FLAT-040-260-001,0.40 x 2.60 mm Flat Wire [SAMPLE],,FLAT,SEMI_FINISHED,KG,,,Flat Wire,,,0.40,2.60,CCD,Flattening,Spiral,PVC,,,,,0.1150,8.70,,,,Sample remark\n';

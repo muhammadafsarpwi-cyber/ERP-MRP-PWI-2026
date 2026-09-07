@@ -190,10 +190,13 @@ const InventoryImpactReport: React.FC<{
   outProduced: number;
   outAfter: number;
   outUom: string;
+  outCompanyBefore?: number;
+  outCompanyTotal?: number;
 }> = ({
   posted,
   rawItemCode, rawItemName, rawStoreName, rawBefore, rawConsumed, rawAfter, rawUom,
   outItemCode, outItemName, outStoreName, outBefore, outProduced, outAfter, outUom,
+  outCompanyBefore, outCompanyTotal,
 }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
     {/* LINE 1: INPUT (RAW MATERIAL INFLOW & DEDUCTION) */}
@@ -270,9 +273,16 @@ const InventoryImpactReport: React.FC<{
           <Text strong style={{ fontSize: 12 }}>{outItemCode ?? 'Produced Item'}</Text>
           {outItemName && <Text type="secondary" style={{ fontSize: 12 }}>— {outItemName}</Text>}
         </div>
-        <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', background: 'var(--theme-surface-alt)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
-          Receipt: <strong style={{ color: 'var(--theme-text)' }}>{outStoreName ?? '—'}</strong>
-        </span>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', background: 'var(--theme-surface-alt)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
+            Receipt: <strong style={{ color: 'var(--theme-text)' }}>{outStoreName ?? '—'}</strong>
+          </span>
+          {outCompanyBefore != null && outCompanyBefore > outBefore && (
+            <span style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', padding: '2px 8px', borderRadius: 4, border: '1px solid #7dd3fc', fontWeight: 600 }}>
+              Company Prior: {formatNumber(outCompanyBefore, 3)} {outUom}
+            </span>
+          )}
+        </div>
       </div>
 
       <div style={{
@@ -306,6 +316,16 @@ const InventoryImpactReport: React.FC<{
           <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d', textDecoration: 'underline' }}>{formatNumber(outAfter, 3)} {outUom}</span>
         </div>
       </div>
+      {outCompanyBefore != null && outCompanyBefore > outBefore && (
+        <div style={{ marginTop: 6, padding: '5px 10px', background: 'rgba(2, 132, 199, 0.08)', borderRadius: 5, fontSize: 11, color: '#0284c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+          <span>
+            ℹ️ <strong>Store Notice:</strong> Store <em>{outStoreName}</em> had 0 {outUom} prior opening balance.
+          </span>
+          <span>
+            <strong>{formatNumber(outCompanyBefore, 3)} {outUom}</strong> is available in other active warehouse(s) (Total Company Stock: <strong>{formatNumber(outCompanyTotal ?? (outCompanyBefore + outProduced), 3)} {outUom}</strong>).
+          </span>
+        </div>
+      )}
     </div>
   </div>
 );
@@ -472,6 +492,9 @@ const EntryDetail: React.FC = () => {
   const outCurrentAvail = balances.find(b => b.warehouse?.name === receiptStoreName)?.available ?? balances[0]?.available ?? 0;
   const outAfter = posted ? outCurrentAvail : outCurrentAvail + outProduced;
   const outBefore = posted ? Math.max(0, outCurrentAvail - outProduced) : outCurrentAvail;
+  const realOutBalances = balances.filter(b => toNum(b.available) < 1000000);
+  const outCompanyTotal = realOutBalances.reduce((s, b) => s + toNum(b.available), 0);
+  const outCompanyBefore = posted ? Math.max(0, outCompanyTotal - outProduced) : outCompanyTotal;
 
   const sectionCtx = (
     <Descriptions column={3} size="small" bordered>
@@ -617,6 +640,8 @@ const EntryDetail: React.FC = () => {
         outProduced={outProduced}
         outAfter={outAfter}
         outUom={outUom}
+        outCompanyBefore={outCompanyBefore}
+        outCompanyTotal={outCompanyTotal}
       />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
         {productionInItem && (
@@ -766,6 +791,8 @@ const EntryDetail: React.FC = () => {
         outProduced={outProduced}
         outAfter={outAfter}
         outUom={outUom}
+        outCompanyBefore={outCompanyBefore}
+        outCompanyTotal={outCompanyTotal}
       />
       {balancesLoading ? (
         <Skeleton active paragraph={{ rows: 1 }} />

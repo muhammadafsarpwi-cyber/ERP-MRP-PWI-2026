@@ -4,7 +4,7 @@ import {
   InputNumber, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import {
-  AppstoreOutlined, ClearOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
+  ApartmentOutlined, AppstoreOutlined, ClearOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
   EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined,
   ReloadOutlined, SearchOutlined,
@@ -140,6 +140,21 @@ const ItemManagement: React.FC = () => {
   // form reflects the current item while it is being typed.
   const watchedCode = Form.useWatch('itemCode', form);
   const watchedName = Form.useWatch('name', form);
+  const watchedDepartmentId = Form.useWatch('departmentId', form);
+  const watchedItemType = Form.useWatch('itemType', form);
+  const watchedWireSizeMm = Form.useWatch('wireSizeMm', form);
+  const watchedThicknessMm = Form.useWatch('thicknessMm', form);
+  const watchedWidthMm = Form.useWatch('widthMm', form);
+  const watchedRouteTypeId = Form.useWatch('routeTypeId', form);
+  const watchedRouteType = Form.useWatch('routeType', form);
+  const watchedFinalProduct = Form.useWatch('finalProduct', form);
+  const watchedPackingNextStep = Form.useWatch('packingNextStep', form);
+  const watchedProcess1 = Form.useWatch('process1', form);
+  const watchedProcess2 = Form.useWatch('process2', form);
+  const watchedProcess3 = Form.useWatch('process3', form);
+  const watchedProcess4 = Form.useWatch('process4', form);
+  const watchedProcess5 = Form.useWatch('process5', form);
+  const [selectedInputDetail, setSelectedInputDetail] = useState<Partial<Item> | null>(null);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -341,6 +356,7 @@ const ItemManagement: React.FC = () => {
 
   const openCreate = () => {
     setEditing(null);
+    setSelectedInputDetail(null);
     form.resetFields();
     form.setFieldsValue({
       itemType: 'FINISHED_GOOD',
@@ -360,6 +376,7 @@ const ItemManagement: React.FC = () => {
 
   const openEdit = (record: Item) => {
     setEditing(record);
+    setSelectedInputDetail(record.productionInItem ?? null);
     form.setFieldsValue({
       itemCode: record.itemCode,
       sku: record.sku ?? undefined,
@@ -388,6 +405,7 @@ const ItemManagement: React.FC = () => {
       process2: record.process2 ?? undefined,
       process3: record.process3 ?? undefined,
       process4: record.process4 ?? undefined,
+      process5: record.process5 ?? undefined,
       finalProduct: record.finalProduct ?? undefined,
       packingNextStep: record.packingNextStep ?? undefined,
       weightPerPiece: record.weightPerPiece ?? undefined,
@@ -443,6 +461,11 @@ const ItemManagement: React.FC = () => {
       }
       if (editing) {
         if (editing.companyId) payload.companyId = editing.companyId;
+        // TASK #45: If the user deliberately cleared the production input material,
+        // send null so the backend clears productionInItemId and productionOutItemId.
+        if (!values.productionInItemId && editing.productionInItemId) {
+          payload.productionInItemId = null;
+        }
       } else if (companyId) {
         payload.companyId = companyId;
       }
@@ -528,7 +551,7 @@ const ItemManagement: React.FC = () => {
   const EXPORT_HEADERS = [
     'Item Code', 'Name', 'SKU', 'Short Name', 'Item Type', 'Category', 'Division', 'Section',
     'Department', 'Wire Size (mm)', 'Thickness (mm)', 'Width (mm)', 'Route Type', 'Process 1', 'Process 2', 'Process 3',
-    'Process 4', 'Final Product', 'Packing / Next Step', 'Base UOM', 'Weight per Piece (KG)',
+    'Process 4', 'Process 5', 'Final Product', 'Packing / Next Step', 'Base UOM', 'Weight per Piece (KG)',
     'Pieces per KG', 'Weight per Meter (kg/m)', 'Length per Piece (m)', 'Barcode', 'Status', 'Remarks',
   ];
 
@@ -543,7 +566,7 @@ const ItemManagement: React.FC = () => {
     formatDimension(r.thicknessMm),
     formatDimension(r.widthMm),
     r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : '',
-    r.process1 ?? '', r.process2 ?? '', r.process3 ?? '', r.process4 ?? '',
+    r.process1 ?? '', r.process2 ?? '', r.process3 ?? '', r.process4 ?? '', r.process5 ?? '',
     r.finalProduct ?? '', r.packingNextStep ?? '', r.baseUomName ?? '',
     num(r.weightPerPiece), num(r.piecesPerKg), num(r.weightPerMeter), num(r.lengthPerPiece),
     r.barcode ?? '', r.status, r.notes ?? '',
@@ -821,6 +844,7 @@ const ItemManagement: React.FC = () => {
       ...(get('process2') ? { process2: get('process2') } : {}),
       ...(get('process3') ? { process3: get('process3') } : {}),
       ...(get('process4') ? { process4: get('process4') } : {}),
+      ...(get('process5') ? { process5: get('process5') } : {}),
       ...(get('finalProduct') ? { finalProduct: get('finalProduct') } : {}),
       ...(get('packingNextStep') ? { packingNextStep: get('packingNextStep') } : {}),
       ...(numbers.weightPerPiece !== undefined ? { weightPerPiece: numbers.weightPerPiece } : {}),
@@ -951,7 +975,7 @@ const ItemManagement: React.FC = () => {
         <Button
           type="link"
           size="small"
-          style={{ padding: 0, height: 'auto', fontSize: 13, fontWeight: 700, color: 'var(--theme-primary)' }}
+          style={{ padding: 0, height: 'auto', fontSize: 13, fontWeight: 700, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}
           onClick={() => openDetail(r)}
           aria-label={`View item ${v}`}
         >
@@ -987,7 +1011,7 @@ const ItemManagement: React.FC = () => {
       title: 'Wire Size', dataIndex: 'wireSizeMm', key: 'wireSizeMm', width: 80, align: 'right',
       sorter: true,
       render: (v: number | null) => (v !== null && v !== undefined
-        ? <Text strong style={{ fontSize: 13, color: 'var(--theme-primary)' }}>{formatDimension(v)}</Text>
+        ? <Text strong style={{ fontSize: 13, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}>{formatDimension(v)}</Text>
         : <Text type="secondary">—</Text>),
     },
     {
@@ -1039,7 +1063,7 @@ const ItemManagement: React.FC = () => {
         <Space size={0}>
           {can('item.view') && (
             <Tooltip title="View">
-              <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} style={{ color: 'var(--theme-primary)' }} aria-label={`View ${record.itemCode}`} />
+              <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} style={{ color: 'var(--theme-accent, var(--theme-primary))' }} aria-label={`View ${record.itemCode}`} />
             </Tooltip>
           )}
           {can('item.update') && (
@@ -1126,7 +1150,7 @@ const ItemManagement: React.FC = () => {
   }, [editing, watchedCode, watchedName]);
 
   return (
-    <div style={{ padding: '10px 14px', margin: '0 auto' }}>
+    <div style={{ padding: '4px 6px', width: '100%' }}>
       <PageHeader
         icon={<AppstoreOutlined />}
         title="Products & Items"
@@ -1174,9 +1198,9 @@ const ItemManagement: React.FC = () => {
           marginBottom: 10,
         }}
       >
-        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-primary)' }}>
+        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-accent, var(--theme-primary))' }}>
           <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Total Items</Text>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-primary)', lineHeight: 1.2, marginTop: 1 }}>{stats.total ?? total}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-accent, var(--theme-primary))', lineHeight: 1.2, marginTop: 1 }}>{stats.total ?? total}</div>
         </Card>
         <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-success)' }}>
           <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Active</Text>
@@ -1211,7 +1235,7 @@ const ItemManagement: React.FC = () => {
             onChange={handleTabChange}
             size="small"
             items={[
-              { key: 'all', label: <span>All Items <Badge count={total} showZero style={{ backgroundColor: 'var(--theme-primary)', marginLeft: 4 }} /></span> },
+              { key: 'all', label: <span>All Items <Badge count={total} showZero style={{ backgroundColor: 'var(--theme-accent, var(--theme-primary))', marginLeft: 4 }} /></span> },
               ...ITEM_TYPES.map((t) => ({ key: t.value, label: t.label })),
             ]}
             style={{ marginBottom: 0 }}
@@ -1411,6 +1435,7 @@ const ItemManagement: React.FC = () => {
                 { label: 'Process 2', children: txt(detailItem.process2) },
                 { label: 'Process 3', children: txt(detailItem.process3) },
                 { label: 'Process 4', children: txt(detailItem.process4) },
+                { label: 'Process 5', children: txt(detailItem.process5) },
                 { label: 'Final Product', children: txt(detailItem.finalProduct) },
                 { label: 'Packing / Next Step', children: txt(detailItem.packingNextStep) },
                 // TASK #34B/#34C: the item itself is the OUTPUT of its stage. The
@@ -1435,6 +1460,275 @@ const ItemManagement: React.FC = () => {
                       ? `${detailItem.itemCode} — ${detailItem.name} (self)` : null,
                 },
               ])}
+
+              {/* TASK #45: Visual Production Flow Pipeline in Drawer */}
+              {(() => {
+                const detailProcesses = [
+                  detailItem.process1,
+                  detailItem.process2,
+                  detailItem.process3,
+                  detailItem.process4,
+                  detailItem.process5,
+                ].filter(Boolean) as string[];
+
+                const hasFlow = Boolean(
+                  detailItem.productionInItem ||
+                  detailProcesses.length > 0 ||
+                  detailItem.finalProduct ||
+                  detailItem.wireSizeMm != null
+                );
+
+                if (!hasFlow) return null;
+
+                return (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                      border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 10,
+                        flexWrap: 'wrap',
+                        gap: 6,
+                        borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))',
+                        paddingBottom: 6,
+                      }}
+                    >
+                      <Space
+                        size={6}
+                        style={{
+                          color: 'var(--theme-accent, #0284c7)',
+                          fontWeight: 700,
+                          fontSize: 11,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        <ApartmentOutlined />
+                        <span>Authoritative Production Route & Flow</span>
+                      </Space>
+                      <Space size={6} wrap>
+                        {routeTypeLabel(detailItem) && (
+                          <Tag color="purple" style={{ margin: 0 }}>Route: {routeTypeLabel(detailItem)}</Tag>
+                        )}
+                        {detailItem.wireSizeMm != null && (
+                          <Tag color="gold" style={{ margin: 0 }}>Wire: {formatDimension(detailItem.wireSizeMm)} mm</Tag>
+                        )}
+                        {(detailItem.thicknessMm != null || detailItem.widthMm != null) && (
+                          <Tag color="blue" style={{ margin: 0 }}>
+                            Flattened: {formatDimension(detailItem.thicknessMm)} × {formatDimension(detailItem.widthMm)} mm
+                          </Tag>
+                        )}
+                        {detailItem.departmentId && (
+                          <Tag color="cyan" style={{ margin: 0 }}>
+                            Dept: {departmentName(detailItem) ?? '—'}
+                          </Tag>
+                        )}
+                      </Space>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        overflowX: 'auto',
+                        padding: '6px 2px',
+                        gap: 8,
+                      }}
+                    >
+                      {/* Input / Starting Material Node */}
+                      <div
+                        style={{
+                          minWidth: 150,
+                          maxWidth: 210,
+                          flex: '0 0 auto',
+                          background: 'var(--theme-surface, rgba(0, 0, 0, 0.25))',
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: 'var(--theme-text-muted)',
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.5,
+                          }}
+                        >
+                          {detailItem.productionInItem ? 'INPUT MATERIAL' : 'STARTING RAW MATERIAL'}
+                        </div>
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            fontSize: 12,
+                            color: 'var(--theme-text)',
+                            marginTop: 2,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {detailItem.productionInItem?.name || detailItem.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                          <code
+                            style={{
+                              background: 'var(--theme-hover, rgba(255,255,255,0.08))',
+                              color: 'var(--theme-accent, #38bdf8)',
+                              padding: '1px 4px',
+                              borderRadius: 3,
+                              fontSize: 10,
+                            }}
+                          >
+                            {detailItem.productionInItem?.itemCode || detailItem.itemCode}
+                          </code>
+                          {(detailItem.productionInItem?.wireSizeMm != null || (!detailItem.productionInItem && detailItem.wireSizeMm != null)) && (
+                            <span style={{ marginLeft: 4 }}>• {formatDimension(detailItem.productionInItem?.wireSizeMm ?? detailItem.wireSizeMm)} mm</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Process Steps Sequence (1 to 5) */}
+                      {detailProcesses.length > 0 ? (
+                        detailProcesses.map((pName, pIdx) => (
+                          <React.Fragment key={pIdx}>
+                            <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                            <div
+                              style={{
+                                minWidth: 120,
+                                maxWidth: 160,
+                                flex: '0 0 auto',
+                                background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
+                                padding: '6px 8px',
+                                borderRadius: 6,
+                                border: '1px solid rgba(2, 132, 199, 0.3)',
+                                textAlign: 'center',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  background: '#0284c7',
+                                  color: '#fff',
+                                  borderRadius: 3,
+                                  padding: '1px 5px',
+                                  display: 'inline-block',
+                                  marginBottom: 2,
+                                }}
+                              >
+                                STEP {pIdx + 1}
+                              </span>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: 'var(--theme-text)',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {pName}
+                              </div>
+                            </div>
+                          </React.Fragment>
+                        ))
+                      ) : (
+                        <>
+                          <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                          <div
+                            style={{
+                              minWidth: 120,
+                              flex: '0 0 auto',
+                              background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
+                              padding: '6px 8px',
+                              borderRadius: 6,
+                              border: '1px solid rgba(2, 132, 199, 0.3)',
+                              textAlign: 'center',
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                background: '#0284c7',
+                                color: '#fff',
+                                borderRadius: 3,
+                                padding: '1px 5px',
+                                display: 'inline-block',
+                                marginBottom: 2,
+                              }}
+                            >
+                              MANUFACTURING
+                            </span>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)' }}>
+                              {departmentName(detailItem) || 'Production'}
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Output / Final Product Node */}
+                      <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                      <div
+                        style={{
+                          minWidth: 150,
+                          maxWidth: 220,
+                          flex: '0 0 auto',
+                          background: 'var(--theme-success-soft, rgba(73, 170, 25, 0.12))',
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          border: '1px solid var(--theme-success, rgba(73, 170, 25, 0.35))',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: 'var(--theme-success, #52c41a)',
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.5,
+                          }}
+                        >
+                          OUTPUT / FINAL PRODUCT
+                        </div>
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            fontSize: 12,
+                            color: 'var(--theme-text)',
+                            marginTop: 2,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {detailItem.finalProduct || detailItem.name}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                          {(detailItem.thicknessMm != null || detailItem.widthMm != null) && (
+                            <div>T: {formatDimension(detailItem.thicknessMm)} × W: {formatDimension(detailItem.widthMm)} mm</div>
+                          )}
+                          {detailItem.packingNextStep && (
+                            <div style={{ color: 'var(--theme-accent, #0284c7)' }}>Next: {detailItem.packingNextStep}</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </Card>
 
             <Card size="small" title="Weight & UOM Conversion" style={{ borderRadius: 8 }}>
@@ -1655,26 +1949,351 @@ const ItemManagement: React.FC = () => {
               <Form.Item name="process2" label="Process 2"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="process3" label="Process 3"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="process4" label="Process 4"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+              <Form.Item name="process5" label="Process 5"><Input maxLength={255} placeholder="Optional" /></Form.Item>
             </div>
           </Card>
 
-          {/* SECTION 5b — TASK #34B: PRODUCTION FLOW
+          {/* SECTION 5b — TASK #45: PRODUCTION FLOW
               The current Item IS the output of its own production stage. The user
               selects ONLY the INPUT MATERIAL; productionOutItemId is server-owned
-              and auto-synced to this Item's ID (kept only for backward compat). */}
-          <Card size="small" title="Production Flow" style={{ marginBottom: 12, borderRadius: 8 }}>
+              and auto-synced to this Item's ID. */}
+          <Card
+            size="small"
+            title={
+              <Space>
+                <ApartmentOutlined style={{ color: '#1890ff' }} />
+                <span>Production Flow</span>
+              </Space>
+            }
+            style={{ marginBottom: 12, borderRadius: 8 }}
+          >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 12px' }}>
               <Form.Item
                 name="productionInItemId"
                 label="INPUT MATERIAL"
                 extra="The item consumed to produce this item — the current Item is ALWAYS the Output Product. Search the full Item Master by code, name, SKU or barcode, optionally narrowed to a Source / Store Department."
               >
-                <InputMaterialSelect excludeItemId={editing?.id ?? null} departments={departments} />
+                <InputMaterialSelect
+                  excludeItemId={editing?.id ?? null}
+                  departments={departments}
+                  onSelectDetail={setSelectedInputDetail}
+                />
               </Form.Item>
               <Form.Item label="OUTPUT PRODUCT" extra="Current Item is automatically the Production Output — this read-only value always equals the item being edited (auto-synchronized)">
                 <Input readOnly value={outputProductDisplay} />
               </Form.Item>
             </div>
+
+            {/* TASK #45: Live Flow Preview Card matching Authoritative Structure */}
+            {(() => {
+              const modalProcesses = [
+                watchedProcess1 ?? editing?.process1,
+                watchedProcess2 ?? editing?.process2,
+                watchedProcess3 ?? editing?.process3,
+                watchedProcess4 ?? editing?.process4,
+                watchedProcess5 ?? editing?.process5,
+              ].filter(Boolean) as string[];
+
+              const hasProductionFlow = Boolean(
+                selectedInputDetail ||
+                modalProcesses.length > 0 ||
+                watchedFinalProduct || editing?.finalProduct ||
+                watchedWireSizeMm != null || editing?.wireSizeMm != null
+              );
+
+              if (!hasProductionFlow) {
+                return (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: '1px dashed #cbd5e1',
+                      background: 'var(--ant-color-bg-container-disabled, #fcfcfc)',
+                      fontSize: 11,
+                      color: '#64748b',
+                    }}
+                  >
+                    {(watchedItemType || editing?.itemType) === 'RAW_MATERIAL'
+                      ? 'Root raw material — enter Wire Size, Processes 1–5, or Final Product in Section 5 above to view the live production sequence.'
+                      : 'Select an Input Material above, or enter Processes 1–5 in Section 5 to configure the manufacturing route.'}
+                  </div>
+                );
+              }
+
+              const resolvedRouteName = (() => {
+                const rId = watchedRouteTypeId || editing?.routeTypeId;
+                if (rId) {
+                  const rt = routeTypes.find((r) => r.id === rId);
+                  if (rt) return rt.name?.trim() ? rt.name : rt.routeCode;
+                }
+                const rCode = watchedRouteType || editing?.routeType;
+                if (rCode) {
+                  const rt = routeTypes.find((r) => r.routeCode === rCode);
+                  if (rt) return rt.name?.trim() ? rt.name : rt.routeCode;
+                  return ROUTE_TYPES.find((x) => x.value === rCode)?.label || rCode;
+                }
+                return null;
+              })();
+
+              const operationName = (() => {
+                const dept = departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId));
+                if (dept?.name === 'PVC') return 'PVC Extrusion';
+                if (dept?.name?.includes('Packing')) return 'Packing';
+                return dept?.name || 'Manufacturing';
+              })();
+
+              const wireVal = watchedWireSizeMm ?? editing?.wireSizeMm;
+              const thkVal = watchedThicknessMm ?? editing?.thicknessMm;
+              const widVal = watchedWidthMm ?? editing?.widthMm;
+              const finalProdName = watchedFinalProduct || editing?.finalProduct;
+              const nextStepName = watchedPackingNextStep || editing?.packingNextStep;
+
+              return (
+                <div
+                  style={{
+                    marginTop: 6,
+                    border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 8,
+                      borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))',
+                      paddingBottom: 6,
+                      flexWrap: 'wrap',
+                      gap: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        color: 'var(--theme-accent, #0284c7)',
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      Production Flow Preview
+                    </span>
+                    <Space size={6} wrap>
+                      {resolvedRouteName && (
+                        <Tag color="purple" style={{ margin: 0 }}>Route: {resolvedRouteName}</Tag>
+                      )}
+                      {wireVal != null && (
+                        <Tag color="gold" style={{ margin: 0 }}>Wire: {formatDimension(wireVal)} mm</Tag>
+                      )}
+                      {(thkVal != null || widVal != null) && (
+                        <Tag color="blue" style={{ margin: 0 }}>
+                          Flattened: {formatDimension(thkVal)} × {formatDimension(widVal)} mm
+                        </Tag>
+                      )}
+                      <Tag color="cyan" style={{ margin: 0 }}>Operation: {operationName}</Tag>
+                    </Space>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      overflowX: 'auto',
+                      padding: '6px 2px',
+                      gap: 8,
+                    }}
+                  >
+                    {/* Left: Input Node */}
+                    <div
+                      style={{
+                        minWidth: 150,
+                        maxWidth: 210,
+                        flex: '0 0 auto',
+                        background: 'var(--theme-surface, rgba(0, 0, 0, 0.25))',
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: 'var(--theme-text-muted)',
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        {selectedInputDetail ? 'INPUT MATERIAL' : 'STARTING RAW MATERIAL'}
+                      </div>
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 12,
+                          color: 'var(--theme-text)',
+                          marginTop: 2,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {selectedInputDetail ? selectedInputDetail.name : (editing?.name || watchedName || '(Current Item)')}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                        <code
+                          style={{
+                            background: 'var(--theme-hover, rgba(255,255,255,0.08))',
+                            color: 'var(--theme-accent, #38bdf8)',
+                            padding: '1px 4px',
+                            borderRadius: 3,
+                            fontSize: 10,
+                          }}
+                        >
+                          {selectedInputDetail ? selectedInputDetail.itemCode : (editing?.itemCode || watchedCode || 'RAW WIRE')}
+                        </code>
+                        {(selectedInputDetail?.wireSizeMm != null || (!selectedInputDetail && wireVal != null)) && (
+                          <span style={{ marginLeft: 4 }}>
+                            • {formatDimension(selectedInputDetail?.wireSizeMm ?? wireVal)} mm
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Middle: Processes Sequence */}
+                    {modalProcesses.length > 0 ? (
+                      modalProcesses.map((pName, pIdx) => (
+                        <React.Fragment key={pIdx}>
+                          <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                          <div
+                            style={{
+                              minWidth: 120,
+                              maxWidth: 160,
+                              flex: '0 0 auto',
+                              background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
+                              padding: '6px 8px',
+                              borderRadius: 6,
+                              border: '1px solid rgba(2, 132, 199, 0.3)',
+                              textAlign: 'center',
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                background: '#0284c7',
+                                color: '#fff',
+                                borderRadius: 3,
+                                padding: '1px 5px',
+                                display: 'inline-block',
+                                marginBottom: 2,
+                              }}
+                            >
+                              STEP {pIdx + 1}
+                            </span>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: 'var(--theme-text)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {pName}
+                            </div>
+                          </div>
+                        </React.Fragment>
+                      ))
+                    ) : (
+                      <>
+                        <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                        <div
+                          style={{
+                            minWidth: 120,
+                            flex: '0 0 auto',
+                            background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            border: '1px solid rgba(2, 132, 199, 0.3)',
+                            textAlign: 'center',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              background: '#0284c7',
+                              color: '#fff',
+                              borderRadius: 3,
+                              padding: '1px 5px',
+                              display: 'inline-block',
+                              marginBottom: 2,
+                            }}
+                          >
+                            MANUFACTURING
+                          </span>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)' }}>
+                            {operationName}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Right: Output Node */}
+                    <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                    <div
+                      style={{
+                        minWidth: 150,
+                        maxWidth: 220,
+                        flex: '0 0 auto',
+                        background: 'var(--theme-success-soft, rgba(73, 170, 25, 0.12))',
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        border: '1px solid var(--theme-success, rgba(73, 170, 25, 0.35))',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: 'var(--theme-success, #52c41a)',
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        OUTPUT / FINAL PRODUCT
+                      </div>
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 12,
+                          color: 'var(--theme-text)',
+                          marginTop: 2,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {finalProdName || editing?.name || watchedName || '(Current Item)'}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                        {(thkVal != null || widVal != null) && (
+                          <div>T: {formatDimension(thkVal)} × W: {formatDimension(widVal)} mm</div>
+                        )}
+                        {nextStepName && (
+                          <div style={{ color: 'var(--theme-accent, #0284c7)' }}>Next: {nextStepName}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </Card>
 
           {/* SECTION 6 — ADDITIONAL */}

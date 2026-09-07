@@ -513,7 +513,7 @@ const TargetManagement: React.FC = () => {
   ];
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: '4px 6px', width: '100%' }}>
       <Card style={{ marginBottom: 16 }}>
         <Space wrap size={8}>
           <Input

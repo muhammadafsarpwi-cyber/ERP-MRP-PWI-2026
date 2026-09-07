@@ -5,7 +5,7 @@ import { ProductionEntry } from '../../production/entities/production-entry.enti
 import { Machine } from '../../production/entities/machine.entity';
 import { Shift } from '../../production/entities/shift.entity';
 import { MachineTarget } from '../../machine-target/entities/machine-target.entity';
-import { Item } from '../../item/entities/item.entity';
+import { Item, ItemStatus } from '../../item/entities/item.entity';
 import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
 import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
 import { PurchaseOrder } from '../../procurement/entities/purchase-order.entity';
@@ -517,6 +517,7 @@ export class DashboardService {
       itemCode: item.itemCode,
       name: item.name,
       departmentName: (item.department as any)?.name ?? null,
+      wireSizeMm: item.wireSizeMm != null ? Number(item.wireSizeMm) : null,
       itemType: item.itemType,
       status: item.status,
       isManufacturable: item.isManufacturable,
@@ -533,6 +534,15 @@ export class DashboardService {
   }
 
   async getItemRoute(companyId: string, itemId: string) {
+    const item = await this.itemRepo.findOne({
+      where: { id: itemId, companyId },
+      relations: ['department', 'baseUom', 'productionInItem', 'productionInItem.baseUom', 'productionInItem.department', 'routeTypeRef'],
+    });
+
+    if (!item) {
+      return { routing: null, operations: [], productionFlow: null };
+    }
+
     const routing = await this.routingRepo
       .createQueryBuilder('r')
       .leftJoinAndSelect('r.operations', 'ops')
@@ -542,33 +552,206 @@ export class DashboardService {
       .orderBy('ops.sequence_no', 'ASC')
       .getOne();
 
-    if (!routing) return { routing: null, operations: [] };
+    // Output Item is ALWAYS the current Item
+    const outputItem = {
+      id: item.id,
+      itemCode: item.itemCode,
+      name: item.name,
+      itemType: item.itemType,
+      wireSizeMm: item.wireSizeMm != null ? Number(item.wireSizeMm) : null,
+      uom: item.baseUom?.code || null,
+      departmentName: item.department?.name || null,
+    };
+
+    // Input Material from exact productionInItemId
+    let inputItem: any = null;
+    if (item.productionInItemId) {
+      const inItem = item.productionInItem ?? (await this.itemRepo.findOne({
+        where: { id: item.productionInItemId, companyId },
+        relations: ['department', 'baseUom'],
+      }));
+      if (inItem) {
+        inputItem = {
+          id: inItem.id,
+          itemCode: inItem.itemCode,
+          name: inItem.name,
+          itemType: inItem.itemType,
+          wireSizeMm: inItem.wireSizeMm != null ? Number(inItem.wireSizeMm) : null,
+          uom: inItem.baseUom?.code || null,
+          departmentName: inItem.department?.name || null,
+          storeWarehouseName: inItem.department?.name || null,
+        };
+      }
+    }
+
+    // Operation / Department resolution
+    const deptName = item.department?.name || null;
+    let operationName = deptName;
+    if (deptName === 'PVC') operationName = 'PVC Extrusion';
+    else if (deptName === 'CCD Packing' || deptName === 'Spoke Packing') operationName = 'Packing';
+    else if (!operationName && routing?.operations?.[0]?.operationName) operationName = routing.operations[0].operationName;
+    else if (!operationName) operationName = item.process1 || (item.isManufacturable ? 'Manufacturing' : null);
+
+    const isRawMaterial = item.itemType === 'RAW_MATERIAL' || (!item.isManufacturable && !item.productionInItemId);
+    const hasConfiguredRoute = Boolean(item.productionInItemId || (routing && routing.operations?.length > 0));
+    let statusMessage = 'Configured';
+    if (!hasConfiguredRoute) {
+      if (isRawMaterial) {
+        statusMessage = 'Raw Material / No upstream production route';
+      } else {
+        statusMessage = 'Manufacturing Item with missing route configuration';
+      }
+    }
+
+    // Multi-stage chain resolution (upstream and downstream)
+    const chainList: any[] = [];
+    const visited = new Set<string>([item.id]);
+    let currentUp: any = item;
+    while (currentUp?.productionInItemId) {
+      const parentId = currentUp.productionInItemId;
+      if (visited.has(parentId) || chainList.length > 20) break;
+      visited.add(parentId);
+      const parent = await this.itemRepo.findOne({
+        where: { id: parentId, companyId },
+        relations: ['department', 'baseUom'],
+      });
+      if (!parent) break;
+      chainList.unshift(parent);
+      currentUp = parent;
+    }
+
+    chainList.push(item);
+
+    let currentDown: any = item;
+    while (currentDown) {
+      const child = await this.itemRepo.findOne({
+        where: { productionInItemId: currentDown.id, companyId, status: ItemStatus.ACTIVE },
+        relations: ['department', 'baseUom'],
+      });
+      if (!child || visited.has(child.id) || chainList.length > 20) break;
+      visited.add(child.id);
+      chainList.push(child);
+      currentDown = child;
+    }
+
+    const chain = chainList.map((node, idx) => {
+      let stageName = 'MANUFACTURING';
+      const dName = (node.department?.name || '').toLowerCase();
+      if (!node.productionInItemId || node.itemType === 'RAW_MATERIAL') {
+        stageName = 'RAW MATERIAL / STORE';
+      } else if (dName.includes('flatten')) {
+        stageName = 'FLATTENING';
+      } else if (dName.includes('spiral')) {
+        stageName = 'SPIRAL';
+      } else if (dName.includes('pvc')) {
+        stageName = 'PVC EXTRUSION';
+      } else if (dName.includes('pack')) {
+        stageName = node.itemType === 'FINISHED_GOOD' ? 'FINISHED GOODS / STORE' : 'PACKING';
+      } else if (node.itemType === 'FINISHED_GOOD') {
+        stageName = 'FINISHED GOODS / STORE';
+      } else if (node.department?.name) {
+        stageName = node.department.name.toUpperCase();
+      }
+
+      return {
+        stageOrder: idx + 1,
+        stageName,
+        itemId: node.id,
+        itemCode: node.itemCode,
+        itemName: node.name,
+        itemType: node.itemType,
+        departmentName: node.department?.name || null,
+        wireSizeMm: node.wireSizeMm != null ? Number(node.wireSizeMm) : null,
+        uom: node.baseUom?.code || null,
+        isCurrent: node.id === item.id,
+      };
+    });
+
+    const legacyRouting = routing
+      ? {
+          id: routing.id,
+          routingCode: routing.routingCode,
+          name: routing.name,
+          description: routing.description,
+          estimatedTotalTime: routing.estimatedTotalTime,
+          isDefault: routing.isDefault,
+          baseQuantity: routing.baseQuantity,
+        }
+      : hasConfiguredRoute
+      ? {
+          id: `syn-rtg-${item.id}`,
+          routingCode: `RTG-${item.itemCode}`,
+          name: `${operationName || 'Production'} — ${item.name}`,
+          description: `Authoritative Item Master production flow for ${item.itemCode}`,
+          estimatedTotalTime: 0,
+          isDefault: true,
+          baseQuantity: 1,
+        }
+      : null;
+
+    const legacyOps =
+      routing && routing.operations?.length > 0
+        ? routing.operations.map((op) => ({
+            sequenceNo: op.sequenceNo,
+            operationCode: op.operationCode,
+            operationName: op.operationName,
+            description: op.description,
+            departmentId: op.departmentId,
+            setupTimeMinutes: Number(op.setupTimeMinutes || 0),
+            runTimeMinutes: Number(op.runTimeMinutes || 0),
+            queueTimeMinutes: Number(op.queueTimeMinutes || 0),
+            machineRequired: op.machineRequired,
+            inputQuantity: Number(op.inputQuantity || 1),
+            outputQuantity: Number(op.outputQuantity || 1),
+            scrapPercentage: Number(op.scrapPercentage || 0),
+            status: op.status,
+          }))
+        : hasConfiguredRoute
+        ? [
+            {
+              sequenceNo: 10,
+              operationCode: `OP-${(item.department?.departmentCode || 'MFG').toUpperCase()}`,
+              operationName: operationName || 'Manufacturing',
+              description: `Stage Operation: ${operationName || 'Manufacturing'}`,
+              departmentId: item.departmentId,
+              setupTimeMinutes: 0,
+              runTimeMinutes: 0,
+              queueTimeMinutes: 0,
+              machineRequired: false,
+              inputQuantity: 1,
+              outputQuantity: 1,
+              scrapPercentage: 0,
+              status: 'ACTIVE',
+            },
+          ]
+        : [];
 
     return {
-      routing: {
-        id: routing.id,
-        routingCode: routing.routingCode,
-        name: routing.name,
-        description: routing.description,
-        estimatedTotalTime: routing.estimatedTotalTime,
-        isDefault: routing.isDefault,
-        baseQuantity: routing.baseQuantity,
+      routing: legacyRouting,
+      operations: legacyOps,
+      productionFlow: {
+        isRawMaterial,
+        hasConfiguredRoute,
+        statusMessage,
+        operationName,
+        departmentName: item.department?.name || null,
+        routeTypeName: item.routeTypeRef?.name || item.routeType || null,
+        wireSizeMm: item.wireSizeMm != null ? Number(item.wireSizeMm) : null,
+        thicknessMm: item.thicknessMm != null ? Number(item.thicknessMm) : null,
+        widthMm: item.widthMm != null ? Number(item.widthMm) : null,
+        finalProduct: item.finalProduct || null,
+        packingNextStep: item.packingNextStep || null,
+        processes: [
+          item.process1 ? { step: 1, name: item.process1 } : null,
+          item.process2 ? { step: 2, name: item.process2 } : null,
+          item.process3 ? { step: 3, name: item.process3 } : null,
+          item.process4 ? { step: 4, name: item.process4 } : null,
+          item.process5 ? { step: 5, name: item.process5 } : null,
+        ].filter(Boolean),
+        inputItem,
+        outputItem,
+        chain,
       },
-      operations: (routing.operations ?? []).map(op => ({
-        sequenceNo: op.sequenceNo,
-        operationCode: op.operationCode,
-        operationName: op.operationName,
-        description: op.description,
-        departmentId: op.departmentId,
-        setupTimeMinutes: Number(op.setupTimeMinutes),
-        runTimeMinutes: Number(op.runTimeMinutes),
-        queueTimeMinutes: Number(op.queueTimeMinutes),
-        machineRequired: op.machineRequired,
-        inputQuantity: Number(op.inputQuantity),
-        outputQuantity: Number(op.outputQuantity),
-        scrapPercentage: Number(op.scrapPercentage),
-        status: op.status,
-      })),
     };
   }
 

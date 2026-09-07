@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ProductionRouting, RoutingStatus, RoutingOperation } from '../entities';
@@ -114,18 +114,60 @@ export class ProductionRoutingService {
 
   /**
    * Returns the item's effective production route in correct sequence order.
-   * Throws NotFound when the item does not exist or has no ACTIVE routing.
+   * TASK #45: Falls back to Item Master production flow when no explicit row
+   * exists in production_routings table.
    */
   async getEffectiveRouteForItem(itemId: string, companyId: string): Promise<ProductionRouting> {
-    const item = await this.itemRepo.findOne({ where: { id: itemId, companyId } });
+    const item = await this.itemRepo.findOne({
+      where: { id: itemId, companyId },
+      relations: ['department', 'baseUom'],
+    });
     if (!item) {
       throw new NotFoundException(`Item not found with id ${itemId} for this company`);
     }
     const routing = await this.findByProduct(itemId, companyId);
-    if (!routing) {
-      throw new NotFoundException(`No active production routing found for item '${item.itemCode}'`);
+    if (routing) return routing;
+
+    // TASK #45: Synthesize effective single-stage routing from Item Master configuration
+    if (item.productionInItemId) {
+      const deptName = item.department?.name || 'Manufacturing';
+      const opName = deptName === 'PVC' ? 'PVC Extrusion' : deptName;
+      const syntheticOp: any = {
+        id: `op-syn-${item.id}`,
+        companyId,
+        sequenceNo: 10,
+        operationCode: `OP-${(item.department?.departmentCode || 'MFG').toUpperCase()}`,
+        operationName: opName,
+        departmentId: item.departmentId,
+        department: item.department,
+        inputItemId: item.productionInItemId,
+        outputItemId: item.id,
+        inputQuantity: 1,
+        outputQuantity: 1,
+        setupTimeMinutes: 0,
+        runTimeMinutes: 0,
+        queueTimeMinutes: 0,
+        scrapPercentage: 0,
+        machineRequired: false,
+        status: 'ACTIVE',
+      };
+      const syntheticRoute: any = {
+        id: `rtg-syn-${item.id}`,
+        companyId,
+        routingCode: `RTG-${item.itemCode}`,
+        name: `${opName} — ${item.name}`,
+        productId: item.id,
+        product: item,
+        status: RoutingStatus.ACTIVE,
+        baseQuantity: 1,
+        estimatedTotalTime: 0,
+        isDefault: true,
+        operations: [syntheticOp],
+      };
+      return syntheticRoute as ProductionRouting;
     }
-    return routing;
+
+    throw new NotFoundException(`No active production routing found for item '${item.itemCode}'`);
   }
 
   private sortOperations(routing: ProductionRouting): void {

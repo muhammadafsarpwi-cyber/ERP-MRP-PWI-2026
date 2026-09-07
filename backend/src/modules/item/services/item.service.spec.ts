@@ -59,6 +59,7 @@ describe('ItemService', () => {
     process2: null,
     process3: null,
     process4: null,
+    process5: null,
     finalProduct: null,
     packingNextStep: null,
     weightPerPiece: null,
@@ -604,6 +605,39 @@ describe('ItemService', () => {
       expect(result.productionInItemId).toBe('item-in');
       // The persisted OUT is always forced to the current item.
       expect(repository.update).toHaveBeenCalledWith('item-001', expect.objectContaining({ productionOutItemId: 'item-001' }));
+    });
+
+    it('TASK45-A: update allows intentionally clearing productionInItemId (sending null) which resets both IN and OUT', async () => {
+      const loaded = withOrg({ productionInItemId: 'item-in', productionOutItemId: 'item-001' });
+      repository.findOne
+        .mockResolvedValueOnce(loaded as Item)
+        .mockResolvedValueOnce({ ...loaded, productionInItemId: null, productionOutItemId: null } as Item);
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', companyId: 'company-001', status: 'ACTIVE' });
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-1', divisionId: 'div-1' });
+      departmentRepo.findOne.mockResolvedValue({ id: 'dept-1', divisionId: 'div-1', sectionId: 'sec-1' });
+      repository.update.mockResolvedValue({ affected: 1, raw: {}, generatedMaps: [] });
+
+      const result = await service.update('item-001', { productionInItemId: null as any }, 'user-001');
+      expect(repository.update).toHaveBeenCalledWith('item-001', expect.objectContaining({
+        productionInItemId: null,
+        productionOutItemId: null,
+      }));
+    });
+
+    it('TASK45-B: onModuleInit executes the auto-sync update for legacy unsynced records', async () => {
+      const mockQb = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 5 }),
+      };
+      repository.createQueryBuilder.mockReturnValue(mockQb as any);
+
+      await service.onModuleInit();
+      expect(repository.createQueryBuilder).toHaveBeenCalled();
+      expect(mockQb.set).toHaveBeenCalledWith({ productionOutItemId: expect.any(Function) });
+      expect(mockQb.execute).toHaveBeenCalled();
     });
   });
 });

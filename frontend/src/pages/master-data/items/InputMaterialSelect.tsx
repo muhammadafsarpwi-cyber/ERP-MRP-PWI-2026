@@ -17,6 +17,7 @@ const SEARCH_DEBOUNCE_MS = 350;
 export interface InputMaterialSelectProps {
   value?: string;
   onChange?: (value?: string) => void;
+  onSelectDetail?: (item: Item | null) => void;
   excludeItemId?: string | null;
   departments?: DepartmentOption[];
   style?: React.CSSProperties;
@@ -35,6 +36,7 @@ export interface InputMaterialSelectProps {
 const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   value,
   onChange,
+  onSelectDetail,
   excludeItemId = null,
   departments = [],
   style,
@@ -124,6 +126,10 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
     if (!value) return null;
     return options.find((o) => o.id === value) ?? detailsItem ?? null;
   }, [value, options, detailsItem]);
+
+  useEffect(() => {
+    onSelectDetail?.(selectedDetail);
+  }, [selectedDetail, onSelectDetail]);
 
   useEffect(() => {
     if (!value) {

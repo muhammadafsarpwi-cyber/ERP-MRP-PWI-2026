@@ -239,6 +239,12 @@ export class CreateItemDto {
   @MaxLength(255)
   process4?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 5' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process5?: string;
+
   @ApiPropertyOptional({ description: 'Final produced product' })
   @IsString()
   @IsOptional()
@@ -508,6 +514,12 @@ export class UpdateItemDto {
   @IsOptional()
   @MaxLength(255)
   process4?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 5' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process5?: string;
 
   @ApiPropertyOptional({ description: 'Final produced product' })
   @IsString()

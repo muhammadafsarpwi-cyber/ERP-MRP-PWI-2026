@@ -205,6 +205,9 @@ export class Item extends BaseEntity {
   @Column({ name: 'process_4', type: 'varchar', length: 255, nullable: true })
   process4: string | null;
 
+  @Column({ name: 'process_5', type: 'varchar', length: 255, nullable: true })
+  process5: string | null;
+
   @Column({ name: 'final_product', type: 'varchar', length: 255, nullable: true })
   finalProduct: string | null;
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
-  InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Descriptions, Layout,
+  InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Descriptions,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, ArrowLeftOutlined,
@@ -10,7 +10,6 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal, toNum } from '../../utils/numberFormat';
 
-const { Content } = Layout;
 const { Title } = Typography;
 
 interface RoutingOperation {
@@ -330,7 +329,7 @@ const RoutingManagement: React.FC = () => {
 
   if (detailVisible && selectedRouting) {
     return (
-      <Content style={{ padding: '24px' }}>
+      <div style={{ padding: '4px 6px', width: '100%' }}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Space>
             <Button icon={<ArrowLeftOutlined />} onClick={() => { setDetailVisible(false); setSelectedRouting(null); }}>Back to List</Button>
@@ -413,12 +412,12 @@ const RoutingManagement: React.FC = () => {
             </Row>
           </Form>
         </Modal>
-      </Content>
+      </div>
     );
   }
 
   return (
-    <Content style={{ padding: '24px' }}>
+    <div style={{ padding: '4px 6px', width: '100%' }}>
       <Card title="Production Routings" extra={
         <Space>
           <Input.Search placeholder="Search routings..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
@@ -456,7 +455,7 @@ const RoutingManagement: React.FC = () => {
           <Form.Item name="description" label="Description"><Input.TextArea rows={2} /></Form.Item>
         </Form>
       </Modal>
-    </Content>
+    </div>
   );
 };
 

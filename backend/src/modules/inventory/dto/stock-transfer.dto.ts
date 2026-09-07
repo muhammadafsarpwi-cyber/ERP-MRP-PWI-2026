@@ -12,16 +12,16 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateStockTransferDto {
-  @ApiProperty({ description: 'Company ID' })
+  @ApiPropertyOptional({ description: 'Company ID' })
   @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  @IsOptional()
+  companyId?: string;
 
-  @ApiProperty({ description: 'Transfer code' })
+  @ApiPropertyOptional({ description: 'Transfer code' })
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @MaxLength(50)
-  transferCode: string;
+  transferCode?: string;
 
   @ApiProperty({ description: 'Source warehouse ID' })
   @IsUUID()
@@ -43,10 +43,63 @@ export class CreateStockTransferDto {
   @IsOptional()
   toLocationId?: string;
 
+  @ApiPropertyOptional({ description: 'Item ID for single-step transfer' })
+  @IsUUID()
+  @IsOptional()
+  itemId?: string;
+
+  @ApiPropertyOptional({ description: 'Quantity for single-step transfer' })
+  @IsNumber()
+  @Min(0.0001)
+  @IsOptional()
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'UOM ID for single-step transfer' })
+  @IsUUID()
+  @IsOptional()
+  uomId?: string;
+
+  @ApiPropertyOptional({ description: 'Auto-post transfer immediately upon creation', default: true })
+  @IsOptional()
+  autoPost?: boolean;
+
   @ApiPropertyOptional({ description: 'Transfer notes' })
   @IsString()
   @IsOptional()
   notes?: string;
+}
+
+export class UpdateStockTransferDto {
+  @ApiPropertyOptional({ description: 'Transfer notes' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
+  @ApiPropertyOptional({ description: 'Source warehouse ID (for draft transfers)' })
+  @IsUUID()
+  @IsOptional()
+  fromWarehouseId?: string;
+
+  @ApiPropertyOptional({ description: 'Destination warehouse ID (for draft transfers)' })
+  @IsUUID()
+  @IsOptional()
+  toWarehouseId?: string;
+
+  @ApiPropertyOptional({ description: 'Item ID (for draft transfers)' })
+  @IsUUID()
+  @IsOptional()
+  itemId?: string;
+
+  @ApiPropertyOptional({ description: 'Quantity (for draft transfers)' })
+  @IsNumber()
+  @Min(0.0001)
+  @IsOptional()
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'UOM ID (for draft transfers)' })
+  @IsUUID()
+  @IsOptional()
+  uomId?: string;
 }
 
 export class CreateStockTransferLineDto {

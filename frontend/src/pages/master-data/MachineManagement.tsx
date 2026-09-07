@@ -397,7 +397,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const sortInfo = `Sorted by ${sortBy} (${sortDir.toLowerCase()})`;
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: '4px 6px', width: '100%' }}>
       <PageHeader
         icon={<ToolOutlined />}
         title="Machine Master"

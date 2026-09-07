@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { StockTransferService } from '../services/stock-transfer.service';
-import { CreateStockTransferDto, CreateStockTransferLineDto } from '../dto';
+import { CreateStockTransferDto, CreateStockTransferLineDto, UpdateStockTransferDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
@@ -77,6 +77,17 @@ export class StockTransferController {
   async findOne(@Param('id') id: string) {
     const transfer = await this.stockTransferService.findOne(id);
     return { success: true, data: transfer };
+  }
+
+  @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('inventory.transfer.create')
+  @ApiOperation({ summary: 'Update stock transfer' })
+  @ApiParam({ name: 'id' })
+  async update(@Param('id') id: string, @Body() dto: UpdateStockTransferDto, @Req() req: any) {
+    const userId = req?.erpUser?.id;
+    const transfer = await this.stockTransferService.update(id, dto, userId);
+    return { success: true, data: transfer, message: 'Stock transfer updated successfully' };
   }
 
   @Post(':id/lines')

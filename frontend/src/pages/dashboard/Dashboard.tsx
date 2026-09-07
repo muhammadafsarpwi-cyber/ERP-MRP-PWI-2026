@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Descriptions, Divider, List, Modal, Space, Spin, Tag, Typography } from 'antd';
-import { ApartmentOutlined, DollarOutlined, InfoCircleOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { Alert, Button, Descriptions, Divider, Modal, Space, Spin, Tag, Typography } from 'antd';
+import { ApartmentOutlined, ArrowRightOutlined, CheckCircleOutlined, DollarOutlined, InfoCircleOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AchievementCard from '../../components/dashboard/AchievementCard';
 import ActivityFeed from '../../components/dashboard/ActivityFeed';
@@ -352,7 +352,8 @@ const Dashboard: React.FC = () => {
                 ) : itemDetail ? (
           <div>
             <Descriptions bordered size="small" column={2}>
-              <Descriptions.Item label="Item Code">{itemDetail.itemCode}</Descriptions.Item>
+              <Descriptions.Item label="Item Name">{itemDetail.name}</Descriptions.Item>
+              <Descriptions.Item label="Department">{itemDetail.departmentName || '—'}</Descriptions.Item>
               <Descriptions.Item label="Type">
                 <Tag color={itemDetail.itemType === 'FINISHED_GOOD' ? 'blue' : itemDetail.itemType === 'RAW_MATERIAL' ? 'green' : 'orange'}>
                   {itemDetail.itemType?.replace('_', ' ')}
@@ -366,39 +367,326 @@ const Dashboard: React.FC = () => {
               <Descriptions.Item label="Reserved">{itemDetail.stock.reserved}</Descriptions.Item>
               <Descriptions.Item label="Available">{itemDetail.stock.available}</Descriptions.Item>
               <Descriptions.Item label="Min Stock">{itemDetail.minimumStockLevel ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="Cost Price">{itemDetail.costPrice ? `$${itemDetail.costPrice}` : '—'}</Descriptions.Item>
-              <Descriptions.Item label="Selling Price">{itemDetail.sellingPrice ? `$${itemDetail.sellingPrice}` : '—'}</Descriptions.Item>
+              <Descriptions.Item label="Cost Price">
+                {itemDetail.costPrice != null ? (
+                  <Text strong style={{ color: 'var(--theme-text)' }}>
+                    Rs. {Number(itemDetail.costPrice).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                ) : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Selling Price">
+                {itemDetail.sellingPrice != null ? (
+                  <Text strong style={{ color: 'var(--theme-text)' }}>
+                    Rs. {Number(itemDetail.sellingPrice).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                ) : '—'}
+              </Descriptions.Item>
             </Descriptions>
 
             {itemRoute && (
               <>
-                <Divider />
-                <Typography.Title level={5} style={{ margin: '0 0 8px 0' }}>
-                  <ApartmentOutlined /> Production Route: {itemRoute.routing?.name || 'N/A'}
+                <Divider style={{ margin: '14px 0 10px 0', borderColor: 'var(--theme-border)' }} />
+                <Typography.Title level={5} style={{ margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: 6, color: 'var(--theme-text)' }}>
+                  <ApartmentOutlined style={{ color: 'var(--theme-accent, #1890ff)' }} /> Production Route & Flow
                 </Typography.Title>
-                {itemRoute.operations.length > 0 ? (
-                  <List
-                    size="small"
-                    bordered
-                    dataSource={itemRoute.operations}
-                    renderItem={(op, idx) => (
-                      <List.Item key={`${op.sequenceNo}-${idx}`}>
-                        <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                          <Space size={8}>
-                            <Tag color="blue" style={{ margin: 0 }}>Step {op.sequenceNo}</Tag>
-                            <Text strong>{op.operationName}</Text>
-                            <Tag style={{ margin: 0, fontSize: 10 }}>{op.operationCode}</Tag>
-                          </Space>
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            Setup: {op.setupTimeMinutes}min | Run: {op.runTimeMinutes}min | Output: {op.outputQuantity}
-                            {op.machineRequired ? ' | Machine Required' : ''}
+
+                {itemRoute.productionFlow?.isRawMaterial && !itemRoute.productionFlow?.inputItem ? (
+                  (itemRoute.productionFlow.processes && itemRoute.productionFlow.processes.length > 0) || itemRoute.productionFlow.finalProduct ? (
+                    <div
+                      style={{
+                        border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                        borderRadius: 8,
+                        padding: '12px 16px',
+                        background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 10,
+                          flexWrap: 'wrap',
+                          gap: 6,
+                          borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))',
+                          paddingBottom: 6,
+                        }}
+                      >
+                        <Space size={6}>
+                          <Tag color="green" icon={<CheckCircleOutlined />}>Raw Material / Starting Input</Tag>
+                          <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
+                            Downstream Production Route
                           </Text>
                         </Space>
-                      </List.Item>
-                    )}
+                        <Space size={6} wrap>
+                          {itemRoute.productionFlow.routeTypeName && (
+                            <Tag color="purple" style={{ margin: 0 }}>Route: {itemRoute.productionFlow.routeTypeName}</Tag>
+                          )}
+                          {(itemRoute.productionFlow.wireSizeMm != null || itemDetail.wireSizeMm != null) && (
+                            <Tag color="gold" style={{ margin: 0 }}>Wire: {itemRoute.productionFlow.wireSizeMm ?? itemDetail.wireSizeMm} mm</Tag>
+                          )}
+                          {(itemRoute.productionFlow.thicknessMm != null || itemRoute.productionFlow.widthMm != null) && (
+                            <Tag color="blue" style={{ margin: 0 }}>
+                              Flattened: {itemRoute.productionFlow.thicknessMm} × {itemRoute.productionFlow.widthMm} mm
+                            </Tag>
+                          )}
+                        </Space>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          overflowX: 'auto',
+                          padding: '6px 2px',
+                          gap: 8,
+                        }}
+                      >
+                        {/* Starting Material */}
+                        <div
+                          style={{
+                            minWidth: 150,
+                            maxWidth: 210,
+                            flex: '0 0 auto',
+                            background: 'var(--theme-surface, rgba(0, 0, 0, 0.25))',
+                            padding: '8px 10px',
+                            borderRadius: 6,
+                            border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                          }}
+                        >
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            STARTING RAW WIRE
+                          </div>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {itemDetail.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: 'var(--theme-accent, #38bdf8)', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>
+                              {itemDetail.itemCode}
+                            </code>
+                            {(itemRoute.productionFlow.wireSizeMm != null || itemDetail.wireSizeMm != null) && (
+                              <span style={{ marginLeft: 4 }}>• {itemRoute.productionFlow.wireSizeMm ?? itemDetail.wireSizeMm} mm</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Process Steps Sequence */}
+                        {itemRoute.productionFlow.processes?.map((proc) => (
+                          <React.Fragment key={proc.step}>
+                            <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                            <div
+                              style={{
+                                minWidth: 120,
+                                maxWidth: 160,
+                                flex: '0 0 auto',
+                                background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
+                                padding: '6px 8px',
+                                borderRadius: 6,
+                                border: '1px solid rgba(2, 132, 199, 0.3)',
+                                textAlign: 'center',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  background: '#0284c7',
+                                  color: '#fff',
+                                  borderRadius: 3,
+                                  padding: '1px 5px',
+                                  display: 'inline-block',
+                                  marginBottom: 2,
+                                }}
+                              >
+                                STEP {proc.step}
+                              </span>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {proc.name}
+                              </div>
+                            </div>
+                          </React.Fragment>
+                        ))}
+
+                        {/* Output / Final Product */}
+                        <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                        <div
+                          style={{
+                            minWidth: 150,
+                            maxWidth: 220,
+                            flex: '0 0 auto',
+                            background: 'var(--theme-success-soft, rgba(73, 170, 25, 0.12))',
+                            padding: '8px 10px',
+                            borderRadius: 6,
+                            border: '1px solid var(--theme-success, rgba(73, 170, 25, 0.35))',
+                          }}
+                        >
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--theme-success, #52c41a)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            FINAL PRODUCT
+                          </div>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {itemRoute.productionFlow.finalProduct || 'Finished Product'}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                            {(itemRoute.productionFlow.thicknessMm != null || itemRoute.productionFlow.widthMm != null) && (
+                              <div>T: {itemRoute.productionFlow.thicknessMm} × W: {itemRoute.productionFlow.widthMm} mm</div>
+                            )}
+                            {itemRoute.productionFlow.packingNextStep && (
+                              <div style={{ color: 'var(--theme-accent, #0284c7)' }}>Next: {itemRoute.productionFlow.packingNextStep}</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                        borderRadius: 8,
+                        padding: '12px 16px',
+                        background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                      }}
+                    >
+                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        <Space>
+                          <Tag color="green" icon={<CheckCircleOutlined />}>Raw Material / Store</Tag>
+                          <Text strong style={{ color: 'var(--theme-text)' }}>No upstream production route</Text>
+                        </Space>
+                        <Text style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
+                          This item is a root raw material stored in inventory. It serves as an authoritative input for downstream manufacturing stages.
+                        </Text>
+                      </Space>
+                    </div>
+                  )
+                ) : !itemRoute.productionFlow?.hasConfiguredRoute && !itemRoute.productionFlow?.isRawMaterial ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={<span style={{ color: 'var(--theme-text)' }}>Manufacturing Item with missing route configuration</span>}
+                    description={<span style={{ color: 'var(--theme-text-muted)' }}>No input material or production flow is configured for this manufactured item in Item Master. Please configure the Input Material to define its manufacturing stage.</span>}
+                    action={
+                      <Button size="small" type="primary" onClick={() => { setItemDetailVisible(false); navigate('/master-data/items'); }}>
+                        Configure in Item Master
+                      </Button>
+                    }
                   />
+                ) : itemRoute.productionFlow?.inputItem ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Flow Box */}
+                    <div
+                      style={{
+                        border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                        borderRadius: 8,
+                        padding: '12px 16px',
+                        background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))', paddingBottom: 6 }}>
+                        <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
+                          Authoritative Production Flow
+                        </Text>
+                        <Space size={6}>
+                          <Tag color="cyan" style={{ margin: 0 }}>Operation: {itemRoute.productionFlow.operationName || 'Manufacturing'}</Tag>
+                          <Tag color="blue" style={{ margin: 0 }}>Dept: {itemRoute.productionFlow.departmentName || 'Production'}</Tag>
+                        </Space>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 12 }}>
+                        {/* Input Material */}
+                        <div style={{ background: 'var(--theme-surface, rgba(0, 0, 0, 0.25))', padding: '10px 12px', borderRadius: 6, border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))' }}>
+                          <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>INPUT MATERIAL</div>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)', marginTop: 2 }}>{itemRoute.productionFlow.inputItem.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: 'var(--theme-accent, #38bdf8)', padding: '1px 5px', borderRadius: 3 }}>
+                              {itemRoute.productionFlow.inputItem.itemCode}
+                            </code>
+                            {itemRoute.productionFlow.inputItem.uom ? ` • UOM: ${itemRoute.productionFlow.inputItem.uom}` : ''}
+                            {itemRoute.productionFlow.inputItem.wireSizeMm != null ? ` • Wire: ${itemRoute.productionFlow.inputItem.wireSizeMm}mm` : ''}
+                          </div>
+                          {itemRoute.productionFlow.inputItem.departmentName && (
+                            <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 3 }}>Source: {itemRoute.productionFlow.inputItem.departmentName}</div>
+                          )}
+                        </div>
+
+                        {/* Centered Arrow */}
+                        <div style={{ textAlign: 'center', padding: '0 4px' }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-accent, #0284c7)', background: 'var(--theme-accent-soft, rgba(56, 189, 248, 0.15))', padding: '2px 8px', borderRadius: 10, marginBottom: 4, whiteSpace: 'nowrap' }}>
+                            {itemRoute.productionFlow.operationName || 'PROCESS'}
+                          </div>
+                          <ArrowRightOutlined style={{ fontSize: 16, color: 'var(--theme-accent, #0284c7)' }} />
+                        </div>
+
+                        {/* Output Product */}
+                        <div style={{ background: 'var(--theme-success-soft, rgba(73, 170, 25, 0.12))', padding: '10px 12px', borderRadius: 6, border: '1px solid var(--theme-success, rgba(73, 170, 25, 0.35))' }}>
+                          <div style={{ fontSize: 10, color: 'var(--theme-success)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>OUTPUT PRODUCT (Current Item)</div>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)', marginTop: 2 }}>{itemRoute.productionFlow.outputItem.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: 'var(--theme-success, #52c41a)', padding: '1px 5px', borderRadius: 3 }}>
+                              {itemRoute.productionFlow.outputItem.itemCode}
+                            </code>
+                            {itemRoute.productionFlow.outputItem.uom ? ` • UOM: ${itemRoute.productionFlow.outputItem.uom}` : ''}
+                            {itemRoute.productionFlow.outputItem.wireSizeMm != null ? ` • Wire: ${itemRoute.productionFlow.outputItem.wireSizeMm}mm` : ''}
+                          </div>
+                          {itemRoute.productionFlow.outputItem.departmentName && (
+                            <div style={{ fontSize: 11, color: 'var(--theme-success)', marginTop: 3 }}>Dept: {itemRoute.productionFlow.outputItem.departmentName}</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Multi-Stage Chain */}
+                    {itemRoute.productionFlow.chain && itemRoute.productionFlow.chain.length > 1 && (
+                      <div
+                        style={{
+                          border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                          borderRadius: 8,
+                          padding: '10px 14px',
+                          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Configured Manufacturing Chain ({itemRoute.productionFlow.chain.length} Stages)
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 8px' }}>
+                          {itemRoute.productionFlow.chain.map((stg, i) => (
+                            <React.Fragment key={stg.itemId}>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  padding: '5px 10px',
+                                  borderRadius: 6,
+                                  border: stg.isCurrent ? '2px solid var(--theme-accent, #0284c7)' : '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                                  background: stg.isCurrent ? 'var(--theme-accent-soft, rgba(56, 189, 248, 0.16))' : 'var(--theme-surface, rgba(0, 0, 0, 0.2))',
+                                  minWidth: 125,
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: stg.isCurrent ? 'var(--theme-accent, #0284c7)' : 'var(--theme-text-muted)' }}>
+                                    {stg.stageName}
+                                  </span>
+                                  {stg.isCurrent && (
+                                    <Tag color="blue" style={{ fontSize: 9, lineHeight: '14px', padding: '0 4px', margin: 0 }}>CURRENT</Tag>
+                                  )}
+                                </div>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
+                                  {stg.itemCode}
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
+                                  {stg.itemName}
+                                </span>
+                              </div>
+                              {i < itemRoute.productionFlow!.chain.length - 1 && (
+                                <ArrowRightOutlined style={{ color: 'var(--theme-text-muted)', fontSize: 12 }} />
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <Alert message="No routing operations defined for this item" type="info" showIcon />
+                  <Alert message={<span style={{ color: 'var(--theme-text)' }}>No routing operations defined for this item</span>} type="info" showIcon />
                 )}
               </>
             )}

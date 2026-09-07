@@ -195,7 +195,7 @@ const ProfilePage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: 960 }}>
+    <div style={{ width: '100%', padding: '4px 6px' }}>
       <PageHeader
         icon={<UserOutlined />}
         title="My Profile"
