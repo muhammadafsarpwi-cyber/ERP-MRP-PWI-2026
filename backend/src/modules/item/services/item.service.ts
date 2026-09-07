@@ -117,8 +117,12 @@ export class ItemService implements OnModuleInit {
 
     const rt = await this.resolveRouteType(dto.companyId, dto.routeTypeId, dto.routeType);
 
+    const processes = this.extractProcesses(dto as any);
+    const cleanDto = { ...dto, ...processes };
+    this.cleanProcessAliases(cleanDto);
+
     const item = this.itemRepository.create({
-      ...dto,
+      ...cleanDto,
       id: newItemId,
       productionOutItemId: syncedOut,
       routeTypeId: rt.routeTypeId,
@@ -252,10 +256,14 @@ export class ItemService implements OnModuleInit {
     // this bypasses the stale relation objects (division/section/department) that
     // were loaded with the original entity, preventing TypeORM from persisting
     // the old relation IDs instead of the newly supplied scalar FKs.
+    const processes = this.extractProcesses(dto as any);
     const scalarUpdate: Record<string, unknown> = { updatedBy: userId || null };
     for (const [k, v] of Object.entries(dto)) {
       if (v !== undefined) scalarUpdate[k] = v;
     }
+    this.cleanProcessAliases(scalarUpdate);
+    Object.assign(scalarUpdate, processes);
+
     // Server-owned production OUT: a client-supplied productionOutItemId is
     // overridden so the backward-compat column always equals the current Item ID
     // (auto-sync), healing any stale pre-#34B sample data.
@@ -406,5 +414,39 @@ export class ItemService implements OnModuleInit {
 
     // The current Item IS the output of its stage.
     return currentItemId;
+  }
+
+  private extractProcesses(source: Record<string, any>): {
+    process1?: string;
+    process2?: string;
+    process3?: string;
+    process4?: string;
+    process5?: string;
+  } {
+    const p1 = source.process1 ?? source['process 1'] ?? source.process_1 ?? source['Process 1'];
+    const p2 = source.process2 ?? source['process 2'] ?? source.process_2 ?? source['Process 2'];
+    const p3 = source.process3 ?? source['process 3'] ?? source.process_3 ?? source['Process 3'];
+    const p4 = source.process4 ?? source['process 4'] ?? source.process_4 ?? source['Process 4'];
+    const p5 = source.process5 ?? source['process 5'] ?? source.process_5 ?? source['Process 5'];
+    return {
+      ...(p1 !== undefined ? { process1: p1 } : {}),
+      ...(p2 !== undefined ? { process2: p2 } : {}),
+      ...(p3 !== undefined ? { process3: p3 } : {}),
+      ...(p4 !== undefined ? { process4: p4 } : {}),
+      ...(p5 !== undefined ? { process5: p5 } : {}),
+    };
+  }
+
+  private cleanProcessAliases(target: Record<string, any>): void {
+    const aliases = [
+      'process 1', 'Process 1', 'process_1',
+      'process 2', 'Process 2', 'process_2',
+      'process 3', 'Process 3', 'process_3',
+      'process 4', 'Process 4', 'process_4',
+      'process 5', 'Process 5', 'process_5',
+    ];
+    for (const a of aliases) {
+      delete target[a];
+    }
   }
 }

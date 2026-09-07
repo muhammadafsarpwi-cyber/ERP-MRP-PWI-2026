@@ -221,11 +221,47 @@ export class CreateItemDto {
   @MaxLength(255)
   process1?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 1 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_1?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 1 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 1'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 1 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 1'?: string;
+
   @ApiPropertyOptional({ description: 'Process step 2' })
   @IsString()
   @IsOptional()
   @MaxLength(255)
   process2?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 2 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_2?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 2 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 2'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 2 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 2'?: string;
 
   @ApiPropertyOptional({ description: 'Process step 3' })
   @IsString()
@@ -233,17 +269,71 @@ export class CreateItemDto {
   @MaxLength(255)
   process3?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 3 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_3?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 3 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 3'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 3 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 3'?: string;
+
   @ApiPropertyOptional({ description: 'Process step 4' })
   @IsString()
   @IsOptional()
   @MaxLength(255)
   process4?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 4 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_4?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 4 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 4'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 4 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 4'?: string;
+
   @ApiPropertyOptional({ description: 'Process step 5' })
   @IsString()
   @IsOptional()
   @MaxLength(255)
   process5?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 5 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_5?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 5 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 5'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 5 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 5'?: string;
 
   @ApiPropertyOptional({ description: 'Final produced product' })
   @IsString()
@@ -497,11 +587,47 @@ export class UpdateItemDto {
   @MaxLength(255)
   process1?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 1 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_1?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 1 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 1'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 1 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 1'?: string;
+
   @ApiPropertyOptional({ description: 'Process step 2' })
   @IsString()
   @IsOptional()
   @MaxLength(255)
   process2?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 2 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_2?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 2 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 2'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 2 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 2'?: string;
 
   @ApiPropertyOptional({ description: 'Process step 3' })
   @IsString()
@@ -509,17 +635,71 @@ export class UpdateItemDto {
   @MaxLength(255)
   process3?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 3 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_3?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 3 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 3'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 3 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 3'?: string;
+
   @ApiPropertyOptional({ description: 'Process step 4' })
   @IsString()
   @IsOptional()
   @MaxLength(255)
   process4?: string;
 
+  @ApiPropertyOptional({ description: 'Process step 4 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_4?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 4 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 4'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 4 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 4'?: string;
+
   @ApiPropertyOptional({ description: 'Process step 5' })
   @IsString()
   @IsOptional()
   @MaxLength(255)
   process5?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 5 (alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  process_5?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 5 (header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'process 5'?: string;
+
+  @ApiPropertyOptional({ description: 'Process step 5 (capitalized header alias)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  'Process 5'?: string;
 
   @ApiPropertyOptional({ description: 'Final produced product' })
   @IsString()

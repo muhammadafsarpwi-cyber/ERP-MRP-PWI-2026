@@ -18,7 +18,7 @@ import { PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable } from '../
 import { usePermission } from '../../hooks/usePermission';
 import {
   ITEM_TYPES, ROUTE_TYPES, STATUS_OPTIONS, statusColorMap, TRACKING_SWITCHES,
-  routeColorMap, IMPORT_COLUMNS, TEMPLATE_CSV,
+  routeColorMap, IMPORT_COLUMNS, REQUIRED_IMPORT_COLUMNS, TEMPLATE_CSV,
   type Item, type DivisionOption, type SectionOption, type DepartmentOption,
   type UomOption, type SimpleOption, type CategoryOption, type ConversionInfo,
   type ImportRow,
@@ -464,6 +464,17 @@ const ItemManagement: React.FC = () => {
       if (payload.routeType !== undefined && payload.routeTypeId !== undefined) {
         delete payload.routeType;
       }
+      // Sanitize and normalize process keys so no aliases with spaces or underscores reach the backend
+      for (let i = 1; i <= 5; i++) {
+        const canonical = `process${i}`;
+        const aliases = [`process ${i}`, `Process ${i}`, `process_${i}`];
+        for (const alias of aliases) {
+          if (payload[alias] !== undefined) {
+            if (!payload[canonical]) payload[canonical] = payload[alias];
+            delete payload[alias];
+          }
+        }
+      }
       if (editing) {
         if (editing.companyId) payload.companyId = editing.companyId;
         // TASK #45: If the user deliberately cleared the production input material,
@@ -747,7 +758,12 @@ const ItemManagement: React.FC = () => {
     existingCodes: Set<string>,
   ): { payload?: Record<string, unknown>; errors: string[]; duplicate: boolean } => {
     const errors: string[] = [];
-    const get = (k: string) => (data[k] ?? '').trim();
+    const get = (k: string) => {
+      if (data[k] !== undefined && data[k] !== null && String(data[k]).trim() !== '') return String(data[k]).trim();
+      const normK = k.toLowerCase().replace(/[\s_-]+/g, '');
+      if (data[normK] !== undefined && data[normK] !== null && String(data[normK]).trim() !== '') return String(data[normK]).trim();
+      return '';
+    };
 
     const itemCode = get('itemCode').toUpperCase();
     if (!itemCode) errors.push('Item Code is required');
@@ -875,7 +891,10 @@ const ItemManagement: React.FC = () => {
       return false;
     }
     const header = parsed[0].map((h) => h.trim());
-    const missing = IMPORT_COLUMNS.filter((c) => !header.includes(c));
+    const normHeader = header.map((h) => h.toLowerCase().replace(/[\s_-]+/g, ''));
+    const missing = REQUIRED_IMPORT_COLUMNS.filter(
+      (c) => !normHeader.includes(c.toLowerCase().replace(/[\s_-]+/g, '')),
+    );
     if (missing.length > 0) {
       message.error(`Missing required column(s): ${missing.join(', ')}. Download the template for the expected format.`);
       return false;
@@ -892,7 +911,11 @@ const ItemManagement: React.FC = () => {
     const seenCodes = new Set<string>();
     const validated: ImportRow[] = parsed.slice(1).map((cells, idx) => {
       const data: Record<string, string> = {};
-      header.forEach((h, i) => { data[h] = cells[i] ?? ''; });
+      header.forEach((h, i) => {
+        const val = cells[i] ?? '';
+        data[h] = val;
+        data[h.toLowerCase().replace(/[\s_-]+/g, '')] = val;
+      });
       const result = validateImportRow(data, seenCodes, existingCodes);
       if (result.payload) seenCodes.add((data['itemCode'] ?? '').toUpperCase());
       return {
