@@ -126,7 +126,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { can, isLoaded, user } = usePermission();
-  const { actions: headerActions, title: headerTitle, subtitle: headerSubtitle, icon: headerIcon } = useHeaderActions();
+  const { actions: headerActions, title: headerTitle, subtitle: headerSubtitle, icon: headerIcon, extra: headerExtra } = useHeaderActions();
   const navBadges = useNavBadgeStore((s) => s.badges);
 
   // Hydrate the Maintenance sidebar count badges from the real dashboard API so
@@ -397,19 +397,17 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         <Header
           className="erp-app-header"
           style={{
-            height: isMobile ? 96 : 116,
-            padding: isMobile ? '0 8px' : '0 24px',
+            height: 'auto',
+            minHeight: isMobile ? 96 : 116,
+            padding: isMobile ? '8px 12px' : '10px 24px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            gap: isMobile ? 4 : 8,
+            gap: isMobile ? 6 : 8,
             lineHeight: 'normal',
-            position: 'fixed',
+            position: 'sticky',
             top: 0,
-            left: isMobile ? 0 : (effectivelyCollapsed ? 80 : SIDER_WIDTH),
-            right: 0,
-            zIndex: 10,
-            transition: 'left 0.2s',
+            zIndex: 100,
           }}
         >
           {/* TOP ROW — menu · page icon · breadcrumb · right controls */}
@@ -450,53 +448,87 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             </div>
           </div>
 
-          {/* TITLE ROW — page icon · title · subtitle */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-            {headerIconNode && (
-              <span
-                className="erp-app-header-icon"
-                style={{ color: headerIconColor, fontSize: 26 }}
-              >
-                {headerIconNode}
-              </span>
-            )}
-            <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: isMobile ? 18 : 22,
-                  fontWeight: 700,
-                  lineHeight: 1.2,
-                  color: 'var(--theme-text)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {headerTitleText}
-              </div>
-              {headerSubtitle && (
+          {/* TITLE ROW — page icon · title · subtitle + extra actions */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: isMobile ? 'column' : 'row',
+              alignItems: isMobile ? 'stretch' : 'center',
+              justifyContent: 'space-between',
+              gap: isMobile ? 8 : 12,
+              minWidth: 0,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: isMobile ? '1 1 auto' : '1 1 auto' }}>
+              {headerIconNode && (
+                <span
+                  className="erp-app-header-icon"
+                  style={{ color: headerIconColor, fontSize: isMobile ? 22 : 26, flexShrink: 0 }}
+                >
+                  {headerIconNode}
+                </span>
+              )}
+              <div style={{ minWidth: 0 }}>
                 <div
                   style={{
-                    fontSize: isMobile ? 12 : 13,
-                    marginTop: 2,
-                    color: 'var(--theme-text-muted)',
+                    fontSize: isMobile ? 18 : 22,
+                    fontWeight: 700,
+                    lineHeight: 1.2,
+                    color: 'var(--theme-text)',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {headerSubtitle}
+                  {headerTitleText}
                 </div>
-              )}
+                {headerSubtitle && (
+                  <div
+                    style={{
+                      fontSize: isMobile ? 12 : 13,
+                      marginTop: 2,
+                      color: 'var(--theme-text-muted)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {headerSubtitle}
+                  </div>
+                )}
+              </div>
             </div>
+
+            {headerExtra && (
+              <div
+                className="erp-header-extra"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  flexWrap: isMobile ? 'nowrap' : 'wrap',
+                  overflowX: isMobile ? 'auto' : 'visible',
+                  WebkitOverflowScrolling: 'touch',
+                  justifyContent: isMobile ? 'flex-start' : 'flex-end',
+                  flexShrink: 0,
+                  maxWidth: '100%',
+                  scrollbarWidth: 'none',
+                  paddingBottom: isMobile ? 2 : 0,
+                }}
+              >
+                {headerExtra}
+              </div>
+            )}
           </div>
         </Header>
         <Content
           className="erp-app-content"
           style={{
-            margin: isMobile ? '104px 8px 8px' : '124px 8px 8px',
-            padding: 12,
-            borderRadius: 8,
+            margin: 0,
+            padding: isMobile ? '8px 12px 24px' : '16px 24px 32px',
+            borderRadius: 0,
+            border: 'none',
+            background: 'transparent',
             minHeight: 280,
             overflowX: 'auto',
           }}

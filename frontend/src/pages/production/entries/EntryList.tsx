@@ -14,7 +14,10 @@ import {
   Col,
   Input,
   Tooltip,
+  Modal,
+  Tag,
 } from 'antd';
+import PageHeader from '../../../components/shared/PageHeader';
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -32,11 +35,20 @@ import {
   CheckCircleOutlined,
   SettingOutlined,
   DownloadOutlined,
+  UploadOutlined,
+  FilePdfOutlined,
+  PrinterOutlined,
+  FilterOutlined,
+  ClearOutlined,
+  DownOutlined,
+  CarryOutOutlined,
   FieldTimeOutlined,
   DeleteOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import { useLookups, Department, ShiftLk } from './lookups';
@@ -267,6 +279,30 @@ const EntryList: React.FC = () => {
 
   const achIndicator = kpiIndicator(summary.ach);
 
+  // Collapsible Filters State
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (fSearch.trim()) count++;
+    if (fDivision) count++;
+    if (fSection) count++;
+    if (fDepartment) count++;
+    if (fShift) count++;
+    if (fMachineNo.trim()) count++;
+    if (fStatus) count++;
+    if (dateRange[0] || dateRange[1]) count++;
+    return count;
+  }, [fSearch, fDivision, fSection, fDepartment, fShift, fMachineNo, fStatus, dateRange]);
+
+  const handleRefresh = () => {
+    void fetchRows(page, pageSize);
+    void fetchReport();
+    message.success('Production entries refreshed');
+  };
+
   // CSV Export
   const exportToCsv = () => {
     if (!displayedRows || displayedRows.length === 0) {
@@ -338,6 +374,172 @@ const EntryList: React.FC = () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     message.success('Exported production entries to CSV');
+  };
+
+  // PDF Export
+  const exportPdf = async () => {
+    if (!displayedRows || displayedRows.length === 0) {
+      message.warning('No production entries to export to PDF');
+      return;
+    }
+    setPdfLoading(true);
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      doc.setFontSize(14);
+      doc.setTextColor(33);
+      doc.text('Daily Production Entry Report', 40, 36);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      const dateStr = dayjs().format('DD MMM YYYY, HH:mm');
+      doc.text(`Generated: ${dateStr} · Total entries: ${displayedRows.length}`, 40, 50);
+
+      const head = [
+        ['Sr', 'Date', 'Division', 'Department', 'Shift', 'Machine', 'Operator', 'Item / Product', 'Target', 'Actual', 'UOM', 'Achv %', 'Run/Down', 'Status']
+      ];
+
+      const body = displayedRows.map((r, i) => {
+        const emp = lookups.hrEmployees.find(
+          (e) => e.id === r.operatorName || e.employeeCode === r.operatorName,
+        );
+        const op = emp ? lookups.employeeFullName(emp) : (r.operatorName || '—');
+        const itemCode = r.item?.itemCode || '';
+        const itemName = r.item?.name || '';
+        const itemDisplay = itemCode && itemName && itemCode !== itemName ? `${itemName} (${itemCode})` : (itemName || itemCode || '—');
+        const runH = toNum(r.runningHours);
+        const downH = toNum(r.downtimeHours);
+        const ach = toNum(r.achievementPercentage);
+
+        return [
+          (page - 1) * pageSize + i + 1,
+          r.entryDate ? dayjs(r.entryDate).format('YYYY-MM-DD') : '—',
+          r.division?.name || r.division?.divisionCode || '—',
+          r.department?.name || r.department?.departmentCode || '—',
+          r.shift?.name || '—',
+          r.machine?.machineCode || r.machineNo || '—',
+          op,
+          itemDisplay,
+          formatNumber(r.targetQuantity, 2),
+          formatNumber(r.actualQuantity, 2),
+          r.uom?.code || '',
+          `${ach.toFixed(1)}%`,
+          `${formatNumber(runH, 1)}h / ${formatNumber(downH, 1)}h`,
+          getEntryStatus(r),
+        ];
+      });
+
+      autoTable(doc, {
+        head,
+        body,
+        startY: 60,
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i += 1) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(140);
+        doc.text(
+          `Page ${i} of ${pageCount}`,
+          doc.internal.pageSize.getWidth() - 40,
+          doc.internal.pageSize.getHeight() - 15,
+          { align: 'right' }
+        );
+      }
+      doc.save(`daily-production-entries-${dayjs().format('YYYY-MM-DD')}.pdf`);
+      message.success(`Exported ${displayedRows.length} entries to PDF`);
+    } catch (err: any) {
+      message.error(err?.message || 'PDF export failed');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  // Clean Print Layout
+  const handlePrint = () => {
+    if (!displayedRows || displayedRows.length === 0) {
+      message.warning('No production entries to print');
+      return;
+    }
+    const rowHtml = displayedRows.map((r, i) => {
+      const emp = lookups.hrEmployees.find(
+        (e) => e.id === r.operatorName || e.employeeCode === r.operatorName,
+      );
+      const op = emp ? lookups.employeeFullName(emp) : (r.operatorName || '—');
+      const itemName = r.item?.name || r.item?.itemCode || '—';
+      const ach = toNum(r.achievementPercentage);
+      const status = getEntryStatus(r);
+      return `<tr>
+        <td style="text-align:center;">${(page - 1) * pageSize + i + 1}</td>
+        <td>${r.entryDate ? dayjs(r.entryDate).format('YYYY-MM-DD') : '—'}</td>
+        <td>${(r.department?.name || '').replace(/[<>&]/g, '')}</td>
+        <td>${(r.shift?.name || '').replace(/[<>&]/g, '')}</td>
+        <td>${(r.machine?.machineCode || r.machineNo || '').replace(/[<>&]/g, '')}</td>
+        <td>${op.replace(/[<>&]/g, '')}</td>
+        <td>${itemName.replace(/[<>&]/g, '')}</td>
+        <td style="text-align:right;">${formatNumber(r.targetQuantity, 2)} ${r.uom?.code || ''}</td>
+        <td style="text-align:right; font-weight:600;">${formatNumber(r.actualQuantity, 2)} ${r.uom?.code || ''}</td>
+        <td style="text-align:right;">${ach.toFixed(1)}%</td>
+        <td style="text-align:center;">${status}</td>
+      </tr>`;
+    }).join('');
+
+    const html = `<!doctype html>
+    <html>
+    <head>
+      <title>Daily Production Entry</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; color: #0f172a; }
+        h1 { font-size: 18px; margin: 0 0 4px 0; }
+        p { font-size: 11px; color: #64748b; margin: 0 0 14px 0; }
+        table { border-collapse: collapse; width: 100%; font-size: 11px; }
+        th, td { border: 1px solid #cbd5e1; padding: 5px 8px; text-align: left; }
+        th { background: #f1f5f9; font-weight: 600; color: #334155; }
+        tbody tr:nth-child(even) { background: #f8fafc; }
+        @media print {
+          @page { size: landscape; margin: 10mm; }
+          body { margin: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <h1>Daily Production Entry</h1>
+      <p>Generated on ${dayjs().format('DD MMM YYYY, HH:mm')} · ${displayedRows.length} record(s)</p>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:35px; text-align:center;">Sr</th>
+            <th>Date</th>
+            <th>Department</th>
+            <th>Shift</th>
+            <th>Machine</th>
+            <th>Operator</th>
+            <th>Item / Product</th>
+            <th style="text-align:right;">Target</th>
+            <th style="text-align:right;">Actual</th>
+            <th style="text-align:right;">Achievement</th>
+            <th style="text-align:center;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowHtml}
+        </tbody>
+      </table>
+      <script>
+        window.onload = function() {
+          window.print();
+        };
+      </script>
+    </body>
+    </html>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, '_blank');
+    if (!w) message.warning('Popup blocked — please allow popups for printing.');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
   // Table Columns
@@ -482,9 +684,31 @@ const EntryList: React.FC = () => {
       ),
       width: 220,
       ellipsis: true,
-      render: (_t, r) => (
-        <ItemBadge item={r.item} fallback="—" />
-      ),
+      render: (_t, r) => {
+        const itemName = r.item?.name || r.item?.shortName || r.item?.itemCode;
+        const itemCode = r.item?.itemCode;
+        const hasDiffCode = itemCode && itemName && itemCode !== itemName;
+        return (
+          <div style={{ maxWidth: 220, lineHeight: 1.25 }}>
+            <ItemBadge item={r.item} fallback="—" />
+            {hasDiffCode && (
+              <div
+                style={{
+                  fontSize: 10.5,
+                  color: 'var(--theme-text-muted, #64748b)',
+                  marginLeft: 14,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={itemCode}
+              >
+                {itemCode}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: (
@@ -762,144 +986,239 @@ const EntryList: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          Daily Production Entry
-        </Title>
-      </div>
+      {/* Single Main Page Header Meta with Actions */}
+      <PageHeader
+        icon={<CarryOutOutlined />}
+        title="Daily Production Entry"
+        subtitle="Manage daily shift production records, operational outputs, and metrics."
+        extra={
+          <>
+            <Tag color="blue" style={{ borderRadius: 10, margin: 0, fontWeight: 500 }}>
+              {total || 0} records
+            </Tag>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                const qs = new URLSearchParams();
+                if (fDivision) qs.set('divisionId', fDivision);
+                if (fSection) qs.set('sectionId', fSection);
+                if (fDepartment) qs.set('departmentId', fDepartment);
+                if (dateRange[0]) qs.set('entryDate', dateRange[0].format('YYYY-MM-DD'));
+                if (fShift) qs.set('shiftId', fShift);
+                const s = qs.toString();
+                navigate(`/production/entries/select${s ? `?${s}` : ''}`);
+              }}
+            >
+              Add Entry
+            </Button>
 
-      {/* ── Filter / Search Toolbar ───────────────────────────────────────── */}
-      <Card size="small" style={{ marginBottom: 14 }}>
-        <Row gutter={[10, 10]} align="middle">
-          <Col xs={24} sm={12} md={6} lg={4}>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
-              Quick Search
-            </Text>
-            <Input
-              allowClear
-              placeholder="Search entries..."
-              prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
-              value={fSearch}
-              onChange={(e) => setFSearch(e.target.value)}
-              onPressEnter={handleSearch}
-            />
-          </Col>
-
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
-              Department
-            </Text>
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder="All Departments"
-              style={{ width: '100%' }}
-              value={fDepartment}
-              options={lookups.departments.map((d: Department) => ({ value: d.id, label: d.name }))}
-              onChange={(v) => setFDepartment(v)}
-            />
-          </Col>
-
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
-              Shift
-            </Text>
-            <Select
-              allowClear
-              placeholder="All Shifts"
-              style={{ width: '100%' }}
-              value={fShift}
-              options={(lookups.shifts || []).map((s) => ({ value: s.id, label: s.name }))}
-              onChange={(v) => setFShift(v)}
-            />
-          </Col>
-
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
-              Machine
-            </Text>
-            <Input
-              allowClear
-              placeholder="e.g. FT-04"
-              value={fMachineNo}
-              onChange={(e) => setFMachineNo(e.target.value)}
-              onPressEnter={handleSearch}
-            />
-          </Col>
-
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
-              Status
-            </Text>
-            <Select
-              allowClear
-              placeholder="All Statuses"
-              style={{ width: '100%' }}
-              value={fStatus}
-              options={[
-                { value: 'COMPLETED', label: 'Completed' },
-                { value: 'IN_PROGRESS', label: 'In Progress' },
-                { value: 'DRAFT', label: 'Draft' },
-                { value: 'CANCELLED', label: 'Cancelled' },
-              ]}
-              onChange={(v) => setFStatus(v)}
-            />
-          </Col>
-
-          <Col xs={24} sm={12} md={8} lg={4}>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
-              Date Range
-            </Text>
-            <RangePicker
-              style={{ width: '100%' }}
-              value={dateRange as never}
-              onChange={(v) =>
-                setDateRange([
-                  (v as never as unknown[])[0] as dayjs.Dayjs ?? null,
-                  (v as never as unknown[])[1] as dayjs.Dayjs ?? null,
-                ])
-              }
-            />
-          </Col>
-
-          <Col xs={24} sm={12} md={12} lg={4}>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2, visibility: 'hidden' }}>
-              Actions
-            </Text>
-            <Space wrap size={6}>
-              <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-                Search
-              </Button>
-              <Tooltip title="Reset filters">
-                <Button icon={<ReloadOutlined />} onClick={handleReset} />
-              </Tooltip>
-              <Tooltip title="Export current rows to CSV">
-                <Button icon={<DownloadOutlined />} onClick={exportToCsv}>
-                  Export
-                </Button>
-              </Tooltip>
+            <Tooltip title="Export current entries to CSV">
               <Button
-                type="primary"
-                ghost
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  const qs = new URLSearchParams();
-                  if (fDivision) qs.set('divisionId', fDivision);
-                  if (fSection) qs.set('sectionId', fSection);
-                  if (fDepartment) qs.set('departmentId', fDepartment);
-                  if (dateRange[0]) qs.set('entryDate', dateRange[0].format('YYYY-MM-DD'));
-                  if (fShift) qs.set('shiftId', fShift);
-                  const s = qs.toString();
-                  navigate(`/production/entries/select${s ? `?${s}` : ''}`);
-                }}
+                icon={<DownloadOutlined />}
+                onClick={exportToCsv}
+                disabled={displayedRows.length === 0}
               >
-                Add Entry
+                Export
               </Button>
-            </Space>
-          </Col>
-        </Row>
-      </Card>
+            </Tooltip>
+
+            <Tooltip title="Batch import restricted for audit compliance">
+              <Button
+                icon={<UploadOutlined />}
+                onClick={() => setImportModalVisible(true)}
+              >
+                Import
+              </Button>
+            </Tooltip>
+
+            <Tooltip title="Export current entries to PDF">
+              <Button
+                icon={<FilePdfOutlined />}
+                onClick={exportPdf}
+                loading={pdfLoading}
+                disabled={displayedRows.length === 0}
+              >
+                PDF
+              </Button>
+            </Tooltip>
+
+            <Tooltip title="Print professional report view">
+              <Button
+                icon={<PrinterOutlined />}
+                onClick={handlePrint}
+                disabled={displayedRows.length === 0}
+              >
+                Print
+              </Button>
+            </Tooltip>
+
+            <Tooltip title="Refresh entries data">
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={handleRefresh}
+                loading={loading}
+              >
+                Refresh
+              </Button>
+            </Tooltip>
+          </>
+        }
+      />
+
+      {/* ── Collapsible Filters Section ─────────────────────────────────── */}
+      <div className={`erp-collapsible-filters ${!filtersCollapsed ? 'erp-collapsible-filters--expanded' : ''}`}>
+        <div className="erp-collapsible-filters__header">
+          <div
+            className="erp-collapsible-filters__toggle"
+            onClick={() => setFiltersCollapsed((prev) => !prev)}
+            role="button"
+            tabIndex={0}
+          >
+            <FilterOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="erp-collapsible-filters__badge">
+                {activeFilterCount} active
+              </span>
+            )}
+            <DownOutlined
+              style={{
+                fontSize: 10,
+                marginLeft: 4,
+                transition: 'transform 0.2s',
+                transform: filtersCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+              }}
+            />
+          </div>
+
+          <Space size={8}>
+            {activeFilterCount > 0 && (
+              <Button
+                type="text"
+                size="small"
+                icon={<ClearOutlined />}
+                onClick={handleReset}
+                style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}
+              >
+                Clear Filters
+              </Button>
+            )}
+          </Space>
+        </div>
+
+        {!filtersCollapsed && (
+          <div className="erp-collapsible-filters__body">
+            <Row gutter={[10, 10]} align="middle">
+              <Col xs={24} sm={12} md={6} lg={4}>
+                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+                  Quick Search
+                </Text>
+                <Input
+                  allowClear
+                  placeholder="Search entries..."
+                  prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+                  value={fSearch}
+                  onChange={(e) => setFSearch(e.target.value)}
+                  onPressEnter={handleSearch}
+                />
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={3}>
+                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+                  Department
+                </Text>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Departments"
+                  style={{ width: '100%' }}
+                  value={fDepartment}
+                  options={lookups.departments.map((d: Department) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => setFDepartment(v)}
+                />
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={3}>
+                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+                  Shift
+                </Text>
+                <Select
+                  allowClear
+                  placeholder="All Shifts"
+                  style={{ width: '100%' }}
+                  value={fShift}
+                  options={(lookups.shifts || []).map((s) => ({ value: s.id, label: s.name }))}
+                  onChange={(v) => setFShift(v)}
+                />
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={3}>
+                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+                  Machine
+                </Text>
+                <Input
+                  allowClear
+                  placeholder="e.g. FT-04"
+                  value={fMachineNo}
+                  onChange={(e) => setFMachineNo(e.target.value)}
+                  onPressEnter={handleSearch}
+                />
+              </Col>
+
+              <Col xs={12} sm={6} md={4} lg={3}>
+                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+                  Status
+                </Text>
+                <Select
+                  allowClear
+                  placeholder="All Statuses"
+                  style={{ width: '100%' }}
+                  value={fStatus}
+                  options={[
+                    { value: 'COMPLETED', label: 'Completed' },
+                    { value: 'IN_PROGRESS', label: 'In Progress' },
+                    { value: 'DRAFT', label: 'Draft' },
+                    { value: 'CANCELLED', label: 'Cancelled' },
+                  ]}
+                  onChange={(v) => setFStatus(v)}
+                />
+              </Col>
+
+              <Col xs={24} sm={12} md={8} lg={5}>
+                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+                  Date Range
+                </Text>
+                <RangePicker
+                  style={{ width: '100%' }}
+                  value={dateRange as never}
+                  onChange={(v) =>
+                    setDateRange([
+                      (v as never as unknown[])[0] as dayjs.Dayjs ?? null,
+                      (v as never as unknown[])[1] as dayjs.Dayjs ?? null,
+                    ])
+                  }
+                />
+              </Col>
+
+              <Col xs={24} sm={12} md={6} lg={3}>
+                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2, visibility: 'hidden' }}>
+                  Actions
+                </Text>
+                <Space size={6}>
+                  <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
+                    Search
+                  </Button>
+                  <Tooltip title="Reset filters">
+                    <Button icon={<ReloadOutlined />} onClick={handleReset} />
+                  </Tooltip>
+                </Space>
+              </Col>
+            </Row>
+          </div>
+        )}
+      </div>
 
       {/* ── Main Production Tabs ─────────────────────────────────────────── */}
       <Tabs
@@ -952,6 +1271,7 @@ const EntryList: React.FC = () => {
                   loading={loading}
                   scroll={{ x: 1680 }}
                   dense
+                  containerClassName="erp-table-striped"
                   pagination={{
                     current: page,
                     pageSize,
@@ -1045,6 +1365,28 @@ const EntryList: React.FC = () => {
           },
         ]}
       />
+
+      {/* ── Import Compliance Modal ─────────────────────────────────────── */}
+      <Modal
+        title="Production Entry Import Policy"
+        open={importModalVisible}
+        onCancel={() => setImportModalVisible(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setImportModalVisible(false)}>
+            Understood
+          </Button>,
+        ]}
+        width={500}
+      >
+        <div style={{ padding: '8px 0', lineHeight: 1.6 }}>
+          <p style={{ margin: '0 0 10px 0' }}>
+            Direct bulk file import is intentionally <strong>restricted</strong> for Daily Production entries to guarantee strict inventory ledger trace integrity and audit compliance.
+          </p>
+          <p style={{ margin: 0, color: 'var(--theme-text-muted, #64748b)', fontSize: 13 }}>
+            Each production record requires active machine selection, operator verification, calibrated downtime capture, and real-time inventory lot deduction. Please use the <strong>Add Entry</strong> button to post authorized entries.
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 };

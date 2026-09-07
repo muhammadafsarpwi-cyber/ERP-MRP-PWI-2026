@@ -26,26 +26,24 @@ interface PageHeaderProps {
  * Kept as a drop-in so existing pages keep their title/subtitle/extra while the
  * duplicate secondary header is removed at the layout level.
  */
-const PageHeader: React.FC<PageHeaderProps> = ({ icon, title, subtitle, extra, style }) => {
+const PageHeader: React.FC<PageHeaderProps> = ({ icon, title, subtitle, extra }) => {
   const location = useLocation();
   const navMeta = React.useMemo(() => resolveNavMeta(location.pathname), [location.pathname]);
   const HeaderIcon = navMeta?.icon;
 
   useEffect(() => {
-    useHeaderActions.getState().setHeaderMeta(title, subtitle, HeaderIcon ? React.createElement(HeaderIcon) : icon);
+    useHeaderActions.getState().setHeaderMeta(
+      title,
+      subtitle,
+      HeaderIcon ? React.createElement(HeaderIcon) : icon,
+      extra
+    );
     return () => {
       useHeaderActions.getState().clearHeaderMeta();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, subtitle, HeaderIcon, icon]);
+  }, [title, subtitle, HeaderIcon, icon, extra]);
 
-  if (!extra) return null;
-
-  return (
-    <div className="erp-page-actions" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 12, ...style }}>
-      <Space wrap size={8}>{extra}</Space>
-    </div>
-  );
+  return null;
 };
 
 export default PageHeader;

@@ -106,9 +106,10 @@ body {
 }
 
 .erp-app-content {
-  background: var(--theme-surface);
-  border: 1px solid var(--theme-border);
-  transition: background-color 0.25s ease, border-color 0.25s ease;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: background-color 0.25s ease;
 }
 
 .erp-theme-trigger-btn {
@@ -291,15 +292,14 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
 @media (max-width: 767px) {
   .erp-app-content {
     margin: 0 !important;
-    padding: 8px !important;
+    padding: 8px 12px 24px !important;
     border: 0 !important;
     border-radius: 0 !important;
-    min-height: 100vh;
+    min-height: calc(100vh - 100px);
     width: 100% !important;
     box-sizing: border-box;
   }
   .erp-app-header {
-    left: 0 !important;
     width: 100%;
   }
 }
