@@ -226,3 +226,49 @@ export class UpdateStockAdjustmentDto {
   @IsOptional()
   unitCost?: number;
 }
+
+export class SubmitStockAdjustmentDto {
+  @ApiPropertyOptional({ description: 'Submission notes or remarks' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+
+export class ApproveStockAdjustmentDto {
+  @ApiPropertyOptional({ description: 'Approval remarks' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+
+export class ReturnStockAdjustmentDto {
+  @ApiProperty({ description: 'Reason for returning the adjustment to creator' })
+  @IsString()
+  @IsNotEmpty({ message: 'Return reason is required' })
+  reason: string;
+
+  @ApiPropertyOptional({ description: 'Additional return remarks' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+
+export class RejectStockAdjustmentDto {
+  @ApiProperty({ description: 'Reason for rejecting the adjustment' })
+  @IsString()
+  @IsNotEmpty({ message: 'Rejection reason is required' })
+  reason: string;
+
+  @ApiPropertyOptional({ description: 'Additional rejection remarks' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+
+export class PostStockAdjustmentDto {
+  @ApiPropertyOptional({ description: 'Posting notes or remarks' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+

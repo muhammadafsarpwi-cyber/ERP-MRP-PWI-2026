@@ -246,6 +246,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/inventory/policies', label: 'Inventory Policies', icon: SafetyOutlined, color: 'indigo', permissions: ['inventory.policy.view'] },
       { key: '/inventory/batches', label: 'Batch Tracking', icon: AppstoreOutlined, color: 'indigo', permissions: ['inventory.batch.view'] },
       { key: '/inventory/adjustments', label: 'Stock Adjustments', icon: EditOutlined, color: 'indigo', permissions: ['inventory.view'] },
+      { key: '/inventory/adjustments/pending-approval', label: 'Pending Approval', icon: ClockCircleOutlined, color: 'orange', permissions: ['inventory.adjustment.approve', 'inventory.view'] },
       { key: '/inventory/transfers', label: 'Stock Transfers', icon: SwapOutlined, color: 'indigo', permissions: ['inventory.view'] },
       { key: '/inventory/reservations', label: 'Reservations', icon: SafetyCertificateOutlined, color: 'indigo', permissions: ['inventory.reservation.view'] },
       { key: '/inventory/ledger', label: 'Stock Ledger', icon: DatabaseOutlined, color: 'indigo', permissions: ['inventory.view'] },
@@ -383,6 +384,8 @@ export const NAV_ENTRIES: NavEntry[] = [
 
 /** Extra routes that reuse a canonical nav entry's icon/color (detail pages, aliases). */
 const NAV_DETAIL_ALIASES: Record<string, string> = {
+  '/inventory/stock-adjustments': '/inventory/adjustments',
+  '/inventory/stock-adjustments/pending-approval': '/inventory/adjustments/pending-approval',
   '/production/entries/new': '/production/entries',
   '/production/entries/select': '/production/entries',
   '/maintenance/preventive-maintenance': '/maintenance/pm-plans',

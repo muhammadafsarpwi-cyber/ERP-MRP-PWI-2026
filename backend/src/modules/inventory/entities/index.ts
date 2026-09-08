@@ -12,3 +12,4 @@ export { RawMaterialReceipt } from './raw-material-receipt.entity';
 export { RawMaterialReceiptLine } from './raw-material-receipt-line.entity';
 export { RawMaterialReturn } from './raw-material-return.entity';
 export { RawMaterialReturnLine } from './raw-material-return-line.entity';
+export { StockAdjustmentHistory } from './stock-adjustment-history.entity';

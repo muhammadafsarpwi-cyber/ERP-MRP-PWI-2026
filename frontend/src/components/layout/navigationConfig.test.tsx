@@ -21,7 +21,7 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'item.view', 'item_category.view', 'item_route_type.view', 'uom.view', 'uom_conversion.view',
   // inventory — 20260819140000_inventory_management.sql
   'inventory.view', 'inventory.reports.view', 'inventory.policy.view',
-  'inventory.reservation.view', 'inventory.batch.view',
+  'inventory.reservation.view', 'inventory.batch.view', 'inventory.adjustment.approve',
   // procurement — 20260819160000_procurement.sql
   'procurement.supplier.view', 'procurement.requisition.view',
   'procurement.rfq.view', 'procurement.quotation.view',
@@ -68,7 +68,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/sales/quotations', '/sales/orders', '/sales/deliveries',
   '/sales/invoices', '/sales/returns',
   '/inventory', '/inventory/policies', '/inventory/batches',
-  '/inventory/adjustments', '/inventory/transfers', '/inventory/reservations',
+  '/inventory/adjustments', '/inventory/adjustments/pending-approval', '/inventory/transfers', '/inventory/reservations',
   '/inventory/ledger', '/inventory/reports',
   '/procurement/suppliers', '/procurement/requisitions', '/procurement/rfqs',
   '/procurement/quotations', '/procurement/orders', '/procurement/receipts',
@@ -188,7 +188,9 @@ describe('navigationConfig canonical reconciliation', () => {
       // Maintenance queue entries live on the same page via ?status= — their
       // base route must itself be a registered route.
       const base = leaf.key.split('?')[0];
-      expect(registered.has(leaf.key) || registered.has(base)).toBe(true);
+      const isReg = registered.has(leaf.key) || registered.has(base);
+      if (!isReg) console.log('UNREGISTERED LEAF:', leaf.key);
+      expect(isReg).toBe(true);
     }
   });
 

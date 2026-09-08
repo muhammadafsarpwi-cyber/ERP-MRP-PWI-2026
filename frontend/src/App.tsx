@@ -130,6 +130,9 @@ const App: React.FC = () => {
                   <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
                   <Route path="/inventory/batches" element={<BatchManagement />} />
                   <Route path="/inventory/adjustments" element={<StockAdjustmentManagement />} />
+                  <Route path="/inventory/adjustments/pending-approval" element={<StockAdjustmentManagement defaultTab="PENDING_APPROVAL" />} />
+                  <Route path="/inventory/stock-adjustments" element={<Navigate to="/inventory/adjustments" replace />} />
+                  <Route path="/inventory/stock-adjustments/pending-approval" element={<StockAdjustmentManagement defaultTab="PENDING_APPROVAL" />} />
                   <Route path="/inventory/transfers" element={<StockTransferManagement />} />
                   <Route path="/inventory/reservations" element={<ReservationManagement />} />
                   <Route path="/inventory/ledger" element={<StockLedgerView />} />

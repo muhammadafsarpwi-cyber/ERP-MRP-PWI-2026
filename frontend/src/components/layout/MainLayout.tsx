@@ -15,6 +15,7 @@ import { useHeaderActions } from './headerActionsStore';
 import Breadcrumbs from '../shared/Breadcrumbs';
 import { useNavBadgeStore } from './navBadgeStore';
 import { syncMaintenanceQueueBadges } from './maintenanceQueueBadges';
+import apiService from '../../services/api';
 import {
   NAV_ENTRIES,
   NAV_ICON_COLOR,
@@ -129,12 +130,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const { actions: headerActions, title: headerTitle, subtitle: headerSubtitle, icon: headerIcon, extra: headerExtra } = useHeaderActions();
   const navBadges = useNavBadgeStore((s) => s.badges);
 
-  // Hydrate the Maintenance sidebar count badges from the real dashboard API so
-  // they are visible on EVERY page (not just while the Job Card list is open).
+  // Hydrate the Maintenance & Inventory sidebar count badges from real APIs so
+  // they are visible on EVERY page.
   React.useEffect(() => {
     const cid = user?.defaultCompanyId;
     if (!cid) return;
     void syncMaintenanceQueueBadges(String(cid));
+    apiService.get<{ data: { pendingApproval: number } }>('/inventory/adjustments/counts', { companyId: cid })
+      .then((res) => {
+        if (res?.data?.pendingApproval !== undefined) {
+          useNavBadgeStore.getState().setNavBadge('/inventory/adjustments/pending-approval', res.data.pendingApproval);
+        }
+      })
+      .catch(() => {});
   }, [user?.defaultCompanyId]);
 
   const effectiveCan = React.useCallback((key: string) => {
