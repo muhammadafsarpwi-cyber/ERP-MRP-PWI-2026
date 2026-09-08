@@ -31,7 +31,8 @@ export class StockAdjustmentController {
     if (!dto.companyId) {
       dto.companyId = this.resolveCompanyId(req);
     }
-    const adjustment = await this.stockAdjustmentService.create(dto);
+    const userId = req?.erpUser?.id;
+    const adjustment = await this.stockAdjustmentService.create(dto, userId);
     return { success: true, data: adjustment, message: 'Stock adjustment created successfully' };
   }
 

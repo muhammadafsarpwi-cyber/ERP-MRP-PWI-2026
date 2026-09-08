@@ -5,6 +5,10 @@ import { ItemService } from './item.service';
 import { Item, ItemStatus, ItemType } from '../entities';
 import { ItemRouteType } from '../entities/route-type.entity';
 import { Division, Section, Department } from '../../organization/entities';
+import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
+import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
+import { ProductionEntry } from '../../production/entities/production-entry.entity';
+import { BarcodeService } from '../../barcode/services/barcode.service';
 import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 
 describe('ItemService', () => {
@@ -105,6 +109,7 @@ describe('ItemService', () => {
       save: jest.fn(),
       update: jest.fn(),
       remove: jest.fn(),
+      query: jest.fn().mockResolvedValue([{ next_barcode: 8901000000001 }]),
       createQueryBuilder: jest.fn(() => ({
         leftJoinAndSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
@@ -124,6 +129,10 @@ describe('ItemService', () => {
         { provide: getRepositoryToken(Section), useValue: sectionRepo },
         { provide: getRepositoryToken(Department), useValue: departmentRepo },
         { provide: getRepositoryToken(ItemRouteType), useValue: { findOne: jest.fn() } },
+        { provide: getRepositoryToken(StockLedger), useValue: { findAndCount: jest.fn().mockResolvedValue([[], 0]) } },
+        { provide: getRepositoryToken(InventoryBalance), useValue: { find: jest.fn().mockResolvedValue([]) } },
+        { provide: getRepositoryToken(ProductionEntry), useValue: { findAndCount: jest.fn().mockResolvedValue([[], 0]) } },
+        { provide: BarcodeService, useValue: { ensureBarcodeForEntity: jest.fn().mockResolvedValue({}), backfill: jest.fn().mockResolvedValue({}), generateBarcodeValue: jest.fn().mockResolvedValue('8901000000001') } },
       ],
     }).compile();
 

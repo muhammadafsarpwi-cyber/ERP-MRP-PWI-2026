@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { InventoryPolicyService } from '../services/inventory-policy.service';
 import { CreateInventoryPolicyDto, UpdateInventoryPolicyDto } from '../dto';
@@ -48,6 +48,11 @@ export class InventoryPolicyController {
   @ApiQuery({ name: 'itemId', required: false })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'trackingType', required: false })
+  @ApiQuery({ name: 'division', required: false })
+  @ApiQuery({ name: 'section', required: false })
+  @ApiQuery({ name: 'department', required: false })
+  @ApiQuery({ name: 'stockStatus', required: false })
+  @ApiQuery({ name: 'locationId', required: false })
   @ApiQuery({ name: 'sortField', required: false })
   @ApiQuery({ name: 'sortOrder', required: false })
   async findAll(
@@ -60,15 +65,31 @@ export class InventoryPolicyController {
     @Query('itemId') itemId?: string,
     @Query('status') status?: string,
     @Query('trackingType') trackingType?: string,
+    @Query('division') division?: string,
+    @Query('section') section?: string,
+    @Query('department') department?: string,
+    @Query('stockStatus') stockStatus?: string,
+    @Query('locationId') locationId?: string,
     @Query('sortField') sortField?: string,
     @Query('sortOrder') sortOrder?: string,
   ) {
     const resolvedCompanyId = this.resolveCompanyId(req, companyId);
     const result = await this.inventoryPolicyService.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20, search, companyId: resolvedCompanyId, warehouseId, itemId,
-      status, trackingType, sortField, sortOrder,
+      status, trackingType, division, section, department, stockStatus, locationId, sortField, sortOrder,
     });
     return { success: true, ...result };
+  }
+
+  @Get('summary')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('inventory.policy.view')
+  @ApiOperation({ summary: 'Get inventory policy summary/statistics' })
+  async getSummary(@Req() req: any, @Query('companyId') companyId?: string) {
+    const resolvedCompanyId = this.resolveCompanyId(req, companyId);
+    const summary = await this.inventoryPolicyService.getSummary(resolvedCompanyId);
+    return { success: true, data: summary };
   }
 
   @Get(':id')
@@ -86,8 +107,9 @@ export class InventoryPolicyController {
   @RequirePermission('inventory.policy.update')
   @ApiOperation({ summary: 'Update inventory policy' })
   @ApiParam({ name: 'id' })
-  async update(@Param('id') id: string, @Body() dto: UpdateInventoryPolicyDto) {
-    const policy = await this.inventoryPolicyService.update(id, dto);
+  async update(@Param('id') id: string, @Body() dto: UpdateInventoryPolicyDto, @Req() req: any) {
+    const userId = req?.erpUser?.id || req?.user?.id;
+    const policy = await this.inventoryPolicyService.update(id, dto, userId);
     return { success: true, data: policy, message: 'Inventory policy updated successfully' };
   }
 
@@ -97,8 +119,9 @@ export class InventoryPolicyController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Activate inventory policy' })
   @ApiParam({ name: 'id' })
-  async activate(@Param('id') id: string) {
-    const policy = await this.inventoryPolicyService.activate(id);
+  async activate(@Param('id') id: string, @Req() req: any) {
+    const userId = req?.erpUser?.id || req?.user?.id;
+    const policy = await this.inventoryPolicyService.activate(id, userId);
     return { success: true, data: policy, message: 'Inventory policy activated' };
   }
 
@@ -108,8 +131,20 @@ export class InventoryPolicyController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Deactivate inventory policy' })
   @ApiParam({ name: 'id' })
-  async deactivate(@Param('id') id: string) {
-    const policy = await this.inventoryPolicyService.deactivate(id);
+  async deactivate(@Param('id') id: string, @Req() req: any) {
+    const userId = req?.erpUser?.id || req?.user?.id;
+    const policy = await this.inventoryPolicyService.deactivate(id, userId);
     return { success: true, data: policy, message: 'Inventory policy deactivated' };
+  }
+
+  @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('inventory.policy.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete inventory policy' })
+  @ApiParam({ name: 'id' })
+  async remove(@Param('id') id: string) {
+    await this.inventoryPolicyService.remove(id);
+    return { success: true, message: 'Inventory policy deleted successfully' };
   }
 }

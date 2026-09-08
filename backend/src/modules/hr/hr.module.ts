@@ -9,6 +9,7 @@ import { HrController } from './controllers/hr.controller';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
+import { BarcodeModule } from '../barcode/barcode.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { UserModule } from '../user/user.module';
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
+    forwardRef(() => BarcodeModule),
   ],
   controllers: [HrController],
   providers: [HrService],

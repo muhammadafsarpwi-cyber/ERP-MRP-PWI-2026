@@ -5,11 +5,12 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined, EyeOutlined,
-  UserOutlined, EnvironmentOutlined, PhoneOutlined, MailOutlined,
+  UserOutlined, EnvironmentOutlined, PhoneOutlined, MailOutlined, PrinterOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
+import BarcodePrint from '../../components/shared/BarcodePrint';
 import dayjs from 'dayjs';
 
 const { TabPane } = Tabs;
@@ -108,6 +109,9 @@ const CustomerManagement: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
   const [filterTier, setFilterTier] = useState<string | undefined>(undefined);
+  const [printModal, setPrintModal] = useState<{ visible: boolean; customer: Customer | null }>({
+    visible: false, customer: null,
+  });
   const [pageSize] = useState(20);
 
   const fetchCustomers = useCallback(async (pageNum: number = 1) => {
@@ -273,11 +277,12 @@ const CustomerManagement: React.FC = () => {
       render: (status: string) => <Tag color={statusColorMap[status]}>{status}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions', width: 120,
+      title: 'Actions', key: 'actions', width: 150,
       render: (_, record) => (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleView(record)} />
           <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          <Button size="small" icon={<PrinterOutlined />} onClick={() => setPrintModal({ visible: true, customer: record })} title="Print Barcode" />
           <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
         </Space>
       ),
@@ -645,6 +650,14 @@ const CustomerManagement: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      <BarcodePrint
+        open={printModal.visible}
+        onClose={() => setPrintModal({ visible: false, customer: null })}
+        itemCode={printModal.customer?.customerCode || ''}
+        itemName={printModal.customer?.name || ''}
+        barcode={null}
+        companyName="PWI ERP"
+      />
     </Card>
   );
 };

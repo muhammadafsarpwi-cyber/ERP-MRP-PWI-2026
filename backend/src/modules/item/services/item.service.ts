@@ -6,6 +6,11 @@ import { Item, ItemStatus } from '../entities';
 import { CreateItemDto, UpdateItemDto, ItemFilterDto } from '../dto/item.dto';
 import { Division, Section, Department } from '../../organization/entities';
 import { ItemRouteType, RouteTypeStatus } from '../entities/route-type.entity';
+import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
+import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
+import { ProductionEntry } from '../../production/entities/production-entry.entity';
+import { BarcodeService } from '../../barcode/services/barcode.service';
+import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 
 @Injectable()
 export class ItemService implements OnModuleInit {
@@ -22,6 +27,13 @@ export class ItemService implements OnModuleInit {
     private readonly departmentRepository: Repository<Department>,
     @InjectRepository(ItemRouteType)
     private readonly routeTypeRepository: Repository<ItemRouteType>,
+    @InjectRepository(StockLedger)
+    private readonly stockLedgerRepository: Repository<StockLedger>,
+    @InjectRepository(InventoryBalance)
+    private readonly inventoryBalanceRepository: Repository<InventoryBalance>,
+    @InjectRepository(ProductionEntry)
+    private readonly productionEntryRepository: Repository<ProductionEntry>,
+    private readonly barcodeService: BarcodeService,
   ) {}
 
   async onModuleInit() {
@@ -39,6 +51,253 @@ export class ItemService implements OnModuleInit {
     } catch (err: any) {
       this.logger.warn(`Could not run production OUT auto-sync check: ${err?.message}`);
     }
+  }
+
+  /**
+   * Generate a unique SKU for an item within a company.
+   * Strategy: Use itemCode as the base SKU (itemCode is already unique per company).
+   * If a collision occurs (shouldn't happen since itemCode is unique), append a suffix.
+   */
+  private async generateSku(companyId: string, itemCode: string): Promise<string> {
+    let candidate = itemCode;
+    let suffix = 1;
+    while (suffix <= 100) {
+      const existing = await this.itemRepository.findOne({
+        where: { companyId, sku: candidate },
+      });
+      if (!existing) return candidate;
+      candidate = `${itemCode}-${String(suffix).padStart(2, '0')}`;
+      suffix++;
+    }
+    throw new ConflictException('Unable to generate unique SKU');
+  }
+
+  /**
+   * Generate a unique barcode for an item.
+   * Strategy: 13-digit numeric barcode (Code128-compatible internal format).
+   * Starts from the current max barcode + 1 to guarantee uniqueness.
+   */
+  private async generateBarcode(): Promise<string> {
+    const result = await this.itemRepository.query(`
+      SELECT COALESCE(
+        MAX(CAST(barcode AS BIGINT)),
+        8901000000000
+      ) + 1 AS next_barcode
+      FROM items
+      WHERE barcode IS NOT NULL AND barcode != '' AND barcode ~ '^[0-9]+$'
+    `);
+    const next = Number(result?.[0]?.next_barcode ?? 8901000000001);
+    return String(next).padStart(13, '0');
+  }
+
+  /**
+   * Backfill SKU and Barcode for existing items that are missing them.
+   * Idempotent: safe to run multiple times.
+   */
+  async backfillSkuAndBarcode(): Promise<{
+    totalItems: number;
+    itemsWithSku: number;
+    itemsRepairedSku: number;
+    itemsWithBarcode: number;
+    itemsRepairedBarcode: number;
+    duplicateSkus: number;
+    duplicateBarcodes: number;
+  }> {
+    const [totalResult] = await this.itemRepository.query(`SELECT COUNT(*)::int AS total FROM items`);
+    const totalItems = totalResult?.total ?? 0;
+
+    // Backfill missing SKU
+    await this.itemRepository.query(`
+      UPDATE items SET sku = item_code
+      WHERE (sku IS NULL OR sku = '' OR LENGTH(TRIM(sku)) = 0)
+    `);
+
+    // Fix duplicate SKUs
+    await this.itemRepository.query(`
+      WITH duplicate_skus AS (
+        SELECT id, sku, company_id,
+               ROW_NUMBER() OVER (PARTITION BY company_id, sku ORDER BY created_at ASC) AS rn
+        FROM items WHERE sku IS NOT NULL AND sku != ''
+      )
+      UPDATE items SET sku = items.sku || '-' || ds.rn
+      FROM duplicate_skus ds
+      WHERE items.id = ds.id AND ds.rn > 1;
+    `);
+
+    // Backfill missing Barcode
+    await this.itemRepository.query(`
+      WITH numbered_items AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY company_id, created_at ASC) AS seq
+        FROM items WHERE barcode IS NULL OR barcode = '' OR LENGTH(TRIM(barcode)) = 0
+      ),
+      max_barcode AS (
+        SELECT COALESCE(MAX(CAST(barcode AS BIGINT)), 8901000000000) AS max_bc
+        FROM items WHERE barcode IS NOT NULL AND barcode != '' AND barcode ~ '^[0-9]+$'
+      )
+      UPDATE items SET barcode = LPAD(CAST((mb.max_bc + ni.seq) AS TEXT), 13, '0')
+      FROM numbered_items ni, max_barcode mb WHERE items.id = ni.id;
+    `);
+
+    const [skuResult] = await this.itemRepository.query(`SELECT COUNT(*)::int AS cnt FROM items WHERE sku IS NOT NULL AND sku != ''`);
+    const [barcodeResult] = await this.itemRepository.query(`SELECT COUNT(*)::int AS cnt FROM items WHERE barcode IS NOT NULL AND barcode != ''`);
+    const [repairedSku] = await this.itemRepository.query(`SELECT COUNT(*)::int AS cnt FROM items WHERE sku IS NOT NULL AND sku != '' AND sku = item_code`);
+    const [dupSku] = await this.itemRepository.query(`
+      SELECT COUNT(*)::int AS cnt FROM (
+        SELECT company_id, sku FROM items WHERE sku IS NOT NULL AND sku != ''
+        GROUP BY company_id, sku HAVING COUNT(*) > 1
+      ) t
+    `);
+    const [dupBarcode] = await this.itemRepository.query(`
+      SELECT COUNT(*)::int AS cnt FROM (
+        SELECT barcode FROM items WHERE barcode IS NOT NULL AND barcode != ''
+        GROUP BY barcode HAVING COUNT(*) > 1
+      ) t
+    `);
+
+    return {
+      totalItems,
+      itemsWithSku: skuResult?.cnt ?? 0,
+      itemsRepairedSku: totalItems - (skuResult?.cnt ?? 0),
+      itemsWithBarcode: barcodeResult?.cnt ?? 0,
+      itemsRepairedBarcode: totalItems - (barcodeResult?.cnt ?? 0),
+      duplicateSkus: dupSku?.cnt ?? 0,
+      duplicateBarcodes: dupBarcode?.cnt ?? 0,
+    };
+  }
+
+  /**
+   * Get stock ledger entries for a specific item.
+   */
+  async getItemStockLedger(itemId: string, limit = 50, offset = 0): Promise<{ data: StockLedger[]; total: number }> {
+    const [data, total] = await this.stockLedgerRepository.findAndCount({
+      where: { itemId },
+      relations: ['warehouse', 'uom', 'item', 'location'],
+      order: { transactionDate: 'DESC' },
+      take: limit,
+      skip: offset,
+    });
+    return { data, total };
+  }
+
+  /**
+   * Get inventory balances by warehouse for a specific item.
+   */
+  async getItemInventory(itemId: string): Promise<InventoryBalance[]> {
+    return this.inventoryBalanceRepository.find({
+      where: { itemId, status: 'ACTIVE' },
+      relations: ['warehouse', 'uom'],
+      order: { onHand: 'DESC' },
+    });
+  }
+
+  /**
+   * Get production history for a specific item.
+   * Includes BOTH roles:
+   *  - OUTPUT: production entries where this item was produced (item_id = :itemId)
+   *  - INPUT: production entries where this item was consumed (via productionInItemId reverse lookup)
+   *  - Stock ledger: PRODUCTION_CONSUMPTION / PRODUCTION_SCRAP records for this item
+   */
+  async getItemProductionHistory(itemId: string, limit = 50, offset = 0): Promise<{ data: any[]; total: number }> {
+    // 1. Find all output items that have this item as their input material
+    const outputItems = await this.itemRepository.query(
+      `SELECT id FROM items WHERE production_in_item_id = $1`,
+      [itemId],
+    );
+    const outputItemIds: string[] = outputItems?.map((r: any) => r.id) ?? [];
+
+    // 2. Build the combined set of item IDs to search in production_entries
+    const allItemIds = [itemId, ...outputItemIds];
+
+    // 3. Query production entries where this item is OUTPUT or an output-item of this input
+    const qb = this.productionEntryRepository.createQueryBuilder('pe')
+      .leftJoinAndSelect('pe.department', 'department')
+      .leftJoinAndSelect('pe.shift', 'shift')
+      .leftJoinAndSelect('pe.machine', 'machine')
+      .leftJoinAndSelect('pe.uom', 'uom')
+      .leftJoinAndSelect('pe.item', 'item')
+      .where('pe.itemId IN (:...allItemIds)', { allItemIds })
+      .orderBy('pe.entryDate', 'DESC')
+      .addOrderBy('pe.createdAt', 'DESC');
+
+    const [entries, entriesTotal] = await qb.take(limit).skip(offset).getManyAndCount();
+
+    // 4. Also query stock ledger for production consumption/scrappy records for this item
+    const [stockRecords, stockTotal] = await this.stockLedgerRepository
+      .createQueryBuilder('sl')
+      .leftJoinAndSelect('sl.warehouse', 'warehouse')
+      .leftJoinAndSelect('sl.uom', 'uom')
+      .where('sl.itemId = :itemId', { itemId })
+      .andWhere('sl.transactionType IN (:...types)', {
+        types: ['PRODUCTION_CONSUMPTION', 'PRODUCTION_SCRAP', 'PRODUCTION_ISSUE', 'PRODUCTION_RECEIPT'],
+      })
+      .orderBy('sl.transactionDate', 'DESC')
+      .take(limit)
+      .skip(offset)
+      .getManyAndCount();
+
+    // 5. Merge and deduplicate: production entries + stock ledger consumption records
+    const results: any[] = [];
+
+    // Add production entries with role annotation
+    for (const entry of entries) {
+      const isOutput = entry.itemId === itemId;
+      const isConsumed = outputItemIds.includes(entry.itemId);
+      results.push({
+        id: entry.id,
+        entryDate: entry.entryDate,
+        department: entry.department,
+        machine: entry.machine,
+        machineNo: entry.machineNo,
+        operatorName: entry.operatorName,
+        targetQuantity: entry.targetQuantity,
+        actualQuantity: entry.actualQuantity,
+        scrapQuantity: entry.scrapQuantity,
+        uom: entry.uom,
+        status: entry.isActive ? 'COMPLETED' : 'CANCELLED',
+        referenceNumber: entry.id,
+        role: isOutput ? 'OUTPUT' : 'INPUT',
+        roleDescription: isOutput ? 'Produced' : 'Consumed',
+        source: 'PRODUCTION_ENTRY',
+        item: entry.item,
+      });
+    }
+
+    // Add stock ledger consumption records
+    for (const sl of stockRecords) {
+      results.push({
+        id: sl.id,
+        entryDate: sl.transactionDate,
+        department: null,
+        machine: null,
+        machineNo: null,
+        operatorName: null,
+        targetQuantity: null,
+        actualQuantity: sl.direction === 'IN' ? Number(sl.quantity) : -Number(sl.quantity),
+        scrapQuantity: sl.transactionType === 'PRODUCTION_SCRAP' ? Number(sl.quantity) : 0,
+        uom: sl.uom,
+        status: sl.transactionType,
+        referenceNumber: sl.referenceNumber || sl.id,
+        role: sl.direction === 'IN' ? 'OUTPUT' : 'INPUT',
+        roleDescription: sl.transactionType === 'PRODUCTION_CONSUMPTION'
+          ? 'Consumed'
+          : sl.transactionType === 'PRODUCTION_SCRAP'
+            ? 'Scrapped'
+            : sl.transactionType === 'PRODUCTION_ISSUE'
+              ? 'Issued'
+              : 'Received',
+        source: 'STOCK_LEDGER',
+        warehouse: sl.warehouse,
+      });
+    }
+
+    // Sort by date descending
+    results.sort((a, b) => {
+      const dateA = a.entryDate ? new Date(a.entryDate).getTime() : 0;
+      const dateB = b.entryDate ? new Date(b.entryDate).getTime() : 0;
+      return dateB - dateA;
+    });
+
+    return { data: results.slice(0, limit), total: results.length };
   }
 
   /**
@@ -117,6 +376,12 @@ export class ItemService implements OnModuleInit {
 
     const rt = await this.resolveRouteType(dto.companyId, dto.routeTypeId, dto.routeType);
 
+    // Auto-generate SKU if not provided
+    const sku = dto.sku || await this.generateSku(dto.companyId, dto.itemCode);
+
+    // Auto-generate Barcode if not provided
+    const barcode = dto.barcode || await this.generateBarcode();
+
     this.normalizeDtoAliases(dto as any);
     const processes = this.extractProcesses(dto as any);
     const cleanDto = { ...dto, ...processes };
@@ -125,6 +390,8 @@ export class ItemService implements OnModuleInit {
     const item = this.itemRepository.create({
       ...cleanDto,
       id: newItemId,
+      sku,
+      barcode,
       productionOutItemId: syncedOut,
       routeTypeId: rt.routeTypeId,
       routeType: rt.routeTypeCode,
@@ -133,6 +400,26 @@ export class ItemService implements OnModuleInit {
     });
     const saved = await this.itemRepository.save(item);
     this.ensureProcessesArray(saved);
+
+    // Auto-create centralized barcode registry entry
+    try {
+      const barcode = await this.barcodeService.ensureBarcodeForEntity(
+        saved.companyId,
+        BarcodeEntityType.ITEM,
+        saved.id,
+        saved.itemCode,
+        saved.name,
+        userId,
+      );
+      // Sync barcode value to items.barcode column
+      if (barcode && barcode.barcodeValue && !saved.barcode) {
+        saved.barcode = barcode.barcodeValue;
+        await this.itemRepository.save(saved);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to create centralized barcode for item ${saved.id}: ${err}`);
+    }
+
     return saved;
   }
 
@@ -209,10 +496,22 @@ export class ItemService implements OnModuleInit {
   }
 
   async findByBarcode(companyId: string, barcode: string): Promise<Item> {
-    const item = await this.itemRepository.findOne({ where: { companyId, barcode }, relations: ['category', 'baseUom'] });
-    if (!item) throw new NotFoundException(`Item with barcode '${barcode}' not found in this company`);
-    this.ensureProcessesArray(item);
-    return item;
+    // First try the items.barcode column (fast lookup)
+    let item = await this.itemRepository.findOne({ where: { companyId, barcode }, relations: ['category', 'baseUom', 'barcodes', 'division', 'section', 'department', 'routeTypeRef', 'productionInItem', 'productionOutItem'] });
+    if (item) {
+      this.ensureProcessesArray(item);
+      return item;
+    }
+    // Fallback: check item_barcodes table
+    const barcodeEntity = await this.itemRepository.query(
+      `SELECT item_id FROM item_barcodes WHERE barcode = $1 AND status = 'ACTIVE' LIMIT 1`,
+      [barcode],
+    );
+    if (barcodeEntity?.[0]?.item_id) {
+      item = await this.findOne(barcodeEntity[0].item_id);
+      return item;
+    }
+    throw new NotFoundException(`Item with barcode '${barcode}' not found`);
   }
 
   async update(id: string, dto: UpdateItemDto, userId?: string): Promise<Item> {

@@ -4,7 +4,10 @@ import {
   Uom, UomConversion, ItemCategory, Item, ItemBarcode,
   ItemAttributeDefinition, ItemAttributeValue, ItemSpecification, ItemDocument, ItemRouteType,
 } from './entities';
-import { Division, Section, Department } from '../organization/entities';
+import { Division, Section, Department, Warehouse } from '../organization/entities';
+import { StockLedger } from '../inventory/entities/stock-ledger.entity';
+import { InventoryBalance } from '../inventory/entities/inventory-balance.entity';
+import { ProductionEntry } from '../production/entities/production-entry.entity';
 import { UomService } from './services/uom.service';
 import { UomConversionService } from './services/uom-conversion.service';
 import { ItemCategoryService } from './services/item-category.service';
@@ -27,17 +30,20 @@ import { ItemDocumentController } from './controllers/item-document.controller';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
+import { BarcodeModule } from '../barcode/barcode.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       Uom, UomConversion, ItemCategory, Item, ItemBarcode, ItemRouteType,
       ItemAttributeDefinition, ItemAttributeValue, ItemSpecification, ItemDocument,
-      Division, Section, Department,
+      Division, Section, Department, Warehouse,
+      StockLedger, InventoryBalance, ProductionEntry,
     ]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
+    forwardRef(() => BarcodeModule),
   ],
   controllers: [
     UomController, UomConversionController, ItemCategoryController, ItemRouteTypeController,

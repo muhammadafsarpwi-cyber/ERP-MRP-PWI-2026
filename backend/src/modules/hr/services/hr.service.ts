@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { HrDesignation } from '../entities/hr-designation.entity';
@@ -16,6 +16,8 @@ import {
 import { HrLeaveType } from '../entities/hr-leave-type.entity';
 import { HrShift } from '../entities/hr-shift.entity';
 import { HrHoliday } from '../entities/hr-holiday.entity';
+import { BarcodeService } from '../../barcode/services/barcode.service';
+import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 
 @Injectable()
 export class HrService {
@@ -31,7 +33,9 @@ export class HrService {
     @InjectRepository(HrEmployeeTraining) private readonly trainingRepo: Repository<HrEmployeeTraining>,
     @InjectRepository(HrEmployeeDocument) private readonly docRepo: Repository<HrEmployeeDocument>,
     @InjectRepository(HrEmployeeHistory) private readonly historyRepo: Repository<HrEmployeeHistory>,
+    private readonly barcodeService: BarcodeService,
   ) {}
+  private readonly logger = new Logger(HrService.name);
 
   // ---- Designations ----
   async listDesignations(companyId: string) {
@@ -82,7 +86,22 @@ export class HrService {
       ...dto, dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
       joinDate: dto.joinDate ? new Date(dto.joinDate) : null,
     });
-    return this.employeeRepo.save(emp);
+    const saved = await this.employeeRepo.save(emp);
+
+    // Auto-create centralized barcode registry entry
+    try {
+      await this.barcodeService.ensureBarcodeForEntity(
+        saved.companyId,
+        BarcodeEntityType.EMPLOYEE,
+        saved.id,
+        saved.employeeCode,
+        `${saved.firstName} ${saved.lastName || ''}`.trim(),
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to create centralized barcode for employee ${saved.id}: ${err}`);
+    }
+
+    return saved;
   }
 
   async updateEmployee(id: string, dto: Partial<CreateHrEmployeeDto> & { status?: string }) {

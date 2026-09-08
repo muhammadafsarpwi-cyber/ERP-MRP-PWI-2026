@@ -72,6 +72,17 @@ import {
   MachineManagement,
 } from './pages/master-data';
 import {
+  BarcodeDashboard,
+  ScanBarcode,
+  ItemBarcodes,
+  CustomerBarcodes,
+  MachineBarcodes,
+  WarehouseBarcodes,
+  EmployeeBarcodes,
+  ProductionBarcodes,
+  JobCardBarcodes,
+} from './pages/barcode-management';
+import {
   SupplierManagement,
   PurchaseRequisitionManagement,
   RfqManagement,
@@ -186,6 +197,15 @@ const App: React.FC = () => {
                   <Route path="/master-data/uom" element={<UomManagement />} />
                   <Route path="/master-data/uom-conversions" element={<UomConversionManagement />} />
                   <Route path="/master-data/machines" element={<MachineManagement />} />
+                  <Route path="/barcode-management" element={<BarcodeDashboard />} />
+                  <Route path="/barcode-management/scan" element={<ScanBarcode />} />
+                  <Route path="/barcode-management/items" element={<ItemBarcodes />} />
+                  <Route path="/barcode-management/customers" element={<CustomerBarcodes />} />
+                  <Route path="/barcode-management/machines" element={<MachineBarcodes />} />
+                  <Route path="/barcode-management/warehouses" element={<WarehouseBarcodes />} />
+                  <Route path="/barcode-management/employees" element={<EmployeeBarcodes />} />
+                  <Route path="/barcode-management/production" element={<ProductionBarcodes />} />
+                  <Route path="/barcode-management/job-cards" element={<JobCardBarcodes />} />
                   {process.env.NODE_ENV !== 'production' && (
                     <Route path="/development/status" element={<DevelopmentStatus />} />
                   )}

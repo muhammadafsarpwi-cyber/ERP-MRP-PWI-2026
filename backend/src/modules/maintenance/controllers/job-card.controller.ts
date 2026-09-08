@@ -135,8 +135,9 @@ export class MaintenanceJobCardController {
   @RequirePermission('maintenance.job_card.view')
   @ApiOperation({ summary: 'Get job card by ID' })
   @ApiParam({ name: 'id', type: String })
-  findOne(@Param('id') id: string) {
-    return this.jobCardService.findOne(id);
+  async findOne(@Param('id') id: string) {
+    const jobCard = await this.jobCardService.findOne(id);
+    return { success: true, data: jobCard };
   }
 
   @Patch(':id')

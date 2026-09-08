@@ -124,14 +124,56 @@ export class ItemController {
     return { success: true, data: item };
   }
 
-  @Get(':id')
+  @Post('backfill-identity')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Backfill SKU and Barcode for existing items' })
+  async backfillIdentity() {
+    const result = await this.itemService.backfillSkuAndBarcode();
+    return { success: true, data: result, message: 'Backfill completed' };
+  }
+
+  @Get(':id/stock-ledger')
   @UseGuards(PermissionGuard)
   @RequirePermission('item.view')
-  @ApiOperation({ summary: 'Get item by ID' })
+  @ApiOperation({ summary: 'Get stock ledger entries for an item' })
   @ApiParam({ name: 'id' })
-  async findOne(@Param('id') id: string) {
-    const item = await this.itemService.findOne(id);
-    return { success: true, data: item };
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'offset', required: false })
+  async getStockLedger(
+    @Param('id') id: string,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    const result = await this.itemService.getItemStockLedger(id, Number(limit) || 50, Number(offset) || 0);
+    return { success: true, ...result };
+  }
+
+  @Get(':id/inventory')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.view')
+  @ApiOperation({ summary: 'Get inventory balances by warehouse for an item' })
+  @ApiParam({ name: 'id' })
+  async getInventory(@Param('id') id: string) {
+    const data = await this.itemService.getItemInventory(id);
+    return { success: true, data };
+  }
+
+  @Get(':id/production-history')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.view')
+  @ApiOperation({ summary: 'Get production history for an item' })
+  @ApiParam({ name: 'id' })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'offset', required: false })
+  async getProductionHistory(
+    @Param('id') id: string,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    const result = await this.itemService.getItemProductionHistory(id, Number(limit) || 50, Number(offset) || 0);
+    return { success: true, ...result };
   }
 
   @Get(':id/conversions')
@@ -153,6 +195,16 @@ export class ItemController {
   async convert(@Param('id') id: string, @Body() dto: ConvertUomDto) {
     const result = await this.conversionService.convert(id, dto);
     return { success: true, data: result };
+  }
+
+  @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.view')
+  @ApiOperation({ summary: 'Get item by ID' })
+  @ApiParam({ name: 'id' })
+  async findOne(@Param('id') id: string) {
+    const item = await this.itemService.findOne(id);
+    return { success: true, data: item };
   }
 
   @Patch(':id')

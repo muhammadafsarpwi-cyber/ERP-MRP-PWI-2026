@@ -26,6 +26,8 @@ import { InventoryBalanceService } from '../../inventory/services/inventory-bala
 import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
 import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
 import { InventoryPolicy } from '../../inventory/entities/inventory-policy.entity';
+import { BarcodeService } from '../../barcode/services/barcode.service';
+import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 import {
   CreateJobCardDto,
   UpdateJobCardDto,
@@ -79,6 +81,7 @@ export class MaintenanceJobCardService {
     private readonly inventoryBalanceService: InventoryBalanceService,
     private readonly userResolver: MaintenanceUserResolverService,
     private readonly notificationEngine: NotificationEngineService,
+    private readonly barcodeService: BarcodeService,
   ) {}
 
   async create(dto: CreateJobCardDto, userId: string): Promise<MaintenanceJobCard> {
@@ -160,6 +163,20 @@ export class MaintenanceJobCardService {
     await this.recordHistory(saved.id, null, JobCardStatus.OPEN, erpUserId, 'Job card created');
     await this.logActivity(erpUserId, 'JOB_CARD_CREATED', saved.id, jobCardNo);
     this.emitJobCardEvent('MAINT_JOB_CARD_CREATED', saved.id, userId);
+
+    // Auto-create centralized barcode registry entry
+    try {
+      await this.barcodeService.ensureBarcodeForEntity(
+        dto.companyId,
+        BarcodeEntityType.JOB_CARD,
+        saved.id,
+        jobCardNo,
+        `Job Card ${jobCardNo}`,
+        userId,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to create centralized barcode for job card ${saved.id}: ${err}`);
+    }
 
     return this.findOne(saved.id);
   }

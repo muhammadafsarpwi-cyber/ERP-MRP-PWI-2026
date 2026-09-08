@@ -9,6 +9,7 @@ import { CreateStockAdjustmentDto, CreateStockAdjustmentLineDto, StockAdjustment
 import { StockLedgerService } from './stock-ledger.service';
 import { InventoryBalanceService } from './inventory-balance.service';
 import { BatchService } from './batch.service';
+import { Item } from '../../item/entities/item.entity';
 
 @Injectable()
 export class StockAdjustmentService {
@@ -19,28 +20,76 @@ export class StockAdjustmentService {
     private readonly repo: Repository<StockAdjustment>,
     @InjectRepository(StockAdjustmentLine)
     private readonly lineRepo: Repository<StockAdjustmentLine>,
+    @InjectRepository(Item)
+    private readonly itemRepo: Repository<Item>,
     private readonly ledgerService: StockLedgerService,
     private readonly balanceService: InventoryBalanceService,
     private readonly batchService: BatchService,
   ) {}
 
   async create(dto: CreateStockAdjustmentDto, userId?: string): Promise<StockAdjustment> {
+    let code = dto.adjustmentCode?.trim();
+    if (!code) {
+      const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const randPart = Math.floor(1000 + Math.random() * 9000);
+      code = `SA-${datePart}-${randPart}`;
+    }
+
     const existing = await this.repo.findOne({
-      where: { adjustmentCode: dto.adjustmentCode, companyId: dto.companyId },
+      where: { adjustmentCode: code, companyId: dto.companyId },
     });
     if (existing) {
-      throw new ConflictException(
-        `Adjustment code '${dto.adjustmentCode}' already exists in this company`,
-      );
+      code = `SA-${Date.now()}`;
+    }
+
+    let adjType = dto.adjustmentType;
+    if (adjType === 'ADJUSTMENT_IN') adjType = 'INCREASE';
+    if (adjType === 'ADJUSTMENT_OUT') adjType = 'DECREASE';
+
+    let qty = dto.quantity !== undefined ? Number(dto.quantity) : undefined;
+    if (dto.countedQuantity !== undefined && dto.currentStock !== undefined) {
+      const variance = Number(dto.countedQuantity) - Number(dto.currentStock);
+      adjType = variance >= 0 ? 'INCREASE' : 'DECREASE';
+      qty = Math.abs(variance);
+    } else if (qty !== undefined && qty < 0) {
+      adjType = 'DECREASE';
+      qty = Math.abs(qty);
     }
 
     const adjustment = this.repo.create({
-      ...dto,
+      companyId: dto.companyId,
+      warehouseId: dto.warehouseId,
+      adjustmentCode: code,
+      adjustmentType: adjType,
+      reason: dto.reason || '',
       status: 'DRAFT',
       createdBy: userId || null,
       updatedBy: userId || null,
     });
-    return this.repo.save(adjustment);
+    const saved = await this.repo.save(adjustment);
+
+    if (dto.itemId && qty !== undefined && qty > 0) {
+      let uomId = dto.uomId;
+      if (!uomId) {
+        const item = await this.itemRepo.findOne({ where: { id: dto.itemId } });
+        if (item) uomId = item.baseUomId;
+      }
+      if (uomId) {
+        const line = this.lineRepo.create({
+          adjustmentId: saved.id,
+          itemId: dto.itemId,
+          locationId: dto.locationId || null,
+          batchId: dto.batchId || null,
+          uomId,
+          quantity: qty,
+          unitCost: dto.unitCost || null,
+          notes: dto.reason || 'Initial adjustment line',
+        });
+        await this.lineRepo.save(line);
+      }
+    }
+
+    return this.findOne(saved.id);
   }
 
   async update(id: string, dto: Partial<CreateStockAdjustmentDto>, userId?: string): Promise<StockAdjustment> {
@@ -51,13 +100,60 @@ export class StockAdjustmentService {
       );
     }
     if (dto.warehouseId) adjustment.warehouseId = dto.warehouseId;
-    if (dto.adjustmentType) adjustment.adjustmentType = dto.adjustmentType;
+    if (dto.adjustmentType) {
+      let adjType = dto.adjustmentType;
+      if (adjType === 'ADJUSTMENT_IN') adjType = 'INCREASE';
+      if (adjType === 'ADJUSTMENT_OUT') adjType = 'DECREASE';
+      adjustment.adjustmentType = adjType;
+    }
     if (dto.reason !== undefined) adjustment.reason = dto.reason;
     adjustment.updatedBy = userId || null;
-    return this.repo.save(adjustment);
+    await this.repo.save(adjustment);
+
+    if (dto.itemId || dto.quantity !== undefined || dto.countedQuantity !== undefined) {
+      const line = adjustment.lines?.[0];
+      let qty = dto.quantity !== undefined ? Number(dto.quantity) : (line ? Number(line.quantity) : 0);
+      if (dto.countedQuantity !== undefined && dto.currentStock !== undefined) {
+        const variance = Number(dto.countedQuantity) - Number(dto.currentStock);
+        adjustment.adjustmentType = variance >= 0 ? 'INCREASE' : 'DECREASE';
+        qty = Math.abs(variance);
+        await this.repo.save(adjustment);
+      } else if (qty < 0) {
+        adjustment.adjustmentType = 'DECREASE';
+        qty = Math.abs(qty);
+        await this.repo.save(adjustment);
+      }
+
+      if (line) {
+        if (dto.itemId) line.itemId = dto.itemId;
+        line.quantity = qty;
+        if (dto.reason !== undefined) line.notes = dto.reason;
+        await this.lineRepo.save(line);
+      } else if (dto.itemId && qty > 0) {
+        let uomId = dto.uomId;
+        if (!uomId) {
+          const item = await this.itemRepo.findOne({ where: { id: dto.itemId } });
+          if (item) uomId = item.baseUomId;
+        }
+        if (uomId) {
+          const newLine = this.lineRepo.create({
+            adjustmentId: id,
+            itemId: dto.itemId,
+            locationId: dto.locationId || null,
+            batchId: dto.batchId || null,
+            uomId,
+            quantity: qty,
+            notes: dto.reason || 'Adjustment line',
+          });
+          await this.lineRepo.save(newLine);
+        }
+      }
+    }
+
+    return this.findOne(id);
   }
 
-  async findAll(filter: StockAdjustmentFilterDto): Promise<{ data: StockAdjustment[]; total: number }> {
+  async findAll(filter: StockAdjustmentFilterDto): Promise<{ data: any[]; total: number }> {
     const {
       page = 1,
       limit = 20,
@@ -71,11 +167,17 @@ export class StockAdjustmentService {
 
     const qb = this.repo
       .createQueryBuilder('adj')
-      .leftJoinAndSelect('adj.warehouse', 'warehouse');
+      .leftJoinAndSelect('adj.warehouse', 'warehouse')
+      .leftJoinAndSelect('adj.lines', 'lines')
+      .leftJoinAndSelect('lines.item', 'item')
+      .leftJoinAndSelect('lines.uom', 'uom');
 
     if (companyId) qb.where('adj.companyId = :companyId', { companyId });
     if (warehouseId) qb[companyId ? 'andWhere' : 'where']('adj.warehouseId = :warehouseId', { warehouseId });
-    if (adjustmentType) qb.andWhere('adj.adjustmentType = :adjustmentType', { adjustmentType });
+    if (adjustmentType) {
+      const normType = adjustmentType === 'ADJUSTMENT_IN' ? 'INCREASE' : adjustmentType === 'ADJUSTMENT_OUT' ? 'DECREASE' : adjustmentType;
+      qb.andWhere('adj.adjustmentType = :adjustmentType', { adjustmentType: normType });
+    }
     if (status) qb.andWhere('adj.status = :status', { status });
 
     const validSortFields = ['createdAt', 'adjustmentCode', 'status', 'adjustmentType'];
@@ -84,7 +186,22 @@ export class StockAdjustmentService {
     qb.orderBy(`adj.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
 
-    const [data, total] = await qb.getManyAndCount();
+    const [rawList, total] = await qb.getManyAndCount();
+
+    const data = rawList.map((adj) => {
+      const firstLine = adj.lines?.[0];
+      return {
+        ...adj,
+        adjustmentNumber: adj.adjustmentCode,
+        itemId: firstLine?.itemId || null,
+        itemName: firstLine?.item ? (firstLine.item.itemCode ? `${firstLine.item.itemCode} — ${firstLine.item.name}` : firstLine.item.name) : undefined,
+        itemCode: firstLine?.item?.itemCode,
+        quantity: firstLine?.quantity !== undefined ? Number(firstLine.quantity) : 0,
+        uomCode: firstLine?.uom?.code || firstLine?.uom?.symbol,
+        warehouseName: adj.warehouse?.name || adj.warehouse?.warehouseCode,
+      };
+    });
+
     return { data, total };
   }
 

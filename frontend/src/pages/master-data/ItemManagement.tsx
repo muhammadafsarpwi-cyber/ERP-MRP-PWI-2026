@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Alert, App, Badge, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Grid, Input,
   InputNumber, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
@@ -7,15 +8,16 @@ import {
   ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
   EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined,
-  ReloadOutlined, SearchOutlined,
+  ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import { formatDimension } from '../../utils/numberFormat';
-import { PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable } from '../../components/shared';
+import { PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable, BarcodeScanner, BarcodePrint } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
+import JsBarcode from 'jsbarcode';
 import {
   ITEM_TYPES, ROUTE_TYPES, STATUS_OPTIONS, statusColorMap, TRACKING_SWITCHES,
   routeColorMap, IMPORT_COLUMNS, REQUIRED_IMPORT_COLUMNS, TEMPLATE_CSV,
@@ -165,6 +167,7 @@ const ItemManagement: React.FC = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailItem, setDetailItem] = useState<Item | null>(null);
   const [conversions, setConversions] = useState<ConversionInfo | null>(null);
+  const [registryBarcodes, setRegistryBarcodes] = useState<any[]>([]);
 
   const [exporting, setExporting] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -178,6 +181,145 @@ const ItemManagement: React.FC = () => {
     imported: number; failed: number; skipped: number; errors: string[];
   } | null>(null);
   const [importing, setImporting] = useState(false);
+
+  // Barcode Scanner & Print state
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printItem, setPrintItem] = useState<Item | null>(null);
+
+  // Barcode Detail Modal state
+  const [barcodeModalOpen, setBarcodeModalOpen] = useState(false);
+  const [barcodeModalItem, setBarcodeModalItem] = useState<Item | null>(null);
+  const [barcodeModalBarcodes, setBarcodeModalBarcodes] = useState<any[]>([]);
+  const barcodeModalSvgRef = useRef<SVGSVGElement>(null);
+  const location = useLocation();
+
+  // Item History state
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyItem, setHistoryItem] = useState<Item | null>(null);
+  const [stockLedger, setStockLedger] = useState<any[]>([]);
+  const [stockLedgerTotal, setStockLedgerTotal] = useState(0);
+  const [inventoryBalances, setInventoryBalances] = useState<any[]>([]);
+  const [productionHistory, setProductionHistory] = useState<any[]>([]);
+  const [productionHistoryTotal, setProductionHistoryTotal] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyTab, setHistoryTab] = useState('inventory');
+  const [historyErrors, setHistoryErrors] = useState<{ inventory?: string; stockLedger?: string; production?: string }>({});
+
+  // Detail drawer barcode SVG ref
+  const detailBarcodeSvgRef = useRef<SVGSVGElement>(null);
+  const detailBarcodeAttempted = useRef(false);
+
+  const renderDetailBarcode = useCallback(() => {
+    const barcodeToRender = detailItem?.barcode || registryBarcodes[0]?.barcodeValue;
+    const svg = detailBarcodeSvgRef.current;
+    if (!barcodeToRender || !svg) return;
+    try {
+      JsBarcode(svg, barcodeToRender, {
+        format: 'CODE128',
+        width: 1.2,
+        height: 30,
+        displayValue: true,
+        fontSize: 10,
+        font: 'monospace',
+        textMargin: 1,
+        margin: 2,
+        background: 'transparent',
+        lineColor: '#000000',
+      });
+      detailBarcodeAttempted.current = true;
+    } catch (err) {
+      console.error('Detail barcode render error:', err);
+      if (svg) {
+        svg.innerHTML = `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="11" fill="#666">${barcodeToRender}</text>`;
+      }
+      detailBarcodeAttempted.current = true;
+    }
+  }, [detailItem?.barcode, registryBarcodes]);
+
+  useEffect(() => {
+    detailBarcodeAttempted.current = false;
+    if (!detailOpen) return;
+    const timers: NodeJS.Timeout[] = [];
+    [0, 50, 150].forEach((delay) => {
+      timers.push(setTimeout(() => {
+        if (!detailBarcodeAttempted.current) renderDetailBarcode();
+      }, delay));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [detailOpen, renderDetailBarcode]);
+
+  const detailBarcodeCallbackRef = useCallback((node: SVGSVGElement | null) => {
+    (detailBarcodeSvgRef as React.MutableRefObject<SVGSVGElement | null>).current = node;
+    if (node && detailOpen && !detailBarcodeAttempted.current) {
+      requestAnimationFrame(() => renderDetailBarcode());
+    }
+  }, [detailOpen, renderDetailBarcode]);
+
+  // Barcode modal SVG rendering
+  const barcodeModalAttempted = useRef(false);
+
+  const renderBarcodeModal = useCallback(() => {
+    const barcodeToRender = barcodeModalItem?.barcode || barcodeModalBarcodes[0]?.barcodeValue;
+    const svg = barcodeModalSvgRef.current;
+    if (!barcodeToRender || !svg) return;
+    try {
+      JsBarcode(svg, barcodeToRender, {
+        format: 'CODE128',
+        width: 2,
+        height: 60,
+        displayValue: true,
+        fontSize: 14,
+        font: 'monospace',
+        textMargin: 2,
+        margin: 4,
+        background: '#ffffff',
+        lineColor: '#000000',
+      });
+      barcodeModalAttempted.current = true;
+    } catch (err) {
+      console.error('Barcode modal render error:', err);
+      if (svg) {
+        svg.innerHTML = `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="14" fill="#666">${barcodeToRender}</text>`;
+      }
+      barcodeModalAttempted.current = true;
+    }
+  }, [barcodeModalItem?.barcode, barcodeModalBarcodes]);
+
+  useEffect(() => {
+    barcodeModalAttempted.current = false;
+    if (!barcodeModalOpen) return;
+    const timers: NodeJS.Timeout[] = [];
+    [0, 50, 150].forEach((delay) => {
+      timers.push(setTimeout(() => {
+        if (!barcodeModalAttempted.current) renderBarcodeModal();
+      }, delay));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [barcodeModalOpen, renderBarcodeModal]);
+
+  const barcodeModalCallbackRef = useCallback((node: SVGSVGElement | null) => {
+    (barcodeModalSvgRef as React.MutableRefObject<SVGSVGElement | null>).current = node;
+    if (node && barcodeModalOpen && !barcodeModalAttempted.current) {
+      requestAnimationFrame(() => renderBarcodeModal());
+    }
+  }, [barcodeModalOpen, renderBarcodeModal]);
+
+  // Auto-open item detail from scan navigation
+  useEffect(() => {
+    const scanState = location.state as { entityId?: string; entityLabel?: string; openBarcode?: boolean } | null;
+    if (scanState?.entityId && items.length > 0) {
+      const item = items.find((i) => i.id === scanState.entityId);
+      if (item) {
+        if (scanState.openBarcode) {
+          openBarcodeModal(item);
+        } else {
+          openDetail(item);
+        }
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, items]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -658,20 +800,106 @@ const ItemManagement: React.FC = () => {
     setDetailLoading(true);
     setDetailItem(null);
     setConversions(null);
+    setRegistryBarcodes([]);
     try {
-      const [itemRes, convRes] = await Promise.all([
+      const [itemRes, convRes, barcodeRes] = await Promise.all([
         apiService.get<{ data: Item }>(`/master-data/items/${record.id}`),
         apiService
           .get<{ data: ConversionInfo }>(`/master-data/items/${record.id}/conversions`)
           .catch(() => null),
+        apiService.get<{ success: boolean; data: any[]; total: number }>(`/barcode-management?entityType=ITEM&limit=1000`)
+          .catch(() => null),
       ]);
       setDetailItem(itemRes.data);
       setConversions(convRes?.data ?? null);
+      const itemBarcodes = Array.isArray(barcodeRes?.data) ? barcodeRes.data.filter((b: any) => b.entityId === record.id) : [];
+      setRegistryBarcodes(itemBarcodes);
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Failed to load item details');
       setDetailOpen(false);
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const openBarcodeModal = async (record: Item) => {
+    setBarcodeModalOpen(true);
+    setBarcodeModalItem(record);
+    setBarcodeModalBarcodes([]);
+    try {
+      const res = await apiService.get<{ success: boolean; data: any[]; total: number }>(
+        `/barcode-management?entityType=ITEM&limit=1000`
+      ).catch(() => null);
+      const allBarcodes = Array.isArray(res?.data) ? res.data : [];
+      setBarcodeModalBarcodes(allBarcodes.filter((b: any) => b.entityId === record.id));
+    } catch {
+      // If barcode fetch fails, show the item's barcode column value
+    }
+  };
+
+  const openHistory = async (record: Item) => {
+    setHistoryOpen(true);
+    setHistoryItem(record);
+    setHistoryLoading(true);
+    setHistoryTab('inventory');
+    setHistoryErrors({});
+    const errors: { inventory?: string; stockLedger?: string; production?: string } = {};
+
+    const [invRes, ledgerRes, prodRes] = await Promise.allSettled([
+      apiService.get<{ data: any[] }>(`/master-data/items/${record.id}/inventory`),
+      apiService.get<{ data: any[]; total: number }>(`/master-data/items/${record.id}/stock-ledger`, { limit: 50 }),
+      apiService.get<{ data: any[]; total: number }>(`/master-data/items/${record.id}/production-history`, { limit: 50 }),
+    ]);
+
+    if (invRes.status === 'fulfilled') {
+      setInventoryBalances(invRes.value.data || []);
+    } else {
+      errors.inventory = invRes.reason?.response?.data?.message || 'Failed to load inventory';
+    }
+
+    if (ledgerRes.status === 'fulfilled') {
+      setStockLedger(ledgerRes.value.data || []);
+      setStockLedgerTotal(ledgerRes.value.total || 0);
+    } else {
+      errors.stockLedger = ledgerRes.reason?.response?.data?.message || 'Failed to load stock ledger';
+    }
+
+    if (prodRes.status === 'fulfilled') {
+      setProductionHistory(prodRes.value.data || []);
+      setProductionHistoryTotal(prodRes.value.total || 0);
+    } else {
+      errors.production = prodRes.reason?.response?.data?.message || 'Failed to load production history';
+    }
+
+    setHistoryErrors(errors);
+    setHistoryLoading(false);
+  };
+
+  const handleBarcodeScan = async (barcode: string) => {
+    try {
+      const stored = localStorage.getItem('erp_user');
+      const user = stored ? JSON.parse(stored) : null;
+      const cid = user?.defaultCompanyId;
+      if (!cid) {
+        message.error('No company context available');
+        return;
+      }
+      const res = await apiService.get<{ data: Item }>(`/master-data/items/by-barcode/${cid}/${barcode}`);
+      if (res.data) {
+        message.success(`Item found: ${res.data.itemCode}`);
+        openDetail(res.data);
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Barcode not found';
+      Modal.error({
+        title: 'Barcode Not Found',
+        content: (
+          <div>
+            <p>No item found for barcode: <strong>{barcode}</strong></p>
+            <p style={{ color: '#666' }}>{typeof msg === 'string' ? msg : 'The scanned barcode does not match any item in the system.'}</p>
+          </div>
+        ),
+      });
     }
   };
 
@@ -1228,12 +1456,26 @@ const ItemManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Actions', key: 'actions', width: 116, fixed: 'right',
+      title: 'Barcode', key: 'barcode', width: 130,
+      render: (_: unknown, r: Item) => {
+        const bc = r.barcode;
+        return bc
+          ? <Text code style={{ fontSize: 11 }}>{bc}</Text>
+          : <Text type="secondary" style={{ fontSize: 11 }}>—</Text>;
+      },
+    },
+    {
+      title: 'Actions', key: 'actions', width: 140, fixed: 'right',
       render: (_: unknown, record: Item) => (
         <Space size={0}>
           {can('item.view') && (
             <Tooltip title="View">
               <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} style={{ color: 'var(--theme-accent, var(--theme-primary))' }} aria-label={`View ${record.itemCode}`} />
+            </Tooltip>
+          )}
+          {can('item_barcode.view') && (
+            <Tooltip title="Barcode">
+              <Button type="text" size="small" icon={<DatabaseOutlined />} onClick={() => openBarcodeModal(record)} style={{ color: 'var(--theme-accent, var(--theme-primary, #10b981))' }} aria-label={`Barcode for ${record.itemCode}`} />
             </Tooltip>
           )}
           {can('item.update') && (
@@ -1332,6 +1574,11 @@ const ItemManagement: React.FC = () => {
             <Tooltip title="Refresh">
               <Button size="middle" icon={<ReloadOutlined />} onClick={() => fetchItems()} />
             </Tooltip>
+            {can('item.view') && (
+              <Button size="middle" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
+                Scan Barcode
+              </Button>
+            )}
             {can('item.view') && (
               <Dropdown
                 menu={{
@@ -1551,7 +1798,19 @@ const ItemManagement: React.FC = () => {
         }
         extra={
           detailItem && (
-            <Space>
+            <Space wrap>
+              {can('item.view') && (
+                <Tooltip title="View History">
+                  <Button icon={<HistoryOutlined />} onClick={() => { setDetailOpen(false); openHistory(detailItem); }}>
+                    History
+                  </Button>
+                </Tooltip>
+              )}
+              <Tooltip title="Print Barcode">
+                <Button icon={<PrinterOutlined />} onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}>
+                  Print Barcode
+                </Button>
+              </Tooltip>
               <Button icon={<EditOutlined />} onClick={() => { setDetailOpen(false); openEdit(detailItem); }}>
                 Edit
               </Button>
@@ -1575,7 +1834,7 @@ const ItemManagement: React.FC = () => {
                   label: 'Status',
                   children: <StatusBadge status={detailItem.status} colorMap={statusColorMap} />,
                 },
-                { label: 'Barcode', children: txt(detailItem.barcode) },
+                { label: 'Barcode', children: txt(detailItem.barcode || registryBarcodes[0]?.barcodeValue) },
                 ...(detailItem.description ? [{ label: 'Description', children: <Text style={{ fontSize: 13 }}>{detailItem.description}</Text> }] : []),
               ])}
             </Card>
@@ -2001,8 +2260,8 @@ const ItemManagement: React.FC = () => {
               {(detailItem.barcodes?.length ?? 0) > 0 && (
                 <div style={{ marginTop: 10 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>Registered barcodes:</Text>{' '}
-                  {detailItem.barcodes!.filter((b) => b.barcodeValue).map((b) => (
-                    <Tag key={b.id}>{b.barcodeValue}</Tag>
+                  {detailItem.barcodes!.filter((b) => b.barcode).map((b) => (
+                    <Tag key={b.id}>{b.barcode}</Tag>
                   ))}
                 </div>
               )}
@@ -2014,6 +2273,50 @@ const ItemManagement: React.FC = () => {
                 { label: 'Brand', children: txt(detailItem.brand) },
                 { label: 'Model', children: txt(detailItem.model) },
               ])}
+              <div style={{ marginTop: 8, padding: '8px 12px', background: 'var(--theme-surface-alt, rgba(255,255,255,0.03))', borderRadius: 6, border: '1px solid var(--theme-border, rgba(255,255,255,0.08))' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted)', marginBottom: 6 }}>BARCODE IDENTIFICATION</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Item Code</Text>
+                    <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.itemCode}</div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>SKU</Text>
+                    <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.sku || '—'}</div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Barcode</Text>
+                    {(detailItem.barcode || registryBarcodes[0]?.barcodeValue) ? (
+                      <div style={{ marginTop: 4, overflow: 'visible' }}>
+                        <svg ref={detailBarcodeCallbackRef} style={{ maxWidth: '100%', overflow: 'visible' }} />
+                      </div>
+                    ) : (
+                      <div style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 14, letterSpacing: 1 }}>—</div>
+                    )}
+                  </div>
+                </div>
+                {registryBarcodes.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Registry Barcodes ({registryBarcodes.length})</Text>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                      {registryBarcodes.map((b: any) => (
+                        <Tag key={b.id} color={b.isPrimary ? 'green' : 'default'} style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                          {b.barcodeValue}{b.isPrimary ? ' (Primary)' : ''}
+                        </Tag>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div style={{ marginTop: 8 }}>
+                  <Button
+                    size="small"
+                    icon={<PrinterOutlined />}
+                    onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}
+                  >
+                    Print Barcode Label
+                  </Button>
+                </div>
+              </div>
             </Card>
 
             <Card size="small" title="Audit" style={{ borderRadius: 8 }}>
@@ -2725,8 +3028,12 @@ const ItemManagement: React.FC = () => {
           {/* SECTION 6 — ADDITIONAL */}
           <Card size="small" title="Additional" style={{ marginBottom: 12, borderRadius: 8 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
-              <Form.Item name="sku" label="SKU"><Input maxLength={100} placeholder="Optional" /></Form.Item>
-              <Form.Item name="barcode" label="Barcode"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+              <Form.Item name="sku" label="SKU" extra={editing ? 'SKU cannot be changed' : 'Auto-generated if left empty'}>
+                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
+              </Form.Item>
+              <Form.Item name="barcode" label="Barcode" extra={editing ? 'Barcode cannot be changed' : 'Auto-generated if left empty'}>
+                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
+              </Form.Item>
               <Form.Item name="manufacturerPartNumber" label="Manufacturer Part No."><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="brand" label="Brand"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="model" label="Model"><Input maxLength={255} placeholder="Optional" /></Form.Item>
@@ -2908,6 +3215,224 @@ const ItemManagement: React.FC = () => {
               />
             )}
           </div>
+        )}
+      </Modal>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleBarcodeScan}
+      />
+
+      {/* Barcode Print Modal */}
+      <BarcodePrint
+        open={printOpen}
+        onClose={() => { setPrintOpen(false); setPrintItem(null); }}
+        itemCode={printItem?.itemCode || ''}
+        itemName={printItem?.name || ''}
+        sku={printItem?.sku}
+        barcode={printItem?.barcode}
+      />
+
+      {/* Item History Modal */}
+      <Modal
+        open={historyOpen}
+        onCancel={() => { setHistoryOpen(false); setHistoryItem(null); }}
+        footer={<Button onClick={() => { setHistoryOpen(false); setHistoryItem(null); }}>Close</Button>}
+        title={
+          <Space>
+            <HistoryOutlined />
+            {historyItem ? `Item History — ${historyItem.itemCode}` : 'Item History'}
+          </Space>
+        }
+        width={900}
+        destroyOnHidden
+      >
+        {historyLoading ? (
+          <LoadingState tip="Loading item history..." />
+        ) : historyItem ? (
+          <Tabs
+            activeKey={historyTab}
+            onChange={setHistoryTab}
+            items={[
+              {
+                key: 'inventory',
+                label: <Space><DatabaseOutlined />Inventory by Warehouse</Space>,
+                children: (
+                  <>
+                    {historyErrors.inventory && <Alert type="warning" message={historyErrors.inventory} showIcon style={{ marginBottom: 8 }} />}
+                    <Table
+                      rowKey="id"
+                      size="small"
+                      dataSource={inventoryBalances}
+                      pagination={false}
+                      columns={[
+                        { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || r.warehouseId },
+                        { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || r.uomId },
+                        { title: 'On Hand', dataIndex: 'onHand', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                        { title: 'Reserved', dataIndex: 'reserved', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                        { title: 'Available', dataIndex: 'available', align: 'right' as const, render: (v: number) => <Text strong style={{ color: Number(v) > 0 ? 'var(--theme-success)' : 'var(--theme-danger)' }}>{Number(v).toLocaleString()}</Text> },
+                      ]}
+                      locale={{ emptyText: 'No inventory balances found' }}
+                    />
+                  </>
+                ),
+              },
+              {
+                key: 'stock-ledger',
+                label: <Space><ProjectOutlined />Stock Ledger</Space>,
+                children: (
+                  <>
+                    {historyErrors.stockLedger && <Alert type="warning" message={historyErrors.stockLedger} showIcon style={{ marginBottom: 8 }} />}
+                    <Table
+                      rowKey="id"
+                      size="small"
+                      dataSource={stockLedger}
+                      pagination={{ pageSize: 10, total: stockLedgerTotal, showSizeChanger: false }}
+                    columns={[
+                      { title: 'Date', dataIndex: 'transactionDate', width: 150, render: (v: string) => v ? new Date(v).toLocaleDateString() : '—' },
+                      { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || '—' },
+                      { title: 'Location', key: 'location', render: (_: any, r: any) => r.location?.name || '—' },
+                      { title: 'Type', dataIndex: 'transactionType', width: 140, render: (v: string) => <Tag>{v}</Tag> },
+                      { title: 'Direction', dataIndex: 'direction', width: 80, render: (v: string) => <Tag color={v === 'IN' ? 'green' : 'red'}>{v}</Tag> },
+                      { title: 'Qty', dataIndex: 'quantity', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                      { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
+                      { title: 'Ref Type', dataIndex: 'referenceType', width: 110, render: (v: string) => v ? <Tag style={{ fontSize: 10 }}>{v}</Tag> : '—' },
+                      { title: 'Reference', dataIndex: 'referenceNumber', render: (v: string) => v || '—' },
+                    ]}
+                      locale={{ emptyText: 'No stock ledger entries found' }}
+                    />
+                  </>
+                ),
+              },
+              {
+                key: 'production',
+                label: <Space><AppstoreOutlined />Production History</Space>,
+                children: (
+                  <>
+                    {historyErrors.production && <Alert type="warning" message={historyErrors.production} showIcon style={{ marginBottom: 8 }} />}
+                    <Table
+                      rowKey="id"
+                      size="small"
+                      dataSource={productionHistory}
+                      pagination={{ pageSize: 10, total: productionHistoryTotal, showSizeChanger: false }}
+                      columns={[
+                        {
+                          title: 'Role',
+                          dataIndex: 'role',
+                          width: 90,
+                          render: (v: string) => (
+                            <Tag color={v === 'OUTPUT' ? 'blue' : v === 'INPUT' ? 'orange' : 'default'}>{v || '—'}</Tag>
+                          ),
+                        },
+                        {
+                          title: 'Description',
+                          dataIndex: 'roleDescription',
+                          width: 120,
+                        },
+                        {
+                          title: 'Date',
+                          dataIndex: 'entryDate',
+                          width: 110,
+                          render: (v: string) => v ? new Date(v).toLocaleDateString() : '—',
+                        },
+                        { title: 'Department', key: 'department', render: (_: any, r: any) => r.department?.name || '—' },
+                        { title: 'Machine', dataIndex: 'machineNo', width: 100, render: (v: string) => v || '—' },
+                        { title: 'Warehouse', key: 'warehouse', width: 120, render: (_: any, r: any) => r.warehouse?.name || '—' },
+                        { title: 'Target', dataIndex: 'targetQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
+                        { title: 'Actual', dataIndex: 'actualQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
+                        { title: 'Scrap', dataIndex: 'scrapQuantity', align: 'right' as const, render: (v: number) => v != null && Number(v) > 0 ? Number(v).toLocaleString() : '—' },
+                        { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
+                        { title: 'Source', dataIndex: 'source', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v === 'PRODUCTION_ENTRY' ? 'PE' : 'SL'}</Tag> },
+                      ]}
+                      locale={{ emptyText: 'No production history found' }}
+                    />
+                  </>
+                ),
+              },
+            ]}
+          />
+        ) : null}
+      </Modal>
+
+      {/* Barcode Detail Modal */}
+      <Modal
+        open={barcodeModalOpen}
+        onCancel={() => { setBarcodeModalOpen(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}
+        footer={
+          <Space>
+            <Button onClick={() => { setBarcodeModalOpen(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}>Close</Button>
+            {barcodeModalItem && (
+              <Button
+                type="primary"
+                icon={<PrinterOutlined />}
+                onClick={() => { setPrintItem(barcodeModalItem); setPrintOpen(true); setBarcodeModalOpen(false); }}
+              >
+                Print Barcode
+              </Button>
+            )}
+          </Space>
+        }
+        title={
+          <Space>
+            <DatabaseOutlined />
+            {barcodeModalItem ? `Barcode — ${barcodeModalItem.itemCode}` : 'Barcode'}
+          </Space>
+        }
+        width={520}
+        destroyOnHidden
+      >
+        {barcodeModalItem && (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Descriptions size="small" column={2} labelStyle={{ width: 140 }}>
+              <Descriptions.Item label="Item Code"><Text strong style={{ fontFamily: 'monospace' }}>{barcodeModalItem.itemCode}</Text></Descriptions.Item>
+              <Descriptions.Item label="Item Name">{barcodeModalItem.name}</Descriptions.Item>
+              {barcodeModalItem.sku && <Descriptions.Item label="SKU"><Text code>{barcodeModalItem.sku}</Text></Descriptions.Item>}
+              <Descriptions.Item label="Item Type"><Tag>{ITEM_TYPES.find((t) => t.value === barcodeModalItem.itemType)?.label || barcodeModalItem.itemType}</Tag></Descriptions.Item>
+              <Descriptions.Item label="Status"><StatusBadge status={barcodeModalItem.status} colorMap={statusColorMap} /></Descriptions.Item>
+              {barcodeModalItem.baseUomName && <Descriptions.Item label="UOM">{barcodeModalItem.baseUomName}</Descriptions.Item>}
+            </Descriptions>
+
+            <div style={{
+              padding: '16px 20px',
+              background: '#fff',
+              borderRadius: 8,
+              border: '1px solid var(--theme-border, #e8e8e8)',
+              textAlign: 'center',
+            }}>
+              {(barcodeModalItem.barcode || barcodeModalBarcodes[0]?.barcodeValue) ? (
+                <>
+                   <svg ref={barcodeModalCallbackRef} style={{ maxWidth: '100%', overflow: 'visible' }} />
+                  <div style={{ marginTop: 8 }}>
+                    <Tag color="green">Primary Barcode</Tag>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '20px 0' }}>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="No Barcode Assigned"
+                    description="This item does not have a barcode in the registry. A barcode will be generated automatically when needed."
+                  />
+                </div>
+              )}
+            </div>
+
+            {barcodeModalBarcodes.length > 1 && (
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>All Registered Barcodes ({barcodeModalBarcodes.length})</Text>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                  {barcodeModalBarcodes.map((b: any) => (
+                    <Tag key={b.id} color={b.isPrimary ? 'green' : 'default'} style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                      {b.barcodeValue}{b.isPrimary ? ' (Primary)' : ''}
+                    </Tag>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Space>
         )}
       </Modal>
     </div>

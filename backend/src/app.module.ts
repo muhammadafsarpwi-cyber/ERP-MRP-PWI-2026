@@ -28,6 +28,7 @@ import { FinanceModule } from './modules/finance/finance.module';
 import { HrModule } from './modules/hr/hr.module';
 import { QcModule } from './modules/qc/qc.module';
 import { TraceabilityModule } from './modules/traceability/traceability.module';
+import { BarcodeModule } from './modules/barcode/barcode.module';
 import * as net from 'net';
 
 function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promise<boolean> {
@@ -103,6 +104,7 @@ function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promis
     HrModule,
     QcModule,
     TraceabilityModule,
+    BarcodeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

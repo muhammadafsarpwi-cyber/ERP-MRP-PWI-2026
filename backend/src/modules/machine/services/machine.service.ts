@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,6 +18,8 @@ import {
   UpdateMachineDto,
   MachineQueryDto,
 } from '../dto';
+import { BarcodeService } from '../../barcode/services/barcode.service';
+import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 
 const UUID_LOOSE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_IN_TEXT = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
@@ -46,7 +49,9 @@ export class MachineService {
     @InjectRepository(ProductionEntry)
     private readonly productionEntryRepo: Repository<ProductionEntry>,
     private readonly configService: ConfigService,
+    private readonly barcodeService: BarcodeService,
   ) {}
+  private readonly logger = new Logger(MachineService.name);
 
   async findAll(
     companyId: string,
@@ -167,7 +172,23 @@ export class MachineService {
         const fresh = await this.machineRepo.findOneBy({ id: saved.id });
         if (fresh?.machineId) saved.machineId = fresh.machineId;
       }
-      return await this.machineRepo.save(saved);
+      const finalSaved = await this.machineRepo.save(saved);
+
+      // Auto-create centralized barcode registry entry
+      try {
+        await this.barcodeService.ensureBarcodeForEntity(
+          finalSaved.companyId,
+          BarcodeEntityType.MACHINE,
+          finalSaved.id,
+          finalSaved.machineCode,
+          finalSaved.name,
+          userId,
+        );
+      } catch (err) {
+        this.logger.warn(`Failed to create centralized barcode for machine ${finalSaved.id}: ${err}`);
+      }
+
+      return finalSaved;
     } catch (e: any) {
       throw this.mapPgError(e, code);
     }

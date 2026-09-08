@@ -114,6 +114,8 @@ export interface TableActionItem {
   onClick?: () => void;
   danger?: boolean;
   disabled?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
   confirm?: {
     title: string;
     description?: string;
@@ -201,7 +203,11 @@ export const TableActions: React.FC<TableActionsProps> = ({
               icon={act.icon}
               onClick={act.confirm ? undefined : act.onClick}
               aria-label={act.label}
-              style={act.danger ? { color: 'var(--theme-danger)' } : undefined}
+              className={act.className}
+              style={{
+                ...(act.danger ? { color: 'var(--theme-danger)' } : {}),
+                ...act.style,
+              }}
             />
           );
 

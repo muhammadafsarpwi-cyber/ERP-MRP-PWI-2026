@@ -13,17 +13,17 @@ import { Type } from 'class-transformer';
 
 export class CreateInventoryPolicyDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   companyId: string;
 
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   itemId: string;
 
   @ApiProperty({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   warehouseId: string;
 
@@ -58,7 +58,7 @@ export class CreateInventoryPolicyDto {
   leadTimeDays?: number = 0;
 
   @ApiPropertyOptional({ description: 'Preferred storage location ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   preferredLocationId?: string;
 
@@ -72,21 +72,27 @@ export class CreateInventoryPolicyDto {
   @IsBoolean()
   @IsOptional()
   allowNegativeStock?: boolean = false;
+
+  @ApiPropertyOptional({ description: 'Policy status', enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' })
+  @IsString()
+  @IsOptional()
+  @IsIn(['ACTIVE', 'INACTIVE'])
+  status?: string = 'ACTIVE';
 }
 
 export class UpdateInventoryPolicyDto {
   @ApiPropertyOptional({ description: 'Company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
   @ApiPropertyOptional({ description: 'Item ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   itemId?: string;
 
   @ApiPropertyOptional({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   warehouseId?: string;
 
@@ -121,7 +127,7 @@ export class UpdateInventoryPolicyDto {
   leadTimeDays?: number;
 
   @ApiPropertyOptional({ description: 'Preferred storage location ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   preferredLocationId?: string;
 
@@ -135,6 +141,12 @@ export class UpdateInventoryPolicyDto {
   @IsBoolean()
   @IsOptional()
   allowNegativeStock?: boolean;
+
+  @ApiPropertyOptional({ description: 'Policy status', enum: ['ACTIVE', 'INACTIVE'] })
+  @IsString()
+  @IsOptional()
+  @IsIn(['ACTIVE', 'INACTIVE'])
+  status?: string;
 }
 
 export class InventoryPolicyFilterDto {
@@ -156,17 +168,17 @@ export class InventoryPolicyFilterDto {
   search?: string;
 
   @ApiPropertyOptional({ description: 'Filter by company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   warehouseId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by item ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   itemId?: string;
 
@@ -179,6 +191,31 @@ export class InventoryPolicyFilterDto {
   @IsString()
   @IsOptional()
   trackingType?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by division name or ID' })
+  @IsString()
+  @IsOptional()
+  division?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by section name or ID' })
+  @IsString()
+  @IsOptional()
+  section?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by department name or ID' })
+  @IsString()
+  @IsOptional()
+  department?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by stock status' })
+  @IsString()
+  @IsOptional()
+  stockStatus?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by location ID' })
+  @IsUUID('loose')
+  @IsOptional()
+  locationId?: string;
 
   @ApiPropertyOptional({ description: 'Sort field' })
   @IsString()

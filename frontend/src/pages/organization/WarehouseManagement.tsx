@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { App, Button, Modal, Form, Input, Select, Popconfirm } from 'antd';
-import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, ShopOutlined } from '@ant-design/icons';
+import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, ShopOutlined, PrinterOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
 import { PageHeader, ERPTable, TableToolbar, TableActions, StatusBadge } from '../../components/shared';
+import BarcodePrint from '../../components/shared/BarcodePrint';
 
 interface Company {
   id: string;
@@ -36,6 +37,9 @@ const WarehouseManagement: React.FC = () => {
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const [printModal, setPrintModal] = useState<{ visible: boolean; warehouse: Warehouse | null }>({
+    visible: false, warehouse: null,
+  });
 
   const warehouseTypes = [
     { value: 'RAW_MATERIAL', label: 'Raw Material' },
@@ -205,6 +209,7 @@ const WarehouseManagement: React.FC = () => {
           onEdit={() => handleEdit(record)}
           onDelete={() => handleDelete(record.id)}
           extraActions={[
+            <Button key="print" type="text" size="small" icon={<PrinterOutlined />} onClick={() => setPrintModal({ visible: true, warehouse: record })} title="Print Barcode" />,
             record.status === 'ACTIVE' ? (
               <Popconfirm key="deact" title="Deactivate this warehouse?" onConfirm={() => handleDeactivate(record.id)}>
                 <Button type="text" size="small" danger icon={<CloseCircleOutlined />} title="Deactivate" />
@@ -310,6 +315,14 @@ const WarehouseManagement: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      <BarcodePrint
+        open={printModal.visible}
+        onClose={() => setPrintModal({ visible: false, warehouse: null })}
+        itemCode={printModal.warehouse?.warehouseCode || ''}
+        itemName={printModal.warehouse?.name || ''}
+        barcode={printModal.warehouse?.warehouseCode || null}
+        companyName="PWI ERP"
+      />
     </div>
   );
 };

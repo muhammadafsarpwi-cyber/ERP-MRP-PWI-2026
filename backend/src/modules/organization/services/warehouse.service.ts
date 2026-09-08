@@ -1,15 +1,19 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { Warehouse, WarehouseStatus } from '../entities';
 import { CreateWarehouseDto, UpdateWarehouseDto } from '../dto';
+import { BarcodeService } from '../../barcode/services/barcode.service';
+import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 
 @Injectable()
 export class WarehouseService {
   constructor(
     @InjectRepository(Warehouse)
     private readonly warehouseRepository: Repository<Warehouse>,
+    private readonly barcodeService: BarcodeService,
   ) {}
+  private readonly logger = new Logger(WarehouseService.name);
 
   async create(createWarehouseDto: CreateWarehouseDto, userId?: string): Promise<Warehouse> {
     // Check for duplicate warehouse code within company
@@ -30,7 +34,23 @@ export class WarehouseService {
       updatedBy: userId,
     });
 
-    return this.warehouseRepository.save(warehouse);
+    const saved = await this.warehouseRepository.save(warehouse);
+
+    // Auto-create centralized barcode registry entry
+    try {
+      await this.barcodeService.ensureBarcodeForEntity(
+        saved.companyId,
+        BarcodeEntityType.WAREHOUSE,
+        saved.id,
+        saved.warehouseCode,
+        saved.name,
+        userId,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to create centralized barcode for warehouse ${saved.id}: ${err}`);
+    }
+
+    return saved;
   }
 
   async findAll(options?: {

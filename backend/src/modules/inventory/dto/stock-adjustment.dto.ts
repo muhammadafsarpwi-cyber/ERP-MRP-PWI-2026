@@ -12,52 +12,93 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateStockAdjustmentDto {
-  @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  @ApiPropertyOptional({ description: 'Company ID' })
+  @IsUUID('loose')
+  @IsOptional()
+  companyId?: string;
 
   @ApiProperty({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   warehouseId: string;
 
-  @ApiProperty({ description: 'Adjustment code' })
+  @ApiPropertyOptional({ description: 'Adjustment code (auto-generated if omitted)' })
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @MaxLength(50)
-  adjustmentCode: string;
+  adjustmentCode?: string;
 
-  @ApiProperty({ description: 'Adjustment type', enum: ['INCREASE', 'DECREASE', 'REVALUATION'] })
+  @ApiProperty({ description: 'Adjustment type', enum: ['INCREASE', 'DECREASE', 'REVALUATION', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT'] })
   @IsString()
   @IsNotEmpty()
-  @IsIn(['INCREASE', 'DECREASE', 'REVALUATION'])
+  @IsIn(['INCREASE', 'DECREASE', 'REVALUATION', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT'])
   adjustmentType: string;
 
   @ApiPropertyOptional({ description: 'Reason for adjustment' })
   @IsString()
   @IsOptional()
   reason?: string;
-}
 
-export class CreateStockAdjustmentLineDto {
-  @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
-  @IsNotEmpty()
-  itemId: string;
+  // Single-step item line fields
+  @ApiPropertyOptional({ description: 'Item ID for single-item adjustment' })
+  @IsUUID('loose')
+  @IsOptional()
+  itemId?: string;
+
+  @ApiPropertyOptional({ description: 'Quantity for adjustment' })
+  @IsNumber()
+  @IsOptional()
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'Unit of measure ID' })
+  @IsUUID('loose')
+  @IsOptional()
+  uomId?: string;
 
   @ApiPropertyOptional({ description: 'Location ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   locationId?: string;
 
   @ApiPropertyOptional({ description: 'Batch ID' })
-  @IsUUID()
+  @IsUUID('loose')
+  @IsOptional()
+  batchId?: string;
+
+  @ApiPropertyOptional({ description: 'Physical counted quantity (reconciliation)' })
+  @IsNumber()
+  @IsOptional()
+  countedQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'Current system stock when counted' })
+  @IsNumber()
+  @IsOptional()
+  currentStock?: number;
+
+  @ApiPropertyOptional({ description: 'Unit cost' })
+  @IsNumber()
+  @IsOptional()
+  unitCost?: number;
+}
+
+export class CreateStockAdjustmentLineDto {
+  @ApiProperty({ description: 'Item ID' })
+  @IsUUID('loose')
+  @IsNotEmpty()
+  itemId: string;
+
+  @ApiPropertyOptional({ description: 'Location ID' })
+  @IsUUID('loose')
+  @IsOptional()
+  locationId?: string;
+
+  @ApiPropertyOptional({ description: 'Batch ID' })
+  @IsUUID('loose')
   @IsOptional()
   batchId?: string;
 
   @ApiProperty({ description: 'Unit of measure ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   uomId: string;
 
@@ -97,12 +138,12 @@ export class StockAdjustmentFilterDto {
   search?: string;
 
   @ApiPropertyOptional({ description: 'Filter by company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   warehouseId?: string;
 
@@ -130,18 +171,58 @@ export class StockAdjustmentFilterDto {
 
 export class UpdateStockAdjustmentDto {
   @ApiPropertyOptional({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   warehouseId?: string;
 
-  @ApiPropertyOptional({ description: 'Adjustment type', enum: ['INCREASE', 'DECREASE', 'REVALUATION'] })
+  @ApiPropertyOptional({ description: 'Adjustment type', enum: ['INCREASE', 'DECREASE', 'REVALUATION', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT'] })
   @IsString()
   @IsOptional()
-  @IsIn(['INCREASE', 'DECREASE', 'REVALUATION'])
+  @IsIn(['INCREASE', 'DECREASE', 'REVALUATION', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT'])
   adjustmentType?: string;
 
   @ApiPropertyOptional({ description: 'Reason for adjustment' })
   @IsString()
   @IsOptional()
   reason?: string;
+
+  @ApiPropertyOptional({ description: 'Item ID for single-item adjustment' })
+  @IsUUID('loose')
+  @IsOptional()
+  itemId?: string;
+
+  @ApiPropertyOptional({ description: 'Quantity for adjustment' })
+  @IsNumber()
+  @IsOptional()
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'Unit of measure ID' })
+  @IsUUID('loose')
+  @IsOptional()
+  uomId?: string;
+
+  @ApiPropertyOptional({ description: 'Location ID' })
+  @IsUUID('loose')
+  @IsOptional()
+  locationId?: string;
+
+  @ApiPropertyOptional({ description: 'Batch ID' })
+  @IsUUID('loose')
+  @IsOptional()
+  batchId?: string;
+
+  @ApiPropertyOptional({ description: 'Physical counted quantity (reconciliation)' })
+  @IsNumber()
+  @IsOptional()
+  countedQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'Current system stock when counted' })
+  @IsNumber()
+  @IsOptional()
+  currentStock?: number;
+
+  @ApiPropertyOptional({ description: 'Unit cost' })
+  @IsNumber()
+  @IsOptional()
+  unitCost?: number;
 }

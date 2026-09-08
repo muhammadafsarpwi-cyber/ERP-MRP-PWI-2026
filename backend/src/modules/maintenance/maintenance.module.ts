@@ -6,6 +6,7 @@ import { UserModule } from '../user/user.module';
 import { AuditModule } from '../audit/audit.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { NotificationsModule } from '../notification/notification.module';
+import { BarcodeModule } from '../barcode/barcode.module';
 import {
   MaintenanceJobCard,
   MaintenanceJobCardTechnician,
@@ -47,6 +48,7 @@ import { MaintenanceTechnicianController } from './controllers/technician.contro
     forwardRef(() => AuditModule),
     forwardRef(() => InventoryModule),
     forwardRef(() => NotificationsModule),
+    forwardRef(() => BarcodeModule),
     TypeOrmModule.forFeature([
       MaintenanceJobCard,
       MaintenanceJobCardTechnician,

@@ -36,7 +36,7 @@ export const ThemeSettingsButton: React.FC = () => {
         footer={null}
         width={1040}
         centered
-        destroyOnClose={false}
+        destroyOnHidden={false}
         className="erp-theme-studio-modal"
         styles={{
           body: {

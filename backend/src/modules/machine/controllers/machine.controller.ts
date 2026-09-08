@@ -91,7 +91,8 @@ export class MachineController {
   @RequirePermission('manufacturing.machine.view')
   @ApiOperation({ summary: 'Get machine details' })
   async findOne(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: any) {
-    return this.machineService.findOne(id, this.getCompanyId(req));
+    const machine = await this.machineService.findOne(id, this.getCompanyId(req));
+    return { success: true, data: machine };
   }
 
   @Post()

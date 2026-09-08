@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
+import { BarcodeModule } from '../barcode/barcode.module';
 import { Company, Branch, BusinessUnit, Department, DepartmentDivisionScope, Division, Section, Warehouse, WarehouseLocation } from './entities';
 import { CompanyService, BranchService, BusinessUnitService, DepartmentService, DepartmentDivisionScopeService, DivisionService, SectionService, WarehouseService, WarehouseLocationService } from './services';
 import { CompanyController, BranchController, BusinessUnitController, DepartmentController, DepartmentDivisionScopeController, DivisionController, SectionController, WarehouseController, WarehouseLocationController } from './controllers';
@@ -12,6 +13,7 @@ import { CompanyController, BranchController, BusinessUnitController, Department
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
+    forwardRef(() => BarcodeModule),
     TypeOrmModule.forFeature([
       Company,
       Branch,

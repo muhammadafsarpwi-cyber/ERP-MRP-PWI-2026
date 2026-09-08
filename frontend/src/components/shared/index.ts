@@ -18,3 +18,5 @@ export {
   type ShiftBadgeProps,
   type ItemBadgeProps,
 } from './CategoryBadge';
+export { default as BarcodeScanner } from './BarcodeScanner';
+export { default as BarcodePrint } from './BarcodePrint';

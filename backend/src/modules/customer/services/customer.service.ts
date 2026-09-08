@@ -4,6 +4,8 @@ import { Repository } from 'typeorm';
 import { Customer, CustomerContact, CustomerAddress } from '../entities';
 import { CreateCustomerDto, CreateCustomerContactDto, CreateCustomerAddressDto, CustomerFilterDto } from '../dto';
 import { NotificationsService } from '../../notification/notifications.service';
+import { BarcodeService } from '../../barcode/services/barcode.service';
+import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 
 @Injectable()
 export class CustomerService {
@@ -17,6 +19,7 @@ export class CustomerService {
     @InjectRepository(CustomerAddress)
     private readonly addressRepo: Repository<CustomerAddress>,
     private readonly notificationsService: NotificationsService,
+    private readonly barcodeService: BarcodeService,
   ) {}
 
   async create(dto: CreateCustomerDto, userId?: string): Promise<Customer> {
@@ -33,6 +36,20 @@ export class CustomerService {
       updatedBy: userId || null,
     });
     const saved = await this.repo.save(customer);
+
+    // Auto-create centralized barcode registry entry
+    try {
+      await this.barcodeService.ensureBarcodeForEntity(
+        saved.companyId,
+        BarcodeEntityType.CUSTOMER,
+        saved.id,
+        saved.customerCode,
+        saved.name,
+        userId,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to create centralized barcode for customer ${saved.id}: ${err}`);
+    }
 
     await this.notificationsService.notifyActiveUsers({
       type: 'customer.created',

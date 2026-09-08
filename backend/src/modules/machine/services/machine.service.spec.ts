@@ -8,6 +8,7 @@ import { ProductionEntry } from '../../production/entities/production-entry.enti
 import { Department } from '../../organization/entities/department.entity';
 import { Division } from '../../organization/entities/division.entity';
 import { Section } from '../../organization/entities/section.entity';
+import { BarcodeService } from '../../barcode/services/barcode.service';
 
 jest.mock('qrcode', () => ({
   toDataURL: jest.fn(async () => 'data:image/png;base64,QRCODE'),
@@ -74,6 +75,7 @@ beforeEach(async () => {
       { provide: getRepositoryToken(Section), useValue: sectionRepo },
       { provide: getRepositoryToken(ProductionEntry), useValue: productionEntryRepo },
       { provide: ConfigService, useValue: configService },
+      { provide: BarcodeService, useValue: { ensureBarcodeForEntity: jest.fn().mockResolvedValue({}), backfill: jest.fn().mockResolvedValue({}), generateBarcodeValue: jest.fn().mockResolvedValue('8901000000001') } },
     ],
   }).compile();
 

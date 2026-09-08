@@ -3,6 +3,7 @@ import {
   AimOutlined,
   ApartmentOutlined,
   AppstoreOutlined,
+  BarcodeOutlined,
   BankOutlined,
   BarChartOutlined,
   BellOutlined,
@@ -31,6 +32,7 @@ import {
   RollbackOutlined,
   SafetyCertificateOutlined,
   SafetyOutlined,
+  ScanOutlined,
   ScheduleOutlined,
   SettingOutlined,
   ShoppingCartOutlined,
@@ -172,6 +174,24 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/master-data/uom-conversions', label: 'UOM Conversions', icon: SwapOutlined, color: 'info', permissions: ['uom_conversion.view'] },
       { key: '/master-data/machines', label: 'Machine Master', icon: ToolOutlined, color: 'info', permissions: ['manufacturing.machine.view'] },
       { key: '/production/targets', label: 'Machine Targets', icon: AimOutlined, color: 'info', permissions: ['manufacturing.machine_target.view'] },
+    ],
+  },
+
+  {
+    key: 'barcode-management',
+    label: 'Barcode Management',
+    icon: BarcodeOutlined,
+    color: 'success',
+    children: [
+      { key: '/barcode-management', label: 'Barcode Dashboard', icon: DashboardOutlined, color: 'success', permissions: ['item.view'] },
+      { key: '/barcode-management/scan', label: 'Scan Barcode', icon: ScanOutlined, color: 'success', permissions: ['item.view'] },
+      { key: '/barcode-management/items', label: 'Item Barcodes', icon: DatabaseOutlined, color: 'success', permissions: ['item.view'] },
+      { key: '/barcode-management/customers', label: 'Customer Barcodes', icon: TeamOutlined, color: 'success', permissions: ['customer.customer.view'] },
+      { key: '/barcode-management/machines', label: 'Machine Barcodes', icon: ToolOutlined, color: 'success', permissions: ['manufacturing.machine.view'] },
+      { key: '/barcode-management/warehouses', label: 'Warehouse Barcodes', icon: HomeOutlined, color: 'success', permissions: ['warehouse.view'] },
+      { key: '/barcode-management/employees', label: 'Employee Barcodes', icon: TeamOutlined, color: 'success', permissions: ['hr.employee.view'] },
+      { key: '/barcode-management/production', label: 'Production Barcodes', icon: BuildOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/barcode-management/job-cards', label: 'Job Card Barcodes', icon: ToolOutlined, color: 'success', permissions: ['maintenance.job_card.view'] },
     ],
   },
 
@@ -381,6 +401,7 @@ const NAV_DETAIL_PATTERNS: Array<{ pattern: RegExp; key: string }> = [
   { pattern: /^\/production\/targets\//, key: '/production/targets' },
   { pattern: /^\/production\/machines\//, key: '/master-data/machines' },
   { pattern: /^\/maintenance\/job-cards\//, key: '/maintenance/job-cards' },
+  { pattern: /^\/barcode-management\//, key: '/barcode-management' },
 ];
 
 export interface ResolvedNavMeta {

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
 import {
@@ -25,6 +25,8 @@ import {
   familyOf,
   supportedConversions,
 } from '../../item/services/uom-conversion.calculator';
+import { BarcodeService } from '../../barcode/services/barcode.service';
+import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 
 const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
 
@@ -69,7 +71,9 @@ export class ProductionEntryService {
     private readonly inventoryBalanceService: InventoryBalanceService,
     private readonly machineTargetService: MachineTargetService,
     private readonly productionRoutingService: ProductionRoutingService,
+    private readonly barcodeService: BarcodeService,
   ) {}
+  private readonly logger = new Logger(ProductionEntryService.name);
 
   // ─── Queries ────────────────────────────────────────────────────────────────
 
@@ -793,6 +797,20 @@ export class ProductionEntryService {
     }
 
     await this.persistChildren(saved.id, companyId, dto.items ?? [], dto.downtimes ?? [], userId, false);
+
+    // Auto-create centralized barcode registry entry
+    try {
+      await this.barcodeService.ensureBarcodeForEntity(
+        companyId,
+        BarcodeEntityType.PRODUCTION_ENTRY,
+        saved.id,
+        `PE-${saved.id.substring(0, 8)}`,
+        `Production Entry ${saved.entryDate}`,
+        userId,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to create centralized barcode for production entry ${saved.id}: ${err}`);
+    }
 
     return saved;
   }

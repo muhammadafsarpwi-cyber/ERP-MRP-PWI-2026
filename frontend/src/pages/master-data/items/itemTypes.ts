@@ -120,7 +120,7 @@ export interface Item {
   updatedAt?: string;
   createdBy?: string | null;
   updatedBy?: string | null;
-  barcodes?: Array<{ id: string; barcodeType?: string; barcodeValue?: string; status?: string }>;
+  barcodes?: Array<{ id: string; barcodeType?: string; barcode?: string; status?: string }>;
   // TASK #33: Production Flow Mapping
   productionInItemId?: string | null;
   productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; diameterMm?: number | null; lengthPerPiece?: number | null; departmentId?: string | null; itemType?: string; baseUomName?: string | null } | null;

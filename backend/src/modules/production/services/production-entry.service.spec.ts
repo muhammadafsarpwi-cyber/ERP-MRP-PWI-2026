@@ -11,6 +11,7 @@ import { StockLedgerService } from '../../inventory/services/stock-ledger.servic
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { MachineTargetService } from '../../machine-target/services/machine-target.service';
 import { ProductionRoutingService } from '../../production-routing/services/production-routing.service';
+import { BarcodeService } from '../../barcode/services/barcode.service';
 
 const COMPANY = '7725aa04-a270-4314-9e82-90949cbe7791';
 
@@ -152,6 +153,7 @@ beforeEach(async () => {
         useValue: machineTargetService,
       },
       { provide: ProductionRoutingService, useValue: productionRoutingService },
+      { provide: BarcodeService, useValue: { ensureBarcodeForEntity: jest.fn().mockResolvedValue({}), backfill: jest.fn().mockResolvedValue({}), generateBarcodeValue: jest.fn().mockResolvedValue('8901000000001') } },
     ],
   }).compile();
 

@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { NotificationsModule } from '../notification/notification.module';
+import { BarcodeModule } from '../barcode/barcode.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { NotificationsModule } from '../notification/notification.module';
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
     NotificationsModule,
+    forwardRef(() => BarcodeModule),
   ],
   controllers: [CustomerController],
   providers: [CustomerService],

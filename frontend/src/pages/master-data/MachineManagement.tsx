@@ -12,6 +12,7 @@ import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { PageHeader, StatusBadge, EmptyState, LoadingState } from '../../components/shared';
+import BarcodePrint from '../../components/shared/BarcodePrint';
 
 const { Text } = Typography;
 
@@ -101,6 +102,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [detailLoading, setDetailLoading] = useState(false);
   const [qrModal, setQrModal] = useState<{ visible: boolean; machine: Machine | null; dataUrl: string; payload: string; url: string }>({
     visible: false, machine: null, dataUrl: '', payload: '', url: '',
+  });
+  const [printModal, setPrintModal] = useState<{ visible: boolean; machine: Machine | null }>({
+    visible: false, machine: null,
   });
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
@@ -365,6 +369,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           </Tooltip>
           <Tooltip title="QR Code">
             <Button type="text" size="small" icon={<QrcodeOutlined />} onClick={() => showQr(m)} />
+          </Tooltip>
+          <Tooltip title="Print Barcode">
+            <Button type="text" size="small" icon={<PrinterOutlined />} onClick={() => setPrintModal({ visible: true, machine: m })} />
           </Tooltip>
           <Tooltip title="Status">
             <Dropdown
@@ -682,6 +689,14 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           </p>
         </div>
       </Modal>
+      <BarcodePrint
+        open={printModal.visible}
+        onClose={() => setPrintModal({ visible: false, machine: null })}
+        itemCode={printModal.machine?.machineCode || ''}
+        itemName={printModal.machine?.name || ''}
+        barcode={printModal.machine?.qrPayload || null}
+        companyName="PWI ERP"
+      />
     </div>
   );
 };
