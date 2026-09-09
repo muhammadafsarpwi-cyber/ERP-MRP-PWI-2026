@@ -144,7 +144,7 @@ export class FinanceController {
 
   @Delete('journals/:id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('finance.journal.create')
+  @RequirePermission('finance.journal.delete')
   @HttpCode(HttpStatus.OK)
   async deleteJournal(@Param('id') id: string) {
     await this.financeService.deleteJournal(id);

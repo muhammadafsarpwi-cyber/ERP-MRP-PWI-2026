@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Tabs,  Row, Col, Statistic, Typography } from 'antd';
+import { useSearchParams } from 'react-router-dom';
 import apiService from '../../services/api';
 import { PageHeader } from '../../components/shared';
 
 const FinanceReports: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [companyId, setCompanyId] = useState('');
   const [tb, setTb] = useState<any>(null);
+  const [gl, setGl] = useState<any>(null);
   const [pl, setPl] = useState<any>(null);
   const [bs, setBs] = useState<any>(null);
   const [ar, setAr] = useState<any>(null);
   const [ap, setAp] = useState<any>(null);
+
+  const activeTab = searchParams.get('tab') || 'tb';
 
   useEffect(() => {
     const erpUser = localStorage.getItem('erp_user');
@@ -22,6 +27,7 @@ const FinanceReports: React.FC = () => {
     if (!companyId) return;
     const g = async (path: string) => { try { const r = await apiService.get(path, { companyId }); return r; } catch { return null; } };
     setTb(await g('/finance/reports/trial-balance'));
+    setGl(await g('/finance/reports/general-ledger'));
     setPl(await g('/finance/reports/pl'));
     setBs(await g('/finance/reports/balance-sheet'));
     setAr(await g('/finance/reports/ar'));
@@ -56,6 +62,19 @@ const FinanceReports: React.FC = () => {
             <Col span={8}><Card><Statistic title="Balanced" value={tb?.balanced ? 'YES' : 'NO'} valueStyle={{ color: tb?.balanced ? '#52c41a' : '#ff4d4f' }} /></Card></Col>
           </Row>
           <Table size="small" rowKey="accountCode" dataSource={tb?.data ?? []} columns={tbCols} pagination={false} />
+        </div>
+      ),
+    },
+    {
+      key: 'gl', label: 'General Ledger',
+      children: (
+        <div>
+          <Row gutter={16} style={{ marginBottom: 12 }}>
+            <Col span={8}><Card><Statistic title="Total Entries" value={gl?.totalEntries ?? gl?.data?.length ?? 0} /></Card></Col>
+            <Col span={8}><Card><Statistic title="Total Debit" value={gl?.totalDebit ?? 0} precision={2} /></Card></Col>
+            <Col span={8}><Card><Statistic title="Total Credit" value={gl?.totalCredit ?? 0} precision={2} /></Card></Col>
+          </Row>
+          <Table size="small" rowKey="accountCode" dataSource={gl?.data ?? []} columns={balanceCols} pagination={false} />
         </div>
       ),
     },
@@ -115,7 +134,7 @@ const FinanceReports: React.FC = () => {
       <PageHeader icon={<Typography.Text>F</Typography.Text>} title="Finance Reports" showBreadcrumbs
         subtitle="Trial Balance, P&L, Balance Sheet, AR and AP from real journal data" />
       <Card style={{ marginTop: 12 }}>
-        <Tabs items={tabs} />
+        <Tabs activeKey={activeTab} onChange={(key) => setSearchParams({ tab: key })} items={tabs} />
       </Card>
     </div>
   );

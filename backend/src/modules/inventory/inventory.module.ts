@@ -1,6 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, InventoryReservation, SerialNumber, RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine } from './entities';
+import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, StockTransferHistory, InventoryReservation, SerialNumber, RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine } from './entities';
 import { Division, Section, Department } from '../organization/entities';
 import { Warehouse } from '../organization/entities/warehouse.entity';
 import { Item } from '../item/entities/item.entity';
@@ -33,7 +33,7 @@ import { UserModule } from '../user/user.module';
   imports: [
     TypeOrmModule.forFeature([
       InventoryPolicy, Batch, InventoryBalance, StockLedger,
-      StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine,
+      StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, StockTransferHistory,
       InventoryReservation, SerialNumber,
       RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine,
       Division, Section, Department, Warehouse, Item, Uom,

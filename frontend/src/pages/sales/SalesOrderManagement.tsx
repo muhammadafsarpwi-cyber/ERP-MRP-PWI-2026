@@ -8,6 +8,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine } from '../../components/shared';
+import { usePermission } from '../../hooks/usePermission';
 import dayjs from 'dayjs';
 
 interface SalesOrder {
@@ -51,6 +52,10 @@ export function buildSalesOrderPayload(values: any, lineItems: ERPLine[]): any {
 
 const SalesOrderManagement: React.FC = () => {
   const { message } = App.useApp();
+  const { can } = usePermission();
+  const canCreate = can('sales.orders.create');
+  const canUpdate = can('sales.orders.update');
+  const canApprove = can('sales.orders.approve');
   const [data, setData] = useState<SalesOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -183,13 +188,13 @@ const SalesOrderManagement: React.FC = () => {
       render: (_, record) => (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)} />
-          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} disabled={record.status !== 'Draft'} />
-          {record.status === 'Draft' && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'confirm')}>Confirm</Button>}
-          {record.status === 'Confirmed' && <Button size="small" type="primary" icon={<InboxOutlined />} onClick={() => handleAction(record.id, 'process')}>Process</Button>}
-          {record.status === 'Processing' && <Button size="small" type="primary" icon={<CarOutlined />} onClick={() => handleAction(record.id, 'ship')}>Ship</Button>}
-          {record.status === 'Shipped' && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'deliver')}>Deliver</Button>}
-          {record.status === 'Delivered' && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'close')}>Close</Button>}
-          {record.status !== 'Cancelled' && record.status !== 'Closed' && (
+          {canUpdate && <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} disabled={record.status !== 'Draft'} />}
+          {record.status === 'Draft' && canApprove && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'confirm')}>Confirm</Button>}
+          {record.status === 'Confirmed' && canApprove && <Button size="small" type="primary" icon={<InboxOutlined />} onClick={() => handleAction(record.id, 'process')}>Process</Button>}
+          {record.status === 'Processing' && canApprove && <Button size="small" type="primary" icon={<CarOutlined />} onClick={() => handleAction(record.id, 'ship')}>Ship</Button>}
+          {record.status === 'Shipped' && canApprove && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'deliver')}>Deliver</Button>}
+          {record.status === 'Delivered' && canApprove && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'close')}>Close</Button>}
+          {record.status !== 'Cancelled' && record.status !== 'Closed' && canApprove && (
             <Button size="small" danger icon={<StopOutlined />} onClick={() => handleAction(record.id, 'cancel')}>Cancel</Button>
           )}
         </Space>
@@ -198,7 +203,7 @@ const SalesOrderManagement: React.FC = () => {
   ];
 
   return (
-    <Card title="Sales Orders" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Create Order</Button>}>
+    <Card title="Sales Orders" extra={canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Create Order</Button>}>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Input placeholder="Search orders..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} />

@@ -237,7 +237,7 @@ export class MaintenanceJobCardController {
   }
 
   @Post(':id/reject')
-  @RequirePermission('maintenance.job_card.verify')
+  @RequirePermission('maintenance.job_card.reject')
   @ApiOperation({ summary: 'Reject job card' })
   @ApiParam({ name: 'id', type: String })
   reject(@Param('id') id: string, @Body() dto: RejectJobCardDto, @CurrentUser() user: any) {

@@ -633,6 +633,7 @@ describe('StockAdjustmentService — Complete Approval & Posting Workflow', () =
 
       expect(counts).toEqual({
         all: 25,
+        total: 25,
         draft: 5,
         pendingApproval: 3,
         approved: 4,

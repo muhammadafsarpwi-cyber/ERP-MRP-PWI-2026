@@ -68,32 +68,32 @@ const FinancePage: React.FC = () => {
       children: (
         <Row gutter={[16, 16]}>
           <Col xs={24} sm={12} lg={8}>
-            <Card hoverable onClick={() => navigate('/finance/reports/trial-balance')}>
+            <Card hoverable onClick={() => navigate('/finance/reports?tab=tb')}>
               <Statistic title="Trial Balance" value="View" />
             </Card>
           </Col>
           <Col xs={24} sm={12} lg={8}>
-            <Card hoverable>
+            <Card hoverable onClick={() => navigate('/finance/reports?tab=pl')}>
               <Statistic title="P&L Statement" value="View" />
             </Card>
           </Col>
           <Col xs={24} sm={12} lg={8}>
-            <Card hoverable>
+            <Card hoverable onClick={() => navigate('/finance/reports?tab=bs')}>
               <Statistic title="Balance Sheet" value="View" />
             </Card>
           </Col>
           <Col xs={24} sm={12} lg={8}>
-            <Card hoverable>
+            <Card hoverable onClick={() => navigate('/finance/reports?tab=gl')}>
               <Statistic title="General Ledger" value="View" />
             </Card>
           </Col>
           <Col xs={24} sm={12} lg={8}>
-            <Card hoverable>
+            <Card hoverable onClick={() => navigate('/finance/reports?tab=ar')}>
               <Statistic title="AR Report" value="View" />
             </Card>
           </Col>
           <Col xs={24} sm={12} lg={8}>
-            <Card hoverable>
+            <Card hoverable onClick={() => navigate('/finance/reports?tab=ap')}>
               <Statistic title="AP Report" value="View" />
             </Card>
           </Col>

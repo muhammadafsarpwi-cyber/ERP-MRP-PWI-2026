@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { CompanyService } from '../services';
 import { CreateCompanyDto, UpdateCompanyDto } from '../dto';
@@ -7,7 +8,7 @@ import { CompanyStatus } from '../entities';
 
 @ApiTags('companies')
 @Controller('companies')
-@UseGuards(PermissionGuard)
+@UseGuards(SupabaseJwtGuard, PermissionGuard)
 export class CompanyController {
   constructor(private readonly companyService: CompanyService) {}
 

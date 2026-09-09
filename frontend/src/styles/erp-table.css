@@ -161,11 +161,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  min-width: 28px;
   height: 28px;
-  padding: 0;
+  padding: 0 4px;
   font-size: 13px;
   border-radius: 5px;
+}
+
+.erp-table-actions .ant-btn:not(.ant-btn-icon-only) {
+  width: auto !important;
+  min-width: fit-content;
+  padding: 0 10px !important;
+  white-space: nowrap !important;
 }
 
 .erp-table-actions .ant-btn:hover {

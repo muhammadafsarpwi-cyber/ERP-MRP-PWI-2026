@@ -419,6 +419,7 @@ export class StockAdjustmentService {
 
     const counts = {
       all: 0,
+      total: 0,
       draft: 0,
       pendingApproval: 0,
       approved: 0,
@@ -437,6 +438,7 @@ export class StockAdjustmentService {
       else if (r.status === 'REJECTED') counts.rejected += cnt;
       else if (r.status === 'POSTED') counts.posted += cnt;
     }
+    counts.total = counts.all;
 
     return counts;
   }

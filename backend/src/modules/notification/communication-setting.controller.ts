@@ -50,6 +50,8 @@ export class CommunicationSettingController {
    * All counts come from the database — never hardcoded.
    */
   @Get('summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('notifications.channels.manage')
   @ApiOperation({ summary: 'Communication status summary (unread + delivery counts)' })
   async summary(@Query('companyId') companyId?: string, @Req() req?: any) {
     // Resolve the user's company server-side (authoritative, RLS-safe)

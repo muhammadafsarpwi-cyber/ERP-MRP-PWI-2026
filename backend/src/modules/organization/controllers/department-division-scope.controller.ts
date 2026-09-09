@@ -1,11 +1,12 @@
 import { Controller, Get, Post, Delete, Param, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { DepartmentDivisionScopeService } from '../services';
 
 @ApiTags('organization/department-division-scopes')
 @Controller('department-division-scopes')
-@UseGuards(PermissionGuard)
+@UseGuards(SupabaseJwtGuard, PermissionGuard)
 @RequirePermission('admin.users.update')
 export class DepartmentDivisionScopeController {
   constructor(private readonly scopeService: DepartmentDivisionScopeService) {}

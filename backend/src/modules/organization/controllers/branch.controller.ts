@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { BranchService } from '../services';
 import { CreateBranchDto, UpdateBranchDto } from '../dto';
@@ -7,7 +8,7 @@ import { BranchStatus } from '../entities';
 
 @ApiTags('organization/branches')
 @Controller('branches')
-@UseGuards(PermissionGuard)
+@UseGuards(SupabaseJwtGuard, PermissionGuard)
 export class BranchController {
   constructor(private readonly branchService: BranchService) {}
 

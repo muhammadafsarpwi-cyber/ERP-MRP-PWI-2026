@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { BusinessUnitService } from '../services';
 import { CreateBusinessUnitDto, UpdateBusinessUnitDto } from '../dto';
@@ -7,7 +8,7 @@ import { BusinessUnitStatus } from '../entities';
 
 @ApiTags('organization/business-units')
 @Controller('business-units')
-@UseGuards(PermissionGuard)
+@UseGuards(SupabaseJwtGuard, PermissionGuard)
 export class BusinessUnitController {
   constructor(private readonly businessUnitService: BusinessUnitService) {}
 

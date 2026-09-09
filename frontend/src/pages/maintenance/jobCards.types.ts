@@ -67,7 +67,7 @@ export const ACTION_MAP: Record<string, { label: string; endpoint: string; permi
   IN_PROGRESS: [{ label: 'Close Job', endpoint: 'complete', permission: 'maintenance.job_card.complete' }, { label: 'Put On Hold', endpoint: 'hold', permission: 'maintenance.job_card.hold' }, { label: 'Waiting for Parts', endpoint: 'waiting-for-parts', permission: 'maintenance.job_card.update' }],
   ON_HOLD: [{ label: 'Resume', endpoint: 'resume', permission: 'maintenance.job_card.update' }],
   WAITING_FOR_PARTS: [{ label: 'Resume', endpoint: 'resume', permission: 'maintenance.job_card.update' }],
-  PENDING_VERIFICATION: [{ label: 'Review', endpoint: 'verify', permission: 'maintenance.job_card.verify' }, { label: 'Return to Technician', endpoint: 'reject', permission: 'maintenance.job_card.verify' }],
+  PENDING_VERIFICATION: [{ label: 'Review', endpoint: 'verify', permission: 'maintenance.job_card.verify' }, { label: 'Return to Technician', endpoint: 'reject', permission: 'maintenance.job_card.reject' }],
   VERIFIED: [{ label: 'Approve', endpoint: 'approve', permission: 'maintenance.job_card.approve' }],
   REJECTED: [{ label: 'Resubmit for Review', endpoint: 'submit-for-verification', permission: 'maintenance.job_card.close' }, { label: 'Assign', endpoint: 'assign', permission: 'maintenance.job_card.assign' }],
   COMPLETED: [{ label: 'Close (Legacy)', endpoint: 'close', permission: 'maintenance.job_card.close' }],

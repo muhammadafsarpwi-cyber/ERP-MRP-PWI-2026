@@ -9,6 +9,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine } from '../../components/shared';
+import { usePermission } from '../../hooks/usePermission';
 
 interface PurchaseOrder {
   id: string;
@@ -32,6 +33,11 @@ const statusColorMap: Record<string, string> = {
 
 const PurchaseOrderManagement: React.FC = () => {
   const { message } = App.useApp();
+  const { can } = usePermission();
+  const canCreate = can('procurement.order.create');
+  const canSubmit = can('procurement.order.submit');
+  const canApprove = can('procurement.order.approve');
+  const canCancel = can('procurement.order.cancel');
   const [data, setData] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -166,17 +172,17 @@ const PurchaseOrderManagement: React.FC = () => {
       title: 'Actions', key: 'actions', width: 250,
       render: (_, record) => (
         <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} disabled={record.status !== 'DRAFT'} />
-          {record.status === 'DRAFT' && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleAction(record.id, 'submit')}>Submit</Button>}
-          {record.status === 'SUBMITTED' && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'approve')}>Approve</Button>}
-          {record.status !== 'CANCELLED' && record.status !== 'CLOSED' && <Button size="small" danger icon={<CloseOutlined />} onClick={() => handleAction(record.id, 'cancel')}>Cancel</Button>}
+          {canCreate && <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} disabled={record.status !== 'DRAFT'} />}
+          {record.status === 'DRAFT' && canSubmit && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleAction(record.id, 'submit')}>Submit</Button>}
+          {record.status === 'SUBMITTED' && canApprove && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'approve')}>Approve</Button>}
+          {record.status !== 'CANCELLED' && record.status !== 'CLOSED' && canCancel && <Button size="small" danger icon={<CloseOutlined />} onClick={() => handleAction(record.id, 'cancel')}>Cancel</Button>}
         </Space>
       ),
     },
   ];
 
   return (
-    <Card title="Purchase Orders" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Create PO</Button>}>
+    <Card title="Purchase Orders" extra={canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Create PO</Button>}>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Input placeholder="Search POs..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} />

@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { WarehouseService } from '../services';
 import { CreateWarehouseDto, UpdateWarehouseDto } from '../dto';
@@ -7,7 +8,7 @@ import { WarehouseStatus, WarehouseType } from '../entities';
 
 @ApiTags('warehouses')
 @Controller('warehouses')
-@UseGuards(PermissionGuard)
+@UseGuards(SupabaseJwtGuard, PermissionGuard)
 export class WarehouseController {
   constructor(private readonly warehouseService: WarehouseService) {}
 

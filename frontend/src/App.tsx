@@ -1,6 +1,5 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Layout } from 'antd';
 import MainLayout from './components/layout/MainLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Welcome from './pages/auth/Welcome';
@@ -46,6 +45,8 @@ import {
   ReservationManagement,
   StockLedgerView,
   InventoryReports,
+  OpeningStock,
+  SerialNumberManagement,
 } from './pages/inventory';
 import Production from './pages/production/Production';
 import {
@@ -70,6 +71,7 @@ import {
   UomManagement,
   UomConversionManagement,
   MachineManagement,
+  OperationManagement,
 } from './pages/master-data';
 import {
   BarcodeDashboard,
@@ -98,8 +100,6 @@ import ProfilePage from './pages/profile/ProfilePage';
 import { MaintenanceDashboard, JobCardList, JobCardCreate, JobCardDetail, PmPlansList, PmSchedules, TeamsList, CategoriesList, MaintenanceReports } from './pages/maintenance';
 import './App.css';
 
-const { Content } = Layout;
-
 const App: React.FC = () => {
   return (
     <Routes>
@@ -112,8 +112,7 @@ const App: React.FC = () => {
         element={
           <ProtectedRoute>
             <MainLayout>
-              <Content style={{ margin: '24px 16px', padding: 24, minHeight: 280, overflow: 'visible' }}>
-                <Routes>
+              <Routes>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/profile" element={<ProfilePage />} />
@@ -129,11 +128,16 @@ const App: React.FC = () => {
                 <Route path="/inventory/receiving" element={<Navigate to="/production/receiving" replace />} />
                   <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
                   <Route path="/inventory/batches" element={<BatchManagement />} />
+                  <Route path="/inventory/serial-numbers" element={<SerialNumberManagement />} />
+                  <Route path="/inventory/opening-stock" element={<OpeningStock />} />
                   <Route path="/inventory/adjustments" element={<StockAdjustmentManagement />} />
                   <Route path="/inventory/adjustments/pending-approval" element={<StockAdjustmentManagement defaultTab="PENDING_APPROVAL" />} />
                   <Route path="/inventory/stock-adjustments" element={<Navigate to="/inventory/adjustments" replace />} />
                   <Route path="/inventory/stock-adjustments/pending-approval" element={<StockAdjustmentManagement defaultTab="PENDING_APPROVAL" />} />
                   <Route path="/inventory/transfers" element={<StockTransferManagement />} />
+                  <Route path="/inventory/transfers/pending-approval" element={<StockTransferManagement defaultTab="PENDING_APPROVAL" />} />
+                  <Route path="/inventory/stock-transfers" element={<Navigate to="/inventory/transfers" replace />} />
+                  <Route path="/inventory/stock-transfers/pending-approval" element={<StockTransferManagement defaultTab="PENDING_APPROVAL" />} />
                   <Route path="/inventory/reservations" element={<ReservationManagement />} />
                   <Route path="/inventory/ledger" element={<StockLedgerView />} />
                   <Route path="/inventory/reports" element={<InventoryReports />} />
@@ -200,6 +204,7 @@ const App: React.FC = () => {
                   <Route path="/master-data/uom" element={<UomManagement />} />
                   <Route path="/master-data/uom-conversions" element={<UomConversionManagement />} />
                   <Route path="/master-data/machines" element={<MachineManagement />} />
+                  <Route path="/master-data/operations" element={<OperationManagement />} />
                   <Route path="/barcode-management" element={<BarcodeDashboard />} />
                   <Route path="/barcode-management/scan" element={<ScanBarcode />} />
                   <Route path="/barcode-management/items" element={<ItemBarcodes />} />
@@ -213,7 +218,6 @@ const App: React.FC = () => {
                     <Route path="/development/status" element={<DevelopmentStatus />} />
                   )}
                 </Routes>
-              </Content>
             </MainLayout>
           </ProtectedRoute>
         }

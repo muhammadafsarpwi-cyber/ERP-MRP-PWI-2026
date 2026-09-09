@@ -19,9 +19,10 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'admin.users.view', 'admin.roles.view', 'admin.permissions.view',
   // item / master data — 20260819100000_item_master.sql
   'item.view', 'item_category.view', 'item_route_type.view', 'uom.view', 'uom_conversion.view',
-  // inventory — 20260819140000_inventory_management.sql
+  // inventory — 20260819140000_inventory_management.sql + 20260911000000
   'inventory.view', 'inventory.reports.view', 'inventory.policy.view',
-  'inventory.reservation.view', 'inventory.batch.view', 'inventory.adjustment.approve',
+  'inventory.reservation.view', 'inventory.batch.view', 'inventory.adjustment.approve', 'inventory.transfer.approve',
+  'inventory.serial.view', 'inventory.opening_stock.create',
   // procurement — 20260819160000_procurement.sql
   'procurement.supplier.view', 'procurement.requisition.view',
   'procurement.rfq.view', 'procurement.quotation.view',
@@ -40,6 +41,7 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'manufacturing.production.entries.report',
   'manufacturing.machine.view',
   'manufacturing.machine_target.view',
+  'manufacturing.operation.view',
   'manufacturing.material_receiving.view',
   'manufacturing.material_return.view',
   'manufacturing.material_receiving.report',
@@ -68,7 +70,8 @@ const DISCOVERED_ROUTES: string[] = [
   '/sales/quotations', '/sales/orders', '/sales/deliveries',
   '/sales/invoices', '/sales/returns',
   '/inventory', '/inventory/policies', '/inventory/batches',
-  '/inventory/adjustments', '/inventory/adjustments/pending-approval', '/inventory/transfers', '/inventory/reservations',
+  '/inventory/serial-numbers', '/inventory/opening-stock',
+  '/inventory/adjustments', '/inventory/adjustments/pending-approval', '/inventory/transfers', '/inventory/transfers/pending-approval', '/inventory/reservations',
   '/inventory/ledger', '/inventory/reports',
   '/procurement/suppliers', '/procurement/requisitions', '/procurement/rfqs',
   '/procurement/quotations', '/procurement/orders', '/procurement/receipts',
@@ -97,7 +100,10 @@ const DISCOVERED_ROUTES: string[] = [
   '/admin/users', '/admin/roles', '/admin/permissions',
   '/admin/permissions-matrix',
   '/master-data/items', '/master-data/categories', '/master-data/route-types',
-  '/master-data/uom', '/master-data/uom-conversions', '/master-data/machines',
+  '/master-data/uom', '/master-data/uom-conversions', '/master-data/machines', '/master-data/operations',
+  '/barcode-management', '/barcode-management/scan', '/barcode-management/items',
+  '/barcode-management/customers', '/barcode-management/machines', '/barcode-management/warehouses',
+  '/barcode-management/employees', '/barcode-management/production', '/barcode-management/job-cards',
 ];
 
 /** Routes that redirect or render inside a parent entry (not in the menu). */

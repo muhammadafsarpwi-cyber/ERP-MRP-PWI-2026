@@ -28,13 +28,13 @@ import type { NavColorToken } from './navigationConfig';
 const { Header, Sider, Content } = Layout;
 
 /**
- * Desktop sidebar width — wide enough for the full Maintenance queue labels
- * ("Started Job Cards", "Pending Review", "Returned Job Cards",
+ * Desktop sidebar width — wide enough for the full Maintenance & Inventory queue labels
+ * ("Pending Approval", "Started Job Cards", "Pending Review", "Returned Job Cards",
  * "Complete Job Cards", "All Job Cards") to render un-truncated, even with
- * their live-count badge chips. ~260px keeps the "label + badge" pair on one
+ * their live-count badge chips. 275px keeps the "label + badge" pair cleanly on one
  * line without pushing the layout past a professional, compact footprint.
  */
-const SIDER_WIDTH = 260; // px
+const SIDER_WIDTH = 275; // px
 
 const NavIcon: React.FC<{ color: string; size?: 'lg' | 'sm'; icon: React.ComponentType }> = ({ color, size = 'lg', icon: Icon }) => (
   <span className={`erp-nav-icon erp-nav-icon--${size}`} style={{ color }}>
@@ -352,6 +352,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         <Menu
           theme="dark"
           mode="inline"
+          inlineIndent={16}
           selectedKeys={[activeKeys.selectedKey]}
           {...(effectivelyCollapsed ? {} : { openKeys })}
           items={menuItems}
@@ -533,7 +534,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           className="erp-app-content"
           style={{
             margin: 0,
-            padding: isMobile ? '4px 6px 12px' : '6px 8px 16px',
+            padding: isMobile ? '2px 2px 8px' : '4px 4px 12px',
             borderRadius: 0,
             border: 'none',
             background: 'transparent',

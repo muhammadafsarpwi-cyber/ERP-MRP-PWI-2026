@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { DepartmentService } from '../services';
 import { CreateDepartmentDto, UpdateDepartmentDto } from '../dto';
@@ -7,7 +8,7 @@ import { DepartmentStatus } from '../entities';
 
 @ApiTags('organization/departments')
 @Controller('departments')
-@UseGuards(PermissionGuard)
+@UseGuards(SupabaseJwtGuard, PermissionGuard)
 export class DepartmentController {
   constructor(private readonly departmentService: DepartmentService) {}
 

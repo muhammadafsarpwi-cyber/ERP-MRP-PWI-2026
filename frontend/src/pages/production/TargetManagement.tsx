@@ -622,7 +622,7 @@ const TargetManagement: React.FC = () => {
         onCancel={() => setModalVisible(false)}
         width={isMobile ? '96vw' : 760}
         style={{ top: isMobile ? 10 : 24, maxWidth: '100vw' }}
-        bodyStyle={{ maxHeight: isMobile ? '82vh' : '78vh', overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '14px 10px' : '20px 24px' }}
+        styles={{ body: { maxHeight: isMobile ? '82vh' : '78vh', overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '14px 10px' : '20px 24px' } }}
         okText={editing ? 'Save Changes' : 'Create Target'}
         destroyOnHidden
       >

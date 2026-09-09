@@ -503,7 +503,7 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
 @media (max-width: 767px) {
   .erp-app-content {
     margin: 0 !important;
-    padding: 4px 6px 12px !important;
+    padding: 2px 2px 8px !important;
     border: 0 !important;
     border-radius: 0 !important;
     min-height: calc(100vh - 100px);

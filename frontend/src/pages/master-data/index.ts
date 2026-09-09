@@ -4,3 +4,4 @@ export { default as RouteTypeManagement } from './RouteTypeManagement';
 export { default as UomManagement } from './UomManagement';
 export { default as UomConversionManagement } from './UomConversionManagement';
 export { default as MachineManagement } from './MachineManagement';
+export { default as OperationManagement } from './OperationManagement';

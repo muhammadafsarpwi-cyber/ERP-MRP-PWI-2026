@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { SectionService } from '../services';
 import { CreateSectionDto, UpdateSectionDto } from '../dto';
@@ -7,7 +8,7 @@ import { SectionStatus } from '../entities';
 
 @ApiTags('organization/sections')
 @Controller('sections')
-@UseGuards(PermissionGuard)
+@UseGuards(SupabaseJwtGuard, PermissionGuard)
 export class SectionController {
   constructor(private readonly sectionService: SectionService) {}
 

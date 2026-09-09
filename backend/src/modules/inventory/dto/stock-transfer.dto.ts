@@ -13,7 +13,7 @@ import { Type } from 'class-transformer';
 
 export class CreateStockTransferDto {
   @ApiPropertyOptional({ description: 'Company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
@@ -24,27 +24,27 @@ export class CreateStockTransferDto {
   transferCode?: string;
 
   @ApiProperty({ description: 'Source warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   fromWarehouseId: string;
 
   @ApiProperty({ description: 'Destination warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   toWarehouseId: string;
 
   @ApiPropertyOptional({ description: 'Source location ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   fromLocationId?: string;
 
   @ApiPropertyOptional({ description: 'Destination location ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   toLocationId?: string;
 
   @ApiPropertyOptional({ description: 'Item ID for single-step transfer' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   itemId?: string;
 
@@ -55,7 +55,7 @@ export class CreateStockTransferDto {
   quantity?: number;
 
   @ApiPropertyOptional({ description: 'UOM ID for single-step transfer' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   uomId?: string;
 
@@ -76,17 +76,17 @@ export class UpdateStockTransferDto {
   notes?: string;
 
   @ApiPropertyOptional({ description: 'Source warehouse ID (for draft transfers)' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   fromWarehouseId?: string;
 
   @ApiPropertyOptional({ description: 'Destination warehouse ID (for draft transfers)' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   toWarehouseId?: string;
 
   @ApiPropertyOptional({ description: 'Item ID (for draft transfers)' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   itemId?: string;
 
@@ -97,34 +97,34 @@ export class UpdateStockTransferDto {
   quantity?: number;
 
   @ApiPropertyOptional({ description: 'UOM ID (for draft transfers)' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   uomId?: string;
 }
 
 export class CreateStockTransferLineDto {
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   itemId: string;
 
   @ApiPropertyOptional({ description: 'Source location ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   fromLocationId?: string;
 
   @ApiPropertyOptional({ description: 'Destination location ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   toLocationId?: string;
 
   @ApiPropertyOptional({ description: 'Batch ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   batchId?: string;
 
   @ApiProperty({ description: 'Unit of measure ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsNotEmpty()
   uomId: string;
 
@@ -159,17 +159,17 @@ export class StockTransferFilterDto {
   search?: string;
 
   @ApiPropertyOptional({ description: 'Filter by company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by source warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   fromWarehouseId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by destination warehouse ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   toWarehouseId?: string;
 
@@ -189,3 +189,49 @@ export class StockTransferFilterDto {
   @IsIn(['ASC', 'DESC'])
   sortOrder?: string;
 }
+
+export class SubmitStockTransferDto {
+  @ApiPropertyOptional({ description: 'Submission remarks' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+
+export class ApproveStockTransferDto {
+  @ApiPropertyOptional({ description: 'Approval remarks or instructions' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+
+export class ReturnStockTransferDto {
+  @ApiProperty({ description: 'Reason for returning the transfer to requester for corrections' })
+  @IsString()
+  @IsNotEmpty({ message: 'Return reason is required' })
+  reason: string;
+
+  @ApiPropertyOptional({ description: 'Detailed remarks or corrections needed' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+
+export class RejectStockTransferDto {
+  @ApiProperty({ description: 'Reason for rejecting the transfer' })
+  @IsString()
+  @IsNotEmpty({ message: 'Rejection reason is required' })
+  reason: string;
+
+  @ApiPropertyOptional({ description: 'Additional rejection remarks' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+
+export class PostStockTransferDto {
+  @ApiPropertyOptional({ description: 'Posting remarks' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
+}
+

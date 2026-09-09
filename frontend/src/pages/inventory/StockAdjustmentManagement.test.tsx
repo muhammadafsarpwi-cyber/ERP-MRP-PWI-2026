@@ -226,10 +226,10 @@ describe('StockAdjustmentManagement — Complete Approval & Posting Workflow UI'
     renderComponent();
 
     expect(await screen.findByText(/Stock Adjustments & Reconciliation/i)).toBeInTheDocument();
-    expect(screen.getByText(/All Adjustments \(4\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/^All Adjustments$/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Pending Approval/i)[0]).toBeInTheDocument();
-    expect(screen.getByText(/Drafts \(1\)/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Approved/i)[0]).toBeInTheDocument();
+    expect(screen.getByText(/^Drafts$/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Approved$/i)[0]).toBeInTheDocument();
   });
 
   it('displays adjustment records with correct statuses, tags, and action buttons', async () => {

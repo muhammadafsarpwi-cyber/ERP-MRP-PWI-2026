@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import {
   Button, Tag, Modal, Form, Input, Select, App,
   InputNumber, Row, Col, Tooltip, Segmented, Spin, Space,
-  Tabs, Badge, Card, Alert, Timeline, Typography, Popconfirm,
+  Tabs, Badge, Card, Alert, Timeline, Popconfirm,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, EyeOutlined, InfoCircleOutlined,
@@ -11,6 +11,9 @@ import {
   CloseCircleOutlined, RollbackOutlined, SendOutlined,
   AuditOutlined, DeleteOutlined, ClockCircleOutlined,
   ThunderboltOutlined, ExclamationCircleOutlined,
+  BarcodeOutlined, AppstoreOutlined, ShopOutlined,
+  SwapOutlined, CalculatorOutlined, TagOutlined,
+  UserOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -122,6 +125,7 @@ interface DropdownOption {
 
 interface AdjustmentCounts {
   total: number;
+  all?: number;
   draft: number;
   pendingApproval: number;
   approved: number;
@@ -138,7 +142,7 @@ const statusBadgeConfig: Record<string, { color: string; label: string; icon?: R
   APPROVED: { color: 'success', label: 'Approved', icon: <CheckCircleOutlined /> },
   REJECTED: { color: 'error', label: 'Rejected', icon: <CloseCircleOutlined /> },
   POSTED: { color: 'processing', label: 'Posted to Ledger', icon: <ThunderboltOutlined /> },
-  CANCELLED: { color: 'default', label: 'Cancelled' },
+  CANCELLED: { color: 'default', label: 'Cancelled', icon: <CloseCircleOutlined /> },
 };
 
 export const RenderStatusTag: React.FC<{ status: string }> = ({ status }) => {
@@ -170,6 +174,7 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
 
   const [counts, setCounts] = useState<AdjustmentCounts>({
     total: 0,
+    all: 0,
     draft: 0,
     pendingApproval: 0,
     approved: 0,
@@ -217,11 +222,21 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
   // Load Counts
   const fetchCounts = useCallback(async () => {
     try {
-      const res = await apiService.get<{ data: AdjustmentCounts }>('/inventory/adjustments/counts');
-      if (res?.data) {
-        setCounts(res.data);
-        useNavBadgeStore.getState().setNavBadge('/inventory/adjustments/pending-approval', res.data.pendingApproval);
-      }
+      const res = await apiService.get<any>('/inventory/adjustments/counts');
+      const raw = res?.data || res || {};
+      const total = Number(raw.total ?? raw.all ?? 0);
+      const mapped: AdjustmentCounts = {
+        total,
+        all: total,
+        draft: Number(raw.draft ?? 0),
+        pendingApproval: Number(raw.pendingApproval ?? 0),
+        approved: Number(raw.approved ?? 0),
+        returned: Number(raw.returned ?? 0),
+        rejected: Number(raw.rejected ?? 0),
+        posted: Number(raw.posted ?? 0),
+      };
+      setCounts(mapped);
+      useNavBadgeStore.getState().setNavBadge('/inventory/adjustments/pending-approval', mapped.pendingApproval);
     } catch (err) {
       console.error('Failed to load adjustment counts', err);
     }
@@ -332,13 +347,59 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
     fetchCounts();
   };
 
+  // Status Tab Label with floating round pill badge
+  const renderTabBadgeLabel = (
+    label: string,
+    count: number,
+    color: string,
+    key: string
+  ) => {
+    const isActive = activeTab === key;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', position: 'relative', padding: '0 4px' }}>
+        <Badge
+          count={count}
+          showZero
+          overflowCount={999}
+          color={color}
+          offset={[6, -2]}
+          style={{
+            boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.25)',
+            fontWeight: 700,
+            fontSize: 11,
+            height: 18,
+            minWidth: 18,
+            lineHeight: '18px',
+            padding: '0 5px',
+          }}
+        >
+          <span
+            style={{
+              fontWeight: isActive ? 700 : 500,
+              fontSize: 13,
+              color: isActive ? 'var(--theme-primary, #3b82f6)' : 'var(--theme-text)',
+              paddingRight: 6,
+            }}
+          >
+            {label}
+          </span>
+        </Badge>
+      </span>
+    );
+  };
+
   // Table Columns
   const columns: ColumnsType<StockAdjustment> = [
     {
-      title: 'Adjustment #',
+      title: (
+        <span>
+          <BarcodeOutlined style={{ marginRight: 6, color: '#60a5fa' }} />
+          Adjustment #
+        </span>
+      ),
       dataIndex: 'adjustmentNumber',
       key: 'adjustmentNumber',
-      width: 140,
+      width: 145,
       render: (v: string, record) => (
         <span
           style={{ fontWeight: 600, color: 'var(--theme-primary, #3b82f6)', cursor: 'pointer' }}
@@ -349,33 +410,76 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
       ),
     },
     {
-      title: 'Item',
+      title: (
+        <span>
+          <AppstoreOutlined style={{ marginRight: 6, color: '#38bdf8' }} />
+          Item
+        </span>
+      ),
       dataIndex: 'itemName',
       key: 'itemName',
-      ellipsis: true,
-      render: (name: string, record: StockAdjustment) => (
-        <div>
-          <span style={{ fontWeight: 600 }}>{name || record.itemId}</span>
-          {record.itemCode && (
-            <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--theme-text-muted)' }}>
-              ({record.itemCode})
+      width: 260,
+      render: (_: string, record: StockAdjustment) => {
+        const code = record.itemCode || record.lines?.[0]?.item?.code;
+        let name = record.itemName || record.lines?.[0]?.item?.name || record.itemId;
+        if (code && name.startsWith(code)) {
+          name = name.replace(new RegExp(`^${code}\\s*[-—:]*\\s*`), '');
+        }
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 200 }}>
+            {code && (
+              <Tag
+                color="blue"
+                style={{
+                  width: 'fit-content',
+                  margin: 0,
+                  fontWeight: 700,
+                  fontSize: 11,
+                  padding: '0 6px',
+                  borderRadius: 4,
+                }}
+              >
+                {code}
+              </Tag>
+            )}
+            <span
+              style={{
+                fontWeight: 600,
+                fontSize: 13,
+                color: 'var(--theme-text, #f8fafc)',
+                whiteSpace: 'normal',
+                wordBreak: 'break-word',
+                lineHeight: 1.3,
+              }}
+            >
+              {name}
             </span>
-          )}
-        </div>
-      ),
+          </div>
+        );
+      },
     },
     {
-      title: 'Warehouse',
+      title: (
+        <span>
+          <ShopOutlined style={{ marginRight: 6, color: '#a78bfa' }} />
+          Warehouse
+        </span>
+      ),
       dataIndex: 'warehouseName',
       key: 'warehouseName',
-      width: 140,
+      width: 145,
       render: (wName: string) => <span>{wName || '—'}</span>,
     },
     {
-      title: 'Type',
+      title: (
+        <span>
+          <SwapOutlined style={{ marginRight: 6, color: '#f472b6' }} />
+          Type
+        </span>
+      ),
       dataIndex: 'adjustmentType',
       key: 'adjustmentType',
-      width: 140,
+      width: 145,
       render: (v: string) => {
         const isIn = v === 'ADJUSTMENT_IN' || v === 'INCREASE';
         return (
@@ -386,12 +490,21 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
       },
     },
     {
-      title: 'Qty',
+      title: (
+        <span>
+          <CalculatorOutlined style={{ marginRight: 6, color: '#34d399' }} />
+          Qty
+        </span>
+      ),
       dataIndex: 'quantity',
       key: 'quantity',
       width: 110,
       align: 'right' as const,
       render: (v: unknown, record: StockAdjustment) => {
+        const num = Number(v) || 0;
+        if (num === 0) {
+          return <span style={{ color: 'var(--theme-text-muted)', fontFamily: 'monospace' }}>0</span>;
+        }
         const isIn = record.adjustmentType === 'ADJUSTMENT_IN' || record.adjustmentType === 'INCREASE';
         return (
           <span
@@ -401,23 +514,33 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
               color: isIn ? '#10b981' : '#ef4444',
             }}
           >
-            {isIn ? '+' : '-'}{formatNumber(v, 4)}
+            {isIn ? '+' : '-'}{formatNumber(Math.abs(num), 4)}
           </span>
         );
       },
     },
     {
-      title: 'UOM',
+      title: (
+        <span>
+          <TagOutlined style={{ marginRight: 6, color: '#fbbf24' }} />
+          UOM
+        </span>
+      ),
       dataIndex: 'uomCode',
       key: 'uomCode',
-      width: 70,
+      width: 75,
       render: (v: string) => <span style={{ color: 'var(--theme-text-muted)' }}>{v || '—'}</span>,
     },
     {
-      title: 'Reason',
+      title: (
+        <span>
+          <InfoCircleOutlined style={{ marginRight: 6, color: '#94a3b8' }} />
+          Reason
+        </span>
+      ),
       dataIndex: 'reason',
       key: 'reason',
-      width: 140,
+      width: 160,
       ellipsis: true,
       render: (v: string) => (
         <Tooltip title={v}>
@@ -426,9 +549,14 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
       ),
     },
     {
-      title: 'Requested By',
+      title: (
+        <span>
+          <UserOutlined style={{ marginRight: 6, color: '#818cf8' }} />
+          Requested By
+        </span>
+      ),
       key: 'requestedBy',
-      width: 140,
+      width: 145,
       render: (_, r) => {
         const requester = r.submittedByUser?.displayName || r.createdByUser?.displayName || '—';
         return (
@@ -439,30 +567,45 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
       },
     },
     {
-      title: 'Date',
+      title: (
+        <span>
+          <CalendarOutlined style={{ marginRight: 6, color: '#cbd5e1' }} />
+          Date
+        </span>
+      ),
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 120,
+      width: 140,
       render: (d: string, r) => {
         const dateVal = r.submittedAt || d;
         return (
-          <span style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
+          <span style={{ fontSize: 12, color: 'var(--theme-text-muted)', whiteSpace: 'nowrap' }}>
             {dateVal ? dayjs(dateVal).format('DD-MMM HH:mm') : '—'}
           </span>
         );
       },
     },
     {
-      title: 'Status',
+      title: (
+        <span>
+          <CheckCircleOutlined style={{ marginRight: 6, color: '#4ade80' }} />
+          Status
+        </span>
+      ),
       dataIndex: 'status',
       key: 'status',
-      width: 150,
+      width: 155,
       render: (s: string) => <RenderStatusTag status={s} />,
     },
     {
-      title: 'Actions',
+      title: (
+        <span>
+          <ThunderboltOutlined style={{ marginRight: 6, color: '#fb923c' }} />
+          Actions
+        </span>
+      ),
       key: 'actions',
-      width: 130,
+      width: 180,
       fixed: 'right',
       align: 'center',
       render: (_, record) => {
@@ -543,9 +686,18 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
                   style={{
                     backgroundColor: '#f59e0b',
                     borderColor: '#f59e0b',
+                    color: '#ffffff',
                     fontWeight: 600,
-                    padding: '0 8px',
+                    padding: '2px 10px',
                     fontSize: 12,
+                    height: 26,
+                    minWidth: 84,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 1px 3px rgba(245, 158, 11, 0.4)',
                   }}
                   icon={<AuditOutlined />}
                   onClick={() => handleOpenApproval(record)}
@@ -610,10 +762,16 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
                   size="small"
                   style={{
                     backgroundColor: '#10b981',
-                    borderColor: '#10b981',
+                    borderColor: '#059669',
+                    color: '#ffffff',
                     fontWeight: 600,
-                    padding: '0 8px',
+                    padding: '2px 10px',
                     fontSize: 12,
+                    height: 26,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    boxShadow: '0 1px 3px rgba(16, 185, 129, 0.4)',
                   }}
                   icon={<ThunderboltOutlined />}
                   onClick={() => handleOpenPost(record)}
@@ -629,160 +787,149 @@ const StockAdjustmentManagement: React.FC<StockAdjustmentManagementProps> = ({ d
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%', padding: '0 2px' }}>
       {/* Header with Title & Quick Description */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 4, padding: '0 4px 2px 4px' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--theme-text)' }}>
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: 'var(--theme-text)' }}>
             Stock Adjustments & Reconciliation
           </h2>
-          <span style={{ fontSize: 13, color: 'var(--theme-text-muted)' }}>
+          <span style={{ fontSize: 12.5, color: 'var(--theme-text-muted)' }}>
             Reconcile physical stock variances, manage approval lifecycle, and atomically post to inventory ledger.
           </span>
         </div>
       </div>
 
-      {/* Tabs Queue with Live Badges */}
-      <Card
-        bodyStyle={{ padding: '8px 16px 0 16px' }}
+      {/* Unified Enterprise Workspace Container (Flush Edge-to-Edge with 1-2mm viewport margin) */}
+      <div
         style={{
-          border: '1px solid var(--theme-border, #374151)',
+          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
           background: 'var(--theme-card-bg, rgba(255, 255, 255, 0.02))',
-          borderRadius: 8,
+          borderRadius: 6,
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+          width: '100%',
         }}
       >
-        <Tabs
-          activeKey={activeTab}
-          onChange={handleTabChange}
-          tabBarStyle={{ marginBottom: 0 }}
-          items={[
-            {
-              key: 'ALL',
-              label: <span>All Adjustments ({counts.total})</span>,
-            },
-            {
-              key: 'PENDING_APPROVAL',
-              label: (
-                <Badge
-                  count={counts.pendingApproval}
-                  offset={[10, 0]}
-                  color="#f59e0b"
-                  size="small"
-                  overflowCount={999}
-                >
-                  <span
-                    style={{
-                      fontWeight: activeTab === 'PENDING_APPROVAL' || counts.pendingApproval > 0 ? 700 : 500,
-                      color: counts.pendingApproval > 0 ? '#f59e0b' : undefined,
-                    }}
-                  >
-                    Pending Approval
-                  </span>
-                </Badge>
-              ),
-            },
-            {
-              key: 'DRAFT',
-              label: <span>Drafts ({counts.draft})</span>,
-            },
-            {
-              key: 'APPROVED',
-              label: (
-                <Badge
-                  count={counts.approved}
-                  offset={[10, 0]}
-                  color="#10b981"
-                  size="small"
-                  overflowCount={999}
-                >
-                  <span
-                    style={{
-                      fontWeight: activeTab === 'APPROVED' ? 700 : 500,
-                      color: counts.approved > 0 ? '#10b981' : undefined,
-                    }}
-                  >
-                    Approved
-                  </span>
-                </Badge>
-              ),
-            },
-            {
-              key: 'RETURNED',
-              label: <span>Returned ({counts.returned})</span>,
-            },
-            {
-              key: 'REJECTED',
-              label: <span>Rejected ({counts.rejected})</span>,
-            },
-            {
-              key: 'POSTED',
-              label: <span>Posted ({counts.posted})</span>,
-            },
-          ]}
-        />
-      </Card>
+        {/* Status Queue Tabs with Top-Right Pill Badges */}
+        <div
+          style={{
+            padding: '4px 10px 0 10px',
+            background: 'rgba(255, 255, 255, 0.015)',
+            borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))',
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          <Tabs
+            activeKey={activeTab}
+            onChange={handleTabChange}
+            tabBarStyle={{ marginBottom: 0 }}
+            items={[
+              {
+                key: 'ALL',
+                label: renderTabBadgeLabel('All Adjustments', counts.total ?? counts.all ?? 0, '#3b82f6', 'ALL'),
+              },
+              {
+                key: 'PENDING_APPROVAL',
+                label: renderTabBadgeLabel('Pending Approval', counts.pendingApproval ?? 0, '#f59e0b', 'PENDING_APPROVAL'),
+              },
+              {
+                key: 'DRAFT',
+                label: renderTabBadgeLabel('Drafts', counts.draft ?? 0, '#64748b', 'DRAFT'),
+              },
+              {
+                key: 'APPROVED',
+                label: renderTabBadgeLabel('Approved', counts.approved ?? 0, '#10b981', 'APPROVED'),
+              },
+              {
+                key: 'RETURNED',
+                label: renderTabBadgeLabel('Returned', counts.returned ?? 0, '#d97706', 'RETURNED'),
+              },
+              {
+                key: 'REJECTED',
+                label: renderTabBadgeLabel('Rejected', counts.rejected ?? 0, '#ef4444', 'REJECTED'),
+              },
+              {
+                key: 'POSTED',
+                label: renderTabBadgeLabel('Posted', counts.posted ?? 0, '#06b6d4', 'POSTED'),
+              },
+            ]}
+          />
+        </div>
 
-      {/* Table Toolbar */}
-      <TableToolbar
-        searchPlaceholder="Search adjustment #, item, reason..."
-        searchValue={search}
-        onSearchChange={(v) => {
-          setSearch(v);
-          setPage(1);
-        }}
-        filters={[
-          {
-            key: 'warehouse',
-            placeholder: 'Warehouse',
-            value: filterWarehouse,
-            onChange: (v) => {
-              setFilterWarehouse(v);
+        {/* Table Toolbar directly docked below tabs */}
+        <div
+          style={{
+            padding: '8px 10px',
+            borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))',
+          }}
+        >
+          <TableToolbar
+            searchPlaceholder="Search adjustment #, item, reason..."
+            searchValue={search}
+            onSearchChange={(v) => {
+              setSearch(v);
               setPage(1);
-            },
-            options: warehouses.map((w: any) => ({
-              value: w.id,
-              label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name || w.id,
-            })),
-          },
-        ]}
-        onRefresh={refreshAll}
-        primaryAction={
-          canCreate
-            ? {
-                label: 'New Adjustment',
-                icon: <PlusOutlined />,
-                onClick: handleCreate,
-              }
-            : undefined
-        }
-      />
+            }}
+            filters={[
+              {
+                key: 'warehouse',
+                placeholder: 'Warehouse',
+                value: filterWarehouse,
+                onChange: (v) => {
+                  setFilterWarehouse(v);
+                  setPage(1);
+                },
+                options: warehouses.map((w: any) => ({
+                  value: w.id,
+                  label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name || w.id,
+                })),
+              },
+            ]}
+            onRefresh={refreshAll}
+            primaryAction={
+              canCreate
+                ? {
+                    label: 'New Adjustment',
+                    icon: <PlusOutlined />,
+                    onClick: handleCreate,
+                  }
+                : undefined
+            }
+          />
+        </div>
 
-      {/* Main ERP Table */}
-      <ERPTable
-        columns={columns}
-        dataSource={adjustments}
-        rowKey="id"
-        loading={loading}
-        scroll={{ x: 1100 }}
-        emptyTitle={
-          activeTab === 'PENDING_APPROVAL'
-            ? 'No pending adjustments'
-            : 'No stock adjustments found'
-        }
-        emptyDescription={
-          activeTab === 'PENDING_APPROVAL'
-            ? 'Great! There are currently no stock adjustments waiting for your review.'
-            : 'No adjustment records match your current criteria.'
-        }
-        emptyActionLabel={canCreate ? 'Create Adjustment' : undefined}
-        onEmptyAction={canCreate ? handleCreate : undefined}
-        pagination={{
-          current: page,
-          total,
-          pageSize,
-          onChange: setPage,
-        }}
-      />
+        {/* Main ERP Table flush within container */}
+        <div style={{ width: '100%', overflowX: 'auto' }}>
+          <ERPTable
+            columns={columns}
+            dataSource={adjustments}
+            rowKey="id"
+            loading={loading}
+            scroll={{ x: 1600 }}
+            containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
+            emptyTitle={
+              activeTab === 'PENDING_APPROVAL'
+                ? 'No pending adjustments'
+                : 'No stock adjustments found'
+            }
+            emptyDescription={
+              activeTab === 'PENDING_APPROVAL'
+                ? 'Great! There are currently no stock adjustments waiting for your review.'
+                : 'No adjustment records match your current criteria.'
+            }
+            emptyActionLabel={canCreate ? 'Create Adjustment' : undefined}
+            onEmptyAction={canCreate ? handleCreate : undefined}
+            pagination={{
+              current: page,
+              total,
+              pageSize,
+              onChange: setPage,
+            }}
+          />
+        </div>
+      </div>
 
       {/* Modals */}
       {/* 1. Create / Edit Form Modal */}
@@ -1118,7 +1265,15 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
       }
       open={open}
       onCancel={onCancel}
-      width={720}
+      width="min(740px, 98vw)"
+      style={{ top: 16, maxWidth: '98vw', margin: '0 auto' }}
+      styles={{
+        body: {
+          maxHeight: 'calc(100vh - 160px)',
+          overflowY: 'auto',
+          padding: '12px 14px',
+        },
+      }}
       destroyOnHidden
       footer={[
         <Button key="cancel" onClick={onCancel}>
@@ -1178,8 +1333,8 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
       )}
 
       <Form form={form} layout="vertical">
-        <Row gutter={16}>
-          <Col span={12}>
+        <Row gutter={[12, 12]}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="itemId"
               label="Item"
@@ -1197,7 +1352,7 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               />
             </Form.Item>
           </Col>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="warehouseId"
               label="Warehouse"
@@ -1246,8 +1401,8 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               )}
             </div>
 
-            <Row gutter={12}>
-              <Col span={8}>
+            <Row gutter={[12, 12]}>
+              <Col xs={24} sm={8}>
                 <div
                   style={{
                     background: 'rgba(0,0,0,0.15)',
@@ -1271,7 +1426,7 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                   </div>
                 </div>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={8}>
                 <div
                   style={{
                     background: 'rgba(0,0,0,0.15)',
@@ -1288,7 +1443,7 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                   </div>
                 </div>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={8}>
                 <div
                   style={{
                     background: 'rgba(0,0,0,0.15)',
@@ -1484,8 +1639,8 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
               marginBottom: 16,
             }}
           >
-            <Row gutter={12}>
-              <Col span={12}>
+            <Row gutter={[12, 12]}>
+              <Col xs={24} sm={12}>
                 <Form.Item
                   name="adjustmentType"
                   label="Adjustment Type"
@@ -1498,7 +1653,7 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
                   />
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item
                   name="quantity"
                   label="Quantity"
@@ -1614,6 +1769,8 @@ const StockAdjustmentSubmitModal: React.FC<StockAdjustmentSubmitModalProps> = ({
       onOk={handleSubmit}
       okText="Submit for Approval"
       okButtonProps={{ icon: <SendOutlined /> }}
+      width="min(520px, 98vw)"
+      style={{ top: 16, maxWidth: '98vw', margin: '0 auto' }}
       destroyOnHidden
     >
       <div style={{ marginBottom: 14 }}>
@@ -1788,7 +1945,15 @@ const StockAdjustmentApprovalModal: React.FC<StockAdjustmentApprovalModalProps> 
         }
         open={open}
         onCancel={onCancel}
-        width={800}
+        width="min(820px, 98vw)"
+        style={{ top: 16, maxWidth: '98vw', margin: '0 auto' }}
+        styles={{
+          body: {
+            maxHeight: 'calc(100vh - 160px)',
+            overflowY: 'auto',
+            padding: '12px 14px',
+          },
+        }}
         destroyOnHidden
         footer={[
           <Button key="close" onClick={onCancel}>
@@ -2247,7 +2412,15 @@ const StockAdjustmentDetailModal: React.FC<StockAdjustmentDetailModalProps> = ({
       }
       open={open}
       onCancel={onCancel}
-      width={780}
+      width="min(800px, 98vw)"
+      style={{ top: 16, maxWidth: '98vw', margin: '0 auto' }}
+      styles={{
+        body: {
+          maxHeight: 'calc(100vh - 160px)',
+          overflowY: 'auto',
+          padding: '12px 14px',
+        },
+      }}
       destroyOnHidden
       footer={[
         <Button key="close" onClick={onCancel}>
@@ -2521,7 +2694,7 @@ const StockAdjustmentPostModal: React.FC<StockAdjustmentPostModalProps> = ({
     setPosting(true);
     try {
       await apiService.patch(`/inventory/adjustments/${adjustment.id}/post`, {
-        postingNotes: postingNotes.trim() || undefined,
+        remarks: postingNotes.trim() || undefined,
       });
       message.success(`Stock adjustment ${adjustment.adjustmentNumber} posted to inventory successfully`);
       onSuccess();
@@ -2547,7 +2720,15 @@ const StockAdjustmentPostModal: React.FC<StockAdjustmentPostModalProps> = ({
       onOk={handleConfirmPost}
       okText="Confirm & Post to Inventory"
       okButtonProps={{ style: { backgroundColor: '#10b981', borderColor: '#10b981' } }}
-      width={650}
+      width="min(660px, 98vw)"
+      style={{ top: 16, maxWidth: '98vw', margin: '0 auto' }}
+      styles={{
+        body: {
+          maxHeight: 'calc(100vh - 160px)',
+          overflowY: 'auto',
+          padding: '12px 14px',
+        },
+      }}
       destroyOnHidden
     >
       <Spin spinning={loading}>

@@ -4,6 +4,7 @@ import { PlusOutlined, SearchOutlined, CheckOutlined, CloseOutlined } from '@ant
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { PageHeader, FinanceJournalLineEditor, JournalLine } from '../../components/shared';
+import { usePermission } from '../../hooks/usePermission';
 
 interface Journal {
   id: string;
@@ -18,6 +19,10 @@ interface Journal {
 
 const JournalEntries: React.FC = () => {
   const { message } = App.useApp();
+  const { can } = usePermission();
+  const canCreate = can('finance.journal.create');
+  const canPost = can('finance.journal.post');
+  const canReverse = can('finance.journal.reverse');
   const [data, setData] = useState<Journal[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -111,8 +116,8 @@ const JournalEntries: React.FC = () => {
       title: 'Actions', key: 'actions', width: 180,
       render: (_, r) => (
         <Space>
-          {r.status === 'DRAFT' && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(r.id, 'post')}>Post</Button>}
-          {r.status === 'POSTED' && <Button size="small" icon={<CloseOutlined />} onClick={() => handleAction(r.id, 'reverse')}>Reverse</Button>}
+          {r.status === 'DRAFT' && canPost && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(r.id, 'post')}>Post</Button>}
+          {r.status === 'POSTED' && canReverse && <Button size="small" icon={<CloseOutlined />} onClick={() => handleAction(r.id, 'reverse')}>Reverse</Button>}
         </Space>
       ),
     },
@@ -122,7 +127,7 @@ const JournalEntries: React.FC = () => {
     <div>
       <PageHeader icon={<PlusOutlined />} title="Journal Entries" showBreadcrumbs
         subtitle="Record and post financial journals"
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setJournalLines([]); setModalVisible(true); }}>New Journal</Button>} />
+        extra={canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setJournalLines([]); setModalVisible(true); }}>New Journal</Button>} />
       <Card style={{ marginTop: 12 }}>
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={8}><Input placeholder="Search journals..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} /></Col>
