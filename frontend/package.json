@@ -38,7 +38,8 @@
     "start": "react-scripts start",
     "build": "node -e \"process.env.CI='false'; require('react-scripts/scripts/build');\"",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "postinstall": "node scripts/fix-html5-qrcode-sourcemaps.js"
   },
   "eslintConfig": {
     "extends": [
