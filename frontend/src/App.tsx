@@ -98,6 +98,28 @@ import DevelopmentStatus from './pages/development/DevelopmentStatus';
 import Settings from './pages/settings';
 import ProfilePage from './pages/profile/ProfilePage';
 import { MaintenanceDashboard, JobCardList, JobCardCreate, JobCardDetail, PmPlansList, PmSchedules, TeamsList, CategoriesList, MaintenanceReports } from './pages/maintenance';
+import {
+  StoreDashboard,
+  StoreManagement,
+  StoreItems,
+  MaterialRequestManagement,
+  MaterialIssueManagement,
+  MaterialReturnManagement,
+  MaterialReceiptManagement,
+  StoreStockBalance,
+  StoreItemLedger,
+  LowStockQueue,
+  StoreReports,
+  StoreSettings,
+  MyMaterialRequests,
+  PendingApprovals,
+  StoreIssues,
+  StoreReturns,
+  StoreTransfers,
+  StoreAdjustments,
+  StoreOpeningStock,
+  StoreItemLifecycle,
+} from './pages/store';
 import './App.css';
 
 const App: React.FC = () => {
@@ -214,6 +236,25 @@ const App: React.FC = () => {
                   <Route path="/barcode-management/employees" element={<EmployeeBarcodes />} />
                   <Route path="/barcode-management/production" element={<ProductionBarcodes />} />
                   <Route path="/barcode-management/job-cards" element={<JobCardBarcodes />} />
+                  <Route path="/store/dashboard" element={<StoreDashboard />} />
+                  <Route path="/store/master" element={<StoreManagement />} />
+                  <Route path="/store/items" element={<StoreItems />} />
+                  <Route path="/store/my-requests" element={<MyMaterialRequests />} />
+                  <Route path="/store/material-requests" element={<MaterialRequestManagement />} />
+                  <Route path="/store/pending-approvals" element={<PendingApprovals />} />
+                  <Route path="/store/material-issues" element={<StoreIssues />} />
+                  <Route path="/store/material-receipts" element={<MaterialReceiptManagement />} />
+                  <Route path="/store/material-returns" element={<StoreReturns />} />
+                  <Route path="/store/transfers" element={<StoreTransfers />} />
+                  <Route path="/store/adjustments" element={<StoreAdjustments />} />
+                  <Route path="/store/opening-stock" element={<StoreOpeningStock />} />
+                  <Route path="/store/stock-balance" element={<StoreStockBalance />} />
+                  <Route path="/store/ledger" element={<StoreItemLedger />} />
+                  <Route path="/store/material-trace" element={<StoreItemLifecycle />} />
+                  <Route path="/store/material-trace/:itemId" element={<StoreItemLifecycle />} />
+                  <Route path="/store/low-stock" element={<LowStockQueue />} />
+                  <Route path="/store/reports" element={<StoreReports />} />
+                  <Route path="/store/settings" element={<StoreSettings />} />
                   {process.env.NODE_ENV !== 'production' && (
                     <Route path="/development/status" element={<DevelopmentStatus />} />
                   )}

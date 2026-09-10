@@ -150,6 +150,68 @@ export interface ImportRow {
 
 export const REQUIRED_IMPORT_COLUMNS = ['itemCode', 'name', 'itemType', 'uomCode'] as const;
 
+// Production Flow types (Previous → Current → Next)
+export interface ProductionFlowItemSummary {
+  id: string;
+  itemCode: string;
+  name: string;
+  itemType: string;
+  wireSizeMm?: number | null;
+  diameterMm?: number | null;
+  thicknessMm?: number | null;
+  widthMm?: number | null;
+  lengthPerPiece?: number | null;
+  baseUomId?: string | null;
+  baseUomName?: string | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  sku?: string | null;
+  barcode?: string | null;
+}
+
+export interface ProductionFlowFullItem extends ProductionFlowItemSummary {
+  status: string;
+  weightPerPiece?: number | null;
+  weightPerMeter?: number | null;
+  piecesPerKg?: number | null;
+  routeType?: string | null;
+  routeTypeId?: string | null;
+  routeTypeName?: string | null;
+  processes?: Array<{ sequence: number; name: string }>;
+  finalProduct?: string | null;
+  packingNextStep?: string | null;
+}
+
+export interface ProductionFlowRouteStage {
+  stageOrder: number;
+  stageName: string;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  itemType: string;
+  departmentName?: string | null;
+  wireSizeMm?: number | null;
+  thicknessMm?: number | null;
+  widthMm?: number | null;
+  baseUomName?: string | null;
+  isCurrent: boolean;
+}
+
+export interface ProductionFlowResponse {
+  previous: ProductionFlowItemSummary | null;
+  current: ProductionFlowFullItem;
+  currentOperation: string | null;
+  next: {
+    items: ProductionFlowItemSummary[];
+    operationName: string | null;
+  };
+  fullRoute: ProductionFlowRouteStage[];
+}
+
 export const IMPORT_COLUMNS = [
   'itemCode', 'name', 'sku', 'shortName', 'itemType', 'uomCode', 'categoryName',
   'divisionCodeOrName', 'sectionCodeOrName', 'departmentCodeOrName', 'wireSizeMm',

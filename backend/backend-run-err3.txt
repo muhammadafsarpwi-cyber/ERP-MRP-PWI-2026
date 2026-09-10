@@ -1,0 +1,70 @@
+[31m[Nest] 14396  - [39m10/09/2026, 9:26:31 pm [31m  ERROR[39m [38;5;3m[SupabaseAuthService] [39m[31mSUPABASE_JWT_SECRET appears to be a JWT token (anon key), not the HS256 signing secret. Set it to the JWT Secret from Supabase Dashboard > Settings > API > JWT Secret. Falling back to Supabase API for token verification.[39m
+[31m[Nest] 14396  - [39m10/09/2026, 10:04:59 pm [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mConnection terminated unexpectedly[39m
+QueryFailedError: Connection terminated unexpectedly
+    at PostgresQueryRunner.query (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\driver\postgres\PostgresQueryRunner.js:216:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async SelectQueryBuilder.loadRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2220:25)
+    at async SelectQueryBuilder.executeEntitiesAndRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2059:30)
+    at async SelectQueryBuilder.getManyAndCount (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:828:36)
+    at async ItemService.findAll (D:\ERP-MRP-PWI-2026\backend\dist\modules\item\services\item.service.js:420:31)
+    at async ItemController.findAll (D:\ERP-MRP-PWI-2026\backend\dist\modules\item\controllers\item.controller.js:34:24)
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[31m[Nest] 14396  - [39m10/09/2026, 10:29:38 pm [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31minvalid input syntax for type uuid: "test-id"[39m
+QueryFailedError: invalid input syntax for type uuid: "test-id"
+    at PostgresQueryRunner.query (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\driver\postgres\PostgresQueryRunner.js:216:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async DataSource.query (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\data-source\DataSource.js:353:20)
+    at async Promise.all (index 1)
+    at async StoreMaterialTraceService.getItemLifecycle (D:\ERP-MRP-PWI-2026\backend\dist\modules\store\services\store-material-trace.service.js:44:223)
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[31m[Nest] 14396  - [39m10/09/2026, 11:15:35 pm [31m  ERROR[39m [38;5;3m[ReplenishmentService] [39m[31mReplenishment check failed store=3b6b5628-859c-4df0-aab7-a69fd953bdd7 item=1c53e9a9-b020-4d3a-bcd4-67ab8b50ef6f: column pr.cancelled_at does not exist[39m
+[31m[Nest] 14396  - [39m10/09/2026, 11:16:37 pm [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31mduplicate key value violates unique constraint "material_requests_company_id_request_number_key"[39m
+QueryFailedError: duplicate key value violates unique constraint "material_requests_company_id_request_number_key"
+    at PostgresQueryRunner.query (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\driver\postgres\PostgresQueryRunner.js:216:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async InsertQueryBuilder.execute (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\InsertQueryBuilder.js:106:33)
+    at async SubjectExecutor.executeInsertOperations (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\persistence\SubjectExecutor.js:260:42)
+    at async SubjectExecutor.execute (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\persistence\SubjectExecutor.js:92:9)
+    at async EntityPersistExecutor.execute (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\persistence\EntityPersistExecutor.js:140:21)
+    at async StoreService.createMaterialRequest (D:\ERP-MRP-PWI-2026\backend\dist\modules\store\services\store.service.js:193:23)
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[31m[Nest] 14396  - [39m10/09/2026, 11:16:39 pm [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31minvalid input syntax for type uuid: "undefined"[39m
+QueryFailedError: invalid input syntax for type uuid: "undefined"
+    at PostgresQueryRunner.query (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\driver\postgres\PostgresQueryRunner.js:216:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async SelectQueryBuilder.loadRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2220:25)
+    at async SelectQueryBuilder.getRawMany (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:624:29)
+    at async SelectQueryBuilder.executeEntitiesAndRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2007:26)
+    at async SelectQueryBuilder.getRawAndEntities (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:662:29)
+    at async SelectQueryBuilder.getOne (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:689:25)
+    at async StoreService.findMaterialRequestById (D:\ERP-MRP-PWI-2026\backend\dist\modules\store\services\store.service.js:148:25)
+    at async StoreService.submitMaterialRequest (D:\ERP-MRP-PWI-2026\backend\dist\modules\store\services\store.service.js:236:25)
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+[31m[Nest] 14396  - [39m10/09/2026, 11:16:41 pm [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31minvalid input syntax for type uuid: "undefined"[39m
+QueryFailedError: invalid input syntax for type uuid: "undefined"
+    at PostgresQueryRunner.query (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\driver\postgres\PostgresQueryRunner.js:216:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async SelectQueryBuilder.loadRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2220:25)
+    at async SelectQueryBuilder.getRawMany (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:624:29)
+    at async SelectQueryBuilder.executeEntitiesAndRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2007:26)
+    at async SelectQueryBuilder.getRawAndEntities (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:662:29)
+    at async SelectQueryBuilder.getOne (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:689:25)
+    at async StoreService.findMaterialRequestById (D:\ERP-MRP-PWI-2026\backend\dist\modules\store\services\store.service.js:148:25)
+    at async StoreService.approveMaterialRequest (D:\ERP-MRP-PWI-2026\backend\dist\modules\store\services\store.service.js:248:25)
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+[31m[Nest] 14396  - [39m10/09/2026, 11:16:43 pm [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39m[31minvalid input syntax for type uuid: "undefined"[39m
+QueryFailedError: invalid input syntax for type uuid: "undefined"
+    at PostgresQueryRunner.query (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\driver\postgres\PostgresQueryRunner.js:216:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async SelectQueryBuilder.loadRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2220:25)
+    at async SelectQueryBuilder.getRawMany (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:624:29)
+    at async SelectQueryBuilder.executeEntitiesAndRawResults (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:2007:26)
+    at async SelectQueryBuilder.getRawAndEntities (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:662:29)
+    at async SelectQueryBuilder.getOne (D:\ERP-MRP-PWI-2026\backend\node_modules\typeorm\query-builder\SelectQueryBuilder.js:689:25)
+    at async StoreService.findMaterialRequestById (D:\ERP-MRP-PWI-2026\backend\dist\modules\store\services\store.service.js:148:25)
+    at async StoreService.gmApproveMaterialRequest (D:\ERP-MRP-PWI-2026\backend\dist\modules\store\services\store.service.js:262:25)
+    at async D:\ERP-MRP-PWI-2026\backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+[31m[Nest] 14396  - [39m10/09/2026, 11:17:35 pm [31m  ERROR[39m [38;5;3m[ReplenishmentService] [39m[31mReplenishment check failed store=3b6b5628-859c-4df0-aab7-a69fd953bdd7 item=1c53e9a9-b020-4d3a-bcd4-67ab8b50ef6f: column pr.cancelled_at does not exist[39m

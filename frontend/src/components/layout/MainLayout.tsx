@@ -9,6 +9,9 @@ import EmailCommunicationIcon from './EmailCommunicationIcon';
 import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
 import ProfileMenu from './ProfileMenu';
 import './sidebar-nav.css';
+import './gradientLoadingBar.css';
+import GradientLoadingBar from './GradientLoadingBar';
+import { useLoadingStore } from '../../store/loadingStore';
 import { useThemeStore } from '../../theme/themeStore';
 import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from './headerActionsStore';
@@ -22,6 +25,7 @@ import {
   isNavGroup,
   resolveNavMeta,
   resolveNavActiveKeys,
+  navPathForKey,
 } from './navigationConfig';
 import type { NavColorToken } from './navigationConfig';
 
@@ -144,6 +148,18 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       })
       .catch(() => {});
   }, [user?.defaultCompanyId]);
+
+  // Global top loading bar — brief pulse on every route change (real API
+  // traffic is tracked automatically by the ApiService request/response
+  // interceptors against the same loading store).
+  React.useEffect(() => {
+    const { begin, end } = useLoadingStore.getState();
+    begin();
+    const pulseTimer = window.setTimeout(() => {
+      end();
+    }, 600);
+    return () => window.clearTimeout(pulseTimer);
+  }, [location.pathname]);
 
   const effectiveCan = React.useCallback((key: string) => {
     if (!isLoaded) return true;
@@ -277,7 +293,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   const handleMenuClick = (info: { key: string }) => {
     setMobileOpen(false);
-    navigate(info.key);
+    navigate(navPathForKey(info.key));
   };
 
   /**
@@ -529,6 +545,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               </div>
             )}
           </div>
+          <GradientLoadingBar />
         </Header>
         <Content
           className="erp-app-content"

@@ -55,6 +55,7 @@ export class PermissionMatrixService {
     qc: 'Quality Control',
     notifications: 'Notifications',
     communication: 'Communication',
+    store: 'Store Department',
   };
 
   private readonly resourceLabels: Record<string, string> = {
@@ -148,6 +149,19 @@ export class PermissionMatrixService {
     whatsapp_settings: 'WhatsApp Settings',
     whatsapp_templates: 'WhatsApp Templates',
     whatsapp_logs: 'WhatsApp Logs',
+    store: 'Stores',
+    store_item: 'Store Items',
+    request: 'Material Requests',
+    issue: 'Material Issues',
+    receive: 'Material Receipts',
+    return_store: 'Material Returns',
+    transfer_store: 'Store Transfers',
+    adjustment_store: 'Store Adjustments',
+    report_store: 'Store Reports',
+    ledger_store: 'Store Ledger',
+    settings_store: 'Store Settings',
+    dashboard_store: 'Store Dashboard',
+    replenishment: 'Store Replenishment',
   };
 
   async getMatrix(): Promise<PermissionMatrixResponse> {
@@ -186,7 +200,7 @@ export class PermissionMatrixService {
     }
 
     const moduleOrder = Array.from(moduleSet).sort((a, b) => {
-      const order = ['organization', 'admin', 'item', 'inventory', 'procurement', 'customer', 'sales', 'manufacturing', 'maintenance', 'finance', 'hr', 'qc', 'notifications', 'communication'];
+      const order = ['organization', 'admin', 'item', 'inventory', 'procurement', 'customer', 'sales', 'manufacturing', 'maintenance', 'finance', 'hr', 'qc', 'notifications', 'communication', 'store'];
       const ai = order.indexOf(a);
       const bi = order.indexOf(b);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);

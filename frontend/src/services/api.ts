@@ -1,9 +1,43 @@
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
+import { useLoadingStore } from '../store/loadingStore';
 
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || `http://${window.location.hostname}:3001/api/v1`;
 
 export { API_BASE_URL };
+
+/**
+ * Renders a user-readable description for a failed API request. Preserves the
+ * backend status/message when one is available and explains pure network
+ * failures (which axios surfaces as a bare "Network Error") so callers can
+ * render actionable text instead of the raw axios message.
+ */
+export function describeRequestError(err: unknown): string {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const axiosErr = err as { response?: { status?: number; data?: any }; message?: string };
+    if (axiosErr.response) {
+      const status = axiosErr.response.status;
+      const raw = axiosErr.response.data;
+      let backendMsg: string | null = null;
+      if (raw && typeof raw === 'object' && 'message' in raw) {
+        backendMsg = Array.isArray(raw.message) ? raw.message.join('; ') : String(raw.message);
+      } else if (raw && typeof raw === 'object' && 'error' in raw) {
+        backendMsg = String((raw as any).error);
+      }
+      return backendMsg
+        ? `Server returned HTTP ${status}: ${backendMsg}`
+        : `Server returned HTTP ${status}`;
+    }
+  }
+  if (err && typeof err === 'object' && 'request' in err && !('response' in err)) {
+    return `Cannot reach the API server at ${API_BASE_URL}. Make sure the backend is running and accessible from this browser, then retry.`;
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg === 'Network Error') {
+    return `Cannot reach the API server at ${API_BASE_URL}. Make sure the backend is running and accessible from this browser, then retry.`;
+  }
+  return msg || 'Unknown request error';
+}
 
 class ApiService {
   private api: AxiosInstance;
@@ -20,8 +54,13 @@ class ApiService {
   }
 
   private setupInterceptors() {
+    const loading = () => useLoadingStore.getState();
+    let activeRequests = 0;
+
     this.api.interceptors.request.use(
       (config) => {
+        activeRequests += 1;
+        loading().begin();
         const token = localStorage.getItem('token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
@@ -47,9 +86,20 @@ class ApiService {
       failedQueue = [];
     };
 
+    const completeRequest = () => {
+      if (activeRequests > 0) {
+        activeRequests -= 1;
+        loading().end();
+      }
+    };
+
     this.api.interceptors.response.use(
-      (response: AxiosResponse) => response,
+      (response: AxiosResponse) => {
+        completeRequest();
+        return response;
+      },
       async (error: AxiosError) => {
+        completeRequest();
         const originalRequest = error.config as any;
         const status = error.response?.status;
         const currentPath = window.location.pathname;

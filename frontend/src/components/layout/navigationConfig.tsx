@@ -3,6 +3,8 @@ import {
   AimOutlined,
   ApartmentOutlined,
   AppstoreOutlined,
+  ArrowDownOutlined,
+  ArrowUpOutlined,
   BarcodeOutlined,
   BankOutlined,
   BarChartOutlined,
@@ -20,6 +22,7 @@ import {
   DatabaseOutlined,
   EditOutlined,
   EnvironmentOutlined,
+  FileTextOutlined,
   FolderOpenOutlined,
   HomeOutlined,
   InboxOutlined,
@@ -41,6 +44,10 @@ import {
   TeamOutlined,
   ToolOutlined,
   UnorderedListOutlined,
+  WarningOutlined,
+  RiseOutlined,
+  FieldTimeOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -64,8 +71,14 @@ export type NavColorToken =
   | 'neutral';
 
 export interface NavItem {
-  /** Route path (leaf) or structural key (group). */
+  /** Unique navigation identity (Menu key). For leaf entries it is normally
+   *  the route path; when the same existing route is exposed from a second
+   *  context (e.g. a Store link into an existing Procurement/Inventory page),
+   *  the key must remain globally unique while `path` carries the real route. */
   key: string;
+  /** Actual destination route. Defaults to `key` when omitted, so existing
+   *  entries keep their current behaviour unchanged. */
+  path?: string;
   label: string;
   icon: ComponentType;
   color: NavColorToken;
@@ -259,6 +272,40 @@ export const NAV_ENTRIES: NavEntry[] = [
   },
 
   {
+    key: 'store',
+    label: 'Store Department',
+    icon: InboxOutlined,
+    color: 'info',
+    permissions: ['store.view'],
+    children: [
+      { key: '/store/dashboard', label: 'Store Dashboard', icon: DashboardOutlined, color: 'info', permissions: ['store.view'] },
+      { key: '/store/master', label: 'Store Master', icon: DatabaseOutlined, color: 'info', permissions: ['store.master.view'] },
+      { key: '/store/items', label: 'Store Items', icon: AppstoreOutlined, color: 'info', permissions: ['store.item.view'] },
+      { key: '/store/my-requests', label: 'My Material Requests', icon: FileTextOutlined, color: 'cyan', permissions: ['store.request.view'] },
+      { key: '/store/material-requests', label: 'Material Requests', icon: FileTextOutlined, color: 'info', permissions: ['store.request.view'] },
+      { key: '/store/pending-approvals', label: 'Pending Approvals', icon: ClockCircleOutlined, color: 'orange', permissions: ['store.request.approve'] },
+      { key: 'store:procurement:requisitions', path: '/procurement/requisitions', label: 'Purchase Requisitions (PR)', icon: EditOutlined, color: 'orange', permissions: ['procurement.requisition.view'] },
+      { key: 'store:procurement:orders', path: '/procurement/orders', label: 'Supplier Orders', icon: ShoppingCartOutlined, color: 'orange', permissions: ['procurement.order.view'] },
+      { key: 'store:procurement:receipts', path: '/procurement/receipts', label: 'Goods Receipts / GRN', icon: InboxOutlined, color: 'orange', permissions: ['procurement.receipt.view'] },
+      { key: '/store/material-receipts', label: 'Material Receipts', icon: ArrowDownOutlined, color: 'success', permissions: ['store.receive.view'] },
+      { key: '/store/material-issues', label: 'Material Issues', icon: ArrowUpOutlined, color: 'warning', permissions: ['store.issue.view'] },
+      { key: '/store/material-returns', label: 'Material Returns', icon: RollbackOutlined, color: 'info', permissions: ['store.return.view'] },
+      { key: '/store/transfers', label: 'Store Transfers', icon: SwapOutlined, color: 'violet', permissions: ['store.transfer.view'] },
+      { key: '/store/adjustments', label: 'Stock Adjustments', icon: EditOutlined, color: 'purple', permissions: ['store.adjustment.view'] },
+      { key: '/store/opening-stock', label: 'Opening Stock', icon: PlusOutlined, color: 'success', permissions: ['store.view'] },
+      { key: 'store:inventory:reservations', path: '/inventory/reservations', label: 'Reservations', icon: SafetyCertificateOutlined, color: 'indigo', permissions: ['inventory.reservation.view'] },
+      { key: '/store/stock-balance', label: 'Store Stock', icon: DatabaseOutlined, color: 'info', permissions: ['store.item.view'] },
+      { key: '/store/ledger', label: 'Store Item Ledger', icon: DatabaseOutlined, color: 'cyan', permissions: ['store.view'] },
+      { key: '/store/material-trace', label: 'Material Lifecycle Trace', icon: HistoryOutlined, color: 'cyan', permissions: ['store.item.view'] },
+      { key: 'store:barcode:scan', path: '/barcode-management/scan', label: 'Barcode / Item Scan', icon: ScanOutlined, color: 'success', permissions: ['item.view'] },
+      { key: '/store/low-stock', label: 'Low Stock / Reorder Queue', icon: WarningOutlined, color: 'orange', permissions: ['store.view'] },
+      { key: '/store/reports', label: 'Reports', icon: BarChartOutlined, color: 'violet', permissions: ['store.reports.view'] },
+      { key: 'store:reports:inventory', path: '/inventory/reports', label: 'Store Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['inventory.reports.view'] },
+      { key: '/store/settings', label: 'Store Settings', icon: SettingOutlined, color: 'neutral', permissions: ['store.settings.view'] },
+    ],
+  },
+
+  {
     key: 'production',
     label: 'Production',
     icon: BuildOutlined,
@@ -411,6 +458,7 @@ const NAV_DETAIL_PATTERNS: Array<{ pattern: RegExp; key: string }> = [
   { pattern: /^\/production\/machines\//, key: '/master-data/machines' },
   { pattern: /^\/maintenance\/job-cards\//, key: '/maintenance/job-cards' },
   { pattern: /^\/barcode-management\//, key: '/barcode-management' },
+  { pattern: /^\/store\/material-trace\//, key: '/store/material-trace' },
 ];
 
 export interface ResolvedNavMeta {
@@ -466,6 +514,16 @@ export function canonicalQueueKey(path: string): string {
   if (status) return `${base}?status=${status}`;
   return base;
 }
+
+/**
+ * Resolves the actual destination route for a navigation key. Leaf keys that
+ * are also the route path map to themselves; keys with an explicit `path`
+ * (Store cross-links into existing Procurement/Inventory/Barcode pages)
+ * map to that path. Used by the layout so clicking a Store alias navigates to
+ * the real page while the Menu key stays globally unique.
+ */
+export const navPathForKey = (key: string): string =>
+  getNavItemByKey(key)?.path ?? key;
 
 /**
  * Resolves a route path to its canonical navigation entry (label, icon,

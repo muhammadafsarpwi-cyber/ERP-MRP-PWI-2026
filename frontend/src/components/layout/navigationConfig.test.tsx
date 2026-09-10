@@ -53,6 +53,22 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'maintenance.team.view',
   'maintenance.category.view', 'maintenance.pm.view',
   'maintenance.reports.view',
+  // store department — 20260912000000_erp_00052 + 20260916120000_erp_00055
+  'store.view', 'store.create', 'store.update', 'store.delete',
+  'store.master.view', 'store.master.edit',
+  'store.item.view', 'store.item.create', 'store.item.update',
+  'store.request.view', 'store.request.create', 'store.request.submit',
+  'store.request.approve', 'store.request.reject', 'store.request.gm_approve',
+  'store.request.convert', 'store.request.acknowledge',
+  'store.issue.view', 'store.issue.create', 'store.issue.post', 'store.issue.cancel',
+  'store.receive.view', 'store.receive.create', 'store.receive.post',
+  'store.return.view', 'store.return.create', 'store.return.post',
+  'store.transfer.view', 'store.adjustment.view',
+  'store.reports.view', 'store.report.view', 'store.ledger.view',
+  'store.settings.view', 'store.settings.edit',
+  'store.eta.view', 'store.eta.update',
+  'store.replenishment.view', 'store.replenishment.run',
+  'store.replenishment.create', 'store.replenishment.override', 'store.replenishment.convert',
   // finance, HR, QC, communication, notifications
   'finance.account.view', 'finance.journal.view', 'finance.report.trial_balance',
   'hr.employee.view', 'hr.attendance.view', 'hr.leave.view',
@@ -104,6 +120,13 @@ const DISCOVERED_ROUTES: string[] = [
   '/barcode-management', '/barcode-management/scan', '/barcode-management/items',
   '/barcode-management/customers', '/barcode-management/machines', '/barcode-management/warehouses',
   '/barcode-management/employees', '/barcode-management/production', '/barcode-management/job-cards',
+  // store department — StoreDashboard / StoreManagement / requests / issues / receipts / returns / transfers / adjustments / segments
+  '/store/dashboard', '/store/master', '/store/items',
+  '/store/my-requests', '/store/material-requests', '/store/pending-approvals',
+  '/store/material-issues', '/store/material-receipts', '/store/material-returns',
+  '/store/transfers', '/store/adjustments', '/store/opening-stock',
+  '/store/stock-balance', '/store/ledger', '/store/material-trace',
+  '/store/low-stock', '/store/reports', '/store/settings',
 ];
 
 /** Routes that redirect or render inside a parent entry (not in the menu). */

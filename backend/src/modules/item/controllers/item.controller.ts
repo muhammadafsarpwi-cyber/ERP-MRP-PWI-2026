@@ -176,6 +176,26 @@ export class ItemController {
     return { success: true, ...result };
   }
 
+  @Get(':id/production-flow')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.view')
+  @ApiOperation({ summary: 'Get production flow (Previous → Current → Next) for an item' })
+  @ApiParam({ name: 'id' })
+  async getProductionFlow(@Param('id') id: string) {
+    const result = await this.itemService.getProductionFlow(id);
+    return { success: true, data: result };
+  }
+
+  @Get(':id/qr')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.view')
+  @ApiOperation({ summary: 'Generate QR code for an item' })
+  @ApiParam({ name: 'id' })
+  async getQrCode(@Param('id') id: string) {
+    const result = await this.itemService.getQrCode(id);
+    return { success: true, data: result };
+  }
+
   @Get(':id/conversions')
   @UseGuards(PermissionGuard)
   @RequirePermission('item.view')

@@ -1,0 +1,75 @@
+.erp-draggable-modal {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.erp-draggable-modal .ant-modal {
+  top: 0 !important;
+  padding-bottom: 0;
+  width: 100% !important;
+  max-width: 100%;
+  margin: 0 auto;
+  vertical-align: middle;
+}
+
+.erp-draggable-modal .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  max-height: 100%;
+}
+
+.erp-draggable-modal .ant-modal-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 16px;
+}
+
+.erp-draggable-modal .ant-modal-header {
+  flex: 0 0 auto;
+  cursor: move;
+  user-select: none;
+  padding-inline: 16px;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--theme-border, rgba(128, 128, 128, 0.2));
+  margin-bottom: 0;
+}
+
+.erp-draggable-modal .ant-modal-header .ant-modal-title {
+  cursor: move;
+}
+
+.erp-draggable-modal .ant-modal-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--theme-border, rgba(128, 128, 128, 0.2));
+  padding: 10px 16px;
+}
+
+.erp-draggable-modal .ant-modal-title-text {
+  min-width: 0;
+}
+
+.erp-draggable-modal .ant-modal-title-extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 28px;
+}
+
+.erp-draggable-modal-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 10;
+  touch-action: none;
+  background: radial-gradient(circle at 100% 100%, transparent 70%, rgba(120, 120, 120, 0.55) 100%);
+}
+
+.erp-draggable-modal-resize-handle:hover {
+  background: radial-gradient(circle at 100% 100%, transparent 60%, var(--theme-accent, #1677ff) 100%);
+}

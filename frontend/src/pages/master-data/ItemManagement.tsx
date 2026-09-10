@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-  Alert, App, Badge, Button, Card, Col, Descriptions, Drawer, Dropdown, Form, Grid, Input,
+  Alert, App, Badge, Button, Card, Col, Descriptions, Dropdown, Form, Grid, Input,
   InputNumber, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import {
@@ -15,7 +15,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import { formatDimension } from '../../utils/numberFormat';
-import { PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable, BarcodeScanner, BarcodePrint } from '../../components/shared';
+import { PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable, BarcodeScanner, BarcodePrint, DraggableResizableModal } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
 import JsBarcode from 'jsbarcode';
 import {
@@ -26,6 +26,7 @@ import {
   type ImportRow,
 } from './items/itemTypes';
 import InputMaterialSelect from './items/InputMaterialSelect';
+import ProductionFlowCard from './items/ProductionFlowCard';
 
 const { Text } = Typography;
 
@@ -166,6 +167,7 @@ const ItemManagement: React.FC = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailItem, setDetailItem] = useState<Item | null>(null);
+  const [detailTab, setDetailTab] = useState('overview');
   const [conversions, setConversions] = useState<ConversionInfo | null>(null);
   const [registryBarcodes, setRegistryBarcodes] = useState<any[]>([]);
 
@@ -195,8 +197,6 @@ const ItemManagement: React.FC = () => {
   const location = useLocation();
 
   // Item History state
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyItem, setHistoryItem] = useState<Item | null>(null);
   const [stockLedger, setStockLedger] = useState<any[]>([]);
   const [stockLedgerTotal, setStockLedgerTotal] = useState(0);
   const [inventoryBalances, setInventoryBalances] = useState<any[]>([]);
@@ -403,19 +403,27 @@ const ItemManagement: React.FC = () => {
     [page, pageSize, sortField, sortOrder, search, fDivision, fSection, fDepartment, fCategory, fItemType, fRouteType, fStatus],
   );
 
+  // Normalize UOM data: ensure baseUomName is always derived from the nested baseUom relation
+  const normalizeItem = useCallback((item: any): Item => {
+    if (item && item.baseUom && !item.baseUomName) {
+      item.baseUomName = item.baseUom.name ?? item.baseUom.code ?? null;
+    }
+    return item as Item;
+  }, []);
+
   const fetchItems = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', buildParams());
-      setItems(response.data || []);
+      setItems((response.data || []).map(normalizeItem));
       setTotal(response.total || 0);
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load items. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [buildParams]);
+  }, [buildParams, normalizeItem]);
 
   const resolveCompanyId = useCallback(async (): Promise<string | null> => {
     try {
@@ -799,6 +807,7 @@ const ItemManagement: React.FC = () => {
     setDetailOpen(true);
     setDetailLoading(true);
     setDetailItem(null);
+    setDetailTab('overview');
     setConversions(null);
     setRegistryBarcodes([]);
     try {
@@ -810,7 +819,7 @@ const ItemManagement: React.FC = () => {
         apiService.get<{ success: boolean; data: any[]; total: number }>(`/barcode-management?entityType=ITEM&limit=1000`)
           .catch(() => null),
       ]);
-      setDetailItem(itemRes.data);
+      setDetailItem(normalizeItem(itemRes.data));
       setConversions(convRes?.data ?? null);
       const itemBarcodes = Array.isArray(barcodeRes?.data) ? barcodeRes.data.filter((b: any) => b.entityId === record.id) : [];
       setRegistryBarcodes(itemBarcodes);
@@ -837,9 +846,7 @@ const ItemManagement: React.FC = () => {
     }
   };
 
-  const openHistory = async (record: Item) => {
-    setHistoryOpen(true);
-    setHistoryItem(record);
+  const loadHistoryData = async (record: Item) => {
     setHistoryLoading(true);
     setHistoryTab('inventory');
     setHistoryErrors({});
@@ -873,6 +880,32 @@ const ItemManagement: React.FC = () => {
 
     setHistoryErrors(errors);
     setHistoryLoading(false);
+  };
+
+  const handleDetailTabChange = (key: string) => {
+    setDetailTab(key);
+    if (key === 'history' && detailItem) {
+      void loadHistoryData(detailItem);
+    }
+  };
+
+  const openHistory = async (record: Item) => {
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailItem(null);
+    setDetailTab('history');
+    setConversions(null);
+    setRegistryBarcodes([]);
+    setHistoryLoading(true);
+
+    const [detailRes] = await Promise.allSettled([
+      apiService.get<{ data: Item }>(`/master-data/items/${record.id}`),
+    ]);
+
+    const item = detailRes.status === 'fulfilled' ? normalizeItem(detailRes.value.data) : record;
+    setDetailItem(item);
+    setDetailLoading(false);
+    await loadHistoryData(item);
   };
 
   const handleBarcodeScan = async (barcode: string) => {
@@ -1465,12 +1498,17 @@ const ItemManagement: React.FC = () => {
       },
     },
     {
-      title: 'Actions', key: 'actions', width: 140, fixed: 'right',
+      title: 'Actions', key: 'actions', width: 180, fixed: 'right',
       render: (_: unknown, record: Item) => (
         <Space size={0}>
           {can('item.view') && (
             <Tooltip title="View">
               <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} style={{ color: 'var(--theme-accent, var(--theme-primary))' }} aria-label={`View ${record.itemCode}`} />
+            </Tooltip>
+          )}
+          {can('item.view') && (
+            <Tooltip title="History">
+              <Button type="text" size="small" icon={<HistoryOutlined />} onClick={() => openHistory(record)} aria-label={`History for ${record.itemCode}`} />
             </Tooltip>
           )}
           {can('item_barcode.view') && (
@@ -1522,7 +1560,7 @@ const ItemManagement: React.FC = () => {
   ];
 
   const detailDesc = (itemsSpec: Array<{ label: string; children: React.ReactNode }>) => (
-    <Descriptions size="small" column={2} labelStyle={{ width: 150 }}>
+    <Descriptions size="small" column={2} styles={{ label: { width: 150 } }}>
       {itemsSpec.map((s) => (
         <Descriptions.Item key={s.label} label={s.label}>
           {s.children ?? <Text type="secondary">—</Text>}
@@ -1780,11 +1818,12 @@ const ItemManagement: React.FC = () => {
         }}
       />
 
-      <Drawer
+      <DraggableResizableModal
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
-        width={Math.min(720, typeof window !== 'undefined' ? window.innerWidth - 40 : 680)}
-        styles={{ header: { borderBottom: '1px solid var(--theme-border)' } }}
+        onCancel={() => setDetailOpen(false)}
+        width={980}
+        height={620}
+        destroyOnHidden
         title={
           detailItem ? (
             <Space wrap>
@@ -1801,7 +1840,7 @@ const ItemManagement: React.FC = () => {
             <Space wrap>
               {can('item.view') && (
                 <Tooltip title="View History">
-                  <Button icon={<HistoryOutlined />} onClick={() => { setDetailOpen(false); openHistory(detailItem); }}>
+                  <Button icon={<HistoryOutlined />} onClick={() => { setDetailTab('history'); loadHistoryData(detailItem); }}>
                     History
                   </Button>
                 </Tooltip>
@@ -1817,518 +1856,391 @@ const ItemManagement: React.FC = () => {
             </Space>
           )
         }
+        footer={
+          <Space>
+            <Button onClick={() => setDetailOpen(false)}>Close</Button>
+          </Space>
+        }
       >
         {detailLoading || !detailItem ? (
           <LoadingState tip="Loading item details…" />
         ) : (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Card size="small" title="Basic Information" style={{ borderRadius: 8 }}>
-              {detailDesc([
-                { label: 'Item Code', children: <Text strong>{detailItem.itemCode}</Text> },
-                { label: 'Item Name', children: txt(detailItem.name) },
-                { label: 'SKU', children: txt(detailItem.sku) },
-                { label: 'Short Name', children: txt(detailItem.shortName) },
-                { label: 'Item Type', children: txt(ITEM_TYPES.find((t) => t.value === detailItem.itemType)?.label || detailItem.itemType) },
-                { label: 'Category', children: txt(detailItem.categoryName) },
-                {
-                  label: 'Status',
-                  children: <StatusBadge status={detailItem.status} colorMap={statusColorMap} />,
-                },
-                { label: 'Barcode', children: txt(detailItem.barcode || registryBarcodes[0]?.barcodeValue) },
-                ...(detailItem.description ? [{ label: 'Description', children: <Text style={{ fontSize: 13 }}>{detailItem.description}</Text> }] : []),
-              ])}
-            </Card>
+          <Tabs
+            activeKey={detailTab}
+            onChange={handleDetailTabChange}
+            items={[
+              {
+                key: 'overview',
+                label: <Space><EyeOutlined />Overview</Space>,
+                children: (
+                  <>
+                    <Card size="small" title="Basic Information" style={{ borderRadius: 8 }}>
+                      {detailDesc([
+                        { label: 'Item Code', children: <Text strong>{detailItem.itemCode}</Text> },
+                        { label: 'Item Name', children: txt(detailItem.name) },
+                        { label: 'SKU', children: txt(detailItem.sku) },
+                        { label: 'Short Name', children: txt(detailItem.shortName) },
+                        { label: 'Item Type', children: txt(ITEM_TYPES.find((t) => t.value === detailItem.itemType)?.label || detailItem.itemType) },
+                        { label: 'Category', children: txt(detailItem.categoryName) },
+                        {
+                          label: 'Status',
+                          children: <StatusBadge status={detailItem.status} colorMap={statusColorMap} />,
+                        },
+                        { label: 'Barcode', children: txt(detailItem.barcode || registryBarcodes[0]?.barcodeValue) },
+                        ...(detailItem.description ? [{ label: 'Description', children: <Text style={{ fontSize: 13 }}>{detailItem.description}</Text> }] : []),
+                      ])}
+                    </Card>
 
-            <Card size="small" title="Organization" style={{ borderRadius: 8 }}>
-              {detailDesc([
-                { label: 'Division', children: txt(divisionName(detailItem)) },
-                { label: 'Section', children: txt(sectionName(detailItem)) },
-                { label: 'Department', children: txt(departmentName(detailItem)) },
-              ])}
-            </Card>
+                    <Card size="small" title="Identification & Tracking" style={{ borderRadius: 8, marginTop: 12 }}>
+                      {detailDesc([
+                        { label: 'Manufacturer', children: txt(detailItem.manufacturerPartNumber) },
+                        { label: 'Brand', children: txt(detailItem.brand) },
+                        { label: 'Model', children: txt(detailItem.model) },
+                      ])}
+                    </Card>
 
-            {/* DRAWER: PRODUCTION SPECIFICATIONS */}
-            <Card size="small" title="Production Specifications" style={{ borderRadius: 8, marginBottom: 12 }}>
-              {detailDesc([
-                { label: 'Wire Size (mm)', children: detailItem.wireSizeMm != null ? formatDimension(detailItem.wireSizeMm) : null },
-                { label: 'Diameter (mm)', children: detailItem.diameterMm != null ? formatDimension(detailItem.diameterMm) : null },
-                { label: 'Thickness (mm)', children: detailItem.thicknessMm != null ? formatDimension(detailItem.thicknessMm) : null },
-                { label: 'Width (mm)', children: detailItem.widthMm != null ? formatDimension(detailItem.widthMm) : null },
-                { label: 'Length', children: detailItem.lengthPerPiece != null ? `${formatDimension(detailItem.lengthPerPiece)} ${detailItem.baseUomName || ''}`.trim() : null },
-              ])}
-            </Card>
+                    <Card size="small" title="Audit" style={{ borderRadius: 8, marginTop: 12 }}>
+                      {detailDesc([
+                        { label: 'Created At', children: txt(detailItem.createdAt ? new Date(detailItem.createdAt).toLocaleString() : null) },
+                        { label: 'Updated At', children: txt(detailItem.updatedAt ? new Date(detailItem.updatedAt).toLocaleString() : null) },
+                        { label: 'Remarks', children: txt(detailItem.notes) },
+                      ])}
+                    </Card>
+                  </>
+                ),
+              },
+              {
+                key: 'organization',
+                label: <Space><ApartmentOutlined />Organization</Space>,
+                children: (
+                  <Card size="small" title="Organization" style={{ borderRadius: 8 }}>
+                    {detailDesc([
+                      { label: 'Division', children: txt(divisionName(detailItem)) },
+                      { label: 'Section', children: txt(sectionName(detailItem)) },
+                      { label: 'Department', children: txt(departmentName(detailItem)) },
+                    ])}
+                  </Card>
+                ),
+              },
+              {
+                key: 'specifications',
+                label: <Space><ProjectOutlined />Specifications</Space>,
+                children: (
+                  <>
+                    <Card size="small" title="Production Specifications" style={{ borderRadius: 8 }}>
+                      {detailDesc([
+                        { label: 'Wire Size (mm)', children: detailItem.wireSizeMm != null ? formatDimension(detailItem.wireSizeMm) : null },
+                        { label: 'Diameter (mm)', children: detailItem.diameterMm != null ? formatDimension(detailItem.diameterMm) : null },
+                        { label: 'Thickness (mm)', children: detailItem.thicknessMm != null ? formatDimension(detailItem.thicknessMm) : null },
+                        { label: 'Width (mm)', children: detailItem.widthMm != null ? formatDimension(detailItem.widthMm) : null },
+                        { label: 'Length', children: detailItem.lengthPerPiece != null ? `${formatDimension(detailItem.lengthPerPiece)} ${detailItem.baseUomName || ''}`.trim() : null },
+                      ])}
+                    </Card>
 
-            {/* DRAWER: PRODUCTION ROUTE & FLOW */}
-            <Card size="small" title="Production Route / Process" style={{ borderRadius: 8 }}>
-              {detailDesc([
-                {
-                  label: 'Route Type',
-                  children: routeTypeLabel(detailItem) ? (
-                    <Tag color={routeColorMap[detailItem.routeType ?? ''] ?? 'default'} style={{ marginInlineEnd: 0 }}>
-                      {routeTypeLabel(detailItem)}
-                    </Tag>
-                  ) : null,
-                },
-                { label: 'Final Product', children: txt(detailItem.finalProduct) },
-                { label: 'Packing / Next Step', children: txt(detailItem.packingNextStep) },
-                {
-                  label: 'Input Material',
-                  children: detailItem.productionInItem
-                    ? (() => {
-                        const pi = detailItem.productionInItem;
-                        const typeLabel = (pi.itemType && ITEM_TYPES.find((t) => t.value === pi.itemType)?.label) || pi.itemType || null;
-                        const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
-                        const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
-                        return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
-                      })()
-                    : null,
-                },
-                {
-                  label: 'Output Product',
-                  children: detailItem.productionOutItem
-                    ? `${detailItem.productionOutItem.itemCode} — ${detailItem.productionOutItem.name}`
-                    : detailItem.productionInItem
-                      ? `${detailItem.itemCode} — ${detailItem.name} (self)` : null,
-                },
-              ])}
-
-              {/* Repeatable Process Sequence Display in Drawer */}
-              {(() => {
-                const drawerProcs = (detailItem.processes && detailItem.processes.length > 0)
-                  ? detailItem.processes
-                  : [
-                      detailItem.process1 ? { sequence: 1, name: detailItem.process1 } : null,
-                      detailItem.process2 ? { sequence: 2, name: detailItem.process2 } : null,
-                      detailItem.process3 ? { sequence: 3, name: detailItem.process3 } : null,
-                      detailItem.process4 ? { sequence: 4, name: detailItem.process4 } : null,
-                      detailItem.process5 ? { sequence: 5, name: detailItem.process5 } : null,
-                      detailItem.process6 ? { sequence: 6, name: detailItem.process6 } : null,
-                    ].filter(Boolean) as { sequence: number; name: string }[];
-
-                if (drawerProcs.length === 0) return null;
-
-                return (
-                  <div style={{ marginTop: 10, marginBottom: 12 }}>
-                    <Text strong style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted)', display: 'block', marginBottom: 6 }}>
-                      Configured Operations Sequence ({drawerProcs.length})
-                    </Text>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {drawerProcs.map((proc, idx) => (
-                        <div
-                          key={idx}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '4px 8px',
-                            borderRadius: 4,
-                            background: 'var(--theme-surface-alt, rgba(255,255,255,0.03))',
-                            border: '1px solid var(--theme-border, rgba(255,255,255,0.08))',
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                              fontWeight: 700,
-                              color: 'var(--theme-accent, #0284c7)',
-                              background: 'rgba(2, 132, 199, 0.1)',
-                              padding: '2px 6px',
-                              borderRadius: 3,
-                              border: '1px solid rgba(2, 132, 199, 0.25)',
-                              minWidth: 28,
-                              textAlign: 'center',
-                            }}
-                          >
-                            {String(proc.sequence ?? (idx + 1)).padStart(2, '0')}
-                          </span>
-                          <span style={{ fontSize: 12, fontWeight: 500 }}>{proc.name}</span>
+                    <Card size="small" title="Weight & UOM Conversion" style={{ borderRadius: 8, marginTop: 12 }}>
+                      {detailDesc([
+                        { label: 'Base UOM', children: txt(detailItem.baseUomName) },
+                        {
+                          label: 'Purchase UOM',
+                          children: detailItem.purchaseUomId
+                            ? txt(uoms.find((u) => u.id === detailItem.purchaseUomId)?.name ?? null)
+                            : null,
+                        },
+                        {
+                          label: 'Sales UOM',
+                          children: detailItem.salesUomId
+                            ? txt(uoms.find((u) => u.id === detailItem.salesUomId)?.name ?? null)
+                            : null,
+                        },
+                        { label: 'Weight / Piece', children: detailItem.weightPerPiece != null ? `${Number(detailItem.weightPerPiece)} kg` : null },
+                        { label: 'Pieces / KG', children: detailItem.piecesPerKg != null ? String(Number(detailItem.piecesPerKg)) : null },
+                        { label: 'Weight / Meter', children: detailItem.weightPerMeter != null ? `${Number(detailItem.weightPerMeter)} kg/m` : null },
+                        { label: 'Length / Piece', children: detailItem.lengthPerPiece != null ? `${Number(detailItem.lengthPerPiece)} m` : null },
+                      ])}
+                      {conversions && conversions.supportedConversions.filter((c) => c.available).length > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>Available conversions:</Text>{' '}
+                          {conversions.supportedConversions
+                            .filter((c) => c.available)
+                            .map((c) => (
+                              <Tag key={`${c.from}-${c.to}`} color="blue" style={{ marginInlineEnd: 4 }}>
+                                {c.from} → {c.to}
+                              </Tag>
+                            ))
+                          }
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* TASK #45: Visual Production Flow Pipeline in Drawer */}
-              {(() => {
-                const detailProcesses = (detailItem.processes && detailItem.processes.length > 0)
-                  ? detailItem.processes.map((p) => p.name).filter(Boolean)
-                  : [
-                      detailItem.process1,
-                      detailItem.process2,
-                      detailItem.process3,
-                      detailItem.process4,
-                      detailItem.process5,
-                      detailItem.process6,
-                    ].filter(Boolean) as string[];
-
-                const hasFlow = Boolean(
-                  detailItem.productionInItem ||
-                  detailProcesses.length > 0 ||
-                  detailItem.finalProduct ||
-                  detailItem.wireSizeMm != null ||
-                  detailItem.diameterMm != null
-                );
-
-                if (!hasFlow) return null;
-
-                return (
-                  <div
-                    style={{
-                      marginTop: 12,
-                      padding: '10px 14px',
-                      borderRadius: 8,
-                      background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
-                      border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: 10,
-                        flexWrap: 'wrap',
-                        gap: 6,
-                        borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))',
-                        paddingBottom: 6,
-                      }}
-                    >
-                      <Space
-                        size={6}
-                        style={{
-                          color: 'var(--theme-accent, #0284c7)',
-                          fontWeight: 700,
-                          fontSize: 11,
-                          textTransform: 'uppercase',
-                          letterSpacing: 0.5,
-                        }}
-                      >
-                        <ApartmentOutlined />
-                        <span>Authoritative Production Route & Flow</span>
-                      </Space>
-                      <Space size={6} wrap>
-                        {routeTypeLabel(detailItem) && (
-                          <Tag color="purple" style={{ margin: 0 }}>Route: {routeTypeLabel(detailItem)}</Tag>
-                        )}
-                        {detailItem.wireSizeMm != null && (
-                          <Tag color="gold" style={{ margin: 0 }}>Wire: {formatDimension(detailItem.wireSizeMm)} mm</Tag>
-                        )}
-                        {(detailItem.thicknessMm != null || detailItem.widthMm != null) && (
-                          <Tag color="blue" style={{ margin: 0 }}>
-                            Flattened: {formatDimension(detailItem.thicknessMm)} × {formatDimension(detailItem.widthMm)} mm
-                          </Tag>
-                        )}
-                        {detailItem.departmentId && (
-                          <Tag color="cyan" style={{ margin: 0 }}>
-                            Dept: {departmentName(detailItem) ?? '—'}
-                          </Tag>
-                        )}
-                      </Space>
-                    </div>
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        overflowX: 'auto',
-                        padding: '6px 2px',
-                        gap: 8,
-                      }}
-                    >
-                      {/* Input / Starting Material Node */}
-                      <div
-                        style={{
-                          minWidth: 150,
-                          maxWidth: 210,
-                          flex: '0 0 auto',
-                          background: 'var(--theme-surface, rgba(0, 0, 0, 0.25))',
-                          padding: '8px 10px',
-                          borderRadius: 6,
-                          border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize: 9,
-                            fontWeight: 700,
-                            color: 'var(--theme-text-muted)',
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.5,
-                          }}
-                        >
-                          {detailItem.productionInItem ? 'INPUT MATERIAL' : 'STARTING RAW MATERIAL'}
+                      )}
+                      {(detailItem.barcodes?.length ?? 0) > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>Registered barcodes:</Text>{' '}
+                          {detailItem.barcodes!.filter((b) => b.barcode).map((b) => (
+                            <Tag key={b.id}>{b.barcode}</Tag>
+                          ))}
                         </div>
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            fontSize: 12,
-                            color: 'var(--theme-text)',
-                            marginTop: 2,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {detailItem.productionInItem?.name || detailItem.name}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
-                          <code
-                            style={{
-                              background: 'var(--theme-hover, rgba(255,255,255,0.08))',
-                              color: 'var(--theme-accent, #38bdf8)',
-                              padding: '1px 4px',
-                              borderRadius: 3,
-                              fontSize: 10,
-                            }}
-                          >
-                            {detailItem.productionInItem?.itemCode || detailItem.itemCode}
-                          </code>
-                          {(detailItem.productionInItem?.wireSizeMm != null || (!detailItem.productionInItem && detailItem.wireSizeMm != null)) && (
-                            <span style={{ marginLeft: 4 }}>• {formatDimension(detailItem.productionInItem?.wireSizeMm ?? detailItem.wireSizeMm)} mm</span>
-                          )}
-                        </div>
-                      </div>
+                      )}
+                    </Card>
+                  </>
+                ),
+              },
+              {
+                key: 'route',
+                label: <Space><AppstoreOutlined />Production Route</Space>,
+                children: (
+                  <>
+                    <Card size="small" title="Production Route / Process" style={{ borderRadius: 8 }}>
+                      {detailDesc([
+                        {
+                          label: 'Route Type',
+                          children: routeTypeLabel(detailItem) ? (
+                            <Tag color={routeColorMap[detailItem.routeType ?? ''] ?? 'default'} style={{ marginInlineEnd: 0 }}>
+                              {routeTypeLabel(detailItem)}
+                            </Tag>
+                          ) : null,
+                        },
+                        { label: 'Final Product', children: txt(detailItem.finalProduct) },
+                        { label: 'Packing / Next Step', children: txt(detailItem.packingNextStep) },
+                        {
+                          label: 'Input Material',
+                          children: detailItem.productionInItem
+                            ? (() => {
+                                const pi = detailItem.productionInItem;
+                                const typeLabel = (pi.itemType && ITEM_TYPES.find((t) => t.value === pi.itemType)?.label) || pi.itemType || null;
+                                const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
+                                const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
+                                return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
+                              })()
+                            : null,
+                        },
+                        {
+                          label: 'Output Product',
+                          children: detailItem.productionOutItem
+                            ? `${detailItem.productionOutItem.itemCode} — ${detailItem.productionOutItem.name}`
+                            : detailItem.productionInItem
+                              ? `${detailItem.itemCode} — ${detailItem.name} (self)` : null,
+                        },
+                      ])}
 
-                      {/* Process Steps Sequence (1 to 5) */}
-                      {detailProcesses.length > 0 ? (
-                        detailProcesses.map((pName, pIdx) => (
-                          <React.Fragment key={pIdx}>
-                            <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
-                            <div
-                              style={{
-                                minWidth: 120,
-                                maxWidth: 160,
-                                flex: '0 0 auto',
-                                background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
-                                padding: '6px 8px',
-                                borderRadius: 6,
-                                border: '1px solid rgba(2, 132, 199, 0.3)',
-                                textAlign: 'center',
-                              }}
-                            >
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: 700,
-                                  background: '#0284c7',
-                                  color: '#fff',
-                                  borderRadius: 3,
-                                  padding: '1px 5px',
-                                  display: 'inline-block',
-                                  marginBottom: 2,
-                                }}
-                              >
-                                STEP {pIdx + 1}
-                              </span>
-                              <div
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  color: 'var(--theme-text)',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {pName}
-                              </div>
-                            </div>
-                          </React.Fragment>
-                        ))
-                      ) : (
-                        <>
-                          <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
-                          <div
-                            style={{
-                              minWidth: 120,
-                              flex: '0 0 auto',
-                              background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
-                              padding: '6px 8px',
-                              borderRadius: 6,
-                              border: '1px solid rgba(2, 132, 199, 0.3)',
-                              textAlign: 'center',
-                            }}
-                          >
-                            <span
-                              style={{
-                                fontSize: 9,
-                                fontWeight: 700,
-                                background: '#0284c7',
-                                color: '#fff',
-                                borderRadius: 3,
-                                padding: '1px 5px',
-                                display: 'inline-block',
-                                marginBottom: 2,
-                              }}
-                            >
-                              MANUFACTURING
-                            </span>
-                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)' }}>
-                              {departmentName(detailItem) || 'Production'}
+                      {/* Repeatable Process Sequence Display */}
+                      {(() => {
+                        const drawerProcs = (detailItem.processes && detailItem.processes.length > 0)
+                          ? detailItem.processes
+                          : [
+                              detailItem.process1 ? { sequence: 1, name: detailItem.process1 } : null,
+                              detailItem.process2 ? { sequence: 2, name: detailItem.process2 } : null,
+                              detailItem.process3 ? { sequence: 3, name: detailItem.process3 } : null,
+                              detailItem.process4 ? { sequence: 4, name: detailItem.process4 } : null,
+                              detailItem.process5 ? { sequence: 5, name: detailItem.process5 } : null,
+                              detailItem.process6 ? { sequence: 6, name: detailItem.process6 } : null,
+                            ].filter(Boolean) as { sequence: number; name: string }[];
+
+                        if (drawerProcs.length === 0) return null;
+
+                        return (
+                          <div style={{ marginTop: 10, marginBottom: 12 }}>
+                            <Text strong style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted)', display: 'block', marginBottom: 6 }}>
+                              Configured Operations Sequence ({drawerProcs.length})
+                            </Text>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {drawerProcs.map((proc, idx) => (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    padding: '4px 8px',
+                                    borderRadius: 4,
+                                    background: 'var(--theme-surface-alt, rgba(255,255,255,0.03))',
+                                    border: '1px solid var(--theme-border, rgba(255,255,255,0.08))',
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontFamily: 'monospace',
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      color: 'var(--theme-accent, #0284c7)',
+                                      background: 'rgba(2, 132, 199, 0.1)',
+                                      padding: '2px 6px',
+                                      borderRadius: 3,
+                                      border: '1px solid rgba(2, 132, 199, 0.25)',
+                                      minWidth: 28,
+                                      textAlign: 'center',
+                                    }}
+                                  >
+                                    {String(proc.sequence ?? (idx + 1)).padStart(2, '0')}
+                                  </span>
+                                  <span style={{ fontSize: 12, fontWeight: 500 }}>{proc.name}</span>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                        </>
+                        );
+                      })()}
+
+                      {/* Visual Production Flow Pipeline */}
+                      <ProductionFlowCard itemId={detailItem.id} style={{ marginTop: 12 }} />
+                    </Card>
+
+                    <Card size="small" title="Barcode Identification" style={{ borderRadius: 8, marginTop: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 11 }}>Item Code</Text>
+                          <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.itemCode}</div>
+                        </div>
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 11 }}>SKU</Text>
+                          <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.sku || '—'}</div>
+                        </div>
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 11 }}>Barcode</Text>
+                          {(detailItem.barcode || registryBarcodes[0]?.barcodeValue) ? (
+                            <div style={{ marginTop: 4, overflow: 'visible' }}>
+                              <svg ref={detailBarcodeCallbackRef} style={{ maxWidth: '100%', overflow: 'visible' }} />
+                            </div>
+                          ) : (
+                            <div style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 14, letterSpacing: 1 }}>—</div>
+                          )}
+                        </div>
+                      </div>
+                      {registryBarcodes.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <Text type="secondary" style={{ fontSize: 11 }}>Registry Barcodes ({registryBarcodes.length})</Text>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                            {registryBarcodes.map((b: any) => (
+                              <Tag key={b.id} color={b.isPrimary ? 'green' : 'default'} style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                                {b.barcodeValue}{b.isPrimary ? ' (Primary)' : ''}
+                              </Tag>
+                            ))}
+                          </div>
+                        </div>
                       )}
-
-                      {/* Output / Final Product Node */}
-                      <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
-                      <div
-                        style={{
-                          minWidth: 150,
-                          maxWidth: 220,
-                          flex: '0 0 auto',
-                          background: 'var(--theme-success-soft, rgba(73, 170, 25, 0.12))',
-                          padding: '8px 10px',
-                          borderRadius: 6,
-                          border: '1px solid var(--theme-success, rgba(73, 170, 25, 0.35))',
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize: 9,
-                            fontWeight: 700,
-                            color: 'var(--theme-success, #52c41a)',
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.5,
-                          }}
+                      <div style={{ marginTop: 8 }}>
+                        <Button
+                          size="small"
+                          icon={<PrinterOutlined />}
+                          onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}
                         >
-                          OUTPUT / FINAL PRODUCT
-                        </div>
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            fontSize: 12,
-                            color: 'var(--theme-text)',
-                            marginTop: 2,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {detailItem.finalProduct || detailItem.name}
-                        </div>
-                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', marginTop: 2 }}>
-                          {(detailItem.thicknessMm != null || detailItem.widthMm != null) && (
-                            <div>T: {formatDimension(detailItem.thicknessMm)} × W: {formatDimension(detailItem.widthMm)} mm</div>
-                          )}
-                          {detailItem.packingNextStep && (
-                            <div style={{ color: 'var(--theme-accent, #0284c7)' }}>Next: {detailItem.packingNextStep}</div>
-                          )}
-                        </div>
+                          Print Barcode Label
+                        </Button>
                       </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </Card>
-
-            <Card size="small" title="Weight & UOM Conversion" style={{ borderRadius: 8 }}>
-              {detailDesc([
-                { label: 'Base UOM', children: txt(detailItem.baseUomName) },
-                {
-                  label: 'Purchase UOM',
-                  children: detailItem.purchaseUomId
-                    ? txt(uoms.find((u) => u.id === detailItem.purchaseUomId)?.name ?? null)
-                    : null,
-                },
-                {
-                  label: 'Sales UOM',
-                  children: detailItem.salesUomId
-                    ? txt(uoms.find((u) => u.id === detailItem.salesUomId)?.name ?? null)
-                    : null,
-                },
-                { label: 'Weight / Piece', children: detailItem.weightPerPiece != null ? `${Number(detailItem.weightPerPiece)} kg` : null },
-                { label: 'Pieces / KG', children: detailItem.piecesPerKg != null ? String(Number(detailItem.piecesPerKg)) : null },
-                { label: 'Weight / Meter', children: detailItem.weightPerMeter != null ? `${Number(detailItem.weightPerMeter)} kg/m` : null },
-                { label: 'Length / Piece', children: detailItem.lengthPerPiece != null ? `${Number(detailItem.lengthPerPiece)} m` : null },
-              ])}
-              {conversions && conversions.supportedConversions.filter((c) => c.available).length > 0 && (
-                <div style={{ marginTop: 10 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>Available conversions:</Text>{' '}
-                  {conversions.supportedConversions
-                    .filter((c) => c.available)
-                    .map((c) => (
-                      <Tag key={`${c.from}-${c.to}`} color="blue" style={{ marginInlineEnd: 4 }}>
-                        {c.from} → {c.to}
-                      </Tag>
-                    ))
-                  }
-                </div>
-              )}
-              {(detailItem.barcodes?.length ?? 0) > 0 && (
-                <div style={{ marginTop: 10 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>Registered barcodes:</Text>{' '}
-                  {detailItem.barcodes!.filter((b) => b.barcode).map((b) => (
-                    <Tag key={b.id}>{b.barcode}</Tag>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            <Card size="small" title="Identification & Tracking" style={{ borderRadius: 8 }}>
-              {detailDesc([
-                { label: 'Manufacturer', children: txt(detailItem.manufacturerPartNumber) },
-                { label: 'Brand', children: txt(detailItem.brand) },
-                { label: 'Model', children: txt(detailItem.model) },
-              ])}
-              <div style={{ marginTop: 8, padding: '8px 12px', background: 'var(--theme-surface-alt, rgba(255,255,255,0.03))', borderRadius: 6, border: '1px solid var(--theme-border, rgba(255,255,255,0.08))' }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted)', marginBottom: 6 }}>BARCODE IDENTIFICATION</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Item Code</Text>
-                    <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.itemCode}</div>
-                  </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>SKU</Text>
-                    <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.sku || '—'}</div>
-                  </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Barcode</Text>
-                    {(detailItem.barcode || registryBarcodes[0]?.barcodeValue) ? (
-                      <div style={{ marginTop: 4, overflow: 'visible' }}>
-                        <svg ref={detailBarcodeCallbackRef} style={{ maxWidth: '100%', overflow: 'visible' }} />
-                      </div>
-                    ) : (
-                      <div style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 14, letterSpacing: 1 }}>—</div>
-                    )}
-                  </div>
-                </div>
-                {registryBarcodes.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <Text type="secondary" style={{ fontSize: 11 }}>Registry Barcodes ({registryBarcodes.length})</Text>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                      {registryBarcodes.map((b: any) => (
-                        <Tag key={b.id} color={b.isPrimary ? 'green' : 'default'} style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                          {b.barcodeValue}{b.isPrimary ? ' (Primary)' : ''}
-                        </Tag>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div style={{ marginTop: 8 }}>
-                  <Button
-                    size="small"
-                    icon={<PrinterOutlined />}
-                    onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}
-                  >
-                    Print Barcode Label
-                  </Button>
-                </div>
-              </div>
-            </Card>
-
-            <Card size="small" title="Audit" style={{ borderRadius: 8 }}>
-              {detailDesc([
-                { label: 'Created At', children: txt(detailItem.createdAt ? new Date(detailItem.createdAt).toLocaleString() : null) },
-                { label: 'Updated At', children: txt(detailItem.updatedAt ? new Date(detailItem.updatedAt).toLocaleString() : null) },
-                { label: 'Remarks', children: txt(detailItem.notes) },
-              ])}
-            </Card>
-          </Space>
+                    </Card>
+                  </>
+                ),
+              },
+              {
+                key: 'history',
+                label: <Space><HistoryOutlined />History</Space>,
+                children: historyLoading ? (
+                  <LoadingState tip="Loading item history..." />
+                ) : (
+                  <Tabs
+                    activeKey={historyTab}
+                    onChange={setHistoryTab}
+                    items={[
+                      {
+                        key: 'inventory',
+                        label: <Space><DatabaseOutlined />Inventory by Warehouse</Space>,
+                        children: (
+                          <>
+                            {historyErrors.inventory && <Alert type="warning" message={historyErrors.inventory} showIcon style={{ marginBottom: 8 }} />}
+                            <Table
+                              rowKey="id"
+                              size="small"
+                              dataSource={inventoryBalances}
+                              pagination={false}
+                              columns={[
+                                { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || r.warehouseId },
+                                { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || r.uomId },
+                                { title: 'On Hand', dataIndex: 'onHand', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                                { title: 'Reserved', dataIndex: 'reserved', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                                { title: 'Available', dataIndex: 'available', align: 'right' as const, render: (v: number) => <Text strong style={{ color: Number(v) > 0 ? 'var(--theme-success)' : 'var(--theme-danger)' }}>{Number(v).toLocaleString()}</Text> },
+                              ]}
+                              locale={{ emptyText: 'No inventory balances found' }}
+                            />
+                          </>
+                        ),
+                      },
+                      {
+                        key: 'stock-ledger',
+                        label: <Space><ProjectOutlined />Stock Ledger</Space>,
+                        children: (
+                          <>
+                            {historyErrors.stockLedger && <Alert type="warning" message={historyErrors.stockLedger} showIcon style={{ marginBottom: 8 }} />}
+                            <Table
+                              rowKey="id"
+                              size="small"
+                              dataSource={stockLedger}
+                              pagination={{ pageSize: 10, total: stockLedgerTotal, showSizeChanger: false }}
+                              columns={[
+                                { title: 'Date', dataIndex: 'transactionDate', width: 150, render: (v: string) => v ? new Date(v).toLocaleDateString() : '—' },
+                                { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || '—' },
+                                { title: 'Location', key: 'location', render: (_: any, r: any) => r.location?.name || '—' },
+                                { title: 'Type', dataIndex: 'transactionType', width: 140, render: (v: string) => <Tag>{v}</Tag> },
+                                { title: 'Direction', dataIndex: 'direction', width: 80, render: (v: string) => <Tag color={v === 'IN' ? 'green' : 'red'}>{v}</Tag> },
+                                { title: 'Qty', dataIndex: 'quantity', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                                { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
+                                { title: 'Ref Type', dataIndex: 'referenceType', width: 110, render: (v: string) => v ? <Tag style={{ fontSize: 10 }}>{v}</Tag> : '—' },
+                                { title: 'Reference', dataIndex: 'referenceNumber', render: (v: string) => v || '—' },
+                              ]}
+                              locale={{ emptyText: 'No stock ledger entries found' }}
+                            />
+                          </>
+                        ),
+                      },
+                      {
+                        key: 'production',
+                        label: <Space><AppstoreOutlined />Production History</Space>,
+                        children: (
+                          <>
+                            {historyErrors.production && <Alert type="warning" message={historyErrors.production} showIcon style={{ marginBottom: 8 }} />}
+                            <Table
+                              rowKey="id"
+                              size="small"
+                              dataSource={productionHistory}
+                              pagination={{ pageSize: 10, total: productionHistoryTotal, showSizeChanger: false }}
+                              columns={[
+                                {
+                                  title: 'Role',
+                                  dataIndex: 'role',
+                                  width: 90,
+                                  render: (v: string) => (
+                                    <Tag color={v === 'OUTPUT' ? 'blue' : v === 'INPUT' ? 'orange' : 'default'}>{v || '—'}</Tag>
+                                  ),
+                                },
+                                {
+                                  title: 'Description',
+                                  dataIndex: 'roleDescription',
+                                  width: 120,
+                                },
+                                {
+                                  title: 'Date',
+                                  dataIndex: 'entryDate',
+                                  width: 110,
+                                  render: (v: string) => v ? new Date(v).toLocaleDateString() : '—',
+                                },
+                                { title: 'Department', key: 'department', render: (_: any, r: any) => r.department?.name || '—' },
+                                { title: 'Machine', dataIndex: 'machineNo', width: 100, render: (v: string) => v || '—' },
+                                { title: 'Warehouse', key: 'warehouse', width: 120, render: (_: any, r: any) => r.warehouse?.name || '—' },
+                                { title: 'Target', dataIndex: 'targetQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
+                                { title: 'Actual', dataIndex: 'actualQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
+                                { title: 'Scrap', dataIndex: 'scrapQuantity', align: 'right' as const, render: (v: number) => v != null && Number(v) > 0 ? Number(v).toLocaleString() : '—' },
+                                { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
+                                { title: 'Source', dataIndex: 'source', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v === 'PRODUCTION_ENTRY' ? 'PE' : 'SL'}</Tag> },
+                              ]}
+                              locale={{ emptyText: 'No production history found' }}
+                            />
+                          </>
+                        ),
+                      },
+                    ]}
+                  />
+                ),
+              },
+            ]}
+          />
         )}
-      </Drawer>
+      </DraggableResizableModal>
 
       <Modal
         open={formOpen}
@@ -3193,7 +3105,7 @@ const ItemManagement: React.FC = () => {
               message="Import finished"
               style={{ marginBottom: 16 }}
             />
-            <Descriptions bordered size="small" column={1} labelStyle={{ width: 180 }}>
+            <Descriptions bordered size="small" column={1} styles={{ label: { width: 180 } }}>
               <Descriptions.Item label="Total rows">{importSummary.total}</Descriptions.Item>
               <Descriptions.Item label="Valid rows">{importSummary.valid}</Descriptions.Item>
               <Descriptions.Item label="Invalid rows">{importSummary.invalid}</Descriptions.Item>
@@ -3235,128 +3147,7 @@ const ItemManagement: React.FC = () => {
         barcode={printItem?.barcode}
       />
 
-      {/* Item History Modal */}
-      <Modal
-        open={historyOpen}
-        onCancel={() => { setHistoryOpen(false); setHistoryItem(null); }}
-        footer={<Button onClick={() => { setHistoryOpen(false); setHistoryItem(null); }}>Close</Button>}
-        title={
-          <Space>
-            <HistoryOutlined />
-            {historyItem ? `Item History — ${historyItem.itemCode}` : 'Item History'}
-          </Space>
-        }
-        width={900}
-        destroyOnHidden
-      >
-        {historyLoading ? (
-          <LoadingState tip="Loading item history..." />
-        ) : historyItem ? (
-          <Tabs
-            activeKey={historyTab}
-            onChange={setHistoryTab}
-            items={[
-              {
-                key: 'inventory',
-                label: <Space><DatabaseOutlined />Inventory by Warehouse</Space>,
-                children: (
-                  <>
-                    {historyErrors.inventory && <Alert type="warning" message={historyErrors.inventory} showIcon style={{ marginBottom: 8 }} />}
-                    <Table
-                      rowKey="id"
-                      size="small"
-                      dataSource={inventoryBalances}
-                      pagination={false}
-                      columns={[
-                        { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || r.warehouseId },
-                        { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || r.uomId },
-                        { title: 'On Hand', dataIndex: 'onHand', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
-                        { title: 'Reserved', dataIndex: 'reserved', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
-                        { title: 'Available', dataIndex: 'available', align: 'right' as const, render: (v: number) => <Text strong style={{ color: Number(v) > 0 ? 'var(--theme-success)' : 'var(--theme-danger)' }}>{Number(v).toLocaleString()}</Text> },
-                      ]}
-                      locale={{ emptyText: 'No inventory balances found' }}
-                    />
-                  </>
-                ),
-              },
-              {
-                key: 'stock-ledger',
-                label: <Space><ProjectOutlined />Stock Ledger</Space>,
-                children: (
-                  <>
-                    {historyErrors.stockLedger && <Alert type="warning" message={historyErrors.stockLedger} showIcon style={{ marginBottom: 8 }} />}
-                    <Table
-                      rowKey="id"
-                      size="small"
-                      dataSource={stockLedger}
-                      pagination={{ pageSize: 10, total: stockLedgerTotal, showSizeChanger: false }}
-                    columns={[
-                      { title: 'Date', dataIndex: 'transactionDate', width: 150, render: (v: string) => v ? new Date(v).toLocaleDateString() : '—' },
-                      { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || '—' },
-                      { title: 'Location', key: 'location', render: (_: any, r: any) => r.location?.name || '—' },
-                      { title: 'Type', dataIndex: 'transactionType', width: 140, render: (v: string) => <Tag>{v}</Tag> },
-                      { title: 'Direction', dataIndex: 'direction', width: 80, render: (v: string) => <Tag color={v === 'IN' ? 'green' : 'red'}>{v}</Tag> },
-                      { title: 'Qty', dataIndex: 'quantity', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
-                      { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
-                      { title: 'Ref Type', dataIndex: 'referenceType', width: 110, render: (v: string) => v ? <Tag style={{ fontSize: 10 }}>{v}</Tag> : '—' },
-                      { title: 'Reference', dataIndex: 'referenceNumber', render: (v: string) => v || '—' },
-                    ]}
-                      locale={{ emptyText: 'No stock ledger entries found' }}
-                    />
-                  </>
-                ),
-              },
-              {
-                key: 'production',
-                label: <Space><AppstoreOutlined />Production History</Space>,
-                children: (
-                  <>
-                    {historyErrors.production && <Alert type="warning" message={historyErrors.production} showIcon style={{ marginBottom: 8 }} />}
-                    <Table
-                      rowKey="id"
-                      size="small"
-                      dataSource={productionHistory}
-                      pagination={{ pageSize: 10, total: productionHistoryTotal, showSizeChanger: false }}
-                      columns={[
-                        {
-                          title: 'Role',
-                          dataIndex: 'role',
-                          width: 90,
-                          render: (v: string) => (
-                            <Tag color={v === 'OUTPUT' ? 'blue' : v === 'INPUT' ? 'orange' : 'default'}>{v || '—'}</Tag>
-                          ),
-                        },
-                        {
-                          title: 'Description',
-                          dataIndex: 'roleDescription',
-                          width: 120,
-                        },
-                        {
-                          title: 'Date',
-                          dataIndex: 'entryDate',
-                          width: 110,
-                          render: (v: string) => v ? new Date(v).toLocaleDateString() : '—',
-                        },
-                        { title: 'Department', key: 'department', render: (_: any, r: any) => r.department?.name || '—' },
-                        { title: 'Machine', dataIndex: 'machineNo', width: 100, render: (v: string) => v || '—' },
-                        { title: 'Warehouse', key: 'warehouse', width: 120, render: (_: any, r: any) => r.warehouse?.name || '—' },
-                        { title: 'Target', dataIndex: 'targetQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
-                        { title: 'Actual', dataIndex: 'actualQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
-                        { title: 'Scrap', dataIndex: 'scrapQuantity', align: 'right' as const, render: (v: number) => v != null && Number(v) > 0 ? Number(v).toLocaleString() : '—' },
-                        { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
-                        { title: 'Source', dataIndex: 'source', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v === 'PRODUCTION_ENTRY' ? 'PE' : 'SL'}</Tag> },
-                      ]}
-                      locale={{ emptyText: 'No production history found' }}
-                    />
-                  </>
-                ),
-              },
-            ]}
-          />
-        ) : null}
-      </Modal>
-
-      {/* Barcode Detail Modal */}
+{/* Barcode Detail Modal */}
       <Modal
         open={barcodeModalOpen}
         onCancel={() => { setBarcodeModalOpen(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}
@@ -3385,7 +3176,7 @@ const ItemManagement: React.FC = () => {
       >
         {barcodeModalItem && (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Descriptions size="small" column={2} labelStyle={{ width: 140 }}>
+            <Descriptions size="small" column={2} styles={{ label: { width: 140 } }}>
               <Descriptions.Item label="Item Code"><Text strong style={{ fontFamily: 'monospace' }}>{barcodeModalItem.itemCode}</Text></Descriptions.Item>
               <Descriptions.Item label="Item Name">{barcodeModalItem.name}</Descriptions.Item>
               {barcodeModalItem.sku && <Descriptions.Item label="SKU"><Text code>{barcodeModalItem.sku}</Text></Descriptions.Item>}

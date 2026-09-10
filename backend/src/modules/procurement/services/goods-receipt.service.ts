@@ -90,12 +90,13 @@ export class GoodsReceiptService {
     return { data, total };
   }
 
-  async findOne(id: string): Promise<GoodsReceipt> {
+  async findOne(id: string, companyId?: string): Promise<GoodsReceipt> {
     const receipt = await this.repo.findOne({
       where: { id },
       relations: ['supplier', 'po', 'warehouse', 'lines', 'lines.item', 'lines.uom', 'lines.poLine', 'lines.location', 'lines.batch'],
     });
     if (!receipt) throw new NotFoundException(`Goods receipt with ID '${id}' not found`);
+    this.assertCompanyOwned(receipt, companyId);
     return receipt;
   }
 

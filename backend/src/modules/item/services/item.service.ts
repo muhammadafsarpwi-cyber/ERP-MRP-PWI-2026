@@ -820,6 +820,310 @@ export class ItemService implements OnModuleInit {
     }
   }
 
+  /**
+   * TASK: Production Flow — Previous → Current → Next
+   * Returns the complete dynamic production flow for the given item,
+   * deriving everything from the actual database relationships.
+   */
+  async getProductionFlow(itemId: string): Promise<{
+    previous: {
+      id: string; itemCode: string; name: string; itemType: string;
+      wireSizeMm: number | null; diameterMm: number | null; thicknessMm: number | null;
+      widthMm: number | null; lengthPerPiece: number | null; baseUomId: string | null;
+      baseUomName: string | null; departmentId: string | null; departmentName: string | null;
+      divisionId: string | null; divisionName: string | null;
+      sectionId: string | null; sectionName: string | null;
+      sku: string | null; barcode: string | null;
+    } | null;
+    current: {
+      id: string; itemCode: string; name: string; itemType: string; status: string;
+      wireSizeMm: number | null; diameterMm: number | null; thicknessMm: number | null;
+      widthMm: number | null; lengthPerPiece: number | null;
+      weightPerPiece: number | null; weightPerMeter: number | null; piecesPerKg: number | null;
+      baseUomId: string | null; baseUomName: string | null;
+      departmentId: string | null; departmentName: string | null;
+      divisionId: string | null; divisionName: string | null;
+      sectionId: string | null; sectionName: string | null;
+      sku: string | null; barcode: string | null;
+      routeType: string | null; routeTypeId: string | null; routeTypeName: string | null;
+      processes: Array<{ sequence: number; name: string }>;
+      finalProduct: string | null; packingNextStep: string | null;
+    };
+    currentOperation: string | null;
+    next: {
+      items: Array<{
+        id: string; itemCode: string; name: string; itemType: string;
+        wireSizeMm: number | null; diameterMm: number | null; thicknessMm: number | null;
+        widthMm: number | null; lengthPerPiece: number | null; baseUomId: string | null;
+        baseUomName: string | null; departmentId: string | null; departmentName: string | null;
+        sku: string | null; barcode: string | null;
+      }>;
+      operationName: string | null;
+    };
+    fullRoute: Array<{
+      stageOrder: number; stageName: string; itemId: string; itemCode: string;
+      itemName: string; itemType: string; departmentName: string | null;
+      wireSizeMm: number | null; thicknessMm: number | null; widthMm: number | null;
+      baseUomName: string | null; isCurrent: boolean;
+    }>;
+  }> {
+    const item = await this.itemRepository.findOne({
+      where: { id: itemId },
+      relations: ['baseUom', 'division', 'section', 'department', 'routeTypeRef', 'productionInItem',
+        'productionInItem.baseUom', 'productionInItem.department', 'productionInItem.division', 'productionInItem.section'],
+    });
+    if (!item) throw new NotFoundException(`Item '${itemId}' not found`);
+
+    const resolveOrg = (it: any) => ({
+      departmentId: it.departmentId ?? it.department?.id ?? null,
+      departmentName: it.department?.name ?? null,
+      divisionId: it.divisionId ?? it.division?.id ?? null,
+      divisionName: it.division?.name ?? null,
+      sectionId: it.sectionId ?? it.section?.id ?? null,
+      sectionName: it.section?.name ?? null,
+    });
+
+    const mapItem = (it: any) => ({
+      id: it.id,
+      itemCode: it.itemCode,
+      name: it.name,
+      itemType: it.itemType,
+      wireSizeMm: it.wireSizeMm ?? null,
+      diameterMm: it.diameterMm ?? null,
+      thicknessMm: it.thicknessMm ?? null,
+      widthMm: it.widthMm ?? null,
+      lengthPerPiece: it.lengthPerPiece ?? null,
+      baseUomId: it.baseUomId ?? null,
+      baseUomName: it.baseUom?.name ?? null,
+      sku: it.sku ?? null,
+      barcode: it.barcode ?? null,
+      ...resolveOrg(it),
+    });
+
+    // PREVIOUS: the input material (if any)
+    const prevItem = item.productionInItem ?? (item.productionInItemId
+      ? await this.itemRepository.findOne({
+          where: { id: item.productionInItemId },
+          relations: ['baseUom', 'department', 'division', 'section'],
+        })
+      : null);
+
+    const previous = prevItem ? {
+      ...mapItem(prevItem),
+      status: prevItem.status,
+      weightPerPiece: prevItem.weightPerPiece ?? null,
+      weightPerMeter: prevItem.weightPerMeter ?? null,
+      piecesPerKg: prevItem.piecesPerKg ?? null,
+      routeType: prevItem.routeType ?? null,
+      routeTypeId: prevItem.routeTypeId ?? null,
+      routeTypeName: prevItem.routeTypeRef?.name ?? prevItem.routeType ?? null,
+      processes: prevItem.processes ?? [],
+      finalProduct: prevItem.finalProduct ?? null,
+      packingNextStep: prevItem.packingNextStep ?? null,
+    } : null;
+
+    // CURRENT: the item itself
+    this.ensureProcessesArray(item);
+    const current = {
+      ...mapItem(item),
+      status: item.status,
+      weightPerPiece: item.weightPerPiece ?? null,
+      weightPerMeter: item.weightPerMeter ?? null,
+      piecesPerKg: item.piecesPerKg ?? null,
+      routeType: item.routeType ?? null,
+      routeTypeId: item.routeTypeId ?? null,
+      routeTypeName: item.routeTypeRef?.name ?? item.routeType ?? null,
+      processes: item.processes ?? [],
+      finalProduct: item.finalProduct ?? null,
+      packingNextStep: item.packingNextStep ?? null,
+    };
+
+    // CURRENT OPERATION: derive from department or processes
+    const currentOperation = this.deriveOperationName(item);
+
+    // NEXT: find items whose productionInItemId = current item's id
+    const nextItemsRaw = await this.itemRepository.query(
+      `SELECT id FROM items WHERE production_in_item_id = $1 AND is_active = true AND id != $1`,
+      [itemId],
+    );
+    const nextItemIds: string[] = nextItemsRaw?.map((r: any) => r.id) ?? [];
+
+    let nextItems: any[] = [];
+    let nextOperationName: string | null = null;
+
+    if (nextItemIds.length > 0) {
+      const loaded = await this.itemRepository.findByIds(nextItemIds);
+      nextItems = loaded.map((ni: any) => ({
+        ...mapItem(ni),
+      }));
+      // Resolve next operation from the first downstream item's department/processes
+      if (loaded.length > 0) {
+        nextOperationName = this.deriveOperationName(loaded[0]);
+      }
+    }
+
+    // FULL ROUTE: walk the chain both directions
+    const fullRoute = await this.buildFullRoute(item);
+
+    return {
+      previous: previous ? {
+        id: previous.id,
+        itemCode: previous.itemCode,
+        name: previous.name,
+        itemType: previous.itemType,
+        wireSizeMm: previous.wireSizeMm,
+        diameterMm: previous.diameterMm,
+        thicknessMm: previous.thicknessMm,
+        widthMm: previous.widthMm,
+        lengthPerPiece: previous.lengthPerPiece,
+        baseUomId: previous.baseUomId,
+        baseUomName: previous.baseUomName,
+        departmentId: previous.departmentId,
+        departmentName: previous.departmentName,
+        divisionId: previous.divisionId,
+        divisionName: previous.divisionName,
+        sectionId: previous.sectionId,
+        sectionName: previous.sectionName,
+        sku: previous.sku,
+        barcode: previous.barcode,
+      } : null,
+      current,
+      currentOperation,
+      next: {
+        items: nextItems,
+        operationName: nextOperationName,
+      },
+      fullRoute,
+    };
+  }
+
+  private deriveOperationName(item: any): string | null {
+    if (item.processes && Array.isArray(item.processes) && item.processes.length > 0) {
+      return item.processes[0]?.name ?? null;
+    }
+    if (item.process1) return item.process1;
+    const deptName = item.department?.name ?? null;
+    if (deptName) {
+      const lower = deptName.toLowerCase();
+      if (lower.includes('pvc')) return 'PVC Extrusion';
+      if (lower.includes('spiral')) return 'Spiral Winding';
+      if (lower.includes('flatten') || lower.includes('flat')) return 'Wire Flattening';
+      if (lower.includes('pack')) return 'Packing';
+      if (lower.includes('drawing')) return 'Wire Drawing';
+      return deptName;
+    }
+    if (item.routeTypeRef?.name) return item.routeTypeRef.name;
+    if (item.routeType) return item.routeType;
+    return null;
+  }
+
+  private async buildFullRoute(item: any): Promise<Array<{
+    stageOrder: number; stageName: string; itemId: string; itemCode: string;
+    itemName: string; itemType: string; departmentName: string | null;
+    wireSizeMm: number | null; thicknessMm: number | null; widthMm: number | null;
+    baseUomName: string | null; isCurrent: boolean;
+  }>> {
+    const chain: any[] = [];
+    const seen = new Set<string>();
+
+    // Walk upstream (previous items)
+    let probe: any = item;
+    const upstream: any[] = [];
+    while (probe && probe.productionInItemId && !seen.has(probe.productionInItemId)) {
+      seen.add(probe.productionInItemId);
+      const parent = await this.itemRepository.findOne({
+        where: { id: probe.productionInItemId },
+        relations: ['department', 'baseUom'],
+      });
+      if (!parent) break;
+      upstream.unshift(parent);
+      probe = parent;
+    }
+
+    // Build chain: upstream + current + downstream
+    chain.push(...upstream);
+    chain.push(item);
+    seen.add(item.id);
+
+    // Walk downstream (items that consume this item)
+    let current = item;
+    for (let hops = 0; hops < 20; hops++) {
+      const children = await this.itemRepository.query(
+        `SELECT id FROM items WHERE production_in_item_id = $1 AND is_active = true AND id != $1 LIMIT 5`,
+        [current.id],
+      );
+      if (!children || children.length === 0) break;
+      for (const child of children) {
+        if (seen.has(child.id)) continue;
+        seen.add(child.id);
+        const childItem = await this.itemRepository.findOne({
+          where: { id: child.id },
+          relations: ['department', 'baseUom'],
+        });
+        if (childItem) chain.push(childItem);
+      }
+      // Follow the first child for further traversal
+      const nextChild = children[0];
+      if (!nextChild || seen.has(nextChild.id)) break;
+      current = await this.itemRepository.findOne({ where: { id: nextChild.id } });
+      if (!current) break;
+    }
+
+    return chain.map((it: any, idx: number) => {
+      const deptName = it.department?.name ?? null;
+      let stageName = 'MANUFACTURING';
+      if (idx === 0 && !upstream.some(u => u.id === it.id)) {
+        // First item that has no parent
+      }
+      if (!it.productionInItemId && idx === 0) {
+        stageName = 'RAW MATERIAL';
+      } else if (it.itemType === 'FINISHED_GOOD') {
+        stageName = 'FINISHED GOOD';
+      } else if (deptName) {
+        const lower = deptName.toLowerCase();
+        if (lower.includes('pvc')) stageName = 'PVC EXTRUSION';
+        else if (lower.includes('spiral')) stageName = 'SPIRAL WINDING';
+        else if (lower.includes('flatten') || lower.includes('flat')) stageName = 'WIRE FLATTENING';
+        else if (lower.includes('pack')) stageName = 'PACKING';
+        else if (lower.includes('drawing')) stageName = 'WIRE DRAWING';
+        else stageName = deptName.toUpperCase();
+      } else if (it.processes?.length > 0) {
+        stageName = it.processes[0].name.toUpperCase();
+      }
+      return {
+        stageOrder: idx + 1,
+        stageName,
+        itemId: it.id,
+        itemCode: it.itemCode,
+        itemName: it.name,
+        itemType: it.itemType,
+        departmentName: deptName,
+        wireSizeMm: it.wireSizeMm ?? null,
+        thicknessMm: it.thicknessMm ?? null,
+        widthMm: it.widthMm ?? null,
+        baseUomName: it.baseUom?.name ?? null,
+        isCurrent: it.id === item.id,
+      };
+    });
+  }
+
+  /**
+   * Generate a QR code data URL for an item.
+   */
+  async getQrCode(itemId: string): Promise<{ dataUrl: string; payload: string; url: string }> {
+    const QRCode = (await import('qrcode')).default;
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const payload = `/master-data/items?entityId=${itemId}`;
+    const url = `${FRONTEND_URL}${payload}`;
+    const dataUrl = await QRCode.toDataURL(url, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 320,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    return { dataUrl, payload, url };
+  }
+
   private ensureProcessesArray(item: Item): void {
     if (!item) return;
     if (item.processes && Array.isArray(item.processes) && item.processes.length > 0) {

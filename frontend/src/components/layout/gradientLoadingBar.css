@@ -1,0 +1,46 @@
+.erp-gradient-loading-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  z-index: 102;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.erp-gradient-loading-bar.is-visible {
+  opacity: 1;
+}
+
+.erp-gradient-loading-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    var(--theme-accent, #1677ff) 0%,
+    #00d4ff 20%,
+    #52c41a 40%,
+    #fadb14 55%,
+    #ff8c2e 70%,
+    #f5222d 85%,
+    var(--theme-accent, #1677ff) 100%
+  );
+  background-size: 300% 100%;
+  animation: erp-loading-slide 1.1s linear infinite;
+}
+
+@keyframes erp-loading-slide {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 300% 0%;
+  }
+}

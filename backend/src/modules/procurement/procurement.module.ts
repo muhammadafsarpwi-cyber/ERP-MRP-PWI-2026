@@ -72,6 +72,7 @@ import { InventoryModule } from '../inventory/inventory.module';
   ],
   exports: [
     SupplierService,
+    PurchaseRequisitionService,
     PurchaseOrderService,
     GoodsReceiptService,
   ],

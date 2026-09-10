@@ -20,3 +20,4 @@ export {
 } from './CategoryBadge';
 export { default as BarcodeScanner } from './BarcodeScanner';
 export { default as BarcodePrint } from './BarcodePrint';
+export { default as DraggableResizableModal, type DraggableResizableModalProps } from './DraggableResizableModal';
