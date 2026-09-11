@@ -972,12 +972,20 @@ export class ItemService implements OnModuleInit {
       }
     }
 
+    // TASK 12: when the chain has no real downstream item, expose the Item
+    // Master's explicit "Packing / Next Step" as the next operation so the flow
+    // contract always carries the configured next step.
+    if (nextOperationName == null && item.packingNextStep && String(item.packingNextStep).trim()) {
+      nextOperationName = String(item.packingNextStep).trim();
+    }
+
     // FULL ROUTE: walk the chain both directions
     const chain = await this.buildRouteChain(item);
     const fullRoute = this.mapRouteChain(chain, item.id);
 
-    // PROMPT-35: exactly six production-flow stages (RAW → FLATTENING → SPIRAL,
-    // each with its output/specification block), derived from the real chain.
+    // PROMPT-35 / TASK 12: exactly six production-flow stages derived from the
+    // real chain; stages 05-06 fall back to the current Item's explicit
+    // "Packing / Next Step" and "Final Product" when no real next item is mapped.
     const stages = await this.buildSixStageFlow(chain, item.id);
 
     return {
@@ -1189,16 +1197,24 @@ export class ItemService implements OnModuleInit {
   }
 
   /**
-   * PROMPT-35: Build exactly six production-flow stages (01-06):
+   * PROMPT-35 / TASK 12: Build exactly six production-flow stages (01-06):
    *   01 RAW MATERIAL (process block)
    *   02 RAW MATERIAL SPECIFICATION (item/size block)
    *   03 FLATTENING (process block)
    *   04 FLATTENING OUTPUT (item/size block)
-   *   05 SPIRAL (process block)
-   *   06 SPIRAL OUTPUT (item/size block)
-   * Every field is derived from the real chain + operations master; nothing is
-   * hard-coded.  Stages with no matching item are emitted with configured=false
-   * so the UI can render "Not configured".
+   *   05 NEXT PROCESS / NEXT STEP (process block)
+   *   06 NEXT OUTPUT / FINAL PRODUCT (item/output block)
+   * Stages 01-04 are derived from the real chain (raw + flatten stage) exactly as
+   * before. Stages 05-06 represent the CURRENT item's next step:
+   *   · a real chained downstream item (spiral stage of the chain, otherwise the
+   *     item that consumes the current item) when one is mapped, or
+   *   · the current Item Master's explicit "Packing / Next Step" and
+   *     "Final Product" fields when no real next-level item is mapped.
+   * The explicit fields are authoritative labels when populated; the real mapped
+   * item remains authoritative for stage 05/06 when the fields are empty.
+   * Nothing is hard-coded, and whitespace-only values are treated as empty.
+   * Stages with no matching item/value are emitted with configured=false so the
+   * UI can render "Not configured".
    */
   private async buildSixStageFlow(chain: any[], currentItemId: string): Promise<Array<{
     sequence: number; kind: 'process' | 'output'; stageKey: string; title: string;
@@ -1219,6 +1235,35 @@ export class ItemService implements OnModuleInit {
       if (cls === 'SPIRAL' && !spiralItem) spiralItem = it;
     }
 
+    // The item the six-stage preview centres on (the currently edited/viewed item).
+    const currentIndex = chain.findIndex((it) => it.id === currentItemId);
+    const currentStageItem = currentIndex >= 0 ? chain[currentIndex] : (chain[chain.length - 1] ?? null);
+
+    // Real next-level item: the chained item that consumes the current item.
+    // The chain's spiral stage takes precedence for backward compatibility with
+    // the sample RAW → FLATTENING → SPIRAL template.
+    const nextRealItem = currentStageItem
+      ? (chain.find((it) => it.id !== currentStageItem.id && it.productionInItemId === currentStageItem.id) ?? null)
+      : null;
+    const nextStageItem = spiralItem ?? nextRealItem ?? null;
+
+    // Explicit Item Master fields drive stages 05/06 when no real next-level item
+    // exists. Whitespace-only values are never treated as valid.
+    const packingNextStep =
+      currentStageItem?.packingNextStep != null && String(currentStageItem.packingNextStep).trim()
+        ? String(currentStageItem.packingNextStep).trim()
+        : null;
+    const finalProduct =
+      currentStageItem?.finalProduct != null && String(currentStageItem.finalProduct).trim()
+        ? String(currentStageItem.finalProduct).trim()
+        : null;
+
+    // Operation label for stage 05: the explicit Packing / Next Step value wins;
+    // otherwise derive it from the real next-level item.
+    const nextOpLabel =
+      packingNextStep ??
+      (nextStageItem ? (this.deriveStageOperationName(nextStageItem) ?? '') : '');
+
     const opCache = new Map<string, { operationCode: string | null; operationName: string | null }>();
     const opFor = async (it: any): Promise<{ operationCode: string | null; operationName: string | null }> => {
       if (!it) return { operationCode: null, operationName: null };
@@ -1228,6 +1273,10 @@ export class ItemService implements OnModuleInit {
       return opCache.get(deptId)!;
     };
 
+    const nextOp = packingNextStep
+      ? { operationCode: null, operationName: packingNextStep }
+      : await opFor(nextStageItem);
+
     const stage = (
       sequence: number,
       kind: 'process' | 'output',
@@ -1235,6 +1284,7 @@ export class ItemService implements OnModuleInit {
       title: string,
       it: any | null,
       op: { operationCode: string | null; operationName: string | null } | null,
+      configuredOverride?: boolean,
     ) => ({
       sequence,
       kind,
@@ -1255,7 +1305,7 @@ export class ItemService implements OnModuleInit {
       operationCode: op?.operationCode ?? null,
       operationName: op?.operationName ?? null,
       isCurrent: !!it && it.id === currentItemId,
-      configured: !!it,
+      configured: configuredOverride !== undefined ? configuredOverride : !!it,
     });
 
     const rawIsRoot = rawItem && !rawItem.productionInItemId;
@@ -1268,9 +1318,44 @@ export class ItemService implements OnModuleInit {
       stage(2, 'output', 'RAW_SPEC', 'RAW MATERIAL SPECIFICATION', rawItem, null),
       stage(3, 'process', 'FLATTENING', 'FLATTENING', flattenItem, await opFor(flattenItem)),
       stage(4, 'output', 'FLATTENING_OUTPUT', 'FLATTENING OUTPUT', flattenItem, null),
-      stage(5, 'process', 'SPIRAL', 'SPIRAL', spiralItem, await opFor(spiralItem)),
-      stage(6, 'output', 'SPIRAL_OUTPUT', 'SPIRAL OUTPUT', spiralItem, null),
+      // Stage 05 — NEXT PROCESS / NEXT STEP
+      stage(
+        5,
+        'process',
+        'SPIRAL',
+        this.deriveStageLabelFromText(nextOpLabel, 'process'),
+        nextStageItem,
+        nextOp,
+        !!(packingNextStep || nextStageItem),
+      ),
+      // Stage 06 — NEXT OUTPUT / FINAL PRODUCT
+      stage(
+        6,
+        'output',
+        'SPIRAL_OUTPUT',
+        this.deriveStageLabelFromText(nextOpLabel, 'output'),
+        finalProduct ? { name: finalProduct } : nextStageItem,
+        null,
+        !!(finalProduct || nextStageItem),
+      ),
     ];
+  }
+
+  /**
+   * TASK 12: Produce a dynamic stage title for the NEXT PROCESS / NEXT OUTPUT
+   * stages from the actual next-step operation text. The existing
+   * RAW → FLATTENING → SPIRAL terminology is preserved whenever the operation is
+   * spiral-related; other operations receive their own department/operation-based
+   * stage name so no stage hard-codes "SPIRAL" for a non-spiral next step.
+   */
+  private deriveStageLabelFromText(text: string, kind: 'process' | 'output'): string {
+    const lower = (text || '').toLowerCase();
+    if (lower.includes('spiral')) return kind === 'process' ? 'SPIRAL' : 'SPIRAL OUTPUT';
+    if (lower.includes('pvc')) return kind === 'process' ? 'PVC EXTRUSION' : 'PVC OUTPUT';
+    if (lower.includes('flatten') || lower.includes('flat')) return kind === 'process' ? 'FLATTENING' : 'FLATTENING OUTPUT';
+    if (lower.includes('pack')) return kind === 'process' ? 'PACKING' : 'PACKING OUTPUT';
+    if (lower.includes('draw')) return kind === 'process' ? 'WIRE DRAWING' : 'DRAWING OUTPUT';
+    return kind === 'process' ? 'NEXT PROCESS' : 'NEXT OUTPUT';
   }
 
   /**

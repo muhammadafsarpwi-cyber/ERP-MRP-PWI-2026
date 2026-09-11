@@ -1,14 +1,17 @@
+// Canonical item type order (business-driven, NOT alphabetical and NOT DB
+// insertion order). Used by the item master navigation, filter dropdowns and
+// forms so the item hierarchy is always presented identically everywhere.
 export const ITEM_TYPES = [
   { value: 'RAW_MATERIAL', label: 'Raw Material' },
-  { value: 'PACKAGING_MATERIAL', label: 'Packaging Material' },
-  { value: 'CONSUMABLE', label: 'Consumable' },
+  { value: 'WORK_IN_PROGRESS', label: 'Work in Progress' },
   { value: 'SEMI_FINISHED', label: 'Semi-Finished' },
   { value: 'FINISHED_GOOD', label: 'Finished Good' },
+  { value: 'PACKAGING_MATERIAL', label: 'Packaging Material' },
+  { value: 'CONSUMABLE', label: 'Consumable' },
   { value: 'SPARE_PART', label: 'Spare Part' },
   { value: 'SERVICE', label: 'Service' },
   { value: 'ASSET', label: 'Asset' },
   { value: 'OTHER', label: 'Other' },
-  { value: 'WORK_IN_PROGRESS', label: 'Work in Progress' },
 ];
 
 export const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'DISCONTINUED'];
@@ -246,6 +249,27 @@ export interface ProductionFlowResponse {
   fullRoute: ProductionFlowRouteStage[];
   stages: ProductionFlowStage[];
 }
+
+// TASK 12: dynamic stage title for the NEXT PROCESS / NEXT OUTPUT stages,
+// derived from the actual next-step operation text. The existing RAW →
+// FLATTENING → SPIRAL terminology is preserved whenever the operation is
+// spiral-related; other operations receive their own operation-based stage name
+// so no stage hard-codes "SPIRAL" for a non-spiral next step.
+export const deriveNextStageTitle = (
+  text: string,
+  kind: 'process' | 'output',
+): string => {
+  const lower = (text || '').toLowerCase();
+  if (lower.includes('spiral')) return kind === 'process' ? 'SPIRAL' : 'SPIRAL OUTPUT';
+  if (lower.includes('pvc')) return kind === 'process' ? 'PVC EXTRUSION' : 'PVC OUTPUT';
+  if (lower.includes('flatten') || lower.includes('flat')) return kind === 'process' ? 'FLATTENING' : 'FLATTENING OUTPUT';
+  if (lower.includes('pack')) return kind === 'process' ? 'PACKING' : 'PACKING OUTPUT';
+  if (lower.includes('draw')) return kind === 'process' ? 'WIRE DRAWING' : 'DRAWING OUTPUT';
+  return kind === 'process' ? 'NEXT PROCESS' : 'NEXT OUTPUT';
+};
+
+export const isEmptyValue = (v?: string | null): boolean =>
+  v == null || String(v).trim() === '';
 
 export const IMPORT_COLUMNS = [
   'itemCode', 'name', 'sku', 'shortName', 'itemType', 'uomCode', 'categoryName',

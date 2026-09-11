@@ -217,33 +217,53 @@ export const StageBlock: React.FC<StageBlockProps> = ({ stage }) => {
       ) : (
         <>
           {/* Output/specification block — item + size emphasis */}
-          <Tooltip title={`${stage.itemCode ?? ''} — ${stage.itemName ?? ''}`}>
-            <div
-              style={{
-                fontWeight: 600,
-                fontSize: 13,
-                fontFamily: 'monospace',
-                color: 'var(--theme-accent, #38bdf8)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {stage.itemCode}
-            </div>
-          </Tooltip>
-          <div
-            style={{
-              fontSize: 11,
-              color: 'var(--theme-text, inherit)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            title={stage.itemName ?? undefined}
-          >
-            {stage.itemName}
-          </div>
+          {stage.itemCode ? (
+            <>
+              <Tooltip title={`${stage.itemCode} — ${stage.itemName ?? ''}`}>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    color: 'var(--theme-accent, #38bdf8)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {stage.itemCode}
+                </div>
+              </Tooltip>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--theme-text, inherit)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={stage.itemName ?? undefined}
+              >
+                {stage.itemName}
+              </div>
+            </>
+          ) : stage.itemName ? (
+            <Tooltip title={stage.itemName}>
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  color: 'var(--theme-accent, #38bdf8)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {stage.itemName}
+              </div>
+            </Tooltip>
+          ) : null}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginTop: 4 }}>
             {stage.itemType && (
               <Tag color="default" style={{ margin: 0, fontSize: 10 }}>{itemTypeLabel(stage.itemType)}</Tag>
@@ -415,7 +435,7 @@ const ProductionFlowCard: React.FC<ProductionFlowCardProps> = ({ itemId, style }
         ))}
       </div>
 
-      {/* Legend */}
+      {/* Legend — derived from the authoritative stage titles returned by the API */}
       <div
         style={{
           marginTop: 8,
@@ -430,12 +450,12 @@ const ProductionFlowCard: React.FC<ProductionFlowCardProps> = ({ itemId, style }
           color: 'var(--theme-text-muted, #94a3b8)',
         }}
       >
-        <span><span style={{ fontWeight: 700 }}>{'01'}</span> Raw Material</span>
-        <span><span style={{ fontWeight: 700 }}>{'02'}</span> Raw Material Specification</span>
-        <span><span style={{ fontWeight: 700 }}>{'03'}</span> Flattening</span>
-        <span><span style={{ fontWeight: 700 }}>{'04'}</span> Flattening Output</span>
-        <span><span style={{ fontWeight: 700 }}>{'05'}</span> Spiral</span>
-        <span><span style={{ fontWeight: 700 }}>{'06'}</span> Spiral Output</span>
+        {stages.map((s) => (
+          <span key={`legend-${s.sequence}-${s.stageKey}`}>
+            <span style={{ fontWeight: 700 }}>{String(s.sequence).padStart(2, '0')}</span>{' '}
+            {s.title.toLowerCase()}
+          </span>
+        ))}
       </div>
 
       {/* QR Code */}

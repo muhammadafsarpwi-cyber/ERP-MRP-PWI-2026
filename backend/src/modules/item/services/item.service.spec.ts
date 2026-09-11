@@ -105,6 +105,7 @@ describe('ItemService', () => {
     const mockRepository = {
       find: jest.fn(),
       findOne: jest.fn(),
+      findByIds: jest.fn(),
       create: jest.fn(),
       save: jest.fn(),
       update: jest.fn(),
@@ -650,6 +651,163 @@ describe('ItemService', () => {
       expect(repository.createQueryBuilder).toHaveBeenCalled();
       expect(mockQb.set).toHaveBeenCalledWith({ productionOutItemId: expect.any(Function) });
       expect(mockQb.execute).toHaveBeenCalled();
+    });
+  });
+
+  describe('TASK 12 — production flow preview: Final Product + Packing/Next Step mapping', () => {
+    const rawDept = { id: 'dept-store', name: 'Store' };
+    const flatDept = { id: 'dept-flat', name: 'Flattening' };
+
+    const buildRaw = (): any => ({
+      ...mockItem,
+      id: 'raw-id',
+      itemCode: '1.20MM-B4',
+      name: '1.20 mm-B4 Wire',
+      itemType: ItemType.RAW_MATERIAL,
+      departmentId: 'dept-store',
+      department: rawDept,
+      baseUom: { id: 'uom-kg', name: 'KG' },
+      productionInItemId: null,
+      productionInItem: null,
+    });
+
+    const buildCurrent = (overrides: Record<string, unknown>): { raw: any; current: any } => {
+      const raw = buildRaw();
+      const current: any = {
+        ...mockItem,
+        id: 'item-flat',
+        itemCode: 'FLAT-WIRE-001',
+        name: 'Flat Wire T 0.40 x W 2.60 mm',
+        itemType: ItemType.SEMI_FINISHED,
+        status: ItemStatus.ACTIVE,
+        departmentId: 'dept-flat',
+        department: flatDept,
+        baseUom: { id: 'uom-kg', name: 'KG' },
+        productionInItemId: 'raw-id',
+        productionInItem: raw,
+        ...overrides,
+      };
+      return { raw, current };
+    };
+
+    const mockFlowRepo = (item: any, raw: any) => {
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === item.id) return item as Item;
+        if (where?.id === raw.id) return raw as Item;
+        return null;
+      });
+      // No downstream items, no operation rows — the chain is only raw → current.
+      repository.query.mockResolvedValue([]);
+      repository.findByIds.mockResolvedValue([]);
+    };
+
+    it('CASE-A: both finalProduct + packingNextStep render on stages 05/06 (05=next step op, 06=final product)', async () => {
+      const { raw, current } = buildCurrent({ finalProduct: '3.75 mm 2P', packingNextStep: 'Spiral Winding' });
+      mockFlowRepo(current, raw);
+
+      const result = await service.getProductionFlow('item-flat');
+
+      const stage05 = result.stages.find((s) => s.sequence === 5)!;
+      const stage06 = result.stages.find((s) => s.sequence === 6)!;
+      expect(stage05.configured).toBe(true);
+      expect(stage05.operationName).toBe('Spiral Winding');
+      expect(stage05.title).toBe('SPIRAL');
+      expect(stage06.configured).toBe(true);
+      expect(stage06.itemName).toBe('3.75 mm 2P');
+      expect(stage06.itemCode).toBeNull();
+      expect(stage06.title).toBe('SPIRAL OUTPUT');
+      // The API contract also surfaces the raw values on current + next.
+      expect(result.current.finalProduct).toBe('3.75 mm 2P');
+      expect(result.current.packingNextStep).toBe('Spiral Winding');
+      expect(result.next.operationName).toBe('Spiral Winding');
+    });
+
+    it('CASE-B: only finalProduct → step 06 shows the product, step 05 stays unconfigured', async () => {
+      const { raw, current } = buildCurrent({ finalProduct: '3.75 mm 2P', packingNextStep: null });
+      mockFlowRepo(current, raw);
+
+      const result = await service.getProductionFlow('item-flat');
+
+      const stage05 = result.stages.find((s) => s.sequence === 5)!;
+      const stage06 = result.stages.find((s) => s.sequence === 6)!;
+      expect(stage05.configured).toBe(false);
+      expect(stage05.operationName).toBeNull();
+      expect(stage06.configured).toBe(true);
+      expect(stage06.itemName).toBe('3.75 mm 2P');
+    });
+
+    it('CASE-C: only packingNextStep → step 05 shows the next step, step 06 stays unconfigured', async () => {
+      const { raw, current } = buildCurrent({ finalProduct: null, packingNextStep: 'Packing' });
+      mockFlowRepo(current, raw);
+
+      const result = await service.getProductionFlow('item-flat');
+
+      const stage05 = result.stages.find((s) => s.sequence === 5)!;
+      const stage06 = result.stages.find((s) => s.sequence === 6)!;
+      expect(stage05.configured).toBe(true);
+      expect(stage05.operationName).toBe('Packing');
+      expect(stage05.title).toBe('PACKING');
+      expect(stage06.configured).toBe(false);
+      expect(stage06.itemName).toBeNull();
+    });
+
+    it('CASE-D: both empty → stages 05/06 stay unconfigured', async () => {
+      const { raw, current } = buildCurrent({ finalProduct: null, packingNextStep: null });
+      mockFlowRepo(current, raw);
+
+      const result = await service.getProductionFlow('item-flat');
+
+      const stage05 = result.stages.find((s) => s.sequence === 5)!;
+      const stage06 = result.stages.find((s) => s.sequence === 6)!;
+      expect(stage05.configured).toBe(false);
+      expect(stage06.configured).toBe(false);
+    });
+
+    it('whitespace-only values are treated as empty (not displayed)', async () => {
+      const { raw, current } = buildCurrent({ finalProduct: '   ', packingNextStep: '\t\n' });
+      mockFlowRepo(current, raw);
+
+      const result = await service.getProductionFlow('item-flat');
+
+      const stage05 = result.stages.find((s) => s.sequence === 5)!;
+      const stage06 = result.stages.find((s) => s.sequence === 6)!;
+      expect(stage05.configured).toBe(false);
+      expect(stage06.configured).toBe(false);
+      expect(result.current.finalProduct).toBe('   ');
+      expect(result.current.packingNextStep).toBe('\t\n');
+    });
+
+    it('stages 01-04 are unchanged identities (RAW_MATERIAL / RAW_SPEC / FLATTENING / FLATTENING_OUTPUT)', async () => {
+      const { raw, current } = buildCurrent({ finalProduct: '3.75 mm 2P', packingNextStep: 'Spiral Winding' });
+      mockFlowRepo(current, raw);
+
+      const result = await service.getProductionFlow('item-flat');
+
+      expect(result.stages.map((s) => [s.sequence, s.stageKey])).toEqual([
+        [1, 'RAW_MATERIAL'],
+        [2, 'RAW_SPEC'],
+        [3, 'FLATTENING'],
+        [4, 'FLATTENING_OUTPUT'],
+        [5, 'SPIRAL'],
+        [6, 'SPIRAL_OUTPUT'],
+      ]);
+      // Prior stages remain the canonical raw → flattening chain.
+      expect(result.stages[1].itemCode).toBe('1.20MM-B4');
+      expect(result.stages[3].itemCode).toBe('FLAT-WIRE-001');
+    });
+
+    it('no stage hard-codes product/operation values — titles derive from the actual packingNextStep text', async () => {
+      const { raw, current } = buildCurrent({ finalProduct: 'PVC Tube K-3', packingNextStep: 'PVC Extrusion' });
+      mockFlowRepo(current, raw);
+
+      const result = await service.getProductionFlow('item-flat');
+
+      const stage05 = result.stages.find((s) => s.sequence === 5)!;
+      const stage06 = result.stages.find((s) => s.sequence === 6)!;
+      expect(stage05.operationName).toBe('PVC Extrusion');
+      expect(stage05.title).toBe('PVC EXTRUSION');
+      expect(stage06.itemName).toBe('PVC Tube K-3');
+      expect(stage06.title).toBe('PVC OUTPUT');
     });
   });
 });

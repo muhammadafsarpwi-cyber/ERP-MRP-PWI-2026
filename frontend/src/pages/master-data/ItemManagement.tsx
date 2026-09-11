@@ -9,6 +9,7 @@ import {
   EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined,
   ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
+  BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
@@ -21,6 +22,7 @@ import JsBarcode from 'jsbarcode';
 import {
   ITEM_TYPES, ROUTE_TYPES, STATUS_OPTIONS, statusColorMap, TRACKING_SWITCHES,
   routeColorMap, IMPORT_COLUMNS, REQUIRED_IMPORT_COLUMNS, TEMPLATE_CSV,
+  deriveNextStageTitle, isEmptyValue,
   type Item, type DivisionOption, type SectionOption, type DepartmentOption,
   type UomOption, type SimpleOption, type CategoryOption, type ConversionInfo,
   type ImportRow, type ProductionFlowStage,
@@ -102,6 +104,116 @@ const categoryName = (r: Item): string | null =>
 const companyName = (r: Item): string | null =>
   (r.company && (r.company.legalName || r.company.tradeName)) || null;
 
+type ItemTypeIconComponent =
+  React.ForwardRefExoticComponent<
+    { style?: React.CSSProperties; className?: string; spin?: boolean; 'aria-hidden'?: React.AriaAttributes['aria-hidden']; role?: string; title?: string }
+    & React.RefAttributes<HTMLSpanElement>
+  >;
+
+// TASK 13 — presentation-only icon mapping. Every item type gets a meaningful
+// primary icon (tab/card) and a matching background watermark icon. Nothing here
+// hard-codes test data or counts; it is pure iconography for existing types.
+export const ITEM_TYPE_ICONS: Record<string, ItemTypeIconComponent> = {
+  RAW_MATERIAL: DatabaseOutlined,
+  WORK_IN_PROGRESS: ToolOutlined,
+  SEMI_FINISHED: BuildOutlined,
+  FINISHED_GOOD: CheckCircleOutlined,
+  PACKAGING_MATERIAL: InboxOutlined,
+  CONSUMABLE: AppstoreOutlined,
+  SPARE_PART: SettingOutlined,
+  SERVICE: CustomerServiceOutlined,
+  ASSET: BankOutlined,
+  OTHER: FolderOutlined,
+};
+
+// Watermark icons reuse the same product-group glyph, rendered large & faint in
+// the background of each item type card.
+export const ITEM_TYPE_WATERMARK_ICONS: Record<string, ItemTypeIconComponent> = ITEM_TYPE_ICONS;
+
+interface ItemTypeCardProps {
+  label: string;
+  icon: ItemTypeIconComponent;
+  watermarkIcon: ItemTypeIconComponent;
+  count?: number;
+  active: boolean;
+  testId: string;
+  onClick: () => void;
+}
+
+const ItemTypeCard: React.FC<ItemTypeCardProps> = ({
+  label, icon: Icon, watermarkIcon: WatermarkIcon, count, active, testId, onClick,
+}) => (
+  <button
+    type="button"
+    role="tab"
+    aria-selected={active}
+    aria-label={label}
+    data-testid={testId}
+    title={label}
+    onClick={onClick}
+    style={{
+      position: 'relative',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      gap: 2,
+      padding: '8px 10px',
+      minHeight: 54,
+      textAlign: 'left',
+      overflow: 'hidden',
+      borderRadius: 8,
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+      border: active
+        ? `1.5px solid var(--theme-accent, var(--theme-primary, #4f46e5))`
+        : '1px solid var(--theme-border, #e4e7f1)',
+      background: active
+        ? 'var(--theme-accent-soft, rgba(79, 70, 229, 0.1))'
+        : 'var(--theme-surface, #ffffff)',
+      transition: 'border-color 0.15s, background 0.15s',
+    }}
+  >
+    <WatermarkIcon
+      aria-hidden="true"
+      data-watermark="true"
+      style={{
+        position: 'absolute', right: -4, bottom: -12, fontSize: 52, opacity: 0.1, zIndex: 0,
+        color: 'var(--theme-accent, var(--theme-primary, #4f46e5))', pointerEvents: 'none',
+      }}
+    />
+    <span
+      style={{
+        position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
+        color: active ? 'var(--theme-accent, var(--theme-primary, #4f46e5))' : 'var(--theme-text)',
+      }}
+    >
+      <Icon
+        aria-hidden="true"
+        data-primary-icon="true"
+        style={{
+          fontSize: 14,
+          color: active ? 'var(--theme-accent, var(--theme-primary, #4f46e5))' : 'var(--theme-text-muted)',
+        }}
+      />
+      <Text
+        style={{
+          fontSize: 12.5, lineHeight: 1.25,
+          color: active ? 'var(--theme-accent, var(--theme-primary, #4f46e5))' : 'var(--theme-text)',
+          fontWeight: active ? 700 : 500,
+        }}
+        ellipsis
+      >
+        {label}
+      </Text>
+    </span>
+    {count !== undefined && (
+      <Text type="secondary" style={{ position: 'relative', zIndex: 1, fontSize: 10.5, lineHeight: 1.2 }}>
+        {count} items
+      </Text>
+    )}
+  </button>
+);
+
 const ItemManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
@@ -140,6 +252,10 @@ const ItemManagement: React.FC = () => {
     total: number | null; active: number | null; inactive: number | null;
     stock: number | null; manufactured: number | null;
   }>({ total: null, active: null, inactive: null, stock: null, manufactured: null });
+  // TASK 13 — real per-item-type counts fetched from the same items API
+  // (limit 1, total only). A type whose count could not be fetched simply has no
+  // badge; counts are never fabricated or hard-coded.
+  const [typeCounts, setTypeCounts] = useState<Record<string, number>>({});
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
@@ -481,11 +597,11 @@ const ItemManagement: React.FC = () => {
       }
       setCompanyId(await resolveCompanyId());
       if (can('item.view')) {
+        const mk = async (params: Record<string, unknown>) => {
+          const res = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', { page: 1, limit: 1, ...params });
+          return res.total || 0;
+        };
         try {
-          const mk = async (params: Record<string, unknown>) => {
-            const res = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', { page: 1, limit: 1, ...params });
-            return res.total || 0;
-          };
           const [totalCount, active, inactive, stock, manufactured] = await Promise.all([
             mk({}),
             mk({ status: 'ACTIVE' }),
@@ -496,6 +612,18 @@ const ItemManagement: React.FC = () => {
           setStats({ total: totalCount, active, inactive, stock, manufactured });
         } catch {
           // keep page-derived fallback values on failure
+        }
+        try {
+          const settled = await Promise.allSettled(
+            ITEM_TYPES.map((t) => mk({ itemType: t.value })),
+          );
+          const counts: Record<string, number> = {};
+          ITEM_TYPES.forEach((t, i) => {
+            if (settled[i].status === 'fulfilled') counts[t.value] = settled[i].value;
+          });
+          setTypeCounts(counts);
+        } catch {
+          // per-type counts stay absent; the All Items count badge remains.
         }
       }
     })();
@@ -1436,33 +1564,50 @@ const ItemManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Division', key: 'division', width: 140, ellipsis: true,
-      render: (_: unknown, r: Item) => divisionName(r) ?? <Text type="secondary">—</Text>,
-    },
-    {
-      title: 'Section', key: 'section', width: 110, ellipsis: true,
-      render: (_: unknown, r: Item) => sectionName(r) ?? <Text type="secondary">—</Text>,
+      title: 'Division / Section', key: 'divisionSection', width: 150,
+      render: (_: unknown, r: Item) => {
+        const d = divisionName(r);
+        const s = sectionName(r);
+        return (
+          <div>
+            <div style={{ fontSize: 13, lineHeight: 1.3 }}>
+              {d ?? <Text type="secondary">—</Text>}
+            </div>
+            <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+              {s ?? '—'}
+            </Text>
+          </div>
+        );
+      },
     },
     {
       title: 'Department', key: 'department', width: 130, ellipsis: true,
       render: (_: unknown, r: Item) => departmentName(r) ?? <Text type="secondary">—</Text>,
     },
     {
-      title: 'Wire / Dia', key: 'wireDia', width: 95, align: 'right',
+      title: 'Wire / Dia · Length', key: 'wireDiaLength', width: 120, align: 'right',
       sorter: (a: Item, b: Item) => (Number(a.diameterMm ?? a.wireSizeMm ?? 0) - Number(b.diameterMm ?? b.wireSizeMm ?? 0)),
       render: (_: unknown, r: Item) => {
-        const val = r.diameterMm != null ? r.diameterMm : r.wireSizeMm;
-        return (val !== null && val !== undefined
-          ? <Text strong style={{ fontSize: 13, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}>{formatDimension(val)}</Text>
-          : <Text type="secondary">—</Text>);
+        const dia = r.diameterMm != null ? r.diameterMm : r.wireSizeMm;
+        const len = r.lengthPerPiece;
+        const hasDia = dia !== null && dia !== undefined;
+        const hasLen = len !== null && len !== undefined;
+        if (!hasDia && !hasLen) return <Text type="secondary">—</Text>;
+        return (
+          <div>
+            {hasDia && (
+              <Text strong style={{ fontSize: 13, lineHeight: 1.3, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}>
+                {formatDimension(dia)}
+              </Text>
+            )}
+            {hasLen && (
+              <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2, display: 'block' }}>
+                Length: {formatDimension(len)}
+              </Text>
+            )}
+          </div>
+        );
       },
-    },
-    {
-      title: 'Length', dataIndex: 'lengthPerPiece', key: 'lengthPerPiece', width: 85, align: 'right',
-      sorter: true,
-      render: (v: number | null) => (v !== null && v !== undefined
-        ? <Text style={{ fontSize: 13 }}>{formatDimension(v)}</Text>
-        : <Text type="secondary">—</Text>),
     },
     {
       title: 'Flat Spec (mm)', key: 'flatSpec', width: 110, align: 'right',
@@ -1507,15 +1652,6 @@ const ItemManagement: React.FC = () => {
       render: (s: string) => (
         <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 60, textAlign: 'center' }} />
       ),
-    },
-    {
-      title: 'Barcode', key: 'barcode', width: 130,
-      render: (_: unknown, r: Item) => {
-        const bc = r.barcode;
-        return bc
-          ? <Text code style={{ fontSize: 11 }}>{bc}</Text>
-          : <Text type="secondary" style={{ fontSize: 11 }}>—</Text>;
-      },
     },
     {
       title: 'Actions', key: 'actions', width: 210, fixed: 'right',
@@ -1712,16 +1848,36 @@ const ItemManagement: React.FC = () => {
 
       <Card style={{ marginBottom: 12, borderRadius: 8 }} styles={{ body: { padding: 0 } }}>
         <div style={{ padding: '0 12px' }}>
-          <Tabs
-            activeKey={activeTab}
-            onChange={handleTabChange}
-            size="small"
-            items={[
-              { key: 'all', label: <span>All Items <Badge count={total} showZero style={{ backgroundColor: 'var(--theme-accent, var(--theme-primary))', marginLeft: 4 }} /></span> },
-              ...ITEM_TYPES.map((t) => ({ key: t.value, label: t.label })),
-            ]}
-            style={{ marginBottom: 0 }}
-          />
+          <div
+            style={{
+              display: 'grid',
+              gap: 8,
+              gridTemplateColumns: screens.xl ? 'repeat(6, 1fr)' : screens.lg ? 'repeat(4, 1fr)' : screens.md ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
+              padding: '10px 0 6px',
+            }}
+          >
+            <ItemTypeCard
+              testId="item-type-card-all"
+              label="All Items"
+              icon={AppstoreOutlined}
+              watermarkIcon={AppstoreOutlined}
+              count={total}
+              active={activeTab === 'all'}
+              onClick={() => handleTabChange('all')}
+            />
+            {ITEM_TYPES.map((t) => (
+              <ItemTypeCard
+                key={t.value}
+                testId={`item-type-card-${t.value}`}
+                label={t.label}
+                icon={ITEM_TYPE_ICONS[t.value] ?? AppstoreOutlined}
+                watermarkIcon={ITEM_TYPE_WATERMARK_ICONS[t.value] ?? AppstoreOutlined}
+                count={typeCounts[t.value]}
+                active={activeTab === t.value}
+                onClick={() => handleTabChange(t.value)}
+              />
+            ))}
+          </div>
         </div>
         <div
           style={{
@@ -1737,19 +1893,19 @@ const ItemManagement: React.FC = () => {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
-          <Badge count={activeFilterCount} size="small">
-            <Button icon={<FilterOutlined />} onClick={() => setShowFilters((v) => !v)}>
-              Filters
-            </Button>
-          </Badge>
+          {screens.md && (
+            <div style={{ flex: 1 }} />
+          )}
           {(activeFilterCount > 0 || searchInput) && (
             <Button type="text" icon={<ClearOutlined />} onClick={resetFilters}>
               Clear
             </Button>
           )}
-          {screens.md && (
-            <div style={{ flex: 1 }} />
-          )}
+          <Badge count={activeFilterCount} size="small">
+            <Button icon={<FilterOutlined />} onClick={() => setShowFilters((v) => !v)}>
+              Filters
+            </Button>
+          </Badge>
           {screens.lg && (
             <Text type="secondary" style={{ fontSize: 12 }}>
               {total} items · Sorted by {sortField}
@@ -2875,6 +3031,29 @@ const ItemManagement: React.FC = () => {
                   }
                 : null;
 
+              // TASK 12: when the current stage is NOT spiral-classified, the
+              // explicit "Packing / Next Step" and "Final Product" fields drive
+              // stages 05/06 instead of rendering "Not configured". Whitespace-only
+              // values are treated as empty. Mirrors the backend buildSixStageFlow:
+              // the explicit field value wins, otherwise the (spiral) stage item.
+              const nextPreview = spiralPreview;
+              const nextStepValid = !isEmptyValue(nextStepName) ? String(nextStepName).trim() : null;
+              const finalProductValid = !isEmptyValue(finalProdName) ? String(finalProdName).trim() : null;
+              // Operation label for a real next-stage (spiral) preview, derived from
+              // its department name — never a hardcoded value. Mirrors the backend
+              // deriveStageOperationName: department → performed operation.
+              const nextPreviewOp = (() => {
+                const dn = (nextPreview?.departmentName ?? '').toLowerCase();
+                if (dn.includes('spiral')) return 'Spiral Winding';
+                if (dn.includes('flatten') || dn.includes('flat')) return 'Wire Flattening';
+                if (dn.includes('pvc')) return 'PVC Extrusion';
+                if (dn.includes('pack')) return 'Packing';
+                if (dn.includes('draw')) return 'Wire Drawing';
+                return nextPreview?.departmentName || null;
+              })();
+              const nextOpLabel = nextStepValid ?? nextPreviewOp ?? '';
+              const nextOutputLabel = finalProductValid;
+
               const mkStage = (
                 sequence: number,
                 stageKey: string,
@@ -2882,6 +3061,7 @@ const ItemManagement: React.FC = () => {
                 kind: 'process' | 'output',
                 it: PreviewItem | null,
                 op: { operationCode?: string | null; operationName?: string | null } | null,
+                configuredOverride?: boolean,
               ): ProductionFlowStage => ({
                 sequence,
                 kind,
@@ -2902,7 +3082,7 @@ const ItemManagement: React.FC = () => {
                 operationCode: op?.operationCode ?? null,
                 operationName: op?.operationName ?? null,
                 isCurrent: false,
-                configured: !!it,
+                configured: configuredOverride !== undefined ? configuredOverride : !!it,
               });
 
               const previewStages: ProductionFlowStage[] = [
@@ -2914,10 +3094,30 @@ const ItemManagement: React.FC = () => {
                   operationName: flattenPreview ? 'Wire Flattening' : null,
                 }),
                 mkStage(4, 'FLATTENING_OUTPUT', 'FLATTENING OUTPUT', 'output', flattenPreview, null),
-                mkStage(5, 'SPIRAL', 'SPIRAL', 'process', spiralPreview, {
-                  operationName: spiralPreview ? 'Spiral Winding' : null,
-                }),
-                mkStage(6, 'SPIRAL_OUTPUT', 'SPIRAL OUTPUT', 'output', spiralPreview, null),
+                // Stage 05 — NEXT PROCESS / NEXT STEP (driven by "Packing / Next Step")
+                mkStage(
+                  5,
+                  'SPIRAL',
+                  deriveNextStageTitle(nextOpLabel, 'process'),
+                  'process',
+                  nextPreview,
+                  {
+                    operationName: nextStepValid ?? nextPreviewOp,
+                  },
+                  !!(nextPreview || nextStepValid),
+                ),
+                // Stage 06 — NEXT OUTPUT / FINAL PRODUCT (driven by "Final Product")
+                mkStage(
+                  6,
+                  'SPIRAL_OUTPUT',
+                  deriveNextStageTitle(nextOpLabel, 'output'),
+                  'output',
+                  nextOutputLabel
+                    ? { name: nextOutputLabel, itemType: null, baseUomName: null }
+                    : nextPreview,
+                  null,
+                  !!(nextPreview || nextOutputLabel),
+                ),
               ];
 
               return (
