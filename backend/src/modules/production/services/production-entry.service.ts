@@ -744,6 +744,7 @@ export class ProductionEntryService {
 
     const entry = this.entryRepo.create({
       companyId,
+      entryNumber: await this.generateEntryNumber(companyId),
       productionOrderId: dto.productionOrderId ?? null,
       productionOrderOperationId: dto.productionOrderOperationId ?? null,
       divisionId: dto.divisionId,
@@ -1641,5 +1642,27 @@ export class ProductionEntryService {
       throw new NotFoundException(`Production Entry with ID '${id}' not found`);
     }
     return entry;
+  }
+
+  /**
+   * Generate the human-readable entry reference (PE-YYYY-NNNNN), year-based and
+   * company-scoped. Mirrors the production-order sequence pattern: scans the
+   * most recent entries for the max numeric suffix, then increments. The year
+   * prefix guarantees year transitions never collide and keeps refs readable.
+   */
+  private async generateEntryNumber(companyId: string): Promise<string> {
+    const year = String(new Date().getFullYear());
+    const rows = await this.entryRepo.query(
+      `SELECT entry_number FROM production_entries
+       WHERE company_id = $1 AND entry_number LIKE $2
+       ORDER BY created_at DESC LIMIT 200`,
+      [companyId, `PE-${year}-%`],
+    );
+    let maxSeq = 0;
+    for (const row of rows) {
+      const match = new RegExp(`^PE-${year}-(\\d+)$`).exec(String(row.entry_number ?? ''));
+      if (match) maxSeq = Math.max(maxSeq, parseInt(match[1], 10));
+    }
+    return `PE-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
   }
 }

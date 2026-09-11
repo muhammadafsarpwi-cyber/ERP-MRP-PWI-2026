@@ -863,8 +863,18 @@ export class ItemService implements OnModuleInit {
     fullRoute: Array<{
       stageOrder: number; stageName: string; itemId: string; itemCode: string;
       itemName: string; itemType: string; departmentName: string | null;
-      wireSizeMm: number | null; thicknessMm: number | null; widthMm: number | null;
-      baseUomName: string | null; isCurrent: boolean;
+      wireSizeMm: number | null; diameterMm: number | null; thicknessMm: number | null;
+      widthMm: number | null; lengthPerPiece: number | null; baseUomName: string | null;
+      operationName: string | null; isCurrent: boolean;
+    }>;
+    stages: Array<{
+      sequence: number; kind: 'process' | 'output'; stageKey: string; title: string;
+      itemId: string | null; itemCode: string | null; itemName: string | null;
+      itemType: string | null; wireSizeMm: number | null; diameterMm: number | null;
+      thicknessMm: number | null; widthMm: number | null; lengthPerPiece: number | null;
+      baseUomName: string | null; departmentId: string | null; departmentName: string | null;
+      operationCode: string | null; operationName: string | null;
+      isCurrent: boolean; configured: boolean;
     }>;
   }> {
     const item = await this.itemRepository.findOne({
@@ -963,7 +973,12 @@ export class ItemService implements OnModuleInit {
     }
 
     // FULL ROUTE: walk the chain both directions
-    const fullRoute = await this.buildFullRoute(item);
+    const chain = await this.buildRouteChain(item);
+    const fullRoute = this.mapRouteChain(chain, item.id);
+
+    // PROMPT-35: exactly six production-flow stages (RAW → FLATTENING → SPIRAL,
+    // each with its output/specification block), derived from the real chain.
+    const stages = await this.buildSixStageFlow(chain, item.id);
 
     return {
       previous: previous ? {
@@ -994,6 +1009,7 @@ export class ItemService implements OnModuleInit {
         operationName: nextOperationName,
       },
       fullRoute,
+      stages,
     };
   }
 
@@ -1017,12 +1033,33 @@ export class ItemService implements OnModuleInit {
     return null;
   }
 
-  private async buildFullRoute(item: any): Promise<Array<{
-    stageOrder: number; stageName: string; itemId: string; itemCode: string;
-    itemName: string; itemType: string; departmentName: string | null;
-    wireSizeMm: number | null; thicknessMm: number | null; widthMm: number | null;
-    baseUomName: string | null; isCurrent: boolean;
-  }>> {
+  /**
+   * Operation performed AT a route stage. An item's own `processes[0]`
+   * describes the operation that consumes its INPUT, so for stage cards the
+   * department-derived operation (what happens in this stage's department)
+   * is the accurate label; item processes are the fallback.
+   */
+  private deriveStageOperationName(item: any): string | null {
+    const deptName = item.department?.name ?? null;
+    if (deptName) {
+      const lower = deptName.toLowerCase();
+      if (lower.includes('pvc')) return 'PVC Extrusion';
+      if (lower.includes('spiral')) return 'Spiral Winding';
+      if (lower.includes('flatten') || lower.includes('flat')) return 'Wire Flattening';
+      if (lower.includes('pack')) return 'Packing';
+      if (lower.includes('drawing')) return 'Wire Drawing';
+      return deptName;
+    }
+    if (item.processes && Array.isArray(item.processes) && item.processes.length > 0) {
+      return item.processes[item.processes.length - 1]?.name ?? null;
+    }
+    if (item.process1) return item.process1;
+    if (item.routeTypeRef?.name) return item.routeTypeRef.name;
+    if (item.routeType) return item.routeType;
+    return null;
+  }
+
+  private async buildRouteChain(item: any): Promise<any[]> {
     const chain: any[] = [];
     const seen = new Set<string>();
 
@@ -1065,17 +1102,25 @@ export class ItemService implements OnModuleInit {
       // Follow the first child for further traversal
       const nextChild = children[0];
       if (!nextChild || seen.has(nextChild.id)) break;
-      current = await this.itemRepository.findOne({ where: { id: nextChild.id } });
+      current = await this.itemRepository.findOne({ where: { id: nextChild.id }, relations: ['department', 'baseUom'] });
       if (!current) break;
     }
 
+    return chain;
+  }
+
+  private mapRouteChain(chain: any[], currentItemId: string): Array<{
+    stageOrder: number; stageName: string; itemId: string; itemCode: string;
+    itemName: string; itemType: string; departmentName: string | null;
+    wireSizeMm: number | null; diameterMm: number | null; thicknessMm: number | null;
+    widthMm: number | null; lengthPerPiece: number | null; baseUomName: string | null;
+    operationName: string | null; isCurrent: boolean;
+  }> {
     return chain.map((it: any, idx: number) => {
       const deptName = it.department?.name ?? null;
       let stageName = 'MANUFACTURING';
-      if (idx === 0 && !upstream.some(u => u.id === it.id)) {
-        // First item that has no parent
-      }
-      if (!it.productionInItemId && idx === 0) {
+      const isRootRawMaterial = !it.productionInItemId && idx === 0;
+      if (isRootRawMaterial) {
         stageName = 'RAW MATERIAL';
       } else if (it.itemType === 'FINISHED_GOOD') {
         stageName = 'FINISHED GOOD';
@@ -1099,12 +1144,133 @@ export class ItemService implements OnModuleInit {
         itemType: it.itemType,
         departmentName: deptName,
         wireSizeMm: it.wireSizeMm ?? null,
+        diameterMm: it.diameterMm ?? null,
         thicknessMm: it.thicknessMm ?? null,
         widthMm: it.widthMm ?? null,
+        lengthPerPiece: it.lengthPerPiece ?? null,
         baseUomName: it.baseUom?.name ?? null,
-        isCurrent: it.id === item.id,
+        // A root raw-material intake stage has no performed operation.
+        operationName: isRootRawMaterial ? null : this.deriveStageOperationName(it),
+        isCurrent: it.id === currentItemId,
       };
     });
+  }
+
+  private classifyRouteItem(it: any): 'RAW' | 'FLATTENING' | 'SPIRAL' | 'OTHER' {
+    const op = (this.deriveStageOperationName(it) ?? '').toLowerCase();
+    const dept = (it.department?.name ?? '').toLowerCase();
+    if (dept.includes('spiral') || op.includes('spiral')) return 'SPIRAL';
+    if (dept.includes('flatten') || dept.includes('flat') || op.includes('flatten')) return 'FLATTENING';
+    return 'OTHER';
+  }
+
+  /**
+   * Resolve the ACTIVE operation record (code + name) performed in a
+   * department, so stage cards can display machine-readable operation codes.
+   */
+  private async resolveOperationForDepartment(
+    departmentId: string | null,
+  ): Promise<{ operationCode: string | null; operationName: string | null }> {
+    if (!departmentId) return { operationCode: null, operationName: null };
+    try {
+      const rows = await this.itemRepository.query(
+        `SELECT operation_code, operation_name FROM operations
+         WHERE department_id = $1 AND status = 'ACTIVE'
+         ORDER BY operation_code LIMIT 1`,
+        [departmentId],
+      );
+      if (rows && rows.length > 0) {
+        return { operationCode: rows[0].operation_code, operationName: rows[0].operation_name };
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not resolve operation for department ${departmentId}: ${err?.message}`);
+    }
+    return { operationCode: null, operationName: null };
+  }
+
+  /**
+   * PROMPT-35: Build exactly six production-flow stages (01-06):
+   *   01 RAW MATERIAL (process block)
+   *   02 RAW MATERIAL SPECIFICATION (item/size block)
+   *   03 FLATTENING (process block)
+   *   04 FLATTENING OUTPUT (item/size block)
+   *   05 SPIRAL (process block)
+   *   06 SPIRAL OUTPUT (item/size block)
+   * Every field is derived from the real chain + operations master; nothing is
+   * hard-coded.  Stages with no matching item are emitted with configured=false
+   * so the UI can render "Not configured".
+   */
+  private async buildSixStageFlow(chain: any[], currentItemId: string): Promise<Array<{
+    sequence: number; kind: 'process' | 'output'; stageKey: string; title: string;
+    itemId: string | null; itemCode: string | null; itemName: string | null;
+    itemType: string | null; wireSizeMm: number | null; diameterMm: number | null;
+    thicknessMm: number | null; widthMm: number | null; lengthPerPiece: number | null;
+    baseUomName: string | null; departmentId: string | null; departmentName: string | null;
+    operationCode: string | null; operationName: string | null;
+    isCurrent: boolean; configured: boolean;
+  }>> {
+    const rawItem = chain[0] ?? null;
+
+    let flattenItem: any | null = null;
+    let spiralItem: any | null = null;
+    for (const it of chain) {
+      const cls = this.classifyRouteItem(it);
+      if (cls === 'FLATTENING' && !flattenItem) flattenItem = it;
+      if (cls === 'SPIRAL' && !spiralItem) spiralItem = it;
+    }
+
+    const opCache = new Map<string, { operationCode: string | null; operationName: string | null }>();
+    const opFor = async (it: any): Promise<{ operationCode: string | null; operationName: string | null }> => {
+      if (!it) return { operationCode: null, operationName: null };
+      const deptId = it.departmentId ?? it.department?.id ?? null;
+      if (!deptId) return { operationCode: null, operationName: this.deriveStageOperationName(it) };
+      if (!opCache.has(deptId)) opCache.set(deptId, await this.resolveOperationForDepartment(deptId));
+      return opCache.get(deptId)!;
+    };
+
+    const stage = (
+      sequence: number,
+      kind: 'process' | 'output',
+      stageKey: string,
+      title: string,
+      it: any | null,
+      op: { operationCode: string | null; operationName: string | null } | null,
+    ) => ({
+      sequence,
+      kind,
+      stageKey,
+      title,
+      itemId: it?.id ?? null,
+      itemCode: it?.itemCode ?? null,
+      itemName: it?.name ?? null,
+      itemType: it?.itemType ?? null,
+      wireSizeMm: it?.wireSizeMm ?? null,
+      diameterMm: it?.diameterMm ?? null,
+      thicknessMm: it?.thicknessMm ?? null,
+      widthMm: it?.widthMm ?? null,
+      lengthPerPiece: it?.lengthPerPiece ?? null,
+      baseUomName: it?.baseUom?.name ?? null,
+      departmentId: it?.departmentId ?? it?.department?.id ?? null,
+      departmentName: it?.department?.name ?? null,
+      operationCode: op?.operationCode ?? null,
+      operationName: op?.operationName ?? null,
+      isCurrent: !!it && it.id === currentItemId,
+      configured: !!it,
+    });
+
+    const rawIsRoot = rawItem && !rawItem.productionInItemId;
+    const rawOp = rawIsRoot
+      ? { operationCode: null, operationName: null }
+      : await opFor(rawItem);
+
+    return [
+      stage(1, 'process', 'RAW_MATERIAL', 'RAW MATERIAL', rawItem, rawOp),
+      stage(2, 'output', 'RAW_SPEC', 'RAW MATERIAL SPECIFICATION', rawItem, null),
+      stage(3, 'process', 'FLATTENING', 'FLATTENING', flattenItem, await opFor(flattenItem)),
+      stage(4, 'output', 'FLATTENING_OUTPUT', 'FLATTENING OUTPUT', flattenItem, null),
+      stage(5, 'process', 'SPIRAL', 'SPIRAL', spiralItem, await opFor(spiralItem)),
+      stage(6, 'output', 'SPIRAL_OUTPUT', 'SPIRAL OUTPUT', spiralItem, null),
+    ];
   }
 
   /**

@@ -63,6 +63,7 @@ interface LedgerMovement {
 
 interface DetailData {
   id: string;
+  entryNumber?: string | null;
   entryDate: string;
   division?: { divisionCode: string; name: string };
   section?: { name: string };
@@ -499,6 +500,7 @@ const EntryDetail: React.FC = () => {
   const sectionCtx = (
     <Descriptions column={3} size="small" bordered>
       <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
+      <Descriptions.Item label="Entry Reference"><Text strong style={{ fontSize: 13 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
       <Descriptions.Item label="Division">{entry.division?.divisionCode} — {entry.division?.name}</Descriptions.Item>
       <Descriptions.Item label="Section">{entry.section?.name}</Descriptions.Item>
       <Descriptions.Item label="Department">{entry.department?.departmentCode} — {entry.department?.name}</Descriptions.Item>

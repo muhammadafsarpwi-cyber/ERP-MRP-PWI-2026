@@ -1,16 +1,21 @@
-.erp-draggable-modal {
-  position: relative;
-  display: inline-block;
-  vertical-align: middle;
+.erp-draggable-modal-wrap .ant-modal {
+  top: 0;
+  padding-bottom: 0;
+  max-width: calc(100vw - 24px);
 }
 
-.erp-draggable-modal .ant-modal {
-  top: 0 !important;
-  padding-bottom: 0;
-  width: 100% !important;
-  max-width: 100%;
-  margin: 0 auto;
-  vertical-align: middle;
+.erp-draggable-modal-wrap .ant-modal-render {
+  height: 100%;
+}
+
+.erp-draggable-modal {
+  position: relative;
+  width: 100%;
+}
+
+.erp-draggable-modal-inner {
+  display: block;
+  width: 100%;
 }
 
 .erp-draggable-modal .ant-modal-content {
@@ -49,6 +54,14 @@
 
 .erp-draggable-modal .ant-modal-title-text {
   min-width: 0;
+}
+
+.erp-draggable-modal-subtitle {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--theme-text-muted, #94a3b8);
+  margin-top: 2px;
+  line-height: 1.4;
 }
 
 .erp-draggable-modal .ant-modal-title-extra {

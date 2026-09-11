@@ -673,7 +673,7 @@ export class ReplenishmentService {
            JOIN purchase_requisition_lines prl ON prl.requisition_id = pr.id
           WHERE pr.id = ANY($1) AND prl.item_id = $2
             AND pr.status = ANY($3)
-            AND pr.cancelled_at IS NULL`,
+            AND pr.status NOT IN ('CANCELLED', 'REJECTED')`,
         [prIds, itemId, ACTIVE_PR_STATUSES],
       );
       poRows = await this.dataSource.query<any[]>(

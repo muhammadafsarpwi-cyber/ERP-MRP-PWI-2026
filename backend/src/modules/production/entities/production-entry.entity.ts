@@ -25,6 +25,16 @@ export class ProductionEntry extends BaseEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 
+  /**
+   * Human-readable production entry reference (e.g. PE-2026-00001).
+   * Server-generated on create (year-based, company-scoped sequence) so every
+   * entry has a stable identifier that displays on the success confirmation
+   * modal and audit trails (migration 1790000000000).
+   */
+  @Index({ unique: false })
+  @Column({ name: 'entry_number', type: 'varchar', length: 30, nullable: true })
+  entryNumber: string | null;
+
   @ManyToOne(() => Company)
   @JoinColumn({ name: 'company_id' })
   company: Company;

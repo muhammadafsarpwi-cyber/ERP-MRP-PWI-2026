@@ -16,6 +16,13 @@ export interface DraggableResizableModalProps extends ModalProps {
   minHeight?: number;
   /** Extra actions rendered on the right side of the modal header. */
   extra?: React.ReactNode;
+  /** Optional muted subtitle rendered under the header title. */
+  subtitle?: React.ReactNode;
+  /**
+   * Clicking the mask NEVER closes an ERP modal (PROMPT-35). Closing is only
+   * possible via the header close (X), footer buttons, or Escape.
+   */
+  maskClosable?: boolean;
 }
 
 const MIN_WIDTH = 640;
@@ -32,9 +39,12 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   minWidth = MIN_WIDTH,
   minHeight = MIN_HEIGHT,
   centered = true,
+  maskClosable = false,
   children,
   title,
+  subtitle,
   extra,
+  wrapClassName,
   ...rest
 }) => {
   const [size, setSize] = useState({ w: width, h: height });
@@ -141,18 +151,26 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
     <Modal
       open={open}
       centered={centered}
-      modalRender={modalRender}
-      title={
-        title || extra ? (
-          <div
-            className="erp-draggable-modal-title-row"
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-          >
-            <div className="erp-draggable-modal-title-text" style={{ minWidth: 0, flex: '1 1 auto' }}>{title}</div>
-            {extra ? <div className="erp-draggable-modal-title-extra" style={{ flex: '0 0 auto' }}>{extra}</div> : null}
-          </div>
-        ) : undefined
-      }
+width={size.w}
+        maskClosable={maskClosable}
+        wrapClassName={[wrapClassName, 'erp-draggable-modal-wrap'].filter(Boolean).join(' ')}
+        modalRender={modalRender}
+        title={
+          title || subtitle || extra ? (
+            <div
+              className="erp-draggable-modal-title-row"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+            >
+              <div className="erp-draggable-modal-title-text" style={{ minWidth: 0, flex: '1 1 auto' }}>
+                {title}
+                {subtitle ? (
+                  <div className="erp-draggable-modal-subtitle">{subtitle}</div>
+                ) : null}
+              </div>
+              {extra ? <div className="erp-draggable-modal-title-extra" style={{ flex: '0 0 auto' }}>{extra}</div> : null}
+            </div>
+          ) : undefined
+        }
       {...rest}
     >
       {children}

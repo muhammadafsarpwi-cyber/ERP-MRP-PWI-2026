@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Button, Tag, Modal, Form, Select, App,
+  Button, Tag, Form, Select, App,
   InputNumber, Switch, Row, Col, Card,
   Descriptions, Divider, Spin, Tooltip, Badge, Space, Popconfirm,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, CheckCircleOutlined,
   EyeOutlined, FilterOutlined, ClearOutlined,
-  WarningOutlined, AlertOutlined, SafetyOutlined, HolderOutlined, CompressOutlined,
+  WarningOutlined, AlertOutlined, SafetyOutlined, HolderOutlined,
   DeleteOutlined, DatabaseOutlined, PoweroffOutlined, SafetyCertificateOutlined,
   AppstoreOutlined, BarcodeOutlined, BankOutlined,
   ClusterOutlined, ApartmentOutlined, HomeOutlined, EnvironmentOutlined,
@@ -17,7 +17,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatNumber } from '../../utils/numberFormat';
-import { ERPTable, TableToolbar, TableActions } from '../../components/shared';
+import { ERPTable, TableToolbar, TableActions, DraggableResizableModal } from '../../components/shared';
 
 const TRACKING_TYPES = [
   { value: 'NONE', label: 'None' },
@@ -237,75 +237,6 @@ const PolicyKPICard: React.FC<PolicyKPICardProps> = ({
   </div>
 );
 
-/* ─── Draggable Modal Hook (Transform-based) ────────────────────────── */
-function useDraggableModal() {
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const draggingRef = useRef(false);
-  const startRef = useRef({ x: 0, y: 0, mouseX: 0, mouseY: 0 });
-
-  const onMouseDownDrag = useCallback((e: React.MouseEvent) => {
-    // Ignore interactive elements
-    if ((e.target as HTMLElement).closest('button, input, select, textarea, .ant-select, .ant-switch, .ant-input-number, [role="button"], .ant-tag')) {
-      return;
-    }
-    draggingRef.current = true;
-    setIsDragging(true);
-    startRef.current = {
-      x: pos.x,
-      y: pos.y,
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-    };
-    e.preventDefault();
-  }, [pos]);
-
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!draggingRef.current) return;
-      const dx = e.clientX - startRef.current.mouseX;
-      const dy = e.clientY - startRef.current.mouseY;
-      setPos({
-        x: startRef.current.x + dx,
-        y: startRef.current.y + dy,
-      });
-    };
-
-    const onMouseUp = () => {
-      if (draggingRef.current) {
-        draggingRef.current = false;
-        setIsDragging(false);
-      }
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-  }, []);
-
-  const resetPosition = useCallback(() => {
-    setPos({ x: 0, y: 0 });
-    setIsDragging(false);
-  }, []);
-
-  const modalRender = useCallback((modalNode: React.ReactNode) => (
-    <div
-      style={{
-        transform: `translate(${pos.x}px, ${pos.y}px)`,
-        transition: isDragging ? 'none' : 'transform 0.05s ease-out',
-        pointerEvents: 'auto',
-      }}
-    >
-      {modalNode}
-    </div>
-  ), [pos, isDragging]);
-
-  return { onMouseDownDrag, modalRender, resetPosition, isShifted: pos.x !== 0 || pos.y !== 0, isDragging };
-}
-
 /* ─── Main Component ────────────────────────────────────────────────── */
 const InventoryPolicyManagement: React.FC = () => {
   const { message } = App.useApp();
@@ -321,7 +252,6 @@ const InventoryPolicyManagement: React.FC = () => {
   const [viewItem, setViewItem] = useState<InventoryPolicy | null>(null);
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [form] = Form.useForm();
-  const { onMouseDownDrag, modalRender, resetPosition, isShifted, isDragging } = useDraggableModal();
 
   const [search, setSearch] = useState('');
   const [filterCompany, setFilterCompany] = useState<string | undefined>(undefined);
@@ -515,7 +445,6 @@ const InventoryPolicyManagement: React.FC = () => {
   const handleCreate = () => {
     setEditingItem(null);
     setSelectedItemDetail(null);
-    resetPosition();
     form.resetFields();
     form.setFieldsValue({
       minimumStock: 0,
@@ -534,7 +463,6 @@ const InventoryPolicyManagement: React.FC = () => {
   const handleEdit = (record: InventoryPolicy) => {
     setEditingItem(record);
     setSelectedItemDetail(null);
-    resetPosition();
     form.setFieldsValue({
       companyId: record.companyId,
       itemId: record.itemId,
@@ -1306,55 +1234,27 @@ const InventoryPolicyManagement: React.FC = () => {
         }}
       />
 
-      {/* Create/Edit Modal — Draggable */}
-      <Modal
-        title={
-          <div
-            onMouseDown={onMouseDownDrag}
-            style={{
-              cursor: isDragging ? 'grabbing' : 'grab',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              userSelect: 'none',
-              paddingRight: 28,
-            }}
-          >
-            <Space>
-              <HolderOutlined style={{ color: 'var(--theme-text-muted)', cursor: isDragging ? 'grabbing' : 'grab', fontSize: 14 }} />
-              {editingItem ? <EditOutlined /> : <PlusOutlined />}
-              <span style={{ fontWeight: 600 }}>{editingItem ? 'Edit Policy' : 'Create Policy'}</span>
-              {selectedItemDetail && (
-                <Tag color="blue" style={{ marginLeft: 8 }}>
-                  {selectedItemDetail.itemCode} — {selectedItemDetail.name}
-                </Tag>
-              )}
-            </Space>
-            {isShifted && (
-              <Tooltip title="Reset modal position to center">
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<CompressOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    resetPosition();
-                  }}
-                  style={{ fontSize: 12 }}
-                >
-                  Center
-                </Button>
-              </Tooltip>
-            )}
-          </div>
-        }
+      {/* Create/Edit Modal — Draggable & Resizable */}
+      <DraggableResizableModal
         open={modalVisible}
-        onCancel={() => { setModalVisible(false); setSelectedItemDetail(null); resetPosition(); }}
+        onCancel={() => { setModalVisible(false); setSelectedItemDetail(null); }}
+        maskClosable={false}
         width={860}
-        centered
+        height={620}
         destroyOnHidden
-        footer={[
-          <div key="footer-wrap" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        title={
+          <Space>
+            {editingItem ? <EditOutlined /> : <PlusOutlined />}
+            <span style={{ fontWeight: 600 }}>{editingItem ? 'Edit Policy' : 'Create Policy'}</span>
+            {selectedItemDetail && (
+              <Tag color="blue" style={{ marginLeft: 8 }}>
+                {selectedItemDetail.itemCode} — {selectedItemDetail.name}
+              </Tag>
+            )}
+          </Space>
+        }
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               {editingItem && (
                 <Popconfirm
@@ -1376,7 +1276,7 @@ const InventoryPolicyManagement: React.FC = () => {
               )}
             </div>
             <Space>
-              <Button onClick={() => { setModalVisible(false); setSelectedItemDetail(null); resetPosition(); }}>
+              <Button onClick={() => { setModalVisible(false); setSelectedItemDetail(null); }}>
                 Cancel
               </Button>
               <Button type="primary" onClick={handleSubmit}>
@@ -1384,8 +1284,7 @@ const InventoryPolicyManagement: React.FC = () => {
               </Button>
             </Space>
           </div>
-        ]}
-        modalRender={modalRender}
+        }
       >
         <Form form={form} layout="vertical" style={{ maxHeight: 'calc(80vh - 160px)', overflowY: 'auto', paddingRight: 6 }}>
           {/* Auto-populated Item Info */}
@@ -1513,15 +1412,19 @@ const InventoryPolicyManagement: React.FC = () => {
             </Col>
           </Row>
         </Form>
-      </Modal>
+      </DraggableResizableModal>
 
-      {/* View Detail Modal */}
-      <Modal
-        title={<Space><EyeOutlined /><span>Policy Details</span></Space>}
+      {/* View Detail Modal — Draggable & Resizable */}
+      <DraggableResizableModal
         open={viewModalVisible}
         onCancel={() => setViewModalVisible(false)}
-        footer={[
-          <div key="view-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        maskClosable={false}
+        width={700}
+        height={560}
+        destroyOnHidden
+        title={<Space><EyeOutlined /><span>Policy Details</span></Space>}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               {viewItem && (
                 <Popconfirm
@@ -1543,15 +1446,13 @@ const InventoryPolicyManagement: React.FC = () => {
               )}
             </div>
             <Space>
-              <Button key="close" onClick={() => setViewModalVisible(false)}>Close</Button>
+              <Button onClick={() => setViewModalVisible(false)}>Close</Button>
               {viewItem && (
-                <Button key="edit" type="primary" icon={<EditOutlined />} onClick={() => { setViewModalVisible(false); handleEdit(viewItem); }}>Edit</Button>
+                <Button type="primary" icon={<EditOutlined />} onClick={() => { setViewModalVisible(false); handleEdit(viewItem); }}>Edit</Button>
               )}
             </Space>
           </div>
-        ]}
-        width={700}
-        destroyOnHidden
+        }
       >
         {viewItem && (
           <div>
@@ -1612,7 +1513,7 @@ const InventoryPolicyManagement: React.FC = () => {
             </Descriptions>
           </div>
         )}
-      </Modal>
+      </DraggableResizableModal>
     </div>
   );
 };

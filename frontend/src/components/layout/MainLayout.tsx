@@ -151,14 +151,21 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   // Global top loading bar — brief pulse on every route change (real API
   // traffic is tracked automatically by the ApiService request/response
-  // interceptors against the same loading store).
+  // interceptors against the same loading store). The pulse always ends,
+  // even if the route changes again before the timer fires, so the counter
+  // never leaks and the bar fully disappears when nothing is running.
   React.useEffect(() => {
     const { begin, end } = useLoadingStore.getState();
+    let ended = false;
     begin();
     const pulseTimer = window.setTimeout(() => {
+      ended = true;
       end();
     }, 600);
-    return () => window.clearTimeout(pulseTimer);
+    return () => {
+      window.clearTimeout(pulseTimer);
+      if (!ended) end();
+    };
   }, [location.pathname]);
 
   const effectiveCan = React.useCallback((key: string) => {

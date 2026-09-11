@@ -65,14 +65,19 @@ export interface Item {
   itemType: string;
   categoryId?: string | null;
   categoryName?: string | null;
+  category?: { id: string; categoryCode?: string; name: string } | null;
+  company?: { id: string; companyCode?: string; legalName?: string | null; tradeName?: string | null } | null;
   barcode?: string | null;
   manufacturerPartNumber?: string | null;
   brand?: string | null;
   model?: string | null;
   baseUomId?: string | null;
   baseUomName?: string | null;
+  baseUom?: { id: string; code?: string; name?: string } | null;
   purchaseUomId?: string | null;
+  purchaseUom?: { id: string; code?: string; name?: string } | null;
   salesUomId?: string | null;
+  salesUom?: { id: string; code?: string; name?: string } | null;
   divisionId?: string | null;
   sectionId?: string | null;
   departmentId?: string | null;
@@ -115,6 +120,8 @@ export interface Item {
   reorderLevel?: number | null;
   safetyStockLevel?: number | null;
   leadTimeDays?: number | null;
+  costPrice?: number | null;
+  sellingPrice?: number | null;
   status: string;
   createdAt?: string;
   updatedAt?: string;
@@ -195,10 +202,37 @@ export interface ProductionFlowRouteStage {
   itemType: string;
   departmentName?: string | null;
   wireSizeMm?: number | null;
+  diameterMm?: number | null;
   thicknessMm?: number | null;
   widthMm?: number | null;
+  lengthPerPiece?: number | null;
   baseUomName?: string | null;
+  operationName?: string | null;
   isCurrent: boolean;
+}
+
+// PROMPT-35: six-stage production flow (RAW → FLATTENING → SPIRAL)
+export interface ProductionFlowStage {
+  sequence: number;
+  kind: 'process' | 'output';
+  stageKey: string;
+  title: string;
+  itemId: string | null;
+  itemCode: string | null;
+  itemName: string | null;
+  itemType: string | null;
+  wireSizeMm?: number | null;
+  diameterMm?: number | null;
+  thicknessMm?: number | null;
+  widthMm?: number | null;
+  lengthPerPiece?: number | null;
+  baseUomName?: string | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  operationCode?: string | null;
+  operationName?: string | null;
+  isCurrent: boolean;
+  configured: boolean;
 }
 
 export interface ProductionFlowResponse {
@@ -210,6 +244,7 @@ export interface ProductionFlowResponse {
     operationName: string | null;
   };
   fullRoute: ProductionFlowRouteStage[];
+  stages: ProductionFlowStage[];
 }
 
 export const IMPORT_COLUMNS = [

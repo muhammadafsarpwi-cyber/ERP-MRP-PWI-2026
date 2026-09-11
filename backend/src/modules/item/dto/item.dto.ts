@@ -454,6 +454,19 @@ export class CreateItemDto {
   @IsOptional()
   productionOutItemId?: string;
   // ── END TASK #33 ─────────────────────────────────────────────────────────
+
+  // ── Pricing (Item Master source of truth: items.cost_price / items.selling_price) ──
+  @ApiPropertyOptional({ description: 'Standard cost price' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  costPrice?: number;
+
+  @ApiPropertyOptional({ description: 'Default selling price' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  sellingPrice?: number;
 }
 
 export class UpdateItemDto {
@@ -891,6 +904,19 @@ export class UpdateItemDto {
   @IsOptional()
   productionOutItemId?: string;
   // ── END TASK #33 ─────────────────────────────────────────────────────────
+
+  // ── Pricing (Item Master source of truth: items.cost_price / items.selling_price) ──
+  @ApiPropertyOptional({ description: 'Standard cost price' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  costPrice?: number;
+
+  @ApiPropertyOptional({ description: 'Default selling price' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  sellingPrice?: number;
 }
 
 export class ItemFilterDto {

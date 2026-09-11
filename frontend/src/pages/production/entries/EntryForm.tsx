@@ -22,6 +22,7 @@ import {
   lineToKg, aggregateProductionTotals, buildDowntimePayload, buildProductionItemsPayload,
 } from './downtimeHours';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
+import ProductionSaveSuccessModal, { SavedEntrySummary } from './ProductionSaveSuccessModal';
 
 const { Title, Text } = Typography;
 
@@ -130,6 +131,13 @@ interface EntryDetailData {
   postToInventory: boolean; warehouseId: string | null; inventoryReferenceId: string | null;
 }
 
+/** Minimal shape expected back from POST/PUT /production/entries. */
+interface ProductionEntrySaved {
+  id: string;
+  machineNo?: string;
+  entryNumber?: string | null;
+}
+
 /** Payload of GET /production/entries/machine-target (ERP-00016/ERP-00018 resolution). */
 interface MachineTargetResolution {
   effectiveTargetRecordId: string;
@@ -170,6 +178,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
   const [loadingEntry, setLoadingEntry] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
+
+  // PROMPT-35: success confirmation — populated/open ONLY after the backend
+  // confirms the entry was persisted (POST/PUT /production/entries).
+  const [savedEntry, setSavedEntry] = useState<SavedEntrySummary | null>(null);
+  const [savedOpen, setSavedOpen] = useState(false);
 
   // Machine pre-selected on the availability screen (Step 1): context is locked
   // so the operator cannot drift into a duplicate date/shift/machine combination.
@@ -874,6 +887,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
   const onFinish = useCallback(async (values: Record<string, unknown>) => {
     console.log('ON_FINISH_START', values);
+    // Guard against duplicate submissions (double-click / Enter while saving):
+    // the success modal must appear exactly once per persisted entry.
+    if (saving || submitBlocked) return;
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...values };
@@ -982,39 +998,49 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         delete payload.coilSize;
       }
 
+      // PROMPT-35: build the success-confirmation summary from the AUTHORITATIVE
+      // saved entity + lookups (labels only — never raw UUIDs). Called only on
+      // back-end-confirmed success for both create and update.
+      const showSavedSuccess = (saved: { id: string; machineNo?: string; entryNumber?: string | null }) => {
+        const shift = lookups.shifts.find((s) => s.id === payload.shiftId);
+        const div = lookups.divisions.find((d) => d.id === payload.divisionId);
+        const sec = lookups.sections.find((s) => s.id === payload.sectionId);
+        const dep = lookups.departments.find((d) => d.id === payload.departmentId);
+        const itm = lookups.items.find((i) => i.id === payload.itemId);
+        const uomLk = lookups.uoms.find((u) => u.id === payload.uomId);
+        const firstLine = itemLines.find((l) => !!l.itemId);
+        const qty = firstLine?.actualQuantity ?? payload.actualQuantity;
+        setSavedEntry({
+          entryId: saved.id,
+          entryNumber: saved.entryNumber,
+          entryDate: String(payload.entryDate ?? ''),
+          shift: shift?.name,
+          division: div ? `${div.divisionCode} — ${div.name}` : undefined,
+          section: sec?.name,
+          department: dep?.name,
+          machineNo: String(saved.machineNo ?? payload.machineNo ?? ''),
+          itemCode: itm?.itemCode,
+          itemName: itm?.name,
+          quantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 4) : undefined,
+          uom: uomLk?.code || uomLk?.symbol,
+          status: (values as { postToInventory?: boolean }).postToInventory ? 'Saved • Posted to Inventory' : 'Saved',
+        });
+        setSavedOpen(true);
+      };
+
       if (mode === 'create') {
         payload.postToInventory = !!(values as { postToInventory?: boolean }).postToInventory;
-        const res = await apiService.post<{ success: boolean; data: { id: string; machineNo?: string } }>('/production/entries', payload);
-        message.success(`Production entry ${res.data?.machineNo ? `for ${res.data.machineNo}` : ''} saved`);
-        if (lockedContext) {
-          // Return to the availability screen so the operator sees this machine
-          // flip from "Entry Required" to "Already Entered" immediately.
-          const qs = new URLSearchParams();
-          qs.set('entryDate', String(payload.entryDate ?? ''));
-          qs.set('shiftId', String(payload.shiftId ?? ''));
-          qs.set('divisionId', String(payload.divisionId ?? ''));
-          qs.set('sectionId', String(payload.sectionId ?? ''));
-          qs.set('departmentId', String(payload.departmentId ?? ''));
-          navigate(`/production/entries/select?${qs.toString()}`);
-        } else {
-          navigate(`/production/entries/${res.data.id}`);
-        }
+        const res = await apiService.post<{ success: boolean; data: ProductionEntrySaved }>('/production/entries', payload);
+        showSavedSuccess(res.data);
       } else if (id) {
         // Inventory posting is a CREATE-only decision (stock is posted once at
         // creation; the update API does not accept postToInventory/warehouseId).
         delete payload.warehouseId;
         console.log('SENDING_PUT_PAYLOAD:', JSON.stringify(payload));
         console.log('BEFORE_API_PUT');
-        await apiService.put(`/production/entries/${id}`, payload);
+        const updated = await apiService.put<{ success: boolean; data: ProductionEntrySaved }>(`/production/entries/${id}`, payload);
         console.log('AFTER_API_PUT_SUCCESS');
-        try {
-          message.success('Production entry updated');
-        } catch (mErr) {
-          console.error('MESSAGE_ERR:', mErr);
-        }
-        console.log('CALLING_NAVIGATE_TO:', `/production/entries/${id}`);
-        navigate(`/production/entries/${id}`);
-        console.log('NAVIGATE_CALLED_FINISHED');
+        showSavedSuccess(updated.data);
       }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string | string[] } } };
@@ -1026,7 +1052,56 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     } finally {
       setSaving(false);
     }
-  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode, lookups.items]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode, lookups.items, saving]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── PROMPT-35 success-modal actions ───────────────────────────────────────
+  const viewSavedEntry = useCallback(() => {
+    setSavedOpen(false);
+    if (savedEntry?.entryId) navigate(`/production/entries/${savedEntry.entryId}`);
+  }, [savedEntry, navigate]);
+
+  const newSavedEntry = useCallback(() => {
+    setSavedOpen(false);
+    if (mode === 'edit') {
+      // Editing flow has no clean "another entry" slot → reusable New Entry via
+      // the canonical machine-selection screen.
+      navigate('/production/entries/select');
+      return;
+    }
+    // Re-mount a fresh form on the SAME locked context via navigation so every
+    // prefill effect (date/shift/org/machine + raw material store) reruns
+    // cleanly — no fragile manual field resets.
+    if (lockedContext) {
+      const qs = new URLSearchParams();
+      qs.set('from', 'select');
+      if (qMachineId) qs.set('machineId', qMachineId);
+      if (qDate) qs.set('entryDate', qDate);
+      if (qShiftId) qs.set('shiftId', qShiftId);
+      if (qDivisionId) qs.set('divisionId', qDivisionId);
+      if (qSectionId) qs.set('sectionId', qSectionId);
+      if (qDepartmentId) qs.set('departmentId', qDepartmentId);
+      navigate(`/production/entries/new?${qs.toString()}`);
+      return;
+    }
+    navigate('/production/entries/new');
+  }, [mode, lockedContext, navigate, qMachineId, qDate, qShiftId, qDivisionId, qSectionId, qDepartmentId]);
+
+  const closeSavedEntry = useCallback(() => {
+    setSavedOpen(false);
+    if (mode === 'edit') {
+      if (id) navigate(`/production/entries/${id}`);
+      return;
+    }
+    if (lockedContext) {
+      const qs = new URLSearchParams();
+      qs.set('entryDate', String(ctxIds.entryDate ?? ''));
+      qs.set('shiftId', String(ctxIds.shiftId ?? ''));
+      qs.set('divisionId', String(ctxIds.divisionId ?? ''));
+      qs.set('sectionId', String(ctxIds.sectionId ?? ''));
+      qs.set('departmentId', String(ctxIds.departmentId ?? ''));
+      navigate(`/production/entries/select?${qs.toString()}`);
+    }
+  }, [mode, lockedContext, id, ctxIds, navigate]);
 
   const changeSelection = () => {
     const qs = new URLSearchParams();
@@ -2040,6 +2115,15 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         </>
         )}
       </Form>
+
+      <ProductionSaveSuccessModal
+        open={savedOpen}
+        entry={savedEntry}
+        mode={mode}
+        onView={viewSavedEntry}
+        onNew={newSavedEntry}
+        onClose={closeSavedEntry}
+      />
     </div>
   );
 };

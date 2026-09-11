@@ -5,10 +5,10 @@ import {
   InputNumber, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import {
-  ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
+  ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DollarOutlined, DownloadOutlined, EditOutlined,
   EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined,
-  ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined,
+  ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
@@ -23,10 +23,10 @@ import {
   routeColorMap, IMPORT_COLUMNS, REQUIRED_IMPORT_COLUMNS, TEMPLATE_CSV,
   type Item, type DivisionOption, type SectionOption, type DepartmentOption,
   type UomOption, type SimpleOption, type CategoryOption, type ConversionInfo,
-  type ImportRow,
+  type ImportRow, type ProductionFlowStage,
 } from './items/itemTypes';
 import InputMaterialSelect from './items/InputMaterialSelect';
-import ProductionFlowCard from './items/ProductionFlowCard';
+import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 
 const { Text } = Typography;
 
@@ -95,6 +95,12 @@ const sectionName = (r: Item): string | null =>
   r.section ? r.section.name : (r.sectionName ?? null);
 const departmentName = (r: Item): string | null =>
   r.department ? r.department.name : (r.departmentName ?? null);
+// Category name: the API returns the nested `category` relation object; the flat
+// `categoryName` field does not exist on the backend and is kept only as a legacy fallback.
+const categoryName = (r: Item): string | null =>
+  (r.category && r.category.name) ? r.category.name : (r.categoryName ?? null);
+const companyName = (r: Item): string | null =>
+  (r.company && (r.company.legalName || r.company.tradeName)) || null;
 
 const ItemManagement: React.FC = () => {
   const { message } = App.useApp();
@@ -403,10 +409,17 @@ const ItemManagement: React.FC = () => {
     [page, pageSize, sortField, sortOrder, search, fDivision, fSection, fDepartment, fCategory, fItemType, fRouteType, fStatus],
   );
 
-  // Normalize UOM data: ensure baseUomName is always derived from the nested baseUom relation
+  // Normalize relation data: derive display names from the nested relations the
+  // backend actually returns (category, UOMs, company) so every screen (list,
+  // detail view, history, exports) reads consistent values.
   const normalizeItem = useCallback((item: any): Item => {
-    if (item && item.baseUom && !item.baseUomName) {
-      item.baseUomName = item.baseUom.name ?? item.baseUom.code ?? null;
+    if (item) {
+      if (item.baseUom && !item.baseUomName) {
+        item.baseUomName = item.baseUom.name ?? item.baseUom.code ?? null;
+      }
+      if (item.category?.name && !item.categoryName) {
+        item.categoryName = item.category.name;
+      }
     }
     return item as Item;
   }, []);
@@ -601,6 +614,8 @@ const ItemManagement: React.FC = () => {
       reorderLevel: record.reorderLevel ?? undefined,
       safetyStockLevel: record.safetyStockLevel ?? undefined,
       leadTimeDays: record.leadTimeDays ?? undefined,
+      costPrice: record.costPrice ?? undefined,
+      sellingPrice: record.sellingPrice ?? undefined,
       productionInItemId: record.productionInItemId ?? undefined,
     });
     setFormOpen(true);
@@ -644,6 +659,8 @@ const ItemManagement: React.FC = () => {
         'reorderLevel',
         'safetyStockLevel',
         'leadTimeDays',
+        'costPrice',
+        'sellingPrice',
       ] as const;
 
       const NUMERIC_FIELDS = new Set([
@@ -660,6 +677,8 @@ const ItemManagement: React.FC = () => {
         'reorderLevel',
         'safetyStockLevel',
         'leadTimeDays',
+        'costPrice',
+        'sellingPrice',
       ]);
 
       Object.entries(values).forEach(([k, v]) => {
@@ -964,7 +983,7 @@ const ItemManagement: React.FC = () => {
   const itemToExportRow = (r: Item): Array<string | number | null | undefined> => [
     r.itemCode, r.name, r.sku ?? '', r.shortName ?? '',
     ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType,
-    r.categoryName ?? '',
+    categoryName(r) ?? '',
     divisionName(r) ?? '',
     sectionName(r) ?? '',
     departmentName(r) ?? '',
@@ -1450,9 +1469,10 @@ const ItemManagement: React.FC = () => {
       render: (_: unknown, r: Item) => {
         const t = r.thicknessMm;
         const w = r.widthMm;
-        return (t !== null && t !== undefined) || (w !== null && w !== undefined)
-          ? <Text style={{ fontSize: 13 }}>{formatDimension(t)} × {formatDimension(w)}</Text>
-          : <Text type="secondary">—</Text>;
+        if (t != null && w != null) return <Text style={{ fontSize: 13 }}>{formatDimension(t)} × {formatDimension(w)}</Text>;
+        if (t != null) return <Text style={{ fontSize: 13 }}>{formatDimension(t)} (T)</Text>;
+        if (w != null) return <Text style={{ fontSize: 13 }}>{formatDimension(w)} (W)</Text>;
+        return <Text type="secondary">—</Text>;
       },
     },
     {
@@ -1498,29 +1518,30 @@ const ItemManagement: React.FC = () => {
       },
     },
     {
-      title: 'Actions', key: 'actions', width: 180, fixed: 'right',
+      title: 'Actions', key: 'actions', width: 210, fixed: 'right',
       render: (_: unknown, record: Item) => (
-        <Space size={0}>
+        <Space size={6}>
           {can('item.view') && (
             <Tooltip title="View">
-              <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} style={{ color: 'var(--theme-accent, var(--theme-primary))' }} aria-label={`View ${record.itemCode}`} />
+              <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} className="erp-action-btn erp-action-btn--view" aria-label={`View ${record.itemCode}`} />
             </Tooltip>
           )}
           {can('item.view') && (
             <Tooltip title="History">
-              <Button type="text" size="small" icon={<HistoryOutlined />} onClick={() => openHistory(record)} aria-label={`History for ${record.itemCode}`} />
+              <Button type="text" size="small" icon={<HistoryOutlined />} onClick={() => openHistory(record)} className="erp-action-btn" aria-label={`History for ${record.itemCode}`} />
             </Tooltip>
           )}
           {can('item_barcode.view') && (
             <Tooltip title="Barcode">
-              <Button type="text" size="small" icon={<DatabaseOutlined />} onClick={() => openBarcodeModal(record)} style={{ color: 'var(--theme-accent, var(--theme-primary, #10b981))' }} aria-label={`Barcode for ${record.itemCode}`} />
+              <Button type="text" size="small" icon={<DatabaseOutlined />} onClick={() => openBarcodeModal(record)} className="erp-action-btn" aria-label={`Barcode for ${record.itemCode}`} />
             </Tooltip>
           )}
           {can('item.update') && (
             <Tooltip title="Edit">
-              <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} aria-label={`Edit ${record.itemCode}`} />
+              <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} className="erp-action-btn erp-action-btn--edit" aria-label={`Edit ${record.itemCode}`} />
             </Tooltip>
           )}
+          <span style={{ display: 'inline-block', width: 1, height: 20, background: 'var(--theme-border, rgba(128,128,128,0.25))', margin: '0 4px' }} />
           {record.status === 'ACTIVE' ? (
             can('item.deactivate') && (
               <Popconfirm
@@ -1529,7 +1550,7 @@ const ItemManagement: React.FC = () => {
                 onConfirm={() => handleStatusChange(record, 'deactivate')}
               >
                 <Tooltip title="Deactivate">
-                  <Button type="text" size="small" danger style={{ color: 'var(--theme-danger)' }} icon={<PauseCircleOutlined />} aria-label={`Deactivate ${record.itemCode}`} />
+                  <Button type="text" size="small" icon={<PauseCircleOutlined />} className="erp-action-btn erp-action-btn--deactivate" aria-label={`Deactivate ${record.itemCode}`} />
                 </Tooltip>
               </Popconfirm>
             )
@@ -1537,7 +1558,7 @@ const ItemManagement: React.FC = () => {
             can('item.activate') && (
               <Popconfirm title={`Activate '${record.itemCode}'?`} onConfirm={() => handleStatusChange(record, 'activate')}>
                 <Tooltip title="Activate">
-                  <Button type="text" size="small" style={{ color: 'var(--theme-success)' }} icon={<PlayCircleOutlined />} aria-label={`Activate ${record.itemCode}`} />
+                  <Button type="text" size="small" icon={<PlayCircleOutlined />} className="erp-action-btn erp-action-btn--activate" aria-label={`Activate ${record.itemCode}`} />
                 </Tooltip>
               </Popconfirm>
             )
@@ -1550,7 +1571,13 @@ const ItemManagement: React.FC = () => {
               onConfirm={() => handleDelete(record)}
             >
               <Tooltip title="Delete">
-                <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Delete ${record.itemCode}`} />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  aria-label={`Delete ${record.itemCode}`}
+                  className="erp-action-btn erp-action-btn--delete"
+                />
               </Tooltip>
             </Popconfirm>
           )}
@@ -1826,8 +1853,12 @@ const ItemManagement: React.FC = () => {
         destroyOnHidden
         title={
           detailItem ? (
-            <Space wrap>
-              <span style={{ fontWeight: 600, fontSize: 16 }}>{detailItem.itemCode}</span>
+            <Space wrap size={8} align="center">
+              <DatabaseOutlined style={{ fontSize: 22, color: 'var(--theme-accent, #10b981)' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                <span style={{ fontWeight: 700, fontSize: 16, fontFamily: 'monospace' }}>{detailItem.itemCode}</span>
+                <span style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>{detailItem.name}</span>
+              </div>
               <StatusBadge status={detailItem.status} colorMap={statusColorMap} />
               <Tag style={{ marginInlineEnd: 0 }}>{ITEM_TYPES.find((t) => t.value === detailItem.itemType)?.label || detailItem.itemType}</Tag>
             </Space>
@@ -1837,19 +1868,15 @@ const ItemManagement: React.FC = () => {
         }
         extra={
           detailItem && (
-            <Space wrap>
+            <Space wrap size={8}>
               {can('item.view') && (
-                <Tooltip title="View History">
-                  <Button icon={<HistoryOutlined />} onClick={() => { setDetailTab('history'); loadHistoryData(detailItem); }}>
-                    History
-                  </Button>
-                </Tooltip>
-              )}
-              <Tooltip title="Print Barcode">
-                <Button icon={<PrinterOutlined />} onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}>
-                  Print Barcode
+                <Button icon={<HistoryOutlined />} onClick={() => { setDetailTab('history'); loadHistoryData(detailItem); }}>
+                  History
                 </Button>
-              </Tooltip>
+              )}
+              <Button icon={<PrinterOutlined />} onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}>
+                Print Barcode
+              </Button>
               <Button icon={<EditOutlined />} onClick={() => { setDetailOpen(false); openEdit(detailItem); }}>
                 Edit
               </Button>
@@ -1881,7 +1908,7 @@ const ItemManagement: React.FC = () => {
                         { label: 'SKU', children: txt(detailItem.sku) },
                         { label: 'Short Name', children: txt(detailItem.shortName) },
                         { label: 'Item Type', children: txt(ITEM_TYPES.find((t) => t.value === detailItem.itemType)?.label || detailItem.itemType) },
-                        { label: 'Category', children: txt(detailItem.categoryName) },
+                        { label: 'Category', children: txt(categoryName(detailItem)) },
                         {
                           label: 'Status',
                           children: <StatusBadge status={detailItem.status} colorMap={statusColorMap} />,
@@ -1913,12 +1940,29 @@ const ItemManagement: React.FC = () => {
                 key: 'organization',
                 label: <Space><ApartmentOutlined />Organization</Space>,
                 children: (
-                  <Card size="small" title="Organization" style={{ borderRadius: 8 }}>
+                  <Card size="small" title="Organization Hierarchy" style={{ borderRadius: 8 }}>
                     {detailDesc([
+                      { label: 'Company', children: txt(companyName(detailItem)) },
                       { label: 'Division', children: txt(divisionName(detailItem)) },
                       { label: 'Section', children: txt(sectionName(detailItem)) },
                       { label: 'Department', children: txt(departmentName(detailItem)) },
                     ])}
+                    <Alert
+                      style={{ marginTop: 10 }}
+                      type="info"
+                      showIcon={false}
+                      message={
+                        <span style={{ fontSize: 12 }}>
+                          Chain:{' '}
+                          <Text code>{[
+                            companyName(detailItem),
+                            divisionName(detailItem),
+                            sectionName(detailItem),
+                            departmentName(detailItem),
+                          ].filter(Boolean).join(' → ') || 'Not configured'}</Text>
+                        </span>
+                      }
+                    />
                   </Card>
                 ),
               },
@@ -1939,23 +1983,28 @@ const ItemManagement: React.FC = () => {
 
                     <Card size="small" title="Weight & UOM Conversion" style={{ borderRadius: 8, marginTop: 12 }}>
                       {detailDesc([
-                        { label: 'Base UOM', children: txt(detailItem.baseUomName) },
+                        { label: 'Base UOM', children: txt(detailItem.baseUomName ?? detailItem.baseUom?.name ?? null) },
                         {
                           label: 'Purchase UOM',
-                          children: detailItem.purchaseUomId
-                            ? txt(uoms.find((u) => u.id === detailItem.purchaseUomId)?.name ?? null)
+                          children: (detailItem.purchaseUom?.name || detailItem.purchaseUomId)
+                            ? txt(detailItem.purchaseUom?.name ?? uoms.find((u) => u.id === detailItem.purchaseUomId)?.name ?? null)
                             : null,
                         },
                         {
                           label: 'Sales UOM',
-                          children: detailItem.salesUomId
-                            ? txt(uoms.find((u) => u.id === detailItem.salesUomId)?.name ?? null)
+                          children: (detailItem.salesUom?.name || detailItem.salesUomId)
+                            ? txt(detailItem.salesUom?.name ?? uoms.find((u) => u.id === detailItem.salesUomId)?.name ?? null)
                             : null,
                         },
                         { label: 'Weight / Piece', children: detailItem.weightPerPiece != null ? `${Number(detailItem.weightPerPiece)} kg` : null },
                         { label: 'Pieces / KG', children: detailItem.piecesPerKg != null ? String(Number(detailItem.piecesPerKg)) : null },
                         { label: 'Weight / Meter', children: detailItem.weightPerMeter != null ? `${Number(detailItem.weightPerMeter)} kg/m` : null },
                         { label: 'Length / Piece', children: detailItem.lengthPerPiece != null ? `${Number(detailItem.lengthPerPiece)} m` : null },
+                        { label: 'Min Stock Level', children: detailItem.minimumStockLevel != null ? `${Number(detailItem.minimumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                        { label: 'Max Stock Level', children: detailItem.maximumStockLevel != null ? `${Number(detailItem.maximumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                        { label: 'Reorder Level', children: detailItem.reorderLevel != null ? `${Number(detailItem.reorderLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                        { label: 'Safety Stock Level', children: detailItem.safetyStockLevel != null ? `${Number(detailItem.safetyStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                        { label: 'Lead Time (Days)', children: detailItem.leadTimeDays != null ? String(Number(detailItem.leadTimeDays)) : null },
                       ])}
                       {conversions && conversions.supportedConversions.filter((c) => c.available).length > 0 && (
                         <div style={{ marginTop: 10 }}>
@@ -1980,6 +2029,64 @@ const ItemManagement: React.FC = () => {
                       )}
                     </Card>
                   </>
+                ),
+              },
+              {
+                key: 'inventory',
+                label: <Space><DatabaseOutlined />Inventory & Control</Space>,
+                children: (
+                  <>
+                    <Card size="small" title="Inventory & Control Flags" style={{ borderRadius: 8 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {[
+                          { label: 'Stock Item', value: detailItem.isStockItem },
+                          { label: 'Purchasable', value: detailItem.isPurchasable },
+                          { label: 'Sellable', value: detailItem.isSellable },
+                          { label: 'Manufacturable', value: detailItem.isManufacturable },
+                          { label: 'Track Inventory', value: detailItem.trackInventory },
+                          { label: 'Batch Tracked', value: detailItem.batchTracked },
+                          { label: 'Serial Tracked', value: detailItem.serialTracked },
+                          { label: 'Expiry Tracked', value: detailItem.expiryTracked },
+                        ].map((f) => (
+                          <Tag
+                            key={f.label}
+                            color={f.value ? 'green' : 'default'}
+                            style={{ fontSize: 12, padding: '2px 10px', borderRadius: 4 }}
+                          >
+                            {f.value ? '✓' : '✕'} {f.label}
+                          </Tag>
+                        ))}
+                      </div>
+                    </Card>
+
+                    <Card size="small" title="Stock Levels" style={{ borderRadius: 8, marginTop: 12 }}>
+                      {detailDesc([
+                        { label: 'Min Stock Level', children: detailItem.minimumStockLevel != null ? `${Number(detailItem.minimumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                        { label: 'Max Stock Level', children: detailItem.maximumStockLevel != null ? `${Number(detailItem.maximumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                        { label: 'Reorder Level', children: detailItem.reorderLevel != null ? `${Number(detailItem.reorderLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                        { label: 'Safety Stock Level', children: detailItem.safetyStockLevel != null ? `${Number(detailItem.safetyStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                        { label: 'Lead Time (Days)', children: detailItem.leadTimeDays != null ? String(Number(detailItem.leadTimeDays)) : null },
+                      ])}
+                    </Card>
+                  </>
+                ),
+              },
+              {
+                key: 'pricing',
+                label: <Space><DollarOutlined />Pricing</Space>,
+                children: (
+                  <Card size="small" title="Item Pricing" style={{ borderRadius: 8 }}>
+                    {detailDesc([
+                      { label: 'Cost Price', children: detailItem.costPrice != null ? `${Number(detailItem.costPrice).toFixed(2)}` : null },
+                      { label: 'Selling Price', children: detailItem.sellingPrice != null ? `${Number(detailItem.sellingPrice).toFixed(2)}` : null },
+                    ])}
+                    <Alert
+                      style={{ marginTop: 10 }}
+                      type="info"
+                      showIcon
+                      message="Prices are maintained on the Item Master (standard cost & default selling price). Transaction-level prices live on sales/procurement lines."
+                    />
+                  </Card>
                 ),
               },
               {
@@ -2242,12 +2349,13 @@ const ItemManagement: React.FC = () => {
         )}
       </DraggableResizableModal>
 
-      <Modal
+      <DraggableResizableModal
         open={formOpen}
         onCancel={() => setFormOpen(false)}
         onOk={handleSubmit}
         confirmLoading={saving}
         width={900}
+        height={620}
         okText={editing ? 'Save Changes' : 'Create Item'}
         title={
           <Space>
@@ -2684,6 +2792,134 @@ const ItemManagement: React.FC = () => {
               const finalProdName = watchedFinalProduct || editing?.finalProduct;
               const nextStepName = watchedPackingNextStep || editing?.packingNextStep;
 
+              // PROMPT-35: six-stage preview (01-06) mirroring the View card.
+              // Reconstructed LIVE from the exact form + selected input values —
+              // never invented; unknown stages render as "Not configured".
+              type PreviewItem = {
+                itemCode?: string | null; name?: string | null; itemType?: string | null;
+                departmentId?: string | null; departmentName?: string | null;
+                wireSizeMm?: number | null; diameterMm?: number | null;
+                thicknessMm?: number | null; widthMm?: number | null;
+                lengthPerPiece?: number | null; baseUomName?: string | null;
+              };
+
+              const currentPreviewCode = editing?.itemCode || watchedCode || null;
+              const currentPreviewName = editing?.name || watchedName || null;
+              const curDeptObject = departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId));
+              const curDeptName = curDeptObject?.name || editing?.departmentName || null;
+              const curOpName = operationName; // derived from department above
+
+              const inputPreview = (selectedInputDetail ?? null) as PreviewItem | null;
+              const inputDeptName =
+                inputPreview?.departmentName ??
+                (inputPreview?.departmentId ? departments.find((d) => d.id === inputPreview.departmentId)?.name ?? null : null) ??
+                null;
+              const inputOpName = (() => {
+                const dn = (inputDeptName ?? '').toLowerCase();
+                if (dn.includes('spiral')) return 'Spiral Winding';
+                if (dn.includes('flatten') || dn.includes('flat')) return 'Wire Flattening';
+                if (dn.includes('pvc')) return 'PVC Extrusion';
+                if (dn.includes('pack')) return 'Packing';
+                return inputDeptName || null;
+              })();
+              const isRawRoot =
+                (watchedItemType || editing?.itemType) === 'RAW_MATERIAL' && !inputPreview && !editing?.productionInItemId;
+              const rawPreview: PreviewItem | null = inputPreview
+                ? { ...inputPreview }
+                : isRawRoot
+                  ? {
+                      itemCode: currentPreviewCode,
+                      name: currentPreviewName,
+                      wireSizeMm: wireVal,
+                      diameterMm: diaVal,
+                      thicknessMm: thkVal,
+                      widthMm: widVal,
+                      lengthPerPiece: lenVal,
+                      departmentName: curDeptName,
+                      baseUomName: editing?.baseUomName ?? null,
+                    }
+                  : null;
+
+              const inputIsFlatten =
+                (inputDeptName ?? '').toLowerCase().includes('flatten') ||
+                (inputDeptName ?? '').toLowerCase().includes('flat') ||
+                (inputOpName ?? '').toLowerCase().includes('flatten');
+              const currentIsFlatten =
+                (curDeptName ?? '').toLowerCase().includes('flatten') ||
+                (curDeptName ?? '').toLowerCase().includes('flat') ||
+                (curOpName ?? '').toLowerCase().includes('flatten');
+              const flattenPreview: PreviewItem | null = inputIsFlatten
+                ? { ...(inputPreview ?? {}) }
+                : currentIsFlatten
+                  ? {
+                      itemCode: currentPreviewCode,
+                      name: currentPreviewName,
+                      thicknessMm: thkVal,
+                      widthMm: widVal,
+                      departmentName: curDeptName,
+                    }
+                  : null;
+
+              const currentIsSpiral =
+                (curDeptName ?? '').toLowerCase().includes('spiral') ||
+                (curOpName ?? '').toLowerCase().includes('spiral');
+              const spiralPreview: PreviewItem | null = currentIsSpiral
+                ? {
+                    itemCode: currentPreviewCode,
+                    name: currentPreviewName,
+                    wireSizeMm: wireVal,
+                    diameterMm: diaVal,
+                    lengthPerPiece: lenVal,
+                    departmentName: curDeptName,
+                    baseUomName: editing?.baseUomName ?? null,
+                  }
+                : null;
+
+              const mkStage = (
+                sequence: number,
+                stageKey: string,
+                title: string,
+                kind: 'process' | 'output',
+                it: PreviewItem | null,
+                op: { operationCode?: string | null; operationName?: string | null } | null,
+              ): ProductionFlowStage => ({
+                sequence,
+                kind,
+                stageKey,
+                title,
+                itemId: null,
+                itemCode: it?.itemCode ?? null,
+                itemName: it?.name ?? null,
+                itemType: it?.itemType ?? null,
+                wireSizeMm: it?.wireSizeMm ?? null,
+                diameterMm: it?.diameterMm ?? null,
+                thicknessMm: it?.thicknessMm ?? null,
+                widthMm: it?.widthMm ?? null,
+                lengthPerPiece: it?.lengthPerPiece ?? null,
+                baseUomName: it?.baseUomName ?? null,
+                departmentId: it?.departmentId ?? null,
+                departmentName: it?.departmentName ?? null,
+                operationCode: op?.operationCode ?? null,
+                operationName: op?.operationName ?? null,
+                isCurrent: false,
+                configured: !!it,
+              });
+
+              const previewStages: ProductionFlowStage[] = [
+                mkStage(1, 'RAW_MATERIAL', 'RAW MATERIAL', 'process', rawPreview, {
+                  operationName: !isRawRoot ? inputOpName : null,
+                }),
+                mkStage(2, 'RAW_SPEC', 'RAW MATERIAL SPECIFICATION', 'output', rawPreview, null),
+                mkStage(3, 'FLATTENING', 'FLATTENING', 'process', flattenPreview, {
+                  operationName: flattenPreview ? 'Wire Flattening' : null,
+                }),
+                mkStage(4, 'FLATTENING_OUTPUT', 'FLATTENING OUTPUT', 'output', flattenPreview, null),
+                mkStage(5, 'SPIRAL', 'SPIRAL', 'process', spiralPreview, {
+                  operationName: spiralPreview ? 'Spiral Winding' : null,
+                }),
+                mkStage(6, 'SPIRAL_OUTPUT', 'SPIRAL OUTPUT', 'output', spiralPreview, null),
+              ];
+
               return (
                 <div
                   style={{
@@ -2932,6 +3168,24 @@ const ItemManagement: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                  {/* PROMPT-35: six-stage production flow (01-06) — same order as the View card */}
+                  <div style={{ marginTop: 10, borderTop: '1px solid var(--theme-border, rgba(255,255,255,0.1))', paddingTop: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-accent, #0284c7)', letterSpacing: 0.5 }}>
+                      Production Flow — Six Stages (01 → 06)
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'stretch', overflowX: 'auto', padding: '8px 0 4px', gap: 0 }}>
+                      {previewStages.map((st, sidx) => (
+                        <React.Fragment key={`${st.sequence}-${st.stageKey}`}>
+                          <StageBlock stage={st} />
+                          {sidx < previewStages.length - 1 && (
+                            <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px', flexShrink: 0 }}>
+                              <ArrowRightOutlined style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 16 }} />
+                            </div>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               );
             })()}
@@ -2949,6 +3203,12 @@ const ItemManagement: React.FC = () => {
               <Form.Item name="manufacturerPartNumber" label="Manufacturer Part No."><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="brand" label="Brand"><Input maxLength={255} placeholder="Optional" /></Form.Item>
               <Form.Item name="model" label="Model"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+              <Form.Item name="costPrice" label="Cost Price" extra="Standard cost (Item Master)">
+                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 125.00)" />
+              </Form.Item>
+              <Form.Item name="sellingPrice" label="Selling Price" extra="Default selling price (Item Master)">
+                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 180.00)" />
+              </Form.Item>
             </div>
             <Row gutter={[12, 8]} style={{ marginTop: 8 }}>
               {TRACKING_SWITCHES.map((s) => (
@@ -2977,12 +3237,13 @@ const ItemManagement: React.FC = () => {
             </Form.Item>
           </Card>
         </Form>
-      </Modal>
+      </DraggableResizableModal>
 
-      <Modal
+      <DraggableResizableModal
         open={importOpen}
         onCancel={closeImport}
         width={960}
+        height={620}
         footer={
           importSummary ? (
             <Button type="primary" onClick={closeImport}>Done</Button>
@@ -3128,7 +3389,7 @@ const ItemManagement: React.FC = () => {
             )}
           </div>
         )}
-      </Modal>
+      </DraggableResizableModal>
 
       {/* Barcode Scanner Modal */}
       <BarcodeScanner
@@ -3148,7 +3409,7 @@ const ItemManagement: React.FC = () => {
       />
 
 {/* Barcode Detail Modal */}
-      <Modal
+      <DraggableResizableModal
         open={barcodeModalOpen}
         onCancel={() => { setBarcodeModalOpen(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}
         footer={
@@ -3225,7 +3486,7 @@ const ItemManagement: React.FC = () => {
             )}
           </Space>
         )}
-      </Modal>
+      </DraggableResizableModal>
     </div>
   );
 };
