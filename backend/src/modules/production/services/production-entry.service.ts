@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager } from 'typeorm';
+import { Repository, EntityManager, DeepPartial } from 'typeorm';
 import {
   ProductionEntry,
   ProductionEntryItem,
+  ProductionEntryItemKind,
   ProductionEntryDowntime,
   Machine,
   Shift,
@@ -1391,11 +1392,24 @@ export class ProductionEntryService {
       return;
     }
 
+    // Routing-configured raw materials: the ACTIVE (or synthetically derived)
+    // routing of the entry's item carries the EXACT configured input item IDs
+    // and source warehouses. When available they are authoritative for
+    // consumption, replacing the BOM/Item-Master guess. Absent routing (or
+    // legacy setups) falls back to the existing BOM + Item Master behavior.
+    const routing = await this.safeGetEffectiveRouting(companyId, entry.itemId);
+
     // Each production item posts independently (input OUT → output IN).
     const outputs = this.buildProductionOutputs(entry, lines);
 
+    const consumedInputs: Array<{ itemId: string; uomId: string; required: number; warehouseId: string }> = [];
+
     for (const output of outputs) {
-      await this.consumeForProductionItem(manager, companyId, output, entry, sourceStoreId, userId);
+      const configuredInputs = this.resolveRoutingInputsForOutput(routing, output.itemId);
+      const consumed = await this.consumeForProductionItem(
+        manager, companyId, output, entry, sourceStoreId, configuredInputs, userId,
+      );
+      consumedInputs.push(...consumed);
 
       const receipt = await this.stockLedgerService.create({
         companyId,
@@ -1435,6 +1449,80 @@ export class ProductionEntryService {
         }, manager);
       }
     }
+
+    // Audit the exact configured inputs that were consumed as INPUT-kind entry
+    // lines (deduplicated by item + source warehouse, quantities summed). These
+    // rows carry the routing-configured item IDs — never the BOM guess.
+    if (consumedInputs.length) {
+      const byItem = new Map<string, { itemId: string; uomId: string | null; required: number; warehouseId: string }>();
+      for (const c of consumedInputs) {
+        const key = `${c.itemId}|${c.warehouseId}`;
+        const existing = byItem.get(key);
+        if (existing) existing.required += c.required;
+        else byItem.set(key, { ...c });
+      }
+      const rows = [...byItem.values()].map((c, idx) => {
+        const row = this.entryItemRepo.create({
+          companyId,
+          productionEntryId: entry.id,
+          lineNumber: 1000 + (idx + 1) * 10,
+          entryKind: ProductionEntryItemKind.INPUT,
+          itemId: c.itemId,
+          uomId: c.uomId,
+          sourceWarehouseId: c.warehouseId,
+          targetQuantity: this.round4(c.required),
+          actualQuantity: this.round4(c.required),
+          scrapQuantity: 0,
+          runningHours: 0,
+          routingCode: (routing as any)?.routingCode ?? null,
+          remarks: 'Routing-configured raw material consumption (exact item)',
+          createdBy: userId ?? null,
+          updatedBy: userId ?? null,
+        });
+        return row;
+      });
+      await manager.getRepository(ProductionEntryItem).save(rows);
+    }
+  }
+
+  // ─── Routing-aware raw-material resolution ───────────────────────────────────
+
+  /**
+   * Loads the effective routing for an item without letting the absence of one
+   * break posting — falling back to the legacy BOM/Item-Master path.
+   */
+  private async safeGetEffectiveRouting(companyId: string, itemId: string): Promise<any | null> {
+    try {
+      return await this.productionRoutingService.getEffectiveRouteForItem(itemId, companyId);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Returns the EXACT configured input item IDs (and their configured source
+   * warehouses) for the operation that produces the given output item. Returns
+   * null when the routing carries no operations/inputs, so the caller keeps the
+   * legacy BOM path.
+   */
+  private resolveRoutingInputsForOutput(
+    routing: any | null,
+    outputItemId: string,
+  ): Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }> | null {
+    if (!routing || !Array.isArray(routing.operations)) return null;
+    const producing = routing.operations.filter(
+      (op: any) => Array.isArray(op.outputs) && op.outputs.some((o: any) => o.itemId === outputItemId),
+    );
+    if (!producing.length) return null;
+    const inputs = producing.flatMap((op: any) =>
+      (op.inputs ?? []).map((i: any) => ({
+        itemId: i.itemId as string,
+        uomId: i.uomId ?? null,
+        quantity: Number(i.quantity ?? 1),
+        sourceWarehouseId: i.sourceWarehouseId ?? null,
+      })),
+    );
+    return inputs.length ? inputs : null;
   }
 
   // ─── Automatic raw-material consumption per production item ──────────────────
@@ -1456,8 +1544,15 @@ export class ProductionEntryService {
     output: { itemId: string; uomId: string; actualQuantity: number; scrapQuantity: number },
     entryRef: { id: string; machineNo: string; entryDate: string },
     sourceStoreId: string | null,
+    routingInputs?: Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }> | null,
     userId?: string,
-  ): Promise<void> {
+  ): Promise<Array<{ itemId: string; uomId: string; required: number; warehouseId: string }>> {
+    // Routing-configured materials take precedence (exact Item IDs + source
+    // warehouses from the operation's inputs, scaled by good + scrap).
+    if (routingInputs && routingInputs.length) {
+      return this.consumeRoutingInputs(manager, companyId, output, entryRef, sourceStoreId, routingInputs, userId);
+    }
+
     const product = await this.itemRepo.findOne({ where: { id: output.itemId } });
     const authoritativeInItemId = product?.productionInItemId ?? null;
 
@@ -1470,7 +1565,7 @@ export class ProductionEntryService {
       if (sourceStoreId) {
         throw new BadRequestException('No ACTIVE BOM exists for this production item and no Item Master production IN item is mapped.');
       }
-      return;
+      return [];
     }
     if (!sourceStoreId) {
       throw new BadRequestException(
@@ -1532,6 +1627,7 @@ export class ProductionEntryService {
       );
     }
 
+    const consumed: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }> = [];
     for (const r of requirements) {
       await this.stockLedgerService.create({
         companyId,
@@ -1550,6 +1646,78 @@ export class ProductionEntryService {
         companyId, r.line.itemId, sourceStoreId, null, null, r.line.uomId, r.required, 'OUT', manager,
       );
     }
+    return [];
+  }
+
+  /**
+   * Consumes the EXACT routing-configured inputs for one production output.
+   * Per-unit configured quantity is scaled by the output basis (good + scrap);
+   * each input's configured source warehouse takes precedence over the company
+   * default source store. Validates ALL stock before any deduction (never
+   * partial) and records the consumed materials as INPUT-kind entry lines.
+   */
+  private async consumeRoutingInputs(
+    manager: EntityManager,
+    companyId: string,
+    output: { itemId: string; uomId: string; actualQuantity: number; scrapQuantity: number },
+    entryRef: { id: string; machineNo: string; entryDate: string },
+    sourceStoreId: string | null,
+    routingInputs: Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }>,
+    userId?: string,
+  ): Promise<Array<{ itemId: string; uomId: string; required: number; warehouseId: string }>> {
+    const productionQty = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
+
+    const checks: Array<{ itemId: string; warehouseId: string; required: number; uomCode: string; available: number }> = [];
+    const consumed: Array<{ itemId: string; uomId: string; required: number; warehouseId: string }> = [];
+    for (const inp of routingInputs) {
+      const warehouseId = inp.sourceWarehouseId ?? sourceStoreId;
+      if (!warehouseId) {
+        const componentForCode = await this.itemRepo.findOne({ where: { id: inp.itemId } });
+        throw new BadRequestException(
+          `Raw Material Source Warehouse could not be determined for routing input '${componentForCode?.itemCode ?? inp.itemId}'. Assign an ACTIVE RAW MATERIAL warehouse, pass rawMaterialWarehouseId, or set a source warehouse on the routing input.`,
+        );
+      }
+      const required = this.round4(Number(inp.quantity || 1) * productionQty);
+      const component = await this.itemRepo.findOne({ where: { id: inp.itemId } });
+      const uomCode = component?.baseUom?.code ?? '';
+      const available = await this.inventoryBalanceService.getAvailableStock(
+        companyId, inp.itemId, warehouseId, undefined, undefined, manager,
+      );
+      checks.push({ itemId: inp.itemId, warehouseId, required, uomCode, available });
+      consumed.push({
+        itemId: inp.itemId,
+        uomId: inp.uomId ?? component?.baseUomId ?? output.uomId,
+        required,
+        warehouseId,
+      });
+    }
+
+    const missing = checks.find((c) => c.available < c.required);
+    if (missing) {
+      throw new BadRequestException(
+        `Raw material stock is insufficient. Required: ${this.round4(missing.required)} ${missing.uomCode} | Available: ${this.round4(missing.available)} ${missing.uomCode}`,
+      );
+    }
+
+    for (const c of consumed) {
+      await this.stockLedgerService.create({
+        companyId,
+        transactionType: 'PRODUCTION_CONSUMPTION',
+        itemId: c.itemId,
+        warehouseId: c.warehouseId,
+        quantity: c.required,
+        uomId: c.uomId,
+        direction: 'OUT',
+        referenceType: ENTRY_REFERENCE_TYPE,
+        referenceId: entryRef.id,
+        notes: `Routing-configured raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate})`,
+        createdBy: userId ?? undefined,
+      }, manager);
+      await this.inventoryBalanceService.updateBalance(
+        companyId, c.itemId, c.warehouseId, null, null, c.uomId, c.required, 'OUT', manager,
+      );
+    }
+    return consumed;
   }
 
   private async findActiveBom(companyId: string, productId: string): Promise<BillOfMaterials | null> {

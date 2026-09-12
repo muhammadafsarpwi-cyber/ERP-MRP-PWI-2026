@@ -1,0 +1,43 @@
+/* TargetSaveSuccessModal — one-time pop-in for the confirmed-save confirmation.
+   Runs exactly once per modal mount (the modal unmounts on close, so each save
+   replays the animation exactly once). This is a finite, subtle animation. */
+.erp-target-save-success-anim {
+  animation: erpTargetSavePopIn 0.5s ease-out 1;
+  transform-origin: center;
+}
+
+.erp-target-save-success-check {
+  animation: erpTargetSaveCheckIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.15s 1 backwards;
+  transform-origin: center;
+}
+
+@keyframes erpTargetSavePopIn {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* The checkmark circle pops in just after the container — plays exactly once. */
+@keyframes erpTargetSaveCheckIn {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

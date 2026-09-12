@@ -20,7 +20,17 @@ export interface InputMaterialSelectProps {
   onSelectDetail?: (item: Item | null) => void;
   excludeItemId?: string | null;
   departments?: DepartmentOption[];
+  /**
+   * Forced department filter (e.g. the selected Department of a Production Route
+   * stage). When set, it overrides the internal Source / Store Department picker
+   * and the Item list is searched ONLY within this department.
+   */
+  departmentId?: string | null;
   style?: React.CSSProperties;
+  compact?: boolean;
+  placeholder?: string;
+  ariaLabel?: string;
+  testId?: string;
 }
 
 /**
@@ -39,7 +49,12 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   onSelectDetail,
   excludeItemId = null,
   departments = [],
+  departmentId: forcedDept = null,
   style,
+  compact = false,
+  placeholder = 'Select the input material — search by code, name, SKU or barcode',
+  ariaLabel = 'Input Material Select',
+  testId = 'input-material-select',
 }) => {
   const [options, setOptions] = useState<Item[]>([]);
   const [detailsItem, setDetailsItem] = useState<Item | null>(null);
@@ -49,6 +64,10 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [dept, setDept] = useState<string | undefined>(undefined);
+
+  // The effective department filter is the FORCED department (e.g. a route-stage
+  // department) when provided, otherwise the user's internal Source/Store picker.
+  const effectiveDept = forcedDept ?? dept;
 
   const seqRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,22 +107,26 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
     [excludeItemId],
   );
 
+  // Initial fetch + refetch whenever the effective department filter changes
+  // (including when the parent's route-stage Department selection changes).
   useEffect(() => {
-    runFetch({ reset: true, searchParam: '', deptId: undefined });
+    runFetch({ reset: true, searchParam: '', deptId: effectiveDept });
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [runFetch]);
+  }, [effectiveDept, runFetch]);
 
   const handleSearch = (kw: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setSearch(kw);
-      runFetch({ reset: true, searchParam: kw, deptId: dept });
+      runFetch({ reset: true, searchParam: kw, deptId: effectiveDept });
     }, SEARCH_DEBOUNCE_MS);
   };
 
   const handleDeptChange = (v?: string) => {
+    // Internal picker is only used when no department is forced externally.
+    if (forcedDept) return;
     setDept(v);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     runFetch({ reset: true, searchParam: search, deptId: v });
@@ -112,7 +135,7 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   const handleLoadMore = () => {
     if (loading) return;
     if (options.length >= total) return;
-    runFetch({ reset: false, pageNum: pageNum + 1, searchParam: search, deptId: dept });
+    runFetch({ reset: false, pageNum: pageNum + 1, searchParam: search, deptId: effectiveDept });
   };
 
   const handlePopupScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -169,26 +192,28 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
 
   return (
     <Space direction="vertical" style={{ width: '100%', ...style }} size={6}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <Select
-          aria-label="Source / Store Department"
-          data-testid="source-department-select"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          value={dept}
-          onChange={handleDeptChange}
-          placeholder="Source / Store Department — all"
-          style={{ minWidth: 220 }}
-          options={departmentOptions}
-        />
-        <Text type="secondary" style={{ fontSize: 12, lineHeight: '32px' }}>
-          Filter the input materials by their owning (source / store) department.
-        </Text>
-      </div>
+      {!compact && !forcedDept && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <Select
+            aria-label="Source / Store Department"
+            data-testid="source-department-select"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            value={dept}
+            onChange={handleDeptChange}
+            placeholder="Source / Store Department — all"
+            style={{ minWidth: 220 }}
+            options={departmentOptions}
+          />
+          <Text type="secondary" style={{ fontSize: 12, lineHeight: '32px' }}>
+            Filter the input materials by their owning (source / store) department.
+          </Text>
+        </div>
+      )}
       <Select
-        aria-label="Input Material Select"
-        data-testid="input-material-select"
+        aria-label={ariaLabel}
+        data-testid={testId}
         allowClear
         showSearch
         filterOption={false}
@@ -197,21 +222,21 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
         loading={loading}
         value={value}
         onChange={(v: unknown) => onChange?.(typeof v === 'string' ? v : undefined)}
-        placeholder="Select the input material — search by code, name, SKU or barcode"
+        placeholder={placeholder}
         notFoundContent={
           loading ? (
             <Spin size="small" />
-          ) : dept ? (
-            'No input materials in this department'
+          ) : effectiveDept ? (
+            'No items in this department'
           ) : (
-            'No input materials found'
+            'No items found'
           )
         }
         options={selectOptions}
         style={{ width: '100%' }}
       />
       {error && <Alert type="warning" showIcon message={error} style={{ width: '100%' }} />}
-      {selectedDetail && (
+      {!compact && selectedDetail && (
         <Descriptions
           size="small"
           column={1}

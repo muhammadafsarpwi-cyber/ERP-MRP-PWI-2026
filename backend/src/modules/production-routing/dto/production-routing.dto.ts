@@ -3,6 +3,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsUUID,
+  Matches,
   IsEnum,
   IsNumber,
   IsBoolean,
@@ -13,7 +14,97 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { RoutingStatus } from '../entities';
+import { RoutingStatus, RoutingInputScrapBasis, RoutingOutputType } from '../entities';
+
+/**
+ * Version-agnostic UUID check. Org seed data uses synthetic UUIDs
+ * (e.g. d1000000-...) whose version nibble fails class-validator's strict
+ * @IsUUID (v1/v3/v4/v5), while PostgreSQL accepts them as uuid values.
+ * Applied only to org-hierarchy references (division/section/department) and
+ * item IDs, mirroring the convention already proven in the Machine Target DTOs.
+ */
+export const UUID_LOOSE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/** A single material consumed by a routing operation (exact configured item ID). */
+export class RoutingOperationInputDto {
+  @ApiProperty({ description: 'Exact configured input item ID' })
+  @Matches(UUID_LOOSE, { message: 'itemId must be a UUID' })
+  @IsNotEmpty()
+  itemId: string;
+
+  @ApiPropertyOptional({ description: 'Quantity consumed per routing base quantity', default: 0 })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'UOM ID' })
+  @IsUUID()
+  @IsOptional()
+  uomId?: string;
+
+  @ApiPropertyOptional({ description: 'Optional source store (procured items entered via store)' })
+  @IsUUID()
+  @IsOptional()
+  sourceWarehouseId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Consumption basis', enum: RoutingInputScrapBasis, default: RoutingInputScrapBasis.WITH_SCRAP })
+  @IsString()
+  @IsOptional()
+  scrapBasis?: RoutingInputScrapBasis;
+
+  @ApiPropertyOptional({ description: 'Marks the primary input (mirrors legacy input_item_id)', default: false })
+  @IsBoolean()
+  @IsOptional()
+  isPrimary?: boolean;
+
+  @ApiPropertyOptional({ description: 'Line number within the operation', default: 10 })
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  lineNumber?: number;
+}
+
+/** A single product produced by a routing operation (exact configured item ID). */
+export class RoutingOperationOutputDto {
+  @ApiProperty({ description: 'Exact configured output item ID' })
+  @Matches(UUID_LOOSE, { message: 'itemId must be a UUID' })
+  @IsNotEmpty()
+  itemId: string;
+
+  @ApiPropertyOptional({ description: 'Quantity produced per routing base quantity', default: 0 })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'UOM ID' })
+  @IsUUID()
+  @IsOptional()
+  uomId?: string;
+
+  @ApiPropertyOptional({ description: 'Output nature', enum: RoutingOutputType, default: RoutingOutputType.MAIN })
+  @IsString()
+  @IsOptional()
+  outputType?: RoutingOutputType;
+
+  @ApiPropertyOptional({ description: 'Expected yield percentage (0-100)', default: 100 })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  yieldPercentage?: number;
+
+  @ApiPropertyOptional({ description: 'Marks the primary output (mirrors legacy output_item_id)', default: false })
+  @IsBoolean()
+  @IsOptional()
+  isPrimary?: boolean;
+
+  @ApiPropertyOptional({ description: 'Line number within the operation', default: 10 })
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  lineNumber?: number;
+}
 
 export class CreateRoutingOperationDto {
   @ApiProperty({ description: 'Sequence number (10, 20, 30...)' })
@@ -44,17 +135,17 @@ export class CreateRoutingOperationDto {
   description?: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' })
   @IsOptional()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Section ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'sectionId must be a UUID' })
   @IsOptional()
   sectionId?: string;
 
   @ApiPropertyOptional({ description: 'Department ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'departmentId must be a UUID' })
   @IsOptional()
   departmentId?: string;
 
@@ -98,12 +189,12 @@ export class CreateRoutingOperationDto {
   machineId?: string;
 
   @ApiPropertyOptional({ description: 'Input item ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'inputItemId must be a UUID' })
   @IsOptional()
   inputItemId?: string;
 
   @ApiPropertyOptional({ description: 'Output item ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'outputItemId must be a UUID' })
   @IsOptional()
   outputItemId?: string;
 
@@ -145,6 +236,22 @@ export class CreateRoutingOperationDto {
   @IsString()
   @IsOptional()
   remarks?: string;
+
+  /** Repeatable input materials (exact configured item IDs). When omitted, legacy inputItemId is used as the single primary input. */
+  @ApiPropertyOptional({ description: 'Input materials (multi-input)', type: [RoutingOperationInputDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationInputDto)
+  @IsOptional()
+  inputs?: RoutingOperationInputDto[];
+
+  /** Repeatable output products (exact configured item IDs). When omitted, legacy outputItemId is used as the single primary output. */
+  @ApiPropertyOptional({ description: 'Output products (multi-output)', type: [RoutingOperationOutputDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationOutputDto)
+  @IsOptional()
+  outputs?: RoutingOperationOutputDto[];
 }
 
 export class UpdateRoutingOperationDto {
@@ -177,17 +284,17 @@ export class UpdateRoutingOperationDto {
   description?: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' })
   @IsOptional()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Section ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'sectionId must be a UUID' })
   @IsOptional()
   sectionId?: string;
 
   @ApiPropertyOptional({ description: 'Department ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'departmentId must be a UUID' })
   @IsOptional()
   departmentId?: string;
 
@@ -231,12 +338,12 @@ export class UpdateRoutingOperationDto {
   machineId?: string;
 
   @ApiPropertyOptional({ description: 'Input item ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'inputItemId must be a UUID' })
   @IsOptional()
   inputItemId?: string;
 
   @ApiPropertyOptional({ description: 'Output item ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'outputItemId must be a UUID' })
   @IsOptional()
   outputItemId?: string;
 
@@ -278,6 +385,22 @@ export class UpdateRoutingOperationDto {
   @IsString()
   @IsOptional()
   remarks?: string;
+
+  /** Repeatable input materials (exact configured item IDs). Replaces all inputs when provided. */
+  @ApiPropertyOptional({ description: 'Input materials (multi-input)', type: [RoutingOperationInputDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationInputDto)
+  @IsOptional()
+  inputs?: RoutingOperationInputDto[];
+
+  /** Repeatable output products (exact configured item IDs). Replaces all outputs when provided. */
+  @ApiPropertyOptional({ description: 'Output products (multi-output)', type: [RoutingOperationOutputDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationOutputDto)
+  @IsOptional()
+  outputs?: RoutingOperationOutputDto[];
 }
 
 export class CreateRoutingDto {
@@ -312,6 +435,11 @@ export class CreateRoutingDto {
   @IsUUID()
   @IsOptional()
   bomId?: string;
+
+  @ApiPropertyOptional({ description: 'Route Type classification (master-data/route-types)' })
+  @IsUUID()
+  @IsOptional()
+  routeTypeId?: string | null;
 
   @ApiPropertyOptional({ description: 'Base quantity', default: 1 })
   @IsNumber()
@@ -362,6 +490,11 @@ export class UpdateRoutingDto {
   @IsOptional()
   bomId?: string;
 
+  @ApiPropertyOptional({ description: 'Route Type classification (master-data/route-types)' })
+  @IsUUID()
+  @IsOptional()
+  routeTypeId?: string | null;
+
   @ApiPropertyOptional({ description: 'Base quantity' })
   @IsNumber()
   @IsOptional()
@@ -394,4 +527,13 @@ export class UpdateRoutingStatusDto {
   @IsEnum(RoutingStatus)
   @IsNotEmpty()
   status: RoutingStatus;
+}
+
+/** Reorder a routing operation to a new sequence position. */
+export class ReorderRoutingOperationDto {
+  @ApiProperty({ description: 'Target sequence number (10, 20, 30...). All operations are renumbered compactly.' })
+  @IsNumber()
+  @IsNotEmpty()
+  @Min(1)
+  newSequenceNo: number;
 }

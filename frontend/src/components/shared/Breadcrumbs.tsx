@@ -49,6 +49,7 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/sales\/returns/, label: 'Sales Returns' },
   { pattern: /^\/products/, label: 'Products' },
   { pattern: /^\/production\/inventory-report/, label: 'Inventory Report' },
+  { pattern: /^\/production\/targets/, label: 'Machine Targets' },
   { pattern: /^\/production/, label: 'Production' },
   { pattern: /^\/qc\/inspections/, label: 'Inspections' },
   { pattern: /^\/qc\/ncr/, label: 'NCR' },
@@ -66,6 +67,11 @@ const PARENT_LABELS: Record<string, string> = {
   production: 'Production',
   qc: 'QC',
 };
+
+/** Prefix-based overrides: when the next child path starts with the key, show the value as parent label. */
+const PARENT_OVERRIDES: Array<[string, string]> = [
+  ['/production/targets', 'Master Data'],
+];
 
 function getLabelForPath(pathname: string): string | undefined {
   for (const route of ROUTE_LABELS) {
@@ -101,7 +107,9 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
 
     let label = getLabelForPath(path);
     if (!label && i < builtPaths.length - 1) {
-      label = PARENT_LABELS[segment];
+      const nextPath = builtPaths[i + 1];
+      const override = PARENT_OVERRIDES.find(([prefix]) => nextPath.startsWith(prefix));
+      label = override ? override[1] : PARENT_LABELS[segment];
     }
     if (!label) {
       label = segment

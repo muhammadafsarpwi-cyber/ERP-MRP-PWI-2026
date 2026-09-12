@@ -2,6 +2,7 @@ import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Item } from '../../item/entities/item.entity';
+import { ItemRouteType } from '../../item/entities/route-type.entity';
 import { BillOfMaterials } from '../../bom/entities/bill-of-materials.entity';
 import { RoutingOperation } from './routing-operation.entity';
 
@@ -48,6 +49,14 @@ export class ProductionRouting extends BaseEntity {
 
   @Column({ name: 'base_quantity', type: 'decimal', precision: 19, scale: 4, default: 1 })
   baseQuantity: number;
+
+  /** Optional Route Type classification (master-data/route-types). */
+  @Column({ name: 'route_type_id', type: 'uuid', nullable: true })
+  routeTypeId: string | null;
+
+  @ManyToOne(() => ItemRouteType, { nullable: true })
+  @JoinColumn({ name: 'route_type_id' })
+  routeType: ItemRouteType | null;
 
   @Column({ name: 'estimated_total_time', type: 'decimal', precision: 19, scale: 4, default: 0 })
   estimatedTotalTime: number;

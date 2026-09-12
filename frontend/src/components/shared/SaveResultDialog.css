@@ -1,0 +1,198 @@
+/* SaveResultDialog — the shared save/processing/success dialog used by the
+   Routing, Routing Operation and Route Type forms. Pure theme-token styling so
+   it follows the ERP light/dark palettes and stays responsive. */
+
+.erp-save-result-loading,
+.erp-save-result-success,
+.erp-save-result-error {
+  text-align: center;
+  padding: 26px 12px 16px;
+}
+
+.erp-save-result-title {
+  margin: 0 0 6px !important;
+  color: var(--theme-text, rgba(15, 23, 42, 0.88)) !important;
+}
+
+/* Large centered circular processing state — never a tiny inline spinner. */
+.erp-save-result-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 92px;
+  height: 92px;
+  margin: 14px auto 16px;
+  border-radius: 50%;
+  background: var(--theme-accent-soft, #eef2ff);
+  border: 1px solid var(--theme-border, #e4e7f1);
+}
+
+/* 48px ERP primary-blue spinner with a thicker stroke (not a tiny icon). */
+.erp-save-result-spinner-icon {
+  font-size: 48px;
+  color: var(--theme-accent, #4f46e5);
+}
+.erp-save-result-spinner-icon svg path {
+  stroke-width: 2.6;
+}
+
+.erp-save-result-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.erp-save-result-message {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
+  color: var(--theme-text, rgba(15, 23, 42, 0.88));
+}
+
+/* Large centered circular success check. */
+.erp-save-result-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 92px;
+  height: 92px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  background: var(--theme-success-soft, #f0f9eb);
+  color: var(--theme-success, #52c41a);
+  font-size: 52px;
+  line-height: 1;
+  animation: erpSaveResultCheckIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.12s 1 backwards;
+  transform-origin: center;
+}
+
+.erp-save-result-anim {
+  animation: erpSaveResultPopIn 0.5s ease-out 1;
+  transform-origin: center;
+}
+
+.erp-save-result-record {
+  margin: 18px 0 20px;
+  padding: 14px 12px;
+  border: 1px solid var(--theme-border, #e4e7f1);
+  border-radius: 10px;
+  background: var(--theme-surface-alt, #f8fafc);
+  overflow-wrap: break-word;
+}
+
+.erp-save-result-record-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.erp-save-result-code {
+  display: block;
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--theme-text, rgba(15, 23, 42, 0.88));
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  letter-spacing: 0.02em;
+}
+
+.erp-save-result-record-name {
+  display: block;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.erp-save-result-close {
+  border-radius: 8px;
+}
+
+/* Persistent failure state — stays open until dismissed (Close) or retried. */
+.erp-save-result-error-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 92px;
+  height: 92px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  background: var(--theme-error-soft, #fff1f0);
+  color: var(--theme-error, #ff4d4f);
+  font-size: 52px;
+  line-height: 1;
+  animation: erpSaveResultCheckIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.12s 1 backwards;
+  transform-origin: center;
+}
+
+.erp-save-result-title-error {
+  color: var(--theme-error, #ff4d4f) !important;
+}
+
+.erp-save-result-error-detail {
+  margin: 16px auto 20px;
+  max-width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--theme-error-soft-border, #ffccc7);
+  border-radius: 10px;
+  background: var(--theme-error-soft, #fff1f0);
+  color: var(--theme-error-text, #a8071a);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.erp-save-result-error-actions {
+  display: flex;
+  justify-content: center;
+}
+
+@keyframes erpSaveResultPopIn {
+  0% {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes erpSaveResultCheckIn {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 575px) {
+  .erp-save-result-spinner,
+  .erp-save-result-check,
+  .erp-save-result-error-icon {
+    width: 76px;
+    height: 76px;
+  }
+  .erp-save-result-spinner-icon {
+    font-size: 40px;
+  }
+  .erp-save-result-check,
+  .erp-save-result-error-icon {
+    font-size: 42px;
+  }
+  .erp-save-result-code {
+    font-size: 18px;
+  }
+}

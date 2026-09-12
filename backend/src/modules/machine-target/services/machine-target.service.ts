@@ -109,6 +109,8 @@ export class MachineTargetService {
       .leftJoinAndSelect('mt.shift', 'shift')
       .leftJoinAndSelect('mt.uom', 'uom')
       .leftJoinAndSelect('mt.item', 'item')
+      .leftJoinAndSelect('mt.createdByUser', 'createdByUser')
+      .leftJoinAndSelect('mt.updatedByUser', 'updatedByUser')
       .where('mt.companyId = :companyId', { companyId })
       .andWhere('mt.isActive = true');
 
@@ -163,6 +165,7 @@ export class MachineTargetService {
       relations: [
         'machine', 'shift', 'uom', 'item',
         'machine.department', 'machine.section', 'machine.division',
+        'createdByUser', 'updatedByUser',
       ],
     });
     if (!target || !target.isActive) {
@@ -249,6 +252,9 @@ export class MachineTargetService {
     delete (existing as any).shift;
     delete (existing as any).uom;
     delete (existing as any).item;
+    // Remove loaded audit-user relations so TypeORM persists the fresh updatedBy value
+    delete (existing as any).createdByUser;
+    delete (existing as any).updatedByUser;
 
     try {
       await this.targetRepo.save(existing);
@@ -273,6 +279,7 @@ export class MachineTargetService {
     }
     target.status = status;
     target.updatedBy = userId ?? null;
+    delete (target as any).updatedByUser;
     await this.targetRepo.save(target);
     return this.findOne(id, companyId);
   }
@@ -282,6 +289,7 @@ export class MachineTargetService {
     const target = await this.findOne(id, companyId);
     target.isActive = false;
     target.updatedBy = userId ?? null;
+    delete (target as any).updatedByUser;
     await this.targetRepo.save(target);
   }
 
@@ -612,6 +620,269 @@ export class MachineTargetService {
         `Overlapping ACTIVE target already exists (${conflict.id}: ${conflict.effectiveFrom} → ${conflict.effectiveTo ?? 'open'}). Close it before creating a new period.`,
       );
     }
+  }
+
+  // ─── Import ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Hand-rolled CSV parser (RFC 4180 quote handling).
+   * Mirrors the maintenance module's parseCsv pattern.
+   */
+  static parseCsv(content: string): string[][] {
+    const rows: string[][] = [];
+    let cur: string[] = [];
+    let field = '';
+    let inQuotes = false;
+    for (let i = 0; i < content.length; i++) {
+      const ch = content[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (content[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+        } else {
+          field += ch;
+        }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        cur.push(field);
+        field = '';
+      } else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && content[i + 1] === '\n') i++;
+        cur.push(field);
+        field = '';
+        if (cur.some((c) => c.trim() !== '')) rows.push(cur);
+        cur = [];
+      } else {
+        field += ch;
+      }
+    }
+    cur.push(field);
+    if (cur.some((c) => c.trim() !== '')) rows.push(cur);
+    return rows;
+  }
+
+  /**
+   * Bulk import machine targets from parsed CSV rows.
+   * Uses the same business-key resolution pattern (Machine Code → Machine ID, etc.).
+   * All valid records are inserted in a single transaction (all-or-nothing).
+   */
+  async importCsv(
+    companyId: string,
+    userId: string | undefined,
+    fileBuffer: Buffer,
+  ): Promise<{
+    totalRows: number;
+    imported: number;
+    failed: number;
+    results: Array<{ row: number; status: 'imported' | 'error'; message: string }>;
+  }> {
+    const content = fileBuffer.toString('utf-8').replace(/^\uFEFF/, '');
+    const rows = MachineTargetService.parseCsv(content);
+    if (rows.length < 2) {
+      throw new BadRequestException('CSV file is empty or has no data rows');
+    }
+
+    const header = rows[0].map((h) => h.trim());
+    const headerMap: Record<string, number> = {};
+    header.forEach((h, i) => { headerMap[h.toLowerCase().replace(/[\s_-]+/g, '')] = i; });
+
+    // Resolve all master data for validation
+    const [machines, shifts, uoms, items] = await Promise.all([
+      this.machineRepo.find({ where: { companyId, isActive: true }, relations: ['division', 'section', 'department'] }),
+      this.shiftRepo.find({ where: { companyId, isActive: true } }),
+      this.uomRepo.find({ where: {} }),
+      this.itemRepo.find({ where: { companyId, isActive: true } }),
+    ]);
+
+    const machineByCode = new Map(machines.map((m) => [m.machineCode.toUpperCase(), m]));
+    const machineByNumber = new Map(machines.filter((m) => m.machineNumber).map((m) => [m.machineNumber!.toUpperCase(), m]));
+    const shiftByCode = new Map(shifts.map((s) => [s.shiftCode.toUpperCase(), s]));
+    const uomByCode = new Map(uoms.map((u) => [u.code.toUpperCase(), u]));
+    const itemByCode = new Map(items.map((i) => [i.itemCode.toUpperCase(), i]));
+
+    const results: Array<{ row: number; status: 'imported' | 'error'; message: string }> = [];
+    let imported = 0;
+
+    const get = (data: string[], field: string): string => {
+      const idx = headerMap[field];
+      return idx !== undefined ? (data[idx] ?? '').trim() : '';
+    };
+
+    const toInsert: Array<Partial<MachineTarget>> = [];
+
+    for (let idx = 1; idx < rows.length; idx++) {
+      const data = rows[idx];
+      const rowNum = idx + 1;
+      const errors: string[] = [];
+
+      // Machine Code resolution
+      const machineCode = get(data, 'machinecode') || get(data, 'machinenumber');
+      if (!machineCode) {
+        results.push({ row: rowNum, status: 'error', message: 'Machine Code / Machine Number is required' });
+        continue;
+      }
+      let machine = machineByCode.get(machineCode.toUpperCase()) || machineByNumber.get(machineCode.toUpperCase());
+      if (!machine) {
+        results.push({ row: rowNum, status: 'error', message: `Machine '${machineCode}' not found` });
+        continue;
+      }
+      if (machine.status !== 'ACTIVE') {
+        results.push({ row: rowNum, status: 'error', message: `Machine '${machineCode}' is not ACTIVE` });
+        continue;
+      }
+
+      // Shift Code
+      const shiftCode = get(data, 'shiftcode');
+      if (!shiftCode) {
+        results.push({ row: rowNum, status: 'error', message: 'Shift Code is required' });
+        continue;
+      }
+      const shift = shiftByCode.get(shiftCode.toUpperCase());
+      if (!shift) {
+        results.push({ row: rowNum, status: 'error', message: `Shift '${shiftCode}' not found` });
+        continue;
+      }
+
+      // UOM Code
+      const uomCode = get(data, 'uomcode') || get(data, 'uom');
+      if (!uomCode) {
+        results.push({ row: rowNum, status: 'error', message: 'UOM Code is required' });
+        continue;
+      }
+      const uom = uomByCode.get(uomCode.toUpperCase());
+      if (!uom) {
+        results.push({ row: rowNum, status: 'error', message: `UOM '${uomCode}' not found` });
+        continue;
+      }
+      if (!PRODUCTION_UOM_CODES.includes(String(uom.code).toUpperCase())) {
+        results.push({ row: rowNum, status: 'error', message: `UOM '${uomCode}' is not a supported production unit (KG, PCS, METER)` });
+        continue;
+      }
+
+      // Item Code (optional)
+      const itemCode = get(data, 'itemcode');
+      let itemId: string | null = null;
+      if (itemCode) {
+        const item = itemByCode.get(itemCode.toUpperCase());
+        if (!item) {
+          results.push({ row: rowNum, status: 'error', message: `Item '${itemCode}' not found` });
+          continue;
+        }
+        if (!item.isActive) {
+          results.push({ row: rowNum, status: 'error', message: `Item '${itemCode}' is not ACTIVE` });
+          continue;
+        }
+        itemId = item.id;
+      }
+
+      // Standard Target
+      const targetQtyStr = get(data, 'standardtarget') || get(data, 'targetquantity') || get(data, 'target');
+      const targetQty = Number(targetQtyStr);
+      if (!targetQtyStr || !(targetQty > 0)) {
+        results.push({ row: rowNum, status: 'error', message: 'Standard Target must be greater than 0' });
+        continue;
+      }
+
+      // Standard Hours
+      const hoursStr = get(data, 'standardhours') || get(data, 'hours');
+      const hours = Number(hoursStr);
+      if (!hoursStr || !(hours > 0) || hours > 24) {
+        results.push({ row: rowNum, status: 'error', message: 'Standard Hours must be between 0.01 and 24' });
+        continue;
+      }
+
+      // Effective From
+      const effectiveFrom = get(data, 'effectivefrom') || get(data, 'fromdate');
+      if (!effectiveFrom) {
+        results.push({ row: rowNum, status: 'error', message: 'Effective From is required (YYYY-MM-DD)' });
+        continue;
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) {
+        results.push({ row: rowNum, status: 'error', message: `Effective From '${effectiveFrom}' must be YYYY-MM-DD` });
+        continue;
+      }
+
+      // Effective To (optional)
+      const effectiveTo = get(data, 'effectiveto') || get(data, 'todate');
+      if (effectiveTo && !/^\d{4}-\d{2}-\d{2}$/.test(effectiveTo)) {
+        results.push({ row: rowNum, status: 'error', message: `Effective To '${effectiveTo}' must be YYYY-MM-DD` });
+        continue;
+      }
+      if (effectiveTo && !(effectiveTo > effectiveFrom)) {
+        results.push({ row: rowNum, status: 'error', message: 'Effective To must be after Effective From' });
+        continue;
+      }
+
+      // Status (optional, defaults to ACTIVE)
+      const status = (get(data, 'status') || 'ACTIVE').toUpperCase();
+      if (status !== 'ACTIVE' && status !== 'INACTIVE') {
+        results.push({ row: rowNum, status: 'error', message: `Invalid status '${status}' (use ACTIVE or INACTIVE)` });
+        continue;
+      }
+
+      // Remarks
+      const remarks = get(data, 'remarks') || null;
+
+      if (errors.length > 0) {
+        results.push({ row: rowNum, status: 'error', message: errors.join('; ') });
+        continue;
+      }
+
+      // Build entity for overlap check
+      const overlapQb = this.targetRepo.createQueryBuilder('mt')
+        .where('mt.companyId = :companyId', { companyId })
+        .andWhere('mt.machineId = :machineId', { machineId: machine.id })
+        .andWhere('mt.shiftId = :shiftId', { shiftId: shift.id })
+        .andWhere('mt.uomId = :uomId', { uomId: uom.id })
+        .andWhere('mt.status = :status', { status: MachineTargetStatus.ACTIVE })
+        .andWhere('mt.isActive = true')
+        .andWhere('(mt.effectiveFrom <= :rangeTo OR :rangeToIsNull)', {
+          rangeTo: effectiveTo || null,
+          rangeToIsNull: !effectiveTo,
+        })
+        .andWhere('(mt.effectiveTo >= :rangeFrom OR mt.effectiveTo IS NULL)', { rangeFrom: effectiveFrom });
+      if (itemId) overlapQb.andWhere('mt.itemId = :itemId', { itemId });
+      else overlapQb.andWhere('mt.itemId IS NULL');
+
+      const conflict = await overlapQb.getOne();
+      if (conflict) {
+        results.push({ row: rowNum, status: 'error', message: `Overlapping ACTIVE target exists (${conflict.id}: ${conflict.effectiveFrom} → ${conflict.effectiveTo ?? 'open'})` });
+        continue;
+      }
+
+      toInsert.push({
+        companyId,
+        machineId: machine.id,
+        shiftId: shift.id,
+        itemId: itemId,
+        uomId: uom.id,
+        standardHours: String(hours),
+        targetQuantity: String(targetQty),
+        effectiveFrom,
+        effectiveTo: effectiveTo || null,
+        status: status as MachineTargetStatus,
+        remarks,
+        createdBy: userId ?? null,
+        updatedBy: userId ?? null,
+      });
+    }
+
+    // Transactional bulk insert
+    if (toInsert.length > 0) {
+      const entities = toInsert.map((d) => this.targetRepo.create(d));
+      await this.targetRepo.save(entities);
+      imported = toInsert.length;
+      for (let i = 0; i < toInsert.length; i++) {
+        results.push({ row: i + 2, status: 'imported', message: 'Created successfully' });
+      }
+    }
+
+    return {
+      totalRows: rows.length - 1,
+      imported,
+      failed: results.filter((r) => r.status === 'error').length,
+      results,
+    };
   }
 
   private async findEffectiveCandidates(

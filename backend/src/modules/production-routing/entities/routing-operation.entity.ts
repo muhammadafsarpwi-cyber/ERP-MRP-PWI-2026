@@ -1,4 +1,4 @@
-import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Division } from '../../organization/entities/division.entity';
@@ -9,6 +9,8 @@ import { Uom } from '../../item/entities/uom.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { Operation } from '../../operation/entities/operation.entity';
 import { ProductionRouting } from './production-routing.entity';
+import { RoutingOperationInput } from './routing-operation-input.entity';
+import { RoutingOperationOutput } from './routing-operation-output.entity';
 
 @Entity('routing_operations')
 export class RoutingOperation extends BaseEntity {
@@ -131,4 +133,16 @@ export class RoutingOperation extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   remarks: string | null;
+
+  /** Multi-input materials consumed by this operation (exact configured item IDs). */
+  @OneToMany(() => RoutingOperationInput, (input) => input.operation, {
+    cascade: ['insert', 'update'],
+  })
+  inputs: RoutingOperationInput[];
+
+  /** Multi-output products produced by this operation (exact configured item IDs). */
+  @OneToMany(() => RoutingOperationOutput, (output) => output.operation, {
+    cascade: ['insert', 'update'],
+  })
+  outputs: RoutingOperationOutput[];
 }

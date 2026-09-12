@@ -1,0 +1,100 @@
+﻿
+> erp-mrp-pwi-2026-frontend@1.0.0 build
+> node -e "process.env.CI='false'; require('react-scripts/scripts/build');"
+
+node.exe : (node:22764) [DEP0176] DeprecationWarning: fs.F_OK is deprecated, use fs.constants.F_OK instead
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:22764) [D...ts.F_OK instead:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Creating an optimized production build...
+Compiled with warnings.
+
+[eslint] 
+src\App.tsx
+  Line 106:3:  'MaterialIssueManagement' is defined but never used   @typescript-eslint/no-unused-vars
+  Line 107:3:  'MaterialReturnManagement' is defined but never used  @typescript-eslint/no-unused-vars
+
+src\components\layout\navigationConfig.tsx
+  Line 48:3:  'RiseOutlined' is defined but never used       @typescript-eslint/no-unused-vars
+  Line 49:3:  'FieldTimeOutlined' is defined but never used  @typescript-eslint/no-unused-vars
+
+src\pages\barcode-management\ProductionBarcodes.tsx
+  Line 2:24:  'Tag' is defined but never used  @typescript-eslint/no-unused-vars
+
+src\pages\inventory\OpeningStock.tsx
+  Line 5:54:   'ReloadOutlined' is defined but never used             @typescript-eslint/no-unused-vars
+  Line 40:10:  'loadingDropdowns' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+src\pages\inventory\StockTransferManagement.tsx
+  Line 480:9:  The href attribute is required for an anchor to be keyboard accessible. Provide a valid, navigable address as the href value. If you cannot provide an href, but still need the element to resemble a link, use a button and change it with appropriate styles. Learn more: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/HEAD/docs/rules/anchor-is-valid.md  jsx-a11y/anchor-is-valid
+
+src\pages\master-data\ItemManagement.tsx
+  Line 28:50:  'ProcessStep' is defined but never used                                                                        @typescript-eslint/no-unused-vars
+  Line 32:68:  'RouteRow' is defined but never used                                                                           @typescript-eslint/no-unused-vars
+  Line 540:6:  React Hook useEffect has a missing dependency: 'openDetail'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src\pages\store\MaterialRequestManagement.tsx
+  Line 10:15:  'Dayjs' is defined but never used                      @typescript-eslint/no-unused-vars
+  Line 94:10:  'editLinesLoading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+src\pages\store\MyMaterialRequests.tsx
+  Line 43:6:  React Hook useCallback has a missing dependency: 'message'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src\pages\store\PendingApprovals.tsx
+  Line 40:6:  React Hook useCallback has a missing dependency: 'message'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src\pages\store\StoreIssues.tsx
+  Line 78:6:  React Hook useCallback has a missing dependency: 'message'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src\pages\store\StoreItemLedger.tsx
+  Line 49:11:  'can' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+src\pages\store\StoreItemLifecycle.tsx
+  Line 3:29:  'HistoryOutlined' is defined but never used  @typescript-eslint/no-unused-vars
+
+src\pages\store\StoreManagement.tsx
+  Line 50:6:  React Hook useCallback has a missing dependency: 'message'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src\pages\store\StoreReturns.tsx
+  Line 79:6:  React Hook useCallback has a missing dependency: 'message'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src\pages\store\StoreStockBalance.tsx
+  Line 2:36:   'Spin' is defined but never used          @typescript-eslint/no-unused-vars
+  Line 32:11:  'can' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+src\pages\store\components\StoreLineItemsEditor.tsx
+  Line 1:38:  'useCallback' is defined but never used  @typescript-eslint/no-unused-vars
+
+Search for the keywords to learn more about each warning.
+To ignore, add // eslint-disable-next-line to the line before.
+
+File sizes after gzip:
+
+  1.08 MB    build\static\js\main.988a61da.js
+  108.95 kB  build\static\js\869.67f342ab.chunk.js
+  46.32 kB   build\static\js\52.bbd30fd9.chunk.js
+  33.23 kB   build\static\js\790.0081bd40.chunk.js
+  16.48 kB   build\static\css\main.bceec8c5.css
+  10.93 kB   build\static\js\82.3fc04bfd.chunk.js
+
+The bundle size is significantly larger than recommended.
+Consider reducing it with code splitting: https://goo.gl/9VhYWB
+You can also analyze the project dependencies: https://goo.gl/LeUzfb
+
+The project was built assuming it is hosted at /.
+You can control this with the homepage field in your package.json.
+
+The build folder is ready to be deployed.
+You may serve it with a static server:
+
+  npm install -g serve
+  serve -s build
+
+Find out more about deployment here:
+
+  https://cra.link/deployment
+

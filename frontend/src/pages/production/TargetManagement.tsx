@@ -1,16 +1,34 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, DatePicker, App,
-  Popconfirm, Card, Drawer, Descriptions, InputNumber, Alert, Statistic,
-  Grid, Row, Col,
+  Button, Space, Tag, Form, Input, Select, DatePicker, App,
+  Card, Descriptions, InputNumber, Alert, Statistic,
+  Grid, Row, Col, Dropdown, Tooltip, Typography, Upload, Spin, Table,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
-  PlusOutlined, EditOutlined, SearchOutlined, ReloadOutlined,
-  EyeOutlined, AimOutlined,
+  PlusOutlined, EditOutlined, ReloadOutlined, EyeOutlined, AimOutlined,
+  DeleteOutlined, ClearOutlined, DownloadOutlined,
+  FilePdfOutlined, PrinterOutlined, StopOutlined, CheckCircleOutlined,
+  ToolOutlined, ImportOutlined, InboxOutlined,
+  TagOutlined, SettingOutlined, ApartmentOutlined, TeamOutlined,
+  ShoppingOutlined, ClockCircleOutlined, HourglassOutlined,
+  CalendarOutlined, UserOutlined, SafetyOutlined,
+  ShopOutlined, SubnodeOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
+import {
+  PageHeader, ERPTable, TableActions, PageToolbar,
+  DepartmentBadge, ShiftBadge, StatusBadge, DraggableResizableModal,
+} from '../../components/shared';
+import { getMachineColor } from '../../utils/colorMapping';
+import TargetView, { TargetRecord } from './TargetView';
+import TargetSaveSuccessModal from './TargetSaveSuccessModal';
+
+const { Text } = Typography;
 
 interface OrgItem { id: string; name: string; }
 interface DivisionLk extends OrgItem { divisionCode: string; }
@@ -43,6 +61,12 @@ interface UomLk {
   symbol?: string | null;
 }
 
+interface UserLk {
+  id: string;
+  displayName: string;
+  email?: string;
+}
+
 interface ItemLk {
   id: string;
   itemCode: string;
@@ -60,6 +84,8 @@ interface ItemLk {
 /** Production target units (PROMPT-16): KG / PCS / METER — 'M' is the stored Meter code. */
 const PRODUCTION_UOM_CODES = ['KG', 'PCS', 'M', 'METER'];
 const MAX_STANDARD_HOURS = 24;
+const DEFAULT_PAGE_SIZE = 10;
+const EXPORT_LIMIT = 10000;
 
 interface MachineTarget {
   id: string;
@@ -80,13 +106,32 @@ interface MachineTarget {
   remarks: string | null;
   createdBy?: string | null;
   updatedBy?: string | null;
+  createdByUser?: UserLk | null;
+  updatedByUser?: UserLk | null;
   createdAt?: string;
   updatedAt?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = { ACTIVE: 'green', INACTIVE: 'red' };
 
-const shortUser = (id?: string | null): string => (id ? id.substring(0, 8) : '—');
+const SORT_LABELS: Record<string, string> = {
+  machineCode: 'Machine',
+  machineName: 'Machine Name',
+  itemCode: 'Item',
+  shiftCode: 'Shift',
+  uomCode: 'UOM',
+  standardHours: 'Standard Hours',
+  targetQuantity: 'Standard Target',
+  effectiveFrom: 'Effective From',
+  status: 'Status',
+};
+
+/** Resolve an audit user for display. Never leaks the raw UUID when the join is unavailable. */
+const auditUserName = (u?: UserLk | null, rawId?: string | null): string => {
+  if (u?.displayName?.trim()) return u.displayName.trim();
+  if (rawId) return 'Unknown User';
+  return '—';
+};
 
 const fmtDateTime = (iso?: string): string => {
   if (!iso) return '—';
@@ -97,23 +142,134 @@ const fmtDateTime = (iso?: string): string => {
 const fmtQty = (v: string | number | null | undefined): string => {
   const n = Number(v);
   if (!isFinite(n)) return '—';
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 };
 
 const calcPerHour = (qty: number, hours: number): number | null =>
   hours > 0 ? Number(((qty * 1) / hours).toFixed(4)) : null;
 
+/* ─── Import types and template ──────────────────────────────────────────── */
+
+type ImportRowStatus = 'VALID' | 'DUPLICATE' | 'INVALID';
+
+interface ImportRow {
+  rowNumber: number;
+  data: Record<string, string>;
+  status: ImportRowStatus;
+  errors: string[];
+}
+
+interface ImportSummary {
+  total: number;
+  valid: number;
+  invalid: number;
+  duplicate: number;
+  imported: number;
+  failed: number;
+  skipped: number;
+  errors: string[];
+}
+
+const IMPORT_TEMPLATE_CSV =
+  'Machine Code,Shift Code,UOM Code,Item Code,Standard Target,Standard Hours,Effective From,Effective To,Status,Remarks\n' +
+  'APS-01,SHIFT-1,KG,WIP-SPL-018,5000,8,2026-01-01,,ACTIVE,Sample target\n' +
+  'APS-02,SHIFT-1,PCS,WIP-SPL-019,3000,8,2026-01-01,2026-12-31,ACTIVE,Limited period\n';
+
+function parseImportCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let cur: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      cur.push(field);
+      field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      cur.push(field);
+      field = '';
+      if (cur.some((c) => c.trim() !== '')) rows.push(cur);
+      cur = [];
+    } else {
+      field += ch;
+    }
+  }
+  cur.push(field);
+  if (cur.some((c) => c.trim() !== '')) rows.push(cur);
+  return rows;
+}
+
+function downloadImportTemplate(): void {
+  const blob = new Blob([IMPORT_TEMPLATE_CSV], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'machine-target-import-template.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* CSV text utilities (mirror the ItemManagement export architecture). */
+function toCsv(headers: string[], rows: Array<Array<string | number | null | undefined>>): string {
+  const esc = (v: string | number | null | undefined) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  return '\ufeff' + [headers.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\r\n');
+}
+
+function downloadText(filename: string, text: string, mime = 'text/csv;charset=utf-8'): void {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+const EXPORT_HEADERS = [
+  'Machine Number', 'Machine Code', 'Machine Name', 'Division', 'Section', 'Department',
+  'Item Code', 'Item Name', 'Shift', 'UOM', 'Standard Hours', 'Standard Target',
+  'Target / Hour', 'Effective From', 'Effective To', 'Status',
+  'Created By', 'Created At', 'Updated By', 'Updated At',
+];
+
 const TargetManagement: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
+  const isStacked = !screens.lg;
   const [targets, setTargets] = useState<MachineTarget[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [sortBy, setSortBy] = useState<string>('machineCode');
   const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('ASC');
+  const [showFilters, setShowFilters] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [pdfing, setPdfing] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
 
   const [search, setSearch] = useState('');
   const [fMachineId, setFMachineId] = useState<string | undefined>();
@@ -137,12 +293,21 @@ const TargetManagement: React.FC = () => {
   const [editing, setEditing] = useState<MachineTarget | null>(null);
   const [detail, setDetail] = useState<MachineTarget | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<{
+    target: MachineTarget;
+    mode: 'create' | 'edit';
+  } | null>(null);
   const [form] = Form.useForm();
   const formMachineId = Form.useWatch('machineId', form);
   const formItemId = Form.useWatch('itemId', form);
+  const formShiftId = Form.useWatch('shiftId', form);
   const formHours = Form.useWatch('standardHours', form);
   const formQty = Form.useWatch('targetQuantity', form);
   const formUomId = Form.useWatch('uomId', form);
+  const formStatus = Form.useWatch('status', form);
+  const formEffectiveFrom = Form.useWatch('effectiveFrom', form) as dayjs.Dayjs | undefined;
+  const formEffectiveTo = Form.useWatch('effectiveTo', form) as dayjs.Dayjs | undefined;
+  const formRemarks = Form.useWatch('remarks', form) ?? '';
 
   const selectedMachine = useMemo(
     () => machines.find((m) => m.id === formMachineId) ?? null,
@@ -151,6 +316,14 @@ const TargetManagement: React.FC = () => {
   const selectedItem = useMemo(
     () => items.find((i) => i.id === formItemId) ?? null,
     [items, formItemId],
+  );
+  const selectedShift = useMemo(
+    () => shifts.find((s) => s.id === formShiftId) ?? null,
+    [shifts, formShiftId],
+  );
+  const selectedUom = useMemo(
+    () => uoms.find((u) => u.id === formUomId) ?? null,
+    [uoms, formUomId],
   );
   const perHourPreview = useMemo(() => {
     const q = Number(formQty);
@@ -163,19 +336,80 @@ const TargetManagement: React.FC = () => {
     return u ? u.code : '';
   }, [uoms, formUomId]);
 
+  /** Live right-side preview — single source of truth shared with the View modal. */
+  const previewRecord: TargetRecord = useMemo(() => {
+    return {
+      machineNumber: selectedMachine?.machineNumber?.trim() || selectedMachine?.machineCode || null,
+      machineCode: selectedMachine?.machineCode ?? null,
+      machineSystemId: selectedMachine?.machineId ?? null,
+      machineName: selectedMachine?.name ?? null,
+      division: selectedMachine?.division?.name ?? null,
+      section: selectedMachine?.section?.name ?? null,
+      department: selectedMachine?.department?.name ?? null,
+      itemCode: selectedItem?.itemCode ?? null,
+      itemName: selectedItem?.name ?? null,
+      shift: selectedShift?.shiftCode ?? null,
+      shiftName: selectedShift?.name ?? null,
+      uom: selectedUom?.code ?? null,
+      status: (formStatus ?? 'ACTIVE') as string,
+      targetQuantity: formQty !== undefined && formQty !== null ? Number(formQty) : null,
+      standardHours: formHours !== undefined && formHours !== null ? Number(formHours) : null,
+      perHour: perHourPreview,
+      effectiveFrom: formEffectiveFrom?.isValid() ? formEffectiveFrom.format('YYYY-MM-DD') : null,
+      effectiveTo: formEffectiveTo?.isValid() ? formEffectiveTo.format('YYYY-MM-DD') : null,
+      remarks: formRemarks,
+    };
+  }, [
+    selectedMachine, selectedItem, selectedShift, selectedUom, formStatus,
+    formQty, formHours, perHourPreview, formEffectiveFrom, formEffectiveTo, formRemarks,
+  ]);
+
+  const toTargetRecord = useCallback((t: MachineTarget): TargetRecord => {
+    const ph = calcPerHour(Number(t.targetQuantity), Number(t.standardHours));
+    return {
+      machineNumber: t.machine?.machineNumber || t.machine?.machineCode || null,
+      machineCode: t.machine?.machineCode ?? null,
+      machineSystemId: t.machine?.machineId ?? null,
+      machineName: t.machine?.name ?? null,
+      division: t.machine?.division?.name ?? null,
+      section: t.machine?.section?.name ?? null,
+      department: t.machine?.department?.name ?? null,
+      itemCode: t.item?.itemCode ?? null,
+      itemName: t.item?.name ?? null,
+      shift: t.shift?.shiftCode ?? null,
+      shiftName: t.shift?.name ?? null,
+      uom: t.uom?.code ?? null,
+      status: t.status ?? null,
+      targetQuantity: t.targetQuantity ?? null,
+      standardHours: t.standardHours ?? null,
+      perHour: ph,
+      effectiveFrom: t.effectiveFrom ?? null,
+      effectiveTo: t.effectiveTo ?? null,
+      remarks: t.remarks ?? null,
+      createdBy: auditUserName(t.createdByUser, t.createdBy ?? null),
+      createdAt: fmtDateTime(t.createdAt),
+      updatedBy: auditUserName(t.updatedByUser, t.updatedBy ?? null),
+      updatedAt: fmtDateTime(t.updatedAt),
+    };
+  }, []);
+
+  const buildQuery = useCallback((params: Record<string, unknown>) => {
+    if (search) params.search = search;
+    if (fMachineId) params.machineId = fMachineId;
+    if (fDivision) params.divisionId = fDivision;
+    if (fSection) params.sectionId = fSection;
+    if (fDepartment) params.departmentId = fDepartment;
+    if (fShift) params.shiftId = fShift;
+    if (fItem) params.itemId = fItem;
+    if (fUom) params.uomId = fUom;
+    if (fStatus) params.status = fStatus;
+    return params;
+  }, [search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus]);
+
   const fetchTargets = useCallback(async (pageNum: number = page) => {
     setLoading(true);
     try {
-      const params: any = { page: pageNum, limit: pageSize, sortBy, sortDir };
-      if (search) params.search = search;
-      if (fMachineId) params.machineId = fMachineId;
-      if (fDivision) params.divisionId = fDivision;
-      if (fSection) params.sectionId = fSection;
-      if (fDepartment) params.departmentId = fDepartment;
-      if (fShift) params.shiftId = fShift;
-      if (fItem) params.itemId = fItem;
-      if (fUom) params.uomId = fUom;
-      if (fStatus) params.status = fStatus;
+      const params: any = buildQuery({ page: pageNum, limit: pageSize, sortBy, sortDir });
       const response = await apiService.get<{ data: MachineTarget[]; total: number }>(
         '/production/machine-targets', params,
       );
@@ -186,7 +420,7 @@ const TargetManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, sortBy, sortDir, search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus, message]);
+  }, [page, pageSize, sortBy, sortDir, buildQuery, message]);
 
   useEffect(() => { fetchTargets(page); }, [page, pageSize, fetchTargets]);
 
@@ -237,10 +471,24 @@ const TargetManagement: React.FC = () => {
     [departments],
   );
 
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (search.trim()) n += 1;
+    if (fMachineId) n += 1;
+    if (fDivision) n += 1;
+    if (fSection) n += 1;
+    if (fDepartment) n += 1;
+    if (fShift) n += 1;
+    if (fItem) n += 1;
+    if (fUom) n += 1;
+    if (fStatus) n += 1;
+    return n;
+  }, [search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus]);
+
   const openCreate = () => {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ standardHours: 8 });
+    form.setFieldsValue({ standardHours: 8, effectiveFrom: dayjs() });
     setModalVisible(true);
   };
 
@@ -261,6 +509,22 @@ const TargetManagement: React.FC = () => {
     setModalVisible(true);
   };
 
+  /** Closing the form modal never discards data silently when the user typed something. */
+  const handleModalCancel = () => {
+    if (!form.isFieldsTouched()) {
+      setModalVisible(false);
+      return;
+    }
+    modal.confirm({
+      title: editing ? 'Discard changes?' : 'Discard this draft?',
+      content: 'The unsaved target will be lost. Are you sure you want to close?',
+      okText: 'Discard',
+      okButtonProps: { danger: true },
+      cancelText: 'Keep Editing',
+      onOk: () => setModalVisible(false),
+    });
+  };
+
   /** On create, default standard hours to the selected shift's planned hours from Shift Master. */
   const handleShiftChange = (shiftId: string | undefined) => {
     if (editing || !shiftId) return;
@@ -270,6 +534,7 @@ const TargetManagement: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (saving) return;
     try {
       const values = await form.validateFields();
       const payload: any = {
@@ -285,14 +550,15 @@ const TargetManagement: React.FC = () => {
         remarks: values.remarks || null,
       };
       setSaving(true);
+      let saved: MachineTarget;
       if (editing) {
-        await apiService.put(`/production/machine-targets/${editing.id}`, payload);
-        message.success('Machine target updated');
+        saved = await apiService.put<MachineTarget>(`/production/machine-targets/${editing.id}`, payload);
       } else {
-        await apiService.post('/production/machine-targets', payload);
-        message.success('Machine target created');
+        saved = await apiService.post<MachineTarget>('/production/machine-targets', payload);
       }
+      // Reached only after the backend confirms the record — failures fall into catch below.
       setModalVisible(false);
+      setSaveSuccess({ target: saved, mode: editing ? 'edit' : 'create' });
       fetchTargets(editing ? page : 1);
       if (!editing) setPage(1);
     } catch (error: any) {
@@ -334,6 +600,7 @@ const TargetManagement: React.FC = () => {
     setFItem(undefined);
     setFUom(undefined);
     setFStatus(undefined);
+    setShowFilters(false);
     setPage(1);
     setSortBy('machineCode');
     setSortDir('ASC');
@@ -341,152 +608,496 @@ const TargetManagement: React.FC = () => {
 
   const uomSymbolOf = (t: MachineTarget) => t.uom?.code ?? '';
 
+  const collectFilteredTargets = async (): Promise<MachineTarget[]> => {
+    const params: any = buildQuery({ page: 1, limit: EXPORT_LIMIT, sortBy, sortDir });
+    const response = await apiService.get<{ data: MachineTarget[] }>('/production/machine-targets', params);
+    return response.data || [];
+  };
+
+  const targetToExportRow = (t: MachineTarget): Array<string | number | null> => {
+    const ph = calcPerHour(Number(t.targetQuantity), Number(t.standardHours));
+    return [
+      t.machine?.machineNumber ?? '', t.machine?.machineCode ?? '', t.machine?.name ?? '',
+      t.machine?.division?.name ?? '', t.machine?.section?.name ?? '', t.machine?.department?.name ?? '',
+      t.item?.itemCode ?? '', t.item?.name ?? '',
+      t.shift?.shiftCode ?? '', t.uom?.code ?? '',
+      fmtQty(t.standardHours), fmtQty(t.targetQuantity),
+      ph !== null ? `${fmtQty(ph)} ${uomSymbolOf(t)}/h` : '',
+      t.effectiveFrom ?? '', t.effectiveTo ?? '', t.status ?? '',
+      auditUserName(t.createdByUser, t.createdBy ?? null), fmtDateTime(t.createdAt),
+      auditUserName(t.updatedByUser, t.updatedBy ?? null), fmtDateTime(t.updatedAt),
+    ];
+  };
+
+  const filterSummary = () => {
+    const parts: string[] = [];
+    if (search) parts.push(`Search: "${search}"`);
+    if (fMachineId) {
+      const m = machines.find((x) => x.id === fMachineId);
+      parts.push(`Machine: ${m ? `${m.machineCode} · ${m.name}` : fMachineId}`);
+    }
+    if (fDivision) parts.push(`Division: ${divisions.find((d) => d.id === fDivision)?.name ?? fDivision}`);
+    if (fSection) parts.push(`Section: ${sections.find((s) => s.id === fSection)?.name ?? fSection}`);
+    if (fDepartment) parts.push(`Department: ${departments.find((d) => d.id === fDepartment)?.name ?? fDepartment}`);
+    if (fShift) parts.push(`Shift: ${shifts.find((s) => s.id === fShift)?.shiftCode ?? fShift}`);
+    if (fItem) parts.push(`Item: ${items.find((i) => i.id === fItem)?.itemCode ?? fItem}`);
+    if (fUom) parts.push(`UOM: ${uoms.find((u) => u.id === fUom)?.code ?? fUom}`);
+    if (fStatus) parts.push(`Status: ${fStatus}`);
+    return parts.length ? parts.join('   |   ') : 'All targets';
+  };
+
+  const handleExportCsv = async () => {
+    setExporting(true);
+    try {
+      const rows = await collectFilteredTargets();
+      downloadText(
+        `machine-targets-${new Date().toISOString().slice(0, 10)}.csv`,
+        toCsv(EXPORT_HEADERS, rows.map(targetToExportRow)),
+      );
+      message.success(`Exported ${rows.length} targets`);
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handlePrintReport = async () => {
+    setPrinting(true);
+    try {
+      const rows = await collectFilteredTargets();
+      const w = window.open('', '_blank', 'width=1100,height=760');
+      if (!w) {
+        message.error('Popup blocked. Allow popups to print.');
+        return;
+      }
+      const bodyRows = rows
+        .map((r) => `<tr>
+          <td><b>${r.machine?.machineNumber || r.machine?.machineCode || ''}</b></td>
+          <td>${r.machine?.machineCode ?? ''}</td><td>${r.machine?.name ?? ''}</td>
+          <td>${r.machine?.division?.name ?? ''}</td><td>${r.machine?.section?.name ?? ''}</td>
+          <td>${r.machine?.department?.name ?? ''}</td>
+          <td>${r.item?.itemCode ?? ''}</td><td>${r.item?.name ?? ''}</td>
+          <td>${r.shift?.shiftCode ?? ''}</td><td>${r.uom?.code ?? ''}</td>
+          <td class="num">${fmtQty(r.standardHours)}</td>
+          <td class="num">${fmtQty(r.targetQuantity)}</td>
+          <td>${r.effectiveFrom ?? ''}</td><td>${r.effectiveTo ?? 'open'}</td>
+          <td class="status ${String(r.status).toLowerCase()}">${r.status ?? ''}</td>
+        </tr>`)
+        .join('');
+      w.document.write(`<!DOCTYPE html>
+<html><head><title>Machine Targets Report</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 24px; color: #222; }
+  h1 { font-size: 18px; margin: 0; }
+  .meta { font-size: 11px; color: #666; margin-top: 4px; }
+  .filters { font-size: 12px; margin: 12px 0 16px; background: #f5f6f8; border-radius: 6px; padding: 8px 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { background: #f0f1f3; text-align: left; padding: 6px 8px; border-bottom: 2px solid #ddd; }
+  td { padding: 5px 8px; border-bottom: 1px solid #eee; }
+  .num { text-align: right; }
+  .status.active { color: #1a7f37; font-weight: 600; }
+  .status.inactive { color: #c0392b; font-weight: 600; }
+  @page { size: A4 landscape; margin: 12mm; }
+</style></head><body>
+  <h1>Machine Targets Report</h1>
+  <div class="meta">Generated ${new Date().toLocaleString()} &nbsp;&middot;&nbsp; ${rows.length} target(s)</div>
+  <div class="filters"><b>Filters:</b> ${filterSummary()}</div>
+  <table>
+    <thead><tr><th>Machine Number</th><th>Code</th><th>Machine Name</th><th>Division</th><th>Section</th><th>Department</th><th>Item Code</th><th>Item Name</th><th>Shift</th><th>UOM</th><th class="num">Hours</th><th class="num">Target</th><th>From</th><th>To</th><th>Status</th></tr></thead>
+    <tbody>${bodyRows || '<tr><td colspan="15" style="text-align:center;color:#999">No targets found</td></tr>'}</tbody>
+  </table>
+<script>window.onload = function () { window.print(); };</script>
+</body></html>`);
+      w.document.close();
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Print failed');
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    setPdfing(true);
+    try {
+      const rows = await collectFilteredTargets();
+      if (!rows.length) {
+        message.info('No targets to export to PDF');
+        return;
+      }
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      doc.setFontSize(14);
+      doc.setTextColor(33);
+      doc.text('Machine Targets Master Report', 40, 40);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      doc.text(`Generated ${new Date().toLocaleString()} \u00B7 ${rows.length} target(s)`, 40, 56);
+      doc.text(`Filters: ${filterSummary()}`, 40, 70);
+      const head = [['Machine No', 'Code', 'Machine Name', 'Division', 'Section', 'Department', 'Item Code', 'Item Name', 'Shift', 'UOM', 'Hours', 'Target', 'From', 'To', 'Status']];
+      const body = rows.map((r) => [
+        r.machine?.machineNumber ?? '', r.machine?.machineCode ?? '', r.machine?.name ?? '',
+        r.machine?.division?.name ?? '', r.machine?.section?.name ?? '', r.machine?.department?.name ?? '',
+        r.item?.itemCode ?? '', r.item?.name ?? '', r.shift?.shiftCode ?? '', r.uom?.code ?? '',
+        fmtQty(r.standardHours), fmtQty(r.targetQuantity), r.effectiveFrom ?? '', r.effectiveTo ?? 'open', r.status ?? '',
+      ]);
+      autoTable(doc, {
+        head,
+        body,
+        startY: 84,
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [31, 41, 55], textColor: 255 },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+      });
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i += 1) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(120);
+        doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.getWidth() - 40, doc.internal.pageSize.getHeight() - 20, { align: 'right' });
+      }
+      doc.save(`machine-targets-${new Date().toISOString().slice(0, 10)}.pdf`);
+      message.success(`Exported ${rows.length} targets to PDF`);
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'PDF export failed');
+    } finally {
+      setPdfing(false);
+    }
+  };
+
+  const exportMenu: MenuProps['items'] = [
+    { key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' },
+    { key: 'pdf', icon: <FilePdfOutlined />, label: 'PDF Report' },
+    { key: 'print', icon: <PrinterOutlined />, label: 'Print Report' },
+  ];
+  const onExportMenu: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'pdf') handleExportPdf();
+    else if (key === 'print') handlePrintReport();
+    else handleExportCsv();
+  };
+
+  /* ─── Import handlers ────────────────────────────────────────────────────── */
+
+  const handleImportFile = async (file: File) => {
+    const text = await file.text();
+    const parsed = parseImportCsv(text);
+    if (parsed.length < 2) {
+      message.error('The file appears to be empty or has no data rows.');
+      return false;
+    }
+    const header = parsed[0].map((h) => h.trim());
+    const normHeader = header.map((h) => h.toLowerCase().replace(/[\s_-]+/g, ''));
+
+    const required = ['machinecode', 'shiftcode', 'uomcode', 'standardtarget', 'standardhours', 'effectivefrom'];
+    const missing = required.filter((c) => !normHeader.includes(c));
+    if (missing.length > 0) {
+      message.error(`Missing required column(s): ${missing.join(', ')}. Download the template for the expected format.`);
+      return false;
+    }
+
+    const headerMap: Record<string, number> = {};
+    header.forEach((h, i) => { headerMap[h.toLowerCase().replace(/[\s_-]+/g, '')] = i; });
+    const get = (data: string[], field: string): string => {
+      const idx = headerMap[field];
+      return idx !== undefined ? (data[idx] ?? '').trim() : '';
+    };
+
+    const validated: ImportRow[] = parsed.slice(1).map((cells, idx) => {
+      const data: Record<string, string> = {};
+      header.forEach((h, i) => {
+        const val = cells[i] ?? '';
+        data[h] = val;
+        data[h.toLowerCase().replace(/[\s_-]+/g, '')] = val;
+      });
+      const errors: string[] = [];
+      if (!get(cells, 'machinecode') && !get(cells, 'machinenumber')) errors.push('Machine Code is required');
+      if (!get(cells, 'shiftcode')) errors.push('Shift Code is required');
+      if (!get(cells, 'uomcode') && !get(cells, 'uom')) errors.push('UOM Code is required');
+      const targetStr = get(cells, 'standardtarget') || get(cells, 'targetquantity') || get(cells, 'target');
+      const target = Number(targetStr);
+      if (!targetStr || !(target > 0)) errors.push('Standard Target must be > 0');
+      const hoursStr = get(cells, 'standardhours') || get(cells, 'hours');
+      const hours = Number(hoursStr);
+      if (!hoursStr || !(hours > 0) || hours > 24) errors.push('Standard Hours must be 0.01–24');
+      const from = get(cells, 'effectivefrom') || get(cells, 'fromdate');
+      if (!from) errors.push('Effective From is required');
+      else if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) errors.push('Effective From must be YYYY-MM-DD');
+      const to = get(cells, 'effectiveto') || get(cells, 'todate');
+      if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) errors.push('Effective To must be YYYY-MM-DD');
+      if (to && from && to <= from) errors.push('Effective To must be after Effective From');
+      const st = (get(cells, 'status') || 'ACTIVE').toUpperCase();
+      if (st !== 'ACTIVE' && st !== 'INACTIVE') errors.push(`Invalid status '${st}'`);
+
+      return {
+        rowNumber: idx + 2,
+        data,
+        status: errors.length > 0 ? 'INVALID' : 'VALID',
+        errors,
+      };
+    });
+
+    setImportFileName(file.name);
+    setImportRows(validated);
+    setImportSummary(null);
+    return false;
+  };
+
+  const runImport = async () => {
+    const validRows = importRows.filter((r) => r.status === 'VALID');
+    if (validRows.length === 0) return;
+    setImporting(true);
+    try {
+      const header = Object.keys(importRows[0].data);
+      const csvLines = [header.join(',')];
+      for (const row of importRows) {
+        csvLines.push(header.map((h) => {
+          const v = row.data[h] ?? '';
+          return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+        }).join(','));
+      }
+      const csvText = csvLines.join('\r\n');
+      const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+      const fd = new FormData();
+      fd.append('file', blob, importFileName || 'import.csv');
+
+      const res = await apiService.upload<{
+        totalRows: number;
+        imported: number;
+        failed: number;
+        results: Array<{ row: number; status: string; message: string }>;
+      }>('/production/machine-targets/import', fd);
+
+      setImportSummary({
+        total: res.totalRows,
+        valid: validRows.length,
+        invalid: importRows.filter((r) => r.status === 'INVALID').length,
+        duplicate: 0,
+        imported: res.imported,
+        failed: res.failed,
+        skipped: 0,
+        errors: res.results.filter((r) => r.status === 'error').map((r) => `Row ${r.row}: ${r.message}`),
+      });
+      fetchTargets(1);
+      setPage(1);
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const closeImport = () => {
+    setImportOpen(false);
+    setImportRows([]);
+    setImportSummary(null);
+    setImportFileName(null);
+  };
+
   const columns: ColumnsType<MachineTarget> = [
     {
-      title: 'Machine ID',
-      key: 'machineSystemId',
-      width: 110,
-      render: (_: any, t: MachineTarget) => <code style={{ fontWeight: 600 }}>{t.machine?.machineId ?? '—'}</code>,
+      title: <span><TagOutlined style={{ marginRight: 4, fontSize: 11 }} />MACHINE ID</span>,
+      key: 'machineId',
+      width: 80,
+      fixed: 'left',
+      render: (_: any, t: MachineTarget) => (
+        <Tooltip title={t.machine?.machineId ?? 'No Machine ID'}>
+          <code style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted)', cursor: 'default' }}>
+            {t.machine?.machineId ?? '—'}
+          </code>
+        </Tooltip>
+      ),
     },
     {
-      title: 'Machine Code',
+      title: <span><SettingOutlined style={{ marginRight: 4, fontSize: 11 }} />Machine</span>,
       key: 'machineCode',
       sorter: true,
-      width: 120,
-      render: (_: any, t: MachineTarget) => <b>{t.machine?.machineCode ?? '—'}</b>,
-    },
-    {
-      title: 'Machine Name',
-      key: 'machineName',
-      sorter: true,
-      width: 180,
-      ellipsis: true,
-      render: (_: any, t: MachineTarget) => t.machine?.name ?? '—',
-    },
-    {
-      title: 'Machine Number',
-      key: 'machineNumber',
-      width: 120,
-      render: (_: any, t: MachineTarget) => t.machine?.machineNumber ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
-    },
-    {
-      title: 'Division',
-      key: 'division',
-      width: 130,
-      ellipsis: true,
-      render: (_: any, t: MachineTarget) => t.machine?.division?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
-    },
-    {
-      title: 'Section',
-      key: 'section',
-      width: 130,
-      ellipsis: true,
-      render: (_: any, t: MachineTarget) => t.machine?.section?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
-    },
-    {
-      title: 'Department',
-      key: 'department',
-      width: 140,
-      ellipsis: true,
-      render: (_: any, t: MachineTarget) => t.machine?.department?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
-    },
-    {
-      title: 'Item Code',
-      key: 'itemCode',
-      sorter: true,
-      width: 140,
-      render: (_: any, t: MachineTarget) => <b>{t.item?.itemCode ?? '—'}</b>,
-    },
-    {
-      title: 'Item Name',
-      key: 'itemName',
-      width: 180,
-      ellipsis: true,
-      render: (_: any, t: MachineTarget) => t.item?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
-    },
-    {
-      title: 'Shift',
-      key: 'shiftCode',
-      sorter: true,
-      width: 110,
-      render: (_: any, t: MachineTarget) => (
-        <Tag color="blue">{t.shift?.shiftCode ?? '—'}</Tag>
-      ),
-    },
-    {
-      title: 'UOM',
-      key: 'uomCode',
-      sorter: true,
-      width: 90,
-      render: (_: any, t: MachineTarget) => <Tag>{uomSymbolOf(t)}</Tag>,
-    },
-    {
-      title: 'Standard Hours',
-      dataIndex: 'standardHours',
-      sorter: true,
-      width: 120,
-      align: 'right',
-      render: (h: string | number) => fmtQty(h),
-    },
-    {
-      title: 'Standard Target',
-      dataIndex: 'targetQuantity',
-      sorter: true,
-      width: 140,
-      align: 'right',
-      render: (q: string | number, t: MachineTarget) => (
-        <b>{fmtQty(q)} {uomSymbolOf(t)}</b>
-      ),
-    },
-    {
-      title: 'Target / Hour',
-      key: 'perHour',
-      width: 140,
-      align: 'right',
+      width: 100,
       render: (_: any, t: MachineTarget) => {
-        const ph = calcPerHour(Number(t.targetQuantity), Number(t.standardHours));
-        return <span>{ph !== null ? `${fmtQty(ph)} ${uomSymbolOf(t)}/h` : '—'}</span>;
+        const number = t.machine?.machineNumber?.trim() || t.machine?.machineCode || null;
+        const code = t.machine?.machineCode;
+        const secondary = code && code !== number ? code : null;
+        const mc = getMachineColor(t.machine);
+        return (
+          <Tooltip
+            title={
+              <div>
+                <div style={{ fontWeight: 600 }}>{t.machine?.name ?? 'Machine'}</div>
+                {t.machine?.machineId ? <div style={{ fontSize: 11, opacity: 0.85 }}>System ID: {t.machine.machineId}</div> : null}
+                {t.machine?.division ? <div style={{ fontSize: 11, opacity: 0.85 }}>Division: {t.machine.division.name}</div> : null}
+              </div>
+            }
+          >
+            <div style={{ lineHeight: 1.35 }}>
+              <div>
+                <span style={{
+                  display: 'inline-block',
+                  padding: '0 5px',
+                  borderRadius: 4,
+                  fontWeight: 600,
+                  fontSize: 11,
+                  color: mc.light.text,
+                  background: mc.light.bg,
+                  border: `1px solid ${mc.light.border}`,
+                }}>{number ?? '—'}</span>
+              </div>
+              {secondary ? <div style={{ color: 'var(--theme-text-muted)', fontSize: 9, marginTop: 1 }}>{secondary}</div> : null}
+            </div>
+          </Tooltip>
+        );
       },
     },
     {
-      title: 'Effective From',
+      title: <span><ApartmentOutlined style={{ marginRight: 4, fontSize: 11 }} />Machine Name</span>,
+      key: 'machineName',
+      sorter: true,
+      width: 120,
+      ellipsis: true,
+      render: (_: any, t: MachineTarget) => (
+        <Tooltip title={t.machine?.name || undefined}>
+          <span style={{ fontSize: 11 }}>{t.machine?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>}</span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: <span><ShopOutlined style={{ marginRight: 4, fontSize: 11 }} />Division / Section</span>,
+      key: 'divisionSection',
+      width: 130,
+      render: (_: any, t: MachineTarget) => {
+        const d = t.machine?.division;
+        const s = t.machine?.section;
+        if (!d && !s) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
+        return (
+          <div style={{ lineHeight: 1.4 }}>
+            {d ? (
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)' }}>
+                {d.name}
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Division: —</div>
+            )}
+            {s ? (
+              <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                <SubnodeOutlined style={{ fontSize: 9 }} />
+                {s.name}
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Section: —</div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      title: <span><TeamOutlined style={{ marginRight: 4, fontSize: 11 }} />Department</span>,
+      key: 'department',
+      width: 100,
+      render: (_: any, t: MachineTarget) => <DepartmentBadge department={t.machine?.department} />,
+    },
+    {
+      title: <span><ShoppingOutlined style={{ marginRight: 4, fontSize: 11 }} />Item</span>,
+      key: 'itemCode',
+      sorter: true,
+      width: 130,
+      render: (_: any, t: MachineTarget) => {
+        const best = t.item
+          ? { id: t.item.id, name: t.item.name, itemCode: t.item.itemCode }
+          : null;
+        return best ? (
+          <div style={{ lineHeight: 1.35 }}>
+            <div style={{ fontSize: 11 }}><b>{best.itemCode}</b></div>
+            {best.name && best.name !== best.itemCode
+              ? <div style={{ color: 'var(--theme-text-muted)', fontSize: 10 }}>{best.name}</div>
+              : null}
+          </div>
+        ) : <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
+      },
+    },
+    {
+      title: <span><ClockCircleOutlined style={{ marginRight: 4, fontSize: 11 }} />Shift</span>,
+      key: 'shiftCode',
+      sorter: true,
+      width: 95,
+      render: (_: any, t: MachineTarget) => <ShiftBadge shift={t.shift} style={{ fontSize: 11 }} />,
+    },
+    {
+      title: <span><SafetyOutlined style={{ marginRight: 4, fontSize: 11 }} />UOM</span>,
+      key: 'uomCode',
+      sorter: true,
+      width: 48,
+      render: (_: any, t: MachineTarget) => <Tag style={{ fontSize: 10 }}>{uomSymbolOf(t)}</Tag>,
+    },
+    {
+      title: <span><HourglassOutlined style={{ marginRight: 4, fontSize: 11 }} />Std Hours</span>,
+      dataIndex: 'standardHours',
+      sorter: true,
+      width: 65,
+      align: 'right',
+      render: (h: string | number) => <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>{fmtQty(h)}</span>,
+    },
+    {
+      title: <span><AimOutlined style={{ marginRight: 4, fontSize: 11 }} />Standard Target</span>,
+      dataIndex: 'targetQuantity',
+      sorter: true,
+      width: 140,
+      render: (q: string | number, t: MachineTarget) => {
+        const ph = calcPerHour(Number(t.targetQuantity), Number(t.standardHours));
+        const u = uomSymbolOf(t);
+        return (
+          <Tooltip title="Standard target over the standard hours. Target / hour is auto-calculated: target ÷ hours.">
+            <div style={{
+              lineHeight: 1.35,
+              padding: '3px 8px',
+              borderRadius: 6,
+              background: 'var(--theme-surface-alt, #f0fdf4)',
+              border: '1px solid rgba(16, 185, 129, 0.2)',
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-accent, #059669)' }}>{fmtQty(q)} <span style={{ fontSize: 10, fontWeight: 600 }}>{u}</span></div>
+              {ph !== null
+                ? <div style={{ color: 'var(--theme-text-muted)', fontSize: 9 }}>{fmtQty(ph)} {u}/h</div>
+                : <div style={{ color: 'var(--theme-text-muted)', fontSize: 9 }}>—</div>}
+            </div>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: <span><CalendarOutlined style={{ marginRight: 4, fontSize: 11 }} />Effective From</span>,
       dataIndex: 'effectiveFrom',
       sorter: true,
-      width: 170,
+      width: 95,
       render: (from: string, t: MachineTarget) => (
-        <div>
+        <div style={{ fontSize: 11 }}>
           <div>{from}</div>
-          <span style={{ color: 'var(--theme-text-muted)', fontSize: 12 }}>
+          <span style={{ color: 'var(--theme-text-muted)', fontSize: 9 }}>
             → {t.effectiveTo ?? 'open'}
           </span>
         </div>
       ),
     },
     {
-      title: 'Status',
+      title: <span><CheckCircleOutlined style={{ marginRight: 4, fontSize: 11 }} />Status</span>,
       dataIndex: 'status',
       sorter: true,
-      width: 100,
-      render: (s: string) => <Tag color={STATUS_COLORS[s]}>{s}</Tag>,
+      width: 68,
+      render: (s: string) => <StatusBadge status={s} colorMap={STATUS_COLORS} />,
     },
     {
-      title: 'Created By / Date',
+      title: <span><UserOutlined style={{ marginRight: 4, fontSize: 11 }} />Created By</span>,
       key: 'createdAudit',
-      width: 170,
+      width: 115,
       render: (_: any, t: MachineTarget) => (
-        <div style={{ fontSize: 12 }}>
-          <div><code>{shortUser(t.createdBy)}</code></div>
+        <div style={{ fontSize: 10 }}>
+          <div style={{ fontWeight: 600 }}>{auditUserName(t.createdByUser, t.createdBy ?? null)}</div>
           <span style={{ color: 'var(--theme-text-muted)' }}>{fmtDateTime(t.createdAt)}</span>
         </div>
       ),
     },
     {
-      title: 'Updated By / Date',
+      title: <span><UserOutlined style={{ marginRight: 4, fontSize: 11 }} />Updated By</span>,
       key: 'updatedAudit',
-      width: 170,
+      width: 115,
       render: (_: any, t: MachineTarget) => (
-        <div style={{ fontSize: 12 }}>
-          <div><code>{shortUser(t.updatedBy)}</code></div>
+        <div style={{ fontSize: 10 }}>
+          <div style={{ fontWeight: 600 }}>{auditUserName(t.updatedByUser, t.updatedBy ?? null)}</div>
           <span style={{ color: 'var(--theme-text-muted)' }}>{fmtDateTime(t.updatedAt)}</span>
         </div>
       ),
@@ -494,98 +1105,166 @@ const TargetManagement: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 210,
+      width: 120,
       fixed: 'right',
-      render: (_: any, t: MachineTarget) => (
-        <Space size={0}>
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setDetail(t)} />
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(t)} />
-          <Button type="link" size="small" onClick={() => handleStatusToggle(t)}>
-            {t.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-          </Button>
-          <Popconfirm
-            title={`Delete this target for '${t.machine?.machineCode ?? ''}'?`}
-            description="The record is soft-deleted and hidden from lists."
-            onConfirm={() => handleDelete(t)}
-          >
-            <Button type="link" size="small" danger>Delete</Button>
-          </Popconfirm>
-        </Space>
-      ),
+      align: 'center',
+      render: (_: any, t: MachineTarget) => {
+        const machineLabel = t.machine?.machineCode || t.machine?.name || t.machine?.machineNumber || 'this record';
+        return (
+          <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 2 }}>
+            <TableActions
+              actions={[
+                {
+                  key: 'view',
+                  label: `View target — ${machineLabel}`,
+                  icon: <EyeOutlined />,
+                  onClick: () => setDetail(t),
+                },
+                {
+                  key: 'edit',
+                  label: `Edit target — ${machineLabel}`,
+                  icon: <EditOutlined />,
+                  onClick: () => openEdit(t),
+                },
+                {
+                  key: 'toggle',
+                  label: t.status === 'ACTIVE' ? 'Deactivate target' : 'Activate target',
+                  icon: t.status === 'ACTIVE' ? <StopOutlined /> : <CheckCircleOutlined />,
+                  onClick: () => handleStatusToggle(t),
+                },
+                {
+                  key: 'delete',
+                  label: 'Delete target',
+                  icon: <DeleteOutlined />,
+                  danger: true,
+                  confirm: {
+                    title: `Delete target for '${machineLabel}'?`,
+                    description: 'The record is soft-deleted and hidden from lists.',
+                    onConfirm: () => handleDelete(t),
+                  },
+                },
+              ]}
+            />
+          </div>
+        );
+      },
     },
   ];
 
+  const sortInfo = `Sorted by ${SORT_LABELS[sortBy] ?? sortBy} (${sortDir.toLowerCase()})`;
+
+  const modalW = isMobile
+    ? Math.max(360, Math.min(940, (typeof window !== 'undefined' ? window.innerWidth : 1280) - 24))
+    : 1240;
+  const viewW = isMobile
+    ? Math.max(360, Math.min(860, (typeof window !== 'undefined' ? window.innerWidth : 1280) - 24))
+    : 800;
+
   return (
     <div style={{ padding: '4px 6px', width: '100%' }}>
-      <Card style={{ marginBottom: 16 }}>
-        <Space wrap size={8}>
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="Search machine / item code or name…"
-            style={{ width: 260 }}
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          />
-          <Select
-            allowClear showSearch optionFilterProp="label"
-            placeholder="Machine" style={{ width: 220 }} value={fMachineId}
-            options={machines.map((m) => ({
-              value: m.id,
-              label: `${m.machineCode} — ${m.name}${m.machineId ? ` (${m.machineId})` : ''}`,
-            }))}
-            onChange={(v) => { setFMachineId(v); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="Division" style={{ width: 160 }} value={fDivision}
-            options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-            onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="Section" style={{ width: 160 }} value={fSection}
-            options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
-            onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
-            disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
-          />
-          <Select
-            allowClear placeholder="Department" style={{ width: 170 }} value={fDepartment}
-            options={departmentsForScope(fDivision, fSection).map((d) => ({ value: d.id, label: d.name }))}
-            onChange={(v) => { setFDepartment(v); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="Shift" style={{ width: 150 }} value={fShift}
-            options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name}` }))}
-            onChange={(v) => { setFShift(v); setPage(1); }}
-          />
-          <Select
-            allowClear showSearch optionFilterProp="label"
-            placeholder="Item" style={{ width: 220 }} value={fItem}
-            options={items.map((i) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
-            onChange={(v) => { setFItem(v); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="UOM" style={{ width: 130 }} value={fUom}
-            options={uoms.map((u) => ({ value: u.id, label: u.code }))}
-            onChange={(v) => { setFUom(v); setPage(1); }}
-          />
-          <Select
-            allowClear placeholder="Status" style={{ width: 130 }} value={fStatus}
-            options={['ACTIVE', 'INACTIVE'].map((s) => ({ value: s, label: s }))}
-            onChange={(v) => { setFStatus(v); setPage(1); }}
-          />
-          <Button icon={<ReloadOutlined />} onClick={resetFilters}>Reset</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            Add Target
-          </Button>
-        </Space>
-      </Card>
+      <PageHeader
+        icon={<ToolOutlined />}
+        title="Machine Targets"
+        subtitle="Production targets per machine & shift — Master Data"
+        showBreadcrumbs
+        style={{ marginBottom: 8 }}
+        extra={
+          <>
+            <Tooltip title="Refresh">
+              <Button size="middle" icon={<ReloadOutlined />} onClick={() => fetchTargets(page)} />
+            </Tooltip>
+            <Dropdown menu={{ items: exportMenu, onClick: onExportMenu }}>
+              <Button size="middle" icon={<DownloadOutlined />} loading={exporting || pdfing || printing}>
+                Export
+              </Button>
+            </Dropdown>
+            <Tooltip title="Import targets from CSV file">
+              <Button size="middle" icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
+                Import
+              </Button>
+            </Tooltip>
+            <Button size="middle" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              Add Target
+            </Button>
+          </>
+        }
+      />
 
-      <Table
+      <PageToolbar
+        searchValue={search}
+        onSearchChange={(v) => { setSearch(v); setPage(1); }}
+        searchPlaceholder="Search machine / item code or name…"
+        filterCount={activeFilterCount}
+        showFilters={showFilters}
+        onToggleFilters={() => setShowFilters((f) => !f)}
+        onClearFilters={resetFilters}
+        hasActiveFilters={activeFilterCount > 0}
+        sortInfo={sortInfo}
+      />
+
+      {showFilters && (
+        <Card style={{ marginBottom: 16 }} styles={{ body: { padding: '16px 16px 18px' } }}>
+          <div style={{ display: 'grid', gridTemplateColumns: screens.md ? 'repeat(auto-fit, minmax(170px, 1fr))' : '1fr', gap: 10, alignItems: 'center' }}>
+            <Select
+              allowClear showSearch optionFilterProp="label"
+              placeholder="Machine" value={fMachineId} style={{ width: '100%' }}
+              options={machines.map((m) => ({
+                value: m.id,
+                label: `${m.machineCode} — ${m.name}${m.machineId ? ` (${m.machineId})` : ''}`,
+              }))}
+              onChange={(v) => { setFMachineId(v); setPage(1); }}
+            />
+            <Select
+              allowClear placeholder="Division" value={fDivision} style={{ width: '100%' }}
+              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+              onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
+            />
+            <Select
+              allowClear placeholder="Section" value={fSection} style={{ width: '100%' }}
+              options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
+              onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
+              disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
+            />
+            <Select
+              allowClear placeholder="Department" value={fDepartment} style={{ width: '100%' }}
+              options={departmentsForScope(fDivision, fSection).map((d) => ({ value: d.id, label: d.name }))}
+              onChange={(v) => { setFDepartment(v); setPage(1); }}
+            />
+            <Select
+              allowClear placeholder="Shift" value={fShift} style={{ width: '100%' }}
+              options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name}` }))}
+              onChange={(v) => { setFShift(v); setPage(1); }}
+            />
+            <Select
+              allowClear showSearch optionFilterProp="label"
+              placeholder="Item" value={fItem} style={{ width: '100%' }}
+              options={items.map((i) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
+              onChange={(v) => { setFItem(v); setPage(1); }}
+            />
+            <Select
+              allowClear placeholder="UOM" value={fUom} style={{ width: '100%' }}
+              options={uoms.map((u) => ({ value: u.id, label: u.code }))}
+              onChange={(v) => { setFUom(v); setPage(1); }}
+            />
+            <Select
+              allowClear placeholder="Status" value={fStatus} style={{ width: '100%' }}
+              options={['ACTIVE', 'INACTIVE'].map((s) => ({ value: s, label: s }))}
+              onChange={(v) => { setFStatus(v); setPage(1); }}
+            />
+            <Button icon={<ClearOutlined />} onClick={resetFilters}>
+              Clear Filters
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      <ERPTable
         rowKey="id"
+        dense
         columns={columns}
         dataSource={targets}
         loading={loading}
-        scroll={{ x: 2400 }}
+        scroll={{ x: 1600 }}
         pagination={{
           current: page,
           pageSize,
@@ -610,207 +1289,232 @@ const TargetManagement: React.FC = () => {
             const col = map[sorter.field] || 'machineCode';
             setSortBy(col);
             setSortDir(sorter.order === 'descend' ? 'DESC' : 'ASC');
+          } else {
+            setSortBy('machineCode');
+            setSortDir('ASC');
           }
         }}
+        emptyTitle="No machine targets found"
+        emptyDescription="Try adjusting the search or filters, or add a new target with the header button."
       />
 
-      <Modal
-        title={editing ? `Edit Target — ${editing.machine?.machineCode ?? ''}` : 'Add Machine Target'}
+      <DraggableResizableModal
         open={modalVisible}
-        onOk={handleSave}
-        confirmLoading={saving}
-        onCancel={() => setModalVisible(false)}
-        width={isMobile ? '96vw' : 760}
-        style={{ top: isMobile ? 10 : 24, maxWidth: '100vw' }}
-        styles={{ body: { maxHeight: isMobile ? '82vh' : '78vh', overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '14px 10px' : '20px 24px' } }}
-        okText={editing ? 'Save Changes' : 'Create Target'}
-        destroyOnHidden
+        onCancel={handleModalCancel}
+        width={modalW}
+        height={isStacked ? 780 : 700}
+        minWidth={isMobile ? 360 : 720}
+        minHeight={520}
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <AimOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+            {editing ? 'Edit Machine Target' : 'Add Machine Target'}
+          </span>
+        }
+        subtitle={editing?.machine ? `${editing.machine.machineCode} · ${editing.machine.name}` : 'Machine Targets · Master Data'}
+        footer={
+          <Space>
+            <Button onClick={handleModalCancel}>Cancel</Button>
+            <Button
+              type="primary"
+              icon={editing ? <EditOutlined /> : <PlusOutlined />}
+              loading={saving}
+              disabled={saving}
+              onClick={handleSave}
+            >
+              {editing ? 'Save Changes' : 'Create Target'}
+            </Button>
+          </Space>
+        }
+        styles={{ body: { overflow: 'hidden', padding: 0, position: 'relative' } }}
       >
-        <Form form={form} layout="vertical">
-          <Form.Item
-            name="machineId"
-            label="Machine"
-            rules={[{ required: true, message: 'Select a machine from the Machine Master' }]}
-          >
-            <Select
-              showSearch optionFilterProp="label"
-              placeholder="Select machine (from Machine Master)"
-              options={machines.map((m) => ({
-                value: m.id,
-                label: `${m.machineCode} — ${m.name}${m.machineId ? ` (${m.machineId})` : ''}`,
-              }))}
-            />
-          </Form.Item>
-
-          {selectedMachine && (
-            <Card size="small" style={{ marginBottom: 16, background: 'var(--theme-surface-alt)' }} title={<span><AimOutlined /> Selected Machine</span>}>
-              <Descriptions size="small" column={isMobile ? 1 : 3}>
-                <Descriptions.Item label="Machine ID">
-                  <code>{selectedMachine.machineId ?? '—'}</code>
-                </Descriptions.Item>
-                <Descriptions.Item label="Code">{selectedMachine.machineCode}</Descriptions.Item>
-                <Descriptions.Item label="Name">{selectedMachine.name}</Descriptions.Item>
-                <Descriptions.Item label="Number">{selectedMachine.machineNumber ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Division">{selectedMachine.division?.name ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Section">{selectedMachine.section?.name ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Department">{selectedMachine.department?.name ?? '—'}</Descriptions.Item>
-              </Descriptions>
-            </Card>
-          )}
-
-          <Form.Item
-            name="itemId"
-            label="Item"
-            tooltip="The produced item this target applies to (from Item Master)"
-            rules={[{ required: true, message: 'Select an item from the Item Master' }]}
-            style={{ marginTop: 16 }}
-          >
-            <Select
-              showSearch optionFilterProp="label"
-              placeholder="Select item (from Item Master)"
-              options={items.map((i) => ({
-                value: i.id,
-                label: `${i.itemCode} — ${i.name}`,
-              }))}
-            />
-          </Form.Item>
-
-          {selectedItem && (
-            <Card size="small" style={{ marginBottom: 16, background: 'var(--theme-surface-alt)' }} title={<span><AimOutlined /> Selected Item</span>}>
-              <Descriptions size="small" column={isMobile ? 1 : 3}>
-                <Descriptions.Item label="Code">{selectedItem.itemCode}</Descriptions.Item>
-                <Descriptions.Item label="Name">{selectedItem.name}</Descriptions.Item>
-                <Descriptions.Item label="Type">{selectedItem.itemType ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Base UOM">
-                  {uoms.find((u) => u.id === selectedItem.baseUomId)?.code ?? '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Weight / Piece">{fmtQty(selectedItem.weightPerPiece)}</Descriptions.Item>
-                <Descriptions.Item label="Pieces / KG">{fmtQty(selectedItem.piecesPerKg)}</Descriptions.Item>
-                <Descriptions.Item label="Weight / Meter">{fmtQty(selectedItem.weightPerMeter)}</Descriptions.Item>
-                <Descriptions.Item label="Length / Piece">{fmtQty(selectedItem.lengthPerPiece)}</Descriptions.Item>
-              </Descriptions>
-              {(Number(selectedItem.piecesPerKg) > 0 || Number(selectedItem.weightPerPiece) > 0
-                || Number(selectedItem.weightPerMeter) > 0 || Number(selectedItem.lengthPerPiece) > 0) ? (
-                <Alert
-                  type="success"
-                  showIcon
-                  style={{ marginTop: 8 }}
-                  message="Conversion master data found — KG / PCS / METER targets are validated against it on save."
-                />
-              ) : (
-                <Alert
-                  type="warning"
-                  showIcon
-                  style={{ marginTop: 8 }}
-                  message="No conversion data on this item — only targets in the item's base unit family will be accepted."
-                />
-              )}
-            </Card>
-          )}
-
-          <Row gutter={[12, 0]}>
-            <Col xs={24} sm={8}>
+        <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: isStacked ? '1fr' : '1.08fr 1fr' }}>
+          <div className="edit-form-scroll" style={{ overflowY: 'auto', padding: '16px 20px 20px' }}>
+            <Form form={form} layout="vertical">
               <Form.Item
-                name="shiftId"
-                label="Shift"
-                rules={[{ required: true, message: 'Select a shift' }]}
+                name="machineId"
+                label="Machine"
+                rules={[{ required: true, message: 'Select a machine from the Machine Master' }]}
               >
                 <Select
                   showSearch optionFilterProp="label"
-                  placeholder="e.g. SHIFT-A / GENERAL"
-                  onChange={handleShiftChange}
-                  options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name}` }))}
+                  placeholder="Select machine (from Machine Master)"
+                  options={machines.map((m) => ({
+                    value: m.id,
+                    label: `${m.machineCode} — ${m.name}${m.machineId ? ` (${m.machineId})` : ''}`,
+                  }))}
                 />
               </Form.Item>
-            </Col>
-            <Col xs={24} sm={8}>
+
+              {selectedMachine && (
+                <Card size="small" style={{ marginBottom: 16, background: 'var(--theme-surface-alt)' }} title={<span><AimOutlined /> Selected Machine</span>}>
+                  <Descriptions size="small" column={isMobile ? 1 : 2}>
+                    <Descriptions.Item label="Machine ID">
+                      <code>{selectedMachine.machineId ?? '—'}</code>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Code">{selectedMachine.machineCode}</Descriptions.Item>
+                    <Descriptions.Item label="Name">{selectedMachine.name}</Descriptions.Item>
+                    <Descriptions.Item label="Number">{selectedMachine.machineNumber ?? '—'}</Descriptions.Item>
+                    <Descriptions.Item label="Division">{selectedMachine.division?.name ?? '—'}</Descriptions.Item>
+                    <Descriptions.Item label="Section">{selectedMachine.section?.name ?? '—'}</Descriptions.Item>
+                    <Descriptions.Item label="Department">{selectedMachine.department?.name ?? '—'}</Descriptions.Item>
+                  </Descriptions>
+                </Card>
+              )}
+
               <Form.Item
-                name="uomId"
-                label="UOM (production unit)"
-                tooltip="Only KG, PCS and METER are allowed for production targets"
-                rules={[{ required: true, message: 'Select a production UOM' }]}
+                name="itemId"
+                label="Item"
+                tooltip="The produced item this target applies to (from Item Master)"
+                rules={[{ required: true, message: 'Select an item from the Item Master' }]}
+                style={{ marginTop: 16 }}
               >
                 <Select
-                  placeholder="KG / PCS / METER"
-                  options={uoms.map((u) => ({ value: u.id, label: `${u.code} · ${u.name}` }))}
+                  showSearch optionFilterProp="label"
+                  placeholder="Select item (from Item Master)"
+                  options={items.map((i) => ({
+                    value: i.id,
+                    label: `${i.itemCode} — ${i.name}`,
+                  }))}
                 />
               </Form.Item>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Form.Item
-                name="status"
-                label="Status"
-                initialValue="ACTIVE"
-              >
-                <Select options={['ACTIVE', 'INACTIVE'].map((s) => ({ value: s, label: s }))} />
-              </Form.Item>
-            </Col>
-          </Row>
 
-          <Row gutter={[12, 0]}>
-            <Col xs={24} sm={8}>
-              <Form.Item
-                name="targetQuantity"
-                label="Standard Target"
-                tooltip={`Production quantity over the standard hours`}
-                rules={[
-                  { required: true, message: 'Standard target is required' },
-                  { type: 'number', min: 0.0001, message: 'Must be greater than 0' },
-                ]}
-              >
-                <InputNumber min={0.0001} step={1} style={{ width: '100%' }} placeholder="e.g. 5000" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Form.Item
-                name="standardHours"
-                label="Standard Hours"
-                tooltip={`Working hours the target is based on (max ${MAX_STANDARD_HOURS})`}
-                rules={[
-                  { required: true, message: 'Standard hours are required' },
-                  { type: 'number', min: 0.01, max: MAX_STANDARD_HOURS, message: `Between 0.01 and ${MAX_STANDARD_HOURS}` },
-                ]}
-              >
-                <InputNumber min={0.01} max={MAX_STANDARD_HOURS} step={0.5} style={{ width: '100%' }} placeholder="e.g. 8" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={8}>
+              {selectedItem && (
+                <Card size="small" style={{ marginBottom: 16, background: 'var(--theme-surface-alt)' }} title={<span><AimOutlined /> Selected Item</span>}>
+                  <Descriptions size="small" column={isMobile ? 1 : 2}>
+                    <Descriptions.Item label="Code">{selectedItem.itemCode}</Descriptions.Item>
+                    <Descriptions.Item label="Name">{selectedItem.name}</Descriptions.Item>
+                    <Descriptions.Item label="Base UOM">
+                      {uoms.find((u) => u.id === selectedItem.baseUomId)?.code ?? '—'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Weight / Piece">{fmtQty(selectedItem.weightPerPiece)}</Descriptions.Item>
+                    <Descriptions.Item label="Pieces / KG">{fmtQty(selectedItem.piecesPerKg)}</Descriptions.Item>
+                    <Descriptions.Item label="Weight / Meter">{fmtQty(selectedItem.weightPerMeter)}</Descriptions.Item>
+                    <Descriptions.Item label="Length / Piece">{fmtQty(selectedItem.lengthPerPiece)}</Descriptions.Item>
+                  </Descriptions>
+                  {(Number(selectedItem.piecesPerKg) > 0 || Number(selectedItem.weightPerPiece) > 0
+                    || Number(selectedItem.weightPerMeter) > 0 || Number(selectedItem.lengthPerPiece) > 0) ? (
+                    <Alert
+                      type="success"
+                      showIcon
+                      style={{ marginTop: 8 }}
+                      message="Conversion master data found — KG / PCS / METER targets are validated against it on save."
+                    />
+                  ) : (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginTop: 8 }}
+                      message="No conversion data on this item — only targets in the item's base unit family will be accepted."
+                    />
+                  )}
+                </Card>
+              )}
+
+              <Row gutter={[12, 0]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="shiftId"
+                    label="Shift"
+                    rules={[{ required: true, message: 'Select a shift' }]}
+                  >
+                    <Select
+                      showSearch optionFilterProp="label"
+                      placeholder="e.g. SHIFT-A / GENERAL"
+                      onChange={handleShiftChange}
+                      options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name}` }))}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="uomId"
+                    label="UOM (production unit)"
+                    tooltip="Only KG, PCS and METER are allowed for production targets"
+                    rules={[{ required: true, message: 'Select a production UOM' }]}
+                  >
+                    <Select
+                      placeholder="KG / PCS / METER"
+                      options={uoms.map((u) => ({ value: u.id, label: `${u.code} · ${u.name}` }))}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[12, 0]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="targetQuantity"
+                    label="Standard Target"
+                    tooltip="Production quantity over the standard hours"
+                    rules={[
+                      { required: true, message: 'Standard target is required' },
+                      { type: 'number', min: 0.0001, message: 'Must be greater than 0' },
+                    ]}
+                  >
+                    <InputNumber min={0.0001} step={1} style={{ width: '100%' }} placeholder="e.g. 5000" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="standardHours"
+                    label="Standard Hours"
+                    tooltip={`Working hours the target is based on (max ${MAX_STANDARD_HOURS})`}
+                    rules={[
+                      { required: true, message: 'Standard hours are required' },
+                      { type: 'number', min: 0.01, max: MAX_STANDARD_HOURS, message: `Between 0.01 and ${MAX_STANDARD_HOURS}` },
+                    ]}
+                  >
+                    <InputNumber min={0.01} max={MAX_STANDARD_HOURS} step={0.5} style={{ width: '100%' }} placeholder="e.g. 8" />
+                  </Form.Item>
+                </Col>
+              </Row>
+
               <Form.Item label="Target Per Hour (auto)">
                 <Input
                   disabled
                   value={perHourPreview !== null ? `${fmtQty(perHourPreview)}${previewUomLabel ? ` ${previewUomLabel}` : ''}/h` : ''}
                   placeholder="Auto-calculated"
                 />
+                <Text type="secondary" style={{ fontSize: 12 }}>Auto-calculated as target ÷ standard hours.</Text>
               </Form.Item>
-            </Col>
-          </Row>
 
-          {perHourPreview !== null && previewUomLabel && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message={
-                <Space size={24} wrap>
-                  <Statistic title="Standard Target" value={`${fmtQty(formQty)} ${previewUomLabel}`} valueStyle={{ fontSize: 16 }} />
-                  <Statistic title="Standard Hours" value={Number(formHours)} valueStyle={{ fontSize: 16 }} />
-                  <Statistic title="Target / Hour" value={`${fmtQty(perHourPreview)} ${previewUomLabel}/hour`} valueStyle={{ fontSize: 16 }} />
-                </Space>
-              }
-            />
-          )}
+              {perHourPreview !== null && previewUomLabel && (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message={
+                    <Space size={24} wrap>
+                      <Statistic title="Standard Target" value={`${fmtQty(formQty)} ${previewUomLabel}`} valueStyle={{ fontSize: 16 }} />
+                      <Statistic title="Standard Hours" value={Number(formHours)} valueStyle={{ fontSize: 16 }} />
+                      <Statistic title="Target / Hour" value={`${fmtQty(perHourPreview)} ${previewUomLabel}/hour`} valueStyle={{ fontSize: 16 }} />
+                    </Space>
+                  }
+                />
+              )}
 
-          <Row gutter={[12, 0]}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="effectiveFrom"
-                label="Effective From"
-                rules={[{ required: true, message: 'Effective from date is required' }]}
-              >
-                <DatePicker style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
+              <Row gutter={[12, 0]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="status"
+                    label="Status"
+                    initialValue="ACTIVE"
+                  >
+                    <Select options={['ACTIVE', 'INACTIVE'].map((s) => ({ value: s, label: s }))} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="effectiveFrom"
+                    label="Effective From"
+                    rules={[{ required: true, message: 'Effective from date is required' }]}
+                  >
+                    <DatePicker style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+
               <Form.Item
                 name="effectiveTo"
                 label="Effective To"
@@ -827,21 +1531,34 @@ const TargetManagement: React.FC = () => {
               >
                 <DatePicker style={{ width: '100%' }} placeholder="(open-ended)" />
               </Form.Item>
-            </Col>
-          </Row>
 
-          <Form.Item name="remarks" label="Remarks">
-            <Input.TextArea rows={2} maxLength={2000} />
-          </Form.Item>
-        </Form>
-      </Modal>
+              <Form.Item name="remarks" label="Remarks">
+                <Input.TextArea rows={2} maxLength={2000} />
+              </Form.Item>
+            </Form>
+          </div>
 
-      <Drawer
-        title={detail ? `Target — ${detail.machine?.machineCode ?? ''}${detail.item ? ` · ${detail.item.itemCode}` : ''} · ${detail.shift?.shiftCode ?? ''}` : ''}
-        placement="right"
-        width={isMobile ? '100vw' : 480}
+          <div style={{ overflow: 'hidden', padding: '16px 14px 20px', minHeight: 0, background: 'var(--theme-surface-alt, #f7f9fb)', borderLeft: isStacked ? 'none' : '1px solid #edf0f4' }}>
+            <TargetView record={previewRecord} live />
+          </div>
+        </div>
+      </DraggableResizableModal>
+
+      <DraggableResizableModal
         open={!!detail}
-        onClose={() => setDetail(null)}
+        onCancel={() => setDetail(null)}
+        width={viewW}
+        height={680}
+        minWidth={isMobile ? 360 : 520}
+        minHeight={500}
+        wrapClassName="view-target-modal"
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <EyeOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+            Target Details
+          </span>
+        }
+        subtitle={detail ? `${detail.machine?.machineCode ?? ''} · ${detail.item?.itemCode ?? ''} · ${detail.shift?.shiftCode ?? ''}` : undefined}
         extra={
           detail && (
             <Button type="primary" icon={<EditOutlined />} onClick={() => { const d = detail; setDetail(null); openEdit(d); }}>
@@ -849,46 +1566,202 @@ const TargetManagement: React.FC = () => {
             </Button>
           )
         }
+        footer={
+          <Space>
+            <Button onClick={() => setDetail(null)}>Close</Button>
+          </Space>
+        }
       >
-        {detail && (() => {
-          const ph = calcPerHour(Number(detail.targetQuantity), Number(detail.standardHours));
-          return (
-            <>
+        {detail ? (
+          <div style={{ padding: 4 }}>
+            <TargetView record={toTargetRecord(detail)} showAudit />
+          </div>
+        ) : null}
+      </DraggableResizableModal>
+
+      <DraggableResizableModal
+        open={importOpen}
+        onCancel={closeImport}
+        width={960}
+        height={620}
+        minWidth={640}
+        minHeight={480}
+        footer={
+          importSummary ? (
+            <Button type="primary" onClick={closeImport}>Done</Button>
+          ) : importRows.length > 0 ? (
+            [
+              <Button key="back" onClick={() => { setImportRows([]); setImportFileName(null); }}>Choose another file</Button>,
+              <Button
+                key="import"
+                type="primary"
+                disabled={importRows.every((r) => r.status !== 'VALID')}
+                loading={importing}
+                onClick={runImport}
+              >
+                Import {importRows.filter((r) => r.status === 'VALID').length} valid row(s)
+              </Button>,
+            ]
+          ) : (
+            <Button type="primary" onClick={closeImport}>Close</Button>
+          )
+        }
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <ImportOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+            Import Machine Targets
+          </span>
+        }
+        subtitle="Bulk import from CSV — Machine Code, Shift Code, UOM Code, Standard Target, Effective From"
+        styles={{ body: { overflow: 'auto' } }}
+      >
+        {importRows.length === 0 && !importSummary && (
+          <div style={{ padding: '8px 0' }}>
+            <Alert
+              type="info"
+              showIcon
+              message="CSV import with validation and preview"
+              description="Upload a CSV file with machine target data. Each row is validated before import. Invalid rows will be rejected."
+              style={{ marginBottom: 16 }}
+            />
+            <Space style={{ marginBottom: 16 }}>
+              <Button icon={<DownloadOutlined />} onClick={downloadImportTemplate}>
+                Download Template
+              </Button>
+            </Space>
+            <Upload.Dragger
+              name="file"
+              accept=".csv,.txt"
+              maxCount={1}
+              showUploadList={false}
+              beforeUpload={handleImportFile}
+            >
+              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p className="ant-upload-text">Click or drag a CSV file here</p>
+              <p className="ant-upload-hint">
+                Required columns: Machine Code, Shift Code, UOM Code, Standard Target, Standard Hours, Effective From.
+                Optional: Item Code, Effective To, Status, Remarks.
+              </p>
+            </Upload.Dragger>
+          </div>
+        )}
+
+        {importRows.length > 0 && !importSummary && (
+          <div>
+            <Alert
+              type="info"
+              showIcon
+              message={`Preview: ${importFileName}`}
+              description={
+                <span>
+                  Total rows: <b>{importRows.length}</b> ·{' '}
+                  Valid: <b style={{ color: '#1a7f37' }}>{importRows.filter((r) => r.status === 'VALID').length}</b> ·{' '}
+                  Invalid: <b style={{ color: '#c0392b' }}>{importRows.filter((r) => r.status === 'INVALID').length}</b>
+                </span>
+              }
+              style={{ marginBottom: 12 }}
+            />
+            <Table
+              rowKey="rowNumber"
+              size="small"
+              dataSource={importRows}
+              pagination={{ pageSize: 8, showSizeChanger: false }}
+              columns={[
+                { title: 'Row', dataIndex: 'rowNumber', width: 50 },
+                {
+                  title: 'Machine Code', width: 120,
+                  render: (_: unknown, r: ImportRow) => <b>{r.data['machineCode'] || r.data['Machine Code'] || r.data['machinecode'] || ''}</b>,
+                },
+                { title: 'Shift', width: 90, render: (_: unknown, r: ImportRow) => r.data['shiftCode'] || r.data['Shift Code'] || r.data['shiftcode'] || '' },
+                { title: 'UOM', width: 60, render: (_: unknown, r: ImportRow) => r.data['uomCode'] || r.data['UOM Code'] || r.data['uomcode'] || r.data['uom'] || '' },
+                { title: 'Item', width: 100, render: (_: unknown, r: ImportRow) => r.data['itemCode'] || r.data['Item Code'] || r.data['itemcode'] || '—' },
+                { title: 'Target', width: 80, render: (_: unknown, r: ImportRow) => r.data['standardTarget'] || r.data['Standard Target'] || r.data['standardtarget'] || r.data['target'] || '' },
+                { title: 'Hours', width: 60, render: (_: unknown, r: ImportRow) => r.data['standardHours'] || r.data['Standard Hours'] || r.data['standardhours'] || r.data['hours'] || '' },
+                { title: 'From', width: 90, render: (_: unknown, r: ImportRow) => r.data['effectiveFrom'] || r.data['Effective From'] || r.data['effectivefrom'] || '' },
+                { title: 'To', width: 90, render: (_: unknown, r: ImportRow) => r.data['effectiveTo'] || r.data['Effective To'] || r.data['effectiveto'] || 'open' },
+                {
+                  title: 'Result', width: 80,
+                  render: (_: unknown, r: ImportRow) => {
+                    if (r.status === 'VALID') return <Tag color="success">Valid</Tag>;
+                    return <Tag color="error">Invalid</Tag>;
+                  },
+                },
+                {
+                  title: 'Details',
+                  render: (_: unknown, r: ImportRow) =>
+                    r.errors.length > 0 ? (
+                      <Typography.Text type="danger" style={{ fontSize: 11 }}>{r.errors.join('; ')}</Typography.Text>
+                    ) : (
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>Ready to import</Typography.Text>
+                    ),
+                },
+              ]}
+            />
+          </div>
+        )}
+
+        {importing && (
+          <div style={{ textAlign: 'center', padding: 32 }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 12 }}>Importing machine targets… this may take a moment.</div>
+          </div>
+        )}
+
+        {importSummary && !importing && (
+          <div>
+            <Alert
+              type={importSummary.failed > 0 ? 'warning' : 'success'}
+              showIcon
+              message={importSummary.failed > 0 ? 'Import completed with errors' : 'Import successful'}
+              style={{ marginBottom: 16 }}
+            />
+            <Descriptions bordered size="small" column={1} styles={{ label: { width: 180 } }}>
+              <Descriptions.Item label="Total rows">{importSummary.total}</Descriptions.Item>
+              <Descriptions.Item label="Valid rows">{importSummary.valid}</Descriptions.Item>
+              <Descriptions.Item label="Invalid rows">{importSummary.invalid}</Descriptions.Item>
+              <Descriptions.Item label="Imported rows"><b style={{ color: '#1a7f37' }}>{importSummary.imported}</b></Descriptions.Item>
+              <Descriptions.Item label="Failed rows">{importSummary.failed}</Descriptions.Item>
+            </Descriptions>
+            {importSummary.errors.length > 0 && (
               <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message={`${fmtQty(detail.targetQuantity)} ${uomSymbolOf(detail)} / ${fmtQty(detail.standardHours)} h  →  ${ph !== null ? fmtQty(ph) : '—'} ${uomSymbolOf(detail)}/hour`}
+                type="error"
+                style={{ marginTop: 12 }}
+                message="Row errors"
+                description={
+                  <ul style={{ margin: 0, paddingLeft: 20, maxHeight: 160, overflowY: 'auto' }}>
+                    {importSummary.errors.map((e, i) => <li key={i} style={{ fontSize: 12 }}>{e}</li>)}
+                  </ul>
+                }
               />
-              <Descriptions column={1} bordered size="small">
-                <Descriptions.Item label="Machine ID"><code>{detail.machine?.machineId ?? '—'}</code></Descriptions.Item>
-                <Descriptions.Item label="Machine Code">{detail.machine?.machineCode ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Machine Name">{detail.machine?.name ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Machine Number">{detail.machine?.machineNumber ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Division">{detail.machine?.division?.name ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Section">{detail.machine?.section?.name ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Department">{detail.machine?.department?.name ?? '—'}</Descriptions.Item>
-                <Descriptions.Item label="Item">
-                  {detail.item ? (
-                    <span><b>{detail.item.itemCode}</b> · {detail.item.name}</span>
-                  ) : <span style={{ color: 'var(--theme-text-muted)' }}>—</span>}
-                </Descriptions.Item>
-                <Descriptions.Item label="Shift">{detail.shift ? `${detail.shift.shiftCode} · ${detail.shift.name}` : '—'}</Descriptions.Item>
-                <Descriptions.Item label="UOM">{detail.uom ? `${detail.uom.code} · ${detail.uom.name}` : '—'}</Descriptions.Item>
-                <Descriptions.Item label="Standard Target">{`${fmtQty(detail.targetQuantity)} ${uomSymbolOf(detail)}`}</Descriptions.Item>
-                <Descriptions.Item label="Standard Hours">{fmtQty(detail.standardHours)}</Descriptions.Item>
-                <Descriptions.Item label="Target / Hour">{ph !== null ? `${fmtQty(ph)} ${uomSymbolOf(detail)}/h` : '—'}</Descriptions.Item>
-                <Descriptions.Item label="Effective From">{detail.effectiveFrom}</Descriptions.Item>
-                <Descriptions.Item label="Effective To">{detail.effectiveTo ?? 'open-ended'}</Descriptions.Item>
-                <Descriptions.Item label="Status">
-                  <Tag color={STATUS_COLORS[detail.status]}>{detail.status}</Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="Remarks">{detail.remarks ?? '—'}</Descriptions.Item>
-              </Descriptions>
-            </>
-          );
-        })()}
-      </Drawer>
+            )}
+          </div>
+        )}
+      </DraggableResizableModal>
+
+      <TargetSaveSuccessModal
+        open={!!saveSuccess}
+        target={
+          saveSuccess
+            ? {
+                machineNumber: saveSuccess.target.machine?.machineNumber ?? saveSuccess.target.machine?.machineCode ?? null,
+                machineCode: saveSuccess.target.machine?.machineCode ?? null,
+                machineSystemId: saveSuccess.target.machine?.machineId ?? null,
+                machineName: saveSuccess.target.machine?.name ?? null,
+                itemCode: saveSuccess.target.item?.itemCode ?? null,
+                itemName: saveSuccess.target.item?.name ?? null,
+                shift: saveSuccess.target.shift ? `${saveSuccess.target.shift.shiftCode}` : undefined,
+                uom: saveSuccess.target.uom?.code ?? undefined,
+                targetQuantity: saveSuccess.target.targetQuantity,
+                standardHours: saveSuccess.target.standardHours,
+                effectiveFrom: saveSuccess.target.effectiveFrom,
+                effectiveTo: saveSuccess.target.effectiveTo,
+                status: saveSuccess.target.status,
+              }
+            : null
+        }
+        mode={saveSuccess?.mode ?? 'create'}
+        onClose={() => setSaveSuccess(null)}
+      />
     </div>
   );
 };

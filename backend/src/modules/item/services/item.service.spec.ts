@@ -654,160 +654,900 @@ describe('ItemService', () => {
     });
   });
 
-  describe('TASK 12 — production flow preview: Final Product + Packing/Next Step mapping', () => {
-    const rawDept = { id: 'dept-store', name: 'Store' };
+  describe('TASK 14 — fully dynamic production flow stages', () => {
+    const storeDept = { id: 'dept-store', name: 'Store' };
+    const straightDept = { id: 'dept-straight', name: 'Wire Straightening' };
+    const swagDept = { id: 'dept-swag', name: 'Swagging' };
     const flatDept = { id: 'dept-flat', name: 'Flattening' };
 
-    const buildRaw = (): any => ({
+    const buildChainItem = (id: string, overrides: Record<string, unknown>): any => ({
       ...mockItem,
-      id: 'raw-id',
-      itemCode: '1.20MM-B4',
-      name: '1.20 mm-B4 Wire',
-      itemType: ItemType.RAW_MATERIAL,
-      departmentId: 'dept-store',
-      department: rawDept,
-      baseUom: { id: 'uom-kg', name: 'KG' },
+      id,
+      departmentId: null,
+      department: null,
+      divisionId: null,
+      division: null,
+      sectionId: null,
+      section: null,
       productionInItemId: null,
       productionInItem: null,
+      processes: [],
+      baseUom: null,
+      wireSizeMm: null,
+      diameterMm: null,
+      thicknessMm: null,
+      widthMm: null,
+      lengthPerPiece: null,
+      ...overrides,
     });
 
-    const buildCurrent = (overrides: Record<string, unknown>): { raw: any; current: any } => {
-      const raw = buildRaw();
-      const current: any = {
-        ...mockItem,
-        id: 'item-flat',
-        itemCode: 'FLAT-WIRE-001',
-        name: 'Flat Wire T 0.40 x W 2.60 mm',
-        itemType: ItemType.SEMI_FINISHED,
-        status: ItemStatus.ACTIVE,
-        departmentId: 'dept-flat',
-        department: flatDept,
-        baseUom: { id: 'uom-kg', name: 'KG' },
-        productionInItemId: 'raw-id',
-        productionInItem: raw,
-        ...overrides,
-      };
-      return { raw, current };
+    const spokesOrg = {
+      divisionId: 'div-spokes',
+      division: { id: 'div-spokes', name: 'Spokes Division' },
+      sectionId: 'sec-spoke',
+      section: { id: 'sec-spoke', name: 'Spoke' },
     };
 
-    const mockFlowRepo = (item: any, raw: any) => {
-      repository.findOne.mockImplementation(async ({ where }: any) => {
-        if (where?.id === item.id) return item as Item;
-        if (where?.id === raw.id) return raw as Item;
-        return null;
+    // Scenario B (user example): Raw Material → Wire Straightening → Swagging → 250x17 Butted
+    const rawItems = () => {
+      const raw = buildChainItem('raw-id', {
+        itemCode: 'RM-WIRE-007',
+        name: 'Steel Wire Coil 3.14 mm',
+        itemType: ItemType.RAW_MATERIAL,
+        departmentId: 'dept-store',
+        department: storeDept,
+        baseUom: { id: 'uom-kg', name: 'KG' },
+        ...spokesOrg,
+        productionInItemId: null,
       });
-      // No downstream items, no operation rows — the chain is only raw → current.
-      repository.query.mockResolvedValue([]);
+      const wipStraight = buildChainItem('wip-straight', {
+        itemCode: 'WIP-STRAIGHT-001',
+        name: 'Straightened Wire',
+        itemType: ItemType.SEMI_FINISHED,
+        departmentId: 'dept-straight',
+        department: straightDept,
+        baseUom: { id: 'uom-kg', name: 'KG' },
+        ...spokesOrg,
+        productionInItemId: 'raw-id',
+      });
+      const wheel = buildChainItem('wheel', {
+        itemCode: 'SWAG-001',
+        name: '250x17 Butted',
+        itemType: ItemType.FINISHED_GOOD,
+        status: ItemStatus.ACTIVE,
+        departmentId: 'dept-swag',
+        department: swagDept,
+        baseUom: { id: 'uom-pc', name: 'PCS' },
+        ...spokesOrg,
+        productionInItemId: 'wip-straight',
+      });
+      const byId: Record<string, any> = { 'raw-id': raw, 'wip-straight': wipStraight, wheel };
+      const overrideChain = (itemsById: Record<string, any>) =>
+        repository.findOne.mockImplementation(async ({ where }: any) => itemsById[where?.id ?? ''] ?? null);
+      return { raw, wipStraight, wheel, byId, overrideChain };
+    };
+
+    // Default chain resolution: no downstream items, no operation records.
+    const mockChain = (itemsById: Record<string, any>, childrenByParent: Record<string, string[]> = {}) => {
+      repository.findOne.mockImplementation(async ({ where }: any) => itemsById[where?.id ?? ''] ?? null);
+      repository.query.mockImplementation(async (sql: string, args?: any[]) => {
+        if (String(sql).includes('FROM items WHERE production_in_item_id')) {
+          const children = childrenByParent[args?.[0] ?? ''] ?? [];
+          return children.map((id: string) => ({ id }));
+        }
+        return []; // operations table lookups resolve to nothing → dept name fallback
+      });
       repository.findByIds.mockResolvedValue([]);
     };
 
-    it('CASE-A: both finalProduct + packingNextStep render on stages 05/06 (05=next step op, 06=final product)', async () => {
-      const { raw, current } = buildCurrent({ finalProduct: '3.75 mm 2P', packingNextStep: 'Spiral Winding' });
-      mockFlowRepo(current, raw);
+    it('Scenario B — Raw → Straightening → Swagging route shows NO Flattening stages (dynamic < 6 stages)', async () => {
+      const { raw, wipStraight, wheel } = rawItems();
+      mockChain({ 'raw-id': raw, 'wip-straight': wipStraight, wheel });
 
-      const result = await service.getProductionFlow('item-flat');
+      const result = await service.getProductionFlow('wheel');
 
-      const stage05 = result.stages.find((s) => s.sequence === 5)!;
-      const stage06 = result.stages.find((s) => s.sequence === 6)!;
-      expect(stage05.configured).toBe(true);
-      expect(stage05.operationName).toBe('Spiral Winding');
-      expect(stage05.title).toBe('SPIRAL');
-      expect(stage06.configured).toBe(true);
-      expect(stage06.itemName).toBe('3.75 mm 2P');
-      expect(stage06.itemCode).toBeNull();
-      expect(stage06.title).toBe('SPIRAL OUTPUT');
-      // The API contract also surfaces the raw values on current + next.
-      expect(result.current.finalProduct).toBe('3.75 mm 2P');
-      expect(result.current.packingNextStep).toBe('Spiral Winding');
-      expect(result.next.operationName).toBe('Spiral Winding');
-    });
-
-    it('CASE-B: only finalProduct → step 06 shows the product, step 05 stays unconfigured', async () => {
-      const { raw, current } = buildCurrent({ finalProduct: '3.75 mm 2P', packingNextStep: null });
-      mockFlowRepo(current, raw);
-
-      const result = await service.getProductionFlow('item-flat');
-
-      const stage05 = result.stages.find((s) => s.sequence === 5)!;
-      const stage06 = result.stages.find((s) => s.sequence === 6)!;
-      expect(stage05.configured).toBe(false);
-      expect(stage05.operationName).toBeNull();
-      expect(stage06.configured).toBe(true);
-      expect(stage06.itemName).toBe('3.75 mm 2P');
-    });
-
-    it('CASE-C: only packingNextStep → step 05 shows the next step, step 06 stays unconfigured', async () => {
-      const { raw, current } = buildCurrent({ finalProduct: null, packingNextStep: 'Packing' });
-      mockFlowRepo(current, raw);
-
-      const result = await service.getProductionFlow('item-flat');
-
-      const stage05 = result.stages.find((s) => s.sequence === 5)!;
-      const stage06 = result.stages.find((s) => s.sequence === 6)!;
-      expect(stage05.configured).toBe(true);
-      expect(stage05.operationName).toBe('Packing');
-      expect(stage05.title).toBe('PACKING');
-      expect(stage06.configured).toBe(false);
-      expect(stage06.itemName).toBeNull();
-    });
-
-    it('CASE-D: both empty → stages 05/06 stay unconfigured', async () => {
-      const { raw, current } = buildCurrent({ finalProduct: null, packingNextStep: null });
-      mockFlowRepo(current, raw);
-
-      const result = await service.getProductionFlow('item-flat');
-
-      const stage05 = result.stages.find((s) => s.sequence === 5)!;
-      const stage06 = result.stages.find((s) => s.sequence === 6)!;
-      expect(stage05.configured).toBe(false);
-      expect(stage06.configured).toBe(false);
-    });
-
-    it('whitespace-only values are treated as empty (not displayed)', async () => {
-      const { raw, current } = buildCurrent({ finalProduct: '   ', packingNextStep: '\t\n' });
-      mockFlowRepo(current, raw);
-
-      const result = await service.getProductionFlow('item-flat');
-
-      const stage05 = result.stages.find((s) => s.sequence === 5)!;
-      const stage06 = result.stages.find((s) => s.sequence === 6)!;
-      expect(stage05.configured).toBe(false);
-      expect(stage06.configured).toBe(false);
-      expect(result.current.finalProduct).toBe('   ');
-      expect(result.current.packingNextStep).toBe('\t\n');
-    });
-
-    it('stages 01-04 are unchanged identities (RAW_MATERIAL / RAW_SPEC / FLATTENING / FLATTENING_OUTPUT)', async () => {
-      const { raw, current } = buildCurrent({ finalProduct: '3.75 mm 2P', packingNextStep: 'Spiral Winding' });
-      mockFlowRepo(current, raw);
-
-      const result = await service.getProductionFlow('item-flat');
-
-      expect(result.stages.map((s) => [s.sequence, s.stageKey])).toEqual([
-        [1, 'RAW_MATERIAL'],
-        [2, 'RAW_SPEC'],
-        [3, 'FLATTENING'],
-        [4, 'FLATTENING_OUTPUT'],
-        [5, 'SPIRAL'],
-        [6, 'SPIRAL_OUTPUT'],
+      // 1 RAW + 2 stages per downstream item = 5 stages (NOT the fixed six).
+      expect(result.stages.map((s) => s.title)).toEqual([
+        'RAW MATERIAL',
+        'WIRE STRAIGHTENING',
+        'WIRE STRAIGHTENING OUTPUT',
+        'SWAGGING',
+        'SWAGGING OUTPUT',
       ]);
-      // Prior stages remain the canonical raw → flattening chain.
-      expect(result.stages[1].itemCode).toBe('1.20MM-B4');
-      expect(result.stages[3].itemCode).toBe('FLAT-WIRE-001');
+      expect(result.stages.length).toBe(5);
+      expect(result.stages.some((s) => String(s.title).toUpperCase().includes('FLATTENING'))).toBe(false);
+      expect(result.cycleDetected).toBe(false);
     });
 
-    it('no stage hard-codes product/operation values — titles derive from the actual packingNextStep text', async () => {
-      const { raw, current } = buildCurrent({ finalProduct: 'PVC Tube K-3', packingNextStep: 'PVC Extrusion' });
-      mockFlowRepo(current, raw);
+    it('dynamic step numbers, item numbers, operation, item code/name/department on every stage', async () => {
+      const { raw, wipStraight, wheel } = rawItems();
+      mockChain({ 'raw-id': raw, 'wip-straight': wipStraight, wheel });
+
+      const result = await service.getProductionFlow('wheel');
+
+      expect(result.stages.map((s) => s.sequence)).toEqual([1, 2, 3, 4, 5]);
+      expect(result.stages.map((s) => s.itemNumber)).toEqual([1, 2, 3, 4, 5]);
+      expect(result.stages.map((s) => s.kind)).toEqual(['process', 'process', 'output', 'process', 'output']);
+
+      const rawStage = result.stages[0];
+      expect(rawStage.itemCode).toBe('RM-WIRE-007');
+      expect(rawStage.itemName).toBe('Steel Wire Coil 3.14 mm');
+      expect(rawStage.operationName).toBeNull();
+
+      const straightProc = result.stages[1];
+      expect(straightProc.operationName).toBe('Wire Straightening');
+      expect(straightProc.departmentName).toBe('Wire Straightening');
+      expect(straightProc.itemCode).toBe('WIP-STRAIGHT-001');
+      expect(straightProc.itemName).toBe('Straightened Wire');
+
+      const swagProc = result.stages[3];
+      expect(swagProc.operationName).toBe('Swagging');
+      expect(swagProc.itemCode).toBe('SWAG-001');
+      expect(swagProc.itemName).toBe('250x17 Butted');
+    });
+
+    it('current Item stays the OUTPUT and the exact input mapping is preserved', async () => {
+      const { raw, wipStraight, wheel } = rawItems();
+      mockChain({ 'raw-id': raw, 'wip-straight': wipStraight, wheel });
+
+      const result = await service.getProductionFlow('wheel');
+
+      expect(result.current.id).toBe('wheel');
+      expect(result.previous?.id).toBe('wip-straight');
+      // The current item's OUTPUT stage carries its own code.
+      const currentStages = result.stages.filter((s) => s.isCurrent);
+      expect(currentStages.length).toBeGreaterThan(0);
+      expect(currentStages[currentStages.length - 1].itemCode).toBe('SWAG-001');
+    });
+
+    it('different Department/Division produces a different flow (no shared hardcoded route)', async () => {
+      // Scenario A: raw → Flattening (current item in Flattening dept).
+      const raw = buildChainItem('raw-id', {
+        itemCode: 'RM-WIRE-007',
+        name: 'Steel Wire Coil 3.14 mm',
+        itemType: ItemType.RAW_MATERIAL,
+        departmentId: 'dept-store',
+        department: storeDept,
+        productionInItemId: null,
+      });
+      const flat = buildChainItem('item-flat', {
+        itemCode: 'FLAT-WIRE-001',
+        name: 'Flat Wire',
+        itemType: ItemType.SEMI_FINISHED,
+        departmentId: 'dept-flat',
+        department: flatDept,
+        productionInItemId: 'raw-id',
+      });
+      mockChain({ 'raw-id': raw, 'item-flat': flat });
+
+      const resultA = await service.getProductionFlow('item-flat');
+      const { wipStraight, wheel } = rawItems();
+      mockChain({ 'raw-id': raw, 'wip-straight': wipStraight, wheel });
+      const resultB = await service.getProductionFlow('wheel');
+
+      expect(resultA.stages.map((s) => s.title)).toEqual(['RAW MATERIAL', 'FLATTENING', 'FLATTENING OUTPUT']);
+      expect(resultB.stages.some((s) => String(s.title).toUpperCase().includes('FLATTENING'))).toBe(false);
+      expect(resultB.stages[1].title).toBe('WIRE STRAIGHTENING');
+      expect(resultB.stages[3].title).toBe('SWAGGING');
+    });
+
+    it('more than six stages render correctly (raw + 4 operations = 9 stages)', async () => {
+      const chainItems: any[] = [];
+      const byId: Record<string, any> = {};
+      const childrenByParent: Record<string, string[]> = {};
+      let prevId: string | null = null;
+      const opDepts = ['Flattening', 'Spiral', 'PVC', 'Packing'];
+      // raw
+      const raw = buildChainItem('raw-id', {
+        itemCode: 'RM-WIRE-007',
+        itemType: ItemType.RAW_MATERIAL,
+        departmentId: 'dept-store',
+        department: storeDept,
+        productionInItemId: null,
+      });
+      byId['raw-id'] = raw;
+      chainItems.push(raw);
+      prevId = 'raw-id';
+      // 4 downstream items
+      for (let i = 1; i <= 4; i++) {
+        const dept = { id: `dept-${i}`, name: opDepts[i - 1] };
+        const it = buildChainItem(`item-${i}`, {
+          itemCode: `WIP-${i}`,
+          itemType: ItemType.SEMI_FINISHED,
+          departmentId: `dept-${i}`,
+          department: dept,
+          productionInItemId: prevId,
+        });
+        byId[it.id] = it;
+        chainItems.push(it);
+        if (i < 4) childrenByParent[prevId!] = [it.id];
+        prevId = it.id;
+      }
+
+      mockChain(byId, childrenByParent);
+      const result = await service.getProductionFlow('item-4');
+
+      expect(result.stages.length).toBe(1 + 2 * 4); // 9 dynamic stages
+      expect(result.stages.map((s) => s.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      expect(result.stages[1].title).toBe('FLATTENING');
+      expect(result.stages[2].title).toBe('FLATTENING OUTPUT');
+      expect(result.stages[3].title).toBe('SPIRAL');
+      expect(result.stages[5].title).toBe('PVC');
+      expect(result.stages[7].title).toBe('PACKING');
+    });
+
+    it('fewer than six stages render correctly (raw + current only = 3 stages)', async () => {
+      const raw = buildChainItem('raw-id', {
+        itemCode: '1.20MM-B4',
+        itemType: ItemType.RAW_MATERIAL,
+        departmentId: 'dept-store',
+        department: storeDept,
+        productionInItemId: null,
+      });
+      const current = buildChainItem('item-flat', {
+        itemCode: 'FLAT-WIRE-001',
+        itemType: ItemType.SEMI_FINISHED,
+        departmentId: 'dept-flat',
+        department: flatDept,
+        productionInItemId: 'raw-id',
+      });
+      mockChain({ 'raw-id': raw, 'item-flat': current });
 
       const result = await service.getProductionFlow('item-flat');
 
-      const stage05 = result.stages.find((s) => s.sequence === 5)!;
-      const stage06 = result.stages.find((s) => s.sequence === 6)!;
-      expect(stage05.operationName).toBe('PVC Extrusion');
-      expect(stage05.title).toBe('PVC EXTRUSION');
-      expect(stage06.itemName).toBe('PVC Tube K-3');
-      expect(stage06.title).toBe('PVC OUTPUT');
+      expect(result.stages.length).toBe(3);
+      expect(result.stages.map((s) => s.title)).toEqual(['RAW MATERIAL', 'FLATTENING', 'FLATTENING OUTPUT']);
+    });
+
+    it('missing NEXT handles safely — chain ends at the current item with no phantom stage', async () => {
+      const raw = buildChainItem('raw-id', {
+        itemCode: '1.20MM-B4',
+        itemType: ItemType.RAW_MATERIAL,
+        departmentId: 'dept-store',
+        department: storeDept,
+        productionInItemId: null,
+      });
+      const current = buildChainItem('item-flat', {
+        itemCode: 'FLAT-WIRE-001',
+        itemType: ItemType.SEMI_FINISHED,
+        departmentId: 'dept-flat',
+        department: flatDept,
+        productionInItemId: 'raw-id',
+      });
+      mockChain({ 'raw-id': raw, 'item-flat': current });
+
+      const result = await service.getProductionFlow('item-flat');
+
+      expect(result.stages.length).toBe(3);
+      const last = result.stages[result.stages.length - 1];
+      expect(last.kind).toBe('output');
+      expect(last.title).toBe('FLATTENING OUTPUT');
+      expect(last.configured).toBe(true);
+    });
+
+    it('missing OPERATION handles safely — real item stage stays but operation is unconfigured (no hardcoded op)', async () => {
+      const raw = buildChainItem('raw-id', {
+        itemCode: 'RM-WIRE-007',
+        itemType: ItemType.RAW_MATERIAL,
+        departmentId: 'dept-store',
+        department: storeDept,
+        productionInItemId: null,
+      });
+      const bare = buildChainItem('bare-item', {
+        itemCode: 'BARE-001',
+        itemType: ItemType.SEMI_FINISHED,
+        departmentId: null,
+        department: null,
+        processes: [],
+        routeType: null,
+        routeTypeRef: null,
+        productionInItemId: 'raw-id',
+      });
+      mockChain({ 'raw-id': raw, 'bare-item': bare });
+
+      const result = await service.getProductionFlow('bare-item');
+
+      const procStage = result.stages.find((s) => s.kind === 'process' && s.title !== 'RAW MATERIAL')!;
+      expect(procStage.configured).toBe(false);
+      expect(procStage.operationName).toBeNull();
+      // The real item is still present (item code intact, not fabricated).
+      expect(procStage.itemCode).toBe('BARE-001');
+    });
+
+    it('cycle detection stops traversal safely and surfaces a warning', async () => {
+      const raw = buildChainItem('raw-id', {
+        itemCode: 'RM-WIRE-007',
+        itemType: ItemType.RAW_MATERIAL,
+        departmentId: 'dept-store',
+        department: storeDept,
+        productionInItemId: 'wheel', // ← cycle back to the current item
+      });
+      const wipStraight = buildChainItem('wip-straight', {
+        itemCode: 'WIP-STRAIGHT-001',
+        itemType: ItemType.SEMI_FINISHED,
+        departmentId: 'dept-straight',
+        department: straightDept,
+        productionInItemId: 'raw-id',
+      });
+      const wheel = buildChainItem('wheel', {
+        itemCode: 'SWAG-001',
+        itemType: ItemType.FINISHED_GOOD,
+        departmentId: 'dept-swag',
+        department: swagDept,
+        productionInItemId: 'wip-straight',
+      });
+      mockChain({ 'raw-id': raw, 'wip-straight': wipStraight, wheel });
+
+      const result = await service.getProductionFlow('wheel');
+
+      expect(result.cycleDetected).toBe(true);
+      expect(result.warning).toBe('Production flow cycle detected.');
+      // Bounded — never an infinite/large stage list.
+      expect(result.stages.length).toBeLessThan(50);
+      // A finite, real stage sequence is still returned.
+      expect(result.stages.length).toBeGreaterThan(0);
+    });
+
+    it('no duplicate Item Master records and no fabricated item codes in stages', async () => {
+      const { raw, wipStraight, wheel, byId } = rawItems();
+      mockChain(byId);
+
+      const result = await service.getProductionFlow('wheel');
+
+      const realIds = new Set(['raw-id', 'wip-straight', 'wheel']);
+      const realCodes = new Set(['RM-WIRE-007', 'WIP-STRAIGHT-001', 'SWAG-001']);
+      for (const s of result.stages) {
+        if (s.itemId) {
+          expect(realIds.has(s.itemId)).toBe(true);
+        }
+        if (s.itemCode) {
+          expect(realCodes.has(s.itemCode)).toBe(true);
+          expect(String(s.itemCode)).not.toMatch(/-[AB]$/); // no artificial duplicates
+        }
+      }
+    });
+
+    it('explicit packingNextStep + finalProduct are appended only at the leaf (real configured text)', async () => {
+      const raw = buildChainItem('raw-id', {
+        itemCode: '1.20MM-B4',
+        itemType: ItemType.RAW_MATERIAL,
+        departmentId: 'dept-store',
+        department: storeDept,
+        productionInItemId: null,
+      });
+      const current = buildChainItem('item-flat', {
+        itemCode: 'FLAT-WIRE-001',
+        itemType: ItemType.SEMI_FINISHED,
+        departmentId: 'dept-flat',
+        department: flatDept,
+        productionInItemId: 'raw-id',
+        packingNextStep: 'Packing',
+        finalProduct: '250x17 Butted',
+      });
+      mockChain({ 'raw-id': raw, 'item-flat': current });
+
+      const result = await service.getProductionFlow('item-flat');
+
+      expect(result.stages.map((s) => s.title)).toEqual([
+        'RAW MATERIAL',
+        'FLATTENING',
+        'FLATTENING OUTPUT',
+        'PACKING',
+        'FINAL PRODUCT',
+      ]);
+      const nextStep = result.stages.find((s) => s.stageKey === 'NEXT_STEP')!;
+      expect(nextStep.operationName).toBe('Packing');
+      const final = result.stages.find((s) => s.stageKey === 'FINAL_PRODUCT')!;
+      expect(final.itemName).toBe('250x17 Butted');
+      expect(final.itemCode).toBeNull();
+    });
+
+    it('division, section and department propagate to each stage', async () => {
+      const { raw, wipStraight, wheel } = rawItems();
+      mockChain({ 'raw-id': raw, 'wip-straight': wipStraight, wheel });
+
+      const result = await service.getProductionFlow('wheel');
+
+      const straightProc = result.stages[1];
+      expect(straightProc.divisionName).toBe('Spokes Division');
+      expect(straightProc.sectionName).toBe('Spoke');
+      expect(straightProc.departmentName).toBe('Wire Straightening');
+      const swagProc = result.stages[3];
+      expect(swagProc.divisionName).toBe('Spokes Division');
+      expect(swagProc.sectionName).toBe('Spoke');
+    });
+
+    it('top preview and detailed flow share one authoritative route (stages vs fullRoute item codes align)', async () => {
+      const { raw, wipStraight, wheel } = rawItems();
+      mockChain({ 'raw-id': raw, 'wip-straight': wipStraight, wheel });
+
+      const result = await service.getProductionFlow('wheel');
+
+      // fullRoute = one real item per chain position; stages = 1 + 2 per item.
+      expect(result.fullRoute.map((r) => r.itemCode)).toEqual(['RM-WIRE-007', 'WIP-STRAIGHT-001', 'SWAG-001']);
+      // Detailed stages reference exactly the same real items in the same order.
+      const stageItems = result.stages
+        .map((s) => s.itemCode)
+        .filter((c): c is string => !!c);
+      expect(stageItems).toEqual(['RM-WIRE-007', 'WIP-STRAIGHT-001', 'WIP-STRAIGHT-001', 'SWAG-001', 'SWAG-001']);
+      expect(result.fullRoute[1].operationName).toBe('Wire Straightening');
+      expect(result.fullRoute[2].operationName).toBe('Swagging');
+    });
+  });
+
+  describe('TASK 15 — configured Production Route (PROCESS/DEPARTMENT + OUTPUT ITEM)', () => {
+    const storeDept = { id: 'dept-store', name: 'Store' };
+    const straightDept = { id: 'dept-straight', name: 'Wire Straightening' };
+    const swagDept = { id: 'dept-swag', name: 'Swagging' };
+
+    const spokes = {
+      divisionId: 'div-spokes',
+      division: { id: 'div-spokes', name: 'Spokes Division' },
+      sectionId: 'sec-spoke',
+      section: { id: 'sec-spoke', name: 'Spoke' },
+    };
+
+    const deptStraightId = '30000000-0000-4000-8000-000000000001';
+    const deptSwagId = '30000000-0000-4000-8000-000000000002';
+    const deptOtherId = '40000000-0000-4000-8000-000000000099';
+    const deptStoreId = '30000000-0000-4000-8000-0000000000a1';
+
+    // Real UUIDs for route-stage items (validateRouteRows requires UUIDs on save).
+    const UUID_RAW = '10000000-0000-4000-8000-0000000000b1';
+    const UUID_TUBE = '10000000-0000-4000-8000-0000000000b2';
+    const UUID_WIP = '10000000-0000-4000-8000-0000000000b3';
+    const UUID_MISSING = '00000000-0000-4000-8000-0000000000c1';
+
+    // update() runs validateOrgHierarchy against the existing item's org FKs.
+    const stubOrgRepos = () => {
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-spokes', name: 'Spokes Division' } as any);
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-spoke', name: 'Spoke' } as any);
+      departmentRepo.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === 'dept-swag') return swagDept;
+        if (where?.id === deptStraightId) return straightDept;
+        if (where?.id === deptSwagId) return swagDept;
+        return null;
+      });
+    };
+
+    const configuredItem = (overrides: Record<string, unknown>): any => ({
+      ...mockItem,
+      id: 'wheel',
+      itemCode: 'SWAG-001',
+      name: '250x17 Butted',
+      itemType: ItemType.FINISHED_GOOD,
+      status: ItemStatus.ACTIVE,
+      departmentId: 'dept-swag',
+      department: swagDept,
+      baseUom: { id: 'uom-pc', name: 'PCS' },
+      ...spokes,
+      productionInItemId: null,
+      productionInItem: null,
+      processes: [],
+      ...overrides,
+    });
+
+    const rawMaterial = (): any => ({
+      ...mockItem,
+      id: 'raw-id',
+      itemCode: 'RM-WIRE-007',
+      name: 'Steel Wire Coil 3.14 mm',
+      itemType: ItemType.RAW_MATERIAL,
+      status: ItemStatus.ACTIVE,
+      departmentId: 'dept-store',
+      department: storeDept,
+      baseUom: { id: 'uom-kg', name: 'KG' },
+      ...spokes,
+    });
+
+    const wipStraight = (): any => ({
+      ...mockItem,
+      id: 'wip-straight',
+      itemCode: 'WIP-STRAIGHT-001',
+      name: 'Straightened Wire',
+      itemType: ItemType.SEMI_FINISHED,
+      status: ItemStatus.ACTIVE,
+      departmentId: 'dept-straight',
+      department: straightDept,
+      baseUom: { id: 'uom-kg', name: 'KG' },
+      ...spokes,
+    });
+
+    const tube = (): any => ({
+      ...mockItem,
+      id: 'tube-id',
+      itemCode: 'TUBE-001',
+      name: 'Wired Tube',
+      itemType: ItemType.SEMI_FINISHED,
+      status: ItemStatus.ACTIVE,
+      departmentId: 'dept-tube',
+      department: { id: 'dept-tube', name: 'Tube Drawing' },
+      baseUom: { id: 'uom-m', name: 'M' },
+      ...spokes,
+    });
+
+    const packed = (): any => ({
+      ...mockItem,
+      id: 'packed-id',
+      itemCode: 'FG-SPOKE-001',
+      name: 'Finished Spoke',
+      itemType: ItemType.FINISHED_GOOD,
+      status: ItemStatus.ACTIVE,
+      departmentId: 'dept-packed',
+      department: { id: 'dept-packed', name: 'Packing' },
+      baseUom: { id: 'uom-pc', name: 'PCS' },
+      ...spokes,
+    });
+
+    it('1. explicit configured route rows are authoritative — ONE stage per row, resolved from the real Item Master', async () => {
+      const item = configuredItem({
+        processes: [
+          // Stage 01 = starting raw-material stage: Store dept + this Item as its
+          // stage item (isCurrent marks the stage that carries the current Item).
+          { sequence: 1, name: 'Raw Material', outputItemId: 'wheel' },
+          { sequence: 2, name: 'Wire Straightening', departmentId: 'dept-straight', departmentName: 'Wire Straightening', outputItemId: 'wip-straight' },
+          { sequence: 3, name: 'Swagging', departmentId: 'dept-swag', departmentName: 'Swagging', outputItemId: 'raw-id' },
+        ],
+      });
+      repository.findOne.mockImplementation(async ({ where }: any) => (where?.id === 'wheel' ? item : null));
+      repository.find.mockResolvedValue([rawMaterial(), wipStraight(), item]);
+      repository.query.mockResolvedValue([]);
+
+      const result = await service.getProductionFlow('wheel');
+
+      expect(result.stages).toHaveLength(3);
+      expect(result.stages.map((s) => s.title)).toEqual(['RAW MATERIAL', 'WIRE STRAIGHTENING', 'SWAGGING']);
+      // Stage items resolve from the REAL Item Master (no fabricated records).
+      expect(result.stages.map((s) => s.itemCode)).toEqual(['SWAG-001', 'WIP-STRAIGHT-001', 'RM-WIRE-007']);
+      expect(result.stages.map((s) => s.operationName)).toEqual(['Raw Material', 'Wire Straightening', 'Swagging']);
+      // isCurrent = the stage whose output item IS the current Item.
+      expect(result.stages[0].isCurrent).toBe(true);
+      expect(result.stages[1].isCurrent).toBe(false);
+      expect(result.stages[0].configured).toBe(false); // the raw row has no process department
+      expect(result.stages[1].configured).toBe(true);
+      expect(result.stages[1].departmentName).toBe('Wire Straightening');
+      expect(result.stages[1].divisionName).toBe('Spokes Division');
+      expect(result.stages[1].sectionName).toBe('Spoke');
+      expect(result.stages.some((s) => s.stageKey === 'NEXT_STEP' || s.stageKey === 'FINAL_PRODUCT')).toBe(false);
+      expect(result.fullRoute.map((r) => r.itemCode)).toEqual(['SWAG-001', 'WIP-STRAIGHT-001', 'RM-WIRE-007']);
+      expect(result.fullRoute[1].operationName).toBe('Wire Straightening');
+      expect(result.cycleDetected).toBe(false);
+      expect(result.warning).toBeNull();
+    });
+
+    it('2. configured route wins over the chain and incomplete stages are dropped / never fabricated', async () => {
+      const item = configuredItem({
+        productionInItemId: 'wip-straight',
+        processes: [
+          { sequence: 1, name: 'Raw Material', outputItemId: 'wheel' },
+          { sequence: 2, name: 'Extrusion', departmentId: 'dept-x', departmentName: 'Extrusion', outputItemId: 'tube-id' },
+          { sequence: 3, name: 'Stale legacy name-only row' }, // no dept + no item → incomplete, dropped
+        ],
+      });
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === 'wheel') return item;
+        if (where?.id === 'wip-straight') return wipStraight();
+        return null;
+      });
+      repository.find.mockResolvedValue([rawMaterial(), tube(), item]);
+      repository.query.mockResolvedValue([]);
+
+      const result = await service.getProductionFlow('wheel');
+
+      expect(result.previous?.name).toBe('Straightened Wire'); // real upstream chain still resolvable
+      expect(result.stages).toHaveLength(2);
+      expect(result.stages[0].itemCode).toBe('SWAG-001'); // chain would have started at wip-straight
+      expect(result.stages[1].title).toBe('EXTRUSION');
+      expect(result.stages[1].itemCode).toBe('TUBE-001');
+      expect(result.stages[1].configured).toBe(true);
+      // The stale name-only row is NOT fabricated into a stage.
+      expect(result.stages.some((s) => s.title === 'STALE LEGACY NAME-ONLY ROW')).toBe(false);
+      expect(result.stages.some((s) => s.stageKey === 'NEXT_STEP' || s.stageKey === 'FINAL_PRODUCT')).toBe(false);
+      expect(result.cycleDetected).toBe(false);
+    });
+
+    it('3. create persists configured rows UNCHANGED (no forced row 01) and resolves real department metadata', async () => {
+      const swagOutId = '10000000-0000-4000-8000-000000000001';
+      const upId = '10000000-0000-4000-8000-000000000002';
+      const dto = {
+        companyId: 'company-001',
+        itemCode: 'WIP-STRAIGHT-001',
+        name: 'Straightened Wire',
+        itemType: ItemType.SEMI_FINISHED,
+        baseUomId: 'uom-kg',
+        processes: [
+          { name: 'Raw Material', departmentId: deptSwagId, departmentName: 'Stale Name', outputItemId: upId },
+          { name: 'Swagging', departmentId: deptSwagId, departmentName: 'Swagging', outputItemId: swagOutId },
+        ],
+      };
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === swagOutId) {
+          return { ...mockItem, id: swagOutId, itemCode: 'SWAG-001', name: '250x17 Butted', itemType: ItemType.FINISHED_GOOD, status: ItemStatus.ACTIVE, companyId: 'company-001' };
+        }
+        if (where?.id === upId) {
+          return { ...mockItem, id: upId, itemCode: 'RM-UP-001', name: 'Upstream Wire', itemType: ItemType.RAW_MATERIAL, status: ItemStatus.ACTIVE, companyId: 'company-001' };
+        }
+        return null;
+      });
+      departmentRepo.findOne.mockImplementation(async ({ where }: any) =>
+        where?.id === deptSwagId ? swagDept : null,
+      );
+      repository.create.mockReturnValue(mockItem);
+      repository.save.mockResolvedValue(mockItem);
+
+      await service.create(dto as any, 'user-001');
+
+      const createCall = repository.create.mock.calls[0][0] as any;
+      expect(createCall.processes).toHaveLength(2);
+      expect(createCall.processes[0]).toMatchObject({
+        sequence: 1,
+        name: 'Raw Material',
+        departmentId: deptSwagId,
+        departmentName: 'Swagging', // authoritative — overwritten from the REAL department entity
+        outputItemId: upId, // user-configured, NOT forced to the new Item id
+      });
+      expect(createCall.processes[1]).toMatchObject({
+        sequence: 2,
+        name: 'Swagging',
+        departmentId: deptSwagId,
+        departmentName: 'Swagging',
+        outputItemId: swagOutId,
+      });
+    });
+
+    it('4. create RAW MATERIAL forces productionInItemId = null without forcing a route-row item', async () => {
+      const upId = '10000000-0000-4000-8000-000000000010';
+      const dto = {
+        companyId: 'company-001',
+        itemCode: 'RM-WIRE-007',
+        name: 'Steel Wire Coil 3.14 mm',
+        itemType: ItemType.RAW_MATERIAL,
+        baseUomId: 'uom-kg',
+        productionInItemId: 'legacy-upstream',
+        processes: [
+          { sequence: 1, name: 'Store', departmentId: deptStoreId, departmentName: 'Store', outputItemId: upId },
+        ],
+      };
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === upId) {
+          return { ...mockItem, id: upId, itemCode: 'RM-WIRE-007', name: 'Steel Wire Coil 3.14 mm', itemType: ItemType.RAW_MATERIAL, status: ItemStatus.ACTIVE, companyId: 'company-001' };
+        }
+        return null;
+      });
+      departmentRepo.findOne.mockImplementation(async ({ where }: any) => (where?.id === deptStoreId ? storeDept : null));
+      repository.create.mockReturnValue(mockItem);
+      repository.save.mockResolvedValue(mockItem);
+
+      await service.create(dto as any, 'user-001');
+
+      const createCall = repository.create.mock.calls[0][0] as any;
+      expect(createCall.productionInItemId).toBeNull();
+      expect(createCall.productionOutItemId).toBeNull();
+      expect(createCall.processes).toHaveLength(1);
+      // Stage 01 item is the USER-CONFIGURED stage item — never machine-forced.
+      expect(createCall.processes[0]).toMatchObject({
+        sequence: 1,
+        name: 'Store',
+        departmentId: deptStoreId,
+        departmentName: 'Store',
+        outputItemId: upId,
+      });
+    });
+
+    it('5. create rejects a named route row that has a Department but no Output Item', async () => {
+      const dto = {
+        companyId: 'company-001',
+        itemCode: 'X-1',
+        name: 'X',
+        itemType: ItemType.FINISHED_GOOD,
+        baseUomId: 'uom-pc',
+        processes: [
+          { name: 'Wire Straightening', outputItemId: UUID_RAW },
+          { name: 'Swagging', departmentId: deptSwagId }, // dept-only row — stage item is still required
+        ],
+      };
+      departmentRepo.findOne.mockImplementation(async ({ where }: any) => (where?.id === deptSwagId ? swagDept : null));
+      repository.findOne.mockImplementation(async ({ where }: any) => (where?.id === UUID_RAW ? { ...rawMaterial(), id: UUID_RAW } : null));
+      await expect(service.create(dto as any, 'user-001')).rejects.toThrow(BadRequestException);
+    });
+
+    it('6. update rejects a CIRCULAR route (same Output Item at two stages — A → B → A)', async () => {
+      stubOrgRepos();
+      const item = configuredItem({});
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === 'wheel') return item;
+        if (where?.id === UUID_RAW) return { ...rawMaterial(), id: UUID_RAW };
+        return null;
+      });
+      const dto = {
+        processes: [
+          { name: 'Wire Drawing', departmentId: deptStraightId, departmentName: 'Wire Drawing', outputItemId: UUID_RAW },
+          { name: 'Swagging', departmentId: deptSwagId, departmentName: 'Swagging', outputItemId: UUID_RAW }, // duplicate → cycle
+        ],
+      };
+      await expect(service.update('wheel', dto as any, 'user-001')).rejects.toThrow(BadRequestException);
+    });
+
+    it('7. update persists validated rows (row 01 stays user-configured) and resolves real output items', async () => {
+      stubOrgRepos();
+      const item = configuredItem({});
+      const wipOutId = '20000000-0000-4000-8000-000000000002';
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === 'wheel') return item;
+        if (where?.id === UUID_RAW) return { ...rawMaterial(), id: UUID_RAW };
+        if (where?.id === wipOutId) return wipStraight();
+        return null;
+      });
+      repository.update.mockResolvedValue({ affected: 1 } as any);
+
+      const dto = {
+        productionInItemId: UUID_RAW,
+        processes: [
+          { name: 'Raw Material', outputItemId: UUID_RAW },
+          { name: 'Wire Straightening', departmentId: deptStraightId, departmentName: 'Wire Straightening', outputItemId: wipOutId },
+        ],
+      };
+      await service.update('wheel', dto as any, 'user-001');
+
+      const updateCall = repository.update.mock.calls[0][1] as any;
+      expect(updateCall.productionOutItemId).toBe('wheel');
+      expect(updateCall.processes).toHaveLength(2);
+      expect(updateCall.processes[0]).toMatchObject({
+        sequence: 1,
+        name: 'Raw Material',
+        departmentId: null,
+        departmentName: null,
+        outputItemId: UUID_RAW, // user-configured — NOT forced to the current Item
+      });
+      expect(updateCall.processes[1]).toMatchObject({
+        sequence: 2,
+        name: 'Wire Straightening',
+        departmentId: deptStraightId,
+        departmentName: 'Wire Straightening',
+        outputItemId: wipOutId,
+      });
+    });
+
+    it('8. rejects a non-UUID Output Item id on update', async () => {
+      stubOrgRepos();
+      const item = configuredItem({});
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === 'wheel') return item;
+        if (where?.id === UUID_RAW) return { ...rawMaterial(), id: UUID_RAW };
+        return null;
+      });
+      const dto = {
+        processes: [
+          { name: 'Raw Material', outputItemId: UUID_RAW },
+          { name: 'Wire Drawing', outputItemId: 'not-a-uuid' },
+        ],
+      };
+      await expect(service.update('wheel', dto as any, 'user-001')).rejects.toThrow(BadRequestException);
+    });
+
+    it('9. rejects an Output Item that does not exist in the company', async () => {
+      stubOrgRepos();
+      const item = configuredItem({});
+      repository.findOne.mockImplementation(async ({ where }: any) => (where?.id === 'wheel' ? item : null));
+      const missingId = '00000000-0000-4000-8000-000000000099';
+      const dto = {
+        processes: [
+          { name: 'Raw Material', outputItemId: missingId },
+          { name: 'Wire Drawing', outputItemId: missingId },
+        ],
+      };
+      await expect(service.update('wheel', dto as any, 'user-001')).rejects.toThrow(BadRequestException);
+    });
+
+    it('10. rejects an INACTIVE Output Item', async () => {
+      stubOrgRepos();
+      const item = configuredItem({});
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === 'wheel') return item;
+        if (where?.id === UUID_RAW) {
+          return { ...rawMaterial(), id: UUID_RAW, status: ItemStatus.INACTIVE };
+        }
+        return null;
+      });
+      const dto = {
+        processes: [
+          { name: 'Raw Material', outputItemId: UUID_RAW },
+          { name: 'Wire Drawing', outputItemId: UUID_RAW },
+        ],
+      };
+      await expect(service.update('wheel', dto as any, 'user-001')).rejects.toThrow(BadRequestException);
+    });
+
+    it('11. ALLOWS a process Department from a different Division/Section (cross-department flow)', async () => {
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-spokes', name: 'Spokes Division' } as any);
+      sectionRepo.findOne.mockResolvedValue({ id: 'sec-spoke', name: 'Spoke' } as any);
+      // The item lives in the Spoke section, but its route stages may legitimately
+      // run in ANY department (Store → Straightening → Swagging → ...).
+      const item = configuredItem({ sectionId: 'sec-spoke', departmentId: null, department: null });
+      repository.findOne.mockImplementation(async ({ where }: any) => {
+        if (where?.id === 'wheel') return item;
+        if (where?.id === UUID_RAW) return { ...rawMaterial(), id: UUID_RAW };
+        if (where?.id === UUID_TUBE) return { ...tube(), id: UUID_TUBE };
+        return null;
+      });
+      const crossDept = { id: deptOtherId, name: 'Other Dept', divisionId: 'div-2', sectionId: 'sec-other' };
+      departmentRepo.findOne.mockImplementation(async ({ where }: any) =>
+        where?.id === deptOtherId ? crossDept : null,
+      );
+      repository.update.mockResolvedValue({ affected: 1 } as any);
+      const dto = {
+        processes: [
+          { name: 'Raw Material', outputItemId: UUID_RAW },
+          { name: 'Other Dept', departmentId: deptOtherId, departmentName: 'Other Dept', outputItemId: UUID_TUBE },
+        ],
+      };
+      await service.update('wheel', dto as any, 'user-001');
+
+      const updateCall = repository.update.mock.calls[0][1] as any;
+      expect(updateCall.processes).toHaveLength(2);
+      expect(updateCall.processes[1]).toMatchObject({
+        sequence: 2,
+        departmentId: deptOtherId,
+        departmentName: 'Other Dept',
+        divisionId: 'div-2',
+        sectionId: 'sec-other',
+        outputItemId: UUID_TUBE,
+      });
+    });
+
+    it('12. no fixed six-stage template — an explicit 5-row route yields exactly 5 stages', async () => {
+      const rows = [
+        { sequence: 1, name: 'Store', departmentId: 'dept-0', departmentName: 'Store', outputItemId: 'raw-id' },
+        { sequence: 2, name: 'Wire Drawing', departmentId: 'dept-1', departmentName: 'Wire Drawing', outputItemId: 'tube-id' },
+        { sequence: 3, name: 'Flattening', departmentId: 'dept-2', departmentName: 'Flattening', outputItemId: 'wip-straight' },
+        { sequence: 4, name: 'Swagging', departmentId: 'dept-3', departmentName: 'Swagging', outputItemId: 'wheel' },
+        { sequence: 5, name: 'Packing', departmentId: 'dept-4', departmentName: 'Packing', outputItemId: 'packed-id' },
+      ];
+      const item = configuredItem({ processes: rows });
+      repository.findOne.mockImplementation(async ({ where }: any) => (where?.id === 'wheel' ? item : null));
+      repository.find.mockResolvedValue([rawMaterial(), tube(), wipStraight(), packed(), item]);
+      repository.query.mockResolvedValue([]);
+
+      const result = await service.getProductionFlow('wheel');
+      expect(result.stages).toHaveLength(5);
+      expect(result.stages[1].title).toBe('WIRE DRAWING');
+      expect(result.stages[4].title).toBe('PACKING');
+      // Each stage maps to a REAL configured Output Item from the Item Master.
+      expect(result.stages.map((s) => s.itemCode)).toEqual(['RM-WIRE-007', 'TUBE-001', 'WIP-STRAIGHT-001', 'SWAG-001', 'FG-SPOKE-001']);
+      expect(result.stages.every((s) => s.configured === true)).toBe(true);
+      expect(result.cycleDetected).toBe(false);
+    });
+
+    it('13. getProductionFlow flags a CIRCLE in a configured route (A → B → A) as cycleDetected', async () => {
+      const rows = [
+        { sequence: 1, name: 'Store', departmentId: 'dept-0', departmentName: 'Store', outputItemId: 'wheel' },
+        { sequence: 2, name: 'Packing', departmentId: 'dept-4', departmentName: 'Packing', outputItemId: 'wheel' },
+      ];
+      const item = configuredItem({ processes: rows });
+      repository.findOne.mockImplementation(async ({ where }: any) => (where?.id === 'wheel' ? item : null));
+      repository.find.mockResolvedValue([item]);
+      repository.query.mockResolvedValue([]);
+
+      const result = await service.getProductionFlow('wheel');
+      expect(result.cycleDetected).toBe(true);
+      expect(result.warning).toContain('cycle');
+      // The current Item at two stages is still surfaced, never fabricated away.
+      expect(result.stages).toHaveLength(2);
+    });
+
+    it('14. operation names are auto-derived from the real department when the row omits them', async () => {
+      const rows = [
+        { sequence: 1, name: 'Raw Material', departmentId: 'dept-3', departmentName: 'Swagging', outputItemId: 'wheel' },
+      ];
+      const item = configuredItem({ processes: rows });
+      repository.findOne.mockImplementation(async ({ where }: any) => (where?.id === 'wheel' ? item : null));
+      repository.find.mockResolvedValue([item]);
+      repository.query.mockResolvedValue([]);
+
+      const result = await service.getProductionFlow('wheel');
+      // Row has a name already — kept verbatim.
+      expect(result.stages[0].operationName).toBe('Raw Material');
+      expect(result.stages[0].title).toBe('RAW MATERIAL');
     });
   });
 });

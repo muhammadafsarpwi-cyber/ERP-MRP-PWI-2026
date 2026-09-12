@@ -54,6 +54,13 @@ export const routeColorMap: Record<string, string> = {
 export interface ProcessStep {
   sequence: number;
   name: string;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  outputItemId?: string | null;
 }
 
 export interface Item {
@@ -199,24 +206,34 @@ export interface ProductionFlowFullItem extends ProductionFlowItemSummary {
 export interface ProductionFlowRouteStage {
   stageOrder: number;
   stageName: string;
-  itemId: string;
-  itemCode: string;
-  itemName: string;
-  itemType: string;
+  itemId: string | null;
+  itemCode: string | null;
+  itemName: string | null;
+  itemType: string | null;
+  departmentId?: string | null;
   departmentName?: string | null;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
   wireSizeMm?: number | null;
   diameterMm?: number | null;
   thicknessMm?: number | null;
   widthMm?: number | null;
   lengthPerPiece?: number | null;
   baseUomName?: string | null;
+  operationCode?: string | null;
   operationName?: string | null;
+  barcode?: string | null;
+  sku?: string | null;
   isCurrent: boolean;
 }
 
-// PROMPT-35: six-stage production flow (RAW → FLATTENING → SPIRAL)
+// TASK 14: fully dynamic production-flow stages
+// (1 RAW stage + PROCESS/OUTPUT pair per real downstream item).
 export interface ProductionFlowStage {
   sequence: number;
+  itemNumber: number;
   kind: 'process' | 'output';
   stageKey: string;
   title: string;
@@ -232,8 +249,14 @@ export interface ProductionFlowStage {
   baseUomName?: string | null;
   departmentId?: string | null;
   departmentName?: string | null;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
   operationCode?: string | null;
   operationName?: string | null;
+  barcode?: string | null;
+  sku?: string | null;
   isCurrent: boolean;
   configured: boolean;
 }
@@ -248,24 +271,21 @@ export interface ProductionFlowResponse {
   };
   fullRoute: ProductionFlowRouteStage[];
   stages: ProductionFlowStage[];
+  cycleDetected?: boolean;
+  warning?: string | null;
 }
 
-// TASK 12: dynamic stage title for the NEXT PROCESS / NEXT OUTPUT stages,
-// derived from the actual next-step operation text. The existing RAW →
-// FLATTENING → SPIRAL terminology is preserved whenever the operation is
-// spiral-related; other operations receive their own operation-based stage name
-// so no stage hard-codes "SPIRAL" for a non-spiral next step.
-export const deriveNextStageTitle = (
-  text: string,
-  kind: 'process' | 'output',
-): string => {
-  const lower = (text || '').toLowerCase();
-  if (lower.includes('spiral')) return kind === 'process' ? 'SPIRAL' : 'SPIRAL OUTPUT';
-  if (lower.includes('pvc')) return kind === 'process' ? 'PVC EXTRUSION' : 'PVC OUTPUT';
-  if (lower.includes('flatten') || lower.includes('flat')) return kind === 'process' ? 'FLATTENING' : 'FLATTENING OUTPUT';
-  if (lower.includes('pack')) return kind === 'process' ? 'PACKING' : 'PACKING OUTPUT';
-  if (lower.includes('draw')) return kind === 'process' ? 'WIRE DRAWING' : 'DRAWING OUTPUT';
-  return kind === 'process' ? 'NEXT PROCESS' : 'NEXT OUTPUT';
+// TASK 14: data-only stage title for an operation — the operation name is used
+// VERBATIM (uppercased) and the output-kind stage simply appends " OUTPUT".
+// No keyword→canonical-stage mapping (no hardcoded FLATTENING / SPIRAL / PVC).
+export const stageTitleForOperation = (
+  name?: string | null,
+  kind: 'process' | 'output' = 'process',
+): string | null => {
+  const trimmed = name == null ? '' : String(name).trim();
+  if (!trimmed) return null;
+  const upper = trimmed.toUpperCase();
+  return kind === 'output' ? `${upper} OUTPUT` : upper;
 };
 
 export const isEmptyValue = (v?: string | null): boolean =>

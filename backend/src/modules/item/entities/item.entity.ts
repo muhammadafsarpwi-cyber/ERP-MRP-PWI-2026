@@ -215,7 +215,17 @@ export class Item extends BaseEntity {
   process6: string | null;
 
   @Column({ name: 'processes', type: 'jsonb', nullable: true, default: () => "'[]'::jsonb" })
-  processes: { sequence: number; name: string }[] | null;
+  processes: Array<{
+    sequence: number;
+    name: string;
+    departmentId?: string | null;
+    departmentName?: string | null;
+    divisionId?: string | null;
+    divisionName?: string | null;
+    sectionId?: string | null;
+    sectionName?: string | null;
+    outputItemId?: string | null;
+  }> | null;
 
   @Column({ name: 'final_product', type: 'varchar', length: 255, nullable: true })
   finalProduct: string | null;

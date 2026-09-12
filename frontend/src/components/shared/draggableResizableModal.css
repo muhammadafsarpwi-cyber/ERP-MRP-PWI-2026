@@ -23,6 +23,7 @@
   flex-direction: column;
   overflow: hidden;
   padding: 0;
+  height: 100%;
   max-height: 100%;
 }
 
@@ -36,7 +37,7 @@
   flex: 0 0 auto;
   cursor: move;
   user-select: none;
-  padding-inline: 16px;
+  padding-inline: 16px 64px;
   padding-block: 12px;
   border-bottom: 1px solid var(--theme-border, rgba(128, 128, 128, 0.2));
   margin-bottom: 0;
@@ -68,7 +69,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-right: 28px;
+  flex-shrink: 0;
 }
 
 .erp-draggable-modal-resize-handle {
@@ -85,4 +86,36 @@
 
 .erp-draggable-modal-resize-handle:hover {
   background: radial-gradient(circle at 100% 100%, transparent 60%, var(--theme-accent, #1677ff) 100%);
+}
+
+/* Edit modal left form panel — always-visible scrollbar at center divider */
+.edit-form-scroll {
+  scrollbar-gutter: stable;
+}
+.edit-form-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.edit-form-scroll::-webkit-scrollbar-track {
+  background: var(--theme-border, rgba(128, 128, 128, 0.15));
+  border-radius: 4px;
+}
+.edit-form-scroll::-webkit-scrollbar-thumb {
+  background: var(--theme-text-muted, #94a3b8);
+  border-radius: 4px;
+}
+.edit-form-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-text, #64748b);
+}
+
+/* View modal red close button (PROMPT-40) */
+.view-target-modal .ant-modal-close {
+  color: #ef4444 !important;
+  border: 1px solid #fca5a5 !important;
+  border-radius: 6px !important;
+  margin-right: 8px !important;
+}
+.view-target-modal .ant-modal-close:hover {
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+  border-color: #f87171 !important;
 }

@@ -19,6 +19,23 @@ import { ItemType, RouteType } from '../entities/item.entity';
 
 export const ROUTE_TYPES = Object.values(RouteType) as string[];
 
+/**
+ * TASK 15: a single production route row = PROCESS/DEPARTMENT + OUTPUT ITEM.
+ * `outputItemId` references the real Item Master record (the material/output
+ * associated with the operation) — never a free-text item name.
+ */
+export interface RouteProcessRow {
+  sequence?: number;
+  name?: string;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  outputItemId?: string | null;
+}
+
 export class CreateItemDto {
   @ApiProperty({ description: 'Company ID' })
   @IsUUID('loose')
@@ -384,10 +401,10 @@ export class CreateItemDto {
   @MaxLength(255)
   'Process 6'?: string;
 
-  @ApiPropertyOptional({ description: 'Repeatable ordered list of production processes' })
+  @ApiPropertyOptional({ description: 'Repeatable ordered list of production processes. TASK 15: each row = PROCESS/DEPARTMENT + OUTPUT ITEM (outputItemId references the real Item Master record).' })
   @IsArray()
   @IsOptional()
-  processes?: { sequence: number; name: string }[];
+  processes?: RouteProcessRow[];
 
   @ApiPropertyOptional({ description: 'Final produced product' })
   @IsString()
@@ -834,10 +851,10 @@ export class UpdateItemDto {
   @MaxLength(255)
   'Process 6'?: string;
 
-  @ApiPropertyOptional({ description: 'Repeatable ordered list of production processes' })
+  @ApiPropertyOptional({ description: 'Repeatable ordered list of production processes. TASK 15: each row = PROCESS/DEPARTMENT + OUTPUT ITEM (outputItemId references the real Item Master record).' })
   @IsArray()
   @IsOptional()
-  processes?: { sequence: number; name: string }[];
+  processes?: RouteProcessRow[];
 
   @ApiPropertyOptional({ description: 'Final produced product' })
   @IsString()

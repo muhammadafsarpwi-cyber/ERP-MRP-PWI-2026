@@ -7,7 +7,7 @@ import {
 import {
   ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DollarOutlined, DownloadOutlined, EditOutlined,
   EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
-  PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined,
+  PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined, CloseCircleOutlined,
   ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
   BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
 } from '@ant-design/icons';
@@ -22,13 +22,14 @@ import JsBarcode from 'jsbarcode';
 import {
   ITEM_TYPES, ROUTE_TYPES, STATUS_OPTIONS, statusColorMap, TRACKING_SWITCHES,
   routeColorMap, IMPORT_COLUMNS, REQUIRED_IMPORT_COLUMNS, TEMPLATE_CSV,
-  deriveNextStageTitle, isEmptyValue,
+  stageTitleForOperation, isEmptyValue,
   type Item, type DivisionOption, type SectionOption, type DepartmentOption,
   type UomOption, type SimpleOption, type CategoryOption, type ConversionInfo,
-  type ImportRow, type ProductionFlowStage,
+  type ImportRow, type ProductionFlowStage, type ProcessStep,
 } from './items/itemTypes';
 import InputMaterialSelect from './items/InputMaterialSelect';
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
+import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
 
 const { Text } = Typography;
 
@@ -214,6 +215,92 @@ const ItemTypeCard: React.FC<ItemTypeCardProps> = ({
   </button>
 );
 
+interface KpiCardProps {
+  testId: string;
+  label: string;
+  value: React.ReactNode;
+  icon: ItemTypeIconComponent;
+  tone: string;
+  toneSoft: string;
+}
+
+// KPI summary card with a foreground icon chip, a large decorative watermark
+// (same semantic glyph, rendered faint behind the content) and a prominent
+// value. Uses only ERP theme tokens so it adapts to light and dark themes.
+const KpiCard: React.FC<KpiCardProps> = ({
+  testId, label, value, icon: Icon, tone, toneSoft,
+}) => (
+  <Card
+    size="small"
+    data-testid={testId}
+    styles={{ body: { padding: '10px 12px' } }}
+    style={{ position: 'relative', overflow: 'hidden', borderRadius: 8, borderLeft: `3px solid ${tone}` }}
+  >
+    <Icon
+      aria-hidden="true"
+      data-kpi-watermark="true"
+      style={{
+        position: 'absolute',
+        right: -10,
+        bottom: -16,
+        fontSize: 68,
+        opacity: 0.12,
+        pointerEvents: 'none',
+        zIndex: 0,
+        color: tone,
+      }}
+    />
+    <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
+      <Text
+        style={{
+          fontSize: 11,
+          lineHeight: 1.2,
+          fontWeight: 600,
+          letterSpacing: '0.03em',
+          color: 'var(--theme-text-muted)',
+          textTransform: 'uppercase',
+        }}
+        ellipsis
+      >
+        {label}
+      </Text>
+      <span
+        data-kpi-icon="true"
+        aria-hidden="true"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 28,
+          height: 28,
+          flex: '0 0 auto',
+          borderRadius: 7,
+          fontSize: 15,
+          background: toneSoft,
+          color: tone,
+        }}
+      >
+        <Icon />
+      </span>
+    </div>
+    <div
+      data-kpi-value="true"
+      style={{
+        position: 'relative',
+        zIndex: 1,
+        marginTop: 8,
+        fontSize: 28,
+        fontWeight: 700,
+        lineHeight: 1.1,
+        fontVariantNumeric: 'tabular-nums',
+        color: 'var(--theme-text)',
+      }}
+    >
+      {value}
+    </div>
+  </Card>
+);
+
 const ItemManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
@@ -285,6 +372,15 @@ const ItemManagement: React.FC = () => {
   const watchedProcess6 = Form.useWatch('process6', form);
   const watchedProcesses = Form.useWatch('processes', form);
   const [selectedInputDetail, setSelectedInputDetail] = useState<Partial<Item> | null>(null);
+
+  // TASK 15: resolve output items referenced by route rows so the preview can
+  // build stage info (dims, base UOM, department) without re-fetching each item.
+  // Key = outputItemId, value = resolved Item (or null once fetch finished).
+  const [routeItemDetails, setRouteItemDetails] = useState<Record<string, RouteStageSource | null>>({});
+  const handleRouteItemDetail = useCallback((itemId: string | undefined, detail: Item | null) => {
+    if (!itemId) return;
+    setRouteItemDetails((prev) => prev[itemId] === detail ? prev : { ...prev, [itemId]: detail });
+  }, []);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -658,6 +754,7 @@ const ItemManagement: React.FC = () => {
   const openCreate = () => {
     setEditing(null);
     setSelectedInputDetail(null);
+    setRouteItemDetails({});
     form.resetFields();
     form.setFieldsValue({
       itemType: 'FINISHED_GOOD',
@@ -669,6 +766,9 @@ const ItemManagement: React.FC = () => {
       isSellable: true,
       isManufacturable: false,
       isStockItem: true,
+      // TASK 15: no forced Raw Material row — the first stage the user adds IS
+      // the starting stage (e.g. Store + RM item). Empty route falls back to the
+      // TASK 14 legacy preview until stages are configured.
       processes: [],
       // TASK #34C: stock-level / lead-time numeric inputs start BLANK (no '0').
       // The database defaults to 0 when left unset on create.
@@ -679,17 +779,38 @@ const ItemManagement: React.FC = () => {
   const openEdit = (record: Item) => {
     setEditing(record);
     setSelectedInputDetail(record.productionInItem ?? null);
+    // TASK 15: populate route-item-details for any output items already referenced
+    // by the stored processes rows, so the preview resolves dims/UOM immediately.
+    if (record.processes && record.processes.length > 0) {
+      const detailsMap: Record<string, RouteStageSource | null> = {};
+      for (const p of record.processes) {
+        if (p.outputItemId && !detailsMap[p.outputItemId]) {
+          detailsMap[p.outputItemId] = null; // will be resolved by InputMaterialSelect in each row
+        }
+      }
+      setRouteItemDetails(detailsMap);
+    } else {
+      setRouteItemDetails({});
+    }
 
     const initialProcs = (record.processes && record.processes.length > 0)
-      ? record.processes.map((p, idx) => ({ sequence: p.sequence ?? (idx + 1), name: p.name }))
-      : [
-          record.process1 ? { sequence: 1, name: record.process1 } : null,
-          record.process2 ? { sequence: 2, name: record.process2 } : null,
-          record.process3 ? { sequence: 3, name: record.process3 } : null,
-          record.process4 ? { sequence: 4, name: record.process4 } : null,
-          record.process5 ? { sequence: 5, name: record.process5 } : null,
-          record.process6 ? { sequence: 6, name: record.process6 } : null,
-        ].filter(Boolean) as { sequence: number; name: string }[];
+      ? record.processes.map((p, idx) => ({
+          sequence: p.sequence ?? (idx + 1),
+          name: p.name,
+          departmentId: (p as any).departmentId ?? undefined,
+          departmentName: (p as any).departmentName ?? undefined,
+          divisionId: (p as any).divisionId ?? undefined,
+          divisionName: (p as any).divisionName ?? undefined,
+          sectionId: (p as any).sectionId ?? undefined,
+          sectionName: (p as any).sectionName ?? undefined,
+          // TASK 15: EVERY configured row is user-authored — no row is forced to
+          // the current item. outputItemId is taken straight from the stored row.
+          outputItemId: (p as any).outputItemId ?? undefined,
+        }))
+      // Legacy TASK 14 items (no configured route rows) open with an EMPTY route;
+      // the legacy typed process1..process6 names are preserved in the form store
+      // and re-sent on save so the un-migrated flow is never destroyed.
+      : [];
 
     form.setFieldsValue({
       itemCode: record.itemCode,
@@ -879,15 +1000,36 @@ const ItemManagement: React.FC = () => {
 
       // Handle repeatable processes array from Form.List
       if (Array.isArray(values.processes)) {
-        const cleanProcs = values.processes
-          .filter((p: any) => p && (typeof p === 'string' ? p.trim() : (p.name && String(p.name).trim())))
-          .map((p: any, idx: number) => ({
-            sequence: idx + 1,
-            name: typeof p === 'string' ? p.trim() : String(p.name).trim(),
-          }));
-        payload.processes = cleanProcs;
+        // TASK 15: each row is a PROCESS/DEPARTMENT + OUTPUT ITEM pair. Serialize
+        // through normalizeRouteRows (re-indexes 1..N, drops empty rows, preserves
+        // relationship fields) so the JSONB `processes` column is the authoritative
+        // configured Production Route.
+        const cleanProcs = normalizeRouteRows(values.processes);
+        payload.processes = cleanProcs.map((r) => ({
+          sequence: r.sequence,
+          name: r.name,
+          departmentId: r.departmentId,
+          departmentName: r.departmentName,
+          divisionId: r.divisionId,
+          divisionName: r.divisionName,
+          sectionId: r.sectionId,
+          sectionName: r.sectionName,
+          outputItemId: r.outputItemId,
+        }));
+        // Legacy process1..process6 columns mirror the configured route names. For
+        // un-migrated TASK 14 items (no configured rows) preserve the typed names
+        // in the form store so saving a legacy record never destroys its flow.
+        const hadConfiguredRoute = Boolean(
+          editing && Array.isArray(editing.processes) && editing.processes.length > 0,
+        );
+        const legacyNames = !hadConfiguredRoute
+          ? [1, 2, 3, 4, 5, 6].map((i) => {
+              const v = form.getFieldValue(`process${i}`) as unknown;
+              return typeof v === 'string' && v.trim() ? v.trim() : null;
+            })
+          : [null, null, null, null, null, null];
         for (let i = 1; i <= 6; i++) {
-          payload[`process${i}`] = cleanProcs[i - 1]?.name || null;
+          payload[`process${i}`] = cleanProcs[i - 1]?.name || legacyNames[i - 1];
         }
       } else if (editing) {
         // If processes array wasn't provided, ensure any cleared individual process fields are nullified
@@ -1816,34 +1958,46 @@ const ItemManagement: React.FC = () => {
           marginBottom: 10,
         }}
       >
-        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-accent, var(--theme-primary))' }}>
-          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Total Items</Text>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-accent, var(--theme-primary))', lineHeight: 1.2, marginTop: 1 }}>{stats.total ?? total}</div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-success)' }}>
-          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Active</Text>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-success)', lineHeight: 1.2, marginTop: 1 }}>
-            {stats.active ?? items.filter((i) => i.status === 'ACTIVE').length}
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-danger)' }}>
-          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Inactive</Text>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-danger)', lineHeight: 1.2, marginTop: 1 }}>
-            {stats.inactive ?? items.filter((i) => i.status === 'INACTIVE').length}
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-accent)' }}>
-          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Stock Items</Text>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-accent)', lineHeight: 1.2, marginTop: 1 }}>
-            {stats.stock ?? items.filter((i) => i.isStockItem).length}
-          </div>
-        </Card>
-        <Card size="small" styles={{ body: { padding: '8px 12px' } }} style={{ borderRadius: 8, borderLeft: '3px solid var(--theme-warning)' }}>
-          <Text style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Manufactured</Text>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-warning)', lineHeight: 1.2, marginTop: 1 }}>
-            {stats.manufactured ?? items.filter((i) => i.isManufacturable).length}
-          </div>
-        </Card>
+        <KpiCard
+          testId="kpi-total"
+          label="Total Items"
+          value={stats.total ?? total}
+          icon={AppstoreOutlined}
+          tone="var(--theme-accent, var(--theme-primary))"
+          toneSoft="var(--theme-accent-soft)"
+        />
+        <KpiCard
+          testId="kpi-active"
+          label="Active"
+          value={stats.active ?? items.filter((i) => i.status === 'ACTIVE').length}
+          icon={CheckCircleOutlined}
+          tone="var(--theme-success)"
+          toneSoft="var(--theme-success-soft)"
+        />
+        <KpiCard
+          testId="kpi-inactive"
+          label="Inactive"
+          value={stats.inactive ?? items.filter((i) => i.status === 'INACTIVE').length}
+          icon={CloseCircleOutlined}
+          tone="var(--theme-danger)"
+          toneSoft="var(--theme-danger-soft)"
+        />
+        <KpiCard
+          testId="kpi-stock"
+          label="Stock Items"
+          value={stats.stock ?? items.filter((i) => i.isStockItem).length}
+          icon={InboxOutlined}
+          tone="var(--theme-accent, var(--theme-primary))"
+          toneSoft="var(--theme-accent-soft)"
+        />
+        <KpiCard
+          testId="kpi-manufactured"
+          label="Manufactured"
+          value={stats.manufactured ?? items.filter((i) => i.isManufacturable).length}
+          icon={BuildOutlined}
+          tone="var(--theme-warning)"
+          toneSoft="var(--theme-warning-soft)"
+        />
       </div>
 
       <Card style={{ marginBottom: 12, borderRadius: 8 }} styles={{ body: { padding: 0 } }}>
@@ -1885,27 +2039,31 @@ const ItemManagement: React.FC = () => {
             padding: '6px 10px', borderTop: '1px solid var(--theme-border)',
           }}
         >
-          <Input
-            allowClear
-            prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
-            placeholder="Search by code, name, SKU, barcode, wire size..."
-            style={{ width: screens.md ? 300 : '100%' }}
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-          {screens.md && (
-            <div style={{ flex: 1 }} />
-          )}
-          {(activeFilterCount > 0 || searchInput) && (
-            <Button type="text" icon={<ClearOutlined />} onClick={resetFilters}>
-              Clear
-            </Button>
-          )}
           <Badge count={activeFilterCount} size="small">
             <Button icon={<FilterOutlined />} onClick={() => setShowFilters((v) => !v)}>
               Filters
             </Button>
           </Badge>
+          <Input
+            allowClear
+            prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
+            placeholder="Search by code, name, SKU, barcode, wire size..."
+            style={{
+              flex: screens.md ? '1 1 320px' : '1 1 100%',
+              flexBasis: screens.md ? '320px' : '100%',
+              maxWidth: screens.md ? 560 : '100%',
+            }}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+          {(activeFilterCount > 0 || searchInput) && (
+            <Button type="text" icon={<ClearOutlined />} onClick={resetFilters}>
+              Clear
+            </Button>
+          )}
+          {screens.md && (
+            <div style={{ flex: 1 }} />
+          )}
           {screens.lg && (
             <Text type="secondary" style={{ fontSize: 12 }}>
               {total} items · Sorted by {sortField}
@@ -2710,112 +2868,187 @@ const ItemManagement: React.FC = () => {
               </div>
 
               <Form.List name="processes">
-                {(fields, { add, remove, move }) => (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {fields.map((field, index) => {
-                      const seqNumber = String(index + 1).padStart(2, '0');
-                      return (
-                        <div
-                          key={field.key}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '6px 10px',
-                            borderRadius: 6,
-                            border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
-                            background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.02))',
-                          }}
-                        >
-                          <span
+                {(fields, { add, remove, move }) => {
+                  // TASK 15: route-row departments are the FULL org department list
+                  // (no current-item section/division restriction). Item selector is
+                  // scoped to the row's chosen Department via departmentId prop.
+                  const setRowDept = (rowIdx: number, deptId: string | undefined) => {
+                    const deptObj = departments.find((d) => d.id === deptId);
+                    const divName = deptObj?.divisionId
+                      ? divisions.find((d) => d.id === deptObj.divisionId)?.name ?? null
+                      : null;
+                    const secName = deptObj?.sectionId
+                      ? sections.find((s) => s.id === deptObj.sectionId)?.name ?? null
+                      : null;
+                    form.setFieldsValue({
+                      processes: {
+                        [rowIdx]: {
+                          departmentId: deptId ?? null,
+                          departmentName: deptObj?.name ?? null,
+                          divisionId: deptObj?.divisionId ?? null,
+                          divisionName: divName,
+                          sectionId: deptObj?.sectionId ?? null,
+                          sectionName: secName,
+                          // Operation name auto-derived from Department — backend
+                          // also writes this on save; set it here so the preview
+                          // resolves the stage title immediately.
+                          name: deptObj?.name ?? null,
+                        },
+                      },
+                    });
+                  };
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {fields.map((field, index) => {
+                        const seqNumber = String(index + 1).padStart(2, '0');
+                        const rowDeptId = form.getFieldValue(['processes', index, 'departmentId']) as string | undefined;
+                        return (
+                          <div
+                            key={field.key}
                             style={{
-                              fontFamily: 'monospace',
-                              fontSize: 12,
-                              fontWeight: 700,
-                              color: 'var(--theme-accent, #0284c7)',
-                              background: 'rgba(2, 132, 199, 0.12)',
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                              border: '1px solid rgba(2, 132, 199, 0.25)',
-                              minWidth: 32,
-                              textAlign: 'center',
-                              flexShrink: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                              background: 'transparent',
                             }}
                           >
-                            {seqNumber}
-                          </span>
+                            <span
+                              style={{
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: 'var(--theme-accent, #0284c7)',
+                                background: 'rgba(2, 132, 199, 0.12)',
+                                padding: '2px 8px',
+                                borderRadius: 4,
+                                border: '1px solid rgba(2, 132, 199, 0.25)',
+                                minWidth: 32,
+                                textAlign: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {seqNumber}
+                            </span>
 
-                          <Form.Item
-                            {...field}
-                            name={[field.name, 'sequence']}
-                            initialValue={index + 1}
-                            style={{ display: 'none' }}
-                          >
-                            <Input type="hidden" />
-                          </Form.Item>
+                            <Form.Item
+                              {...field}
+                              name={[field.name, 'sequence']}
+                              initialValue={index + 1}
+                              style={{ display: 'none' }}
+                            >
+                              <Input type="hidden" />
+                            </Form.Item>
 
-                          <Form.Item
-                            {...field}
-                            name={[field.name, 'name']}
-                            rules={[{ required: true, message: 'Operation name is required' }]}
-                            style={{ flex: 1, marginBottom: 0 }}
-                          >
-                            <Input
-                              placeholder={`e.g. ${
-                                index === 0 ? 'Straightener / Drawing / Flattening' :
-                                index === 1 ? 'Swagging / Spiral Winding' :
-                                index === 2 ? 'Spoke / PVC Extrusion' :
-                                index === 3 ? 'Spoke Plating / Cable Packing' :
-                                index === 4 ? 'Spoke Packing / Testing' :
-                                index === 5 ? 'Final Inspection / Quality Signoff' : 'Next Operation'
-                              }`}
-                              maxLength={255}
-                            />
-                          </Form.Item>
+                            {/* Operation name: hidden — auto-derived from Department,
+                                backend also writes it on save so the preview resolves
+                                the stage title immediately. */}
+                            <Form.Item
+                              {...field}
+                              name={[field.name, 'name']}
+                              style={{ display: 'none' }}
+                            >
+                              <Input type="hidden" />
+                            </Form.Item>
 
-                          <Tooltip title="Move Up">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<ArrowUpOutlined />}
-                              disabled={index === 0}
-                              onClick={() => move(index, index - 1)}
-                            />
-                          </Tooltip>
+                            {/* Hidden descriptive fields synced from the Department select */}
+                            <Form.Item {...field} name={[field.name, 'departmentName']} style={{ display: 'none' }}>
+                              <Input type="hidden" />
+                            </Form.Item>
+                            <Form.Item {...field} name={[field.name, 'divisionId']} style={{ display: 'none' }}>
+                              <Input type="hidden" />
+                            </Form.Item>
+                            <Form.Item {...field} name={[field.name, 'divisionName']} style={{ display: 'none' }}>
+                              <Input type="hidden" />
+                            </Form.Item>
+                            <Form.Item {...field} name={[field.name, 'sectionId']} style={{ display: 'none' }}>
+                              <Input type="hidden" />
+                            </Form.Item>
+                            <Form.Item {...field} name={[field.name, 'sectionName']} style={{ display: 'none' }}>
+                              <Input type="hidden" />
+                            </Form.Item>
 
-                          <Tooltip title="Move Down">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<ArrowDownOutlined />}
-                              disabled={index === fields.length - 1}
-                              onClick={() => move(index, index + 1)}
-                            />
-                          </Tooltip>
+                            <Form.Item
+                              {...field}
+                              name={[field.name, 'departmentId']}
+                              style={{ marginBottom: 0, minWidth: 170, maxWidth: 190 }}
+                            >
+                              <Select
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                                placeholder="Department / Process"
+                                options={departments.map((d) => ({ value: d.id, label: d.name }))}
+                                onChange={(v?: string) => setRowDept(index, v ?? undefined)}
+                              />
+                            </Form.Item>
 
-                          <Tooltip title="Remove Operation">
-                            <Button
-                              type="text"
-                              danger
-                              size="small"
-                              icon={<DeleteOutlined />}
-                              onClick={() => remove(field.name)}
-                            />
-                          </Tooltip>
-                        </div>
-                      );
-                    })}
+                            <Form.Item
+                              {...field}
+                              name={[field.name, 'outputItemId']}
+                              rules={[{ required: true, message: 'Output Item is required' }]}
+                              style={{ flex: 1, marginBottom: 0, minWidth: 180 }}
+                            >
+                              <InputMaterialSelect
+                                compact
+                                departmentId={rowDeptId ?? null}
+                                excludeItemId={null}
+                                placeholder={`Output Item of ${seqNumber}`}
+                                ariaLabel={`Output Item of Step ${seqNumber}`}
+                                testId={`route-output-${index}`}
+                                onSelectDetail={(detail) => {
+                                  const curId = form.getFieldValue(['processes', index, 'outputItemId']) as string | undefined;
+                                  handleRouteItemDetail(curId, detail);
+                                }}
+                              />
+                            </Form.Item>
 
-                    <Button
-                      type="dashed"
-                      onClick={() => add({ sequence: fields.length + 1, name: '' })}
-                      icon={<PlusOutlined />}
-                      style={{ width: '100%', marginTop: 4 }}
-                    >
-                      + Add Process
-                    </Button>
-                  </div>
-                )}
+                            <Tooltip title="Move Up">
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ArrowUpOutlined />}
+                                disabled={index <= 0}
+                                onClick={() => move(index, index - 1)}
+                              />
+                            </Tooltip>
+
+                            <Tooltip title="Move Down">
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ArrowDownOutlined />}
+                                disabled={index === fields.length - 1}
+                                onClick={() => move(index, index + 1)}
+                              />
+                            </Tooltip>
+
+                            <Tooltip title="Remove Stage">
+                              <Button
+                                type="text"
+                                danger
+                                size="small"
+                                icon={<DeleteOutlined />}
+                                onClick={() => remove(field.name)}
+                              />
+                            </Tooltip>
+                          </div>
+                        );
+                      })}
+
+                      <Button
+                        type="dashed"
+                        onClick={() => add({ sequence: fields.length + 1, name: '' })}
+                        icon={<PlusOutlined />}
+                        style={{ width: '100%', marginTop: 4 }}
+                      >
+                        + Add Stage
+                      </Button>
+                    </div>
+                  );
+                }}
               </Form.List>
             </div>
 
@@ -2872,9 +3105,12 @@ const ItemManagement: React.FC = () => {
             {(() => {
               const modalProcesses = (() => {
                 if (Array.isArray(watchedProcesses) && watchedProcesses.length > 0) {
-                  return watchedProcesses
+                  const names = watchedProcesses
                     .map((p: any) => (typeof p === 'string' ? p.trim() : (p?.name ? String(p.name).trim() : '')))
                     .filter(Boolean);
+                  // TASK 15: every configured stage IS a real operation — the
+                  // top preview chips show all of them in sequence.
+                  return names;
                 }
                 const editingProcs = (editing?.processes && editing.processes.length > 0)
                   ? editing.processes.map((p: any) => p.name).filter(Boolean)
@@ -2935,9 +3171,8 @@ const ItemManagement: React.FC = () => {
 
               const operationName = (() => {
                 const dept = departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId));
-                if (dept?.name === 'PVC') return 'PVC Extrusion';
-                if (dept?.name?.includes('Packing')) return 'Packing';
-                return dept?.name || 'Manufacturing';
+                if (dept?.name && dept.name.trim()) return dept.name.trim();
+                return null;
               })();
 
               const wireVal = watchedWireSizeMm ?? editing?.wireSizeMm;
@@ -2971,12 +3206,9 @@ const ItemManagement: React.FC = () => {
                 (inputPreview?.departmentId ? departments.find((d) => d.id === inputPreview.departmentId)?.name ?? null : null) ??
                 null;
               const inputOpName = (() => {
-                const dn = (inputDeptName ?? '').toLowerCase();
-                if (dn.includes('spiral')) return 'Spiral Winding';
-                if (dn.includes('flatten') || dn.includes('flat')) return 'Wire Flattening';
-                if (dn.includes('pvc')) return 'PVC Extrusion';
-                if (dn.includes('pack')) return 'Packing';
-                return inputDeptName || null;
+                const dn = inputDeptName;
+                if (dn && dn.trim()) return dn.trim();
+                return null;
               })();
               const isRawRoot =
                 (watchedItemType || editing?.itemType) === 'RAW_MATERIAL' && !inputPreview && !editing?.productionInItemId;
@@ -2996,129 +3228,161 @@ const ItemManagement: React.FC = () => {
                     }
                   : null;
 
-              const inputIsFlatten =
-                (inputDeptName ?? '').toLowerCase().includes('flatten') ||
-                (inputDeptName ?? '').toLowerCase().includes('flat') ||
-                (inputOpName ?? '').toLowerCase().includes('flatten');
-              const currentIsFlatten =
-                (curDeptName ?? '').toLowerCase().includes('flatten') ||
-                (curDeptName ?? '').toLowerCase().includes('flat') ||
-                (curOpName ?? '').toLowerCase().includes('flatten');
-              const flattenPreview: PreviewItem | null = inputIsFlatten
-                ? { ...(inputPreview ?? {}) }
-                : currentIsFlatten
-                  ? {
-                      itemCode: currentPreviewCode,
-                      name: currentPreviewName,
-                      thicknessMm: thkVal,
-                      widthMm: widVal,
-                      departmentName: curDeptName,
-                    }
-                  : null;
-
-              const currentIsSpiral =
-                (curDeptName ?? '').toLowerCase().includes('spiral') ||
-                (curOpName ?? '').toLowerCase().includes('spiral');
-              const spiralPreview: PreviewItem | null = currentIsSpiral
-                ? {
-                    itemCode: currentPreviewCode,
-                    name: currentPreviewName,
-                    wireSizeMm: wireVal,
-                    diameterMm: diaVal,
-                    lengthPerPiece: lenVal,
-                    departmentName: curDeptName,
-                    baseUomName: editing?.baseUomName ?? null,
-                  }
-                : null;
-
-              // TASK 12: when the current stage is NOT spiral-classified, the
-              // explicit "Packing / Next Step" and "Final Product" fields drive
-              // stages 05/06 instead of rendering "Not configured". Whitespace-only
-              // values are treated as empty. Mirrors the backend buildSixStageFlow:
-              // the explicit field value wins, otherwise the (spiral) stage item.
-              const nextPreview = spiralPreview;
               const nextStepValid = !isEmptyValue(nextStepName) ? String(nextStepName).trim() : null;
               const finalProductValid = !isEmptyValue(finalProdName) ? String(finalProdName).trim() : null;
-              // Operation label for a real next-stage (spiral) preview, derived from
-              // its department name — never a hardcoded value. Mirrors the backend
-              // deriveStageOperationName: department → performed operation.
-              const nextPreviewOp = (() => {
-                const dn = (nextPreview?.departmentName ?? '').toLowerCase();
-                if (dn.includes('spiral')) return 'Spiral Winding';
-                if (dn.includes('flatten') || dn.includes('flat')) return 'Wire Flattening';
-                if (dn.includes('pvc')) return 'PVC Extrusion';
-                if (dn.includes('pack')) return 'Packing';
-                if (dn.includes('draw')) return 'Wire Drawing';
-                return nextPreview?.departmentName || null;
-              })();
-              const nextOpLabel = nextStepValid ?? nextPreviewOp ?? '';
-              const nextOutputLabel = finalProductValid;
 
-              const mkStage = (
-                sequence: number,
-                stageKey: string,
-                title: string,
-                kind: 'process' | 'output',
-                it: PreviewItem | null,
-                op: { operationCode?: string | null; operationName?: string | null } | null,
-                configuredOverride?: boolean,
-              ): ProductionFlowStage => ({
-                sequence,
-                kind,
-                stageKey,
-                title,
-                itemId: null,
-                itemCode: it?.itemCode ?? null,
-                itemName: it?.name ?? null,
-                itemType: it?.itemType ?? null,
-                wireSizeMm: it?.wireSizeMm ?? null,
-                diameterMm: it?.diameterMm ?? null,
-                thicknessMm: it?.thicknessMm ?? null,
-                widthMm: it?.widthMm ?? null,
-                lengthPerPiece: it?.lengthPerPiece ?? null,
-                baseUomName: it?.baseUomName ?? null,
-                departmentId: it?.departmentId ?? null,
-                departmentName: it?.departmentName ?? null,
-                operationCode: op?.operationCode ?? null,
-                operationName: op?.operationName ?? null,
-                isCurrent: false,
-                configured: configuredOverride !== undefined ? configuredOverride : !!it,
-              });
+              // TASK 14: fully dynamic production flow preview — generates stages from the
+              // SAME form data as the horizontal strip above (input item + processes + current
+              // item). No hardcoded FLATTENING / SPIRAL — stage titles are resolved from the
+              // actual operation texts verbatim via stageTitleForOperation().
+              const currentPreviewItem: PreviewItem = {
+                itemCode: currentPreviewCode,
+                name: currentPreviewName,
+                itemType: watchedItemType || editing?.itemType || null,
+                departmentId: watchedDepartmentId || editing?.departmentId || null,
+                departmentName: curDeptName,
+                wireSizeMm: wireVal,
+                diameterMm: diaVal,
+                thicknessMm: thkVal,
+                widthMm: widVal,
+                lengthPerPiece: lenVal,
+                baseUomName: editing?.baseUomName ?? null,
+              };
 
-              const previewStages: ProductionFlowStage[] = [
-                mkStage(1, 'RAW_MATERIAL', 'RAW MATERIAL', 'process', rawPreview, {
+              // TASK 15: configured Production Route rows (each = PROCESS/DEPARTMENT
+              // + OUTPUT ITEM) are AUTHORITATIVE — ONE stage per row via
+              // buildRouteFlow (mirrors the backend buildConfiguredRouteStages).
+              // Fallback: TASK 14 dynamic chain (RAW_MATERIAL + process/output pairs
+              // + tail steps) when the form has no configured route rows yet.
+              const routeRows = normalizeRouteRows(watchedProcesses);
+              const hasConfiguredRoute = routeRows.length > 0;
+              const cycleIds = findRouteCycles(routeRows);
+
+              const currentItemLookup: RouteStageSource = {
+                id: editing?.id ?? null,
+                itemCode: currentPreviewCode,
+                itemName: currentPreviewName,
+                name: currentPreviewName,
+                itemType: watchedItemType || editing?.itemType || null,
+                wireSizeMm: wireVal,
+                diameterMm: diaVal,
+                thicknessMm: thkVal,
+                widthMm: widVal,
+                lengthPerPiece: lenVal,
+                baseUomName: editing?.baseUomName ?? null,
+                departmentId: watchedDepartmentId || editing?.departmentId || null,
+                departmentName: curDeptName,
+              };
+              const itemLookup = new Map<string, RouteStageSource | null>();
+              for (const [k, v] of Object.entries(routeItemDetails)) {
+                if (k && k !== editing?.id) itemLookup.set(k, v ?? null);
+              }
+              if (editing?.id) itemLookup.set(editing.id, currentItemLookup);
+
+              let previewStages: ProductionFlowStage[] = [];
+
+              if (hasConfiguredRoute) {
+                previewStages = buildRouteFlow(routeRows, editing?.id ?? null, itemLookup).stages;
+              } else {
+                const mkStage = (
+                  sequence: number,
+                  stageKey: string,
+                  title: string,
+                  kind: 'process' | 'output',
+                  it: PreviewItem | null,
+                  op: { operationCode?: string | null; operationName?: string | null } | null,
+                  configuredOverride?: boolean,
+                ): ProductionFlowStage => ({
+                  sequence,
+                  itemNumber: sequence,
+                  kind,
+                  stageKey,
+                  title,
+                  itemId: null,
+                  itemCode: it?.itemCode ?? null,
+                  itemName: it?.name ?? null,
+                  itemType: it?.itemType ?? null,
+                  wireSizeMm: it?.wireSizeMm ?? null,
+                  diameterMm: it?.diameterMm ?? null,
+                  thicknessMm: it?.thicknessMm ?? null,
+                  widthMm: it?.widthMm ?? null,
+                  lengthPerPiece: it?.lengthPerPiece ?? null,
+                  baseUomName: it?.baseUomName ?? null,
+                  departmentId: it?.departmentId ?? null,
+                  departmentName: it?.departmentName ?? null,
+                  divisionId: null,
+                  divisionName: null,
+                  sectionId: null,
+                  sectionName: null,
+                  operationCode: op?.operationCode ?? null,
+                  operationName: op?.operationName ?? null,
+                  isCurrent: false,
+                  configured: configuredOverride !== undefined ? configuredOverride : !!it,
+                });
+
+                // Legacy fallback: one RAW MATERIAL stage + a PROCESS + OUTPUT pair
+                // per typed process; last output references the current item being
+                // edited. No fixed six stages, no hardcoded op names.
+                const legacyStages: ProductionFlowStage[] = [];
+                let stepNo = 0;
+
+                const pushStage = (
+                  kind: 'process' | 'output',
+                  stageKey: string,
+                  title: string,
+                  it: PreviewItem | null,
+                  op?: { operationCode?: string | null; operationName?: string | null } | null,
+                  configured?: boolean,
+                ): void => {
+                  stepNo += 1;
+                  legacyStages.push(mkStage(stepNo, stageKey, title, kind, it, op ?? null, configured));
+                };
+
+                // Stage 1: RAW MATERIAL (input item or raw root)
+                pushStage('process', 'RAW_MATERIAL', 'RAW MATERIAL', rawPreview, {
                   operationName: !isRawRoot ? inputOpName : null,
-                }),
-                mkStage(2, 'RAW_SPEC', 'RAW MATERIAL SPECIFICATION', 'output', rawPreview, null),
-                mkStage(3, 'FLATTENING', 'FLATTENING', 'process', flattenPreview, {
-                  operationName: flattenPreview ? 'Wire Flattening' : null,
-                }),
-                mkStage(4, 'FLATTENING_OUTPUT', 'FLATTENING OUTPUT', 'output', flattenPreview, null),
-                // Stage 05 — NEXT PROCESS / NEXT STEP (driven by "Packing / Next Step")
-                mkStage(
-                  5,
-                  'SPIRAL',
-                  deriveNextStageTitle(nextOpLabel, 'process'),
-                  'process',
-                  nextPreview,
-                  {
-                    operationName: nextStepValid ?? nextPreviewOp,
-                  },
-                  !!(nextPreview || nextStepValid),
-                ),
-                // Stage 06 — NEXT OUTPUT / FINAL PRODUCT (driven by "Final Product")
-                mkStage(
-                  6,
-                  'SPIRAL_OUTPUT',
-                  deriveNextStageTitle(nextOpLabel, 'output'),
-                  'output',
-                  nextOutputLabel
-                    ? { name: nextOutputLabel, itemType: null, baseUomName: null }
-                    : nextPreview,
-                  null,
-                  !!(nextPreview || nextOutputLabel),
-                ),
-              ];
+                });
+
+                // Process + Output stages from typed processes
+                if (modalProcesses.length > 0) {
+                  modalProcesses.forEach((pName: string, pIdx: number) => {
+                    const isLast = pIdx === modalProcesses.length - 1;
+                    pushStage(
+                      'process',
+                      `OP_${pIdx + 1}`,
+                      stageTitleForOperation(pName, 'process') ?? 'PRODUCTION STAGE',
+                      null,
+                      { operationName: pName },
+                    );
+                    pushStage(
+                      'output',
+                      `OUTPUT_${pIdx + 1}`,
+                      stageTitleForOperation(pName, 'output') ?? 'OUTPUT',
+                      isLast ? currentPreviewItem : null,
+                    );
+                  });
+                } else {
+                  // No typed processes — single current-operation stage
+                  const opLabel = curOpName || curDeptName || null;
+                  pushStage(
+                    'process',
+                    'OP_1',
+                    stageTitleForOperation(opLabel, 'process') ?? 'PRODUCTION STAGE',
+                    currentPreviewItem,
+                    { operationName: opLabel },
+                  );
+                  pushStage('output', 'OUTPUT_1', stageTitleForOperation(opLabel, 'output') ?? 'OUTPUT', currentPreviewItem);
+                }
+
+                // Explicit Tail: Packing / Next Step + Final Product (real configured data)
+                if (nextStepValid) {
+                  pushStage('process', 'NEXT_STEP', stageTitleForOperation(nextStepValid, 'process') ?? nextStepValid.toUpperCase(), currentPreviewItem, { operationName: nextStepValid });
+                }
+                if (finalProductValid) {
+                  pushStage('output', 'FINAL_PRODUCT', 'FINAL PRODUCT', { name: finalProductValid, itemType: null, baseUomName: null } as PreviewItem, null);
+                }
+                previewStages = legacyStages;
+              }
 
               return (
                 <div
@@ -3171,9 +3435,25 @@ const ItemManagement: React.FC = () => {
                       {lenVal != null && (
                         <Tag color="cyan" style={{ margin: 0 }}>Length: {formatDimension(lenVal)}</Tag>
                       )}
-                      <Tag color="geekblue" style={{ margin: 0 }}>Operation: {operationName}</Tag>
+                      <Tag color="geekblue" style={{ margin: 0 }}>Operation: {operationName || '—'}</Tag>
                     </Space>
                   </div>
+
+                  {cycleIds.length > 0 && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 8 }}
+                      message={
+                        <>
+                          <strong>Circular route detected:</strong> the same Output Item appears
+                          at multiple stages ({cycleIds.slice(0, 3).join(', ')}
+                          {cycleIds.length > 3 ? ' …' : ''}). The backend will reject this on
+                          save.
+                        </>
+                      }
+                    />
+                  )}
 
                   <div
                     style={{
@@ -3368,10 +3648,11 @@ const ItemManagement: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  {/* PROMPT-35: six-stage production flow (01-06) — same order as the View card */}
+                  {/* TASK 14: dynamic production flow — N stages generated from the SAME
+                      form data as the strip above (no hardcoded six-stage template) */}
                   <div style={{ marginTop: 10, borderTop: '1px solid var(--theme-border, rgba(255,255,255,0.1))', paddingTop: 10 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-accent, #0284c7)', letterSpacing: 0.5 }}>
-                      Production Flow — Six Stages (01 → 06)
+                      Production Flow — {previewStages.length} Stage{previewStages.length === 1 ? '' : 's'}
                     </span>
                     <div style={{ display: 'flex', alignItems: 'stretch', overflowX: 'auto', padding: '8px 0 4px', gap: 0 }}>
                       {previewStages.map((st, sidx) => (

@@ -1,0 +1,2240 @@
+﻿node.exe : FAIL src/modules/organization/controllers/company.controller.spec.ts (16.358 s)
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (FAIL src/module...c.ts (16.358 s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  ΓùÅ CompanyController ΓÇ║ should be defined
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ create ΓÇ║ should create a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ findAll ΓÇ║ should return paginated companies
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ findOne ΓÇ║ should return a company by id
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ update ΓÇ║ should update a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ activate ΓÇ║ should activate a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ deactivate ΓÇ║ should deactivate a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ remove ΓÇ║ should remove a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+FAIL src/modules/production/services/production-entry.service.spec.ts
+  ΓùÅ ProductionEntryService ΓÇö calculations ΓÇ║ computes achievement % as actual/target├ù100 (7200/8000 = 90)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:166:19)
+
+  ΓùÅ ProductionEntryService ΓÇö calculations ΓÇ║ computes achievement with decimals (4500/5000 = 90; 5500/6000 = 
+91.67)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:172:15)
+
+  ΓùÅ ProductionEntryService ΓÇö calculations ΓÇ║ computes efficiency % from running hours vs shift planned hours (7/8 
+= 87.5)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:180:19)
+
+  ΓùÅ ProductionEntryService ΓÇö calculations ΓÇ║ falls back to running+downtime when shift has no planned hours
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:187:19)
+
+  ΓùÅ ProductionEntryService ΓÇö validation ΓÇ║ accepts a UOM that has an inverse conversion defined to base UOM
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:231:19)
+
+  ΓùÅ ProductionEntryService ΓÇö validation ΓÇ║ accepts downtime equal to the shift planned hours boundary (running 
+becomes 0)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:258:19)
+
+  ΓùÅ ProductionEntryService ΓÇö production order linkage ΓÇ║ accepts valid order linkage and validates operation 
+belongs to the order
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:290:5)
+
+  ΓùÅ ProductionEntryService ΓÇö inventory integration (make-to-stock) ΓÇ║ posts PRODUCTION_RECEIPT IN + scrap OUT via 
+existing ledger when postToInventory is true
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:306:19)
+
+  ΓùÅ ProductionEntryService ΓÇö inventory integration (make-to-stock) ΓÇ║ requires warehouse when postToInventory is 
+true and skips posting otherwise
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:328:5)
+
+  ΓùÅ ProductionEntryService ΓÇö inventory integration (make-to-stock) ΓÇ║ skips scrap ledger entry when scrap is zero
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:334:5)
+
+  ΓùÅ ProductionEntryService ΓÇö multi-item & multi-downtime child persistence ΓÇ║ create persists production item 
+lines (multi-item production)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:440:5)
+
+  ΓùÅ ProductionEntryService ΓÇö multi-item & multi-downtime child persistence ΓÇ║ create persists downtime lines 
+(multi-downtime shift)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:460:5)
+
+  ΓùÅ ProductionEntryService ΓÇö multi-item & multi-downtime child persistence ΓÇ║ create persists an "Other" downtime 
+reason text
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:480:5)
+
+  ΓùÅ ProductionEntryService ΓÇö multi-item & multi-downtime child persistence ΓÇ║ round-trip: create persists child 
+lines that findOne later returns (genuine saveΓåÆload flow, not aggregate-derived)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:631:5)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ prefers the item-scoped target 
+(resolveEffectiveEntity called with itemId)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:776:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ falls back to the legacy generic target 
+when the item has no specific one
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:794:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ prorates the resolved target for partial 
+working hours (6h of an 8h/5000 shift ΓåÆ 3750)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:808:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: derived-UOM validation (PROMPT-09 calculator) ΓÇ║ accepts KG production 
+recorded in PCS when the item carries piecesPerKg (derived conversion, no table row)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:866:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: derived-UOM validation (PROMPT-09 calculator) ΓÇ║ accepts a same-family 
+alternative UOM without any conversion data
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:882:19)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ consumes all ACTIVE BOM components and then posts the 
+production receipt
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:983:19)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ rejects production when a component is insufficient ΓÇö 
+no partial deduction, no receipt
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Raw material stock is insufficient"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1006:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1006:60)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ rejects when the production item has no ACTIVE BOM
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "No ACTIVE BOM exists"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1015:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1015:60)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ computes requirement from BOM base quantity, scrap 
+factor and yield %
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1026:5)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ TASK34B-J: consumes the exact Item Master IN Item even 
+when the ACTIVE BOM does not list it
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1050:5)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ TASK34B-K: consumes the exact Item Master IN Item even 
+when no BOM exists
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1072:5)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ failed posting leaves NO orphan production 
+entry (entry save is inside the atomic transaction)
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Raw material stock is insufficient"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1105:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1105:63)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ retry after a failed posting succeeds once 
+stock is available (no permanent duplicate block)
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Raw material stock is insufficient"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1120:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1120:63)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ successful posting commits the entry once and 
+sets inventory_reference_id
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1137:19)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ TASK35-A: posting is idempotent ΓÇö an entry 
+with inventoryReferenceId does NOT create new stock movements
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1163:19)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ TASK35-B: movement references the entry and the 
+input is the exact Item Master IN Item
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1185:5)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-A: auto-resolves an ACTIVE 
+RAW_MATERIAL source store when the client omits rawMaterialWarehouseId
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1242:19)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-H: insufficient stock rejects 
+posting with the shortage BEFORE any deduction or receipt
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Raw material stock is insufficient"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1266:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1274:33)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-D: a maximum of 2 production 
+items is enforced server-side
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "A maximum of 2 production items per entry is allowed"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1292:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1303:33)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-F: each production item posts 
+its OWN input OUT + output IN independently
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1310:19)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-I: per-item posting is still 
+idempotent once inventoryReferenceId is set
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1352:19)
+
+PASS src/modules/sales/controllers/sales-company-contract.spec.ts
+PASS src/modules/traceability/services/traceability.service.spec.ts
+PASS src/modules/dashboard/services/dashboard.service.spec.ts
+PASS src/modules/inventory/controllers/inventory-receipt.controller.spec.ts
+PASS src/modules/machine/services/machine.service.spec.ts
+PASS src/modules/production/services/production-inventory-report.service.spec.ts
+PASS src/modules/item/services/item.service.spec.ts
+PASS src/modules/inventory/controllers/inventory-balance.controller.spec.ts
+PASS src/modules/store/services/replenishment.service.spec.ts
+PASS src/modules/user/services/erp-user.service.spec.ts
+PASS src/modules/production/services/production-order.service.spec.ts
+PASS src/modules/sales/services/sales-delivery.service.spec.ts
+PASS src/modules/inventory/services/stock-transfer.service.spec.ts
+PASS src/modules/bom/services/bom.service.spec.ts
+PASS src/modules/store/services/store.service.spec.ts
+PASS src/modules/machine-target/services/machine-target.service.spec.ts
+PASS src/modules/customer/services/customer.service.spec.ts
+PASS src/modules/item/services/item-category.service.spec.ts
+PASS src/modules/sales/services/sales-invoice.service.spec.ts
+PASS src/modules/sales/services/sales-order.service.spec.ts
+PASS src/modules/procurement/services/goods-receipt.service.spec.ts
+PASS src/modules/procurement/services/purchase-invoice.service.spec.ts
+PASS src/modules/inventory/services/stock-adjustment.service.spec.ts
+PASS src/modules/sales/services/sales-return.service.spec.ts
+PASS src/modules/procurement/services/purchase-return.service.spec.ts
+PASS src/modules/item/services/uom-conversion.service.spec.ts
+PASS src/modules/barcode/services/barcode.service.spec.ts
+PASS src/modules/item/services/item-conversion.service.spec.ts
+PASS src/modules/sales/services/sales-quotation.service.spec.ts
+PASS src/modules/item/services/uom.service.spec.ts
+PASS src/modules/permission/services/permission.service.spec.ts
+PASS src/modules/organization/services/company.service.spec.ts
+PASS src/modules/inventory/services/inventory-balance.service.spec.ts
+PASS src/modules/role/services/role.service.spec.ts
+PASS src/modules/inventory/services/stock-ledger.service.spec.ts
+PASS src/modules/production/date/business-day.spec.ts
+PASS src/modules/item/services/uom-conversion.calculator.spec.ts
+
+Summary of all failing tests
+FAIL modules/organization/controllers/company.controller.spec.ts (16.358 s)
+  ΓùÅ CompanyController ΓÇ║ should be defined
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ create ΓÇ║ should create a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ findAll ΓÇ║ should return paginated companies
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ findOne ΓÇ║ should return a company by id
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ update ΓÇ║ should update a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ activate ΓÇ║ should activate a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ deactivate ΓÇ║ should deactivate a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+  ΓùÅ CompanyController ΓÇ║ remove ΓÇ║ should remove a company
+
+    Nest can't resolve dependencies of the SupabaseJwtGuard (?, Reflector). Please make sure that the argument 
+SupabaseAuthService at index [0] is available in the RootTestModule context.
+
+    Potential solutions:
+    - Is RootTestModule a valid NestJS module?
+    - If SupabaseAuthService is a provider, is it part of the current RootTestModule?
+    - If SupabaseAuthService is exported from a separate @Module, is that module imported within RootTestModule?
+      @Module({
+        imports: [ /* the Module containing SupabaseAuthService */ ]
+      })
+
+    [0m [90m 30 |[39m     }[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m     [36mconst[39m module[33m:[39m [33mTestingModule[39m [33m=[39m 
+[36mawait[39m [33mTest[39m[33m.[39mcreateTestingModule({
+     [90m    |[39m                                   [31m[1m^[22m[39m
+     [90m 33 |[39m       controllers[33m:[39m [[33mCompanyController[39m][33m,[39m
+     [90m 34 |[39m       providers[33m:[39m [
+     [90m 35 |[39m         {[0m
+
+      at TestingInjector.lookupComponentInParentModules (../node_modules/@nestjs/core/injector/injector.js:262:19)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/core/injector/injector.js:215:33)
+      at TestingInjector.resolveComponentInstance (../node_modules/@nestjs/testing/testing-injector.js:19:45)
+      at resolveParam (../node_modules/@nestjs/core/injector/injector.js:129:38)
+          at async Promise.all (index 0)
+      at TestingInjector.resolveConstructorParams (../node_modules/@nestjs/core/injector/injector.js:144:27)
+      at TestingInjector.loadInstance (../node_modules/@nestjs/core/injector/injector.js:70:13)
+      at TestingInjector.loadInjectable (../node_modules/@nestjs/core/injector/injector.js:94:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:80:13
+          at async Promise.all (index 0)
+      at TestingInstanceLoader.createInstancesOfInjectables 
+(../node_modules/@nestjs/core/injector/instance-loader.js:79:9)
+      at ../node_modules/@nestjs/core/injector/instance-loader.js:41:13
+          at async Promise.all (index 1)
+      at TestingInstanceLoader.createInstances (../node_modules/@nestjs/core/injector/instance-loader.js:39:9)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/core/injector/instance-loader.js:22:13)
+      at TestingInstanceLoader.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-instance-loader.js:9:9)
+      at TestingModuleBuilder.createInstancesOfDependencies 
+(../node_modules/@nestjs/testing/testing-module.builder.js:118:9)
+      at TestingModuleBuilder.compile (../node_modules/@nestjs/testing/testing-module.builder.js:74:9)
+      at Object.<anonymous> (modules/organization/controllers/company.controller.spec.ts:32:35)
+
+FAIL modules/production/services/production-entry.service.spec.ts
+  ΓùÅ ProductionEntryService ΓÇö calculations ΓÇ║ computes achievement % as actual/target├ù100 (7200/8000 = 90)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:166:19)
+
+  ΓùÅ ProductionEntryService ΓÇö calculations ΓÇ║ computes achievement with decimals (4500/5000 = 90; 5500/6000 = 
+91.67)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:172:15)
+
+  ΓùÅ ProductionEntryService ΓÇö calculations ΓÇ║ computes efficiency % from running hours vs shift planned hours (7/8 
+= 87.5)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:180:19)
+
+  ΓùÅ ProductionEntryService ΓÇö calculations ΓÇ║ falls back to running+downtime when shift has no planned hours
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:187:19)
+
+  ΓùÅ ProductionEntryService ΓÇö validation ΓÇ║ accepts a UOM that has an inverse conversion defined to base UOM
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:231:19)
+
+  ΓùÅ ProductionEntryService ΓÇö validation ΓÇ║ accepts downtime equal to the shift planned hours boundary (running 
+becomes 0)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:258:19)
+
+  ΓùÅ ProductionEntryService ΓÇö production order linkage ΓÇ║ accepts valid order linkage and validates operation 
+belongs to the order
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:290:5)
+
+  ΓùÅ ProductionEntryService ΓÇö inventory integration (make-to-stock) ΓÇ║ posts PRODUCTION_RECEIPT IN + scrap OUT via 
+existing ledger when postToInventory is true
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:306:19)
+
+  ΓùÅ ProductionEntryService ΓÇö inventory integration (make-to-stock) ΓÇ║ requires warehouse when postToInventory is 
+true and skips posting otherwise
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:328:5)
+
+  ΓùÅ ProductionEntryService ΓÇö inventory integration (make-to-stock) ΓÇ║ skips scrap ledger entry when scrap is zero
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:334:5)
+
+  ΓùÅ ProductionEntryService ΓÇö multi-item & multi-downtime child persistence ΓÇ║ create persists production item 
+lines (multi-item production)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:440:5)
+
+  ΓùÅ ProductionEntryService ΓÇö multi-item & multi-downtime child persistence ΓÇ║ create persists downtime lines 
+(multi-downtime shift)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:460:5)
+
+  ΓùÅ ProductionEntryService ΓÇö multi-item & multi-downtime child persistence ΓÇ║ create persists an "Other" downtime 
+reason text
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:480:5)
+
+  ΓùÅ ProductionEntryService ΓÇö multi-item & multi-downtime child persistence ΓÇ║ round-trip: create persists child 
+lines that findOne later returns (genuine saveΓåÆload flow, not aggregate-derived)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:631:5)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ prefers the item-scoped target 
+(resolveEffectiveEntity called with itemId)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:776:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ falls back to the legacy generic target 
+when the item has no specific one
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:794:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: item-scoped target resolution ΓÇ║ prorates the resolved target for partial 
+working hours (6h of an 8h/5000 shift ΓåÆ 3750)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:808:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: derived-UOM validation (PROMPT-09 calculator) ΓÇ║ accepts KG production 
+recorded in PCS when the item carries piecesPerKg (derived conversion, no table row)
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:866:19)
+
+  ΓùÅ ProductionEntryService ΓÇö PROMPT-11: derived-UOM validation (PROMPT-09 calculator) ΓÇ║ accepts a same-family 
+alternative UOM without any conversion data
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:882:19)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ consumes all ACTIVE BOM components and then posts the 
+production receipt
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:983:19)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ rejects production when a component is insufficient ΓÇö 
+no partial deduction, no receipt
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Raw material stock is insufficient"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1006:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1006:60)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ rejects when the production item has no ACTIVE BOM
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "No ACTIVE BOM exists"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1015:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1015:60)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ computes requirement from BOM base quantity, scrap 
+factor and yield %
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1026:5)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ TASK34B-J: consumes the exact Item Master IN Item even 
+when the ACTIVE BOM does not list it
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1050:5)
+
+  ΓùÅ ProductionEntryService ΓÇö automatic BOM consumption ΓÇ║ TASK34B-K: consumes the exact Item Master IN Item even 
+when no BOM exists
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1072:5)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ failed posting leaves NO orphan production 
+entry (entry save is inside the atomic transaction)
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Raw material stock is insufficient"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1105:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1105:63)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ retry after a failed posting succeeds once 
+stock is available (no permanent duplicate block)
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Raw material stock is insufficient"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1120:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1120:63)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ successful posting commits the entry once and 
+sets inventory_reference_id
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1137:19)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ TASK35-A: posting is idempotent ΓÇö an entry 
+with inventoryReferenceId does NOT create new stock movements
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1163:19)
+
+  ΓùÅ ProductionEntryService ΓÇö atomic create (no orphan entries) ΓÇ║ TASK35-B: movement references the entry and the 
+input is the exact Item Master IN Item
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1185:5)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-A: auto-resolves an ACTIVE 
+RAW_MATERIAL source store when the client omits rawMaterialWarehouseId
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1242:19)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-H: insufficient stock rejects 
+posting with the shortage BEFORE any deduction or receipt
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "Raw material stock is insufficient"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1266:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1274:33)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-D: a maximum of 2 production 
+items is enforced server-side
+
+    expect(received).rejects.toThrow(expected)
+
+    Expected substring: "A maximum of 2 production items per entry is allowed"
+    Received message:   "this.entryRepo.query is not a function"
+
+        [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+         [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+        [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+         [90m      |[39m                                       [31m[1m^[22m[39m
+         [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+         [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+         [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1292:5)
+      at Object.toThrow (../node_modules/expect/build/index.js:218:22)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1303:33)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-F: each production item posts 
+its OWN input OUT + output IN independently
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1310:19)
+
+  ΓùÅ ProductionEntryService ΓÇö TASK #37 real production inventory posting ΓÇ║ TASK37-I: per-item posting is still 
+idempotent once inventoryReferenceId is set
+
+    TypeError: this.entryRepo.query is not a function
+
+    [0m [90m 1821 |[39m   [36mprivate[39m [36masync[39m generateEntryNumber(companyId[33m:[39m 
+string)[33m:[39m [33mPromise[39m[33m<[39m[33mstring[39m[33m>[39m {
+     [90m 1822 |[39m     [36mconst[39m year [33m=[39m [33mString[39m([36mnew[39m 
+[33mDate[39m()[33m.[39mgetFullYear())[33m;[39m
+    [31m[1m>[22m[39m[90m 1823 |[39m     [36mconst[39m rows [33m=[39m [36mawait[39m 
+[36mthis[39m[33m.[39mentryRepo[33m.[39mquery(
+     [90m      |[39m                                       [31m[1m^[22m[39m
+     [90m 1824 |[39m       [32m`SELECT entry_number FROM production_entries[39m
+     [90m 1825 |[39m [32m       WHERE company_id = $1 AND entry_number LIKE $2[39m
+     [90m 1826 |[39m [32m       ORDER BY created_at DESC LIMIT 200`[39m[33m,[39m[0m
+
+      at ProductionEntryService.generateEntryNumber (modules/production/services/production-entry.service.ts:1823:39)
+      at ProductionEntryService.create (modules/production/services/production-entry.service.ts:748:31)
+      at Object.<anonymous> (modules/production/services/production-entry.service.spec.ts:1352:19)
+
+
+Test Suites: 2 failed, 37 passed, 39 total
+Tests:       43 failed, 608 passed, 651 total
+Snapshots:   0 total
+Time:        48.727 s, estimated 115 s

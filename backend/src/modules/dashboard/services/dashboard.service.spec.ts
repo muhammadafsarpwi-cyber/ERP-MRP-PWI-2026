@@ -261,17 +261,18 @@ describe('DashboardService - getItemRoute (TASK #45)', () => {
 
     const result = await service.getItemRoute('company-1', 'pvc-480');
 
-    expect(result.productionFlow?.operationName).toBe('PVC Extrusion');
+    expect(result.productionFlow?.operationName).toBe('PVC');
     expect(result.productionFlow?.inputItem?.id).toBe('wip-007');
     expect(result.productionFlow?.inputItem?.itemCode).toBe('WIP-CS-007');
     expect(result.productionFlow?.outputItem?.id).toBe('pvc-480');
 
-    // Full chain: RM -> FLATTENING -> SPIRAL -> PVC EXTRUSION
+    // Full chain: RM -> FLATTENING -> SPIRAL -> PVC (dynamic department names,
+    // no hard-coded operation labels)
     expect(result.productionFlow?.chain.length).toBe(4);
     expect(result.productionFlow?.chain[0].stageName).toBe('RAW MATERIAL / STORE');
     expect(result.productionFlow?.chain[1].stageName).toBe('FLATTENING');
     expect(result.productionFlow?.chain[2].stageName).toBe('SPIRAL');
-    expect(result.productionFlow?.chain[3].stageName).toBe('PVC EXTRUSION');
+    expect(result.productionFlow?.chain[3].stageName).toBe('PVC');
     expect(result.productionFlow?.chain[3].isCurrent).toBe(true);
   });
 

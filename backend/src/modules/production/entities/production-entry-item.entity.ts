@@ -2,7 +2,16 @@ import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
+import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { ProductionEntry } from './production-entry.entity';
+
+/** Role of a production-entry item line. */
+export enum ProductionEntryItemKind {
+  /** The produced item (receipt). */
+  OUTPUT = 'OUTPUT',
+  /** A consumed material (issue), recorded with its exact configured item ID. */
+  INPUT = 'INPUT',
+}
 
 @Entity('production_entry_items')
 @Index(['productionEntryId'])
@@ -19,6 +28,18 @@ export class ProductionEntryItem extends BaseEntity {
 
   @Column({ name: 'line_number', type: 'int', default: 1 })
   lineNumber: number;
+
+  /** OUTPUT (produced) or INPUT (consumed material). Defaults to OUTPUT for legacy rows. */
+  @Column({ name: 'entry_kind', type: 'varchar', length: 20, default: ProductionEntryItemKind.OUTPUT })
+  entryKind: ProductionEntryItemKind;
+
+  /** Store the consumed INPUT materials are deducted from (INPUT lines only). */
+  @Column({ name: 'source_warehouse_id', type: 'uuid', nullable: true })
+  sourceWarehouseId: string | null;
+
+  @ManyToOne(() => Warehouse, { nullable: true })
+  @JoinColumn({ name: 'source_warehouse_id' })
+  sourceWarehouse: Warehouse | null;
 
   @Column({ name: 'item_id', type: 'uuid', nullable: true })
   itemId: string | null;

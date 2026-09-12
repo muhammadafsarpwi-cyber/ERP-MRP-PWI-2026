@@ -546,6 +546,10 @@ export class DashboardService {
     const routing = await this.routingRepo
       .createQueryBuilder('r')
       .leftJoinAndSelect('r.operations', 'ops')
+      .leftJoinAndSelect('ops.inputs', 'opInputs')
+      .leftJoinAndSelect('opInputs.item', 'inputItem')
+      .leftJoinAndSelect('ops.outputs', 'opOutputs')
+      .leftJoinAndSelect('opOutputs.item', 'outputItem')
       .where('r.product_id = :itemId', { itemId })
       .andWhere('r.company_id = :companyId', { companyId })
       .andWhere('r.status = :status', { status: 'ACTIVE' })
@@ -584,12 +588,11 @@ export class DashboardService {
       }
     }
 
-    // Operation / Department resolution
+    // Operation / Department resolution — always dynamic: no hard-coded
+    // department/operation names (PVC/CCD/Spoke mappings intentionally removed).
     const deptName = item.department?.name || null;
     let operationName = deptName;
-    if (deptName === 'PVC') operationName = 'PVC Extrusion';
-    else if (deptName === 'CCD Packing' || deptName === 'Spoke Packing') operationName = 'Packing';
-    else if (!operationName && routing?.operations?.[0]?.operationName) operationName = routing.operations[0].operationName;
+    if (!operationName && routing?.operations?.[0]?.operationName) operationName = routing.operations[0].operationName;
     else if (!operationName) operationName = item.process1 || (item.isManufacturable ? 'Manufacturing' : null);
 
     const isRawMaterial = item.itemType === 'RAW_MATERIAL' || (!item.isManufacturable && !item.productionInItemId);
@@ -603,69 +606,15 @@ export class DashboardService {
       }
     }
 
-    // Multi-stage chain resolution (upstream and downstream)
-    const chainList: any[] = [];
-    const visited = new Set<string>([item.id]);
-    let currentUp: any = item;
-    while (currentUp?.productionInItemId) {
-      const parentId = currentUp.productionInItemId;
-      if (visited.has(parentId) || chainList.length > 20) break;
-      visited.add(parentId);
-      const parent = await this.itemRepo.findOne({
-        where: { id: parentId, companyId },
-        relations: ['department', 'baseUom'],
-      });
-      if (!parent) break;
-      chainList.unshift(parent);
-      currentUp = parent;
-    }
-
-    chainList.push(item);
-
-    let currentDown: any = item;
-    while (currentDown) {
-      const child = await this.itemRepo.findOne({
-        where: { productionInItemId: currentDown.id, companyId, status: ItemStatus.ACTIVE },
-        relations: ['department', 'baseUom'],
-      });
-      if (!child || visited.has(child.id) || chainList.length > 20) break;
-      visited.add(child.id);
-      chainList.push(child);
-      currentDown = child;
-    }
-
-    const chain = chainList.map((node, idx) => {
-      let stageName = 'MANUFACTURING';
-      const dName = (node.department?.name || '').toLowerCase();
-      if (!node.productionInItemId || node.itemType === 'RAW_MATERIAL') {
-        stageName = 'RAW MATERIAL / STORE';
-      } else if (dName.includes('flatten')) {
-        stageName = 'FLATTENING';
-      } else if (dName.includes('spiral')) {
-        stageName = 'SPIRAL';
-      } else if (dName.includes('pvc')) {
-        stageName = 'PVC EXTRUSION';
-      } else if (dName.includes('pack')) {
-        stageName = node.itemType === 'FINISHED_GOOD' ? 'FINISHED GOODS / STORE' : 'PACKING';
-      } else if (node.itemType === 'FINISHED_GOOD') {
-        stageName = 'FINISHED GOODS / STORE';
-      } else if (node.department?.name) {
-        stageName = node.department.name.toUpperCase();
-      }
-
-      return {
-        stageOrder: idx + 1,
-        stageName,
-        itemId: node.id,
-        itemCode: node.itemCode,
-        itemName: node.name,
-        itemType: node.itemType,
-        departmentName: node.department?.name || null,
-        wireSizeMm: node.wireSizeMm != null ? Number(node.wireSizeMm) : null,
-        uom: node.baseUom?.code || null,
-        isCurrent: node.id === item.id,
-      };
-    });
+    // Multi-stage chain resolution. When an ACTIVE routing with operations exists,
+    // the chain is derived from the routing relationship GRAPH (the exact
+    // configured input/output item IDs per operation) — never from hard-coded
+    // department or item names. Legacy Item-Master productionInItemId walk is
+    // used only as the fallback (still dynamic per-item names).
+    const chain =
+      routing && routing.operations?.length
+        ? await this.buildChainFromRouting(routing, item, companyId)
+        : await this.buildLegacyChain(item, companyId);
 
     const legacyRouting = routing
       ? {
@@ -758,6 +707,151 @@ export class DashboardService {
         chain,
       },
     };
+  }
+
+  /**
+   * Builds the production-flow chain from the routing RELATIONSHIP GRAPH only:
+   * each operation's exact configured input/output item IDs, with stage names
+   * coming from the operation name (or its department) — no hard-coded names.
+   * Items that appear only as inputs and are not produced by any operation in
+   * the route are treated as raw-material/store source nodes.
+   */
+  private async buildChainFromRouting(
+    routing: ProductionRouting,
+    item: Item,
+    companyId: string,
+  ): Promise<any[]> {
+    const ops = [...(routing.operations ?? [])].sort(
+      (a, b) => Number(a.sequenceNo) - Number(b.sequenceNo),
+    );
+    const opInputs = (op: RoutingOperation): string[] =>
+      (Array.isArray(op.inputs) && op.inputs.length ? op.inputs.map((i: any) => i.itemId) : [op.inputItemId])
+        .filter((id): id is string => Boolean(id));
+    const opOutputs = (op: RoutingOperation): string[] =>
+      (Array.isArray(op.outputs) && op.outputs.length ? op.outputs.map((o: any) => o.itemId) : [op.outputItemId])
+        .filter((id): id is string => Boolean(id));
+
+    const stageByItem = new Map<string, { name: string; departmentName: string | null }>();
+    for (const op of ops) {
+      for (const oid of opOutputs(op)) {
+        if (!stageByItem.has(oid)) {
+          stageByItem.set(oid, {
+            name: op.operationName?.trim() || (op.department as any)?.name || 'Manufacturing',
+            departmentName: (op.department as any)?.name ?? null,
+          });
+        }
+      }
+    }
+
+    const ordered: string[] = [];
+    const seen = new Set<string>([item.id]);
+    for (const op of ops) {
+      for (const iid of opInputs(op)) {
+        if (!seen.has(iid)) {
+          seen.add(iid);
+          ordered.push(iid);
+        }
+      }
+      for (const oid of opOutputs(op)) {
+        if (!seen.has(oid)) {
+          seen.add(oid);
+          ordered.push(oid);
+        }
+      }
+    }
+    if (!seen.has(item.id)) ordered.push(item.id);
+
+    const entities = await this.itemRepo.find({
+      where: { id: In([...seen]), companyId },
+      relations: ['department', 'baseUom'],
+    });
+    const byId = new Map(entities.map((e) => [e.id, e]));
+
+    return ordered.map((id, idx) => {
+      const node = byId.get(id);
+      const stage = stageByItem.get(id);
+      const isSourceMaterial = !stage;
+      const stageName = isSourceMaterial
+        ? 'RAW MATERIAL / STORE'
+        : stage!.name.toUpperCase();
+      return {
+        stageOrder: idx + 1,
+        stageName,
+        itemId: id,
+        itemCode: node?.itemCode ?? null,
+        itemName: node?.name ?? null,
+        itemType: node?.itemType ?? null,
+        departmentName: node?.department?.name ?? stage?.departmentName ?? null,
+        wireSizeMm: node?.wireSizeMm != null ? Number(node.wireSizeMm) : null,
+        uom: node?.baseUom?.code ?? null,
+        isCurrent: node?.id === item.id,
+      };
+    });
+  }
+
+  /**
+   * Legacy fallback: walks the Item-Master productionInItemId chain upstream
+   * and downstream. Stage names are always derived dynamically from each item's
+   * own department (uppercased) or generic RAW MATERIAL / FINISHED GOODS
+   * markers — no hard-coded operation names.
+   */
+  private async buildLegacyChain(item: Item, companyId: string): Promise<any[]> {
+    const chainList: any[] = [];
+    const visited = new Set<string>([item.id]);
+    let currentUp: any = item;
+    while (currentUp?.productionInItemId) {
+      const parentId = currentUp.productionInItemId;
+      if (visited.has(parentId) || chainList.length > 20) break;
+      visited.add(parentId);
+      const parent = await this.itemRepo.findOne({
+        where: { id: parentId, companyId },
+        relations: ['department', 'baseUom'],
+      });
+      if (!parent) break;
+      chainList.unshift(parent);
+      currentUp = parent;
+    }
+
+    chainList.push(item);
+
+    let currentDown: any = item;
+    while (currentDown) {
+      const child = await this.itemRepo.findOne({
+        where: { productionInItemId: currentDown.id, companyId, status: ItemStatus.ACTIVE },
+        relations: ['department', 'baseUom'],
+      });
+      if (!child || visited.has(child.id) || chainList.length > 20) break;
+      visited.add(child.id);
+      chainList.push(child);
+      currentDown = child;
+    }
+
+    return chainList.map((node, idx) => {
+      const isRawStore =
+        !node.productionInItemId || node.itemType === 'RAW_MATERIAL';
+      let stageName = 'MANUFACTURING';
+      if (isRawStore) {
+        stageName = 'RAW MATERIAL / STORE';
+      } else if (node.department?.name) {
+        // Dynamic per-item department name — no hard-coded operation labels.
+        stageName = node.department.name.toUpperCase();
+      } else if (node.itemType === 'FINISHED_GOOD') {
+        stageName = 'FINISHED GOODS / STORE';
+      }
+
+      return {
+        stageOrder: idx + 1,
+        stageName,
+        itemId: node.id,
+        itemCode: node.itemCode,
+        itemName: node.name,
+        itemType: node.itemType,
+        departmentName: node.department?.name || null,
+        wireSizeMm: node.wireSizeMm != null ? Number(node.wireSizeMm) : null,
+        uom: node.baseUom?.code || null,
+        isCurrent: node.id === item.id,
+      };
+    });
   }
 
   async getInventorySummary(companyId: string, filters?: { warehouseId?: string }) {

@@ -8,8 +8,6 @@ import { ITEM_TYPES } from './items/itemTypes';
 import apiService from '../../services/api';
 
 jest.mock('../../services/api');
-jest.mock('jspdf');
-jest.mock('jspdf-autotable');
 
 jest.setTimeout(60000);
 
@@ -179,20 +177,20 @@ describe('TASK 13 — Products & Items UI refinement regression', () => {
     await screen.findByTestId('item-type-card-all');
     expect(screen.getAllByRole('button', { name: /Filters/i })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
-    expect(await screen.findByPlaceholderText('Division')).toBeInTheDocument();
+    expect(await screen.findByText('Division', { selector: '.ant-select-selection-placeholder' })).toBeInTheDocument();
   });
 
   it('R7: the active-filter count badge on Filters reflects a chosen filter value', async () => {
     renderPage();
     await screen.findByTestId('item-type-card-all');
     fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
-    const statusField = await screen.findByPlaceholderText('Status');
-    fireEvent.mouseDown(statusField.closest('.ant-select') as HTMLElement);
+    const statusPlaceholder = await screen.findByText('Status', { selector: '.ant-select-selection-placeholder' });
+    const statusSelect = statusPlaceholder.closest('.ant-select') as HTMLElement;
+    fireEvent.mouseDown(statusSelect.querySelector('.ant-select-selector') as HTMLElement);
     fireEvent.click(await screen.findByText('ACTIVE', { selector: '.ant-select-item-option-content' }));
     await waitFor(() => {
       const badges = Array.from(document.querySelectorAll('.ant-badge-count'));
-      const labelled = badges.find((b) => b.textContent === '1');
-      expect(labelled).toBeDefined();
+      expect(badges.some((b) => b.textContent === '1')).toBe(true);
     });
     await waitFor(() => {
       const call = [...apiMock.get.mock.calls]
@@ -249,7 +247,9 @@ describe('TASK 13 — Products & Items UI refinement regression', () => {
     await screen.findByText('RAW-1');
     expect(screen.queryByRole('columnheader', { name: 'Barcode' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Barcode for RAW-1' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Scan Barcode' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Barcode for RAW-1' }));
+    expect(await screen.findByText('Barcode — RAW-1')).toBeInTheDocument();
+    expect(screen.getByText('Primary Barcode')).toBeInTheDocument();
   });
 
   it('R12: null Section renders a safe em-dash (no crash, no undefined/null text)', async () => {

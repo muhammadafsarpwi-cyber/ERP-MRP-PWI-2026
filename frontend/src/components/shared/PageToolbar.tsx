@@ -33,6 +33,13 @@ const PageToolbar: React.FC<PageToolbarProps> = ({
 }) => (
   <Card styles={{ body: { paddingBottom: 0 } }} style={{ marginBottom: 16 }}>
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 4 }}>
+      {onToggleFilters && (
+        <Badge count={filterCount}>
+          <Button icon={<FilterOutlined />} onClick={onToggleFilters}>
+            Filters
+          </Button>
+        </Badge>
+      )}
       <Input
         allowClear
         prefix={<SearchOutlined style={{ color: '#bbb' }} />}
@@ -41,13 +48,6 @@ const PageToolbar: React.FC<PageToolbarProps> = ({
         value={searchValue}
         onChange={(e) => onSearchChange(e.target.value)}
       />
-      {onToggleFilters && (
-        <Badge count={filterCount}>
-          <Button icon={<FilterOutlined />} onClick={onToggleFilters}>
-            Filters
-          </Button>
-        </Badge>
-      )}
       {hasActiveFilters && onClearFilters && (
         <Button type="text" icon={<ClearOutlined />} onClick={onClearFilters}>
           Clear Filters

@@ -4,7 +4,8 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, TagsOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import apiService from '../../services/api';
+import apiService, { describeRequestError } from '../../services/api';
+import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { PageHeader, StatusBadge, EmptyState, PageToolbar } from '../../components/shared';
 
 interface RouteType {
@@ -25,6 +26,11 @@ const RouteTypeManagement: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
   const [modalVisible, setModalVisible] = useState(false);
   const [editing, setEditing] = useState<RouteType | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [resultOpen, setResultOpen] = useState(false);
+  const [resultPhase, setResultPhase] = useState<SaveResultPhase>('loading');
+  const [result, setResult] = useState<SaveResultData | null>(null);
+  const [resultError, setResultError] = useState<string>('');
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [form] = Form.useForm();
   const [search, setSearch] = useState('');
@@ -82,25 +88,49 @@ const RouteTypeManagement: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
+    let raw: any;
     try {
-      const values = await form.validateFields();
-      const payload: Record<string, unknown> = { ...values };
-      if (companyId) payload.companyId = companyId;
-      setLoading(true);
+      raw = await form.validateFields();
+    } catch (err: any) {
+      if (err?.errorFields) return;
+      message.error(describeRequestError(err));
+      return;
+    }
+    const payload: Record<string, unknown> = { ...raw };
+    if (!editing && companyId) payload.companyId = companyId;
+    setSaving(true);
+    setResultPhase('loading');
+    setResultOpen(true);
+    try {
+      let saved: { routeCode?: string; name?: string } | undefined;
       if (editing) {
-        await apiService.patch(`/master-data/route-types/${editing.id}`, payload);
-        message.success(`Route type ${editing.routeCode} updated`);
+        const res = (await apiService.patch(`/master-data/route-types/${editing.id}`, payload)) as {
+          data?: { data?: { routeCode?: string; name?: string } };
+        };
+        saved = res?.data?.data ?? res?.data as { routeCode?: string; name?: string } | undefined;
       } else {
-        await apiService.post('/master-data/route-types', payload);
-        message.success('Route type created');
+        const res = (await apiService.post('/master-data/route-types', payload)) as {
+          data?: { data?: { routeCode?: string; name?: string } };
+        };
+        saved = res?.data?.data ?? res?.data as { routeCode?: string; name?: string } | undefined;
       }
+      setResult({
+        title: editing ? 'Route Type Updated Successfully' : 'Route Type Saved Successfully',
+        recordType: 'Route Code',
+        recordCode: saved?.routeCode != null ? String(saved.routeCode) : undefined,
+        recordName: saved?.name != null ? String(saved.name) : undefined,
+      });
+      setResultPhase('success');
       setModalVisible(false);
       void fetchData(page);
     } catch (err: any) {
-      if (err?.errorFields) return;
-      message.error(err?.response?.data?.message || 'Operation failed');
+      // Persistent error phase: the dialog stays open (with the normalized
+      // error) until dismissed or retried — a failed request never becomes success.
+      setResultError(describeRequestError(err));
+      setResultPhase('error');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -172,9 +202,11 @@ const RouteTypeManagement: React.FC = () => {
       <Modal
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
-        onOk={handleSubmit}
-        confirmLoading={loading}
         title={editing ? `Edit Route Type — ${editing.routeCode}` : 'Add Route Type'}
+        footer={[
+          <Button key="cancel" onClick={() => setModalVisible(false)} disabled={saving}>Cancel</Button>,
+          <Button key="save" type="primary" onClick={handleSubmit} loading={saving} disabled={saving}>Save</Button>,
+        ]}
       >
         <Form form={form} layout="vertical" requiredMark="optional">
           <Form.Item
@@ -182,18 +214,27 @@ const RouteTypeManagement: React.FC = () => {
               { required: true, message: 'Route Code is required' },
               { pattern: /^[A-Z0-9_]+$/, message: 'Uppercase letters, numbers and underscores only' },
             ]}
-            extra="e.g. CONTROL_CABLE"
+            extra="Uppercase letters, numbers and underscores"
           >
-            <Input placeholder="e.g. CONTROL_CABLE" maxLength={50} disabled={!!editing} />
+            <Input placeholder="e.g. ROUTE_001" maxLength={50} disabled={!!editing} />
           </Form.Item>
           <Form.Item name="name" label="Route Name" rules={[{ required: true, message: 'Route Name is required' }]}>
-            <Input placeholder="e.g. Control Cable" maxLength={255} />
+            <Input placeholder="e.g. Primary manufacturing route" maxLength={255} />
           </Form.Item>
           <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} maxLength={1000} placeholder="e.g. Manufacturing route for motorcycle control cables" />
+            <Input.TextArea rows={2} maxLength={1000} placeholder="Short description of this route type" />
           </Form.Item>
         </Form>
       </Modal>
+
+      <SaveResultDialog
+        open={resultOpen}
+        phase={resultPhase}
+        result={result}
+        errorMessage={resultError}
+        onRetry={handleSubmit}
+        onClose={() => setResultOpen(false)}
+      />
     </div>
   );
 };

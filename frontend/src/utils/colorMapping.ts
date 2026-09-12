@@ -230,6 +230,25 @@ export function getItemColor(
 }
 
 /**
+ * Deterministic color mapping for Machine Numbers.
+ * Stable key priority: machine number -> machine code -> machine name.
+ * Each unique machine code always produces the same color, regardless of
+ * pagination, sorting, or re-render order.
+ */
+export function getMachineColor(
+  machine: string | { id?: string | null; machineNumber?: string | null; machineCode?: string | null; name?: string | null; [k: string]: any } | null | undefined,
+): ColorSlot {
+  const number = (typeof machine === 'object' && machine !== null) ? (machine.machineNumber || '') : '';
+  const code = (typeof machine === 'object' && machine !== null) ? (machine.machineCode || '') : '';
+  const name = (typeof machine === 'object' && machine !== null) ? (machine.name || '') : (typeof machine === 'string' ? machine : '');
+
+  // Prefer machineNumber as the primary visual key (the number the operator sees),
+  // then machineCode (the business key), then name.
+  const stable = number || code || name;
+  return getPaletteColor(stable, 23);
+}
+
+/**
  * Generic category color resolver.
  */
 export function getCategoryColor(

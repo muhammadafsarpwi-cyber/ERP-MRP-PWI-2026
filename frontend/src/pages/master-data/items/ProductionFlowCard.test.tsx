@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { StageBlock } from './ProductionFlowCard';
 import {
-  deriveNextStageTitle,
+  stageTitleForOperation,
   isEmptyValue,
   type ProductionFlowStage,
 } from './itemTypes';
@@ -27,9 +27,10 @@ beforeAll(() => {
 function stage(overrides: Partial<ProductionFlowStage>): ProductionFlowStage {
   return {
     sequence: 5,
+    itemNumber: 5,
     kind: 'process',
-    stageKey: 'SPIRAL',
-    title: 'SPIRAL',
+    stageKey: 'OP_X',
+    title: 'STRIPPING',
     itemId: null,
     itemCode: null,
     itemName: null,
@@ -40,28 +41,30 @@ function stage(overrides: Partial<ProductionFlowStage>): ProductionFlowStage {
   };
 }
 
-describe('TASK 12 — deriveNextStageTitle (+isEmptyValue) mapping helpers', () => {
-  it('maps a spiral next step to the canonical SPIRAL / SPIRAL OUTPUT titles', () => {
-    expect(deriveNextStageTitle('Spiral Winding', 'process')).toBe('SPIRAL');
-    expect(deriveNextStageTitle('Spiral Winding', 'output')).toBe('SPIRAL OUTPUT');
+describe('TASK 14 — stageTitleForOperation (+isEmptyValue) mapping helpers', () => {
+  it('uses the REAL operation text verbatim (no keyword canonical mapping)', () => {
+    expect(stageTitleForOperation('Wire Straightening', 'process')).toBe('WIRE STRAIGHTENING');
+    expect(stageTitleForOperation('Wire Straightening', 'output')).toBe('WIRE STRAIGHTENING OUTPUT');
+    expect(stageTitleForOperation('Swagging', 'process')).toBe('SWAGGING');
+    expect(stageTitleForOperation('Swagging', 'output')).toBe('SWAGGING OUTPUT');
+    expect(stageTitleForOperation('Flattening', 'process')).toBe('FLATTENING');
+    expect(stageTitleForOperation('Flattening', 'output')).toBe('FLATTENING OUTPUT');
   });
 
-  it('maps other operation families to their own operation-based titles (no hardcoded SPIRAL)', () => {
-    expect(deriveNextStageTitle('PVC Extrusion', 'process')).toBe('PVC EXTRUSION');
-    expect(deriveNextStageTitle('PVC Extrusion', 'output')).toBe('PVC OUTPUT');
-    expect(deriveNextStageTitle('Packing', 'process')).toBe('PACKING');
-    expect(deriveNextStageTitle('Packing', 'output')).toBe('PACKING OUTPUT');
-    expect(deriveNextStageTitle('Wire Drawing', 'process')).toBe('WIRE DRAWING');
-    expect(deriveNextStageTitle('Wire Drawing', 'output')).toBe('DRAWING OUTPUT');
-    expect(deriveNextStageTitle('Flattening', 'process')).toBe('FLATTENING');
-    expect(deriveNextStageTitle('Flattening', 'output')).toBe('FLATTENING OUTPUT');
+  it('never substitutes canonical names for unrelated operations', () => {
+    // "Flattening" must NOT appear for a Spiral-based route and vice-versa.
+    expect(stageTitleForOperation('Spiral Winding', 'process')).toBe('SPIRAL WINDING');
+    expect(stageTitleForOperation('Spiral Winding', 'output')).toBe('SPIRAL WINDING OUTPUT');
+    expect(stageTitleForOperation('PVC Extrusion', 'process')).toBe('PVC EXTRUSION');
+    expect(stageTitleForOperation('Packing', 'process')).toBe('PACKING');
   });
 
-  it('falls back to generic NEXT PROCESS / NEXT OUTPUT titles for unknown text', () => {
-    expect(deriveNextStageTitle('Custom Step XYZ', 'process')).toBe('NEXT PROCESS');
-    expect(deriveNextStageTitle('Custom Step XYZ', 'output')).toBe('NEXT OUTPUT');
-    expect(deriveNextStageTitle('', 'process')).toBe('NEXT PROCESS');
-    expect(deriveNextStageTitle('', 'output')).toBe('NEXT OUTPUT');
+  it('returns null for empty / whitespace-only input', () => {
+    expect(stageTitleForOperation(null, 'process')).toBeNull();
+    expect(stageTitleForOperation(undefined, 'process')).toBeNull();
+    expect(stageTitleForOperation('', 'process')).toBeNull();
+    expect(stageTitleForOperation('   ', 'process')).toBeNull();
+    expect(stageTitleForOperation('', 'output')).toBeNull();
   });
 
   it('isEmptyValue treats null / undefined / whitespace-only as empty', () => {
@@ -71,68 +74,92 @@ describe('TASK 12 — deriveNextStageTitle (+isEmptyValue) mapping helpers', () 
     expect(isEmptyValue('   ')).toBe(true);
     expect(isEmptyValue('\t\n ')).toBe(true);
     expect(isEmptyValue('3.75 mm 2P')).toBe(false);
-    expect(isEmptyValue('Spiral Winding')).toBe(false);
+    expect(isEmptyValue('Wire Straightening')).toBe(false);
   });
 });
 
-describe('TASK 12 — ProductionFlowCard StageBlock rendering', () => {
-  it('renders the packing/next-step operation on a configured stage 05', () => {
+describe('TASK 14 — ProductionFlowCard StageBlock rendering', () => {
+  it('renders STEP and ITEM numbers on a configured stage', () => {
+    render(<StageBlock stage={stage({ sequence: 2, itemNumber: 2, kind: 'output' })} />);
+    expect(screen.getByText('STEP 02')).toBeInTheDocument();
+    expect(screen.getByText('ITEM 02')).toBeInTheDocument();
+  });
+
+  it('renders the real operation name from data on a configured process stage', () => {
     render(
       <StageBlock
         stage={stage({
-          sequence: 5,
+          sequence: 1,
+          itemNumber: 2,
           kind: 'process',
-          title: 'SPIRAL',
-          operationName: 'Spiral Winding',
+          title: 'WIRE STRAIGHTENING',
+          operationName: 'Wire Straightening',
+          departmentName: 'Wire Straightening',
           configured: true,
         })}
       />,
     );
-    expect(screen.getByText('Spiral Winding')).toBeInTheDocument();
+    expect(screen.getByText('Wire Straightening')).toBeInTheDocument();
+    expect(screen.getByText('WIRE STRAIGHTENING')).toBeInTheDocument();
     expect(screen.queryByText('Not configured')).not.toBeInTheDocument();
+    expect(screen.queryByText('Flattening')).not.toBeInTheDocument();
   });
 
-  it('renders the final product name on a configured stage 06 even with no item code', () => {
+  it('shows the em dash for a configured stage with no operation', () => {
     render(
       <StageBlock
         stage={stage({
-          sequence: 6,
-          kind: 'output',
-          title: 'SPIRAL OUTPUT',
-          itemCode: null,
-          itemName: '3.75 mm 2P',
-          configured: true,
-        })}
-      />,
-    );
-    expect(screen.getByText('3.75 mm 2P')).toBeInTheDocument();
-    expect(screen.queryByText('Not configured')).not.toBeInTheDocument();
-  });
-
-  it('shows "Not configured" for an empty stage 05', () => {
-    render(
-      <StageBlock
-        stage={stage({
-          sequence: 5,
           kind: 'process',
-          title: 'NEXT PROCESS',
+          title: 'FINISHED GOOD',
           operationName: null,
-          configured: false,
+          departmentName: null,
+          configured: true,
         })}
       />,
     );
-    expect(screen.getByText('Not configured')).toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
   });
 
-  it('shows "Not configured" for an empty stage 06', () => {
+  it('renders division · section on a process stage when available', () => {
     render(
       <StageBlock
         stage={stage({
-          sequence: 6,
+          kind: 'process',
+          operationName: 'Swagging',
+          departmentName: 'Spoke',
+          divisionName: 'Spokes Division',
+          sectionName: 'Butted',
+        })}
+      />,
+    );
+    expect(screen.getByText('Spokes Division · Butted')).toBeInTheDocument();
+  });
+
+  it('renders the item code + name on an output stage', () => {
+    render(
+      <StageBlock
+        stage={stage({
+          sequence: 3,
+          itemNumber: 3,
           kind: 'output',
-          title: 'NEXT OUTPUT',
-          itemCode: null,
-          itemName: null,
+          title: 'WIRE STRAIGHTENING OUTPUT',
+          itemCode: 'WIP-STRAIGHT-001',
+          itemName: 'Straightened Wire',
+          configured: true,
+        })}
+      />,
+    );
+    expect(screen.getByText('WIP-STRAIGHT-001')).toBeInTheDocument();
+    expect(screen.getByText('Straightened Wire')).toBeInTheDocument();
+    expect(screen.queryByText('Not configured')).not.toBeInTheDocument();
+  });
+
+  it('shows "Not configured" for an unconfigured stage', () => {
+    render(
+      <StageBlock
+        stage={stage({
+          kind: 'process',
+          operationName: null,
           configured: false,
         })}
       />,

@@ -18,7 +18,7 @@ import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { ProductionRoutingService } from '../services/production-routing.service';
-import { CreateRoutingDto, UpdateRoutingDto, UpdateRoutingStatusDto, CreateRoutingOperationDto, UpdateRoutingOperationDto } from '../dto';
+import { CreateRoutingDto, UpdateRoutingDto, UpdateRoutingStatusDto, CreateRoutingOperationDto, UpdateRoutingOperationDto, ReorderRoutingOperationDto } from '../dto';
 
 @ApiTags('Production Routing')
 @Controller('production/routings')
@@ -66,6 +66,17 @@ export class ProductionRoutingController {
     const companyId = this.getCompanyId(req);
     const routing = await this.routingService.getEffectiveRouteForItem(itemId, companyId);
     return { data: routing };
+  }
+
+  @Get('flow/:itemId')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing.view')
+  @ApiOperation({ summary: "Get the production flow graph for an item (derived from routing input/output relationships)" })
+  async getFlowGraph(@Param('itemId', ParseUUIDPipe) itemId: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const graph = await this.routingService.getRouteFlowGraph(itemId, companyId);
+    return { data: graph };
   }
 
   @Get(':id')
@@ -158,5 +169,38 @@ export class ProductionRoutingController {
     const companyId = this.getCompanyId(req);
     await this.routingService.removeOperation(operationId, companyId, req.user?.id);
     return { message: 'Operation deleted successfully' };
+  }
+
+  @Post(':id/operations/:operationId/reorder')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing_operation.reorder')
+  @ApiOperation({ summary: 'Reorder a routing operation (operations are renumbered compactly)' })
+  @HttpCode(HttpStatus.OK)
+  async reorderOperation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('operationId', ParseUUIDPipe) operationId: string,
+    @Body() dto: ReorderRoutingOperationDto,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const routing = await this.routingService.reorderOperation(id, operationId, dto.newSequenceNo, companyId, req.user?.id);
+    return { data: routing, message: 'Operation reordered successfully' };
+  }
+
+  @Post(':id/operations/:operationId/duplicate')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing_operation.duplicate')
+  @ApiOperation({ summary: 'Duplicate a routing operation (including its inputs and outputs)' })
+  @HttpCode(HttpStatus.CREATED)
+  async duplicateOperation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('operationId', ParseUUIDPipe) operationId: string,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const routing = await this.routingService.duplicateOperation(id, operationId, companyId, req.user?.id);
+    return { data: routing, message: 'Operation duplicated successfully' };
   }
 }

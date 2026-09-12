@@ -5,6 +5,7 @@ import { Machine } from '../../production/entities/machine.entity';
 import { Shift } from '../../production/entities/shift.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { Item } from '../../item/entities/item.entity';
+import { ErpUser } from '../../user/entities/erp-user.entity';
 
 export enum MachineTargetStatus {
   ACTIVE = 'ACTIVE',
@@ -85,4 +86,14 @@ export class MachineTarget extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   remarks: string | null;
+
+  /** Creator reference (BaseEntity stores the raw UUID) — joins erp_users.display_name. */
+  @ManyToOne(() => ErpUser, { nullable: true })
+  @JoinColumn({ name: 'created_by' })
+  createdByUser: ErpUser | null;
+
+  /** Last modifier reference (BaseEntity stores the raw UUID) — joins erp_users.display_name. */
+  @ManyToOne(() => ErpUser, { nullable: true })
+  @JoinColumn({ name: 'updated_by' })
+  updatedByUser: ErpUser | null;
 }
