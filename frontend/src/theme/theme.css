@@ -11,6 +11,7 @@
   --theme-on-accent: #ffffff;
   --theme-background: #f3f5fa;
   --theme-text: rgba(15, 23, 42, 0.88);
+  --theme-text-secondary: rgba(15, 23, 42, 0.72);
   --theme-text-muted: rgba(15, 23, 42, 0.55);
   --theme-border: #e4e7f1;
   --theme-border-strong: #cdd3e6;
@@ -56,6 +57,7 @@ html[data-theme='dark'] {
   --theme-on-accent: #0f1526;
   --theme-background: #0d1022;
   --theme-text: rgba(226, 232, 255, 0.92);
+  --theme-text-secondary: rgba(214, 221, 244, 0.78);
   --theme-text-muted: rgba(199, 204, 235, 0.55);
   --theme-border: #2a3054;
   --theme-border-strong: #3b4270;

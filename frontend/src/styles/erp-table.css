@@ -179,6 +179,61 @@
   background: var(--theme-hover, rgba(15, 23, 42, 0.08));
 }
 
+/* ── 7b. Professional Bordered Action Buttons (Machine Targets) ── */
+.erp-table-actions--machine-targets {
+  gap: 4px;
+}
+
+.erp-table-actions--machine-targets .ant-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--act, var(--theme-text-secondary, #64748b)) 38%, transparent);
+  background: color-mix(in srgb, var(--act, var(--theme-text-secondary, #64748b)) 9%, transparent);
+  color: var(--act, var(--theme-text-secondary, #64748b));
+  box-shadow: none;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.erp-table-actions--machine-targets .ant-btn .anticon {
+  font-size: 15px;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.erp-table-actions--machine-targets .ant-btn:hover:not(:disabled) {
+  background: var(--act-hover, var(--act, var(--theme-accent, #4f46e5))) !important;
+  border-color: var(--act-hover, var(--act, var(--theme-accent, #4f46e5))) !important;
+  color: #fff !important;
+  transform: translateY(-1px);
+}
+
+.erp-table-actions--machine-targets .ant-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.erp-table-actions--machine-targets .ant-btn:disabled {
+  border-color: color-mix(in srgb, var(--theme-text-secondary, #64748b) 25%, transparent);
+  background: transparent;
+  color: var(--theme-text-secondary, #64748b);
+}
+
+.erp-table-actions--machine-targets .ant-btn:focus-visible {
+  outline: 2px solid var(--theme-focus, rgba(79, 70, 229, 0.5));
+  outline-offset: 1px;
+}
+
+/* Semantic action tones (theme tokens only) */
+.erp-table-actions--machine-targets .mt-act-view { --act: var(--theme-info, #4f46e5); }
+.erp-table-actions--machine-targets .mt-act-edit { --act: var(--theme-warning, #faad14); --act-hover: color-mix(in srgb, var(--theme-warning, #faad14) 84%, #000); }
+.erp-table-actions--machine-targets .mt-act-activate { --act: var(--theme-success, #52c41a); --act-hover: color-mix(in srgb, var(--theme-success, #52c41a) 84%, #000); }
+.erp-table-actions--machine-targets .mt-act-deactivate { --act: color-mix(in srgb, var(--theme-danger, #ff4d4f) 60%, var(--theme-warning, #faad14)); --act-hover: color-mix(in srgb, var(--theme-danger, #ff4d4f) 78%, #000); }
+.erp-table-actions--machine-targets .mt-act-delete.ant-btn-dangerous { --act: var(--theme-danger, #ff4d4f); --act-hover: color-mix(in srgb, var(--theme-danger, #ff4d4f) 84%, #000); }
+
 /* ── 8. Standardized Table Toolbar ── */
 .erp-table-toolbar {
   display: flex;

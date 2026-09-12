@@ -22,7 +22,7 @@ import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import {
   PageHeader, ERPTable, TableActions, PageToolbar,
-  DepartmentBadge, ShiftBadge, StatusBadge, DraggableResizableModal,
+  StatusBadge, DraggableResizableModal,
 } from '../../components/shared';
 import { getMachineColor } from '../../utils/colorMapping';
 import TargetView, { TargetRecord } from './TargetView';
@@ -142,11 +142,65 @@ const fmtDateTime = (iso?: string): string => {
 const fmtQty = (v: string | number | null | undefined): string => {
   const n = Number(v);
   if (!isFinite(n)) return '—';
-  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 const calcPerHour = (qty: number, hours: number): number | null =>
   hours > 0 ? Number(((qty * 1) / hours).toFixed(4)) : null;
+
+/** Reusable cell component matching the Standard Target visual pattern. */
+const HighlightedCell: React.FC<{
+  icon?: React.ReactNode;
+  label: React.ReactNode;
+  labelColor?: string;
+  secondary?: React.ReactNode;
+  secondaryPrefix?: React.ReactNode;
+  secondarySize?: number;
+  secondaryWeight?: number;
+  tooltip?: string;
+}> = ({ icon, label, labelColor = 'var(--theme-accent, #059669)', secondary, secondaryPrefix, secondarySize = 10, secondaryWeight = 500, tooltip }) => {
+  const content = (
+    <div style={{
+      lineHeight: 1.35,
+      padding: '3px 8px',
+      borderRadius: 6,
+      background: 'var(--theme-surface-alt, #f0fdf4)',
+      border: '1px solid rgba(16, 185, 129, 0.2)',
+      maxWidth: '100%',
+    }}>
+      <div style={{ fontWeight: 700, fontSize: 12, color: labelColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {icon && <span style={{ marginRight: 4, fontSize: 11 }}>{icon}</span>}
+        {label}
+      </div>
+      {secondary != null && (
+        <div style={{ color: 'var(--theme-text-secondary, rgba(15, 23, 42, 0.72))', fontSize: secondarySize, fontWeight: secondaryWeight, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {secondaryPrefix}
+          {secondary}
+        </div>
+      )}
+    </div>
+  );
+  return tooltip ? <Tooltip title={tooltip}>{content}</Tooltip> : content;
+};
+
+/** Compact two-line ERP column header. Keeps compound headings readable without collision. */
+const HeaderCell: React.FC<{
+  icon?: React.ReactNode;
+  first: React.ReactNode;
+  second?: React.ReactNode;
+}> = ({ icon, first, second }) => (
+  <span className="erp-th" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.45, gap: 1 }}>
+    <span className="erp-th__line" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.01, whiteSpace: 'nowrap' }}>
+      {icon && <span className="erp-th__icon" style={{ fontSize: 11, lineHeight: 1 }}>{icon}</span>}
+      {first}
+    </span>
+    {second != null && (
+      <span className="erp-th__line" style={{ fontWeight: 600, fontSize: 12.5, letterSpacing: 0.01, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+        {typeof second === 'string' ? ` ${second}` : second}
+      </span>
+    )}
+  </span>
+);
 
 /* ─── Import types and template ──────────────────────────────────────────── */
 
@@ -894,7 +948,7 @@ const TargetManagement: React.FC = () => {
 
   const columns: ColumnsType<MachineTarget> = [
     {
-      title: <span><TagOutlined style={{ marginRight: 4, fontSize: 11 }} />MACHINE ID</span>,
+      title: <HeaderCell icon={<TagOutlined />} first="MACHINE" second="ID" />,
       key: 'machineId',
       width: 80,
       fixed: 'left',
@@ -907,7 +961,7 @@ const TargetManagement: React.FC = () => {
       ),
     },
     {
-      title: <span><SettingOutlined style={{ marginRight: 4, fontSize: 11 }} />Machine</span>,
+      title: <HeaderCell icon={<SettingOutlined />} first="Machine" />,
       key: 'machineCode',
       sorter: true,
       width: 100,
@@ -939,26 +993,33 @@ const TargetManagement: React.FC = () => {
                   border: `1px solid ${mc.light.border}`,
                 }}>{number ?? '—'}</span>
               </div>
-              {secondary ? <div style={{ color: 'var(--theme-text-muted)', fontSize: 9, marginTop: 1 }}>{secondary}</div> : null}
+              {secondary ? <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500, marginTop: 1 }}>{secondary}</div> : null}
             </div>
           </Tooltip>
         );
       },
     },
     {
-      title: <span><ApartmentOutlined style={{ marginRight: 4, fontSize: 11 }} />Machine Name</span>,
+      title: <HeaderCell icon={<ApartmentOutlined />} first="Machine" second="Name" />,
       key: 'machineName',
       sorter: true,
       width: 120,
-      ellipsis: true,
-      render: (_: any, t: MachineTarget) => (
-        <Tooltip title={t.machine?.name || undefined}>
-          <span style={{ fontSize: 11 }}>{t.machine?.name ?? <span style={{ color: 'var(--theme-text-muted)' }}>—</span>}</span>
-        </Tooltip>
-      ),
+      render: (_: any, t: MachineTarget) => {
+        const mc = getMachineColor(t.machine);
+        return t.machine?.name ? (
+          <HighlightedCell
+            icon={<SettingOutlined />}
+            label={t.machine.name}
+            labelColor={mc.light.text}
+            tooltip={t.machine.name + (t.machine.machineId ? ` (ID: ${t.machine.machineId})` : '')}
+          />
+        ) : (
+          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
+        );
+      },
     },
     {
-      title: <span><ShopOutlined style={{ marginRight: 4, fontSize: 11 }} />Division / Section</span>,
+      title: <HeaderCell icon={<ShopOutlined />} first="Division" second="Section" />,
       key: 'divisionSection',
       width: 130,
       render: (_: any, t: MachineTarget) => {
@@ -966,34 +1027,35 @@ const TargetManagement: React.FC = () => {
         const s = t.machine?.section;
         if (!d && !s) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
         return (
-          <div style={{ lineHeight: 1.4 }}>
-            {d ? (
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)' }}>
-                {d.name}
-              </div>
-            ) : (
-              <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Division: —</div>
-            )}
-            {s ? (
-              <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                <SubnodeOutlined style={{ fontSize: 9 }} />
-                {s.name}
-              </div>
-            ) : (
-              <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Section: —</div>
-            )}
-          </div>
+          <HighlightedCell
+            icon={<ShopOutlined />}
+            label={d?.name ?? '—'}
+            secondary={s?.name ?? '—'}
+            secondaryPrefix={s ? <SubnodeOutlined style={{ marginRight: 3, fontSize: 9 }} /> : null}
+            tooltip={d?.name ? (s ? `${d.name} — ${s.name}` : d.name) : undefined}
+          />
         );
       },
     },
     {
-      title: <span><TeamOutlined style={{ marginRight: 4, fontSize: 11 }} />Department</span>,
+      title: <HeaderCell icon={<TeamOutlined />} first="Department" />,
       key: 'department',
       width: 100,
-      render: (_: any, t: MachineTarget) => <DepartmentBadge department={t.machine?.department} />,
+      render: (_: any, t: MachineTarget) => {
+        const dept = t.machine?.department;
+        return dept ? (
+          <HighlightedCell
+            icon={<TeamOutlined />}
+            label={dept.name}
+            tooltip={dept.name}
+          />
+        ) : (
+          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
+        );
+      },
     },
     {
-      title: <span><ShoppingOutlined style={{ marginRight: 4, fontSize: 11 }} />Item</span>,
+      title: <HeaderCell icon={<ShoppingOutlined />} first="Item" />,
       key: 'itemCode',
       sorter: true,
       width: 130,
@@ -1002,31 +1064,45 @@ const TargetManagement: React.FC = () => {
           ? { id: t.item.id, name: t.item.name, itemCode: t.item.itemCode }
           : null;
         return best ? (
-          <div style={{ lineHeight: 1.35 }}>
-            <div style={{ fontSize: 11 }}><b>{best.itemCode}</b></div>
-            {best.name && best.name !== best.itemCode
-              ? <div style={{ color: 'var(--theme-text-muted)', fontSize: 10 }}>{best.name}</div>
-              : null}
-          </div>
-        ) : <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
+          <HighlightedCell
+            icon={<ShoppingOutlined />}
+            label={best.itemCode}
+            secondary={best.name && best.name !== best.itemCode ? best.name : undefined}
+            tooltip={best.name ? `${best.itemCode} — ${best.name}` : best.itemCode}
+          />
+        ) : (
+          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
+        );
       },
     },
     {
-      title: <span><ClockCircleOutlined style={{ marginRight: 4, fontSize: 11 }} />Shift</span>,
+      title: <HeaderCell icon={<ClockCircleOutlined />} first="Shift" />,
       key: 'shiftCode',
       sorter: true,
       width: 95,
-      render: (_: any, t: MachineTarget) => <ShiftBadge shift={t.shift} style={{ fontSize: 11 }} />,
+      render: (_: any, t: MachineTarget) => {
+        const s = t.shift;
+        return s ? (
+          <HighlightedCell
+            icon={<ClockCircleOutlined />}
+            label={s.shiftCode || s.name}
+            secondary={s.shiftCode && s.shiftCode !== s.name ? s.name : undefined}
+            tooltip={s.name ? `${s.shiftCode} — ${s.name}` : s.shiftCode}
+          />
+        ) : (
+          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
+        );
+      },
     },
     {
-      title: <span><SafetyOutlined style={{ marginRight: 4, fontSize: 11 }} />UOM</span>,
+      title: <HeaderCell icon={<SafetyOutlined />} first="UOM" />,
       key: 'uomCode',
       sorter: true,
       width: 48,
       render: (_: any, t: MachineTarget) => <Tag style={{ fontSize: 10 }}>{uomSymbolOf(t)}</Tag>,
     },
     {
-      title: <span><HourglassOutlined style={{ marginRight: 4, fontSize: 11 }} />Std Hours</span>,
+      title: <HeaderCell icon={<HourglassOutlined />} first="Std" second="Hours" />,
       dataIndex: 'standardHours',
       sorter: true,
       width: 65,
@@ -1034,7 +1110,7 @@ const TargetManagement: React.FC = () => {
       render: (h: string | number) => <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>{fmtQty(h)}</span>,
     },
     {
-      title: <span><AimOutlined style={{ marginRight: 4, fontSize: 11 }} />Standard Target</span>,
+      title: <HeaderCell icon={<AimOutlined />} first="Standard" second="Target" />,
       dataIndex: 'targetQuantity',
       sorter: true,
       width: 140,
@@ -1042,110 +1118,107 @@ const TargetManagement: React.FC = () => {
         const ph = calcPerHour(Number(t.targetQuantity), Number(t.standardHours));
         const u = uomSymbolOf(t);
         return (
-          <Tooltip title="Standard target over the standard hours. Target / hour is auto-calculated: target ÷ hours.">
-            <div style={{
-              lineHeight: 1.35,
-              padding: '3px 8px',
-              borderRadius: 6,
-              background: 'var(--theme-surface-alt, #f0fdf4)',
-              border: '1px solid rgba(16, 185, 129, 0.2)',
-            }}>
-              <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-accent, #059669)' }}>{fmtQty(q)} <span style={{ fontSize: 10, fontWeight: 600 }}>{u}</span></div>
-              {ph !== null
-                ? <div style={{ color: 'var(--theme-text-muted)', fontSize: 9 }}>{fmtQty(ph)} {u}/h</div>
-                : <div style={{ color: 'var(--theme-text-muted)', fontSize: 9 }}>—</div>}
-            </div>
-          </Tooltip>
+          <HighlightedCell
+            icon={<AimOutlined />}
+            label={<>{fmtQty(q)} <span style={{ fontSize: 10, fontWeight: 600 }}>{u}</span></>}
+            secondary={ph !== null ? <>{fmtQty(ph)} {u}/h</> : '—'}
+            secondarySize={11}
+            secondaryWeight={600}
+            tooltip="Standard target over the standard hours. Target / hour is auto-calculated: target ÷ hours."
+          />
         );
       },
     },
     {
-      title: <span><CalendarOutlined style={{ marginRight: 4, fontSize: 11 }} />Effective From</span>,
+      title: <HeaderCell icon={<CalendarOutlined />} first="Effective" second="From" />,
       dataIndex: 'effectiveFrom',
       sorter: true,
       width: 95,
       render: (from: string, t: MachineTarget) => (
         <div style={{ fontSize: 11 }}>
           <div>{from}</div>
-          <span style={{ color: 'var(--theme-text-muted)', fontSize: 9 }}>
+          <span style={{ color: 'var(--theme-text-secondary)', fontSize: 10 }}>
             → {t.effectiveTo ?? 'open'}
           </span>
         </div>
       ),
     },
     {
-      title: <span><CheckCircleOutlined style={{ marginRight: 4, fontSize: 11 }} />Status</span>,
+      title: <HeaderCell icon={<CheckCircleOutlined />} first="Status" />,
       dataIndex: 'status',
       sorter: true,
       width: 68,
       render: (s: string) => <StatusBadge status={s} colorMap={STATUS_COLORS} />,
     },
     {
-      title: <span><UserOutlined style={{ marginRight: 4, fontSize: 11 }} />Created By</span>,
+      title: <HeaderCell icon={<UserOutlined />} first="Created" second="By" />,
       key: 'createdAudit',
       width: 115,
       render: (_: any, t: MachineTarget) => (
         <div style={{ fontSize: 10 }}>
           <div style={{ fontWeight: 600 }}>{auditUserName(t.createdByUser, t.createdBy ?? null)}</div>
-          <span style={{ color: 'var(--theme-text-muted)' }}>{fmtDateTime(t.createdAt)}</span>
+          <span style={{ color: 'var(--theme-text-secondary)' }}>{fmtDateTime(t.createdAt)}</span>
         </div>
       ),
     },
     {
-      title: <span><UserOutlined style={{ marginRight: 4, fontSize: 11 }} />Updated By</span>,
+      title: <HeaderCell icon={<UserOutlined />} first="Updated" second="By" />,
       key: 'updatedAudit',
       width: 115,
       render: (_: any, t: MachineTarget) => (
         <div style={{ fontSize: 10 }}>
           <div style={{ fontWeight: 600 }}>{auditUserName(t.updatedByUser, t.updatedBy ?? null)}</div>
-          <span style={{ color: 'var(--theme-text-muted)' }}>{fmtDateTime(t.updatedAt)}</span>
+          <span style={{ color: 'var(--theme-text-secondary)' }}>{fmtDateTime(t.updatedAt)}</span>
         </div>
       ),
     },
     {
-      title: 'Actions',
+      title: <HeaderCell first="Actions" />,
       key: 'actions',
-      width: 120,
+      width: 160,
       fixed: 'right',
       align: 'center',
       render: (_: any, t: MachineTarget) => {
         const machineLabel = t.machine?.machineCode || t.machine?.name || t.machine?.machineNumber || 'this record';
         return (
-          <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 2 }}>
-            <TableActions
-              actions={[
-                {
-                  key: 'view',
-                  label: `View target — ${machineLabel}`,
-                  icon: <EyeOutlined />,
-                  onClick: () => setDetail(t),
+          <TableActions
+            className="erp-table-actions--machine-targets"
+            actions={[
+              {
+                key: 'view',
+                label: `View target — ${machineLabel}`,
+                icon: <EyeOutlined />,
+                onClick: () => setDetail(t),
+                className: 'mt-act-view',
+              },
+              {
+                key: 'edit',
+                label: `Edit target — ${machineLabel}`,
+                icon: <EditOutlined />,
+                onClick: () => openEdit(t),
+                className: 'mt-act-edit',
+              },
+              {
+                key: 'toggle',
+                label: t.status === 'ACTIVE' ? 'Deactivate target' : 'Activate target',
+                icon: t.status === 'ACTIVE' ? <StopOutlined /> : <CheckCircleOutlined />,
+                onClick: () => handleStatusToggle(t),
+                className: t.status === 'ACTIVE' ? 'mt-act-deactivate' : 'mt-act-activate',
+              },
+              {
+                key: 'delete',
+                label: 'Delete target',
+                icon: <DeleteOutlined />,
+                danger: true,
+                className: 'mt-act-delete',
+                confirm: {
+                  title: `Delete target for '${machineLabel}'?`,
+                  description: 'The record is soft-deleted and hidden from lists.',
+                  onConfirm: () => handleDelete(t),
                 },
-                {
-                  key: 'edit',
-                  label: `Edit target — ${machineLabel}`,
-                  icon: <EditOutlined />,
-                  onClick: () => openEdit(t),
-                },
-                {
-                  key: 'toggle',
-                  label: t.status === 'ACTIVE' ? 'Deactivate target' : 'Activate target',
-                  icon: t.status === 'ACTIVE' ? <StopOutlined /> : <CheckCircleOutlined />,
-                  onClick: () => handleStatusToggle(t),
-                },
-                {
-                  key: 'delete',
-                  label: 'Delete target',
-                  icon: <DeleteOutlined />,
-                  danger: true,
-                  confirm: {
-                    title: `Delete target for '${machineLabel}'?`,
-                    description: 'The record is soft-deleted and hidden from lists.',
-                    onConfirm: () => handleDelete(t),
-                  },
-                },
-              ]}
-            />
-          </div>
+              },
+            ]}
+          />
         );
       },
     },
