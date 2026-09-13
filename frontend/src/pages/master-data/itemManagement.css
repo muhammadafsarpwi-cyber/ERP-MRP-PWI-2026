@@ -1,0 +1,340 @@
+/* =====================================================================
+   2027 Enterprise Model — Item Master & Import System
+   ===================================================================== */
+
+/* 2027 Model System Badge in Header */
+.item-model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #6366f1;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* =====================================================================
+   Crystal KPI Cards (Frosted Glassmorphism with Luminous Sheen)
+   ===================================================================== */
+
+.item-crystal-kpi-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.68) 100%) !important;
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 10px 25px -5px rgba(15, 23, 42, 0.06),
+    0 8px 10px -6px rgba(15, 23, 42, 0.04),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9) !important;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+[data-theme='dark'] .item-crystal-kpi-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.7) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 12px 30px -5px rgba(0, 0, 0, 0.35),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+.item-crystal-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 32px -8px rgba(99, 102, 241, 0.14),
+    0 8px 12px -6px rgba(15, 23, 42, 0.05),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 1) !important;
+  border-color: rgba(165, 180, 252, 0.8) !important;
+}
+
+/* =====================================================================
+   Import Items Modal — Enhanced UX & Error Triage
+   ===================================================================== */
+
+/* Error Highlighted Rows */
+.import-table-row-invalid {
+  background-color: rgba(254, 242, 242, 0.7) !important;
+}
+
+[data-theme='dark'] .import-table-row-invalid {
+  background-color: rgba(127, 29, 29, 0.25) !important;
+}
+
+.import-table-row-duplicate {
+  background-color: rgba(254, 252, 232, 0.7) !important;
+}
+
+[data-theme='dark'] .import-table-row-duplicate {
+  background-color: rgba(113, 63, 18, 0.25) !important;
+}
+
+/* Big, Touch-Friendly Pagination */
+.import-preview-pagination {
+  margin-top: 14px;
+}
+
+.import-preview-pagination .ant-pagination-item,
+.import-preview-pagination .ant-pagination-prev,
+.import-preview-pagination .ant-pagination-next {
+  min-width: 38px !important;
+  height: 38px !important;
+  line-height: 36px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+}
+
+.import-preview-pagination .ant-pagination-item-active {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
+  border-color: transparent !important;
+}
+
+.import-preview-pagination .ant-pagination-item-active a {
+  color: #ffffff !important;
+}
+
+/* Filter Segmented Bar in Import Modal */
+.import-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: rgba(248, 250, 252, 0.85);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+[data-theme='dark'] .import-filter-bar {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* =====================================================================
+   Minimized Import Modal Floating Dock Tab
+   ===================================================================== */
+
+.minimized-import-dock {
+  position: fixed;
+  bottom: 20px;
+  right: 24px;
+  z-index: 1060;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1.5px solid rgba(99, 102, 241, 0.4);
+  border-radius: 14px;
+  box-shadow: 0 12px 28px -4px rgba(79, 70, 229, 0.3), 0 4px 10px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #1e293b;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+[data-theme='dark'] .minimized-import-dock {
+  background: rgba(30, 41, 59, 0.94);
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.6);
+  color: #f1f5f9;
+}
+
+.minimized-import-dock:hover {
+  transform: translateY(-3px);
+  border-color: #6366f1;
+  box-shadow: 0 16px 32px -4px rgba(79, 70, 229, 0.4);
+}
+
+.minimized-import-pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+  animation: importPulseDot 2s infinite;
+}
+
+@keyframes importPulseDot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+
+.minimized-import-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #94a3b8;
+  transition: all 0.15s ease;
+  margin-left: 6px;
+}
+
+.minimized-import-close:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* =====================================================================
+   Real-Time Import Progress Card & Ambient Flowing Progress Bar
+   ===================================================================== */
+
+.import-live-progress-card {
+  position: relative;
+  margin: 16px 0;
+  padding: 24px 28px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 16px;
+  box-shadow: 0 16px 36px -8px rgba(79, 70, 229, 0.12), 0 4px 12px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+[data-theme='dark'] .import-live-progress-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.5);
+}
+
+.import-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.import-progress-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.import-progress-pulse-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.25);
+  animation: importProgressPulse 1.6s infinite ease-in-out;
+  flex-shrink: 0;
+}
+
+@keyframes importProgressPulse {
+  0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1.08); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.import-progress-large-percent {
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, #4f46e5 0%, #10b981 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.import-progress-large-percent span {
+  font-size: 20px;
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+.import-progress-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.import-metric-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(241, 245, 249, 0.75);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 10px;
+}
+
+[data-theme='dark'] .import-metric-chip {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.import-metric-chip .metric-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.import-metric-chip .metric-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--theme-text-muted);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.import-metric-chip .metric-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--theme-text);
+  margin-top: 2px;
+  line-height: 1.2;
+}
+
+/* Animated Ambient Flowing Line */
+.import-progress-ambient-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  background: rgba(99, 102, 241, 0.12);
+  border-radius: 2px;
+  margin-top: 18px;
+  overflow: hidden;
+}
+
+.import-progress-ambient-glow {
+  position: relative;
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5 0%, #06b6d4 50%, #10b981 100%);
+  border-radius: 2px;
+  transition: width 0.25s ease-out;
+}
+
+.import-progress-ambient-glow::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.8) 50%, transparent 100%);
+  animation: ambientShimmer 1.8s infinite;
+}
+
+@keyframes ambientShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+

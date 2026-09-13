@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom';
 import {
   Alert, App, Badge, Button, Card, Col, Descriptions, Dropdown, Form, Grid, Input,
-  InputNumber, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
+  InputNumber, Modal, Popconfirm, Progress, Row, Segmented, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import {
   ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DollarOutlined, DownloadOutlined, EditOutlined,
@@ -10,6 +10,7 @@ import {
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined, CloseCircleOutlined,
   ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
   BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
+  MinusOutlined, WarningOutlined, TagOutlined, SyncOutlined, UploadOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
@@ -30,6 +31,7 @@ import {
 import InputMaterialSelect from './items/InputMaterialSelect';
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
+import './itemManagement.css';
 
 const { Text } = Typography;
 
@@ -240,9 +242,10 @@ const KpiCard: React.FC<KpiCardProps> = ({
 }) => (
   <Card
     size="small"
+    className="item-crystal-kpi-card"
     data-testid={testId}
-    styles={{ body: { padding: '10px 12px' } }}
-    style={{ position: 'relative', overflow: 'hidden', borderRadius: 8, borderLeft: `3px solid ${tone}` }}
+    styles={{ body: { padding: '12px 14px' } }}
+    style={{ position: 'relative', overflow: 'hidden', borderLeft: `3.5px solid ${tone}` }}
   >
     <Icon
       aria-hidden="true"
@@ -424,11 +427,28 @@ const ItemManagement: React.FC = () => {
   const [importOpen, setImportOpen] = useState(false);
   const [importFileName, setImportFileName] = useState<string | null>(null);
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [rawImportData, setRawImportData] = useState<Array<Record<string, string>>>([]);
+  const [importFilter, setImportFilter] = useState<'ALL' | 'INVALID' | 'DUPLICATE' | 'VALID'>('ALL');
+  const [importPage, setImportPage] = useState<number>(1);
+  const [importPageSize, setImportPageSize] = useState<number>(20);
+  const [showErrorsFirst, setShowErrorsFirst] = useState<boolean>(true);
+  const [isImportMinimized, setIsImportMinimized] = useState<boolean>(false);
+  const reuploadInputRef = useRef<HTMLInputElement>(null);
   const [importSummary, setImportSummary] = useState<{
     total: number; valid: number; invalid: number; duplicate: number;
     imported: number; failed: number; skipped: number; errors: string[];
   } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{
+    current: number;
+    total: number;
+    percent: number;
+    currentCode: string;
+    successCount: number;
+    failCount: number;
+    speed: number;
+    estimatedSecondsRemaining: number;
+  } | null>(null);
 
   // Barcode Scanner & Print state
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -1615,6 +1635,40 @@ const ItemManagement: React.FC = () => {
     return { payload, errors: [], duplicate: false };
   };
 
+  const validateRowsList = async (rawRows: Array<Record<string, string>>, fileName?: string) => {
+    let existingCodes = new Set<string>();
+    try {
+      const res = await apiService.get<{ data: Array<{ itemCode: string }> }>('/master-data/items', { page: 1, limit: 10000 });
+      existingCodes = new Set((res.data || []).map((i) => i.itemCode.toUpperCase()));
+    } catch {
+      message.warning('Could not verify existing item codes before import.');
+    }
+
+    const seenCodes = new Set<string>();
+    const validated: ImportRow[] = rawRows.map((data, idx) => {
+      const result = validateImportRow(data, seenCodes, existingCodes);
+      if (result.payload) seenCodes.add((data['itemCode'] ?? '').toUpperCase());
+      return {
+        rowNumber: idx + 2,
+        data,
+        payload: result.payload,
+        status: result.errors.length > 0 ? (result.duplicate ? 'DUPLICATE' : 'INVALID') : 'VALID',
+        errors: result.errors,
+      };
+    });
+
+    if (fileName) setImportFileName(fileName);
+    setRawImportData(rawRows);
+    setImportRows(validated);
+    setImportSummary(null);
+    setImportPage(1);
+
+    const invalidCount = validated.filter((r) => r.status === 'INVALID').length;
+    if (invalidCount > 0) {
+      setShowErrorsFirst(true);
+    }
+  };
+
   const handleImportFile = async (file: File) => {
     if (!companyId) {
       message.error('No company context available. Cannot import.');
@@ -1636,37 +1690,88 @@ const ItemManagement: React.FC = () => {
       return false;
     }
 
-    let existingCodes = new Set<string>();
-    try {
-      const res = await apiService.get<{ data: Array<{ itemCode: string }> }>('/master-data/items', { page: 1, limit: 10000 });
-      existingCodes = new Set((res.data || []).map((i) => i.itemCode.toUpperCase()));
-    } catch {
-      message.warning('Could not verify existing item codes before import.');
-    }
-
-    const seenCodes = new Set<string>();
-    const validated: ImportRow[] = parsed.slice(1).map((cells, idx) => {
+    const rawRows = parsed.slice(1).map((cells) => {
       const data: Record<string, string> = {};
       header.forEach((h, i) => {
         const val = cells[i] ?? '';
         data[h] = val;
         data[h.toLowerCase().replace(/[\s_-]+/g, '')] = val;
       });
-      const result = validateImportRow(data, seenCodes, existingCodes);
-      if (result.payload) seenCodes.add((data['itemCode'] ?? '').toUpperCase());
-      return {
-        rowNumber: idx + 2,
-        data,
-        payload: result.payload,
-        status: result.errors.length > 0 ? (result.duplicate ? 'DUPLICATE' : 'INVALID') : 'VALID',
-        errors: result.errors,
-      };
+      return data;
     });
 
-    setImportFileName(file.name);
-    setImportRows(validated);
-    setImportSummary(null);
+    await validateRowsList(rawRows, file.name);
     return false;
+  };
+
+  const revalidateImportRows = async () => {
+    if (rawImportData.length === 0) {
+      message.info('No import data to re-validate.');
+      return;
+    }
+    message.loading({ content: 'Re-validating items against master data…', key: 'revalidate' });
+    await validateRowsList(rawImportData);
+    message.success({ content: 'Re-validation complete!', key: 'revalidate' });
+  };
+
+  const handleReuploadSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleImportFile(file);
+    if (reuploadInputRef.current) {
+      reuploadInputRef.current.value = '';
+    }
+  };
+
+  const downloadErrorReport = () => {
+    const problematic = importRows.filter((r) => r.status !== 'VALID');
+    if (problematic.length === 0) {
+      message.info('No errors or duplicates found!');
+      return;
+    }
+    const headers = ['Row Number', 'Item Code', 'Item Name', 'Item Type', 'UOM Code', 'Status', 'Errors / Issues'];
+    const rows = problematic.map((r) => [
+      r.rowNumber,
+      r.data['itemCode'] || '',
+      r.data['name'] || '',
+      r.data['itemType'] || '',
+      r.data['uomCode'] || '',
+      r.status,
+      r.errors.join('; '),
+    ]);
+    const csvContent = toCsv(headers, rows);
+    const baseName = importFileName ? importFileName.replace(/\.[^/.]+$/, '') : 'item-import';
+    downloadText(`${baseName}-error-report.csv`, csvContent);
+    message.success(`Downloaded error report for ${problematic.length} row(s)`);
+  };
+
+  const filteredImportRows = useMemo(() => {
+    let list = [...importRows];
+    if (importFilter === 'INVALID') {
+      list = list.filter((r) => r.status === 'INVALID');
+    } else if (importFilter === 'DUPLICATE') {
+      list = list.filter((r) => r.status === 'DUPLICATE');
+    } else if (importFilter === 'VALID') {
+      list = list.filter((r) => r.status === 'VALID');
+    }
+
+    if (showErrorsFirst && importFilter === 'ALL') {
+      list.sort((a, b) => {
+        const order = { INVALID: 0, DUPLICATE: 1, VALID: 2 };
+        const diff = (order[a.status] ?? 2) - (order[b.status] ?? 2);
+        if (diff !== 0) return diff;
+        return a.rowNumber - b.rowNumber;
+      });
+    }
+    return list;
+  }, [importRows, importFilter, showErrorsFirst]);
+
+  const formatRemainingTime = (secs: number): string => {
+    if (secs <= 0 || !isFinite(secs)) return 'Almost done…';
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    const remSecs = secs % 60;
+    return `${mins}m ${remSecs}s`;
   };
 
   const runImport = async () => {
@@ -1676,7 +1781,23 @@ const ItemManagement: React.FC = () => {
     let imported = 0;
     let failed = 0;
     const errors: string[] = [];
-    for (const row of validRows) {
+    const totalCount = validRows.length;
+    const startTime = Date.now();
+
+    // Set initial 0% progress
+    setImportProgress({
+      current: 0,
+      total: totalCount,
+      percent: 0,
+      currentCode: (validRows[0]?.data?.['itemCode'] as string) || '',
+      successCount: 0,
+      failCount: 0,
+      speed: 0,
+      estimatedSecondsRemaining: 0,
+    });
+
+    for (let i = 0; i < validRows.length; i++) {
+      const row = validRows[i];
       try {
         await apiService.post('/master-data/items', row.payload);
         imported += 1;
@@ -1684,7 +1805,26 @@ const ItemManagement: React.FC = () => {
         failed += 1;
         errors.push(`Row ${row.rowNumber} (${row.data['itemCode']}): ${err?.response?.data?.message || 'failed'}`);
       }
+
+      const processed = i + 1;
+      const elapsedSec = Math.max((Date.now() - startTime) / 1000, 0.05);
+      const currentSpeed = Math.max(1, Math.round(processed / elapsedSec));
+      const remainingItems = totalCount - processed;
+      const estSec = Math.max(0, Math.round(remainingItems / currentSpeed));
+      const percent = Math.min(100, Math.floor((processed / totalCount) * 100));
+
+      setImportProgress({
+        current: processed,
+        total: totalCount,
+        percent,
+        currentCode: (row.data['itemCode'] as string) || '',
+        successCount: imported,
+        failCount: failed,
+        speed: currentSpeed,
+        estimatedSecondsRemaining: estSec,
+      });
     }
+
     setImporting(false);
     setImportSummary({
       total: importRows.length,
@@ -1701,9 +1841,14 @@ const ItemManagement: React.FC = () => {
 
   const closeImport = () => {
     setImportOpen(false);
+    setIsImportMinimized(false);
     setImportRows([]);
+    setRawImportData([]);
     setImportSummary(null);
+    setImportProgress(null);
     setImportFileName(null);
+    setImportFilter('ALL');
+    setImportPage(1);
   };
 
   const convChips = (r: Item): string[] => {
@@ -1733,7 +1878,8 @@ const ItemManagement: React.FC = () => {
 
   const columns: ColumnsType<Item> = [
     {
-      title: 'Item Code', dataIndex: 'itemCode', key: 'itemCode', width: 110, fixed: 'left',
+      title: <Space size={5}><TagOutlined aria-hidden="true" /><span>Item Code</span></Space>,
+      dataIndex: 'itemCode', key: 'itemCode', width: 120, fixed: 'left',
       sorter: true,
       render: (v: string, r: Item) => (
         <Button
@@ -1748,7 +1894,8 @@ const ItemManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Item Name', dataIndex: 'name', key: 'name', width: 210, ellipsis: { showTitle: true },
+      title: <Space size={5}><AppstoreOutlined aria-hidden="true" /><span>Item Name</span></Space>,
+      dataIndex: 'name', key: 'name', width: 210, ellipsis: { showTitle: true },
       sorter: true,
       render: (_: unknown, r: Item) => (
         <Tooltip title={r.name}>
@@ -1760,7 +1907,8 @@ const ItemManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Division / Section', key: 'divisionSection', width: 150,
+      title: <Space size={5}><ApartmentOutlined aria-hidden="true" /><span>Division / Section</span></Space>,
+      key: 'divisionSection', width: 160,
       render: (_: unknown, r: Item) => {
         const d = divisionName(r);
         const s = sectionName(r);
@@ -1777,11 +1925,13 @@ const ItemManagement: React.FC = () => {
       },
     },
     {
-      title: 'Department', key: 'department', width: 130, ellipsis: true,
+      title: <Space size={5}><FolderOutlined aria-hidden="true" /><span>Department</span></Space>,
+      key: 'department', width: 140, ellipsis: true,
       render: (_: unknown, r: Item) => departmentName(r) ?? <Text type="secondary">—</Text>,
     },
     {
-      title: 'Wire / Dia · Length', key: 'wireDiaLength', width: 120, align: 'right',
+      title: <Space size={5}><ToolOutlined aria-hidden="true" /><span>Wire / Dia · Length</span></Space>,
+      key: 'wireDiaLength', width: 130, align: 'right',
       sorter: (a: Item, b: Item) => (Number(a.diameterMm ?? a.wireSizeMm ?? 0) - Number(b.diameterMm ?? b.wireSizeMm ?? 0)),
       render: (_: unknown, r: Item) => {
         const dia = r.diameterMm != null ? r.diameterMm : r.wireSizeMm;
@@ -1806,7 +1956,8 @@ const ItemManagement: React.FC = () => {
       },
     },
     {
-      title: 'Flat Spec (mm)', key: 'flatSpec', width: 110, align: 'right',
+      title: <Space size={5}><BuildOutlined aria-hidden="true" /><span>Flat Spec (mm)</span></Space>,
+      key: 'flatSpec', width: 120, align: 'right',
       render: (_: unknown, r: Item) => {
         const t = r.thicknessMm;
         const w = r.widthMm;
@@ -1817,14 +1968,16 @@ const ItemManagement: React.FC = () => {
       },
     },
     {
-      title: 'Item Type', dataIndex: 'itemType', key: 'itemType', width: 120,
+      title: <Space size={5}><ProjectOutlined aria-hidden="true" /><span>Item Type</span></Space>,
+      dataIndex: 'itemType', key: 'itemType', width: 130,
       render: (v: string) => {
         const label = typeName(v);
         return <Tag style={{ marginInlineEnd: 0 }}>{label}</Tag>;
       },
     },
     {
-      title: 'Route', dataIndex: 'routeType', key: 'routeType', width: 140,
+      title: <Space size={5}><ArrowRightOutlined aria-hidden="true" /><span>Route</span></Space>,
+      dataIndex: 'routeType', key: 'routeType', width: 140,
       sorter: true,
       render: (v: string | null, r: Item) => {
         const label = routeTypeLabel(r);
@@ -1832,7 +1985,8 @@ const ItemManagement: React.FC = () => {
       },
     },
     {
-      title: 'UOM / Conversion', key: 'uom', width: 130,
+      title: <Space size={5}><DatabaseOutlined aria-hidden="true" /><span>UOM / Conversion</span></Space>,
+      key: 'uom', width: 140,
       render: (_: unknown, r: Item) => (
         <div>
           <div style={{ fontSize: 13, lineHeight: 1.3 }}>{r.baseUomName ?? '—'}</div>
@@ -1843,14 +1997,16 @@ const ItemManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 80,
+      title: <Space size={5}><CheckCircleOutlined aria-hidden="true" /><span>Status</span></Space>,
+      dataIndex: 'status', key: 'status', width: 90,
       sorter: true,
       render: (s: string) => (
         <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 60, textAlign: 'center' }} />
       ),
     },
     {
-      title: 'Actions', key: 'actions', width: 210, fixed: 'right',
+      title: <Space size={5}><SettingOutlined aria-hidden="true" /><span>Actions</span></Space>,
+      key: 'actions', width: 210, fixed: 'right',
       render: (_: unknown, record: Item) => (
         <Space size={6}>
           {can('item.view') && (
@@ -1962,7 +2118,12 @@ const ItemManagement: React.FC = () => {
     <div style={{ padding: '4px 6px', width: '100%' }}>
       <PageHeader
         icon={<AppstoreOutlined />}
-        title="Products & Items"
+        title={
+          <Space align="center" size={10}>
+            <span>Products & Items</span>
+            <span className="item-model-badge">Enterprise 2027</span>
+          </Space>
+        }
         subtitle="Manage your item master data — raw materials, finished goods, and production items"
         showBreadcrumbs
         style={{ marginBottom: 8 }}
@@ -3785,31 +3946,73 @@ const ItemManagement: React.FC = () => {
       </DraggableResizableModal>
 
       <DraggableResizableModal
-        open={importOpen}
+        open={importOpen && !isImportMinimized}
         onCancel={closeImport}
-        width={960}
-        height={620}
+        width={1020}
+        height={660}
         footer={
           importSummary ? (
             <Button type="primary" onClick={closeImport}>Done</Button>
+          ) : importing ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+              <span style={{ fontSize: 13, color: 'var(--theme-text-muted, #64748b)' }}>
+                Import in progress… please do not close the browser tab.
+              </span>
+              <Button onClick={() => setIsImportMinimized(true)}>
+                Minimize to Dock
+              </Button>
+            </div>
           ) : importRows.length > 0 ? (
-            [
-              <Button key="back" onClick={() => { setImportRows([]); setImportFileName(null); }}>Choose another file</Button>,
-              <Button
-                key="import"
-                type="primary"
-                disabled={importRows.every((r) => r.status !== 'VALID')}
-                loading={importing}
-                onClick={runImport}
-              >
-                Import {importRows.filter((r) => r.status === 'VALID').length} valid row(s)
-              </Button>,
-            ]
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+              <Space size={8}>
+                <Button key="back" onClick={() => { setImportRows([]); setRawImportData([]); setImportFileName(null); setImportFilter('ALL'); }}>
+                  Choose another file
+                </Button>
+                {importRows.some((r) => r.status !== 'VALID') && (
+                  <Button icon={<DownloadOutlined />} onClick={downloadErrorReport}>
+                    Download Errors ({importRows.filter((r) => r.status !== 'VALID').length})
+                  </Button>
+                )}
+              </Space>
+              <Space size={8}>
+                <Button onClick={closeImport}>Cancel</Button>
+                <Button
+                  key="import"
+                  type="primary"
+                  disabled={importRows.every((r) => r.status !== 'VALID')}
+                  loading={importing}
+                  onClick={runImport}
+                >
+                  Import {importRows.filter((r) => r.status === 'VALID').length} valid row(s)
+                </Button>
+              </Space>
+            </div>
           ) : (
             <Button type="primary" onClick={closeImport}>Close</Button>
           )
         }
-        title={<Space><ImportOutlined /> Import Items</Space>}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingRight: 28 }}>
+            <Space size={8}>
+              <ImportOutlined style={{ color: 'var(--theme-accent, #4f46e5)' }} />
+              <span style={{ fontWeight: 700, fontSize: 16 }}>Import Items Master</span>
+              <span className="item-model-badge">2027 UX</span>
+            </Space>
+            <Space size={6}>
+              <Tooltip title="Minimize to dock (keeps file open in background)">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<MinusOutlined />}
+                  title="Minimize to dock (keeps file open in background)"
+                  aria-label="Minimize to dock"
+                  onClick={() => setIsImportMinimized(true)}
+                  style={{ borderRadius: 6 }}
+                />
+              </Tooltip>
+            </Space>
+          </div>
+        }
       >
         {importRows.length === 0 && !importSummary && (
           <div style={{ padding: '8px 0' }}>
@@ -3844,62 +4047,327 @@ const ItemManagement: React.FC = () => {
           </div>
         )}
 
-        {importRows.length > 0 && !importSummary && (
+        {importRows.length > 0 && !importSummary && !importing && (
           <div>
-            <Alert
-              type="info"
-              showIcon
-              message={`Preview: ${importFileName}`}
-              description={
-                <span>
-                  Total rows: <b>{importRows.length}</b> ·{' '}
-                  Valid: <b style={{ color: '#1a7f37' }}>{importRows.filter((r) => r.status === 'VALID').length}</b> ·{' '}
-                  Duplicates: <b style={{ color: '#b9770e' }}>{importRows.filter((r) => r.status === 'DUPLICATE').length}</b> ·{' '}
-                  Invalid: <b style={{ color: '#c0392b' }}>{importRows.filter((r) => r.status === 'INVALID').length}</b>
-                </span>
-              }
-              style={{ marginBottom: 12 }}
-            />
-            <Table
-              rowKey="rowNumber"
-              size="small"
-              dataSource={importRows}
-              pagination={{ pageSize: 8, showSizeChanger: false }}
-              columns={[
-                { title: 'Row', dataIndex: 'rowNumber', width: 60 },
-                {
-                  title: 'Item Code', width: 150,
-                  render: (_: unknown, r: ImportRow) => <b>{r.data['itemCode']}</b>,
-                },
-                { title: 'Name', width: 180, ellipsis: true, render: (_: unknown, r: ImportRow) => r.data['name'] },
-                { title: 'Type', width: 120, render: (_: unknown, r: ImportRow) => r.data['itemType'] },
-                { title: 'UOM', width: 70, render: (_: unknown, r: ImportRow) => r.data['uomCode'] },
-                {
-                  title: 'Result', width: 110,
-                  render: (_: unknown, r: ImportRow) => {
-                    if (r.status === 'VALID') return <Tag color="success">Valid</Tag>;
-                    if (r.status === 'DUPLICATE') return <Tag color="warning">Duplicate</Tag>;
-                    return <Tag color="error">Invalid</Tag>;
-                  },
-                },
-                {
-                  title: 'Details',
-                  render: (_: unknown, r: ImportRow) =>
-                    r.errors.length > 0 ? (
-                      <Text type="danger" style={{ fontSize: 12 }}>{r.errors.join('; ')}</Text>
-                    ) : (
-                      <Text type="secondary" style={{ fontSize: 12 }}>Ready to import</Text>
-                    ),
-                },
-              ]}
-            />
+            {(() => {
+              const validCount = importRows.filter((r) => r.status === 'VALID').length;
+              const dupCount = importRows.filter((r) => r.status === 'DUPLICATE').length;
+              const invalidCount = importRows.filter((r) => r.status === 'INVALID').length;
+
+              return (
+                <>
+                  <Alert
+                    type={invalidCount > 0 ? 'warning' : 'info'}
+                    showIcon
+                    message={
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                        <span>
+                          Preview: <strong>{importFileName}</strong>
+                        </span>
+                        {invalidCount > 0 && importFilter !== 'INVALID' && (
+                          <Button
+                            size="small"
+                            danger
+                            type="primary"
+                            onClick={() => { setImportFilter('INVALID'); setImportPage(1); }}
+                          >
+                            Focus on {invalidCount} Invalid Row{invalidCount > 1 ? 's' : ''}
+                          </Button>
+                        )}
+                      </div>
+                    }
+                    description={
+                      <span>
+                        Total rows: <b>{importRows.length}</b> ·{' '}
+                        Valid: <b style={{ color: '#1a7f37' }}>{validCount}</b> ·{' '}
+                        Duplicates: <b style={{ color: '#b9770e' }}>{dupCount}</b> ·{' '}
+                        Invalid: <b style={{ color: '#c0392b' }}>{invalidCount}</b>
+                        {invalidCount > 0 && (
+                          <span style={{ marginLeft: 8, color: '#c0392b', fontWeight: 500 }}>
+                            — Errors highlighted below. Select "Failed / Invalid" to isolate them.
+                          </span>
+                        )}
+                      </span>
+                    }
+                    style={{ marginBottom: 12 }}
+                  />
+
+                  {/* Filter & Triage Bar */}
+                  <div className="import-filter-bar">
+                    <Space wrap size={10}>
+                      <Segmented
+                        value={importFilter}
+                        onChange={(val) => {
+                          setImportFilter(val as any);
+                          setImportPage(1);
+                        }}
+                        options={[
+                          {
+                            label: (
+                              <Space size={4}>
+                                <AppstoreOutlined />
+                                <span>All ({importRows.length})</span>
+                              </Space>
+                            ),
+                            value: 'ALL',
+                          },
+                          {
+                            label: (
+                              <Space size={4}>
+                                <CloseCircleOutlined style={{ color: '#ef4444' }} />
+                                <span style={{ color: invalidCount > 0 ? '#ef4444' : undefined, fontWeight: invalidCount > 0 ? 700 : undefined }}>
+                                  Failed / Invalid ({invalidCount})
+                                </span>
+                              </Space>
+                            ),
+                            value: 'INVALID',
+                          },
+                          {
+                            label: (
+                              <Space size={4}>
+                                <WarningOutlined style={{ color: '#f59e0b' }} />
+                                <span>Duplicates ({dupCount})</span>
+                              </Space>
+                            ),
+                            value: 'DUPLICATE',
+                          },
+                          {
+                            label: (
+                              <Space size={4}>
+                                <CheckCircleOutlined style={{ color: '#10b981' }} />
+                                <span>Valid ({validCount})</span>
+                              </Space>
+                            ),
+                            value: 'VALID',
+                          },
+                        ]}
+                      />
+                      {importFilter === 'ALL' && (
+                        <Tooltip title="When enabled, faulty rows are pinned to page 1 so you don't have to scroll hundreds of pages">
+                          <Switch
+                            checked={showErrorsFirst}
+                            onChange={setShowErrorsFirst}
+                            checkedChildren="Errors First"
+                            unCheckedChildren="File Order"
+                            size="small"
+                          />
+                        </Tooltip>
+                      )}
+                    </Space>
+                    <Space wrap size={8}>
+                      {invalidCount > 0 && (
+                        <Button
+                          danger
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          onClick={downloadErrorReport}
+                        >
+                          Download Errors ({invalidCount})
+                        </Button>
+                      )}
+                      <Tooltip title="Re-run validation against master data">
+                        <Button
+                          size="small"
+                          icon={<SyncOutlined />}
+                          onClick={revalidateImportRows}
+                        >
+                          Re-validate
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title="Upload an updated or corrected CSV file">
+                        <Button
+                          size="small"
+                          icon={<UploadOutlined />}
+                          onClick={() => reuploadInputRef.current?.click()}
+                        >
+                          Replace File
+                        </Button>
+                      </Tooltip>
+                    </Space>
+                  </div>
+
+                  <Table
+                    rowKey="rowNumber"
+                    size="small"
+                    dataSource={filteredImportRows}
+                    rowClassName={(r) => {
+                      if (r.status === 'INVALID') return 'import-table-row-invalid';
+                      if (r.status === 'DUPLICATE') return 'import-table-row-duplicate';
+                      return '';
+                    }}
+                    pagination={{
+                      current: importPage,
+                      pageSize: importPageSize,
+                      pageSizeOptions: ['10', '20', '50', '100', '250', '500'],
+                      showSizeChanger: true,
+                      showQuickJumper: true,
+                      className: 'import-preview-pagination',
+                      onChange: (p, ps) => {
+                        setImportPage(p);
+                        setImportPageSize(ps);
+                      },
+                      showTotal: (totalCount, range) => (
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>
+                          Showing {range[0]}–{range[1]} of <b>{totalCount}</b> {importFilter !== 'ALL' ? `${importFilter.toLowerCase()} ` : ''}rows
+                        </span>
+                      ),
+                    }}
+                    columns={[
+                      {
+                        title: <Space size={4}><FileTextOutlined /><span>Row</span></Space>,
+                        dataIndex: 'rowNumber',
+                        width: 75,
+                        render: (n: number, r: ImportRow) => (
+                          <span style={{ fontWeight: r.status !== 'VALID' ? 700 : 400, color: r.status === 'INVALID' ? '#dc2626' : undefined }}>
+                            #{n}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: <Space size={4}><TagOutlined /><span>Item Code</span></Space>,
+                        width: 150,
+                        render: (_: unknown, r: ImportRow) => (
+                          <b style={{ color: r.status === 'INVALID' ? '#dc2626' : undefined }}>
+                            {r.data['itemCode'] || <Text type="danger">(empty)</Text>}
+                          </b>
+                        ),
+                      },
+                      {
+                        title: <Space size={4}><AppstoreOutlined /><span>Name</span></Space>,
+                        width: 180,
+                        ellipsis: true,
+                        render: (_: unknown, r: ImportRow) => r.data['name'] || <Text type="danger">(empty)</Text>,
+                      },
+                      {
+                        title: <Space size={4}><ProjectOutlined /><span>Type</span></Space>,
+                        width: 130,
+                        render: (_: unknown, r: ImportRow) => r.data['itemType'] || '—',
+                      },
+                      {
+                        title: <Space size={4}><DatabaseOutlined /><span>UOM</span></Space>,
+                        width: 80,
+                        render: (_: unknown, r: ImportRow) => r.data['uomCode'] || '—',
+                      },
+                      {
+                        title: <Space size={4}><CheckCircleOutlined /><span>Result</span></Space>,
+                        width: 110,
+                        render: (_: unknown, r: ImportRow) => {
+                          if (r.status === 'VALID') return <Tag color="success">Valid</Tag>;
+                          if (r.status === 'DUPLICATE') return <Tag color="warning">Duplicate</Tag>;
+                          return <Tag color="error">Invalid</Tag>;
+                        },
+                      },
+                      {
+                        title: <Space size={4}><WarningOutlined /><span>Details / Error Description</span></Space>,
+                        render: (_: unknown, r: ImportRow) =>
+                          r.errors.length > 0 ? (
+                            <div style={{ color: '#dc2626', fontSize: 12.5, fontWeight: 500 }}>
+                              {r.errors.map((err, i) => (
+                                <div key={i}>• {err}</div>
+                              ))}
+                            </div>
+                          ) : (
+                            <Text type="secondary" style={{ fontSize: 12 }}>Ready to import</Text>
+                          ),
+                      },
+                    ]}
+                  />
+                </>
+              );
+            })()}
           </div>
         )}
 
         {importing && (
-          <div style={{ textAlign: 'center', padding: 32 }}>
-            <Spin size="large" />
-            <div style={{ marginTop: 12 }}>Importing items… this may take a moment.</div>
+          <div className="import-live-progress-card">
+            <div className="import-progress-header">
+              <div className="import-progress-title-wrap">
+                <div className="import-progress-pulse-dot" />
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--theme-text, #1e293b)' }}>
+                    Uploading & Importing Items Master…
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--theme-text-muted, #64748b)', marginTop: 2 }}>
+                    Processing row <b>{importProgress?.current ?? 0}</b> of <b>{importProgress?.total ?? importRows.filter((r) => r.status === 'VALID').length}</b>
+                    {importProgress?.currentCode && (
+                      <span style={{ marginLeft: 8, fontFamily: 'monospace', color: '#4f46e5' }}>
+                        [{importProgress.currentCode}]
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="import-progress-large-percent">
+                {importProgress?.percent ?? 0}<span>%</span>
+              </div>
+            </div>
+
+            {/* Ant Design Live Active Progress Bar with Gradient */}
+            <div style={{ marginTop: 16 }}>
+              <Progress
+                percent={importProgress?.percent ?? 0}
+                status="active"
+                strokeColor={{
+                  '0%': '#4f46e5',
+                  '50%': '#3b82f6',
+                  '100%': '#10b981',
+                }}
+                size={['100%', 14]}
+                showInfo={false}
+              />
+            </div>
+
+            {/* Continuous Ambient Flowing Shimmer Line */}
+            <div className="import-progress-ambient-track" title="Continuous Real-time Flow Indicator">
+              <div
+                className="import-progress-ambient-glow"
+                style={{ width: `${Math.max(importProgress?.percent ?? 3, 3)}%` }}
+              />
+            </div>
+
+            {/* Metrics Row: Time Remaining, Speed, Success, Failed */}
+            <div className="import-progress-metrics-row">
+              <div className="import-metric-chip">
+                <span className="metric-icon">⏱️</span>
+                <div>
+                  <div className="metric-label">Estimated Time</div>
+                  <div className="metric-val" style={{ color: '#4f46e5' }}>
+                    {formatRemainingTime(importProgress?.estimatedSecondsRemaining ?? 0)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="import-metric-chip">
+                <span className="metric-icon">⚡</span>
+                <div>
+                  <div className="metric-label">Import Speed</div>
+                  <div className="metric-val" style={{ color: '#0284c7' }}>
+                    ~{importProgress?.speed ?? 0} items/sec
+                  </div>
+                </div>
+              </div>
+
+              <div className="import-metric-chip">
+                <span className="metric-icon">✅</span>
+                <div>
+                  <div className="metric-label">Imported</div>
+                  <div className="metric-val" style={{ color: '#16a34a' }}>
+                    {importProgress?.successCount ?? 0}
+                  </div>
+                </div>
+              </div>
+
+              <div className="import-metric-chip">
+                <span className="metric-icon">❌</span>
+                <div>
+                  <div className="metric-label">Failed</div>
+                  <div className="metric-val" style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }}>
+                    {importProgress?.failCount ?? 0}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -3935,6 +4403,59 @@ const ItemManagement: React.FC = () => {
           </div>
         )}
       </DraggableResizableModal>
+
+      {/* Hidden file input for file replacement / re-upload */}
+      <input
+        type="file"
+        ref={reuploadInputRef}
+        style={{ display: 'none' }}
+        accept=".csv,.txt"
+        onChange={handleReuploadSelect}
+      />
+
+      {/* Minimized Import Modal Floating Dock Tab */}
+      {importOpen && isImportMinimized && (
+        <div
+          className="minimized-import-dock"
+          onClick={() => setIsImportMinimized(false)}
+          role="button"
+          tabIndex={0}
+          title="Click to restore Import Items modal"
+        >
+          <div className="minimized-import-pulse" />
+          <Space size={8}>
+            <ImportOutlined style={{ color: '#4f46e5', fontSize: 16 }} />
+            <span>Import: <strong>{importFileName || 'Items CSV'}</strong></span>
+            {importing && importProgress ? (
+              <>
+                <Tag color="processing" style={{ fontWeight: 700, borderRadius: 6 }}>
+                  {importProgress.percent}% ({importProgress.current}/{importProgress.total})
+                </Tag>
+                <div style={{ width: 80, display: 'inline-block' }}>
+                  <Progress percent={importProgress.percent} size="small" showInfo={false} status="active" />
+                </div>
+              </>
+            ) : (
+              <>
+                <Tag color="blue">{importRows.length} rows</Tag>
+                {importRows.some((r) => r.status === 'INVALID') && (
+                  <Tag color="error">{importRows.filter((r) => r.status === 'INVALID').length} failed</Tag>
+                )}
+              </>
+            )}
+          </Space>
+          <span
+            className="minimized-import-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              closeImport();
+            }}
+            title="Discard and close import"
+          >
+            ×
+          </span>
+        </div>
+      )}
 
       {/* Barcode Scanner Modal */}
       <BarcodeScanner

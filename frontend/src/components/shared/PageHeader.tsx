@@ -5,7 +5,7 @@ import { useHeaderActions } from '../layout/headerActionsStore';
 
 interface PageHeaderProps {
   icon: React.ReactNode;
-  title: string;
+  title: string | React.ReactNode;
   subtitle?: string;
   extra?: React.ReactNode;
   gradient?: string;

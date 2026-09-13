@@ -226,6 +226,17 @@ export class PermissionMatrixService {
             roleGranted,
           };
         }
+
+        // Canonical CRUD fallback aliases
+        if (!cells['DELETE'] && cells['DEACTIVATE']) {
+          cells['DELETE'] = cells['DEACTIVATE'];
+        }
+        if (!cells['UPDATE'] && cells['EDIT']) {
+          cells['UPDATE'] = cells['EDIT'];
+        } else if (!cells['UPDATE'] && cells['MANAGE']) {
+          cells['UPDATE'] = cells['MANAGE'];
+        }
+
         rows.push({
           module: mod,
           resource,

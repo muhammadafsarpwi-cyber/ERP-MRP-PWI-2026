@@ -8,14 +8,14 @@ export interface HeaderAction {
 
 interface HeaderActionsState {
   actions: HeaderAction[];
-  title?: string;
+  title?: string | ReactNode;
   subtitle?: string;
   icon?: ReactNode;
   extra?: ReactNode;
   setHeaderActions: (actions: HeaderAction[]) => void;
   clearHeaderActions: () => void;
-  setHeaderTitle: (title: string, icon?: ReactNode) => void;
-  setHeaderMeta: (title: string, subtitle?: string, icon?: ReactNode, extra?: ReactNode) => void;
+  setHeaderTitle: (title: string | ReactNode, icon?: ReactNode) => void;
+  setHeaderMeta: (title: string | ReactNode, subtitle?: string, icon?: ReactNode, extra?: ReactNode) => void;
   clearHeaderTitle: () => void;
   clearHeaderMeta: () => void;
 }

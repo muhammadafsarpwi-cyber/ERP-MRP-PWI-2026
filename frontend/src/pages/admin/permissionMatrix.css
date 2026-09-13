@@ -1,0 +1,502 @@
+/* =====================================================================
+   2027 Enterprise Model — Permission Matrix & Sticky Architecture
+   ===================================================================== */
+
+.permission-matrix-container {
+  width: 100%;
+  animation: matrixFadeIn 0.3s ease-out;
+  position: relative;
+}
+
+@keyframes matrixFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 2027 Model Badge */
+.matrix-model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #6366f1;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* =====================================================================
+   Crystal KPI Cards (Frosted Glassmorphism with Depth)
+   ===================================================================== */
+
+.matrix-kpi-row {
+  margin-bottom: 22px;
+}
+
+.matrix-crystal-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.65) 100%) !important;
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    0 10px 25px -5px rgba(15, 23, 42, 0.06),
+    0 8px 10px -6px rgba(15, 23, 42, 0.04),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9) !important;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+[data-theme='dark'] .matrix-crystal-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.7) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 12px 30px -5px rgba(0, 0, 0, 0.35),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+.matrix-crystal-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 32px -8px rgba(99, 102, 241, 0.14),
+    0 8px 12px -6px rgba(15, 23, 42, 0.05),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 1) !important;
+  border-color: rgba(165, 180, 252, 0.8) !important;
+}
+
+.matrix-card-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  gap: 12px;
+}
+
+.matrix-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.matrix-card-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+[data-theme='dark'] .matrix-card-title {
+  color: #94a3b8;
+}
+
+.matrix-card-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+[data-theme='dark'] .matrix-card-value {
+  color: #f8fafc;
+}
+
+.matrix-card-badge {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.matrix-card-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+
+.icon-gradient-purple {
+  background: linear-gradient(135deg, #7c3aed 0%, #c084fc 100%);
+  color: #ffffff;
+}
+
+.icon-gradient-primary {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #ffffff;
+}
+
+.icon-gradient-success {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff;
+}
+
+.icon-gradient-warning {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  color: #ffffff;
+}
+
+/* =====================================================================
+   STICKY TABLE ARCHITECTURE (Fixed Headers & Left Column on Scroll)
+   ===================================================================== */
+
+.matrix-scroll-wrapper {
+  position: relative;
+  max-height: calc(100vh - 280px);
+  min-height: 480px;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+[data-theme='dark'] .matrix-scroll-wrapper {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #0f172a;
+}
+
+.matrix-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 13px;
+  min-width: max-content;
+}
+
+/* Sticky Thead */
+.matrix-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.matrix-table thead th {
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 2px solid #cbd5e1;
+  padding: 10px 6px;
+  z-index: 30;
+  box-shadow: 0 2px 6px -1px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] .matrix-table thead th {
+  background: rgba(15, 23, 42, 0.95);
+  border-bottom-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 6px -1px rgba(0, 0, 0, 0.4);
+}
+
+/* Corner Header Cell (Top-Left): highest z-index */
+.matrix-table th.matrix-corner-th {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 40 !important;
+  background: #f8fafc !important;
+  border-right: 2px solid #cbd5e1;
+  min-width: 240px;
+  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] .matrix-table th.matrix-corner-th {
+  background: #1e293b !important;
+  border-right-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Sticky First Column (Module/Page Resource Name) */
+.matrix-table td.matrix-sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  background: #ffffff;
+  border-right: 2px solid #e2e8f0;
+  font-weight: 600;
+  color: #1e293b;
+  min-width: 240px;
+  padding: 8px 16px;
+  box-shadow: 2px 0 6px -1px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='dark'] .matrix-table td.matrix-sticky-col {
+  background: #0f172a;
+  border-right-color: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+/* Sticky Module Header Row */
+.matrix-module-row td {
+  position: sticky;
+  left: 0;
+  z-index: 22;
+  padding: 10px 16px;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  background: linear-gradient(90deg, rgba(241, 245, 249, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%);
+  border-top: 1px solid #cbd5e1;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+[data-theme='dark'] .matrix-module-row td {
+  background: linear-gradient(90deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Table Cells */
+.matrix-cell-td {
+  padding: 6px 4px;
+  text-align: center;
+  border-bottom: 1px solid #f1f5f9;
+  border-right: 1px dashed #e2e8f0;
+  min-width: 130px;
+  transition: background 0.15s ease;
+}
+
+[data-theme='dark'] .matrix-cell-td {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+.matrix-table tr:hover td {
+  background-color: rgba(241, 245, 249, 0.4);
+}
+
+[data-theme='dark'] .matrix-table tr:hover td {
+  background-color: rgba(30, 41, 59, 0.3);
+}
+
+/* =====================================================================
+   ACTION BUTTONS & BADGES (High-contrast, Clear Indicators)
+   ===================================================================== */
+
+.matrix-btn-group {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+}
+
+.matrix-act-btn {
+  width: 27px;
+  height: 24px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  border: 1.5px solid transparent;
+}
+
+/* Granted / Active State */
+.matrix-act-btn.granted-view {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #1d4ed8;
+  box-shadow: 0 2px 5px rgba(37, 99, 235, 0.35);
+}
+
+.matrix-act-btn.granted-create {
+  background: #16a34a;
+  color: #ffffff;
+  border-color: #15803d;
+  box-shadow: 0 2px 5px rgba(22, 163, 74, 0.35);
+}
+
+.matrix-act-btn.granted-update {
+  background: #d97706;
+  color: #ffffff;
+  border-color: #b45309;
+  box-shadow: 0 2px 5px rgba(217, 119, 6, 0.35);
+}
+
+.matrix-act-btn.granted-delete {
+  background: #e11d48;
+  color: #ffffff;
+  border-color: #be123c;
+  box-shadow: 0 2px 5px rgba(225, 29, 72, 0.35);
+}
+
+.matrix-act-btn.granted-special {
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: #6d28d9;
+  box-shadow: 0 2px 5px rgba(124, 58, 237, 0.35);
+}
+
+/* Ungranted / Inactive State */
+.matrix-act-btn.ungranted {
+  background: rgba(241, 245, 249, 0.6);
+  border-color: #cbd5e1;
+  color: #94a3b8;
+}
+
+[data-theme='dark'] .matrix-act-btn.ungranted {
+  background: rgba(30, 41, 59, 0.5);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #64748b;
+}
+
+.matrix-act-btn.ungranted:hover {
+  background: #ffffff;
+  border-color: #6366f1;
+  color: #6366f1;
+  transform: scale(1.08);
+}
+
+/* Modified Pending Save indicator */
+.matrix-act-btn.has-pending-change {
+  outline: 2px solid #6366f1;
+  outline-offset: 1px;
+  animation: pendingPulse 1.5s infinite;
+}
+
+@keyframes pendingPulse {
+  0% { outline-color: #6366f1; }
+  50% { outline-color: #ec4899; }
+  100% { outline-color: #6366f1; }
+}
+
+/* Header Column Batch Toggle Buttons */
+.matrix-th-role-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.matrix-th-role-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+[data-theme='dark'] .matrix-th-role-title {
+  color: #f1f5f9;
+}
+
+.matrix-th-batch-actions {
+  display: flex;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.matrix-th-act-toggle {
+  width: 22px;
+  height: 18px;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid #cbd5e1;
+  background: rgba(255, 255, 255, 0.9);
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.15s ease;
+}
+
+.matrix-th-act-toggle:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #eef2ff;
+}
+
+/* =====================================================================
+   FLOATING BOTTOM SAVE CHANGES DOCK
+   ===================================================================== */
+
+.matrix-floating-save-dock {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 40px;
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.5), 0 0 25px rgba(99, 102, 241, 0.35);
+  animation: slideUpFloat 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  color: #ffffff;
+}
+
+@keyframes slideUpFloat {
+  from {
+    transform: translate(-50%, 40px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+.matrix-save-dock-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #eab308;
+  box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.3);
+  animation: pulseDot 1.5s infinite;
+}
+
+@keyframes pulseDot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(234, 179, 8, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
+}
+
+.matrix-save-dock-text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.matrix-save-dock-btn {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
+  border: none !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4) !important;
+  border-radius: 20px !important;
+}
+
+.matrix-save-dock-btn:hover {
+  background: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%) !important;
+  transform: translateY(-1px);
+}
