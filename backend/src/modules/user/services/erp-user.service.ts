@@ -309,15 +309,31 @@ export class ErpUserService {
     await this.userRepository.update(id, { lastLoginAt: new Date() });
   }
 
+  async setUserAvatarById(id: string, avatarUrl: string | null, actorUserId?: string): Promise<ErpUser> {
+    const user = await this.findOne(id);
+    user.avatarUrl = avatarUrl;
+    user.updatedBy = actorUserId ?? user.id;
+    return this.userRepository.save(user);
+  }
+
   async assignRoles(id: string, dto: AssignRolesDto, userId?: string): Promise<ErpUser> {
     const user = await this.findOne(id);
+    const targetRoleIds = new Set(dto.roleIds || []);
 
-    for (const roleId of dto.roleIds) {
-      const existing = await this.userRoleRepository.findOne({
-        where: { userId: id, roleId },
-      });
+    const existingRoles = await this.userRoleRepository.find({
+      where: { userId: id },
+    });
 
-      if (!existing) {
+    // Synchronize roles: remove any roles that are no longer selected
+    const toRemove = existingRoles.filter((ur) => !targetRoleIds.has(ur.roleId));
+    if (toRemove.length > 0) {
+      await this.userRoleRepository.remove(toRemove);
+    }
+
+    // Add any newly selected roles
+    const existingRoleIds = new Set(existingRoles.map((ur) => ur.roleId));
+    for (const roleId of (dto.roleIds || [])) {
+      if (!existingRoleIds.has(roleId)) {
         const userRole = this.userRoleRepository.create({
           userId: id,
           roleId,

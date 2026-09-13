@@ -19,6 +19,7 @@ import { ProductionRoutingModule } from './modules/production-routing/production
 import { ProductionModule } from './modules/production/production.module';
 import { MachineModule } from './modules/machine/machine.module';
 import { MachineTargetModule } from './modules/machine-target/machine-target.module';
+import { MachineToolingModule } from './modules/machine-tooling/machine-tooling.module';
 import { OperationModule } from './modules/operation/operation.module';
 import { NotificationsModule } from './modules/notification/notification.module';
 import { AuditModule } from './modules/audit/audit.module';
@@ -96,6 +97,7 @@ function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promis
     ProductionModule,
     MachineModule,
     MachineTargetModule,
+    MachineToolingModule,
     OperationModule,
     NotificationsModule,
     AuditModule,

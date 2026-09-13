@@ -16,6 +16,9 @@ import JournalEntries from './pages/finance/JournalEntries';
 import FinanceReports from './pages/finance/FinanceReports';
 import EmployeesPage from './pages/hr/Employees';
 import AttendanceLeave from './pages/hr/AttendanceLeave';
+import HrDashboard from './pages/hr/HrDashboard';
+import MyAttendance from './pages/hr/MyAttendance';
+import HrComingSoon from './pages/hr/HrComingSoon';
 import QcPage from './pages/qc/QcPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import {
@@ -68,10 +71,12 @@ import {
   ItemManagement,
   CategoryManagement,
   RouteTypeManagement,
+  ItemTypeManagement,
   UomManagement,
   UomConversionManagement,
   MachineManagement,
   OperationManagement,
+  MachineToolingManagement,
 } from './pages/master-data';
 import {
   BarcodeDashboard,
@@ -187,11 +192,24 @@ const App: React.FC = () => {
                   <Route path="/finance/journals" element={<JournalEntries />} />
                   <Route path="/finance/journals/new" element={<JournalEntries />} />
                   <Route path="/finance/reports/*" element={<FinanceReports />} />
+                  <Route path="/hr/dashboard" element={<HrDashboard />} />
+                  <Route path="/hr/attendance-register" element={<AttendanceLeave />} />
+                  <Route path="/hr/leaves" element={<AttendanceLeave />} />
+                  <Route path="/hr/my-attendance" element={<MyAttendance />} />
+                  <Route path="/hr/shift-roster" element={<HrComingSoon section="Shift Roster" />} />
+                  <Route path="/hr/live-map" element={<HrComingSoon section="Live Map" />} />
+                  <Route path="/hr/regularizations" element={<HrComingSoon section="Regularizations" />} />
+                  <Route path="/hr/overtime-approval" element={<HrComingSoon section="Overtime Approval" />} />
+                  <Route path="/hr/advances" element={<HrComingSoon section="Advances" />} />
+                  <Route path="/hr/employee-documents" element={<HrComingSoon section="Employee Documents" />} />
+                  <Route path="/hr/attendance-exceptions" element={<HrComingSoon section="Attendance Exceptions" />} />
+                  <Route path="/hr/payroll" element={<HrComingSoon section="Payroll" />} />
+                  <Route path="/hr/final-settlement" element={<HrComingSoon section="Final Settlement" />} />
                   <Route path="/hr/employees" element={<EmployeesPage />} />
-                  <Route path="/hr/attendance" element={<AttendanceLeave />} />
-                  <Route path="/hr/leave" element={<AttendanceLeave />} />
-                  <Route path="/hr/shifts" element={<AttendanceLeave />} />
-                  <Route path="/hr/holidays" element={<AttendanceLeave />} />
+                  <Route path="/hr/attendance" element={<Navigate to="/hr/attendance-register" replace />} />
+                  <Route path="/hr/leave" element={<Navigate to="/hr/leaves" replace />} />
+                  <Route path="/hr/shifts" element={<Navigate to="/hr/attendance-register" replace />} />
+                  <Route path="/hr/holidays" element={<Navigate to="/hr/leaves" replace />} />
                   <Route path="/qc" element={<QcPage />} />
                   <Route path="/qc/inspections" element={<QcPage />} />
                   <Route path="/qc/ncr" element={<QcPage />} />
@@ -223,10 +241,12 @@ const App: React.FC = () => {
                   <Route path="/master-data/items" element={<ItemManagement />} />
                   <Route path="/master-data/categories" element={<CategoryManagement />} />
                   <Route path="/master-data/route-types" element={<RouteTypeManagement />} />
+                  <Route path="/master-data/item-types" element={<ItemTypeManagement />} />
                   <Route path="/master-data/uom" element={<UomManagement />} />
                   <Route path="/master-data/uom-conversions" element={<UomConversionManagement />} />
                   <Route path="/master-data/machines" element={<MachineManagement />} />
                   <Route path="/master-data/operations" element={<OperationManagement />} />
+                  <Route path="/master-data/machine-tools" element={<MachineToolingManagement />} />
                   <Route path="/barcode-management" element={<BarcodeDashboard />} />
                   <Route path="/barcode-management/scan" element={<ScanBarcode />} />
                   <Route path="/barcode-management/items" element={<ItemBarcodes />} />

@@ -4,6 +4,7 @@ import { HrService } from '../services/hr.service';
 import {
   CreateHrDesignationDto, CreateHrEmployeeDto, CreateHrAttendanceDto,
   CreateHrLeaveRequestDto, CreateHrLeaveTypeDto, CreateHrShiftDto, CreateHrHolidayDto,
+  GetMyAttendanceDto,
 } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
@@ -102,6 +103,14 @@ export class HrController {
   }
 
   // ---- Attendance ----
+  @Get('my-attendance')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.attendance.view')
+  async myAttendance(@Query() query: GetMyAttendanceDto, @Request() req: any) {
+    const data = await this.hrService.getMyAttendance(req.user?.id, query);
+    return { success: true, data };
+  }
+
   @Get('attendance')
   @UseGuards(PermissionGuard)
   @RequirePermission('hr.attendance.view')

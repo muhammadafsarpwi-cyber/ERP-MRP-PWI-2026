@@ -1,11 +1,17 @@
 import React from 'react';
-import { Modal, Button, Typography, Spin, Space } from 'antd';
-import { CheckCircleFilled, LoadingOutlined, CloseCircleFilled } from '@ant-design/icons';
+import { Modal, Button, Typography, Spin, Space, Tag } from 'antd';
+import { LoadingOutlined, CloseCircleFilled } from '@ant-design/icons';
+import UserAvatar from '../layout/UserAvatar';
 import './SaveResultDialog.css';
 
 const { Text, Title } = Typography;
 
 export type SaveResultPhase = 'loading' | 'success' | 'error';
+
+export interface SaveResultTagItem {
+  label: string;
+  color?: string;
+}
 
 export interface SaveResultData {
   /** Success headline rendered under "Successful", e.g. "Routing Saved Successfully". */
@@ -18,18 +24,27 @@ export interface SaveResultData {
   recordCode?: string;
   /** Optional human-readable record name. */
   recordName?: string;
+  /** Optional user avatar URL or image path */
+  avatarUrl?: string | null;
+  /** Optional user or entity display name */
+  userName?: string;
+  /** Optional user or entity email / subtitle */
+  userEmail?: string;
+  /** Optional role badges or status tags */
+  tags?: Array<SaveResultTagItem | string>;
+  /** Optional custom extra content */
+  extra?: React.ReactNode;
 }
 
 interface SaveResultDialogProps {
   open: boolean;
-  /** loading = centered "Saving…" processing state during the real API request;
-   *  success = confirmed result; error = persistent failure (visible until dismissed or retried). */
+  /** loading = centered circular spinner processing state during real API request;
+   *  success = confirmed result with green checkmark; error = failure state. */
   phase: SaveResultPhase;
   result?: SaveResultData | null;
   /** Persistent failure detail rendered only while phase === 'error'. */
   errorMessage?: string;
-  /** Re-submits the exact same request (same form values). The parent flips the
-   *  phase back to 'loading' so a retry can never be mistaken for a new result. */
+  /** Re-submits the exact same request. */
   onRetry?: () => void;
   onClose: () => void;
   /** Success headline. Defaults to "Successful". */
@@ -38,19 +53,19 @@ interface SaveResultDialogProps {
   okLabel?: string;
   /** Failure message line under "Save Failed". Defaults to "The request was not persisted." */
   errorLead?: string;
+  /** Loading title headline. Defaults to "Saving...". */
+  loadingTitle?: string;
+  /** Loading sub-text. Defaults to "Processing request...". */
+  loadingHint?: string;
 }
 
 /**
- * Reusable save-result dialog for the [Cancel][Save] forms (Routing, Routing
- * Operation, Route Type). One component serves all three flows:
- *  - loading : large centered circular spinner ("Saving…" / "Processing request…")
- *              shown only while the real API request is in flight (no fake delay).
- *  - success : large circular check-mark pop-in, "Successful", and the ACTUAL
- *              backend-generated business code (never a client-side fake ID).
- *  - error   : persistent failure state — the modal stays open with the exact
- *              normalized error until the user dismisses it (Close) or retries.
- *              A failed request can never transition to success by itself.
- * Theme tokens keep it consistent in light and dark mode.
+ * Reusable save-result dialog across ERP workflows.
+ *  - loading : large centered circular spinner with pulsing ring shown while request in flight.
+ *  - success : animated circular green check-mark matching the 2027 model design,
+ *              headline ("Successful"), user identity (photo, name, email, role badges),
+ *              and record details.
+ *  - error   : persistent failure state with exact error details and Retry/Close actions.
  */
 const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
   open,
@@ -62,6 +77,8 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
   successTitle = 'Successful',
   okLabel = 'Close',
   errorLead = 'The request was not persisted.',
+  loadingTitle = 'Saving...',
+  loadingHint = 'Processing request...',
 }) => (
   <Modal
     open={open}
@@ -72,24 +89,56 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
     width={460}
     footer={null}
     destroyOnHidden
-    style={{ borderRadius: 14, overflow: 'hidden' }}
+    style={{ borderRadius: 16, overflow: 'hidden' }}
   >
     {phase === 'loading' ? (
       <div className="erp-save-result-loading" data-testid="save-result-loading">
-        <Title level={4} className="erp-save-result-title">Saving...</Title>
+        <Title level={4} className="erp-save-result-title">{loadingTitle}</Title>
         <div className="erp-save-result-spinner" role="status" aria-live="polite" data-testid="save-result-spinner">
           <Spin indicator={<LoadingOutlined className="erp-save-result-spinner-icon" />} />
         </div>
-        <Text type="secondary" className="erp-save-result-hint">Processing request...</Text>
+        <Text type="secondary" className="erp-save-result-hint">{loadingHint}</Text>
       </div>
     ) : phase === 'success' ? (
       <div className="erp-save-result-success erp-save-result-anim" data-testid="save-result-success">
-        <div className="erp-save-result-check" aria-hidden="true">
-          <CheckCircleFilled />
+        <div className="erp-save-result-check-ring" aria-hidden="true" data-testid="save-result-check-ring">
+          <svg className="erp-save-result-svg-check" viewBox="0 0 52 52">
+            <circle className="erp-save-result-svg-circle" cx="26" cy="26" r="23" fill="none" />
+            <path className="erp-save-result-svg-stroke" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
+          </svg>
         </div>
         <Title level={4} className="erp-save-result-title">{successTitle}</Title>
         {result?.title ? <Text strong className="erp-save-result-message">{result.title}</Text> : null}
         {result?.message ? <Text type="secondary" className="erp-save-result-hint">{result.message}</Text> : null}
+
+        {(result?.userName || result?.avatarUrl || (result?.tags && result.tags.length > 0)) ? (
+          <div className="erp-save-result-user-card" data-testid="save-result-user-card">
+            <UserAvatar
+              avatarUrl={result.avatarUrl}
+              displayName={result.userName}
+              size={54}
+              className="erp-save-result-user-avatar"
+            />
+            <div className="erp-save-result-user-meta">
+              {result.userName ? <div className="erp-save-result-user-name">{result.userName}</div> : null}
+              {result.userEmail ? <div className="erp-save-result-user-email">{result.userEmail}</div> : null}
+              {result.tags && result.tags.length > 0 ? (
+                <div className="erp-save-result-tags">
+                  {result.tags.map((t, idx) => {
+                    const label = typeof t === 'string' ? t : t.label;
+                    const color = typeof t === 'string' ? 'blue' : (t.color || 'blue');
+                    return (
+                      <Tag key={idx} color={color} className="erp-save-result-tag">
+                        {label}
+                      </Tag>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         {result?.recordCode || result?.recordName ? (
           <div className="erp-save-result-record">
             {result.recordType ? <Text type="secondary" className="erp-save-result-record-label">{result.recordType}</Text> : null}
@@ -97,6 +146,9 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
             {result.recordName ? <Text type="secondary" className="erp-save-result-record-name">{result.recordName}</Text> : null}
           </div>
         ) : null}
+
+        {result?.extra ? <div className="erp-save-result-extra">{result.extra}</div> : null}
+
         <Button type="primary" block size="large" className="erp-save-result-close" onClick={onClose}>
           {okLabel}
         </Button>

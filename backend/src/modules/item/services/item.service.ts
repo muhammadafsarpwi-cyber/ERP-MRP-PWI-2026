@@ -6,6 +6,7 @@ import { Item, ItemStatus, ItemType } from '../entities';
 import { CreateItemDto, UpdateItemDto, ItemFilterDto } from '../dto/item.dto';
 import { Division, Section, Department } from '../../organization/entities';
 import { ItemRouteType, RouteTypeStatus } from '../entities/route-type.entity';
+import { ItemTypeMaster, ItemTypeStatus } from '../entities/item-type.entity';
 import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
 import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
 import { ProductionEntry } from '../../production/entities/production-entry.entity';
@@ -27,6 +28,8 @@ export class ItemService implements OnModuleInit {
     private readonly departmentRepository: Repository<Department>,
     @InjectRepository(ItemRouteType)
     private readonly routeTypeRepository: Repository<ItemRouteType>,
+    @InjectRepository(ItemTypeMaster)
+    private readonly itemTypeRepository: Repository<ItemTypeMaster>,
     @InjectRepository(StockLedger)
     private readonly stockLedgerRepository: Repository<StockLedger>,
     @InjectRepository(InventoryBalance)
@@ -327,6 +330,43 @@ export class ItemService implements OnModuleInit {
     return { routeTypeId: null, routeTypeCode: null };
   }
 
+  /**
+   * Resolves the item type classification for an item. Accepts an item type
+   * master UUID (preferred) or a code, and returns the authoritative values to
+   * persist (item_type_id FK + the synced legacy item_type code).
+   *
+   * Unlike route types, an UNKNOWN code is REJECTED — the item types master is
+   * the single source of truth and every classification must exist in it.
+   * When `allowAssignedId` is set (edit path), re-assigning the SAME type to an
+   * item that already references it is permitted even if the type is INACTIVE,
+   * so existing records are never orphaned by a deactivation.
+   */
+  private async resolveItemType(
+    companyId: string,
+    itemTypeId?: string | null,
+    itemTypeCode?: string | null,
+    allowAssignedId?: string | null,
+  ): Promise<{ itemTypeId: string | null; itemTypeCode: string }> {
+    let resolved: ItemTypeMaster | null = null;
+    if (itemTypeId) {
+      resolved = await this.itemTypeRepository.findOne({ where: { id: itemTypeId, companyId } });
+      if (!resolved) throw new BadRequestException(`Item type '${itemTypeId}' does not exist in this company.`);
+      if (resolved.status !== ItemTypeStatus.ACTIVE && resolved.id !== allowAssignedId) {
+        throw new BadRequestException(`Item type '${resolved.name}' is not active and cannot be assigned.`);
+      }
+      return { itemTypeId: resolved.id, itemTypeCode: resolved.code };
+    }
+    if (itemTypeCode) {
+      resolved = await this.itemTypeRepository.findOne({ where: { code: itemTypeCode, companyId } });
+      if (!resolved) throw new BadRequestException(`Item type '${itemTypeCode}' does not exist in this company master.`);
+      if (resolved.status !== ItemTypeStatus.ACTIVE && resolved.id !== allowAssignedId) {
+        throw new BadRequestException(`Item type '${resolved.name}' is not active and cannot be assigned.`);
+      }
+      return { itemTypeId: resolved.id, itemTypeCode: resolved.code };
+    }
+    throw new BadRequestException('Item type is required.');
+  }
+
   private async validateOrgHierarchy(companyId: string, divisionId?: string | null, sectionId?: string | null, departmentId?: string | null): Promise<void> {
     if (divisionId) {
       const division = await this.divisionRepository.findOne({ where: { id: divisionId, companyId } });
@@ -380,6 +420,11 @@ export class ItemService implements OnModuleInit {
 
     const rt = await this.resolveRouteType(dto.companyId, dto.routeTypeId, dto.routeType);
 
+    // Authoritative item type: resolve the master link + synced legacy code.
+    // Reject unknown codes/inactive types — the item types master owns all
+    // classifications (no free-form pass-through, unlike route types).
+    const it = await this.resolveItemType(dto.companyId, dto.itemTypeId, dto.itemType);
+
     // Auto-generate SKU if not provided
     const sku = dto.sku || await this.generateSku(dto.companyId, dto.itemCode);
 
@@ -411,6 +456,8 @@ export class ItemService implements OnModuleInit {
       productionOutItemId: syncedOut,
       routeTypeId: rt.routeTypeId,
       routeType: rt.routeTypeCode,
+      itemTypeId: it.itemTypeId,
+      itemType: it.itemTypeCode,
       createdBy: userId || null,
       updatedBy: userId || null,
     });
@@ -440,7 +487,7 @@ export class ItemService implements OnModuleInit {
   }
 
   async findAll(filter: ItemFilterDto): Promise<{ data: Item[]; total: number }> {
-    const { page = 1, limit = 20, search, status, itemType, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, thicknessMm, widthMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const { page = 1, limit = 20, search, status, itemType, itemTypeId, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, thicknessMm, widthMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
 
     const qb = this.itemRepository.createQueryBuilder('item')
       .leftJoinAndSelect('item.category', 'category')
@@ -450,6 +497,7 @@ export class ItemService implements OnModuleInit {
       .leftJoinAndSelect('item.section', 'section')
       .leftJoinAndSelect('item.department', 'department')
       .leftJoinAndSelect('item.routeTypeRef', 'routeTypeRef')
+      .leftJoinAndSelect('item.itemTypeRef', 'itemTypeRef')
       .leftJoinAndSelect('item.productionInItem', 'productionInItem')
       .leftJoinAndSelect('item.productionOutItem', 'productionOutItem');
 
@@ -459,6 +507,7 @@ export class ItemService implements OnModuleInit {
     if (status) qb.andWhere('item.status = :status', { status });
     if (active !== undefined) qb.andWhere(active ? 'item.status = :activeStatus' : 'item.status != :activeStatus', { activeStatus: 'ACTIVE' });
     if (itemType) qb.andWhere('item.itemType = :itemType', { itemType });
+    if (itemTypeId) qb.andWhere('item.itemTypeId = :itemTypeId', { itemTypeId });
     if (categoryId) qb.andWhere('item.categoryId = :categoryId', { categoryId });
     if (companyId) qb.andWhere('item.companyId = :companyId', { companyId });
     if (divisionId) qb.andWhere('item.divisionId = :divisionId', { divisionId });
@@ -490,7 +539,7 @@ export class ItemService implements OnModuleInit {
   async findOne(id: string): Promise<Item> {
     const item = await this.itemRepository.findOne({
       where: { id },
-      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionOutItem'],
+      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'itemTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionOutItem'],
     });
     if (!item) throw new NotFoundException(`Item with ID '${id}' not found`);
     this.ensureProcessesArray(item);
@@ -513,7 +562,7 @@ export class ItemService implements OnModuleInit {
 
   async findByBarcode(companyId: string, barcode: string): Promise<Item> {
     // First try the items.barcode column (fast lookup)
-    let item = await this.itemRepository.findOne({ where: { companyId, barcode }, relations: ['category', 'baseUom', 'barcodes', 'division', 'section', 'department', 'routeTypeRef', 'productionInItem', 'productionOutItem'] });
+    let item = await this.itemRepository.findOne({ where: { companyId, barcode }, relations: ['category', 'baseUom', 'barcodes', 'division', 'section', 'department', 'routeTypeRef', 'itemTypeRef', 'productionInItem', 'productionOutItem'] });
     if (item) {
       this.ensureProcessesArray(item);
       return item;
@@ -577,6 +626,20 @@ export class ItemService implements OnModuleInit {
       // Override scalar update with resolved values
       (dto as any).routeTypeId = rt.routeTypeId;
       (dto as any).routeType = rt.routeTypeCode;
+    }
+
+    // Resolve item type if supplied. Re-assigning the SAME type to the current
+    // item is allowed even when the type was deactivated, so existing items keep
+    // their classification until the admin actively changes it.
+    if (dto.itemTypeId !== undefined || dto.itemType !== undefined) {
+      const it = await this.resolveItemType(
+        item.companyId,
+        dto.itemTypeId !== undefined ? dto.itemTypeId : item.itemTypeId,
+        dto.itemType !== undefined ? dto.itemType : item.itemType,
+        item.itemTypeId,
+      );
+      (dto as any).itemTypeId = it.itemTypeId;
+      (dto as any).itemType = it.itemTypeCode;
     }
 
     // Build a clean column-level update that only touches defined fields —

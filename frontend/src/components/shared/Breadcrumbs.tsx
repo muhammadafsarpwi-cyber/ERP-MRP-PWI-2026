@@ -11,6 +11,7 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/dashboard$/, label: 'Dashboard' },
   { pattern: /^\/master-data$/, label: 'Master Data' },
   { pattern: /^\/master-data\/items/, label: 'Products & Items' },
+  { pattern: /^\/master-data\/item-types/, label: 'Item Types' },
   { pattern: /^\/master-data\/categories/, label: 'Item Categories' },
   { pattern: /^\/master-data\/uom-conversions/, label: 'UOM Conversions' },
   { pattern: /^\/master-data\/uom/, label: 'Units of Measure' },
@@ -54,6 +55,8 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/qc\/inspections/, label: 'Inspections' },
   { pattern: /^\/qc\/ncr/, label: 'NCR' },
   { pattern: /^\/qc\/capa/, label: 'CAPA' },
+  { pattern: /^\/hr\/dashboard/, label: 'HR Dashboard' },
+  { pattern: /^\/hr\/my-attendance/, label: 'My Attendance' },
   { pattern: /^\/settings$/, label: 'Settings' },
 ];
 
@@ -66,6 +69,7 @@ const PARENT_LABELS: Record<string, string> = {
   sales: 'Sales',
   production: 'Production',
   qc: 'QC',
+  hr: 'HR',
 };
 
 /** Prefix-based overrides: when the next child path starts with the key, show the value as parent label. */

@@ -7,11 +7,12 @@ import type { MenuProps } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, ReloadOutlined, QrcodeOutlined,
   EyeOutlined, MoreOutlined, PrinterOutlined, ClearOutlined, FilterOutlined,
-  ToolOutlined, DeleteOutlined, NumberOutlined, TagOutlined, SettingOutlined,
+  ToolOutlined, DeleteOutlined, TagOutlined, SettingOutlined,
   ApartmentOutlined, ShopOutlined, SubnodeOutlined, TeamOutlined, EnvironmentOutlined,
   TagsOutlined, AlertOutlined, CheckCircleOutlined,
   DownloadOutlined, FilePdfOutlined, ImportOutlined, InboxOutlined,
   HistoryOutlined, BarChartOutlined, ScheduleOutlined,
+  ArrowUpOutlined, ArrowDownOutlined, MinusOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -154,6 +155,95 @@ const VIEW_SECTIONS: Array<{ key: ViewSection; label: string }> = [
 
 const badge = (v?: string | null): React.ReactNode =>
   v == null || v === '' ? <Text type="secondary">—</Text> : <StatusBadge status={v} />;
+
+const num = (v?: number | string | null): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const fmtNum = (v: number | null | undefined, digits = 4): string =>
+  v === null || v === undefined ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: digits });
+
+/**
+ * Semantic Achievement % cell — TASK25:
+ *   green  ▲  > 70 %
+ *   amber  —  = 70 % (neutral)
+ *   red    ▼  < 70 %
+ */
+const AchievementCell: React.FC<{ value?: number | string | null }> = ({ value }) => {
+  const v = num(value);
+  if (v === null) return <Text type="secondary">—</Text>;
+  const tone = v > 70 ? 'var(--theme-success, #16a34a)' : v < 70 ? 'var(--theme-danger, #dc2626)' : 'var(--theme-warning, #d97706)';
+  const Icon = v > 70 ? ArrowUpOutlined : v < 70 ? ArrowDownOutlined : MinusOutlined;
+  const bg = v > 70 ? 'rgba(22,163,74,0.10)' : v < 70 ? 'rgba(220,38,38,0.10)' : 'rgba(217,119,6,0.10)';
+  return (
+    <Tooltip title={`Achievement ${v}%`}>
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 8px', borderRadius: 10,
+        fontWeight: 700, fontSize: 12, color: tone, background: bg, border: `1px solid ${tone}40`,
+        whiteSpace: 'nowrap',
+      }}>
+        <Icon style={{ fontSize: 10 }} />
+        {fmtNum(v, 2)}%
+      </span>
+    </Tooltip>
+  );
+};
+
+/**
+ * Item cell — TASK25: item NAME is the primary display, item code the
+ * secondary line. Records that only carry a code (e.g. legacy fixtures) render
+ * the code as plain text so codes like ITM-X stay fully visible.
+ */
+const ItemCell: React.FC<{ item?: { itemCode?: string; name?: string } | null }> = ({ item }) => {
+  if (!item) return <Text type="secondary">—</Text>;
+  if (item.name) {
+    return (
+      <HighlightedCell
+        icon={<ToolOutlined />}
+        label={item.name}
+        secondary={item.itemCode ?? undefined}
+        tooltip={item.name + (item.itemCode ? ` — ${item.itemCode}` : '')}
+      />
+    );
+  }
+  return item.itemCode
+    ? <code style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', whiteSpace: 'nowrap' }}>{item.itemCode}</code>
+    : <Text type="secondary">—</Text>;
+};
+
+/** Compact one-line metric used in the Production summary strip. */
+const SummaryStat: React.FC<{ label: string; value: React.ReactNode; color?: string }> = ({ label, value, color }) => (
+  <div style={{
+    display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 12px', borderRadius: 8,
+    background: 'var(--theme-surface-alt, #f8fafc)',
+    border: '1px solid var(--theme-border, rgba(15,23,42,0.10))',
+    whiteSpace: 'nowrap',
+  }}>
+    <Text type="secondary" style={{ fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.04 }}>{label}</Text>
+    <Text strong style={{ fontSize: 15, lineHeight: 1.2, color: color ?? 'var(--theme-text)' }}>{value}</Text>
+  </div>
+);
+
+/**
+ * One-line Target / Actual / Achievement summary — TASK25. Values are computed
+ * from the fetched production entries by summing target and actual quantities;
+ * achievement % = actual / target × 100 (— when there is no target data).
+ */
+const ProductionSummary: React.FC<{ entries: ProductionEntry[] }> = ({ entries }) => {
+  const target = entries.reduce<number>((a, r) => a + (num(r.targetQuantity) ?? 0), 0);
+  const actual = entries.reduce<number>((a, r) => a + (num(r.actualQuantity) ?? 0), 0);
+  const hasData = target > 0 || actual > 0;
+  const ach = target > 0 ? (actual / target) * 100 : null;
+  return (
+    <Space size={10} wrap style={{ display: 'flex' }}>
+      <SummaryStat label="Target" value={hasData ? fmtNum(target, 0) : <Text type="secondary">—</Text>} />
+      <SummaryStat label="Actual" value={hasData ? fmtNum(actual, 0) : <Text type="secondary">—</Text>} />
+      <SummaryStat label="Achievement" value={ach === null ? <Text type="secondary">—</Text> : <AchievementCell value={ach} />} />
+    </Space>
+  );
+};
 
 const detailToModel = (d: Machine): MachineDetailModel => ({
   machineId: d.machineId ?? null,
@@ -562,9 +652,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     (async () => {
       try {
         const [div, sec, dep] = await Promise.all([
-          apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200 }),
-          apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500 }),
-          apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500 }),
+          apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
+          apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500, status: 'ACTIVE' }),
+          apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500, status: 'ACTIVE' }),
         ]);
         setDivisions(div.data || []);
         setSections(sec.data || []);
@@ -1179,13 +1269,14 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       ),
     },
     {
-      title: <HeaderCell icon={<SettingOutlined />} first="Code" />,
+      title: <HeaderCell icon={<SettingOutlined />} first="Code /" second="No." />,
       dataIndex: 'machineCode',
-      key: 'machineCode',
-      width: 130,
+      key: 'codeNo',
+      width: 150,
       sorter: true,
       render: (code: string, m: Machine) => {
         const mc = getMachineColor(m);
+        const machineNo = m.machineNumber;
         return (
           <Tooltip title={m.name ? `${m.machineCode} — ${m.name}` : m.machineCode}>
             <div style={{ lineHeight: 1.35 }}>
@@ -1201,27 +1292,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                   border: `1px solid ${mc.light.border}`,
                 }}>{code ?? '—'}</span>
               </div>
-              {m.serialNumber ? <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.serialNumber}</div> : null}
+              {machineNo ? <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{machineNo}</div> : null}
             </div>
           </Tooltip>
-        );
-      },
-    },
-    {
-      title: <HeaderCell icon={<NumberOutlined />} first="Machine" second="No." />,
-      dataIndex: 'machineNumber',
-      key: 'machineNumber',
-      width: 95,
-      render: (n: string | null | undefined, m: Machine) => {
-        const v = n ?? m.machineNumber;
-        return v ? (
-          <Tooltip title={v}>
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-secondary)' }}>
-              {v}
-            </span>
-          </Tooltip>
-        ) : (
-          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
         );
       },
     },
@@ -1263,20 +1336,6 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           />
         );
       },
-    },
-    {
-      title: <HeaderCell icon={<SubnodeOutlined />} first="Section" />,
-      key: 'section',
-      width: 105,
-      render: (_: any, m: Machine) => (m.section?.name ? (
-        <Tooltip title={m.section.name}>
-          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', fontSize: 12, color: 'var(--theme-text-secondary)' }}>
-            {m.section.name}
-          </span>
-        </Tooltip>
-      ) : (
-        <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
-      )),
     },
     {
       title: <HeaderCell icon={<TeamOutlined />} first="Department" />,
@@ -1648,6 +1707,13 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
             {viewSection === 'production' && (
                 <Space direction="vertical" size={16} style={{ width: '100%' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <BarChartOutlined style={{ color: 'var(--theme-text-secondary)' }} />
+                    <Text strong style={{ fontSize: 13 }}>Production Summary</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>Target / Actual / Achievement (from recent entries)</Text>
+                  </div>
+                  <ProductionSummary entries={prodEntries} />
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <ScheduleOutlined style={{ color: 'var(--theme-text-secondary)' }} />
                     <Text strong style={{ fontSize: 13 }}>Machine Targets</Text>
                     <div style={{ flex: 1 }} />
@@ -1663,7 +1729,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                     scroll={{ x: 640 }}
                     columns={[
                       { title: 'Shift', key: 'shift', render: (_, r) => r.shift?.name ?? r.shift?.shiftCode ?? <Text type="secondary">—</Text> },
-                      { title: 'Item', key: 'item', render: (_, r) => r.item?.itemCode ?? r.item?.name ?? <Text type="secondary">—</Text> },
+                      { title: 'Item', key: 'item', width: 210, render: (_, r) => <ItemCell item={r.item} /> },
                       { title: 'Target Qty', key: 'tq', align: 'right', render: (_, r) => r.targetQuantity ?? <Text type="secondary">—</Text> },
                       { title: 'Std Hrs', key: 'sh', align: 'right', render: (_, r) => r.standardHours ?? <Text type="secondary">—</Text> },
                       { title: 'Effective From', key: 'ef', render: (_, r) => r.effectiveFrom ?? <Text type="secondary">—</Text> },
@@ -1691,12 +1757,12 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                         render: (_, r) => (r.entryDate ? dayjs(r.entryDate).format('DD-MMM-YYYY') : <Text type="secondary">—</Text>),
                       },
                       { title: 'Shift', key: 'shift', render: (_, r) => r.shift?.name ?? <Text type="secondary">—</Text> },
-                      { title: 'Item', key: 'item', render: (_, r) => r.item?.itemCode ?? r.item?.name ?? <Text type="secondary">—</Text> },
+                      { title: 'Item', key: 'item', width: 210, render: (_, r) => <ItemCell item={r.item} /> },
                       { title: 'Target', key: 'tq', align: 'right', render: (_, r) => r.targetQuantity ?? <Text type="secondary">—</Text> },
                       { title: 'Actual', key: 'aq', align: 'right', render: (_, r) => r.actualQuantity ?? <Text type="secondary">—</Text> },
                       {
                         title: 'Achievement %', key: 'ach', align: 'right',
-                        render: (_, r) => (r.achievementPercentage != null ? `${r.achievementPercentage}%` : <Text type="secondary">—</Text>),
+                        render: (_, r) => <AchievementCell value={r.achievementPercentage ?? (num(r.targetQuantity) ? ((num(r.actualQuantity) ?? 0) / num(r.targetQuantity)!) * 100 : null)} />,
                       },
                     ]}
                   />
@@ -2060,7 +2126,12 @@ const FormModal: React.FC<FormModalProps> = ({
             <Form.Item name="divisionId" label="Division">
               <Select
                 allowClear showSearch optionFilterProp="label" placeholder="Select division"
-                options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                options={[
+                  ...(editing?.division?.id && !divisions.some((d) => d.id === editing.division?.id)
+                    ? [{ value: editing.division.id, label: `${editing.division.name} (Inactive)`, disabled: true }]
+                    : []),
+                  ...divisions.map((d) => ({ value: d.id, label: d.name })),
+                ]}
                 onChange={() => {
                   form.setFieldValue('sectionId', undefined);
                   form.setFieldValue('departmentId', undefined);
@@ -2070,7 +2141,12 @@ const FormModal: React.FC<FormModalProps> = ({
             <Form.Item name="sectionId" label="Section">
               <Select
                 allowClear showSearch optionFilterProp="label" placeholder="Select section"
-                options={sectionsForDivision(formDivisionId).map((s) => ({ value: s.id, label: s.name }))}
+                options={[
+                  ...(editing?.section?.id && editing.divisionId === formDivisionId && !sectionsForDivision(formDivisionId).some((s) => s.id === editing.section?.id)
+                    ? [{ value: editing.section.id, label: `${editing.section.name} (Inactive)`, disabled: true }]
+                    : []),
+                  ...sectionsForDivision(formDivisionId).map((s) => ({ value: s.id, label: s.name })),
+                ]}
                 onChange={() => form.setFieldValue('departmentId', undefined)}
               />
             </Form.Item>

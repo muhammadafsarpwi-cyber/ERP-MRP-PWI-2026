@@ -2,7 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   Uom, UomConversion, ItemCategory, Item, ItemBarcode,
-  ItemAttributeDefinition, ItemAttributeValue, ItemSpecification, ItemDocument, ItemRouteType,
+  ItemAttributeDefinition, ItemAttributeValue, ItemSpecification, ItemDocument, ItemRouteType, ItemTypeMaster,
 } from './entities';
 import { Division, Section, Department, Warehouse } from '../organization/entities';
 import { StockLedger } from '../inventory/entities/stock-ledger.entity';
@@ -13,6 +13,7 @@ import { UomConversionService } from './services/uom-conversion.service';
 import { ItemCategoryService } from './services/item-category.service';
 import { ItemService } from './services/item.service';
 import { ItemRouteTypeService } from './services/item-route-type.service';
+import { ItemTypeService } from './services/item-type.service';
 import { ItemConversionService } from './services/item-conversion.service';
 import { ItemBarcodeService } from './services/item-barcode.service';
 import { ItemAttributeService } from './services/item-attribute.service';
@@ -22,6 +23,7 @@ import { UomController } from './controllers/uom.controller';
 import { UomConversionController } from './controllers/uom-conversion.controller';
 import { ItemCategoryController } from './controllers/item-category.controller';
 import { ItemRouteTypeController } from './controllers/item-route-type.controller';
+import { ItemTypeController } from './controllers/item-type.controller';
 import { ItemController } from './controllers/item.controller';
 import { ItemBarcodeController } from './controllers/item-barcode.controller';
 import { ItemAttributeController } from './controllers/item-attribute.controller';
@@ -35,7 +37,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Uom, UomConversion, ItemCategory, Item, ItemBarcode, ItemRouteType,
+      Uom, UomConversion, ItemCategory, Item, ItemBarcode, ItemRouteType, ItemTypeMaster,
       ItemAttributeDefinition, ItemAttributeValue, ItemSpecification, ItemDocument,
       Division, Section, Department, Warehouse,
       StockLedger, InventoryBalance, ProductionEntry,
@@ -47,12 +49,13 @@ import { BarcodeModule } from '../barcode/barcode.module';
   ],
   controllers: [
     UomController, UomConversionController, ItemCategoryController, ItemRouteTypeController,
+    ItemTypeController,
     ItemController, ItemBarcodeController, ItemAttributeController,
     ItemSpecificationController, ItemDocumentController,
   ],
   providers: [
     UomService, UomConversionService, ItemCategoryService, ItemService,
-    ItemRouteTypeService, ItemConversionService,
+    ItemRouteTypeService, ItemTypeService, ItemConversionService,
     ItemBarcodeService, ItemAttributeService, ItemSpecificationService, ItemDocumentService,
   ],
   exports: [ItemService, ItemConversionService, UomService, ItemCategoryService],

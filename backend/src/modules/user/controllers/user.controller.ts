@@ -1,9 +1,9 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ErpUserService } from '../services/erp-user.service';
 import { AuthService } from '../../auth/services/auth.service';
 import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto, CreateUserFullDto } from '../dto/user.dto';
-import { AdminResetPasswordDto } from '../../auth/dto/auth.dto';
+import { AdminResetPasswordDto, AvatarUploadDto } from '../../auth/dto/auth.dto';
 import { ErpUserStatus } from '../entities';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
@@ -102,13 +102,14 @@ export class UserController {
   }
 
   @Post(':id/roles')
+  @Put(':id/roles')
   @UseGuards(PermissionGuard)
   @RequirePermission('admin.users.assign_roles')
-  @ApiOperation({ summary: 'Assign roles to user' })
+  @ApiOperation({ summary: 'Assign or synchronize roles for user' })
   @ApiParam({ name: 'id', description: 'User ID' })
   async assignRoles(@Param('id') id: string, @Body() dto: AssignRolesDto) {
     const user = await this.userService.assignRoles(id, dto);
-    return { success: true, data: user, message: 'Roles assigned successfully' };
+    return { success: true, data: user, message: 'Roles updated successfully' };
   }
 
   @Delete(':id/roles')
@@ -120,6 +121,28 @@ export class UserController {
   async removeRoles(@Param('id') id: string, @Body() dto: AssignRolesDto) {
     const user = await this.userService.removeRoles(id, dto);
     return { success: true, data: user, message: 'Roles removed successfully' };
+  }
+
+  @Post(':id/avatar')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('admin.users.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Upload avatar for user' })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  async uploadAvatar(@Param('id') id: string, @Body() dto: AvatarUploadDto, @Req() req: any) {
+    const user = await this.authService.uploadUserAvatar(id, dto, req.user?.id);
+    return { success: true, data: user, message: 'Avatar updated successfully' };
+  }
+
+  @Delete(':id/avatar')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('admin.users.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove avatar for user' })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  async removeAvatar(@Param('id') id: string, @Req() req: any) {
+    const user = await this.authService.removeUserAvatar(id, req.user?.id);
+    return { success: true, data: user, message: 'Avatar removed successfully' };
   }
 
   @Post(':id/org-scopes')

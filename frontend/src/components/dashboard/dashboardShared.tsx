@@ -17,6 +17,29 @@ export const toShortDate = (iso: string | null | undefined): string => {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+/* ── KPI card (consistent metric panel used by dashboards) ────────────── */
+interface KpiCardProps {
+  kpi: {
+    key: string;
+    icon: React.ReactNode;
+    tone: 'info' | 'success' | 'danger' | 'warning' | 'muted';
+    label: string;
+    value: React.ReactNode;
+    detail?: string;
+  };
+}
+
+export const KpiCard: React.FC<KpiCardProps> = ({ kpi }) => (
+  <div className={`erp-kpi-card erp-kpi-card--${kpi.tone}`}>
+    <span className="erp-kpi-card__icon">{kpi.icon}</span>
+    <div className="erp-kpi-card__body">
+      <span className="erp-kpi-card__label">{kpi.label}</span>
+      <span className="erp-kpi-card__value">{kpi.value}</span>
+      {kpi.detail && <span className="erp-kpi-card__detail">{kpi.detail}</span>}
+    </div>
+  </div>
+);
+
 /* ── Achievement level semantics ──────────────────────────────────────── */
 export type AchLevel = 'high' | 'medium' | 'low';
 export const achLevel = (pct: number): AchLevel =>

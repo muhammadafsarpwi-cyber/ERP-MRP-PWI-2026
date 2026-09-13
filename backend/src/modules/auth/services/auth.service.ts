@@ -51,6 +51,7 @@ export class AuthService {
         displayName: erpUser.displayName,
         firstName: erpUser.firstName,
         lastName: erpUser.lastName,
+        avatarUrl: erpUser.avatarUrl,
         defaultCompanyId: erpUser.defaultCompanyId,
         status: erpUser.status,
         permissions,
@@ -77,6 +78,7 @@ export class AuthService {
         displayName: erpUser.displayName,
         firstName: erpUser.firstName,
         lastName: erpUser.lastName,
+        avatarUrl: erpUser.avatarUrl,
         defaultCompanyId: erpUser.defaultCompanyId,
         status: erpUser.status,
         permissions,
@@ -252,6 +254,62 @@ export class AuthService {
       ...saved,
       permissions,
     };
+  }
+
+  async uploadUserAvatar(userId: string, dto: AvatarUploadDto, actorUserId?: string): Promise<any> {
+    const user = await this.userService.findOne(userId);
+    const targetFolder = user.authUserId || user.id;
+
+    const allowedMimes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+    if (!allowedMimes.has(dto.mime)) {
+      throw new BadRequestException('Invalid file type. Only JPEG, PNG, and WebP images are allowed.');
+    }
+
+    const maxSize = 5 * 1024 * 1024;
+    const buffer = Buffer.from(dto.data, 'base64');
+    if (buffer.length > maxSize) {
+      throw new BadRequestException('File size exceeds the 5 MB limit.');
+    }
+
+    const magicBytes: Record<string, (buf: Buffer) => boolean> = {
+      'image/jpeg': (buf) => buf.length > 2 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff,
+      'image/png': (buf) => buf.length > 8 && buf[0] === 0x89 && buf.slice(1, 4).toString() === 'PNG',
+      'image/webp': (buf) =>
+        buf.length > 12 &&
+        buf.slice(0, 4).toString() === 'RIFF' &&
+        buf.slice(8, 12).toString() === 'WEBP',
+    };
+    const validator = magicBytes[dto.mime];
+    if (!validator || !validator(buffer)) {
+      throw new BadRequestException('File content does not match the declared MIME type.');
+    }
+
+    const extMap: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+    const ext = extMap[dto.mime] || 'jpg';
+
+    const avatarDir = path.join(this.storagePath, 'avatars', targetFolder);
+    if (!fs.existsSync(avatarDir)) {
+      fs.mkdirSync(avatarDir, { recursive: true });
+    }
+
+    if (user.avatarUrl) {
+      this.deleteAvatarFile(user.avatarUrl);
+    }
+
+    const filename = `${crypto.randomUUID()}.${ext}`;
+    const filePath = path.join(avatarDir, filename);
+    fs.writeFileSync(filePath, buffer);
+
+    const avatarUrl = `/uploads/avatars/${targetFolder}/${filename}`;
+    return this.userService.setUserAvatarById(userId, avatarUrl, actorUserId);
+  }
+
+  async removeUserAvatar(userId: string, actorUserId?: string): Promise<any> {
+    const user = await this.userService.findOne(userId);
+    if (user.avatarUrl) {
+      this.deleteAvatarFile(user.avatarUrl);
+    }
+    return this.userService.setUserAvatarById(userId, null, actorUserId);
   }
 
   private deleteAvatarFile(avatarUrl: string): void {

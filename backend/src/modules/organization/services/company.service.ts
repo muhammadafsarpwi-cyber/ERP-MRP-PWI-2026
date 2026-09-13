@@ -1,11 +1,41 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { Company, CompanyStatus } from '../entities';
 import { CreateCompanyDto, UpdateCompanyDto } from '../dto';
 
+/** Standard item type seeds applied to every new company (canonical + legacy). */
+const STANDARD_ITEM_TYPES: Array<{ code: string; name: string; description: string | null; sortOrder: number }> = [
+  { code: 'RAW_MATERIAL', name: 'Raw Material', description: 'Raw materials and inputs', sortOrder: 1 },
+  { code: 'WORK_IN_PROGRESS', name: 'Work in Progress', description: 'Work in progress items', sortOrder: 2 },
+  { code: 'SEMI_FINISHED', name: 'Semi-Finished', description: 'Semi-finished goods', sortOrder: 3 },
+  { code: 'FINISHED_GOOD', name: 'Finished Good', description: 'Finished products ready for sale', sortOrder: 4 },
+  { code: 'PACKAGING_MATERIAL', name: 'Packaging Material', description: 'Packaging materials', sortOrder: 5 },
+  { code: 'CONSUMABLE', name: 'Consumable', description: 'Consumable items', sortOrder: 6 },
+  { code: 'SPARE_PART', name: 'Spare Part', description: 'Spare parts', sortOrder: 7 },
+  { code: 'SERVICE', name: 'Service', description: 'Services', sortOrder: 8 },
+  { code: 'ASSET', name: 'Asset', description: 'Assets', sortOrder: 9 },
+  { code: 'OTHER', name: 'Other', description: 'Other item types', sortOrder: 10 },
+  { code: 'BOBBIN', name: 'Bobbin', description: '', sortOrder: 11 },
+  { code: 'EQUIPMENT', name: 'Equipment', description: '', sortOrder: 12 },
+  { code: 'STATIONERY', name: 'Stationery', description: '', sortOrder: 13 },
+  { code: 'STATIONERY_TAG', name: 'Stationery/Tag', description: '', sortOrder: 14 },
+  { code: 'ELECTRICAL', name: 'Electrical', description: '', sortOrder: 15 },
+  { code: 'CHAIN', name: 'Chain', description: '', sortOrder: 16 },
+  { code: 'SANITARY_FITTING', name: 'Sanitary Fitting', description: '', sortOrder: 17 },
+  { code: 'MECH_FITTINGS', name: 'Mech. Fittings', description: '', sortOrder: 18 },
+  { code: 'BELT', name: 'Belt', description: '', sortOrder: 19 },
+  { code: 'BEARING', name: 'Bearing', description: '', sortOrder: 20 },
+  { code: 'SEAL', name: 'Seal', description: '', sortOrder: 21 },
+  { code: 'MECH_SPARE', name: 'Mech. Spare', description: '', sortOrder: 22 },
+  { code: 'SANITARY_FITTINGS', name: 'Sanitary Fittings', description: '', sortOrder: 23 },
+  { code: 'TOOLS', name: 'Tools', description: '', sortOrder: 24 },
+];
+
 @Injectable()
 export class CompanyService {
+  private readonly logger = new Logger(CompanyService.name);
+
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
@@ -27,7 +57,32 @@ export class CompanyService {
       updatedBy: userId,
     });
 
-    return this.companyRepository.save(company);
+    const saved = await this.companyRepository.save(company);
+    await this.seedStandardItemTypes(saved.id);
+    return saved;
+  }
+
+  /**
+   * Seeds the standard item types master for a newly created company. Wrapped in
+   * try/catch so a seeding failure never blocks company creation — the admin can
+   * always add types later from the Item Types screen.
+   */
+  private async seedStandardItemTypes(companyId: string): Promise<void> {
+    try {
+      const manager = this.companyRepository.manager;
+      if (!manager) return;
+      for (const t of STANDARD_ITEM_TYPES) {
+        await manager.query(
+          `INSERT INTO item_types (company_id, code, name, description, sort_order, status, created_at, updated_at, is_active)
+           VALUES ($1, $2, $3, $4, $5, 'ACTIVE', NOW(), NOW(), TRUE)
+           ON CONFLICT (company_id, code) DO NOTHING`,
+          [companyId, t.code, t.name, t.description || null, t.sortOrder],
+        );
+      }
+      this.logger.log(`Seeded standard item types for company ${companyId}`);
+    } catch (err) {
+      this.logger.warn(`Failed to seed standard item types for company ${companyId}: ${err}`);
+    }
   }
 
   async findAll(options?: {

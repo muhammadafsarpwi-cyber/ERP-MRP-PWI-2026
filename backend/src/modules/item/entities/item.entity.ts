@@ -39,6 +39,7 @@ export enum RouteType {
 }
 
 import { ItemRouteType } from './route-type.entity';
+import { ItemTypeMaster } from './item-type.entity';
 
 @Entity('items')
 export class Item extends BaseEntity {
@@ -68,8 +69,17 @@ export class Item extends BaseEntity {
   @Column({ name: 'notes', type: 'text', nullable: true })
   notes: string | null;
 
+  /** Legacy classification code (kept in sync with the item_type master). */
   @Column({ name: 'item_type', type: 'varchar', length: 30, default: ItemType.OTHER })
-  itemType: ItemType;
+  itemType: string;
+
+  /** Authoritative item type master link. */
+  @Column({ name: 'item_type_id', type: 'uuid', nullable: true })
+  itemTypeId: string | null;
+
+  @ManyToOne(() => ItemTypeMaster, { nullable: true })
+  @JoinColumn({ name: 'item_type_id' })
+  itemTypeRef: ItemTypeMaster;
 
   @Column({ type: 'varchar', length: 20, default: ItemStatus.ACTIVE })
   status: ItemStatus;

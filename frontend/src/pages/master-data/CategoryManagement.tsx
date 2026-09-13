@@ -1,63 +1,84 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  App, Table, Button, Modal, Form, Input, Popconfirm, TreeSelect,
+  App, Table, Button, Modal, Form, Input, Popconfirm, TreeSelect, Tag,
 } from 'antd';
 import { PlusOutlined, TagsOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import type { DataNode } from 'antd/es/tree';
 import apiService from '../../services/api';
-import { PageHeader, StatusBadge, PageToolbar, ERPTable, TableActions } from '../../components/shared';
+import { PageHeader, StatusBadge, PageToolbar, TableActions } from '../../components/shared';
 
 interface Category {
   id: string;
+  companyId: string;
   categoryCode: string;
   name: string;
-  description: string;
+  description: string | null;
   parentCategoryId: string | null;
   parentCategory?: { id: string; name: string } | null;
   status: string;
-  companyId: string;
+  level: number;
+  childCount: number;
+  usageCount: number;
   children?: Category[];
-  childCount?: number;
 }
 
-interface CategoryTree {
-  id: string;
-  value: string;
-  title: string;
-  key: string;
-  children?: CategoryTree[];
-}
+const countAll = (roots: Category[]): number =>
+  roots.reduce((acc, n) => acc + 1 + countAll(n.children || []), 0);
 
-const buildTreeData = (data: Category[]): CategoryTree[] =>
-  data.map(item => ({
-    id: item.id,
-    value: item.id,
-    title: item.name,
-    key: item.id,
-    children: item.children ? buildTreeData(item.children) : [],
-  }));
+const filterTree = (roots: Category[], q: string): Category[] => {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return roots;
+  const matches = (c: Category) =>
+    [c.name, c.categoryCode, c.description || ''].join(' ').toLowerCase().includes(needle);
+  const walk = (list: Category[]): Category[] =>
+    list.reduce<Category[]>((acc, node) => {
+      const children = walk(node.children || []);
+      if (matches(node) || children.length > 0) {
+        acc.push({ ...node, children: matches(node) ? node.children || [] : children });
+      }
+      return acc;
+    }, []);
+  return walk(roots);
+};
 
-const excludeFromTree = (nodes: CategoryTree[], excludeId: string): CategoryTree[] =>
+const collectIds = (node: Category): string[] => [node.id, ...(node.children || []).flatMap(collectIds)];
+
+const buildParentTree = (nodes: Category[], excluded: Set<string>): DataNode[] =>
   nodes
-    .filter(n => n.id !== excludeId)
-    .map(n => ({
-      ...n,
-      children: n.children ? excludeFromTree(n.children, excludeId) : [],
+    .filter((n) => !excluded.has(n.id))
+    .map((n) => ({
+      key: n.id,
+      value: n.id,
+      title: n.name,
+      disabled: n.status !== 'ACTIVE',
+      selectable: n.status === 'ACTIVE',
+      children: buildParentTree(n.children || [], excluded),
     }));
 
 const CategoryManagement: React.FC = () => {
   const { message } = App.useApp();
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
+  const [roots, setRoots] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [saving, setSaving] = useState(false);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [form] = Form.useForm();
   const [search, setSearch] = useState('');
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
+
+  useEffect(() => {
+    const flat: React.Key[] = [];
+    const collect = (list: Category[]) => {
+      list.forEach((n) => {
+        flat.push(n.id);
+        collect(n.children || []);
+      });
+    };
+    collect(roots);
+    setExpandedKeys(flat);
+  }, [roots]);
 
   const resolveCompanyId = useCallback(async (): Promise<string | null> => {
     try {
@@ -77,37 +98,30 @@ const CategoryManagement: React.FC = () => {
     resolveCompanyId().then(setCompanyId);
   }, [resolveCompanyId]);
 
-  const fetchCategories = useCallback(async (pageNum: number = 1) => {
+  const fetchHierarchy = useCallback(async (cid: string | null) => {
     setLoading(true);
     try {
-      const params: any = { page: pageNum, limit: pageSize };
-      if (search) params.search = search;
-      const response = await apiService.get<{ data: Category[]; total: number }>('/master-data/categories', params);
-      setCategories(response.data);
-      setTotal(response.total);
-    } catch (error) {
-      message.error('Failed to fetch categories');
-    } finally {
-      setLoading(false);
-    }
-  }, [search, pageSize, message]);
-
-  const fetchHierarchy = useCallback(async () => {
-    try {
-      const response = await apiService.get<{ data: Category[] }>('/master-data/categories/hierarchy');
-      setCategoryTree(buildTreeData(response.data));
+      const params = cid ? { companyId: cid } : {};
+      const response = await apiService.get<{ data: Category[] }>('/master-data/categories/hierarchy', params);
+      setRoots(response.data || []);
     } catch (error) {
       message.error('Failed to fetch category hierarchy');
+    } finally {
+      setLoading(false);
     }
   }, [message]);
 
   useEffect(() => {
-    fetchHierarchy();
-  }, [fetchHierarchy]);
+    void fetchHierarchy(companyId);
+  }, [companyId, fetchHierarchy]);
 
-  useEffect(() => {
-    fetchCategories(page);
-  }, [page, fetchCategories]);
+  const total = useMemo(() => countAll(roots), [roots]);
+  const dataSource = useMemo(() => filterTree(roots, search), [roots, search]);
+
+  const parentTree = useMemo(() => {
+    const excluded = editingCategory ? new Set(collectIds(editingCategory)) : new Set<string>();
+    return buildParentTree(roots, excluded);
+  }, [roots, editingCategory]);
 
   const handleCreate = () => {
     setEditingCategory(null);
@@ -127,8 +141,15 @@ const CategoryManagement: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
+    let values: any;
     try {
-      const values = await form.validateFields();
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+    setSaving(true);
+    try {
       if (editingCategory) {
         await apiService.patch(`/master-data/categories/${editingCategory.id}`, values);
         message.success('Category updated');
@@ -141,11 +162,12 @@ const CategoryManagement: React.FC = () => {
         message.success('Category created');
       }
       setModalVisible(false);
-      fetchCategories(page);
-      fetchHierarchy();
+      void fetchHierarchy(companyId);
     } catch (error: any) {
       const msg = error?.response?.data?.message || error?.message || 'Operation failed';
       message.error(Array.isArray(msg) ? msg.join('; ') : String(msg));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -153,7 +175,7 @@ const CategoryManagement: React.FC = () => {
     try {
       await apiService.patch(`/master-data/categories/${id}/activate`);
       message.success('Category activated');
-      fetchCategories(page);
+      void fetchHierarchy(companyId);
     } catch (error: any) {
       const msg = error?.response?.data?.message || 'Failed to activate category';
       message.error(Array.isArray(msg) ? msg.join('; ') : String(msg));
@@ -164,7 +186,7 @@ const CategoryManagement: React.FC = () => {
     try {
       await apiService.patch(`/master-data/categories/${id}/deactivate`);
       message.success('Category deactivated');
-      fetchCategories(page);
+      void fetchHierarchy(companyId);
     } catch (error: any) {
       const msg = error?.response?.data?.message || 'Failed to deactivate category';
       message.error(Array.isArray(msg) ? msg.join('; ') : String(msg));
@@ -172,23 +194,38 @@ const CategoryManagement: React.FC = () => {
   };
 
   const columns: ColumnsType<Category> = [
-    { title: 'Code', dataIndex: 'categoryCode', key: 'categoryCode', width: 140 },
-    { title: 'Name', dataIndex: 'name', key: 'name', width: 200 },
-    { title: 'Description', dataIndex: 'description', key: 'description', ellipsis: true },
     {
-      title: 'Parent Category', key: 'parentName', width: 160,
-      render: (_, r) => r.parentCategory?.name ?? '—',
+      title: 'Level', key: 'level', width: 64, align: 'center',
+      render: (_, r) => (
+        <Tag color={r.level === 0 ? 'blue' : r.level === 1 ? 'cyan' : 'default'} style={{ marginInlineEnd: 0 }}>
+          L{r.level}
+        </Tag>
+      ),
+    },
+    { title: 'Code', dataIndex: 'categoryCode', key: 'categoryCode', width: 140, ellipsis: true },
+    { title: 'Name', dataIndex: 'name', key: 'name', width: 200, ellipsis: true },
+    {
+      title: 'Description', dataIndex: 'description', key: 'description', ellipsis: true,
+      render: (v: string) => v || <span style={{ color: '#999' }}>—</span>,
     },
     {
-      title: 'Children', key: 'childCount', width: 100,
-      render: (_, r) => r.childCount ?? r.children?.length ?? 0,
+      title: 'Parent Category', key: 'parentName', width: 160, ellipsis: true,
+      render: (_, r) => <span style={{ color: '#666' }}>{r.parentCategory?.name ?? <span style={{ color: '#999' }}>—</span>}</span>,
     },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 110,
+      title: 'Children', key: 'childCount', width: 90, align: 'center',
+      render: (_, r) => (r.childCount > 0 ? r.childCount : <span style={{ color: '#999' }}>0</span>),
+    },
+    {
+      title: 'Items', key: 'usageCount', width: 80, align: 'center',
+      render: (_, r) => (r.usageCount > 0 ? r.usageCount : <span style={{ color: '#999' }}>0</span>),
+    },
+    {
+      title: 'Status', dataIndex: 'status', key: 'status', width: 104,
       render: (s: string) => <StatusBadge status={s} />,
     },
     {
-      title: 'Actions', key: 'actions', width: 140, align: 'center',
+      title: 'Actions', key: 'actions', width: 132, align: 'center',
       render: (_, record) => (
         <TableActions
           onEdit={() => handleEdit(record)}
@@ -201,7 +238,7 @@ const CategoryManagement: React.FC = () => {
               <Popconfirm key="deact" title="Deactivate this category?" onConfirm={() => handleDeactivate(record.id)}>
                 <Button type="text" size="small" danger>Deactivate</Button>
               </Popconfirm>
-            )
+            ),
           ]}
         />
       ),
@@ -209,77 +246,81 @@ const CategoryManagement: React.FC = () => {
   ];
 
   return (
-    <div>
+    <div className="erp-dashboard">
       <PageHeader
         icon={<TagsOutlined />}
         title="Item Categories"
-        subtitle={`Manage product categories and hierarchy · ${total} records`}
+        subtitle={`Category hierarchy · ${total} categories · level 0 = root, 1 = child, 2 = sub-child`}
         showBreadcrumbs
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Category</Button>
-        }
       />
 
       <PageToolbar
         searchValue={search}
-        onSearchChange={(v) => { setSearch(v); setPage(1); }}
+        onSearchChange={setSearch}
         searchPlaceholder="Search categories..."
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Category</Button>
         }
       />
 
-      <ERPTable
-        columns={columns}
-        dataSource={categories}
+      <Table<Category>
+        className="erp-table"
         rowKey="id"
         loading={loading}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
-          showSizeChanger: true,
-          pageSizeOptions: [10, 20, 50, 100],
-        }}
+        dataSource={dataSource}
+        columns={columns}
+        childrenColumnName="children"
+        tableLayout="fixed"
+        pagination={false}
         expandable={{
-          expandedRowRender: (record) => (
-            <Table
-              columns={columns.filter(c => c.key !== 'actions')}
-              dataSource={record.children || []}
-              rowKey="id"
-              pagination={false}
-              size="small"
-            />
-          ),
-          rowExpandable: (record) => (record.children?.length ?? 0) > 0,
+          expandedRowKeys: expandedKeys,
+          onExpandedRowsChange: (keys) => setExpandedKeys(keys as React.Key[]),
+          expandRowByClick: false,
+          indentSize: 20,
         }}
-        emptyText={search ? 'No categories match your search' : 'No categories found'}
+        locale={{
+          emptyText: search ? 'No categories match your search' : 'No categories found',
+        }}
       />
 
       <Modal
-        title={editingCategory ? 'Edit Category' : 'Create Category'}
+        title={editingCategory ? 'Edit Category' : 'Add Category'}
         open={modalVisible}
         onOk={handleSubmit}
+        confirmLoading={saving}
         onCancel={() => setModalVisible(false)}
-        width={550}
+        width={560}
       >
-        <Form form={form} layout="vertical">
-          <Form.Item name="categoryCode" label="Category Code" rules={[{ required: true }]}>
-            <Input disabled={!!editingCategory} />
+        <Form form={form} layout="vertical" requiredMark="optional">
+          <Form.Item
+            name="categoryCode"
+            label="Category Code"
+            extra="Uppercase letters, numbers and underscores. Cannot be changed after creation."
+            rules={[
+              { required: true, message: 'Category Code is required' },
+              { pattern: /^[A-Z0-9_-]+$/, message: 'Uppercase letters, numbers, hyphens and underscores only' },
+            ]}
+          >
+            <Input placeholder="e.g. CAT-FG" maxLength={50} disabled={!!editingCategory} style={{ textTransform: 'uppercase' }} />
           </Form.Item>
-          <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-            <Input />
+          <Form.Item name="name" label="Category Name" rules={[{ required: true, message: 'Category Name is required' }]}>
+            <Input placeholder="e.g. Cables & Wires" maxLength={255} />
           </Form.Item>
           <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} />
+            <Input.TextArea rows={2} maxLength={1000} placeholder="Short description of this category" />
           </Form.Item>
-          <Form.Item name="parentCategoryId" label="Parent Category">
+          <Form.Item
+            name="parentCategoryId"
+            label="Parent Category"
+            extra="Leave empty to create a root category. Only active categories can be selected as parents."
+          >
             <TreeSelect
-              treeData={editingCategory ? excludeFromTree(categoryTree, editingCategory.id) : categoryTree}
+              treeData={parentTree}
               placeholder="Select parent category"
               allowClear
               treeDefaultExpandAll
+              showSearch
+              treeNodeFilterProp="title"
             />
           </Form.Item>
         </Form>

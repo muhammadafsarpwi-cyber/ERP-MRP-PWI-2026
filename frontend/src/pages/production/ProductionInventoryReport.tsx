@@ -140,7 +140,6 @@ const dateShort = (v?: string | null): string => (v ? new Date(v).toISOString().
 const dateTime = (v?: string | null): string =>
   v ? new Date(v).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
 
-const itemTypeLabel = (v: string): string => ITEM_TYPES.find((t) => t.value === v)?.label || v;
 const specLine = (r: ReportRow): string => {
   if (r.thicknessMm != null || r.widthMm != null) return `${formatDimension(r.thicknessMm)} × ${formatDimension(r.widthMm)}`;
   if (r.wireSizeMm != null) return `${formatDimension(r.wireSizeMm)} mm`;
@@ -191,6 +190,23 @@ const ProductionInventoryReport: React.FC = () => {
   const [divisions, setDivisions] = useState<FilterOption[]>([]);
   const [departments, setDepartments] = useState<FilterOption[]>([]);
   const [movementTypes, setMovementTypes] = useState<MovementTypeDef[]>([]);
+  const [masterItemTypes, setMasterItemTypes] = useState<Array<{ id: string; code: string; name: string; status: string }>>([]);
+
+  // Item type labels/options come from the DB-backed master when available and
+  // fall back to the static canonical list — identical presentation either way.
+  const typeLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of masterItemTypes) m.set(t.code, t.name || t.code);
+    for (const t of ITEM_TYPES) if (!m.has(t.value)) m.set(t.value, t.label);
+    return m;
+  }, [masterItemTypes]);
+  const itemTypeLabel = useCallback((v: string): string => typeLabelMap.get(v) ?? v, [typeLabelMap]);
+  const itemTypeOptions = useMemo(
+    () => (masterItemTypes.length > 0
+      ? masterItemTypes.map((t) => ({ value: t.code, label: t.name || t.code }))
+      : ITEM_TYPES),
+    [masterItemTypes],
+  );
 
   const [report, setReport] = useState<ReportResponse | null>(null);
 
@@ -203,9 +219,13 @@ const ProductionInventoryReport: React.FC = () => {
     Promise.allSettled([
       dashboardService.getFilterDivisions(),
       apiService.get<{ data: MovementTypeDef[] }>('/production/inventory-report/movement-types'),
-    ]).then(([divRes, movRes]) => {
+      apiService.get<{ data: Array<{ id: string; code: string; name: string; status: string }> }>('/master-data/item-types', { limit: 500 }),
+    ]).then(([divRes, movRes, itRes]) => {
       if (divRes.status === 'fulfilled' && divRes.value.success) setDivisions(divRes.value.data);
       if (movRes.status === 'fulfilled') setMovementTypes(movRes.value.data || []);
+      if (itRes.status === 'fulfilled' && Array.isArray(itRes.value.data)) {
+        setMasterItemTypes((itRes.value.data as Array<{ id: string; code: string; name: string; status: string }>) || []);
+      }
     });
   }, []);
 
@@ -428,7 +448,7 @@ const ProductionInventoryReport: React.FC = () => {
               placeholder="All Types"
               value={filter.itemType}
               onChange={(v) => setFilter((prev) => ({ ...prev, itemType: v }))}
-              options={ITEM_TYPES}
+              options={itemTypeOptions}
             />
           </Col>
           <Col xs={24} sm={12} md={6} lg={5}>

@@ -3,7 +3,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsUUID,
-  IsEnum,
   IsBoolean,
   IsNumber,
   IsInt,
@@ -15,7 +14,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ItemType, RouteType } from '../entities/item.entity';
+import { RouteType } from '../entities/item.entity';
 
 export const ROUTE_TYPES = Object.values(RouteType) as string[];
 
@@ -80,10 +79,15 @@ export class CreateItemDto {
   @IsOptional()
   notes?: string;
 
-  @ApiProperty({ description: 'Item type', enum: ItemType })
-  @IsEnum(ItemType)
+  @ApiProperty({ description: 'Item type code (from the item types master)' })
+  @IsString()
   @IsNotEmpty()
-  itemType: ItemType;
+  itemType: string;
+
+  @ApiPropertyOptional({ description: 'Item type master UUID (authoritative source of truth)' })
+  @IsUUID('loose')
+  @IsOptional()
+  itemTypeId?: string;
 
   @ApiPropertyOptional({ description: 'Barcode' })
   @IsString()
@@ -530,10 +534,15 @@ export class UpdateItemDto {
   @IsOptional()
   notes?: string;
 
-  @ApiPropertyOptional({ description: 'Item type', enum: ItemType })
-  @IsEnum(ItemType)
+  @ApiPropertyOptional({ description: 'Item type code (from the item types master)' })
+  @IsString()
   @IsOptional()
-  itemType?: ItemType;
+  itemType?: string;
+
+  @ApiPropertyOptional({ description: 'Item type master UUID (authoritative source of truth)' })
+  @IsUUID('loose')
+  @IsOptional()
+  itemTypeId?: string;
 
   @ApiPropertyOptional({ description: 'Barcode' })
   @IsString()
@@ -963,6 +972,11 @@ export class ItemFilterDto {
   @IsString()
   @IsOptional()
   itemType?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by item type master UUID' })
+  @IsUUID('loose')
+  @IsOptional()
+  itemTypeId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by category ID' })
   @IsUUID('loose')

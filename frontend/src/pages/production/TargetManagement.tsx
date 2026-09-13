@@ -430,9 +430,9 @@ const TargetManagement: React.FC = () => {
       const results = await Promise.allSettled([
         apiService.get<{ data: MachineLk[] }>('/machines', { limit: 500, sortBy: 'machineCode' }),
         apiService.get<{ success?: boolean; data: ShiftLk[] }>('/production/shifts'),
-        apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200 }),
-        apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500 }),
-        apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500 }),
+        apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
+        apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500, status: 'ACTIVE' }),
+        apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500, status: 'ACTIVE' }),
         apiService.get<{ data: UomLk[] }>('/master-data/uom', { limit: 200, status: 'ACTIVE' }),
         apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 1000, status: 'ACTIVE' }),
       ]);

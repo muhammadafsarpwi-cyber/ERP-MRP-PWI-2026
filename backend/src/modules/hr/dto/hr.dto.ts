@@ -1,5 +1,8 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsDateString, MaxLength, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsDateString, IsInt, MaxLength, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+/** Canonical attendance statuses accepted by the HR module. */
+export const HR_ATTENDANCE_STATUSES = ['PRESENT', 'ABSENT', 'LEAVE', 'HALF_DAY', 'HOLIDAY', 'WEEKEND', 'LATE'];
 
 export class CreateHrDesignationDto {
   @ApiProperty() @IsUUID() @IsNotEmpty() companyId: string;
@@ -66,4 +69,29 @@ export class CreateHrHolidayDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(255) holidayName: string;
   @ApiProperty() @IsDateString() holidayDate: string;
   @ApiPropertyOptional() @IsOptional() isRecurring?: boolean;
+}
+
+/**
+ * Self-service "My Attendance" query. There is intentionally NO employeeId on
+ * this DTO — the employee is always resolved server-side from the
+ * authenticated user. `whitelist: true` + `forbidNonWhitelisted: true` on the
+ * global ValidationPipe makes any attempt to smuggle extra identity params
+ * (e.g. `employeeId=...`) into this route fail with HTTP 400.
+ */
+export class GetMyAttendanceDto {
+  @ApiPropertyOptional({ description: 'Start of the range (YYYY-MM-DD). Defaults to the first day of the current month.' })
+  @IsOptional() @IsDateString() from?: string;
+
+  @ApiPropertyOptional({ description: 'End of the range (YYYY-MM-DD). Defaults to today.' })
+  @IsOptional() @IsDateString() to?: string;
+
+  @ApiPropertyOptional({ description: 'Filter history by attendance status.' })
+  @IsOptional() @IsString() @IsIn(HR_ATTENDANCE_STATUSES) status?: string;
+
+  @ApiPropertyOptional({ description: 'Filter history by shift id.' })
+  @IsOptional() @IsUUID() shiftId?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) page?: number;
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(500) limit?: number;
 }

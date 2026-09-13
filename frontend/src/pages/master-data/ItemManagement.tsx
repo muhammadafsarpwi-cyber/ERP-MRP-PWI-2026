@@ -131,6 +131,14 @@ export const ITEM_TYPE_ICONS: Record<string, ItemTypeIconComponent> = {
 // the background of each item type card.
 export const ITEM_TYPE_WATERMARK_ICONS: Record<string, ItemTypeIconComponent> = ITEM_TYPE_ICONS;
 
+interface MasterItemType {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  usageCount?: number;
+}
+
 interface ItemTypeCardProps {
   label: string;
   icon: ItemTypeIconComponent;
@@ -343,6 +351,26 @@ const ItemManagement: React.FC = () => {
   // (limit 1, total only). A type whose count could not be fetched simply has no
   // badge; counts are never fabricated or hard-coded.
   const [typeCounts, setTypeCounts] = useState<Record<string, number>>({});
+  // Database-backed Item Type master. When the master loads successfully the
+  // registry becomes the single source of truth for the type cards, the form
+  // Select and every label; when it is unavailable/empty the static ITEM_TYPES
+  // list is used as a graceful fallback (keeps all existing screens working).
+  const [masterItemTypes, setMasterItemTypes] = useState<MasterItemType[]>([]);
+  const [masterTypesState, setMasterTypesState] = useState<'loading' | 'error' | 'ready'>('loading');
+
+  const displayTypes = useMemo(() => (
+    masterItemTypes.length > 0
+      ? masterItemTypes.map((t) => ({ value: t.code, label: t.name || t.code, status: t.status, itemTypeId: t.id }))
+      : ITEM_TYPES.map((t) => ({ value: t.value, label: t.label, status: 'ACTIVE', itemTypeId: undefined }))
+  ), [masterItemTypes]);
+
+  const typeLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of masterItemTypes) m.set(t.code, t.name || t.code);
+    for (const t of ITEM_TYPES) if (!m.has(t.value)) m.set(t.value, t.label);
+    return m;
+  }, [masterItemTypes]);
+  const typeName = useCallback((code?: string | null) => (code ? typeLabelMap.get(code) ?? code : '—'), [typeLabelMap]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
@@ -666,13 +694,14 @@ const ItemManagement: React.FC = () => {
 
   useEffect(() => {
     (async () => {
-      const [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled] = await Promise.allSettled([
+      const [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled, itSettled] = await Promise.allSettled([
         apiService.get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 }),
         apiService.get<{ data: CategoryOption[] }>('/master-data/categories', { limit: 500 }),
         apiService.get<{ data: DivisionOption[] }>('/divisions', { limit: 200 }),
         apiService.get<{ data: SectionOption[] }>('/sections', { limit: 500 }),
         apiService.get<{ data: DepartmentOption[] }>('/departments', { limit: 500 }),
         apiService.get<{ data: Array<{ id: string; routeCode: string; name: string; status: string }> }>('/master-data/route-types', { limit: 200 }),
+        apiService.get<{ data: MasterItemType[] }>('/master-data/item-types', { limit: 500 }),
       ]);
 
       if (uomSettled.status === 'fulfilled') setUoms(uomSettled.value.data || []);
@@ -686,8 +715,17 @@ const ItemManagement: React.FC = () => {
       } else {
         setRouteTypesState('error');
       }
+      let masterReady: MasterItemType[] = [];
+      if (itSettled.status === 'fulfilled' && Array.isArray(itSettled.value.data) && itSettled.value.data.length > 0) {
+        masterReady = itSettled.value.data;
+        setMasterItemTypes(masterReady);
+        setMasterTypesState('ready');
+      } else {
+        setMasterItemTypes([]);
+        setMasterTypesState(itSettled.status === 'rejected' ? 'error' : 'ready');
+      }
 
-      const allFailed = [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled].every(s => s.status === 'rejected');
+      const allFailed = [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled, itSettled].every(s => s.status === 'rejected');
       if (allFailed) {
         message.warning('Could not connect to server to load master data. Please check your network or try again.');
       }
@@ -710,11 +748,12 @@ const ItemManagement: React.FC = () => {
           // keep page-derived fallback values on failure
         }
         try {
+          const typeList = masterReady.length > 0 ? masterReady.map((t) => ({ value: t.code })) : ITEM_TYPES;
           const settled = await Promise.allSettled(
-            ITEM_TYPES.map((t) => mk({ itemType: t.value })),
+            typeList.map((t) => mk({ itemType: t.value })),
           );
           const counts: Record<string, number> = {};
-          ITEM_TYPES.forEach((t, i) => {
+          typeList.forEach((t, i) => {
             if (settled[i].status === 'fulfilled') counts[t.value] = settled[i].value;
           });
           setTypeCounts(counts);
@@ -986,6 +1025,14 @@ const ItemManagement: React.FC = () => {
         delete payload.routeType;
       }
 
+      // Item type: attach the master UUID (itemTypeId) when the selected code is a
+      // registered item type; the backend item-types master is authoritative for the
+      // stored code. Unknown/static codes keep working via the legacy item_type column.
+      if (payload.itemType) {
+        const typeOpt = displayTypes.find((t) => t.value === payload.itemType);
+        if (typeOpt?.itemTypeId) payload.itemTypeId = typeOpt.itemTypeId;
+      }
+
       // Sanitize and normalize process keys so no aliases with spaces or underscores reach the backend
       for (let i = 1; i <= 6; i++) {
         const canonical = `process${i}`;
@@ -1252,7 +1299,7 @@ const ItemManagement: React.FC = () => {
 
   const itemToExportRow = (r: Item): Array<string | number | null | undefined> => [
     r.itemCode, r.name, r.sku ?? '', r.shortName ?? '',
-    ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType,
+    typeName(r.itemType),
     categoryName(r) ?? '',
     divisionName(r) ?? '',
     sectionName(r) ?? '',
@@ -1294,7 +1341,7 @@ const ItemManagement: React.FC = () => {
     if (sec) parts.push(`Section: ${sec}`);
     if (dep) parts.push(`Department: ${dep}`);
     if (fCategory) parts.push(`Category: ${flatCategories.find((c) => c.id === fCategory)?.name ?? fCategory}`);
-    if (fItemType) parts.push(`Type: ${ITEM_TYPES.find((t) => t.value === fItemType)?.label ?? fItemType}`);
+    if (fItemType) parts.push(`Type: ${typeName(fItemType)}`);
     if (fRouteType) {
       const rt = routeTypes.find((t) => t.id === fRouteType);
       if (rt) parts.push(`Route: ${rt.name?.trim() ? rt.name : rt.routeCode}`);
@@ -1321,7 +1368,7 @@ const ItemManagement: React.FC = () => {
             <td class="num">${formatDimension(r.wireSizeMm)}</td>
             <td class="num">${formatDimension(r.thicknessMm)}</td>
             <td class="num">${formatDimension(r.widthMm)}</td>
-            <td>${ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType}</td>
+            <td>${typeName(r.itemType)}</td>
             <td>${r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : ''}</td>
             <td>${r.baseUomName ?? ''}</td><td class="status ${(r.status ? String(r.status).toLowerCase() : '')}">${r.status ?? ''}</td>
           </tr>`,
@@ -1386,7 +1433,7 @@ const ItemManagement: React.FC = () => {
         formatDimension(r.wireSizeMm),
         formatDimension(r.thicknessMm),
         formatDimension(r.widthMm),
-        ITEM_TYPES.find((t) => t.value === r.itemType)?.label || r.itemType,
+        typeName(r.itemType),
         routeTypeLabel(r),
         r.baseUomName ?? '',
         r.status,
@@ -1458,7 +1505,13 @@ const ItemManagement: React.FC = () => {
     if (seenCodes.has(itemCode)) return { duplicate: true, errors: [`Duplicate item code '${itemCode}' within the file`] };
 
     const itemTypeRaw = get('itemType').toUpperCase().replace(/[\s-]+/g, '_');
-    const itemType = ITEM_TYPES.find((t) => t.value === itemTypeRaw || t.label.toUpperCase().replace(/\s+/g, '_') === itemTypeRaw)?.value;
+    const normTypeName = (s: string) => String(s).toUpperCase().replace(/[\s-]+/g, '_');
+    // Resolve against the DB-backed master first (accepts code or display name),
+    // then fall back to the static canonical list for backward compatibility.
+    const masterType = displayTypes.find(
+      (t) => t.value === itemTypeRaw || normTypeName(t.label) === itemTypeRaw,
+    );
+    const itemType = masterType?.value || ITEM_TYPES.find((t) => t.value === itemTypeRaw || normTypeName(t.label) === itemTypeRaw)?.value;
     if (!itemType) errors.push(`Invalid Item Type '${get('itemType')}'`);
 
     const uom = matchLookup(get('uomCode'), uoms, 'code');
@@ -1530,6 +1583,7 @@ const ItemManagement: React.FC = () => {
       itemCode,
       name,
       itemType,
+      ...(masterType?.itemTypeId ? { itemTypeId: masterType.itemTypeId } : {}),
       baseUomId: uom,
       ...(get('sku') ? { sku: get('sku') } : {}),
       ...(get('shortName') ? { shortName: get('shortName') } : {}),
@@ -1765,7 +1819,7 @@ const ItemManagement: React.FC = () => {
     {
       title: 'Item Type', dataIndex: 'itemType', key: 'itemType', width: 120,
       render: (v: string) => {
-        const label = ITEM_TYPES.find((t) => t.value === v)?.label || v;
+        const label = typeName(v);
         return <Tag style={{ marginInlineEnd: 0 }}>{label}</Tag>;
       },
     },
@@ -2019,7 +2073,7 @@ const ItemManagement: React.FC = () => {
               active={activeTab === 'all'}
               onClick={() => handleTabChange('all')}
             />
-            {ITEM_TYPES.map((t) => (
+            {displayTypes.map((t) => (
               <ItemTypeCard
                 key={t.value}
                 testId={`item-type-card-${t.value}`}
@@ -2174,7 +2228,7 @@ const ItemManagement: React.FC = () => {
                 <span style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>{detailItem.name}</span>
               </div>
               <StatusBadge status={detailItem.status} colorMap={statusColorMap} />
-              <Tag style={{ marginInlineEnd: 0 }}>{ITEM_TYPES.find((t) => t.value === detailItem.itemType)?.label || detailItem.itemType}</Tag>
+              <Tag style={{ marginInlineEnd: 0 }}>{typeName(detailItem.itemType)}</Tag>
             </Space>
           ) : (
             'Item Details'
@@ -2221,7 +2275,7 @@ const ItemManagement: React.FC = () => {
                         { label: 'Item Name', children: txt(detailItem.name) },
                         { label: 'SKU', children: txt(detailItem.sku) },
                         { label: 'Short Name', children: txt(detailItem.shortName) },
-                        { label: 'Item Type', children: txt(ITEM_TYPES.find((t) => t.value === detailItem.itemType)?.label || detailItem.itemType) },
+                        { label: 'Item Type', children: txt(typeName(detailItem.itemType)) },
                         { label: 'Category', children: txt(categoryName(detailItem)) },
                         {
                           label: 'Status',
@@ -2425,7 +2479,7 @@ const ItemManagement: React.FC = () => {
                           children: detailItem.productionInItem
                             ? (() => {
                                 const pi = detailItem.productionInItem;
-                                const typeLabel = (pi.itemType && ITEM_TYPES.find((t) => t.value === pi.itemType)?.label) || pi.itemType || null;
+                                const typeLabel = (pi.itemType && typeName(pi.itemType)) || null;
                                 const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
                                 const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
                                 return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
@@ -2744,7 +2798,17 @@ const ItemManagement: React.FC = () => {
           <Card size="small" title="Classification" style={{ marginBottom: 12, borderRadius: 8 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
               <Form.Item name="itemType" label="Item Type" rules={[{ required: true, message: 'Item Type is required' }]}>
-                <Select options={ITEM_TYPES} placeholder="Select item type" />
+                <Select
+                  showSearch optionFilterProp="label"
+                  loading={masterTypesState === 'loading'}
+                  status={masterTypesState === 'error' ? 'error' : undefined}
+                  notFoundContent={masterTypesState === 'error' ? 'Item types could not be loaded' : 'No item types'}
+                  options={displayTypes.map((o) => ({
+                    ...o,
+                    disabled: o.status === 'INACTIVE' && o.value !== (editing?.itemType ?? null),
+                  }))}
+                  placeholder="Select item type"
+                />
               </Form.Item>
               <Form.Item name="categoryId" label="Item Category">
                 <Select
@@ -3922,7 +3986,7 @@ const ItemManagement: React.FC = () => {
               <Descriptions.Item label="Item Code"><Text strong style={{ fontFamily: 'monospace' }}>{barcodeModalItem.itemCode}</Text></Descriptions.Item>
               <Descriptions.Item label="Item Name">{barcodeModalItem.name}</Descriptions.Item>
               {barcodeModalItem.sku && <Descriptions.Item label="SKU"><Text code>{barcodeModalItem.sku}</Text></Descriptions.Item>}
-              <Descriptions.Item label="Item Type"><Tag>{ITEM_TYPES.find((t) => t.value === barcodeModalItem.itemType)?.label || barcodeModalItem.itemType}</Tag></Descriptions.Item>
+              <Descriptions.Item label="Item Type"><Tag>{typeName(barcodeModalItem.itemType)}</Tag></Descriptions.Item>
               <Descriptions.Item label="Status"><StatusBadge status={barcodeModalItem.status} colorMap={statusColorMap} /></Descriptions.Item>
               {barcodeModalItem.baseUomName && <Descriptions.Item label="UOM">{barcodeModalItem.baseUomName}</Descriptions.Item>}
             </Descriptions>

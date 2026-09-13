@@ -140,4 +140,28 @@ describe('ErpUserService', () => {
       expect(result).toEqual({ data: [], total: 0 });
     });
   });
+
+  describe('assignRoles', () => {
+    it('should synchronize roles by removing unselected and adding new', async () => {
+      userRepository.findOne.mockResolvedValue(mockUser);
+      const userRoleRepo = (service as any).userRoleRepository;
+      const existingRoles = [
+        { id: 'ur-1', userId: 'test-user-id', roleId: 'role-admin' },
+        { id: 'ur-2', userId: 'test-user-id', roleId: 'role-super' },
+      ];
+      userRoleRepo.find.mockResolvedValue(existingRoles);
+      userRoleRepo.remove.mockResolvedValue([]);
+      userRoleRepo.create.mockImplementation((dto: any) => dto);
+      userRoleRepo.save.mockImplementation(async (r: any) => r);
+
+      // Want only role-production (remove role-admin and role-super)
+      const result = await service.assignRoles('test-user-id', { roleIds: ['role-production'] });
+
+      expect(userRoleRepo.remove).toHaveBeenCalledWith(existingRoles);
+      expect(userRoleRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'test-user-id', roleId: 'role-production' })
+      );
+      expect(result).toEqual(mockUser);
+    });
+  });
 });

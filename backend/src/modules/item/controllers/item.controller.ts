@@ -35,6 +35,7 @@ export class ItemController {
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'status', required: false, enum: ItemStatus })
   @ApiQuery({ name: 'itemType', required: false })
+  @ApiQuery({ name: 'itemTypeId', required: false })
   @ApiQuery({ name: 'categoryId', required: false })
   @ApiQuery({ name: 'companyId', required: false })
   @ApiQuery({ name: 'divisionId', required: false })
@@ -59,6 +60,7 @@ export class ItemController {
     @Query('search') search?: string,
     @Query('status') status?: ItemStatus,
     @Query('itemType') itemType?: string,
+    @Query('itemTypeId') itemTypeId?: string,
     @Query('categoryId') categoryId?: string,
     @Query('companyId') companyId?: string,
     @Query('divisionId') divisionId?: string,
@@ -79,7 +81,7 @@ export class ItemController {
     @Query('sortOrder') sortOrder?: string,
   ) {
     const result = await this.itemService.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, status, itemType, categoryId, companyId,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, status, itemType, itemTypeId, categoryId, companyId,
       divisionId, sectionId, departmentId, routeType,
       wireSizeMm: wireSizeMm !== undefined && wireSizeMm !== null && `${wireSizeMm}` !== '' ? Number(wireSizeMm) : undefined,
       thicknessMm: thicknessMm !== undefined && thicknessMm !== null && `${thicknessMm}` !== '' ? Number(thicknessMm) : undefined,

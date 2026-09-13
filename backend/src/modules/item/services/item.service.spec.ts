@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ItemService } from './item.service';
 import { Item, ItemStatus, ItemType } from '../entities';
 import { ItemRouteType } from '../entities/route-type.entity';
+import { ItemTypeMaster } from '../entities/item-type.entity';
 import { Division, Section, Department } from '../../organization/entities';
 import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
 import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
@@ -60,6 +61,8 @@ describe('ItemService', () => {
     routeType: null,
     routeTypeId: null,
     routeTypeRef: null as never,
+    itemTypeId: null,
+    itemTypeRef: null as never,
     process1: null,
     process2: null,
     process3: null,
@@ -102,6 +105,14 @@ describe('ItemService', () => {
     divisionRepo = { findOne: jest.fn() };
     sectionRepo = { findOne: jest.fn() };
     departmentRepo = { findOne: jest.fn() };
+    const itemTypeRepo = { findOne: jest.fn() };
+    itemTypeRepo.findOne.mockResolvedValue({
+      id: 'it-1',
+      companyId: 'company-001',
+      code: 'FINISHED_GOOD',
+      name: 'Finished Good',
+      status: 'ACTIVE',
+    });
     const mockRepository = {
       find: jest.fn(),
       findOne: jest.fn(),
@@ -130,6 +141,7 @@ describe('ItemService', () => {
         { provide: getRepositoryToken(Section), useValue: sectionRepo },
         { provide: getRepositoryToken(Department), useValue: departmentRepo },
         { provide: getRepositoryToken(ItemRouteType), useValue: { findOne: jest.fn() } },
+        { provide: getRepositoryToken(ItemTypeMaster), useValue: itemTypeRepo },
         { provide: getRepositoryToken(StockLedger), useValue: { findAndCount: jest.fn().mockResolvedValue([[], 0]) } },
         { provide: getRepositoryToken(InventoryBalance), useValue: { find: jest.fn().mockResolvedValue([]) } },
         { provide: getRepositoryToken(ProductionEntry), useValue: { findAndCount: jest.fn().mockResolvedValue([[], 0]) } },
