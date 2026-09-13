@@ -23,6 +23,12 @@ export interface DraggableResizableModalProps extends ModalProps {
    * possible via the header close (X), footer buttons, or Escape.
    */
   maskClosable?: boolean;
+  /**
+   * Optional initial pixel offset from center (transform-based translate).
+   * Used to position two modals side-by-side on open. Values are clamped so
+   * the modal stays within the viewport (≥ 24 px from each edge).
+   */
+  initialOffset?: { x?: number; y?: number };
 }
 
 const MIN_WIDTH = 640;
@@ -45,6 +51,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   subtitle,
   extra,
   wrapClassName,
+  initialOffset,
   ...rest
 }) => {
   const [size, setSize] = useState({ w: width, h: height });
@@ -58,14 +65,23 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
 
   useEffect(() => {
     if (!open) return;
-    setPos({ x: 0, y: 0 });
     const vw = window.innerWidth || 1280;
     const vh = window.innerHeight || 768;
-    setSize({
-      w: clamp(width, minWidth, vw - EDGE_MARGIN),
-      h: clamp(height, minHeight, vh - EDGE_MARGIN),
+    const w = clamp(width, minWidth, vw - EDGE_MARGIN);
+    const h = clamp(height, minHeight, vh - EDGE_MARGIN);
+    setSize({ w, h });
+    // Clamp initialOffset so the modal stays within viewport (≥ 24 px from each edge).
+    const rawX = initialOffset?.x ?? 0;
+    const rawY = initialOffset?.y ?? 0;
+    const minX = 24 + w / 2 - vw / 2;
+    const maxX = vw / 2 - w / 2 - 24;
+    const minY = 24 + h / 2 - vh / 2;
+    const maxY = vh / 2 - h / 2 - 24;
+    setPos({
+      x: clamp(rawX, Math.min(minX, 0), Math.max(maxX, 0)),
+      y: clamp(rawY, Math.min(minY, 0), Math.max(maxY, 0)),
     });
-  }, [open, width, height, minWidth, minHeight]);
+  }, [open, width, height, minWidth, minHeight, initialOffset]);
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {

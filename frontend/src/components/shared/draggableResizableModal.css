@@ -1,3 +1,16 @@
+.erp-draggable-modal-wrap {
+  pointer-events: none;
+}
+
+.erp-draggable-modal-wrap .ant-modal-mask {
+  pointer-events: none;
+}
+
+.erp-draggable-modal-wrap .erp-draggable-modal,
+.erp-draggable-modal-wrap .erp-draggable-modal .ant-modal {
+  pointer-events: auto;
+}
+
 .erp-draggable-modal-wrap .ant-modal {
   top: 0;
   padding-bottom: 0;
@@ -118,4 +131,62 @@
   background: #fef2f2 !important;
   color: #dc2626 !important;
   border-color: #f87171 !important;
+}
+
+/* ─── TASK24 unified Add/Edit workspace (one movable/resizable popup with a
+   Form pane + a read-only Machine Details pane) ─────────────────────────── */
+
+.erp-workspace-panes {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+.erp-workspace-panes--column {
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.erp-workspace-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.erp-workspace-panes .erp-pane-details {
+  border-left: 1px solid var(--theme-border, rgba(128, 128, 128, 0.2));
+  padding-left: 16px;
+}
+
+.erp-workspace-panes--column .erp-pane-details {
+  border-left: none;
+  border-top: 1px solid var(--theme-border, rgba(128, 128, 128, 0.2));
+  padding-left: 0;
+  padding-top: 12px;
+}
+
+.erp-workspace-pane-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--theme-text-secondary, #64748b);
+  margin: 0 0 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--theme-border, rgba(128, 128, 128, 0.2));
+}
+
+/* Compact segment navigation used inside the View modal (12-13px / 600). */
+.erp-modal-nav .ant-segmented {
+  font-size: 12px;
+  font-weight: 600;
+}
+.erp-modal-nav .ant-segmented-item-label {
+  font-size: 12px;
+  font-weight: 600;
+  padding-inline: 12px;
+  line-height: 28px;
 }

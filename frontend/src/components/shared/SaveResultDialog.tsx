@@ -32,6 +32,12 @@ interface SaveResultDialogProps {
    *  phase back to 'loading' so a retry can never be mistaken for a new result. */
   onRetry?: () => void;
   onClose: () => void;
+  /** Success headline. Defaults to "Successful". */
+  successTitle?: string;
+  /** Label for the success confirmation button. Defaults to "Close". */
+  okLabel?: string;
+  /** Failure message line under "Save Failed". Defaults to "The request was not persisted." */
+  errorLead?: string;
 }
 
 /**
@@ -53,6 +59,9 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
   errorMessage,
   onRetry,
   onClose,
+  successTitle = 'Successful',
+  okLabel = 'Close',
+  errorLead = 'The request was not persisted.',
 }) => (
   <Modal
     open={open}
@@ -78,7 +87,7 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
         <div className="erp-save-result-check" aria-hidden="true">
           <CheckCircleFilled />
         </div>
-        <Title level={4} className="erp-save-result-title">Successful</Title>
+        <Title level={4} className="erp-save-result-title">{successTitle}</Title>
         {result?.title ? <Text strong className="erp-save-result-message">{result.title}</Text> : null}
         {result?.message ? <Text type="secondary" className="erp-save-result-hint">{result.message}</Text> : null}
         {result?.recordCode || result?.recordName ? (
@@ -89,7 +98,7 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
           </div>
         ) : null}
         <Button type="primary" block size="large" className="erp-save-result-close" onClick={onClose}>
-          Close
+          {okLabel}
         </Button>
       </div>
     ) : (
@@ -98,7 +107,7 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
           <CloseCircleFilled />
         </div>
         <Title level={4} className="erp-save-result-title erp-save-result-title-error">Save Failed</Title>
-        <Text strong className="erp-save-result-message">The request was not persisted.</Text>
+        <Text strong className="erp-save-result-message">{errorLead}</Text>
         {errorMessage ? <div className="erp-save-result-error-detail">{errorMessage}</div> : null}
         <Space className="erp-save-result-error-actions">
           <Button size="large" onClick={onClose}>Close</Button>
