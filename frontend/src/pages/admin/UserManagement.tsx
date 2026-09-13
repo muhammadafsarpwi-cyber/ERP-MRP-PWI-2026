@@ -14,6 +14,7 @@ import {
   CameraOutlined, DeleteOutlined, DownloadOutlined,
   FilePdfOutlined, FileExcelOutlined, UploadOutlined,
   MinusOutlined, EyeOutlined, CloseOutlined, UserAddOutlined,
+  ClockCircleOutlined, SettingOutlined, TagOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -746,7 +747,12 @@ const UserManagement: React.FC = () => {
 
   const columns: ColumnsType<ErpUser> = [
     {
-      title: 'User',
+      title: (
+        <Space size={6}>
+          <UserOutlined style={{ color: '#4f46e5' }} />
+          <span>User</span>
+        </Space>
+      ),
       key: 'user',
       width: 280,
       sorter: (a, b) => (a.displayName || '').localeCompare(b.displayName || ''),
@@ -775,21 +781,36 @@ const UserManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Employee ID',
+      title: (
+        <Space size={6}>
+          <IdcardOutlined style={{ color: '#0ea5e9' }} />
+          <span>Employee ID</span>
+        </Space>
+      ),
       dataIndex: 'employeeId',
       key: 'employeeId',
-      width: 130,
+      width: 140,
       render: (v: string) => v || <Text type="secondary">-</Text>,
     },
     {
-      title: 'Phone',
+      title: (
+        <Space size={6}>
+          <PhoneOutlined style={{ color: '#10b981' }} />
+          <span>Phone</span>
+        </Space>
+      ),
       dataIndex: 'phone',
       key: 'phone',
       width: 130,
       render: (v: string) => v || <Text type="secondary">-</Text>,
     },
     {
-      title: 'Roles',
+      title: (
+        <Space size={6}>
+          <SafetyCertificateOutlined style={{ color: '#f59e0b' }} />
+          <span>Roles</span>
+        </Space>
+      ),
       key: 'roles',
       width: 260,
       render: (_, record) => (
@@ -811,9 +832,14 @@ const UserManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Last Login',
+      title: (
+        <Space size={6}>
+          <ClockCircleOutlined style={{ color: '#8b5cf6' }} />
+          <span>Last Login</span>
+        </Space>
+      ),
       key: 'lastLogin',
-      width: 120,
+      width: 130,
       sorter: (a, b) => {
         const da = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0;
         const db = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
@@ -830,10 +856,15 @@ const UserManagement: React.FC = () => {
       },
     },
     {
-      title: 'Status',
+      title: (
+        <Space size={6}>
+          <CheckCircleOutlined style={{ color: '#22c55e' }} />
+          <span>Status</span>
+        </Space>
+      ),
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 110,
       filters: [
         { text: 'Active', value: 'ACTIVE' },
         { text: 'Inactive', value: 'INACTIVE' },
@@ -847,7 +878,12 @@ const UserManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Actions',
+      title: (
+        <Space size={6}>
+          <SettingOutlined style={{ color: '#64748b' }} />
+          <span>Actions</span>
+        </Space>
+      ),
       key: 'actions',
       width: 210,
       fixed: 'right',
