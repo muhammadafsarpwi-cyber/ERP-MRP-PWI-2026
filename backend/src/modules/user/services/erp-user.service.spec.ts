@@ -3,6 +3,7 @@ import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ErpUserService } from './erp-user.service';
 import { ErpUser, ErpUserStatus, UserRole, UserOrganizationScope } from '../entities';
+import { Company } from '../../organization/entities/company.entity';
 import { NotificationsService } from '../../notification/notifications.service';
 import { SupabaseAuthService } from '../../auth/services/supabase-auth.service';
 
@@ -66,6 +67,7 @@ describe('ErpUserService', () => {
         { provide: getRepositoryToken(ErpUser), useValue: mockRepo },
         { provide: getRepositoryToken(UserRole), useValue: mockRepo },
         { provide: getRepositoryToken(UserOrganizationScope), useValue: mockRepo },
+        { provide: getRepositoryToken(Company), useValue: mockRepo },
         { provide: NotificationsService, useValue: { notifyActiveUsers: jest.fn() } },
         { provide: SupabaseAuthService, useValue: { signUpWithPassword: jest.fn() } },
         { provide: getDataSourceToken(), useValue: { createQueryRunner: jest.fn(() => ({

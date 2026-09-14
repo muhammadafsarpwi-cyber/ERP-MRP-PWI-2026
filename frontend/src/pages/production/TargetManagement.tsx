@@ -293,6 +293,12 @@ const TargetManagement: React.FC = () => {
   const [editing, setEditing] = useState<MachineTarget | null>(null);
   const [detail, setDetail] = useState<MachineTarget | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Minimized Window Tabs State
+  const [isTargetMinimized, setIsTargetMinimized] = useState(false);
+  const [isDetailMinimized, setIsDetailMinimized] = useState(false);
+  const [isImportMinimized, setIsImportMinimized] = useState(false);
+
   const [saveSuccess, setSaveSuccess] = useState<{
     target: MachineTarget;
     mode: 'create' | 'edit';
@@ -486,6 +492,7 @@ const TargetManagement: React.FC = () => {
   }, [search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus]);
 
   const openCreate = () => {
+    setIsTargetMinimized(false);
     setEditing(null);
     form.resetFields();
     form.setFieldsValue({ standardHours: 8, effectiveFrom: dayjs() });
@@ -493,6 +500,7 @@ const TargetManagement: React.FC = () => {
   };
 
   const openEdit = (t: MachineTarget) => {
+    setIsTargetMinimized(false);
     setEditing(t);
     form.setFieldsValue({
       machineId: t.machineId,
@@ -1134,7 +1142,10 @@ const TargetManagement: React.FC = () => {
                 key: 'view',
                 label: `View target — ${machineLabel}`,
                 icon: <EyeOutlined />,
-                onClick: () => setDetail(t),
+                onClick: () => {
+                  setIsDetailMinimized(false);
+                  setDetail(t);
+                },
                 className: 'act-view',
               },
               {
@@ -1318,8 +1329,9 @@ const TargetManagement: React.FC = () => {
       />
 
       <DraggableResizableModal
-        open={modalVisible}
+        open={modalVisible && !isTargetMinimized}
         onCancel={handleModalCancel}
+        onMinimize={() => setIsTargetMinimized(true)}
         width={modalW}
         height={isStacked ? 780 : 700}
         minWidth={isMobile ? 360 : 720}
@@ -1564,8 +1576,9 @@ const TargetManagement: React.FC = () => {
       </DraggableResizableModal>
 
       <DraggableResizableModal
-        open={!!detail}
-        onCancel={() => setDetail(null)}
+        open={!!detail && !isDetailMinimized}
+        onCancel={() => { setDetail(null); setIsDetailMinimized(false); }}
+        onMinimize={() => setIsDetailMinimized(true)}
         width={viewW}
         height={680}
         minWidth={isMobile ? 360 : 520}
@@ -1599,8 +1612,9 @@ const TargetManagement: React.FC = () => {
       </DraggableResizableModal>
 
       <DraggableResizableModal
-        open={importOpen}
+        open={importOpen && !isImportMinimized}
         onCancel={closeImport}
+        onMinimize={() => setIsImportMinimized(true)}
         width={960}
         height={620}
         minWidth={640}
@@ -1781,6 +1795,78 @@ const TargetManagement: React.FC = () => {
         mode={saveSuccess?.mode ?? 'create'}
         onClose={() => setSaveSuccess(null)}
       />
+
+      {/* Universal Floating Minimized Dock for Target Management */}
+      {(isTargetMinimized || isDetailMinimized || isImportMinimized) && (
+        <div className="erp-minimized-dock" data-testid="target-minimized-dock">
+          {isTargetMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsTargetMinimized(false);
+                setModalVisible(true);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <AimOutlined style={{ color: '#4f46e5' }} />
+              <span>{editing ? `Edit Target: ${editing.machine?.machineCode || ''}` : 'Add Target'}</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsTargetMinimized(false);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+          {isDetailMinimized && detail && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsDetailMinimized(false);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <EyeOutlined style={{ color: '#0ea5e9' }} />
+              <span>{`Target: ${detail.machine?.machineCode || ''}`}</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsDetailMinimized(false);
+                  setDetail(null);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+          {isImportMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsImportMinimized(false);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <ImportOutlined style={{ color: '#10b981' }} />
+              <span>Import Targets</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsImportMinimized(false);
+                  closeImport();
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

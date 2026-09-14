@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal, ModalProps } from 'antd';
+import { MinusOutlined } from '@ant-design/icons';
 import './draggableResizableModal.css';
 
 /**
@@ -18,6 +19,10 @@ export interface DraggableResizableModalProps extends ModalProps {
   extra?: React.ReactNode;
   /** Optional muted subtitle rendered under the header title. */
   subtitle?: React.ReactNode;
+  /**
+   * Optional callback when user clicks the minimize (-) button in the modal header.
+   */
+  onMinimize?: () => void;
   /**
    * Clicking the mask NEVER closes an ERP modal (PROMPT-35). Closing is only
    * possible via the header close (X), footer buttons, or Escape.
@@ -50,6 +55,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   title,
   subtitle,
   extra,
+  onMinimize,
   wrapClassName,
   initialOffset,
   ...rest
@@ -123,7 +129,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
     const target = e.target as HTMLElement;
     if (!target.closest('.ant-modal-header')) return;
     if (
-      target.closest('button, input, select, textarea, a, [role="button"], .ant-select, .ant-tag, .ant-switch, .ant-btn')
+      target.closest('button, input, select, textarea, a, [role="button"], .ant-select, .ant-tag, .ant-switch, .ant-btn, .erp-modal-minimize-btn')
     ) {
       return;
     }
@@ -167,26 +173,43 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
     <Modal
       open={open}
       centered={centered}
-width={size.w}
-        maskClosable={maskClosable}
-        wrapClassName={[wrapClassName, 'erp-draggable-modal-wrap'].filter(Boolean).join(' ')}
-        modalRender={modalRender}
-        title={
-          title || subtitle || extra ? (
-            <div
-              className="erp-draggable-modal-title-row"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-            >
-              <div className="erp-draggable-modal-title-text" style={{ minWidth: 0, flex: '1 1 auto' }}>
-                {title}
-                {subtitle ? (
-                  <div className="erp-draggable-modal-subtitle">{subtitle}</div>
-                ) : null}
-              </div>
-              {extra ? <div className="erp-draggable-modal-title-extra" style={{ flex: '0 0 auto' }}>{extra}</div> : null}
+      width={size.w}
+      maskClosable={maskClosable}
+      wrapClassName={[wrapClassName, 'erp-draggable-modal-wrap'].filter(Boolean).join(' ')}
+      modalRender={modalRender}
+      title={
+        title || subtitle || extra || onMinimize ? (
+          <div
+            className="erp-draggable-modal-title-row"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+          >
+            <div className="erp-draggable-modal-title-text" style={{ minWidth: 0, flex: '1 1 auto' }}>
+              {title}
+              {subtitle ? (
+                <div className="erp-draggable-modal-subtitle">{subtitle}</div>
+              ) : null}
             </div>
-          ) : undefined
-        }
+            <div className="erp-draggable-modal-title-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {extra ? <div className="erp-draggable-modal-title-extra" style={{ flex: '0 0 auto' }}>{extra}</div> : null}
+              {onMinimize ? (
+                <button
+                  type="button"
+                  className="erp-modal-minimize-btn"
+                  title="Minimize to Dock"
+                  aria-label="Minimize"
+                  data-testid="modal-minimize-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMinimize();
+                  }}
+                >
+                  <MinusOutlined />
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : undefined
+      }
       {...rest}
     >
       {children}

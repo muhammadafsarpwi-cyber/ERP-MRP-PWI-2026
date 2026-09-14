@@ -4,6 +4,7 @@ import { MenuOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
 import ThemeSettingsButton from './ThemeCustomizer';
+import HeaderSearch from './HeaderSearch';
 import NotificationBell from './NotificationBell';
 import EmailCommunicationIcon from './EmailCommunicationIcon';
 import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
@@ -467,6 +468,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 scrollbarWidth: 'thin',
               }}
             >
+              <HeaderSearch />
               {headerActions.map((a) => (
                 <div key={a.key} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                   {a.node}

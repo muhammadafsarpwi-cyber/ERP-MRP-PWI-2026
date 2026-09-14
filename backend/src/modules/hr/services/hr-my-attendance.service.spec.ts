@@ -13,7 +13,10 @@ import { HrEmployeeSkill } from '../entities/hr-employee-skill.entity';
 import { HrEmployeeTraining } from '../entities/hr-employee-training.entity';
 import { HrEmployeeDocument } from '../entities/hr-employee-document.entity';
 import { HrEmployeeHistory } from '../entities/hr-employee-history.entity';
+import { HrShiftRoster } from '../entities/hr-shift-roster.entity';
 import { Department } from '../../organization/entities/department.entity';
+import { Division } from '../../organization/entities/division.entity';
+import { Section } from '../../organization/entities/section.entity';
 import { ErpUser } from '../../user/entities/erp-user.entity';
 import { BarcodeService } from '../../barcode/services/barcode.service';
 
@@ -88,7 +91,10 @@ function repos(): any {
     trainingRepo: {},
     docRepo: {},
     historyRepo: {},
+    rosterRepo: {},
     departmentRepo: { findOne: jest.fn() },
+    divisionRepo: { findOne: jest.fn(), find: jest.fn() },
+    sectionRepo: { findOne: jest.fn(), find: jest.fn() },
     userRepo: { findOne: jest.fn() },
     barcodeService: {},
   };
@@ -115,7 +121,10 @@ describe('HrService.getMyAttendance', () => {
         { provide: getRepositoryToken(HrEmployeeTraining), useValue: m.trainingRepo },
         { provide: getRepositoryToken(HrEmployeeDocument), useValue: m.docRepo },
         { provide: getRepositoryToken(HrEmployeeHistory), useValue: m.historyRepo },
+        { provide: getRepositoryToken(HrShiftRoster), useValue: m.rosterRepo },
         { provide: getRepositoryToken(Department), useValue: m.departmentRepo },
+        { provide: getRepositoryToken(Division), useValue: m.divisionRepo },
+        { provide: getRepositoryToken(Section), useValue: m.sectionRepo },
         { provide: getRepositoryToken(ErpUser), useValue: m.userRepo },
         { provide: BarcodeService, useValue: m.barcodeService },
       ],

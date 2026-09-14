@@ -4,6 +4,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository, Not, IsNull } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { ErpUser, ErpUserStatus, UserRole, UserRoleStatus, UserOrganizationScope, ScopeLevel, OrgScopeStatus } from '../entities';
+import { Company, CompanyStatus } from '../../organization/entities/company.entity';
 import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto, CreateUserFullDto } from '../dto/user.dto';
 import { SupabaseUser } from '../../auth/interfaces/supabase-user.interface';
 import { SupabaseAuthService } from '../../auth/services/supabase-auth.service';
@@ -20,6 +21,8 @@ export class ErpUserService {
     private readonly userRoleRepository: Repository<UserRole>,
     @InjectRepository(UserOrganizationScope)
     private readonly orgScopeRepository: Repository<UserOrganizationScope>,
+    @InjectRepository(Company)
+    private readonly companyRepository: Repository<Company>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly supabaseAuthService: SupabaseAuthService,
@@ -136,6 +139,21 @@ export class ErpUserService {
 
       await queryRunner.commitTransaction();
 
+      // Determine default company for the new user:
+      let targetCompanyId = dto.companyId;
+      if (!targetCompanyId && userId) {
+        const creator = await this.userRepository.findOne({ where: { id: userId } });
+        if (creator?.defaultCompanyId) {
+          targetCompanyId = creator.defaultCompanyId;
+        }
+      }
+      if (!targetCompanyId) {
+        const defaultCompany = await this.companyRepository.findOne({ where: { status: CompanyStatus.ACTIVE } });
+        if (defaultCompany) {
+          targetCompanyId = defaultCompany.id;
+        }
+      }
+
       // Create ERP user via TypeORM (outside transaction since it's a different schema)
       const erpUser = this.userRepository.create({
         authUserId: authId,
@@ -146,12 +164,28 @@ export class ErpUserService {
         lastName: dto.lastName,
         phone: dto.phone,
         employeeId: dto.employeeId,
+        defaultCompanyId: targetCompanyId || null,
         status: ErpUserStatus.ACTIVE,
         createdBy: userId,
         updatedBy: userId,
       });
 
       const saved = await this.userRepository.save(erpUser);
+
+      // Automatically provision organizational company scope for the new user
+      if (targetCompanyId) {
+        const scope = this.orgScopeRepository.create({
+          userId: saved.id,
+          companyId: targetCompanyId,
+          scopeLevel: ScopeLevel.COMPANY,
+          isFullScope: true,
+          status: OrgScopeStatus.ACTIVE,
+          isActive: true,
+          createdBy: userId,
+          updatedBy: userId,
+        });
+        await this.orgScopeRepository.save(scope);
+      }
 
       if (dto.roleIds && dto.roleIds.length > 0) {
         for (const roleId of dto.roleIds) {
@@ -248,6 +282,26 @@ export class ErpUserService {
       });
       if (existing) {
         throw new ConflictException('Email already in use');
+      }
+    }
+
+    if (dto.defaultCompanyId && dto.defaultCompanyId !== user.defaultCompanyId) {
+      user.defaultCompanyId = dto.defaultCompanyId;
+      const existingScope = await this.orgScopeRepository.findOne({
+        where: { userId: id, companyId: dto.defaultCompanyId, status: OrgScopeStatus.ACTIVE },
+      });
+      if (!existingScope) {
+        const scope = this.orgScopeRepository.create({
+          userId: id,
+          companyId: dto.defaultCompanyId,
+          scopeLevel: ScopeLevel.COMPANY,
+          isFullScope: true,
+          status: OrgScopeStatus.ACTIVE,
+          isActive: true,
+          createdBy: userId,
+          updatedBy: userId,
+        });
+        await this.orgScopeRepository.save(scope);
       }
     }
 
@@ -396,10 +450,49 @@ export class ErpUserService {
   }
 
   async getUserOrganizationScopes(userId: string): Promise<UserOrganizationScope[]> {
-    return this.orgScopeRepository.find({
+    let scopes = await this.orgScopeRepository.find({
       where: { userId, status: OrgScopeStatus.ACTIVE },
       relations: ['company', 'division', 'section', 'department'],
     });
+
+    // Auto-heal: If user has no active scopes, automatically provision full company scope
+    // for their defaultCompanyId or the system's primary active company.
+    if (!scopes || scopes.length === 0) {
+      const user = await this.userRepository.findOne({ where: { id: userId } });
+      if (user && user.status === ErpUserStatus.ACTIVE) {
+        let targetCompanyId = user.defaultCompanyId;
+        if (!targetCompanyId) {
+          const defaultCompany = await this.companyRepository.findOne({ where: { status: CompanyStatus.ACTIVE } });
+          if (defaultCompany) {
+            targetCompanyId = defaultCompany.id;
+          }
+        }
+        if (targetCompanyId) {
+          const newScope = this.orgScopeRepository.create({
+            userId: user.id,
+            companyId: targetCompanyId,
+            scopeLevel: ScopeLevel.COMPANY,
+            isFullScope: true,
+            status: OrgScopeStatus.ACTIVE,
+            isActive: true,
+          });
+          const savedScope = await this.orgScopeRepository.save(newScope);
+          if (!user.defaultCompanyId) {
+            user.defaultCompanyId = targetCompanyId;
+            await this.userRepository.save(user);
+          }
+          const loadedScope = await this.orgScopeRepository.findOne({
+            where: { id: savedScope.id },
+            relations: ['company', 'division', 'section', 'department'],
+          });
+          if (loadedScope) {
+            scopes = [loadedScope];
+          }
+        }
+      }
+    }
+
+    return scopes;
   }
 
   async setDefaultContext(id: string, dto: SetDefaultContextDto, userId?: string): Promise<ErpUser> {

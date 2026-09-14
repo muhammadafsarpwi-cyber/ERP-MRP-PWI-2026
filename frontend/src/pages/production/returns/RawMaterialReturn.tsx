@@ -1,22 +1,35 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Button, Card, Col, DatePicker, Descriptions, Divider, Drawer, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, App,
+  Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, App,
 } from 'antd';
 import {
-  DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, RollbackOutlined, SaveOutlined,
+  CloseOutlined, DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined,
+  ReloadOutlined, RollbackOutlined, SaveOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
+import { DraggableResizableModal, SaveResultDialog } from '../../../components/shared';
+import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
+import '../receiving/rawMaterialForms.css';
 
 const { Text, Title } = Typography;
 
 interface OrgOption { id: string; name: string; divisionCode?: string; sectionCode?: string; departmentCode?: string; }
 interface WarehouseOption { id: string; name: string; warehouseCode?: string; status: string; }
-interface ItemOption { id: string; name: string; itemCode?: string; baseUomId?: string; }
+interface ItemOption {
+  id: string;
+  name: string;
+  itemCode?: string;
+  baseUomId?: string;
+  divisionId?: string | null;
+  sectionId?: string | null;
+  departmentId?: string | null;
+  itemType?: string;
+}
 interface UomOption { id: string; code?: string; name?: string; symbol?: string; status: string; }
 
 interface FormRefData {
@@ -60,10 +73,13 @@ interface LineRow {
   key: string;
   itemId?: string;
   uomId?: string;
-  quantity: number;
+  quantity?: number;
 }
 
-const emptyLine = (): LineRow => ({ key: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`, quantity: 0 });
+const emptyLine = (): LineRow => ({
+  key: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+  quantity: undefined,
+});
 
 const RawMaterialReturn: React.FC = () => {
   const { message } = App.useApp();
@@ -87,14 +103,38 @@ const RawMaterialReturn: React.FC = () => {
   const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; sourceNo?: string; dateFrom?: string; dateTo?: string }>({});
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [isModalMinimized, setIsModalMinimized] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [detail, setDetail] = useState<ReturnHeader | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // Save feedback dialog states
+  const [saveDialogVisible, setSaveDialogVisible] = useState(false);
+  const [saveDialogPhase, setSaveDialogPhase] = useState<SaveResultPhase>('loading');
+  const [saveDialogResult, setSaveDialogResult] = useState<SaveResultData | null>(null);
+  const [saveDialogError, setSaveDialogError] = useState<string | undefined>(undefined);
+  const [saveDialogSuccessTitle, setSaveDialogSuccessTitle] = useState<string>('Return Submitted Successfully');
+  const [saveDialogRetry, setSaveDialogRetry] = useState<(() => void) | undefined>(undefined);
+
+  // Form watchers for real-time live preview
   const watchDivision = Form.useWatch('divisionId', form);
   const watchSection = Form.useWatch('sectionId', form);
+  const watchDepartment = Form.useWatch('departmentId', form);
+  const watchWarehouse = Form.useWatch('warehouseId', form);
+  const watchReturnDate = Form.useWatch('returnDate', form);
+  const watchSourceNo = Form.useWatch('sourceNo', form);
+  const watchReferenceReceiptId = Form.useWatch('referenceReceiptId', form);
+  const watchReason = Form.useWatch('reason', form);
+
+  // Filter raw materials strictly by selected Division
+  const filteredItems = useMemo(() => {
+    if (!refData?.items) return [];
+    const rawMaterials = refData.items.filter((i) => !i.itemType || i.itemType === 'RAW_MATERIAL');
+    if (!watchDivision) return rawMaterials;
+    return rawMaterials.filter((i) => !i.divisionId || i.divisionId === watchDivision);
+  }, [refData?.items, watchDivision]);
 
   const loadRef = useCallback(async () => {
     setRefState('loading');
@@ -171,6 +211,22 @@ const RawMaterialReturn: React.FC = () => {
     if (watchDivision && watchSection) void loadDepartments(watchDivision, watchSection);
   }, [watchDivision, watchSection, form, loadDepartments]);
 
+  // When division changes, auto-clear rows with items that do not belong to the selected division
+  useEffect(() => {
+    if (watchDivision && refData?.items) {
+      setRows((prev) =>
+        prev.map((r) => {
+          if (!r.itemId) return r;
+          const item = refData.items.find((i) => i.id === r.itemId);
+          if (item?.divisionId && item.divisionId !== watchDivision) {
+            return { ...r, itemId: undefined, uomId: undefined };
+          }
+          return r;
+        })
+      );
+    }
+  }, [watchDivision, refData?.items]);
+
   const totalQty = useMemo(() => rows.reduce((s, r) => s + Number(r.quantity || 0), 0), [rows]);
 
   const openCreate = () => {
@@ -178,6 +234,7 @@ const RawMaterialReturn: React.FC = () => {
     form.resetFields();
     form.setFieldValue('returnDate', dayjs());
     setRows([emptyLine()]);
+    setIsModalMinimized(false);
     setModalOpen(true);
   };
 
@@ -204,8 +261,9 @@ const RawMaterialReturn: React.FC = () => {
         key: l.id || `${Date.now()}-${l.lineNumber}`,
         itemId: l.item?.id,
         uomId: l.uom?.id,
-        quantity: Number(l.quantity || 0),
+        quantity: l.quantity !== undefined && l.quantity !== null ? Number(l.quantity) : undefined,
       })));
+      setIsModalMinimized(false);
       setModalOpen(true);
     } catch (err: any) {
       message.error(formatApiError(err, 'Failed to load the return for editing.'));
@@ -234,6 +292,11 @@ const RawMaterialReturn: React.FC = () => {
     if (duplicates.length) { message.error('An item can only appear once per return.'); return; }
 
     setSubmitting(true);
+    setSaveDialogVisible(true);
+    setSaveDialogPhase('loading');
+    setSaveDialogSuccessTitle(editingId ? 'Return Updated Successfully' : 'Return Submitted Successfully');
+    setSaveDialogError(undefined);
+
     const payload = {
       divisionId: values.divisionId,
       sectionId: values.sectionId,
@@ -250,22 +313,37 @@ const RawMaterialReturn: React.FC = () => {
         quantity: Number(r.quantity || 0),
       })),
     };
+
     try {
+      let resultReturnCode = editingId ? (list.find((x) => x.id === editingId)?.returnCode || editingId) : '';
       if (editingId) {
         await apiService.patch<{ success: boolean }>(`/inventory/receipts/returns/${editingId}`, payload);
-        message.success('Return updated. Stock deltas have been applied.');
       } else {
-        await apiService.post<{ success: boolean }>('/inventory/receipts/return-multi', payload);
-        message.success('Return created. Quantities removed from inventory.');
+        const res = await apiService.post<{ success: boolean; data?: any }>('/inventory/receipts/return-multi', payload);
+        resultReturnCode = res.data?.returnCode || 'Submitted';
       }
+
+      setSaveDialogResult({
+        title: editingId ? 'Return Updated' : 'Return Submitted',
+        recordType: 'Return Code',
+        recordCode: resultReturnCode,
+        recordName: values.sourceNo ? `DC #${values.sourceNo}` : undefined,
+        message: `${rows.filter((r) => r.itemId).length} raw material line(s) returned. Total Returned Qty: ${formatNumber(totalQty, 2)}`,
+      });
+      setSaveDialogPhase('success');
+
       setModalOpen(false);
+      setIsModalMinimized(false);
       form.resetFields();
       setRows([emptyLine()]);
       setEditingId(null);
       setPage(1);
       void loadList(1);
     } catch (err: any) {
-      message.error(formatApiError(err, 'Failed to save the return.'));
+      const errMsg = formatApiError(err, 'Failed to save the return.');
+      setSaveDialogError(errMsg);
+      setSaveDialogRetry(() => () => onFinish(values));
+      setSaveDialogPhase('error');
     } finally {
       setSubmitting(false);
     }
@@ -310,7 +388,7 @@ const RawMaterialReturn: React.FC = () => {
     { title: 'Department', key: 'department', width: 160, ellipsis: true, render: (_, r) => (r.department?.name || '-') },
     { title: 'Warehouse', key: 'warehouse', width: 160, ellipsis: true, render: (_, r) => (r.warehouse?.name || '-') },
     { title: 'Lines', dataIndex: 'lineCount', key: 'lineCount', width: 60, align: 'center' as const, render: (v?: number) => v ?? 0 },
-    { title: 'Quantity', dataIndex: 'quantityTotal', key: 'quantityTotal', width: 110, align: 'right' as const, render: (v?: number) => formatNumber(v, 4) },
+    { title: 'Quantity', dataIndex: 'quantityTotal', key: 'quantityTotal', width: 110, align: 'right' as const, render: (v?: number) => formatNumber(v, 2) },
     { title: 'Status', dataIndex: 'status', key: 'status', width: 105, render: (v: string) => <Tag color={v === 'CONFIRMED' ? 'green' : v === 'DRAFT' ? 'gold' : 'red'}>{v}</Tag> },
     {
       title: 'Actions', key: 'actions', width: 150, fixed: 'right' as const,
@@ -345,7 +423,7 @@ const RawMaterialReturn: React.FC = () => {
       render: (_, r) => (
         <Select showSearch optionFilterProp="label" placeholder="Select raw material" value={r.itemId}
           onChange={(v) => onItemSelect(r.key, v)} style={{ width: '100%' }}
-          options={(refData?.items || []).map((i) => ({ value: i.id, label: i.itemCode ? `${i.itemCode} — ${i.name}` : i.name }))}
+          options={filteredItems.map((i) => ({ value: i.id, label: i.itemCode ? `${i.itemCode} — ${i.name}` : i.name }))}
           disabled={refState === 'error'} />
       ),
     },
@@ -359,7 +437,14 @@ const RawMaterialReturn: React.FC = () => {
     {
       title: <span>Quantity <Text type="danger">*</Text></span>, key: 'quantity', width: 150,
       render: (_, r) => (
-        <InputNumber min={0.0001} precision={4} value={r.quantity} onChange={(v) => setRow(r.key, { quantity: Number(v || 0) })} style={{ width: '100%' }} placeholder="0" />
+        <InputNumber
+          min={0.01}
+          precision={2}
+          value={r.quantity}
+          onChange={(v) => setRow(r.key, { quantity: v !== null && v !== undefined ? Number(v) : undefined })}
+          style={{ width: '100%' }}
+          placeholder="0.00"
+        />
       ),
     },
     {
@@ -413,88 +498,257 @@ const RawMaterialReturn: React.FC = () => {
         )}
       </Card>
 
-      <Modal
+      {/* Enterprise Draggable, Resizable Split-View Modal */}
+      <DraggableResizableModal
         title={<Space><RollbackOutlined /> {editingId ? 'Edit Return' : 'New Raw Material Return'}</Space>}
-        open={modalOpen} onCancel={() => { if (!submitting) { setModalOpen(false); setEditingId(null); } }}
-        footer={null} width={880} destroyOnHidden maskClosable={!submitting}
+        subtitle="Return raw material stock with division validation and real-time inventory adjustments"
+        open={modalOpen}
+        onCancel={() => { if (!submitting) { setModalOpen(false); setEditingId(null); setIsModalMinimized(false); } }}
+        onMinimize={() => {
+          setModalOpen(false);
+          setIsModalMinimized(true);
+        }}
+        width={1180}
+        height={760}
+        minWidth={920}
+        minHeight={580}
+        footer={null}
+        destroyOnHidden
+        maskClosable={!submitting}
       >
-        <Form form={form} layout="vertical" onFinish={onFinish}>
-          <Card size="small" title="Organization & Warehouse" style={{ marginBottom: 12 }}>
-            <Row gutter={12}>
-              <Col xs={24} md={8}>
-                <Form.Item name="divisionId" label={<span>Division <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Division' }]}>
-                  <Select showSearch optionFilterProp="label" placeholder="Select Division"
-                    loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
-                    options={(refData?.divisions || []).map((d) => ({ value: d.id, label: d.divisionCode ? `${d.divisionCode} — ${d.name}` : d.name }))} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item name="sectionId" label={<span>Section <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Section' }]}>
-                  <Select showSearch optionFilterProp="label" placeholder={watchDivision ? 'Select Section' : 'Select Division first'} disabled={!watchDivision} options={sections.map((s) => ({ value: s.id, label: s.sectionCode ? `${s.sectionCode} — ${s.name}` : s.name }))} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item name="departmentId" label={<span>Department <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Department' }]}>
-                  <Select showSearch optionFilterProp="label" placeholder={watchSection ? 'Select Department' : 'Select Section first'} disabled={!watchSection}
-                    loading={departmentsState === 'loading'} status={departmentsState === 'error' ? 'error' : undefined}
-                    options={departments.map((d) => ({ value: d.id, label: d.departmentCode ? `${d.departmentCode} — ${d.name}` : d.name }))} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item name="warehouseId" label={<span>Return From Warehouse <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select warehouse' }]}>
-                  <Select showSearch optionFilterProp="label" placeholder="Select warehouse"
-                    status={refState === 'error' ? 'error' : undefined}
-                    options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name }))} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item name="returnDate" label="Return Date">
-                  <DatePicker style={{ width: '100%' }} placeholder="Defaults to today" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item name="sourceNo" label="Source / DC No">
-                  <Input placeholder="Optional" maxLength={50} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={16}>
-                <Form.Item name="referenceReceiptId" label="Reference Receipt (Gate Pass)">
-                  <Select allowClear showSearch optionFilterProp="label" placeholder="Optional"
-                    options={receiptRefs.map((r) => ({ value: r.id, label: r.receiptCode }))} />
-                </Form.Item>
-              </Col>
-            </Row>
-          </Card>
+        <div className="raw-material-modal-split-container">
+          {/* Left Column: Form Controls */}
+          <div className="raw-material-modal-form-col">
+            <Form form={form} layout="vertical" onFinish={onFinish}>
+              <Card size="small" title="Organization & Warehouse" className="erp-section-card-inner" style={{ marginBottom: 12 }}>
+                <Row gutter={12}>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="divisionId" label={<span>Division <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Division' }]}>
+                      <Select showSearch optionFilterProp="label" placeholder="Select Division"
+                        loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
+                        options={(refData?.divisions || []).map((d) => ({ value: d.id, label: d.divisionCode ? `${d.divisionCode} — ${d.name}` : d.name }))} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="sectionId" label={<span>Section <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Section' }]}>
+                      <Select showSearch optionFilterProp="label" placeholder={watchDivision ? 'Select Section' : 'Select Division first'} disabled={!watchDivision} options={sections.map((s) => ({ value: s.id, label: s.sectionCode ? `${s.sectionCode} — ${s.name}` : s.name }))} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="departmentId" label={<span>Department <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Department' }]}>
+                      <Select showSearch optionFilterProp="label" placeholder={watchSection ? 'Select Department' : 'Select Section first'} disabled={!watchSection}
+                        loading={departmentsState === 'loading'} status={departmentsState === 'error' ? 'error' : undefined}
+                        options={departments.map((d) => ({ value: d.id, label: d.departmentCode ? `${d.departmentCode} — ${d.name}` : d.name }))} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="warehouseId" label={<span>Return From Warehouse <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select warehouse' }]}>
+                      <Select showSearch optionFilterProp="label" placeholder="Select warehouse"
+                        status={refState === 'error' ? 'error' : undefined}
+                        options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name }))} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="returnDate" label="Return Date">
+                      <DatePicker style={{ width: '100%' }} placeholder="Defaults to today" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="sourceNo" label="Source / DC No">
+                      <Input placeholder="Optional" maxLength={50} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={16}>
+                    <Form.Item name="referenceReceiptId" label="Reference Receipt (Gate Pass)">
+                      <Select allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                        options={receiptRefs.map((r) => ({ value: r.id, label: r.receiptCode }))} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Card>
 
-          <Card
-            size="small" title="Return Items"
-            style={{ marginBottom: 12 }}
-            extra={<Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => setRows((prev) => [...prev, emptyLine()])}>Add Item</Button>}
-          >
-            {refState === 'error' ? (
-              <Alert type="error" showIcon message="Reference data could not be loaded. Please refresh the page." />
-            ) : (
-              <Table columns={lineColumns} dataSource={rows} rowKey="key" pagination={false} size="small" scroll={{ x: 620 }}
-                locale={{ emptyText: 'No lines added yet.' }} />
-            )}
-            <div style={{ marginTop: 12, textAlign: 'right' }}>
-              <Text strong>Total Return Quantity:</Text> <Text style={{ color: 'var(--theme-danger, #ff4d4f)' }}>{formatNumber(totalQty, 4)}</Text>
+              <Card
+                size="small" title="Return Items"
+                className="erp-section-card-inner"
+                style={{ marginBottom: 12 }}
+                extra={<Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => setRows((prev) => [...prev, emptyLine()])}>Add Item</Button>}
+              >
+                {refState === 'error' ? (
+                  <Alert type="error" showIcon message="Reference data could not be loaded. Please refresh the page." />
+                ) : (
+                  <Table columns={lineColumns} dataSource={rows} rowKey="key" pagination={false} size="small" scroll={{ x: 620 }}
+                    locale={{ emptyText: 'No lines added yet.' }} />
+                )}
+                <div style={{ marginTop: 12, textAlign: 'right' }}>
+                  <Text strong>Total Return Quantity:</Text> <Text style={{ color: 'var(--theme-danger, #ff4d4f)', fontSize: 16 }}>{formatNumber(totalQty, 2)}</Text>
+                </div>
+              </Card>
+
+              <Form.Item name="reason" label={<span>Reason <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Enter the reason for the return' }]}>
+                <Input.TextArea rows={2} maxLength={1000} placeholder="Reason for returning this raw material" />
+              </Form.Item>
+              <Form.Item name="reference" label="Reference">
+                <Input placeholder="e.g. RET-001" maxLength={50} />
+              </Form.Item>
+
+              <Space style={{ marginTop: 8 }}>
+                <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={submitting}>{editingId ? 'Save Changes' : 'Submit Return'}</Button>
+                <Button onClick={() => setModalOpen(false)} disabled={submitting}>Cancel</Button>
+              </Space>
+            </Form>
+          </div>
+
+          {/* Right Column: Live Verification Card */}
+          <div className="raw-material-modal-preview-col">
+            <div className="raw-material-live-preview-card">
+              <div className="rm-preview-header-badge" style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.35)', color: '#d97706' }}>
+                <span className="rm-minimized-window-pulse" style={{ width: 6, height: 6, background: '#f59e0b' }} />
+                RETURN VERIFICATION (2027)
+              </div>
+              <div className="rm-preview-doc-title">
+                {editingId ? 'Updating Return' : 'New Raw Material Return'}
+              </div>
+              <div className="rm-preview-doc-subtitle">
+                Return Code: <Text strong style={{ color: 'var(--theme-warning, #d48806)' }}>{editingId ? (list.find((x) => x.id === editingId)?.returnCode || 'Editing') : 'Auto-Assigned on Submit'}</Text>
+              </div>
+
+              <div className="rm-preview-meta-grid">
+                <div className="rm-preview-meta-row">
+                  <span className="rm-preview-meta-label">Division</span>
+                  <span className="rm-preview-meta-value" title={refData?.divisions.find((d) => d.id === watchDivision)?.name}>
+                    {refData?.divisions.find((d) => d.id === watchDivision)?.name || <Text type="secondary">Not Selected</Text>}
+                  </span>
+                </div>
+                <div className="rm-preview-meta-row">
+                  <span className="rm-preview-meta-label">Section</span>
+                  <span className="rm-preview-meta-value" title={sections.find((s) => s.id === watchSection)?.name}>
+                    {sections.find((s) => s.id === watchSection)?.name || <Text type="secondary">Not Selected</Text>}
+                  </span>
+                </div>
+                <div className="rm-preview-meta-row">
+                  <span className="rm-preview-meta-label">Department</span>
+                  <span className="rm-preview-meta-value" title={departments.find((dp) => dp.id === watchDepartment)?.name}>
+                    {departments.find((dp) => dp.id === watchDepartment)?.name || <Text type="secondary">Not Selected</Text>}
+                  </span>
+                </div>
+                <div className="rm-preview-meta-row">
+                  <span className="rm-preview-meta-label">Return Warehouse</span>
+                  <span className="rm-preview-meta-value" title={refData?.warehouses.find((w) => w.id === watchWarehouse)?.name}>
+                    {refData?.warehouses.find((w) => w.id === watchWarehouse)?.name || <Text type="secondary">Not Selected</Text>}
+                  </span>
+                </div>
+                <div className="rm-preview-meta-row">
+                  <span className="rm-preview-meta-label">Return Date</span>
+                  <span className="rm-preview-meta-value">{watchReturnDate ? watchReturnDate.format('DD-MMM-YYYY') : dayjs().format('DD-MMM-YYYY')}</span>
+                </div>
+                {watchSourceNo && (
+                  <div className="rm-preview-meta-row">
+                    <span className="rm-preview-meta-label">Source / DC No</span>
+                    <span className="rm-preview-meta-value">{watchSourceNo}</span>
+                  </div>
+                )}
+                {watchReferenceReceiptId && (
+                  <div className="rm-preview-meta-row">
+                    <span className="rm-preview-meta-label">Ref Receipt</span>
+                    <span className="rm-preview-meta-value">{receiptRefs.find((r) => r.id === watchReferenceReceiptId)?.receiptCode || watchReferenceReceiptId}</span>
+                  </div>
+                )}
+                {watchReason && (
+                  <div className="rm-preview-meta-row">
+                    <span className="rm-preview-meta-label">Reason</span>
+                    <span className="rm-preview-meta-value" title={watchReason}>{watchReason}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="rm-preview-kpi-grid">
+                <div className="rm-preview-kpi-card">
+                  <div className="rm-preview-kpi-num">{rows.filter((r) => r.itemId).length}</div>
+                  <div className="rm-preview-kpi-label">Active Lines</div>
+                </div>
+                <div className="rm-preview-kpi-card" style={{ borderColor: 'rgba(239, 68, 68, 0.4)' }}>
+                  <div className="rm-preview-kpi-num" style={{ color: '#ef4444' }}>{formatNumber(totalQty, 2)}</div>
+                  <div className="rm-preview-kpi-label">Total Return Qty</div>
+                </div>
+              </div>
+
+              <div style={{ fontWeight: 600, fontSize: 12, color: '#475569', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+                <span>Material Lines Verification</span>
+                <span style={{ fontSize: 11, color: '#64748b' }}>{filteredItems.length} items in division</span>
+              </div>
+
+              <div className="rm-preview-lines-container">
+                {rows.filter((r) => r.itemId).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#94a3b8', fontSize: 12 }}>
+                    Select raw materials on the left to verify lines in real-time.
+                  </div>
+                ) : (
+                  rows.filter((r) => r.itemId).map((r, idx) => {
+                    const item = refData?.items.find((i) => i.id === r.itemId);
+                    const uom = refData?.uoms.find((u) => u.id === r.uomId);
+                    return (
+                      <div key={r.key || idx} className="rm-preview-line-row">
+                        <div className="rm-preview-line-header">
+                          <span className="rm-preview-line-title">
+                            #{idx + 1} {item?.itemCode || ''} — {item?.name || 'Unknown Item'}
+                          </span>
+                          <span className="rm-preview-line-badge">
+                            <Tag color="volcano" style={{ margin: 0, fontSize: 11 }}>OUT</Tag>
+                          </span>
+                        </div>
+                        <div className="rm-preview-line-meta">
+                          <span>Return Qty: <strong style={{ color: '#ef4444' }}>{formatNumber(r.quantity, 2)}</strong> {uom?.code || uom?.symbol || ''}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          </Card>
+          </div>
+        </div>
+      </DraggableResizableModal>
 
-          <Form.Item name="reason" label={<span>Reason <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Enter the reason for the return' }]}>
-            <Input.TextArea rows={2} maxLength={1000} placeholder="Reason for returning this raw material" />
-          </Form.Item>
-          <Form.Item name="reference" label="Reference">
-            <Input placeholder="e.g. RET-001" maxLength={50} />
-          </Form.Item>
+      {/* Minimized Window Tab Dock */}
+      {isModalMinimized && (
+        <div className="rm-modal-minimized-dock">
+          <div
+            className="rm-minimized-window-tab"
+            onClick={() => {
+              setIsModalMinimized(false);
+              setModalOpen(true);
+            }}
+            title="Click to restore Return Window"
+          >
+            <span className="rm-minimized-window-pulse" style={{ background: '#f59e0b' }} />
+            <RollbackOutlined style={{ color: '#d97706' }} />
+            <span>{editingId ? 'Edit Return' : 'New Raw Material Return'} ({rows.filter((r) => r.itemId).length} lines)</span>
+            <span
+              className="rm-minimized-window-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsModalMinimized(false);
+              }}
+              title="Close"
+            >
+              <CloseOutlined />
+            </span>
+          </div>
+        </div>
+      )}
 
-          <Space>
-            <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={submitting}>{editingId ? 'Save Changes' : 'Submit Return'}</Button>
-            <Button onClick={() => setModalOpen(false)} disabled={submitting}>Cancel</Button>
-          </Space>
-        </Form>
-      </Modal>
+      {/* Save / Feedback Dialog */}
+      <SaveResultDialog
+        open={saveDialogVisible}
+        phase={saveDialogPhase}
+        result={saveDialogResult}
+        errorMessage={saveDialogError}
+        successTitle={saveDialogSuccessTitle}
+        loadingTitle="Posting Raw Material Return..."
+        loadingHint="Checking available stock in warehouse and posting inventory OUT ledger entries..."
+        onRetry={saveDialogRetry}
+        onClose={() => setSaveDialogVisible(false)}
+      />
 
       <Drawer
         title={<Space><EyeOutlined /> Return Detail</Space>}
@@ -525,11 +779,11 @@ const RawMaterialReturn: React.FC = () => {
                 { title: '#', dataIndex: 'lineNumber', key: 'lineNumber', width: 40 },
                 { title: 'Item', key: 'item', render: (_, l) => (l.item ? `${l.item.itemCode} — ${l.item.name}` : '-') },
                 { title: 'UOM', key: 'uom', width: 70, render: (_, l) => l.uom?.code || '-' },
-                { title: 'Quantity', dataIndex: 'quantity', key: 'q', align: 'right' as const, render: (v: unknown) => formatNumber(v, 4) },
+                { title: 'Quantity', dataIndex: 'quantity', key: 'q', align: 'right' as const, render: (v: unknown) => formatNumber(v, 2) },
               ]}
             />
             <div style={{ marginTop: 12, textAlign: 'right' }}>
-              <Text strong>Total Return Quantity:</Text> <Text style={{ color: 'var(--theme-danger, #ff4d4f)' }}>{formatNumber(detail.quantityTotal, 4)}</Text>
+              <Text strong>Total Return Quantity:</Text> <Text style={{ color: 'var(--theme-danger, #ff4d4f)' }}>{formatNumber(detail.quantityTotal, 2)}</Text>
             </div>
 
             {(detail.ledgerEntries || []).length > 0 && (
@@ -542,7 +796,7 @@ const RawMaterialReturn: React.FC = () => {
                     { title: 'Date', dataIndex: 'transactionDate', key: 'd', render: (v: string) => (v ? dayjs(v).format('DD-MMM-YYYY') : '-') },
                     { title: 'Type', dataIndex: 'transactionType', key: 't', render: (v: string) => <Tag color="volcano">{v}</Tag> },
                     { title: 'Direction', dataIndex: 'direction', key: 'dir', render: (v: string) => <span style={{ color: v === 'IN' ? 'var(--theme-success, #52c41a)' : 'var(--theme-danger, #ff4d4f)', fontWeight: 600 }}>{v}</span> },
-                    { title: 'Quantity', dataIndex: 'quantity', key: 'q', align: 'right' as const, render: (v: unknown) => formatNumber(v, 4) },
+                    { title: 'Quantity', dataIndex: 'quantity', key: 'q', align: 'right' as const, render: (v: unknown) => formatNumber(v, 2) },
                   ]}
                 />
               </>

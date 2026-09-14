@@ -14,7 +14,7 @@ import {
   CameraOutlined, DeleteOutlined, DownloadOutlined,
   FilePdfOutlined, FileExcelOutlined, UploadOutlined,
   MinusOutlined, EyeOutlined, CloseOutlined, UserAddOutlined,
-  ClockCircleOutlined, SettingOutlined, TagOutlined,
+  ClockCircleOutlined, SettingOutlined, TagOutlined, BankOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -62,6 +62,13 @@ interface UserRole {
   role?: Role;
 }
 
+interface CompanyOption {
+  id: string;
+  legalName?: string;
+  tradeName?: string;
+  companyCode?: string;
+}
+
 const ROLE_COLORS: Record<string, string> = {
   SUPER_ADMIN: 'red',
   ADMIN: 'orange',
@@ -98,6 +105,7 @@ const UserManagement: React.FC = () => {
   const message = app?.message || staticMessage;
   const [users, setUsers] = useState<ErpUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -158,6 +166,7 @@ const UserManagement: React.FC = () => {
   const createPhone = Form.useWatch('phone', createForm);
   const createEmployeeId = Form.useWatch('employeeId', createForm);
   const createRoleIds = Form.useWatch('roleIds', createForm);
+  const createCompanyId = Form.useWatch('companyId', createForm);
 
   // Real-time live form watchers for Edit User preview card
   const editDisplayName = Form.useWatch('displayName', editForm);
@@ -166,6 +175,7 @@ const UserManagement: React.FC = () => {
   const editLastName = Form.useWatch('lastName', editForm);
   const editPhone = Form.useWatch('phone', editForm);
   const editEmployeeId = Form.useWatch('employeeId', editForm);
+  const editDefaultCompanyId = Form.useWatch('defaultCompanyId', editForm);
 
   const fetchUsers = useCallback(async (pageNum: number = 1, searchTerm?: string, status?: string) => {
     setLoading(true);
@@ -192,10 +202,20 @@ const UserManagement: React.FC = () => {
     }
   }, [message]);
 
+  const fetchCompanies = useCallback(async () => {
+    try {
+      const response = await apiService.get<{ data: CompanyOption[] }>('/companies', { limit: 100, status: 'ACTIVE' });
+      setCompanies(response.data || []);
+    } catch {
+      // default fallback
+    }
+  }, []);
+
   useEffect(() => {
     fetchUsers(page, search || undefined, statusFilter);
     fetchRoles();
-  }, [page, search, fetchUsers, fetchRoles, statusFilter]);
+    fetchCompanies();
+  }, [page, search, fetchUsers, fetchRoles, fetchCompanies, statusFilter]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -204,6 +224,9 @@ const UserManagement: React.FC = () => {
 
   const openCreateModal = () => {
     createForm.resetFields();
+    if (companies.length > 0) {
+      createForm.setFieldValue('companyId', companies[0].id);
+    }
     setIsCreateMinimized(false);
     setCreateModalVisible(true);
   };
@@ -217,6 +240,7 @@ const UserManagement: React.FC = () => {
       phone: record.phone,
       employeeId: record.employeeId,
       username: record.username,
+      defaultCompanyId: record.defaultCompanyId || record.defaultCompany?.id || companies[0]?.id,
     });
     setIsEditMinimized(false);
     setEditModalVisible(true);
@@ -382,6 +406,7 @@ const UserManagement: React.FC = () => {
         employeeId: values.employeeId,
         username: values.username,
         roleIds: values.roleIds || [],
+        companyId: values.companyId || (companies[0]?.id),
       });
 
       const assignedRoles = roles.filter(r => (values.roleIds || []).includes(r.id));
@@ -803,6 +828,24 @@ const UserManagement: React.FC = () => {
       key: 'phone',
       width: 130,
       render: (v: string) => v || <Text type="secondary">-</Text>,
+    },
+    {
+      title: (
+        <Space size={6}>
+          <BankOutlined style={{ color: '#0284c7' }} />
+          <span>Company</span>
+        </Space>
+      ),
+      key: 'company',
+      width: 170,
+      render: (_, record) => {
+        const cName = record.defaultCompany?.trade_name || record.defaultCompany?.tradeName || record.defaultCompany?.legal_name;
+        return (
+          <Tag color="cyan" style={{ borderRadius: 4, fontWeight: 500 }}>
+            {cName || 'PakWiz Industries'}
+          </Tag>
+        );
+      },
     },
     {
       title: (
@@ -1309,6 +1352,23 @@ const UserManagement: React.FC = () => {
                   ))}
                 </Select>
               </Form.Item>
+
+              <Divider orientation="left" style={{ fontSize: 13, margin: '12px 0' }}>Organization Assignment</Divider>
+
+              <Form.Item
+                name="companyId"
+                label="Company / Organization"
+                tooltip="Assigning a company grants the user an organization scope, enabling access to inventory, production, sales, etc."
+                rules={[{ required: true, message: 'Please select a company' }]}
+              >
+                <Select
+                  placeholder="Select company"
+                  options={companies.map(c => ({
+                    value: c.id,
+                    label: c.tradeName ? `${c.tradeName} (${c.companyCode || c.legalName || ''})`.trim() : (c.legalName || c.id),
+                  }))}
+                />
+              </Form.Item>
             </Form>
           </div>
 
@@ -1333,6 +1393,12 @@ const UserManagement: React.FC = () => {
                 <div className="user-preview-detail-row">
                   <span className="user-preview-detail-label">Status</span>
                   <Tag color="green" style={{ margin: 0 }}>ACTIVE</Tag>
+                </div>
+                <div className="user-preview-detail-row">
+                  <span className="user-preview-detail-label">Company</span>
+                  <span className="user-preview-detail-value">
+                    {companies.find(c => c.id === createCompanyId)?.tradeName || companies[0]?.tradeName || 'PakWiz Industries'}
+                  </span>
                 </div>
                 <div className="user-preview-detail-row">
                   <span className="user-preview-detail-label">Employee ID</span>
@@ -1440,6 +1506,23 @@ const UserManagement: React.FC = () => {
                   </Form.Item>
                 </Col>
               </Row>
+              <Row gutter={16}>
+                <Col span={24}>
+                  <Form.Item
+                    name="defaultCompanyId"
+                    label="Company / Organization"
+                    tooltip="Assigned company provides organization scope access for inventory, production, etc."
+                  >
+                    <Select
+                      placeholder="Select company"
+                      options={companies.map(c => ({
+                        value: c.id,
+                        label: c.tradeName ? `${c.tradeName} (${c.companyCode || c.legalName || ''})`.trim() : (c.legalName || c.id),
+                      }))}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
               <div style={{ marginTop: 14 }}>
                 <Button
                   icon={<CameraOutlined />}
@@ -1491,6 +1574,12 @@ const UserManagement: React.FC = () => {
                   <Tag color={selectedUser?.status === 'ACTIVE' ? 'green' : 'red'} style={{ margin: 0 }}>
                     {selectedUser?.status || 'ACTIVE'}
                   </Tag>
+                </div>
+                <div className="user-preview-detail-row">
+                  <span className="user-preview-detail-label">Company</span>
+                  <span className="user-preview-detail-value">
+                    {companies.find(c => c.id === editDefaultCompanyId)?.tradeName || selectedUser?.defaultCompany?.trade_name || 'PakWiz Industries'}
+                  </span>
                 </div>
                 <div className="user-preview-detail-row">
                   <span className="user-preview-detail-label">Full Name</span>
@@ -1615,6 +1704,12 @@ const UserManagement: React.FC = () => {
                 <Tag color={viewUser.status === 'ACTIVE' ? 'green' : 'red'} style={{ margin: 0 }}>
                   {viewUser.status || 'ACTIVE'}
                 </Tag>
+              </div>
+              <div className="user-preview-detail-row">
+                <span className="user-preview-detail-label">Company</span>
+                <span className="user-preview-detail-value">
+                  {viewUser.defaultCompany?.trade_name || viewUser.defaultCompany?.tradeName || viewUser.defaultCompany?.legal_name || 'PakWiz Industries'}
+                </span>
               </div>
               <div className="user-preview-detail-row">
                 <span className="user-preview-detail-label">Full Name</span>

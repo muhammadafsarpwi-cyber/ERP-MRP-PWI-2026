@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+// Using Jest test runner globals
 import { ACTION_MAP } from '../maintenance/jobCards.types';
 
 describe('Job Card ACTION_MAP permission correctness', () => {

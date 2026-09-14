@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   App, Button, Space, Select, Form, Input, InputNumber, Popconfirm, Tabs,
   Descriptions, Row, Col, Tag, Tooltip, DatePicker, TimePicker, Alert, Statistic, Spin,
+  Checkbox, Dropdown,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, EyeOutlined, DeleteOutlined, ReloadOutlined,
   SwapRightOutlined, ToolOutlined, HistoryOutlined, BarChartOutlined,
-  CheckCircleOutlined, UnorderedListOutlined,
+  CheckCircleOutlined, UnorderedListOutlined, SwapOutlined, PlusCircleOutlined, DesktopOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -17,6 +19,7 @@ import {
   DraggableResizableModal, SaveResultDialog,
   type SaveResultPhase, type SaveResultData,
 } from '../../components/shared';
+import { useHeaderActions } from '../../components/layout/headerActionsStore';
 
 const COMPONENT_TYPES = ['DIE', 'MOULD', 'CHAIN', 'TOOL', 'FIXTURE', 'COMPONENT', 'OTHER'];
 const CONDITION_STATUSES = ['NEW', 'USED', 'DAMAGED', 'REWORKED', 'OTHER'];
@@ -63,7 +66,7 @@ const fmtNum = (v: unknown): string => {
 };
 
 interface MachineLk { id: string; machineCode?: string | null; machineNumber?: string | null; name?: string | null; }
-interface ItemLk { id: string; itemCode: string; name?: string | null; }
+interface ItemLk { id: string; itemCode: string; name?: string | null; baseUomId?: string | null; baseUom?: { id: string; code: string } | null; }
 interface UomLk { id: string; code: string; name?: string | null; }
 interface JobCardLk { id: string; jobCardNo?: string | null; code?: string | null; }
 
@@ -189,9 +192,9 @@ const MachineToolingManagement: React.FC = () => {
           apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 500, sortBy: 'itemCode' }),
           apiService.get<{ data: UomLk[] }>('/master-data/uom', { limit: 500, sortBy: 'code' }),
         ]);
-        if (mRes.status === 'fulfilled') setMachines(mRes.value.data || []);
-        if (iRes.status === 'fulfilled') setItems(iRes.value.data || []);
-        if (uRes.status === 'fulfilled') setUoms(uRes.value.data || []);
+        if (mRes.status === 'fulfilled') setMachines((mRes.value as any)?.data || (Array.isArray(mRes.value) ? mRes.value : []));
+        if (iRes.status === 'fulfilled') setItems((iRes.value as any)?.data || (Array.isArray(iRes.value) ? iRes.value : []));
+        if (uRes.status === 'fulfilled') setUoms((uRes.value as any)?.data || (Array.isArray(uRes.value) ? uRes.value : []));
       } catch {
         message.warning('Could not load machine / item / UOM lookups');
       }
@@ -293,6 +296,14 @@ const MachineToolingManagement: React.FC = () => {
   const [compModalOpen, setCompModalOpen] = useState(false);
   const [editingComponent, setEditingComponent] = useState<ComponentRec | null>(null);
   const [compForm] = Form.useForm();
+  const [, setCompFormTick] = useState(0);
+
+  // Minimized Window Tabs State
+  const [isCompMinimized, setIsCompMinimized] = useState(false);
+  const [isChangeMinimized, setIsChangeMinimized] = useState(false);
+  const [isInstallMinimized, setIsInstallMinimized] = useState(false);
+  const [isDetailMinimized, setIsDetailMinimized] = useState(false);
+  const [isHistoryMinimized, setIsHistoryMinimized] = useState(false);
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -324,13 +335,37 @@ const MachineToolingManagement: React.FC = () => {
   }, [activeTab, compPage, fetchComponents]);
 
   const handleCreateComponent = () => {
+    setIsCompMinimized(false);
     setEditingComponent(null);
     compForm.resetFields();
     compForm.setFieldsValue({ componentType: 'COMPONENT' });
     setCompModalOpen(true);
   };
 
+  const handleItemSelectChange = (selectedItemId?: string) => {
+    if (!selectedItemId) return;
+    const item = items.find((i) => i.id === selectedItemId);
+    if (item) {
+      const uomId = item.baseUomId || item.baseUom?.id;
+      const upperName = ((item.name || '') + ' ' + (item.itemCode || '')).toUpperCase();
+      let inferredType: string | undefined = undefined;
+      if (upperName.includes('DIE')) inferredType = 'DIE';
+      else if (upperName.includes('MOULD') || upperName.includes('MOLD')) inferredType = 'MOULD';
+      else if (upperName.includes('CHAIN')) inferredType = 'CHAIN';
+      else if (upperName.includes('FIXTURE')) inferredType = 'FIXTURE';
+      else if (upperName.includes('TOOL') || upperName.includes('BLADE') || upperName.includes('PUNCH') || upperName.includes('ROLLER')) inferredType = 'TOOL';
+
+      compForm.setFieldsValue({
+        componentName: item.name || item.itemCode,
+        componentCode: item.itemCode,
+        ...(uomId ? { uomId } : {}),
+        ...(inferredType ? { componentType: inferredType } : {}),
+      });
+    }
+  };
+
   const handleEditComponent = (record: ComponentRec) => {
+    setIsCompMinimized(false);
     setEditingComponent(record);
     compForm.setFieldsValue({
       machineId: record.machineId,
@@ -387,15 +422,16 @@ const MachineToolingManagement: React.FC = () => {
   };
 
   const handleViewHistory = async (record: ComponentRec) => {
+    setIsHistoryMinimized(false);
     setHistoryOpen(true);
     setHistoryLoading(true);
     setHistoryData(null);
     try {
-      const res = await apiService.get<{ data: ComponentHistory }>(
+      const res = await apiService.get<any>(
         `/machine-tooling/components/${record.id}/history`,
         { counter: 'derive' },
       );
-      setHistoryData(res.data);
+      setHistoryData(res?.data ?? res);
     } catch (error: any) {
       message.error(extractApiError(error, 'Failed to load component history'));
       setHistoryOpen(false);
@@ -403,6 +439,36 @@ const MachineToolingManagement: React.FC = () => {
       setHistoryLoading(false);
     }
   };
+
+  // Tooling Component Setup Column Visibility
+  const DEFAULT_TOOLING_COMP_COLUMNS: Record<string, boolean> = {
+    component: true,
+    machine: true,
+    componentType: true,
+    expectedLife: true,
+    thresholds: true,
+    item: true,
+    status: true,
+    actions: true,
+  };
+  const TOOLING_COMP_COLUMN_LABELS: Record<string, string> = {
+    component: 'Component',
+    machine: 'Machine',
+    componentType: 'Type',
+    expectedLife: 'Expected Life',
+    thresholds: 'Life Window',
+    item: 'Item Code',
+    status: 'Status',
+    actions: 'Actions',
+  };
+  const [compVisibleCols, setCompVisibleCols] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem('erp_tooling_comp_cols');
+      return stored ? { ...DEFAULT_TOOLING_COMP_COLUMNS, ...JSON.parse(stored) } : DEFAULT_TOOLING_COMP_COLUMNS;
+    } catch {
+      return DEFAULT_TOOLING_COMP_COLUMNS;
+    }
+  });
 
   const componentColumns: ColumnsType<ComponentRec> = [
     {
@@ -512,6 +578,14 @@ const MachineToolingManagement: React.FC = () => {
     },
   ];
 
+  const visibleComponentColumns = useMemo(() => {
+    return componentColumns.filter((col) => {
+      const k = String(col.key || (col as any).dataIndex || '');
+      if (!k) return true;
+      return compVisibleCols[k] !== false;
+    });
+  }, [componentColumns, compVisibleCols]);
+
   /* ── Tab 2: Change history ───────────────────────────────────────────────── */
   const [changes, setChanges] = useState<ChangeRec[]>([]);
   const [changesTotal, setChangesTotal] = useState(0);
@@ -570,6 +644,7 @@ const MachineToolingManagement: React.FC = () => {
   }, [activeTab, chgPage, fetchChanges]);
 
   const openRecordChange = async (record: ChangeRec | null) => {
+    setIsChangeMinimized(false);
     setEditingChange(record);
     setComponentOptions([]);
     setJobCardOptions([]);
@@ -655,12 +730,13 @@ const MachineToolingManagement: React.FC = () => {
   };
 
   const handleViewChange = async (record: ChangeRec) => {
+    setIsDetailMinimized(false);
     setChangeDetailOpen(true);
     setChangeDetailLoading(true);
     setChangeDetail(null);
     try {
-      const res = await apiService.get<{ data: ChangeRec }>(`/machine-tooling/changes/${record.id}`);
-      setChangeDetail(res.data);
+      const res = await apiService.get<any>(`/machine-tooling/changes/${record.id}`);
+      setChangeDetail(res?.data ?? res);
     } catch (error: any) {
       message.error(extractApiError(error, 'Failed to load change'));
       setChangeDetailOpen(false);
@@ -668,6 +744,36 @@ const MachineToolingManagement: React.FC = () => {
       setChangeDetailLoading(false);
     }
   };
+
+  // Tooling Change History Column Visibility
+  const DEFAULT_TOOLING_CHG_COLUMNS: Record<string, boolean> = {
+    date: true,
+    machine: true,
+    component: true,
+    toolChange: true,
+    life: true,
+    conditionStatus: true,
+    jobCard: true,
+    actions: true,
+  };
+  const TOOLING_CHG_COLUMN_LABELS: Record<string, string> = {
+    date: 'Date & Time',
+    machine: 'Machine',
+    component: 'Component',
+    toolChange: 'Tool Change',
+    life: 'Production Life',
+    conditionStatus: 'Condition',
+    jobCard: 'Job Card',
+    actions: 'Actions',
+  };
+  const [chgVisibleCols, setChgVisibleCols] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem('erp_tooling_chg_cols');
+      return stored ? { ...DEFAULT_TOOLING_CHG_COLUMNS, ...JSON.parse(stored) } : DEFAULT_TOOLING_CHG_COLUMNS;
+    } catch {
+      return DEFAULT_TOOLING_CHG_COLUMNS;
+    }
+  });
 
   const changeColumns: ColumnsType<ChangeRec> = [
     {
@@ -755,6 +861,14 @@ const MachineToolingManagement: React.FC = () => {
     },
   ];
 
+  const visibleChangeColumns = useMemo(() => {
+    return changeColumns.filter((col) => {
+      const k = String(col.key || (col as any).dataIndex || '');
+      if (!k) return true;
+      return chgVisibleCols[k] !== false;
+    });
+  }, [changeColumns, chgVisibleCols]);
+
   /* ── Tab 3: Monthly consumption ──────────────────────────────────────────── */
   const [reportMonth, setReportMonth] = useState<dayjs.Dayjs>(dayjs());
   const [fReportMachine, setFReportMachine] = useState<string | undefined>(undefined);
@@ -824,6 +938,7 @@ const MachineToolingManagement: React.FC = () => {
   const [installJobCardOptions, setInstallJobCardOptions] = useState<Array<{ value: string; label: string }>>([]);
 
   const openInstall = async () => {
+    setIsInstallMinimized(false);
     setInstallOpen(true);
     setInstallPickMachine(undefined);
     setInstallComponents([]);
@@ -1355,20 +1470,91 @@ const MachineToolingManagement: React.FC = () => {
             }
           : null;
 
+  useEffect(() => {
+    const { setHeaderMeta, clearHeaderMeta } = useHeaderActions.getState();
+    setHeaderMeta(
+      <Space align="center" size={10}>
+        <ToolOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+        <span>Machine Tools & Components</span>
+        <span
+          className="item-model-badge"
+          style={{
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            color: '#10b981',
+            borderRadius: 6,
+            padding: '2px 8px',
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          Enterprise 2027
+        </span>
+      </Space>,
+      `Track tool / die / mould life per machine, record changes, and review monthly consumption · ${componentsTotal} components`,
+      <ToolOutlined />,
+      <Space size={8}>
+        <Button
+          icon={<ReloadOutlined />}
+          title="Refresh current tab data"
+          onClick={() => {
+            if (activeTab === 'setup') fetchComponents(compPage);
+            else if (activeTab === 'changes') fetchChanges(chgPage);
+            else if (activeTab === 'active') fetchActiveTools(atPage);
+            else if (activeTab === 'life') fetchLifeReport(lifePage);
+            else if (activeTab === 'report') fetchReport();
+          }}
+        />
+        {primaryAdd?.show && (
+          <Button
+            type="primary"
+            icon={primaryAdd.icon}
+            onClick={primaryAdd.onClick}
+            style={{
+              borderRadius: 6,
+              fontWeight: 600,
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              borderColor: '#059669',
+              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)',
+            }}
+          >
+            {primaryAdd.label}
+          </Button>
+        )}
+      </Space>,
+    );
+    return () => clearHeaderMeta();
+  }, [
+    primaryAdd, activeTab, componentsTotal,
+    compPage, chgPage, atPage, lifePage, fetchComponents, fetchChanges,
+    fetchActiveTools, fetchLifeReport, fetchReport,
+  ]);
+
   return (
     <div>
       <PageHeader
         icon={<ToolOutlined />}
-        title="Machine Tools & Components"
+        title={
+          <Space align="center" size={10}>
+            <span>Machine Tools & Components</span>
+            <span
+              className="item-model-badge"
+              style={{
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                color: '#10b981',
+                borderRadius: 6,
+                padding: '2px 8px',
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              Enterprise 2027
+            </span>
+          </Space>
+        }
         subtitle={`Track tool / die / mould life per machine, record changes, and review monthly consumption · ${componentsTotal} components`}
         showBreadcrumbs
-        extra={
-          primaryAdd?.show ? (
-            <Button type="primary" icon={primaryAdd.icon} onClick={primaryAdd.onClick}>
-              {primaryAdd.label}
-            </Button>
-          ) : undefined
-        }
       />
 
       <div
@@ -1382,54 +1568,95 @@ const MachineToolingManagement: React.FC = () => {
       >
         <div
           style={{
-            padding: '4px 10px 0 10px',
-            borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))',
+            display: 'flex',
+            alignItems: 'stretch',
+            width: '100%',
             overflowX: 'auto',
+            padding: '6px 6px 8px 6px',
+            scrollbarWidth: 'thin',
+            background: '#f8fafc',
+            borderBottom: '1px solid #e2e8f0',
           }}
         >
-          <Tabs
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            tabBarStyle={{ marginBottom: 0 }}
-            items={(
-              [
-              {
-                key: 'setup',
-                label: (
-                  <span><ToolOutlined /> Tool & Component Setup</span>
-                ),
-              },
-              {
-                key: 'changes',
-                label: (
-                  <span><HistoryOutlined /> Change History</span>
-                ),
-              },
-              can('manufacturing.component_change.view')
-                ? {
-                    key: 'active',
-                    label: (
-                      <span><CheckCircleOutlined /> Active Tools</span>
-                    ),
-                  }
-                : null,
-              can('manufacturing.component_change.view')
-                ? {
-                    key: 'life',
-                    label: (
-                      <span><HistoryOutlined /> Tool Life History</span>
-                    ),
-                  }
-                : null,
-              {
-                key: 'report',
-                label: (
-                  <span><BarChartOutlined /> Monthly Consumption</span>
-                ),
-              },
-              ]
-            ).filter((x): x is NonNullable<typeof x> => Boolean(x))}
-          />
+          {[
+            { key: 'setup', label: 'Tool & Component Setup', icon: <ToolOutlined />, color: '#334155', activeBg: '#1e293b', count: componentsTotal },
+            { key: 'changes', label: 'Change History', icon: <HistoryOutlined />, color: '#16a34a', activeBg: '#15803d', count: changesTotal },
+            ...(can('manufacturing.component_change.view') ? [{ key: 'active', label: 'Active Tools', icon: <CheckCircleOutlined />, color: '#0284c7', activeBg: '#0369a1', count: activeToolsTotal }] : []),
+            ...(can('manufacturing.component_change.view') ? [{ key: 'life', label: 'Tool Life History', icon: <HistoryOutlined />, color: '#d97706', activeBg: '#b45309', count: lifeTotal }] : []),
+            { key: 'report', label: 'Monthly Consumption', icon: <BarChartOutlined />, color: '#7c3aed', activeBg: '#6d28d9', count: null },
+          ].map((tab, idx, arr) => {
+            const isSelected = activeTab === tab.key;
+            const isFirst = idx === 0;
+            const isLast = idx === arr.length - 1;
+
+            const clipPath = isFirst
+              ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
+              : isLast
+              ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+              : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  position: 'relative',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: isFirst
+                    ? '10px 22px 10px 16px'
+                    : isLast
+                    ? '10px 18px 10px 24px'
+                    : '10px 20px 10px 24px',
+                  marginLeft: isFirst ? 0 : -6,
+                  zIndex: isSelected ? 12 : arr.length - idx,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  letterSpacing: '0.4px',
+                  whiteSpace: 'nowrap',
+                  border: 'none',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  clipPath,
+                  transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+                  background: isSelected
+                    ? `linear-gradient(135deg, ${tab.activeBg} 0%, ${tab.color} 100%)`
+                    : 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)',
+                  color: isSelected ? '#ffffff' : '#334155',
+                  boxShadow: isSelected
+                    ? `0 4px 14px ${tab.color}55, inset 0 0 0 1.5px rgba(255,255,255,0.3)`
+                    : 'inset 0 0 0 1px #e2e8f0',
+                  transform: isSelected ? 'scale(1.025)' : 'scale(1)',
+                }}
+              >
+                <span style={{ fontSize: 14, display: 'flex', alignItems: 'center' }}>{tab.icon}</span>
+                <span>{tab.label}</span>
+                {tab.count !== null && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: 22,
+                      height: 20,
+                      padding: '0 6px',
+                      borderRadius: 10,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      background: isSelected ? 'rgba(255, 255, 255, 0.28)' : '#e2e8f0',
+                      color: isSelected ? '#ffffff' : '#475569',
+                      boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
+                    }}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {activeTab === 'setup' && (
@@ -1456,6 +1683,57 @@ const MachineToolingManagement: React.FC = () => {
                     onChange: (v) => { setFCompType(v); setCompPage(1); },
                   },
                 ]}
+                actions={
+                  <Dropdown
+                    trigger={['click']}
+                    placement="bottomRight"
+                    menu={{
+                      items: [
+                        {
+                          key: 'col_header',
+                          label: (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 160 }}>
+                              <span style={{ fontWeight: 700, fontSize: 12 }}>Visible Columns</span>
+                              <Button
+                                type="link"
+                                size="small"
+                                style={{ fontSize: 11, padding: 0, height: 'auto' }}
+                                onClick={() => {
+                                  const reset = { ...DEFAULT_TOOLING_COMP_COLUMNS };
+                                  setCompVisibleCols(reset);
+                                  localStorage.setItem('erp_tooling_comp_cols', JSON.stringify(reset));
+                                }}
+                              >
+                                Reset
+                              </Button>
+                            </div>
+                          ),
+                        },
+                        { type: 'divider' },
+                        ...Object.entries(TOOLING_COMP_COLUMN_LABELS).map(([colKey, label]) => ({
+                          key: colKey,
+                          label: (
+                            <Checkbox
+                              checked={compVisibleCols[colKey] !== false}
+                              disabled={colKey === 'component'}
+                              onChange={(e) => {
+                                const updated = { ...compVisibleCols, [colKey]: e.target.checked };
+                                setCompVisibleCols(updated);
+                                localStorage.setItem('erp_tooling_comp_cols', JSON.stringify(updated));
+                              }}
+                            >
+                              {label}
+                            </Checkbox>
+                          ),
+                        })),
+                      ],
+                    }}
+                  >
+                    <Button icon={<AppstoreOutlined />} style={{ borderRadius: 6, fontWeight: 600 }}>
+                      Columns ⊞
+                    </Button>
+                  </Dropdown>
+                }
                 onRefresh={() => fetchComponents(compPage)}
                 primaryAction={
                   can('manufacturing.tool_component.create')
@@ -1466,7 +1744,7 @@ const MachineToolingManagement: React.FC = () => {
             </div>
             <div style={{ width: '100%', overflowX: 'auto' }}>
               <ERPTable
-                columns={componentColumns}
+                columns={visibleComponentColumns}
                 dataSource={components}
                 rowKey="id"
                 loading={componentsLoading}
@@ -1535,6 +1813,55 @@ const MachineToolingManagement: React.FC = () => {
                       onChange={(d) => { setFChgTo(d ? d.format('YYYY-MM-DD') : undefined); setChgPage(1); }}
                       style={{ width: 130 }}
                     />
+                    <Dropdown
+                      trigger={['click']}
+                      placement="bottomRight"
+                      menu={{
+                        items: [
+                          {
+                            key: 'col_header',
+                            label: (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 160 }}>
+                                <span style={{ fontWeight: 700, fontSize: 12 }}>Visible Columns</span>
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  style={{ fontSize: 11, padding: 0, height: 'auto' }}
+                                  onClick={() => {
+                                    const reset = { ...DEFAULT_TOOLING_CHG_COLUMNS };
+                                    setChgVisibleCols(reset);
+                                    localStorage.setItem('erp_tooling_chg_cols', JSON.stringify(reset));
+                                  }}
+                                >
+                                  Reset
+                                </Button>
+                              </div>
+                            ),
+                          },
+                          { type: 'divider' },
+                          ...Object.entries(TOOLING_CHG_COLUMN_LABELS).map(([colKey, label]) => ({
+                            key: colKey,
+                            label: (
+                              <Checkbox
+                                checked={chgVisibleCols[colKey] !== false}
+                                disabled={colKey === 'date' || colKey === 'toolChange'}
+                                onChange={(e) => {
+                                  const updated = { ...chgVisibleCols, [colKey]: e.target.checked };
+                                  setChgVisibleCols(updated);
+                                  localStorage.setItem('erp_tooling_chg_cols', JSON.stringify(updated));
+                                }}
+                              >
+                                {label}
+                              </Checkbox>
+                            ),
+                          })),
+                        ],
+                      }}
+                    >
+                      <Button icon={<AppstoreOutlined />} style={{ borderRadius: 6, fontWeight: 600 }}>
+                        Columns ⊞
+                      </Button>
+                    </Dropdown>
                     <Button
                       type="link" danger
                       disabled={chgFilterCount === 0}
@@ -1558,7 +1885,7 @@ const MachineToolingManagement: React.FC = () => {
             </div>
             <div style={{ width: '100%', overflowX: 'auto' }}>
               <ERPTable
-                columns={changeColumns}
+                columns={visibleChangeColumns}
                 dataSource={changes}
                 rowKey="id"
                 loading={changesLoading}
@@ -1815,88 +2142,223 @@ const MachineToolingManagement: React.FC = () => {
       </div>
 
       {/* Component create / edit modal */}
-      <DraggableResizableModal
-        open={compModalOpen}
-        onCancel={() => setCompModalOpen(false)}
-        width={720}
-        height={600}
-        minWidth={560}
-        minHeight={480}
-        footer={[
-          <Button key="cancel" onClick={() => setCompModalOpen(false)}>Cancel</Button>,
-          <Button key="save" type="primary" loading={saving} onClick={handleSaveComponent}>
-            {editingComponent ? 'Save Changes' : 'Create Component'}
-          </Button>,
-        ]}
-        title={
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <ToolOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
-            {editingComponent ? `Edit Component — ${editingComponent.componentCode}` : 'Add Tool / Component'}
-          </span>
-        }
-        subtitle="Track a tool, die, mould or component on a machine with its expected life"
-        styles={{ body: { overflow: 'auto' } }}
-      >
-        <Form form={compForm} layout="vertical" style={{ paddingTop: 4 }}>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="machineId" label="Machine" rules={[{ required: true, message: 'Machine is required' }]}>
-                <Select showSearch optionFilterProp="label" placeholder="Select machine" options={machineOptions} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="componentType" label="Component Type" rules={[{ required: true }]}>
-                <Select options={COMPONENT_TYPES.map((t) => ({ value: t, label: t }))} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="componentName" label="Component Name" rules={[{ required: true, message: 'Name is required' }]}>
-                <Input placeholder="e.g. Thread Die 12 mm" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="componentCode" label="Component Code" rules={[{ required: true, message: 'Code is required' }]}>
-                <Input placeholder="e.g. TD-012" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="itemId" label="Item Master (optional)">
-                <Select showSearch optionFilterProp="label" allowClear placeholder="Link to an item" options={itemOptions} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="uomId" label="Production UOM (optional)">
-                <Select showSearch optionFilterProp="label" allowClear placeholder="Select UOM" options={uomOptions} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="expectedLifeQuantity" label="Expected Life" tooltip="Expected productive life in produced quantity">
-                <InputNumber min={0.0001} step={0.0001} style={{ width: '100%' }} placeholder="0.0000" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="minThreshold" label="Min. Threshold">
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="Replacement window lower bound" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="maxThreshold" label="Max. Threshold">
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="Replacement window upper bound" />
-              </Form.Item>
-            </Col>
-            <Col span={24}>
-              <Form.Item name="description" label="Description">
-                <Input.TextArea rows={3} placeholder="Notes for maintenance and planning" />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </DraggableResizableModal>
+      {(() => {
+        const liveCompValues = compForm.getFieldsValue();
+        const liveCompMachine = machines.find((m) => m.id === liveCompValues.machineId);
+        const liveCompStoreItem = items.find((i) => i.id === liveCompValues.itemId);
+        const liveCompUom = uoms.find((u) => u.id === liveCompValues.uomId);
+
+        return (
+          <DraggableResizableModal
+            open={compModalOpen}
+            onCancel={() => setCompModalOpen(false)}
+            onMinimize={() => {
+              setCompModalOpen(false);
+              setIsCompMinimized(true);
+            }}
+            width={980}
+            height={640}
+            minWidth={640}
+            minHeight={480}
+            footer={[
+              <Button key="cancel" onClick={() => setCompModalOpen(false)}>Cancel</Button>,
+              <Button key="save" type="primary" loading={saving} onClick={handleSaveComponent}>
+                {editingComponent ? 'Save Changes' : 'Create Component'}
+              </Button>,
+            ]}
+            title={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <ToolOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+                {editingComponent ? `Edit Component — ${editingComponent.componentCode}` : 'Add Tool / Component'}
+              </span>
+            }
+            subtitle="Track a tool, die, mould or component on a machine with its expected life"
+            styles={{ body: { overflow: 'hidden', padding: '16px' } }}
+          >
+            <div style={{ display: 'flex', gap: 20, height: '100%', alignItems: 'stretch' }}>
+              {/* Left Column: Form Inputs */}
+              <div style={{ flex: '1 1 58%', minWidth: 0, overflowY: 'auto', paddingRight: 16, borderRight: '1px solid var(--theme-border, #e2e8f0)' }}>
+                <Form
+                  form={compForm}
+                  layout="vertical"
+                  style={{ paddingTop: 4 }}
+                  onValuesChange={() => setCompFormTick((t) => t + 1)}
+                >
+                  <Row gutter={16}>
+                    <Col span={24}>
+                      <div
+                        style={{
+                          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%)',
+                          padding: '12px 14px',
+                          borderRadius: 8,
+                          marginBottom: 16,
+                          border: '1px solid rgba(16, 185, 129, 0.25)',
+                        }}
+                      >
+                        <Form.Item
+                          name="itemId"
+                          label={
+                            <Space size={6}>
+                              <span style={{ fontWeight: 600 }}>Store Item / Product Master</span>
+                              <Tag color="success" style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
+                                ⚡ Auto-fills Code, Name & UOM
+                              </Tag>
+                            </Space>
+                          }
+                          style={{ marginBottom: 0 }}
+                          tooltip="Select an item from Store / Item Master to automatically populate the tooling code, name, and production unit"
+                        >
+                          <Select
+                            showSearch
+                            optionFilterProp="label"
+                            allowClear
+                            placeholder="Search & Select Store Item (e.g. Die, Mould, Punch, Spare Part)"
+                            options={itemOptions}
+                            onChange={handleItemSelectChange}
+                            size="large"
+                          />
+                        </Form.Item>
+                      </div>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="machineId" label="Machine" rules={[{ required: true, message: 'Machine is required' }]}>
+                        <Select showSearch optionFilterProp="label" placeholder="Select machine" options={machineOptions} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="componentType" label="Component Type" rules={[{ required: true }]}>
+                        <Select options={COMPONENT_TYPES.map((t) => ({ value: t, label: t }))} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="componentName" label="Component Name" rules={[{ required: true, message: 'Name is required' }]}>
+                        <Input placeholder="e.g. Thread Die 12 mm" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="componentCode" label="Component Code" rules={[{ required: true, message: 'Code is required' }]}>
+                        <Input placeholder="e.g. TD-012" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="uomId" label="Production UOM (optional)">
+                        <Select showSearch optionFilterProp="label" allowClear placeholder="Select UOM" options={uomOptions} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="expectedLifeQuantity" label="Expected Life (PCS / Output)" tooltip="Expected productive life in produced quantity">
+                        <InputNumber min={0.0001} step={0.0001} style={{ width: '100%' }} placeholder="e.g. 50000" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="minThreshold" label="Min. Threshold">
+                        <InputNumber min={0} style={{ width: '100%' }} placeholder="Replacement window lower bound" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="maxThreshold" label="Max. Threshold">
+                        <InputNumber min={0} style={{ width: '100%' }} placeholder="Replacement window upper bound" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={24}>
+                      <Form.Item name="description" label="Description">
+                        <Input.TextArea rows={3} placeholder="Notes for maintenance and planning" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </Form>
+              </div>
+
+              {/* Right Column: Live Detail Sheet */}
+              <div style={{ flex: '1 1 42%', minWidth: 280, display: 'flex', flexDirection: 'column' }}>
+                <div
+                  style={{
+                    background: 'linear-gradient(145deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.85) 100%)',
+                    border: '1px solid rgba(226, 232, 240, 0.9)',
+                    borderRadius: 14,
+                    padding: '18px 16px',
+                    boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    overflowY: 'auto',
+                  }}
+                  data-testid="comp-live-detail-sheet"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.25)', borderRadius: 20, color: '#6366f1', fontSize: 11, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 14, alignSelf: 'flex-start' }}>
+                    <EyeOutlined /> Live Detail Sheet
+                  </div>
+
+                  <div style={{ marginBottom: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Tag color="geekblue" style={{ fontSize: 13, padding: '3px 10px', borderRadius: 16, fontWeight: 700 }}>
+                      {liveCompValues.componentCode || (editingComponent ? editingComponent.componentCode : 'TOOL-CODE')}
+                    </Tag>
+                    <Tag color={COMPONENT_TYPE_COLORS[liveCompValues.componentType || 'COMPONENT'] || 'default'} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12 }}>
+                      {liveCompValues.componentType || 'COMPONENT'}
+                    </Tag>
+                  </div>
+
+                  <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--theme-text, #1e293b)', marginBottom: 4 }}>
+                    {liveCompValues.componentName || 'New Tool / Component Name'}
+                  </div>
+
+                  <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', marginBottom: 14 }}>
+                    Machine: <strong>{liveCompMachine ? `${liveCompMachine.machineCode} — ${liveCompMachine.name}` : 'No Machine Assigned'}</strong>
+                  </div>
+
+                  {liveCompStoreItem && (
+                    <Alert
+                      type="success"
+                      showIcon
+                      message="Linked Store Item"
+                      description={`${liveCompStoreItem.itemCode} · ${liveCompStoreItem.name}`}
+                      style={{ marginBottom: 14, fontSize: 12, borderRadius: 8 }}
+                    />
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                    <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)' }}>
+                      <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Expected Life</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#4f46e5', marginTop: 2 }}>
+                        {liveCompValues.expectedLifeQuantity != null ? `${Number(liveCompValues.expectedLifeQuantity).toLocaleString()} ${liveCompUom?.code || 'PCS'}` : '—'}
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)' }}>
+                      <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Production UOM</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#0ea5e9', marginTop: 2 }}>
+                        {liveCompUom ? `${liveCompUom.code} (${liveCompUom.name})` : 'PCS'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)', marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>Replacement Window Thresholds</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                      <span>Min: <strong>{liveCompValues.minThreshold != null ? Number(liveCompValues.minThreshold).toLocaleString() : '0'}</strong></span>
+                      <span>Max: <strong>{liveCompValues.maxThreshold != null ? Number(liveCompValues.maxThreshold).toLocaleString() : 'Unlimited'}</strong></span>
+                    </div>
+                  </div>
+
+                  {liveCompValues.description && (
+                    <div style={{ marginTop: 'auto', background: 'rgba(241, 245, 249, 0.7)', padding: '8px 10px', borderRadius: 6, fontSize: 12, color: '#475569' }}>
+                      <strong>Notes:</strong> {liveCompValues.description}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </DraggableResizableModal>
+        );
+      })()}
 
       {/* Component history / stats modal */}
       <DraggableResizableModal
         open={historyOpen}
         onCancel={() => setHistoryOpen(false)}
+        onMinimize={() => {
+          setHistoryOpen(false);
+          setIsHistoryMinimized(true);
+        }}
         width={820}
         height={640}
         minWidth={640}
@@ -1978,6 +2440,10 @@ const MachineToolingManagement: React.FC = () => {
       <DraggableResizableModal
         open={changeModalOpen}
         onCancel={() => setChangeModalOpen(false)}
+        onMinimize={() => {
+          setChangeModalOpen(false);
+          setIsChangeMinimized(true);
+        }}
         width={760}
         height={640}
         minWidth={580}
@@ -2028,6 +2494,18 @@ const MachineToolingManagement: React.FC = () => {
                     label: `${c.componentCode} — ${c.componentName} (${c.componentType})`,
                   }))}
                   loading={componentOptions.length === 0}
+                  onChange={(compId) => {
+                    const comp = componentOptions.find((c) => c.id === compId);
+                    if (comp) {
+                      const cur = changeForm.getFieldValue('newToolCode');
+                      if (!cur) {
+                        changeForm.setFieldsValue({
+                          newToolCode: comp.componentCode,
+                          newToolDescription: comp.componentName,
+                        });
+                      }
+                    }
+                  }}
                 />
               </Form.Item>
             </Col>
@@ -2100,10 +2578,14 @@ const MachineToolingManagement: React.FC = () => {
       <DraggableResizableModal
         open={changeDetailOpen}
         onCancel={() => setChangeDetailOpen(false)}
-        width={680}
-        height={560}
+        onMinimize={() => {
+          setChangeDetailOpen(false);
+          setIsDetailMinimized(true);
+        }}
+        width={720}
+        height={600}
         minWidth={540}
-        minHeight={420}
+        minHeight={440}
         footer={<Button type="primary" onClick={() => setChangeDetailOpen(false)}>Close</Button>}
         title={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -2111,40 +2593,109 @@ const MachineToolingManagement: React.FC = () => {
             Change Transaction Detail
           </span>
         }
-        subtitle={changeDetail ? `${changeDetail.changeDate}${changeDetail.changeTime ? ` ${changeDetail.changeTime}` : ''} · ${changeDetail.newToolCode}` : 'Loading...'}
+        subtitle={changeDetail ? `${changeDetail.changeDate}${changeDetail.changeTime ? ` ${changeDetail.changeTime}` : ''} · ${changeDetail.newToolCode}` : (changeDetailLoading ? 'Loading details...' : 'Transaction Detail')}
         styles={{ body: { overflow: 'auto' } }}
       >
         {changeDetailLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-            <Spin tip="Loading change..." />
+            <Spin tip="Loading change details..." />
           </div>
         ) : changeDetail ? (
-          <Alert
-            style={{ marginBottom: 14 }}
-            type="info"
-            showIcon
-            message="Production life"
-            description={`This change closed ${fmtNum(changeDetail.productionSincePrevious)} of production for the previous tool (counter ${fmtNum(changeDetail.productionCounterBefore)} − previous install ${fmtNum(changeDetail.productionCounterAfter)}).`}
-          />
-        ) : null}
-        {changeDetail && (
-          <Descriptions column={2} size="small" bordered
-            items={[
-              { key: 'machine', label: 'Machine', children: `${changeDetail.machine?.machineCode ?? '—'}${changeDetail.machine?.machineNumber ? ` ${changeDetail.machine.machineNumber}` : ''}` },
-              { key: 'component', label: 'Component', children: `${changeDetail.component?.componentCode ?? changeDetail.componentId}${changeDetail.component?.componentName ? ` — ${changeDetail.component.componentName}` : ''}` },
-              { key: 'old', label: 'Removed Tool', children: changeDetail.oldToolCode || '—' },
-              { key: 'new', label: 'Installed Tool', children: changeDetail.newToolCode },
-              { key: 'desc', label: 'Tool Description', children: changeDetail.newToolDescription || '—' },
-              { key: 'condition', label: 'Condition', children: changeDetail.conditionStatus || '—' },
-              { key: 'cb', label: 'Counter Before', children: fmtNum(changeDetail.productionCounterBefore) },
-              { key: 'ca', label: 'Counter After', children: fmtNum(changeDetail.productionCounterAfter) },
-              { key: 'life', label: 'Production Life', children: fmtNum(changeDetail.productionSincePrevious) },
-              { key: 'jobcard', label: 'Job Card', children: changeDetail.jobCard?.jobCardNo || changeDetail.jobCard?.code || '—' },
-              { key: 'reason', label: 'Reason', children: changeDetail.reason || '—' },
-              { key: 'changedBy', label: 'Recorded At', children: changeDetail.changedAt ? dayjs(changeDetail.changedAt).format('YYYY-MM-DD HH:mm') : '—' },
-              { key: 'remarks', label: 'Remarks', children: changeDetail.remarks || '—', span: 2 },
-            ]}
-          />
+          <>
+            {/* KPI metric chips */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                gap: 12,
+                marginBottom: 16,
+              }}
+            >
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.08) 0%, rgba(99, 102, 241, 0.04) 100%)',
+                  border: '1px solid rgba(79, 70, 229, 0.2)',
+                  borderRadius: 8,
+                  padding: '10px 14px',
+                }}
+              >
+                <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Pieces Produced (Life)
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#4f46e5', marginTop: 2 }}>
+                  {fmtNum(changeDetail.productionSincePrevious)} <span style={{ fontSize: 12, fontWeight: 500 }}>PCS</span>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(5, 150, 105, 0.04) 100%)',
+                  border: '1px solid rgba(16, 185, 129, 0.2)',
+                  borderRadius: 8,
+                  padding: '10px 14px',
+                }}
+              >
+                <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Installed Tool Code
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#10b981', marginTop: 2 }}>
+                  <code>{changeDetail.newToolCode}</code>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(217, 119, 6, 0.04) 100%)',
+                  border: '1px solid rgba(245, 158, 11, 0.2)',
+                  borderRadius: 8,
+                  padding: '10px 14px',
+                }}
+              >
+                <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Tool Condition
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <Tag color={CONDITION_COLORS[changeDetail.conditionStatus || ''] || 'default'} style={{ fontWeight: 600, fontSize: 12 }}>
+                    {changeDetail.conditionStatus ? `${changeDetail.conditionStatus} Condition` : 'N/A'}
+                  </Tag>
+                </div>
+              </div>
+            </div>
+
+            <Alert
+              style={{ marginBottom: 14 }}
+              type="info"
+              showIcon
+              message="Production Output Derivation"
+              description={
+                changeDetail.productionCounterBefore != null && changeDetail.productionCounterAfter != null
+                  ? `This change closed ${fmtNum(changeDetail.productionSincePrevious)} of production for the previous tool (counter ${fmtNum(changeDetail.productionCounterBefore)} − previous install ${fmtNum(changeDetail.productionCounterAfter)}) — ${fmtNum(changeDetail.productionSincePrevious)} Pieces produced by this machine during this tool run.`
+                  : `This change closed ${fmtNum(changeDetail.productionSincePrevious)} of production — Total machine output: ${fmtNum(changeDetail.productionSincePrevious)} Pieces.`
+              }
+            />
+
+            <Descriptions column={2} size="small" bordered
+              items={[
+                { key: 'machine', label: 'Machine', children: `${changeDetail.machine?.machineCode ?? '—'}${changeDetail.machine?.machineNumber ? ` ${changeDetail.machine.machineNumber}` : ''}` },
+                { key: 'component', label: 'Component', children: `${changeDetail.component?.componentCode ?? changeDetail.componentId}${changeDetail.component?.componentName ? ` — ${changeDetail.component.componentName}` : ''}` },
+                { key: 'old', label: 'Removed Tool', children: changeDetail.oldToolCode || '—' },
+                { key: 'new', label: 'Installed Tool', children: changeDetail.newToolCode },
+                { key: 'desc', label: 'Tool Description', children: changeDetail.newToolDescription || '—' },
+                { key: 'condition', label: 'Condition', children: changeDetail.conditionStatus || '—' },
+                { key: 'cb', label: 'Counter Before (Removal)', children: fmtNum(changeDetail.productionCounterBefore) },
+                { key: 'ca', label: 'Counter After (Install)', children: fmtNum(changeDetail.productionCounterAfter) },
+                { key: 'life', label: 'Pieces Produced', children: <strong style={{ color: '#4f46e5' }}>{fmtNum(changeDetail.productionSincePrevious)} PCS</strong> },
+                { key: 'jobcard', label: 'Job Card', children: changeDetail.jobCard?.jobCardNo || changeDetail.jobCard?.code || '—' },
+                { key: 'reason', label: 'Reason for Change', children: changeDetail.reason || '—' },
+                { key: 'changedBy', label: 'Recorded At', children: changeDetail.changedAt ? dayjs(changeDetail.changedAt).format('YYYY-MM-DD HH:mm') : (changeDetail.changeDate || '—') },
+                { key: 'remarks', label: 'Remarks / Notes', children: changeDetail.remarks || '—', span: 2 },
+              ]}
+            />
+          </>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--theme-text-muted)' }}>
+            No details found for this change transaction.
+          </div>
         )}
       </DraggableResizableModal>
 
@@ -2152,6 +2703,10 @@ const MachineToolingManagement: React.FC = () => {
       <DraggableResizableModal
         open={installOpen}
         onCancel={() => setInstallOpen(false)}
+        onMinimize={() => {
+          setInstallOpen(false);
+          setIsInstallMinimized(true);
+        }}
         width={760}
         height={700}
         minWidth={600}
@@ -2204,6 +2759,18 @@ const MachineToolingManagement: React.FC = () => {
                     value: c.id,
                     label: `${c.componentCode} — ${c.componentName} (${c.componentType})`,
                   }))}
+                  onChange={(compId) => {
+                    const comp = installableComponents.find((c) => c.id === compId);
+                    if (comp) {
+                      const cur = installForm.getFieldValue('newToolCode');
+                      if (!cur) {
+                        installForm.setFieldsValue({
+                          newToolCode: comp.componentCode,
+                          newToolDescription: comp.componentName,
+                        });
+                      }
+                    }
+                  }}
                 />
               </Form.Item>
             </Col>
@@ -2479,6 +3046,122 @@ const MachineToolingManagement: React.FC = () => {
         successTitle="Successful Save"
         okLabel="OK"
       />
+
+      {/* Universal Floating Minimized Dock for Machine Tooling */}
+      {(isCompMinimized || isChangeMinimized || isInstallMinimized || isDetailMinimized || isHistoryMinimized) && (
+        <div className="erp-minimized-dock" data-testid="tooling-minimized-dock">
+          {isCompMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsCompMinimized(false);
+                setCompModalOpen(true);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <ToolOutlined style={{ color: '#4f46e5' }} />
+              <span>{editingComponent ? `Edit: ${editingComponent.componentCode}` : 'Add Tool / Component'}</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsCompMinimized(false);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+          {isChangeMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsChangeMinimized(false);
+                setChangeModalOpen(true);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <SwapOutlined style={{ color: '#0ea5e9' }} />
+              <span>{editingChange ? `Edit Change: ${editingChange.componentId}` : 'Record Change'}</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsChangeMinimized(false);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+          {isInstallMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsInstallMinimized(false);
+                setInstallOpen(true);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <PlusCircleOutlined style={{ color: '#10b981' }} />
+              <span>Install Tool</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsInstallMinimized(false);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+          {isDetailMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsDetailMinimized(false);
+                setChangeDetailOpen(true);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <EyeOutlined style={{ color: '#f59e0b' }} />
+              <span>Change Detail</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsDetailMinimized(false);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+          {isHistoryMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsHistoryMinimized(false);
+                setHistoryOpen(true);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <HistoryOutlined style={{ color: '#8b5cf6' }} />
+              <span>Tool Life History</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsHistoryMinimized(false);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

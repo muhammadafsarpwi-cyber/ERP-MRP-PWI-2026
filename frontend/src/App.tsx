@@ -18,6 +18,9 @@ import EmployeesPage from './pages/hr/Employees';
 import AttendanceLeave from './pages/hr/AttendanceLeave';
 import HrDashboard from './pages/hr/HrDashboard';
 import MyAttendance from './pages/hr/MyAttendance';
+import AttendanceRegister from './pages/hr/AttendanceRegister';
+import ShiftRoster from './pages/hr/ShiftRoster';
+import LiveMap from './pages/hr/LiveMap';
 import HrComingSoon from './pages/hr/HrComingSoon';
 import QcPage from './pages/qc/QcPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
@@ -193,11 +196,11 @@ const App: React.FC = () => {
                   <Route path="/finance/journals/new" element={<JournalEntries />} />
                   <Route path="/finance/reports/*" element={<FinanceReports />} />
                   <Route path="/hr/dashboard" element={<HrDashboard />} />
-                  <Route path="/hr/attendance-register" element={<AttendanceLeave />} />
+                  <Route path="/hr/attendance-register" element={<AttendanceRegister />} />
                   <Route path="/hr/leaves" element={<AttendanceLeave />} />
                   <Route path="/hr/my-attendance" element={<MyAttendance />} />
-                  <Route path="/hr/shift-roster" element={<HrComingSoon section="Shift Roster" />} />
-                  <Route path="/hr/live-map" element={<HrComingSoon section="Live Map" />} />
+                  <Route path="/hr/shift-roster" element={<ShiftRoster />} />
+                  <Route path="/hr/live-map" element={<LiveMap />} />
                   <Route path="/hr/regularizations" element={<HrComingSoon section="Regularizations" />} />
                   <Route path="/hr/overtime-approval" element={<HrComingSoon section="Overtime Approval" />} />
                   <Route path="/hr/advances" element={<HrComingSoon section="Advances" />} />

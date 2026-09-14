@@ -64,9 +64,6 @@ beforeEach(() => {
   apiMock.get.mockImplementation((url: any) => {
     const u = String(url);
     if (u === '/hr/dashboard') return Promise.resolve({ success: true, data: dashboardData });
-    if (u === '/dashboard/divisions') return Promise.resolve({ data: [{ id: 'dv1', name: 'Division A', divisionCode: 'D1' }] });
-    if (u === '/dashboard/sections') return Promise.resolve({ data: [] });
-    if (u === '/dashboard/departments') return Promise.resolve({ data: [] });
     return Promise.resolve({ data: [] });
   });
 });
@@ -81,26 +78,52 @@ const renderPage = () =>
 describe('HR Dashboard page', () => {
   it('renders real KPI figures from the backend payload', async () => {
     renderPage();
-    expect(await screen.findByText('Total Employees')).toBeInTheDocument();
+    expect(await screen.findByText('Attendance Today')).toBeInTheDocument();
+    expect(screen.getByText('Total Employees')).toBeInTheDocument();
     expect(screen.getByText('25')).toBeInTheDocument();
     expect(screen.getByText('18')).toBeInTheDocument();
-    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.getAllByText('4').length).toBeGreaterThan(0);
     expect(screen.getByText('Pending Approvals')).toBeInTheDocument();
   });
 
-  it('renders the attendance trend and department distribution sections', async () => {
+  it('renders the on-time derivation as its own KPI card', async () => {
+    renderPage();
+    await screen.findByText('Attendance Today');
+    expect(screen.getByText('On Time Today')).toBeInTheDocument();
+    expect(screen.getByText('16')).toBeInTheDocument();
+  });
+
+  it('renders the analytics panels and the department distribution', async () => {
     renderPage();
     expect(await screen.findByText(/15 employees across 2 departments/i)).toBeInTheDocument();
     expect(screen.getByText('Attendance Trend')).toBeInTheDocument();
-    expect(screen.getByText('Employees by Department')).toBeInTheDocument();
+    expect(screen.getByText('On-Time vs. Late')).toBeInTheDocument();
+    expect(screen.getByText('Attendance Split')).toBeInTheDocument();
+    expect(screen.getByText('Workforce by Department')).toBeInTheDocument();
+  });
+
+  it('renders the secondary status cards including Current Shift', async () => {
+    renderPage();
+    await screen.findByText('Attendance Today');
+    expect(screen.getByText('Current Shift')).toBeInTheDocument();
+    expect(screen.getByText(/no shift configured/i)).toBeInTheDocument();
+    expect(screen.getByText('Leaves Pending')).toBeInTheDocument();
+    expect(screen.getByText('Advances Pending')).toBeInTheDocument();
+    expect(screen.getByText('Docs Expiring')).toBeInTheDocument();
+  });
+
+  it('renders a More info footer on every primary KPI card', async () => {
+    renderPage();
+    await screen.findByText('Attendance Today');
+    expect(screen.getAllByText('More info').length).toBe(11);
   });
 
   it('explains derived / unsupported metrics instead of fabricating values', async () => {
     renderPage();
     await screen.findByText('Total Employees');
-    expect(screen.getByText(/derived from check-in vs shift/i)).toBeInTheDocument();
+    expect(screen.getByText(/check-in vs each employee/i)).toBeInTheDocument();
     expect(screen.getByText(/no geo-location tracking/i)).toBeInTheDocument();
-    expect(screen.getByText(/no expiry dates/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/no expiry dates/i).length).toBeGreaterThan(0);
   });
 
   it('shows the loading skeleton before the payload resolves', async () => {
@@ -112,7 +135,6 @@ describe('HR Dashboard page', () => {
           resolveDashboard = res;
         });
       }
-      if (u === '/dashboard/divisions') return Promise.resolve({ data: [] });
       return Promise.resolve({ data: [] });
     });
     renderPage();
@@ -121,7 +143,7 @@ describe('HR Dashboard page', () => {
     expect(await screen.findByText('Total Employees')).toBeInTheDocument();
   });
 
-  it('surfaces API errors and requests the trend window days', async () => {
+  it('surfaces API errors and requests the 30-day trend window', async () => {
     apiMock.get.mockImplementation((url: any) => {
       const u = String(url);
       if (u === '/hr/dashboard') {
@@ -129,7 +151,6 @@ describe('HR Dashboard page', () => {
           response: { status: 403, data: { message: 'Forbidden resource' } },
         }));
       }
-      if (u === '/dashboard/divisions') return Promise.resolve({ data: [] });
       return Promise.resolve({ data: [] });
     });
     renderPage();
@@ -163,11 +184,11 @@ describe('HR Dashboard page', () => {
           },
         });
       }
-      if (u === '/dashboard/divisions') return Promise.resolve({ data: [] });
       return Promise.resolve({ data: [] });
     });
     renderPage();
     expect(await screen.findByText('No attendance records in this period')).toBeInTheDocument();
+    expect(screen.getByText('No attendance data')).toBeInTheDocument();
     expect(screen.getByText('No employee data')).toBeInTheDocument();
     expect(screen.getAllByText('0').length).toBeGreaterThan(0);
   });

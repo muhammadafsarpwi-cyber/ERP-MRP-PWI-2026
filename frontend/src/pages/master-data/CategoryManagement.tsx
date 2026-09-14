@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  App, Table, Button, Modal, Form, Input, Popconfirm, TreeSelect, Tag,
+  App, Table, Button, Modal, Form, Input, Popconfirm, TreeSelect, Tag, Checkbox, Dropdown,
 } from 'antd';
-import { PlusOutlined, TagsOutlined } from '@ant-design/icons';
+import { PlusOutlined, TagsOutlined, AppstoreOutlined, CheckCircleOutlined, MinusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import apiService from '../../services/api';
-import { PageHeader, StatusBadge, PageToolbar, TableActions } from '../../components/shared';
+import { PageHeader, StatusBadge, PageToolbar, TableActions, DraggableResizableModal } from '../../components/shared';
 
 interface Category {
   id: string;
@@ -56,11 +56,142 @@ const buildParentTree = (nodes: Category[], excluded: Set<string>): DataNode[] =
       children: buildParentTree(n.children || [], excluded),
     }));
 
+// ─── Category Column Visibility Constants ──────────────────────────────────
+const DEFAULT_CATEGORY_COLUMNS: Record<string, boolean> = {
+  level: true,
+  categoryCode: true,
+  name: true,
+  description: true,
+  parentName: true,
+  childCount: true,
+  usageCount: true,
+  status: true,
+  actions: true,
+};
+
+const CATEGORY_COLUMN_LABELS: Record<string, string> = {
+  level: 'Level',
+  categoryCode: 'Code',
+  name: 'Name',
+  description: 'Description',
+  parentName: 'Parent Category',
+  childCount: 'Children',
+  usageCount: 'Items',
+  status: 'Status',
+  actions: 'Actions',
+};
+
+const CATEGORY_STATUS_CHEVRONS = [
+  { key: 'ALL', label: 'ALL CATEGORIES', color: '#334155', activeBg: '#1e293b', icon: <AppstoreOutlined /> },
+  { key: 'ACTIVE', label: 'ACTIVE', color: '#16a34a', activeBg: '#15803d', icon: <CheckCircleOutlined /> },
+  { key: 'INACTIVE', label: 'INACTIVE', color: '#64748b', activeBg: '#475569', icon: <MinusOutlined /> },
+];
+
+const CategoryStatusChevronRibbon: React.FC<{
+  counts: { all: number; active: number; inactive: number };
+  activeKey: string;
+  onSelect: (key: string) => void;
+}> = ({ counts, activeKey, onSelect }) => {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        width: '100%',
+        overflowX: 'auto',
+        padding: '2px 2px 8px 2px',
+        marginBottom: 10,
+        scrollbarWidth: 'thin',
+        filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.08))',
+      }}
+    >
+      {CATEGORY_STATUS_CHEVRONS.map((ch, idx) => {
+        const isSelected = activeKey === ch.key;
+        const isFirst = idx === 0;
+        const isLast = idx === CATEGORY_STATUS_CHEVRONS.length - 1;
+        const count = ch.key === 'ALL' ? counts.all : ch.key === 'ACTIVE' ? counts.active : counts.inactive;
+
+        const clipPath = isFirst
+          ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
+          : isLast
+          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+
+        return (
+          <button
+            key={ch.key}
+            type="button"
+            onClick={() => onSelect(ch.key)}
+            style={{
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: isFirst
+                ? '10px 22px 10px 16px'
+                : isLast
+                ? '10px 18px 10px 24px'
+                : '10px 20px 10px 24px',
+              marginLeft: isFirst ? 0 : -6,
+              zIndex: isSelected ? 12 : CATEGORY_STATUS_CHEVRONS.length - idx,
+              fontSize: 12.5,
+              fontWeight: 700,
+              letterSpacing: '0.4px',
+              color: '#ffffff',
+              background: isSelected ? ch.activeBg : ch.color,
+              border: 'none',
+              clipPath,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flex: '1 0 auto',
+              transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: isSelected ? '0 0 0 2px #ffffff, 0 4px 14px rgba(0,0,0,0.35)' : undefined,
+              transform: isSelected ? 'scale(1.025) translateY(-1px)' : 'none',
+              opacity: isSelected ? 1 : 0.93,
+            }}
+            onMouseEnter={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.opacity = '0.93';
+                e.currentTarget.style.transform = 'none';
+              }
+            }}
+          >
+            <span style={{ fontSize: 13, display: 'flex', alignItems: 'center' }}>{ch.icon}</span>
+            <span>{ch.label}</span>
+            <span
+              style={{
+                display: 'inline-block',
+                background: 'rgba(255, 255, 255, 0.25)',
+                borderRadius: 10,
+                padding: '1px 7px',
+                fontSize: 11.5,
+                fontWeight: 800,
+                letterSpacing: 0,
+                marginLeft: 2,
+              }}
+            >
+              {count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 const CategoryManagement: React.FC = () => {
   const { message } = App.useApp();
   const [roots, setRoots] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [isModalMinimized, setIsModalMinimized] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [saving, setSaving] = useState(false);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -115,8 +246,45 @@ const CategoryManagement: React.FC = () => {
     void fetchHierarchy(companyId);
   }, [companyId, fetchHierarchy]);
 
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('pwi_category_table_columns_v1');
+      if (saved) return { ...DEFAULT_CATEGORY_COLUMNS, ...JSON.parse(saved) };
+    } catch {}
+    return DEFAULT_CATEGORY_COLUMNS;
+  });
+
+  const categoryCounts = useMemo(() => {
+    let act = 0;
+    let inact = 0;
+    const walk = (list: Category[]) => {
+      list.forEach((c) => {
+        if (c.status === 'ACTIVE') act++;
+        else inact++;
+        if (c.children?.length) walk(c.children);
+      });
+    };
+    walk(roots);
+    return { all: act + inact, active: act, inactive: inact };
+  }, [roots]);
+
   const total = useMemo(() => countAll(roots), [roots]);
-  const dataSource = useMemo(() => filterTree(roots, search), [roots, search]);
+
+  const dataSource = useMemo(() => {
+    const list = filterTree(roots, search);
+    if (statusFilter === 'ALL') return list;
+    const walk = (nodes: Category[]): Category[] => {
+      return nodes.reduce<Category[]>((acc, node) => {
+        const matchingChildren = walk(node.children || []);
+        if (node.status === statusFilter || matchingChildren.length > 0) {
+          acc.push({ ...node, children: matchingChildren });
+        }
+        return acc;
+      }, []);
+    };
+    return walk(list);
+  }, [roots, search, statusFilter]);
 
   const parentTree = useMemo(() => {
     const excluded = editingCategory ? new Set(collectIds(editingCategory)) : new Set<string>();
@@ -124,12 +292,14 @@ const CategoryManagement: React.FC = () => {
   }, [roots, editingCategory]);
 
   const handleCreate = () => {
+    setIsModalMinimized(false);
     setEditingCategory(null);
     form.resetFields();
     setModalVisible(true);
   };
 
   const handleEdit = (record: Category) => {
+    setIsModalMinimized(false);
     setEditingCategory(record);
     form.setFieldsValue({
       categoryCode: record.categoryCode,
@@ -162,6 +332,7 @@ const CategoryManagement: React.FC = () => {
         message.success('Category created');
       }
       setModalVisible(false);
+      setIsModalMinimized(false);
       void fetchHierarchy(companyId);
     } catch (error: any) {
       const msg = error?.response?.data?.message || error?.message || 'Operation failed';
@@ -245,6 +416,14 @@ const CategoryManagement: React.FC = () => {
     },
   ];
 
+  const filteredColumns = useMemo(() => {
+    return columns.filter((col) => {
+      const key = String(col.key || (col as any).dataIndex || '');
+      if (key === 'actions' || key === 'name') return true;
+      return visibleCols[key] !== false;
+    });
+  }, [columns, visibleCols]);
+
   return (
     <div className="erp-dashboard">
       <PageHeader
@@ -254,12 +433,84 @@ const CategoryManagement: React.FC = () => {
         showBreadcrumbs
       />
 
+      {/* 2027 Category Status Chevron Ribbon (Machine Master style) */}
+      <CategoryStatusChevronRibbon
+        counts={categoryCounts}
+        activeKey={statusFilter}
+        onSelect={(k) => setStatusFilter(k as any)}
+      />
+
       <PageToolbar
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search categories..."
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Category</Button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Dropdown
+              trigger={['click']}
+              placement="bottomRight"
+              dropdownRender={() => (
+                <div
+                  style={{
+                    background: '#ffffff',
+                    padding: '12px 16px',
+                    borderRadius: 8,
+                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                    minWidth: 180,
+                    border: '1px solid #e2e8f0',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: 10,
+                      paddingBottom: 8,
+                      borderBottom: '1px solid #f1f5f9',
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                      Table Columns
+                    </span>
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                      onClick={() => {
+                        setVisibleCols(DEFAULT_CATEGORY_COLUMNS);
+                        try { localStorage.removeItem('pwi_category_table_columns_v1'); } catch {}
+                      }}
+                    >
+                      Reset All
+                    </Button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {Object.entries(CATEGORY_COLUMN_LABELS).map(([key, label]) => (
+                      <Checkbox
+                        key={key}
+                        checked={visibleCols[key] !== false}
+                        disabled={key === 'name' || key === 'actions'}
+                        onChange={(e) => {
+                          const next = { ...visibleCols, [key]: e.target.checked };
+                          setVisibleCols(next);
+                          try { localStorage.setItem('pwi_category_table_columns_v1', JSON.stringify(next)); } catch {}
+                        }}
+                        style={{ fontSize: 13, color: '#334155' }}
+                      >
+                        {label}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </div>
+              )}
+            >
+              <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
+                Columns
+              </Button>
+            </Dropdown>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Category</Button>
+          </div>
         }
       />
 
@@ -268,7 +519,7 @@ const CategoryManagement: React.FC = () => {
         rowKey="id"
         loading={loading}
         dataSource={dataSource}
-        columns={columns}
+        columns={filteredColumns}
         childrenColumnName="children"
         tableLayout="fixed"
         pagination={false}
@@ -283,12 +534,13 @@ const CategoryManagement: React.FC = () => {
         }}
       />
 
-      <Modal
-        title={editingCategory ? 'Edit Category' : 'Add Category'}
-        open={modalVisible}
+      <DraggableResizableModal
+        title={editingCategory ? `Edit Category — ${editingCategory.categoryCode}` : 'Add Category'}
+        open={modalVisible && !isModalMinimized}
         onOk={handleSubmit}
         confirmLoading={saving}
-        onCancel={() => setModalVisible(false)}
+        onCancel={() => { setModalVisible(false); setIsModalMinimized(false); }}
+        onMinimize={() => setIsModalMinimized(true)}
         width={560}
       >
         <Form form={form} layout="vertical" requiredMark="optional">
@@ -324,7 +576,35 @@ const CategoryManagement: React.FC = () => {
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </DraggableResizableModal>
+
+      {/* Universal Floating Minimized Dock for Category Management */}
+      {isModalMinimized && (
+        <div className="erp-minimized-dock" data-testid="category-minimized-dock">
+          <div
+            className="erp-minimized-tab"
+            onClick={() => setIsModalMinimized(false)}
+            role="button"
+            tabIndex={0}
+            title="Click to restore Category Form"
+          >
+            <div className="erp-minimized-pulse" />
+            <TagsOutlined style={{ color: '#10b981', fontSize: 15 }} />
+            <span><strong>{editingCategory ? `Edit: ${editingCategory.categoryCode}` : 'New Category'}</strong></span>
+            <span
+              className="erp-minimized-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsModalMinimized(false);
+                setModalVisible(false);
+              }}
+              title="Close form"
+            >
+              ×
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

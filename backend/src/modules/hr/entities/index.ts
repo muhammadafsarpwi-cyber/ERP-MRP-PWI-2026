@@ -9,3 +9,6 @@ export { HrLeaveRequest } from './hr-leave-request.entity';
 export { HrLeaveType } from './hr-leave-type.entity';
 export { HrShift } from './hr-shift.entity';
 export { HrHoliday } from './hr-holiday.entity';
+export { HrShiftRoster } from './hr-shift-roster.entity';
+export { HrRegularization } from './hr-regularization.entity';
+export { HrAttendanceHistory } from './hr-attendance-history.entity';

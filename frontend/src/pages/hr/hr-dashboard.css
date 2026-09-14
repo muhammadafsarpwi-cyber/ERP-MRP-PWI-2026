@@ -1,21 +1,297 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   HR Dashboard — visual layer only. Colors come from --theme-* variables so
-   the page stays theme-aware in light and dark mode. Reuses the shared
-   dashboard classes (.erp-kpi-card, .erp-filter-bar, .erp-section-card,
-   .erp-empty-state, .erp-trend-wrap) imported from pages/dashboard/dashboard.css.
+   HR Dashboard — dense ERP reference layout.
+   Visual layer only. Colors come from --theme-* variables so the page stays
+   theme-aware in light and dark mode. Reuses shared primitives from
+   pages/dashboard/dashboard.css (.erp-chart-tooltip, .erp-sk-*, legend assets).
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── HR KPI grid (9 cards vs the dashboard's 7-column strip) ───────────── */
+/* ── Legacy shared KPI grid (My Attendance / Attendance Register) ──────── */
 .erp-hr-kpi-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 
-/* Muted tone for metrics that are not yet tracked (always 0 + note). */
-.erp-kpi-card--muted {
-  --kpi-tone: var(--theme-text-muted);
-  --kpi-soft: var(--theme-surface-alt);
+/* ── Primary KPI grid (reference: 4-across, 3 rows) ───────────────────── */
+.erp-hr-dash-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.erp-hr-dash-kpi-grid .erp-sk-kpi { height: 96px; }
+
+/* ── Reference KPI card: value + label, right icon, "More info" footer ── */
+.erp-ref-kpi {
+  --kpi-tone: var(--theme-info);
+  --kpi-soft: var(--theme-info-soft, rgba(37, 99, 235, 0.12));
+  position: relative;
+  isolation: isolate;
+  min-height: 96px;
+  padding: 12px 12px 30px;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--kpi-soft, rgba(37, 99, 235, 0.10)) 0%, var(--theme-surface) 55%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.erp-ref-kpi--info    { --kpi-tone: var(--theme-info);    --kpi-soft: var(--theme-info-soft, rgba(37, 99, 235, 0.12)); }
+.erp-ref-kpi--success { --kpi-tone: var(--theme-success); --kpi-soft: var(--theme-success-soft, rgba(22, 163, 74, 0.12)); }
+.erp-ref-kpi--danger  { --kpi-tone: var(--theme-danger);  --kpi-soft: var(--theme-danger-soft, rgba(220, 38, 38, 0.12)); }
+.erp-ref-kpi--warning { --kpi-tone: var(--theme-warning); --kpi-soft: var(--theme-warning-soft, rgba(217, 119, 6, 0.12)); }
+.erp-ref-kpi--muted   { --kpi-tone: var(--theme-text-muted); --kpi-soft: var(--theme-surface-alt); }
+
+.erp-ref-kpi--link { cursor: pointer; }
+.erp-ref-kpi--link:hover,
+.erp-ref-kpi--link:focus-visible {
+  border-color: var(--theme-border-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+.erp-ref-kpi--link:focus-visible { outline: 2px solid var(--theme-info); outline-offset: 1px; }
+
+.erp-ref-kpi__watermark {
+  position: absolute;
+  right: -10px;
+  bottom: -14px;
+  font-size: 64px;
+  line-height: 1;
+  color: var(--kpi-tone);
+  opacity: 0.08;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.erp-ref-kpi__body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.erp-ref-kpi__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--theme-text-muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-ref-kpi__value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-text);
+}
+
+.erp-ref-kpi__icon {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--kpi-soft);
+  color: var(--kpi-tone);
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+.erp-ref-kpi__footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--theme-border);
+  border-radius: 0 0 10px 10px;
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--kpi-tone);
+}
+
+.erp-ref-kpi__footer-icon { font-size: 11px; }
+.erp-ref-kpi__footer-text { font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; }
+
+/* ── Secondary status card row (reference: 4 compact cards) ───────────── */
+.erp-hr-sec-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.erp-hr-sec-grid .erp-sk-kpi { height: 76px; }
+
+.erp-ref-sec {
+  --sec-tone: var(--theme-info);
+  --sec-soft: var(--theme-info-soft, rgba(37, 99, 235, 0.12));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 76px;
+  padding: 10px 12px;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: var(--theme-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.erp-ref-sec--info    { --sec-tone: var(--theme-info);    --sec-soft: var(--theme-info-soft, rgba(37, 99, 235, 0.12)); }
+.erp-ref-sec--success { --sec-tone: var(--theme-success); --sec-soft: var(--theme-success-soft, rgba(22, 163, 74, 0.12)); }
+.erp-ref-sec--danger  { --sec-tone: var(--theme-danger);  --sec-soft: var(--theme-danger-soft, rgba(220, 38, 38, 0.12)); }
+.erp-ref-sec--warning { --sec-tone: var(--theme-warning); --sec-soft: var(--theme-warning-soft, rgba(217, 119, 6, 0.12)); }
+.erp-ref-sec--muted   { --sec-tone: var(--theme-text-muted); --sec-soft: var(--theme-surface-alt); }
+
+.erp-ref-sec__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: var(--sec-soft);
+  color: var(--sec-tone);
+  font-size: 18px;
+}
+
+.erp-ref-sec__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.erp-ref-sec__label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-ref-sec__value {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-ref-sec__sub {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Analytics grid (reference: 4 panels) ─────────────────────────────── */
+.erp-hr-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+  align-items: stretch;
+}
+
+.erp-hr-chart-grid .erp-sk-chart { border-radius: 10px; }
+
+.erp-ref-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: var(--theme-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.erp-ref-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.erp-ref-panel__title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.erp-ref-panel__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  background: var(--theme-info-soft, rgba(37, 99, 235, 0.12));
+  color: var(--theme-info);
+  font-size: 13px;
+}
+
+.erp-ref-panel__titling {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.erp-ref-panel__title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--theme-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-ref-panel__sub {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-ref-panel__toggle { flex: 0 0 auto; }
+
+.erp-ref-panel__body {
+  padding: 10px;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 /* ── Donut caption ─────────────────────────────────────────────────────── */
@@ -25,6 +301,15 @@
   font-size: 10.5px;
   font-weight: 600;
   color: var(--theme-text-muted);
+}
+
+/* ── Footer quick links ────────────────────────────────────────────────── */
+.erp-hr-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 10px;
 }
 
 /* ── Responsive ────────────────────────────────────────────────────────── */
@@ -44,10 +329,33 @@
   .erp-hr-kpi-grid { grid-template-columns: 1fr 1fr; }
 }
 
+@media (max-width: 1320px) {
+  .erp-hr-dash-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 1100px) {
+  .erp-hr-dash-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .erp-hr-sec-grid { grid-template-columns: repeat(2, 1fr); }
+  .erp-hr-chart-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .erp-hr-dash-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .erp-hr-sec-grid { grid-template-columns: 1fr; }
+  .erp-hr-chart-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 440px) {
+  .erp-hr-dash-kpi-grid { grid-template-columns: 1fr; }
+}
+
 /* ── Reduced motion ────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .erp-hr-kpi-grid .erp-kpi-card { transition: none; }
+  .erp-ref-kpi,
+  .erp-ref-sec,
+  .erp-ref-panel { transition: none; }
 }
+
 /* My Attendance */
 .erp-ma-employee-bar {
   display: flex;
@@ -104,3 +412,131 @@
 .erp-ma-cal__legend-item .ant-tag { margin: 0; line-height: 16px; }
 
 .erp-ma-shift-time { color: var(--theme-text-muted, #6b7280); font-size: 11px; }
+
+/* Attendance Register */
+.erp-ar-emp__code { font-weight: 600; font-size: 12.5px; }
+.erp-ar-emp__name { color: var(--theme-text-muted, #6b7280); font-size: 11.5px; }
+.erp-ar-dept { font-size: 12px; }
+.erp-ar-shift-time { color: var(--theme-text-muted, #6b7280); font-size: 11px; }
+.erp-ar-detail { padding: 8px 4px 4px; }
+.erp-ar-detail .ant-descriptions-item-label { font-weight: 600; }
+
+/* Shift Roster */
+.erp-roster-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--theme-border, #e5e7eb);
+  background: var(--theme-surface-alt, #f8fafc);
+}
+.erp-roster-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--theme-border-strong, #cbd5e1);
+  background: var(--theme-surface, #fff);
+  color: var(--theme-text, #0f172a);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: inherit;
+}
+.erp-roster-chip:hover { border-color: var(--theme-accent, #10b981); color: var(--theme-accent, #10b981); }
+.erp-roster-chip--active {
+  background: var(--theme-accent, #10b981);
+  border-color: var(--theme-accent, #10b981);
+  color: #fff;
+}
+.erp-roster-chip--active:hover { color: #fff; }
+.erp-roster-chip--unassigned { border-style: dashed; color: var(--theme-danger, #dc2626); }
+.erp-roster-chip--unassigned.erp-roster-chip--active {
+  background: var(--theme-danger, #dc2626);
+  border-color: var(--theme-danger, #dc2626);
+  color: #fff;
+}
+.erp-roster-chip__count {
+  font-weight: 700;
+  font-size: 11px;
+  background: var(--theme-surface-alt, #f1f5f9);
+  border-radius: 999px;
+  padding: 0 8px;
+  line-height: 18px;
+}
+.erp-roster-chip--active .erp-roster-chip__count { background: rgba(255, 255, 255, 0.22); color: inherit; }
+.erp-roster-chip__code { font-style: normal; font-size: 10px; opacity: 0.75; text-transform: uppercase; }
+.erp-roster-add-btn { border-color: var(--theme-accent, #10b981); color: var(--theme-accent, #10b981); }
+
+/* Live Map */
+.erp-live-map-notice { margin-bottom: 12px; }
+.erp-live-map-board {
+  border: 1px dashed var(--theme-border-strong, #cbd5e1);
+  border-radius: 12px;
+  margin: 14px;
+  background:
+    linear-gradient(var(--theme-surface, #fff), var(--theme-surface, #fff)),
+    radial-gradient(circle, var(--theme-border, #e5e7eb) 1px, transparent 1px);
+  background-blend-mode: overlay;
+  position: relative;
+  overflow: hidden;
+  min-height: 260px;
+}
+.erp-live-map-board::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--theme-border, #e5e7eb) 1px, transparent 1px);
+  background-size: 26px 26px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.erp-live-map-board .ant-empty { position: relative; z-index: 1; }
+.erp-live-map-empty { font-size: 13px; font-weight: 600; color: var(--theme-text, #0f172a); }
+.erp-live-map-legend {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: center;
+  padding: 0 14px 18px;
+}
+.erp-live-map-legend__item { display: inline-flex; align-items: center; gap: 4px; }
+.erp-live-map-legend__item .ant-tag { margin: 0; line-height: 18px; }
+.erp-live-map-legend__hint {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--theme-text-muted, #6b7280);
+}
+.erp-live-map-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px;
+}
+.erp-live-map-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 1px solid var(--theme-border, #e5e7eb);
+  background: var(--theme-surface-alt, #f8fafc);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.erp-live-map-chip strong { font-size: 14px; font-weight: 700; color: var(--theme-text, #0f172a); }
+.erp-live-map-chip em { font-style: normal; color: var(--theme-text-muted, #6b7280); }
+.erp-live-map-footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  margin: 10px 4px 0;
+  color: var(--theme-text-muted, #6b7280);
+}
+@media (max-width: 520px) {
+  .erp-live-map-board { margin: 10px; min-height: 200px; }
+  .erp-live-map-board::before { background-size: 20px 20px; }
+}

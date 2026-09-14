@@ -190,3 +190,117 @@
   padding-inline: 12px;
   line-height: 28px;
 }
+
+/* =====================================================================
+   Modal Minimize Button (in Header)
+   ===================================================================== */
+.erp-modal-minimize-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(241, 245, 249, 0.85);
+  color: var(--theme-text-secondary, #475569);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 13px;
+  outline: none;
+}
+
+[data-theme='dark'] .erp-modal-minimize-btn {
+  background: rgba(30, 41, 59, 0.75);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+}
+
+.erp-modal-minimize-btn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: #6366f1;
+  color: #4f46e5;
+  transform: translateY(-1px);
+}
+
+/* =====================================================================
+   Universal Floating Minimized Dock
+   ===================================================================== */
+.erp-minimized-dock {
+  position: fixed;
+  bottom: 18px;
+  right: 24px;
+  z-index: 1060;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+  max-width: calc(100vw - 48px);
+  overflow-x: auto;
+  padding: 4px;
+}
+
+.erp-minimized-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -4px rgba(79, 70, 229, 0.2), 0 4px 8px -2px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .erp-minimized-tab {
+  background: rgba(30, 41, 59, 0.94);
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.5);
+  color: #f1f5f9;
+}
+
+.erp-minimized-tab:hover {
+  transform: translateY(-2px);
+  border-color: #6366f1;
+  box-shadow: 0 12px 28px -4px rgba(79, 70, 229, 0.35);
+}
+
+.erp-minimized-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3);
+  animation: erpPulseDot 2s infinite;
+  flex-shrink: 0;
+}
+
+@keyframes erpPulseDot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+.erp-minimized-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #94a3b8;
+  transition: all 0.15s ease;
+  margin-left: 4px;
+}
+
+.erp-minimized-close:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}

@@ -103,6 +103,11 @@ export class UpdateErpUserDto {
   @IsOptional()
   @MaxLength(500)
   avatarUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Default Company ID' })
+  @IsUUID('4')
+  @IsOptional()
+  defaultCompanyId?: string;
 }
 
 export class AssignRolesDto {
@@ -226,4 +231,9 @@ export class CreateUserFullDto {
   @IsUUID('4', { each: true })
   @IsOptional()
   roleIds?: string[];
+
+  @ApiPropertyOptional({ description: 'Company ID to assign as default' })
+  @IsUUID('4')
+  @IsOptional()
+  companyId?: string;
 }

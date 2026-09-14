@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-  Alert, App, Badge, Button, Card, Col, Descriptions, Dropdown, Form, Grid, Input,
+  Alert, App, Badge, Button, Card, Checkbox, Col, Descriptions, Dropdown, Form, Grid, Input,
   InputNumber, Modal, Popconfirm, Progress, Row, Segmented, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import {
@@ -312,6 +312,255 @@ const KpiCard: React.FC<KpiCardProps> = ({
   </Card>
 );
 
+// ─── Item Master Column Visibility Constants ──────────────────────────────
+const DEFAULT_ITEM_VISIBLE_COLUMNS: Record<string, boolean> = {
+  itemCode: true,
+  name: true,
+  divisionSection: true,
+  department: true,
+  wireDiaLength: true,
+  flatSpec: true,
+  itemType: true,
+  routeType: true,
+  uom: true,
+  status: true,
+  actions: true,
+};
+
+const ITEM_COLUMN_LABELS: Record<string, string> = {
+  itemCode: 'Item Code',
+  name: 'Item Name & SKU',
+  divisionSection: 'Division / Section',
+  department: 'Department',
+  wireDiaLength: 'Wire / Dia · Length',
+  flatSpec: 'Flat Spec (mm)',
+  itemType: 'Item Type',
+  routeType: 'Route Type',
+  uom: 'UOM / Conversion',
+  status: 'Status',
+  actions: 'Actions',
+};
+
+/* ─── 2027 Item Status & Type Chevron Pipeline Ribbon ─────────────────────── */
+interface ItemChevronOption {
+  key: string;
+  label: string;
+  color: string;
+  activeBg: string;
+  icon: React.ReactNode;
+}
+
+const ITEM_CHEVRONS: ItemChevronOption[] = [
+  { key: 'all', label: 'ALL ITEMS', color: '#334155', activeBg: '#1e293b', icon: <AppstoreOutlined /> },
+  { key: 'ACTIVE', label: 'ACTIVE', color: '#16a34a', activeBg: '#15803d', icon: <CheckCircleOutlined /> },
+  { key: 'INACTIVE', label: 'INACTIVE', color: '#64748b', activeBg: '#475569', icon: <MinusOutlined /> },
+  { key: 'RAW_MATERIAL', label: 'RAW MATERIAL', color: '#d97706', activeBg: '#b45309', icon: <ToolOutlined /> },
+  { key: 'WIP', label: 'WORK IN PROGRESS', color: '#0891b2', activeBg: '#0e7490', icon: <ProjectOutlined /> },
+  { key: 'FINISHED_GOODS', label: 'FINISHED GOODS', color: '#4f46e5', activeBg: '#3730a3', icon: <DatabaseOutlined /> },
+  { key: 'CONSUMABLE', label: 'CONSUMABLES', color: '#0284c7', activeBg: '#0369a1', icon: <TagOutlined /> },
+];
+
+const ItemStatusChevronRibbon: React.FC<{
+  counts: Record<string, number>;
+  activeKey: string;
+  onSelect: (key: string) => void;
+}> = ({ counts, activeKey, onSelect }) => {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        width: '100%',
+        overflowX: 'auto',
+        padding: '2px 2px 8px 2px',
+        marginBottom: 10,
+        scrollbarWidth: 'thin',
+        filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.08))',
+      }}
+    >
+      {ITEM_CHEVRONS.map((ch, idx) => {
+        const isSelected = activeKey === ch.key;
+        const isFirst = idx === 0;
+        const isLast = idx === ITEM_CHEVRONS.length - 1;
+        const count = counts[ch.key] ?? 0;
+
+        const clipPath = isFirst
+          ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
+          : isLast
+          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+
+        return (
+          <button
+            key={ch.key}
+            type="button"
+            onClick={() => onSelect(ch.key)}
+            style={{
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: isFirst
+                ? '10px 22px 10px 16px'
+                : isLast
+                ? '10px 18px 10px 24px'
+                : '10px 20px 10px 24px',
+              marginLeft: isFirst ? 0 : -6,
+              zIndex: isSelected ? 12 : ITEM_CHEVRONS.length - idx,
+              fontSize: 12.5,
+              fontWeight: 700,
+              letterSpacing: '0.4px',
+              color: '#ffffff',
+              background: isSelected ? ch.activeBg : ch.color,
+              border: 'none',
+              clipPath,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flex: '1 0 auto',
+              transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: isSelected ? '0 0 0 2px #ffffff, 0 4px 14px rgba(0,0,0,0.35)' : undefined,
+              transform: isSelected ? 'scale(1.025) translateY(-1px)' : 'none',
+              opacity: isSelected ? 1 : 0.93,
+            }}
+            onMouseEnter={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.opacity = '0.93';
+                e.currentTarget.style.transform = 'none';
+              }
+            }}
+          >
+            <span style={{ fontSize: 13, display: 'flex', alignItems: 'center' }}>{ch.icon}</span>
+            <span>{ch.label}</span>
+            <span
+              style={{
+                display: 'inline-block',
+                background: 'rgba(255, 255, 255, 0.25)',
+                borderRadius: 10,
+                padding: '1px 7px',
+                fontSize: 11.5,
+                fontWeight: 800,
+                letterSpacing: 0,
+                marginLeft: 2,
+              }}
+            >
+              {count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ─── 2027 Item Details Modal Process Chevron Navigation ─────────────────── */
+const ITEM_DETAIL_TABS: Array<{ key: string; label: string; icon: React.ReactNode }> = [
+  { key: 'overview', label: 'Basic Info & Overview', icon: <EyeOutlined /> },
+  { key: 'inventory', label: 'Inventory & Warehousing', icon: <DatabaseOutlined /> },
+  { key: 'pricing', label: 'Pricing, Cost & Valuation', icon: <DollarOutlined /> },
+  { key: 'history', label: 'Audit Log & History', icon: <HistoryOutlined /> },
+];
+
+const ItemModalProcessChevronNav: React.FC<{
+  active: string;
+  onChange: (key: string) => void;
+}> = ({ active, onChange }) => {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        width: '100%',
+        overflowX: 'auto',
+        padding: '4px 2px 10px 2px',
+        scrollbarWidth: 'thin',
+        filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.06))',
+      }}
+    >
+      {ITEM_DETAIL_TABS.map((s, idx) => {
+        const isActive = s.key === active;
+        const isFirst = idx === 0;
+        const isLast = idx === ITEM_DETAIL_TABS.length - 1;
+
+        const clipPath = isFirst
+          ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
+          : isLast
+          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+
+        return (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => onChange(s.key)}
+            style={{
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: isFirst
+                ? '10px 22px 10px 16px'
+                : isLast
+                ? '10px 18px 10px 24px'
+                : '10px 20px 10px 24px',
+              marginLeft: isFirst ? 0 : -6,
+              zIndex: isActive ? 10 : ITEM_DETAIL_TABS.length - idx,
+              fontSize: 12.5,
+              fontWeight: isActive ? 700 : 600,
+              letterSpacing: '0.2px',
+              color: isActive ? '#ffffff' : '#334155',
+              background: isActive
+                ? 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)'
+                : '#f8fafc',
+              border: 'none',
+              clipPath,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flex: '1 0 auto',
+              transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: isActive
+                ? '0 4px 14px rgba(37, 99, 235, 0.4)'
+                : 'inset 0 1px 0 rgba(255,255,255,0.8)',
+              transform: isActive ? 'scale(1.02)' : 'none',
+            }}
+            onMouseEnter={(e) => {
+              if (!isActive) {
+                e.currentTarget.style.background = '#e2e8f0';
+                e.currentTarget.style.color = '#0f172a';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive) {
+                e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.color = '#334155';
+              }
+            }}
+          >
+            <span
+              style={{
+                fontSize: 14,
+                display: 'flex',
+                alignItems: 'center',
+                color: isActive ? '#ffffff' : '#3b82f6',
+              }}
+            >
+              {s.icon}
+            </span>
+            <span>{s.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 const ItemManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
@@ -337,6 +586,13 @@ const ItemManagement: React.FC = () => {
   const [fRouteType, setFRouteType] = useState<string | undefined>();
   const [fStatus, setFStatus] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState<string>('all');
+  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('pwi_item_table_columns_v1');
+      if (saved) return { ...DEFAULT_ITEM_VISIBLE_COLUMNS, ...JSON.parse(saved) };
+    } catch {}
+    return DEFAULT_ITEM_VISIBLE_COLUMNS;
+  });
 
   const [uoms, setUoms] = useState<UomOption[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
@@ -402,6 +658,20 @@ const ItemManagement: React.FC = () => {
   const watchedProcess5 = Form.useWatch('process5', form);
   const watchedProcess6 = Form.useWatch('process6', form);
   const watchedProcesses = Form.useWatch('processes', form);
+  const watchedSectionId = Form.useWatch('sectionId', form);
+  const watchedCategoryId = Form.useWatch('categoryId', form);
+  const watchedBaseUomId = Form.useWatch('baseUomId', form);
+  const watchedCostPrice = Form.useWatch('costPrice', form);
+  const watchedSellingPrice = Form.useWatch('sellingPrice', form);
+  const watchedSku = Form.useWatch('sku', form);
+  const watchedBarcode = Form.useWatch('barcode', form);
+  const watchedWeightPerPiece = Form.useWatch('weightPerPiece', form);
+  const watchedWeightPerMeter = Form.useWatch('weightPerMeter', form);
+  const watchedPiecesPerKg = Form.useWatch('piecesPerKg', form);
+  const watchedMinStock = Form.useWatch('minimumStockLevel', form);
+  const watchedMaxStock = Form.useWatch('maximumStockLevel', form);
+  const watchedReorder = Form.useWatch('reorderLevel', form);
+  const watchedSafety = Form.useWatch('safetyStockLevel', form);
   const [selectedInputDetail, setSelectedInputDetail] = useState<Partial<Item> | null>(null);
 
   // TASK 15: resolve output items referenced by route rows so the preview can
@@ -433,6 +703,9 @@ const ItemManagement: React.FC = () => {
   const [importPageSize, setImportPageSize] = useState<number>(20);
   const [showErrorsFirst, setShowErrorsFirst] = useState<boolean>(true);
   const [isImportMinimized, setIsImportMinimized] = useState<boolean>(false);
+  const [isFormMinimized, setIsFormMinimized] = useState<boolean>(false);
+  const [isDetailMinimized, setIsDetailMinimized] = useState<boolean>(false);
+  const [isBarcodeMinimized, setIsBarcodeMinimized] = useState<boolean>(false);
   const reuploadInputRef = useRef<HTMLInputElement>(null);
   const [importSummary, setImportSummary] = useState<{
     total: number; valid: number; invalid: number; duplicate: number;
@@ -794,6 +1067,39 @@ const ItemManagement: React.FC = () => {
     setPage(1);
   };
 
+  const activeChevronKey = useMemo(() => {
+    if (fStatus === 'ACTIVE') return 'ACTIVE';
+    if (fStatus === 'INACTIVE') return 'INACTIVE';
+    if (activeTab && activeTab !== 'all') return activeTab;
+    return 'all';
+  }, [fStatus, activeTab]);
+
+  const handleItemChevronSelect = (key: string) => {
+    if (key === 'all') {
+      setFStatus(undefined);
+      handleTabChange('all');
+    } else if (key === 'ACTIVE') {
+      setFStatus('ACTIVE');
+      handleTabChange('all');
+    } else if (key === 'INACTIVE') {
+      setFStatus('INACTIVE');
+      handleTabChange('all');
+    } else {
+      setFStatus(undefined);
+      handleTabChange(key);
+    }
+  };
+
+  const ribbonCounts = useMemo(() => ({
+    all: total,
+    ACTIVE: stats.active ?? 0,
+    INACTIVE: stats.inactive ?? 0,
+    RAW_MATERIAL: typeCounts['RAW_MATERIAL'] ?? 0,
+    WIP: typeCounts['WIP'] ?? 0,
+    FINISHED_GOODS: typeCounts['FINISHED_GOODS'] ?? 0,
+    CONSUMABLE: typeCounts['CONSUMABLE'] ?? 0,
+  }), [total, stats.active, stats.inactive, typeCounts]);
+
   const resetFilters = () => {
     setSearchInput('');
     setSearch('');
@@ -811,6 +1117,7 @@ const ItemManagement: React.FC = () => {
   };
 
   const openCreate = () => {
+    setIsFormMinimized(false);
     setEditing(null);
     setSelectedInputDetail(null);
     setRouteItemDetails({});
@@ -836,6 +1143,7 @@ const ItemManagement: React.FC = () => {
   };
 
   const openEdit = (record: Item) => {
+    setIsFormMinimized(false);
     setEditing(record);
     setSelectedInputDetail(record.productionInItem ?? null);
     // TASK 15: populate route-item-details for any output items already referenced
@@ -1160,6 +1468,7 @@ const ItemManagement: React.FC = () => {
   };
 
   const openDetail = async (record: Item) => {
+    setIsDetailMinimized(false);
     setDetailOpen(true);
     setDetailLoading(true);
     setDetailItem(null);
@@ -1188,6 +1497,7 @@ const ItemManagement: React.FC = () => {
   };
 
   const openBarcodeModal = async (record: Item) => {
+    setIsBarcodeMinimized(false);
     setBarcodeModalOpen(true);
     setBarcodeModalItem(record);
     setBarcodeModalBarcodes([]);
@@ -2074,6 +2384,14 @@ const ItemManagement: React.FC = () => {
     },
   ];
 
+  const filteredColumns = useMemo(() => {
+    return columns.filter((col) => {
+      const key = String(col.key || '');
+      if (key === 'actions' || key === 'itemCode') return true;
+      return visibleCols[key] !== false;
+    });
+  }, [columns, visibleCols]);
+
   const detailDesc = (itemsSpec: Array<{ label: string; children: React.ReactNode }>) => (
     <Descriptions size="small" column={2} styles={{ label: { width: 150 } }}>
       {itemsSpec.map((s) => (
@@ -2215,91 +2533,152 @@ const ItemManagement: React.FC = () => {
         />
       </div>
 
-      <Card style={{ marginBottom: 12, borderRadius: 8 }} styles={{ body: { padding: 0 } }}>
-        <div style={{ padding: '0 12px' }}>
-          <div
-            style={{
-              display: 'grid',
-              gap: 8,
-              gridTemplateColumns: screens.xl ? 'repeat(6, 1fr)' : screens.lg ? 'repeat(4, 1fr)' : screens.md ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
-              padding: '10px 0 6px',
-            }}
-          >
-            <ItemTypeCard
-              testId="item-type-card-all"
-              label="All Items"
-              icon={AppstoreOutlined}
-              watermarkIcon={AppstoreOutlined}
-              count={total}
-              active={activeTab === 'all'}
-              onClick={() => handleTabChange('all')}
-            />
-            {displayTypes.map((t) => (
-              <ItemTypeCard
-                key={t.value}
-                testId={`item-type-card-${t.value}`}
-                label={t.label}
-                icon={ITEM_TYPE_ICONS[t.value] ?? AppstoreOutlined}
-                watermarkIcon={ITEM_TYPE_WATERMARK_ICONS[t.value] ?? AppstoreOutlined}
-                count={typeCounts[t.value]}
-                active={activeTab === t.value}
-                onClick={() => handleTabChange(t.value)}
-              />
-            ))}
-          </div>
-        </div>
+      <Card style={{ marginBottom: 12, borderRadius: 8 }} styles={{ body: { padding: '10px 12px 12px' } }}>
+        {/* 2027 Status & Type Chevron Pipeline Ribbon (Machine Master style) */}
+        <ItemStatusChevronRibbon
+          counts={ribbonCounts}
+          activeKey={activeChevronKey}
+          onSelect={handleItemChevronSelect}
+        />
+
+        {/* Main Filter Toolbar matching Machine Master */}
         <div
           style={{
             display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
-            padding: '6px 10px', borderTop: '1px solid var(--theme-border)',
+            paddingTop: 8, borderTop: '1px solid var(--theme-border)',
           }}
         >
-          <Badge count={activeFilterCount} size="small">
-            <Button icon={<FilterOutlined />} onClick={() => setShowFilters((v) => !v)}>
-              Filters
-            </Button>
-          </Badge>
           <Input
             allowClear
             prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
-            placeholder="Search by code, name, SKU, barcode, wire size..."
+            placeholder="Search Item Register (code, name, SKU, barcode)..."
             style={{
-              flex: screens.md ? '1 1 320px' : '1 1 100%',
-              flexBasis: screens.md ? '320px' : '100%',
-              maxWidth: screens.md ? 560 : '100%',
+              flex: screens.md ? '1 1 280px' : '1 1 100%',
+              flexBasis: screens.md ? '280px' : '100%',
+              maxWidth: screens.md ? 450 : '100%',
             }}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
-          {(activeFilterCount > 0 || searchInput) && (
-            <Button type="text" icon={<ClearOutlined />} onClick={resetFilters}>
-              Clear
+
+          <Select
+            allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
+            style={{ width: 160 }}
+            value={fDivision}
+            options={toUnique(divisions, (d) => d.name)}
+            onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
+          />
+
+          <Select
+            allowClear showSearch optionFilterProp="label" placeholder="All Categories"
+            style={{ width: 160 }}
+            value={fCategory}
+            options={toUnique(flatCategories, (c) => c.name)}
+            onChange={(v) => { setFCategory(v); setPage(1); }}
+          />
+
+          <Badge count={activeFilterCount} size="small">
+            <Button
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((v) => !v)}
+              style={{
+                background: showFilters ? '#eff6ff' : undefined,
+                borderColor: showFilters ? '#3b82f6' : undefined,
+                color: showFilters ? '#1d4ed8' : undefined,
+                fontWeight: 600,
+              }}
+            >
+              More Filters
             </Button>
-          )}
-          {screens.md && (
-            <div style={{ flex: 1 }} />
-          )}
+          </Badge>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Columns Toggle Dropdown (Machine Master 2027 style) */}
+          <Dropdown
+            trigger={['click']}
+            placement="bottomRight"
+            dropdownRender={() => (
+              <div
+                style={{
+                  background: '#ffffff',
+                  padding: '12px 16px',
+                  borderRadius: 8,
+                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                  minWidth: 200,
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 10,
+                    paddingBottom: 8,
+                    borderBottom: '1px solid #f1f5f9',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                    Table Columns
+                  </span>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                    onClick={() => {
+                      setVisibleCols(DEFAULT_ITEM_VISIBLE_COLUMNS);
+                      try { localStorage.removeItem('pwi_item_table_columns_v1'); } catch {}
+                    }}
+                  >
+                    Reset All
+                  </Button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {Object.entries(ITEM_COLUMN_LABELS).map(([key, label]) => (
+                    <Checkbox
+                      key={key}
+                      checked={visibleCols[key] !== false}
+                      disabled={key === 'itemCode' || key === 'actions'}
+                      onChange={(e) => {
+                        const next = { ...visibleCols, [key]: e.target.checked };
+                        setVisibleCols(next);
+                        try { localStorage.setItem('pwi_item_table_columns_v1', JSON.stringify(next)); } catch {}
+                      }}
+                      style={{ fontSize: 13, color: '#334155' }}
+                    >
+                      {label}
+                    </Checkbox>
+                  ))}
+                </div>
+              </div>
+            )}
+          >
+            <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
+              Columns
+            </Button>
+          </Dropdown>
+
+          <Button icon={<ClearOutlined />} onClick={resetFilters}>
+            Reset
+          </Button>
+
           {screens.lg && (
             <Text type="secondary" style={{ fontSize: 12 }}>
               {total} items · Sorted by {sortField}
             </Text>
           )}
         </div>
+
         {showFilters && (
           <div
             style={{
               display: 'grid',
               gridTemplateColumns: screens.md ? 'repeat(auto-fit, minmax(160px, 1fr))' : '1fr',
-              gap: 8, padding: '8px 10px 10px', borderTop: '1px solid var(--theme-border)',
-              background: 'var(--theme-surface-alt)',
+              gap: 8, padding: '10px 0 2px', borderTop: '1px solid var(--theme-border)',
+              marginTop: 10,
             }}
           >
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Division"
-              value={fDivision}
-              options={toUnique(divisions, (d) => d.name)}
-              onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
-            />
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Section"
               value={fSection} disabled={!fDivision}
@@ -2311,12 +2690,6 @@ const ItemManagement: React.FC = () => {
               value={fDepartment}
               options={toUnique(departmentsForSection(fDivision, fSection), (d) => d.name)}
               onChange={(v) => { setFDepartment(v); setPage(1); }}
-            />
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Item Category"
-              value={fCategory}
-              options={toUnique(flatCategories, (c) => c.name)}
-              onChange={(v) => { setFCategory(v); setPage(1); }}
             />
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Route Type"
@@ -2348,7 +2721,7 @@ const ItemManagement: React.FC = () => {
 
       <ERPTable
         rowKey="id"
-        columns={columns}
+        columns={filteredColumns}
         dataSource={items}
         loading={loading}
         scroll={{ x: 1490 }}
@@ -2375,8 +2748,9 @@ const ItemManagement: React.FC = () => {
       />
 
       <DraggableResizableModal
-        open={detailOpen}
-        onCancel={() => setDetailOpen(false)}
+        open={detailOpen && !isDetailMinimized}
+        onCancel={() => { setDetailOpen(false); setIsDetailMinimized(false); }}
+        onMinimize={() => setIsDetailMinimized(true)}
         width={980}
         height={620}
         destroyOnHidden
@@ -2424,6 +2798,12 @@ const ItemManagement: React.FC = () => {
           <Tabs
             activeKey={detailTab}
             onChange={handleDetailTabChange}
+            renderTabBar={() => (
+              <ItemModalProcessChevronNav
+                active={detailTab}
+                onChange={handleDetailTabChange}
+              />
+            )}
             items={[
               {
                 key: 'overview',
@@ -2879,12 +3259,13 @@ const ItemManagement: React.FC = () => {
       </DraggableResizableModal>
 
       <DraggableResizableModal
-        open={formOpen}
-        onCancel={() => setFormOpen(false)}
+        open={formOpen && !isFormMinimized}
+        onCancel={() => { setFormOpen(false); setIsFormMinimized(false); }}
+        onMinimize={() => setIsFormMinimized(true)}
         onOk={handleSubmit}
         confirmLoading={saving}
-        width={900}
-        height={620}
+        width={1240}
+        height={700}
         okText={editing ? 'Save Changes' : 'Create Item'}
         title={
           <Space>
@@ -2892,11 +3273,13 @@ const ItemManagement: React.FC = () => {
             {editing ? `Edit Item — ${editing.itemCode}` : 'Add New Item'}
           </Space>
         }
-        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
+        styles={{ body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } }}
       >
         <Form form={form} layout="vertical" requiredMark="optional">
-          {/* SECTION 1 — BASIC INFORMATION */}
-          <Card size="small" title="Basic Information" style={{ marginBottom: 12, borderRadius: 8 }}>
+          <div className="erp-item-split-layout">
+            <div className="erp-item-form-pane">
+              {/* SECTION 1 — BASIC INFORMATION */}
+              <Card size="small" title="Basic Information" style={{ marginBottom: 12, borderRadius: 8 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
               <Form.Item
                 name="itemCode" label="Item Code" rules={[
@@ -3942,12 +4325,165 @@ const ItemManagement: React.FC = () => {
               <Input.TextArea rows={2} maxLength={2000} placeholder="Optional note" />
             </Form.Item>
           </Card>
-        </Form>
-      </DraggableResizableModal>
+        </div>
+
+        {/* RIGHT SIDE: LIVE ITEM DETAIL SHEET */}
+        <div className="erp-item-live-pane" data-testid="item-live-detail-sheet">
+          <div className="erp-item-live-header">
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="erp-item-live-code">
+                  {watchedCode || editing?.itemCode || 'NEW-ITEM'}
+                </span>
+                <StatusBadge
+                  status={editing?.status || 'ACTIVE'}
+                  colorMap={statusColorMap}
+                />
+              </div>
+              <div className="erp-item-live-title">
+                {watchedName || editing?.name || 'Unnamed Item'}
+              </div>
+            </div>
+            <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>
+              <SyncOutlined spin style={{ marginRight: 4 }} />
+              Live Preview
+            </Tag>
+          </div>
+
+          {/* Classification & Organization */}
+          <div className="erp-item-live-section">
+            <div className="erp-item-live-section-title">
+              <ApartmentOutlined /> Organization & Classification
+            </div>
+            <Descriptions size="small" column={1} styles={{ label: { width: 110, fontSize: 11 }, content: { fontSize: 12 } }}>
+              <Descriptions.Item label="Item Type">
+                <Tag color="blue">{typeName(watchedItemType || editing?.itemType || 'FINISHED_GOOD')}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Category">
+                {flatCategories.find((c) => c.id === (watchedCategoryId || editing?.categoryId))?.name || (editing ? categoryName(editing) : null) || '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Organization">
+                {[
+                  divisions.find((d) => d.id === (watchedDivisionId || editing?.divisionId))?.name || (editing ? divisionName(editing) : null),
+                  sections.find((s) => s.id === (watchedSectionId || editing?.sectionId))?.name || (editing ? sectionName(editing) : null),
+                  departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId))?.name || (editing ? departmentName(editing) : null),
+                ].filter(Boolean).join(' → ') || 'Not configured'}
+              </Descriptions.Item>
+            </Descriptions>
+          </div>
+
+          {/* Technical Specifications */}
+          <div className="erp-item-live-section">
+            <div className="erp-item-live-section-title">
+              <ToolOutlined /> Technical Specifications
+            </div>
+            <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+              <Descriptions.Item label="Wire Size">
+                {(watchedWireSizeMm != null || editing?.wireSizeMm != null)
+                  ? `${formatDimension(watchedWireSizeMm ?? editing?.wireSizeMm)} mm`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Diameter">
+                {(watchedDiameterMm != null || editing?.diameterMm != null)
+                  ? `${formatDimension(watchedDiameterMm ?? editing?.diameterMm)} mm`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Thickness">
+                {(watchedThicknessMm != null || editing?.thicknessMm != null)
+                  ? `${formatDimension(watchedThicknessMm ?? editing?.thicknessMm)} mm`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Width">
+                {(watchedWidthMm != null || editing?.widthMm != null)
+                  ? `${formatDimension(watchedWidthMm ?? editing?.widthMm)} mm`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Length / Piece" span={2}>
+                {(watchedLengthPerPiece != null || editing?.lengthPerPiece != null)
+                  ? `${formatDimension(watchedLengthPerPiece ?? editing?.lengthPerPiece)} m`
+                  : '—'}
+              </Descriptions.Item>
+            </Descriptions>
+          </div>
+
+          {/* UOM, Weights & Commercial */}
+          <div className="erp-item-live-section">
+            <div className="erp-item-live-section-title">
+              <DatabaseOutlined /> UOM, Weights & Commercial
+            </div>
+            <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+              <Descriptions.Item label="Base UOM">
+                <Tag color="geekblue">{uoms.find((u) => u.id === (watchedBaseUomId || editing?.baseUomId))?.name || editing?.baseUomName || '—'}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Cost Price">
+                {(watchedCostPrice != null || editing?.costPrice != null)
+                  ? `$${Number(watchedCostPrice ?? editing?.costPrice).toFixed(2)}`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Selling Price">
+                {(watchedSellingPrice != null || editing?.sellingPrice != null)
+                  ? `$${Number(watchedSellingPrice ?? editing?.sellingPrice).toFixed(2)}`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Weight/Pc">
+                {(watchedWeightPerPiece != null || editing?.weightPerPiece != null)
+                  ? `${Number(watchedWeightPerPiece ?? editing?.weightPerPiece)} kg`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Weight/Mtr">
+                {(watchedWeightPerMeter != null || editing?.weightPerMeter != null)
+                  ? `${Number(watchedWeightPerMeter ?? editing?.weightPerMeter)} kg/m`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Pieces/KG">
+                {(watchedPiecesPerKg != null || editing?.piecesPerKg != null)
+                  ? `${Number(watchedPiecesPerKg ?? editing?.piecesPerKg)}`
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="SKU">
+                <Text code>{watchedSku || editing?.sku || 'Auto'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Barcode">
+                <Text code>{watchedBarcode || editing?.barcode || 'Auto'}</Text>
+              </Descriptions.Item>
+            </Descriptions>
+          </div>
+
+          {/* Stock Levels & Route */}
+          <div className="erp-item-live-section" style={{ marginBottom: 0 }}>
+            <div className="erp-item-live-section-title">
+              <BuildOutlined /> Inventory Levels & Flow
+            </div>
+            <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+              <Descriptions.Item label="Min Stock">
+                {watchedMinStock ?? editing?.minimumStockLevel ?? '0'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Max Stock">
+                {watchedMaxStock ?? editing?.maximumStockLevel ?? '0'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Reorder">
+                {watchedReorder ?? editing?.reorderLevel ?? '0'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Safety">
+                {watchedSafety ?? editing?.safetyStockLevel ?? '0'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Input Mat." span={2}>
+                {selectedInputDetail ? `${selectedInputDetail.itemCode} — ${selectedInputDetail.name}` : (editing?.productionInItem ? `${editing.productionInItem.itemCode} — ${editing.productionInItem.name}` : 'None')}
+              </Descriptions.Item>
+              <Descriptions.Item label="Output Prod." span={2}>
+                {outputProductDisplay}
+              </Descriptions.Item>
+            </Descriptions>
+          </div>
+        </div>
+      </div>
+    </Form>
+  </DraggableResizableModal>
 
       <DraggableResizableModal
         open={importOpen && !isImportMinimized}
         onCancel={closeImport}
+        onMinimize={() => setIsImportMinimized(true)}
         width={1020}
         height={660}
         footer={
@@ -4413,47 +4949,140 @@ const ItemManagement: React.FC = () => {
         onChange={handleReuploadSelect}
       />
 
-      {/* Minimized Import Modal Floating Dock Tab */}
-      {importOpen && isImportMinimized && (
-        <div
-          className="minimized-import-dock"
-          onClick={() => setIsImportMinimized(false)}
-          role="button"
-          tabIndex={0}
-          title="Click to restore Import Items modal"
-        >
-          <div className="minimized-import-pulse" />
-          <Space size={8}>
-            <ImportOutlined style={{ color: '#4f46e5', fontSize: 16 }} />
-            <span>Import: <strong>{importFileName || 'Items CSV'}</strong></span>
-            {importing && importProgress ? (
-              <>
-                <Tag color="processing" style={{ fontWeight: 700, borderRadius: 6 }}>
-                  {importProgress.percent}% ({importProgress.current}/{importProgress.total})
-                </Tag>
-                <div style={{ width: 80, display: 'inline-block' }}>
-                  <Progress percent={importProgress.percent} size="small" showInfo={false} status="active" />
-                </div>
-              </>
-            ) : (
-              <>
-                <Tag color="blue">{importRows.length} rows</Tag>
-                {importRows.some((r) => r.status === 'INVALID') && (
-                  <Tag color="error">{importRows.filter((r) => r.status === 'INVALID').length} failed</Tag>
+      {/* Universal Minimized Modals Dock */}
+      {(isImportMinimized || isFormMinimized || isDetailMinimized || isBarcodeMinimized) && (
+        <div className="erp-minimized-dock" data-testid="item-minimized-dock">
+          {/* Minimized Add / Edit Item Tab */}
+          {isFormMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => setIsFormMinimized(false)}
+              role="button"
+              tabIndex={0}
+              title="Click to restore Item Form"
+            >
+              <div className="erp-minimized-pulse" />
+              <Space size={8}>
+                {editing ? <EditOutlined style={{ color: '#10b981', fontSize: 15 }} /> : <FileAddOutlined style={{ color: '#10b981', fontSize: 15 }} />}
+                <span><strong>{editing ? `Edit: ${editing.itemCode}` : 'New Item Form'}</strong></span>
+                <Tag color="cyan">{editing ? (watchedCode || editing.itemCode) : (watchedCode || 'Draft')}</Tag>
+              </Space>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsFormMinimized(false);
+                  setFormOpen(false);
+                }}
+                title="Discard and close form"
+              >
+                ×
+              </span>
+            </div>
+          )}
+
+          {/* Minimized Item Detail Tab */}
+          {isDetailMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => setIsDetailMinimized(false)}
+              role="button"
+              tabIndex={0}
+              title="Click to restore Item Details"
+            >
+              <div className="erp-minimized-pulse" />
+              <Space size={8}>
+                <DatabaseOutlined style={{ color: '#06b6d4', fontSize: 15 }} />
+                <span>Details: <strong>{detailItem?.itemCode || 'Item'}</strong></span>
+                {detailItem?.status && <StatusBadge status={detailItem.status} colorMap={statusColorMap} />}
+              </Space>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsDetailMinimized(false);
+                  setDetailOpen(false);
+                }}
+                title="Close details"
+              >
+                ×
+              </span>
+            </div>
+          )}
+
+          {/* Minimized Barcode Modal Tab */}
+          {isBarcodeMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => setIsBarcodeMinimized(false)}
+              role="button"
+              tabIndex={0}
+              title="Click to restore Barcode modal"
+            >
+              <div className="erp-minimized-pulse" />
+              <Space size={8}>
+                <ScanOutlined style={{ color: '#f59e0b', fontSize: 15 }} />
+                <span>Barcode: <strong>{barcodeModalItem?.itemCode || 'Barcode'}</strong></span>
+              </Space>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsBarcodeMinimized(false);
+                  setBarcodeModalOpen(false);
+                  setBarcodeModalItem(null);
+                  setBarcodeModalBarcodes([]);
+                }}
+                title="Close barcode"
+              >
+                ×
+              </span>
+            </div>
+          )}
+
+          {/* Minimized Import Modal Tab */}
+          {isImportMinimized && (
+            <div
+              className="erp-minimized-tab minimized-import-dock"
+              onClick={() => setIsImportMinimized(false)}
+              role="button"
+              tabIndex={0}
+              title="Click to restore Import Items modal"
+            >
+              <div className="erp-minimized-pulse minimized-import-pulse" />
+              <Space size={8}>
+                <ImportOutlined style={{ color: '#4f46e5', fontSize: 16 }} />
+                <span>Import: <strong>{importFileName || 'Items CSV'}</strong></span>
+                {importing && importProgress ? (
+                  <>
+                    <Tag color="processing" style={{ fontWeight: 700, borderRadius: 6 }}>
+                      {importProgress.percent}% ({importProgress.current}/{importProgress.total})
+                    </Tag>
+                    <div style={{ width: 80, display: 'inline-block' }}>
+                      <Progress percent={importProgress.percent} size="small" showInfo={false} status="active" />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Tag color="blue">{importRows.length} rows</Tag>
+                    {importRows.some((r) => r.status === 'INVALID') && (
+                      <Tag color="error">{importRows.filter((r) => r.status === 'INVALID').length} failed</Tag>
+                    )}
+                  </>
                 )}
-              </>
-            )}
-          </Space>
-          <span
-            className="minimized-import-close"
-            onClick={(e) => {
-              e.stopPropagation();
-              closeImport();
-            }}
-            title="Discard and close import"
-          >
-            ×
-          </span>
+              </Space>
+              <span
+                className="erp-minimized-close minimized-import-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeImport();
+                }}
+                title="Discard and close import"
+              >
+                ×
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -4476,8 +5105,9 @@ const ItemManagement: React.FC = () => {
 
 {/* Barcode Detail Modal */}
       <DraggableResizableModal
-        open={barcodeModalOpen}
-        onCancel={() => { setBarcodeModalOpen(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}
+        open={barcodeModalOpen && !isBarcodeMinimized}
+        onCancel={() => { setBarcodeModalOpen(false); setIsBarcodeMinimized(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}
+        onMinimize={() => setIsBarcodeMinimized(true)}
         footer={
           <Space>
             <Button onClick={() => { setBarcodeModalOpen(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}>Close</Button>

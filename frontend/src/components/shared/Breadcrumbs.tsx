@@ -57,6 +57,7 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/qc\/capa/, label: 'CAPA' },
   { pattern: /^\/hr\/dashboard/, label: 'HR Dashboard' },
   { pattern: /^\/hr\/my-attendance/, label: 'My Attendance' },
+  { pattern: /^\/hr\/attendance-register/, label: 'Attendance Register' },
   { pattern: /^\/settings$/, label: 'Settings' },
 ];
 

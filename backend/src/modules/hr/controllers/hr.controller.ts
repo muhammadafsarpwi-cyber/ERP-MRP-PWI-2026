@@ -1,10 +1,14 @@
-import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { HrService } from '../services/hr.service';
+import { HrRegularizationsService } from '../services/hr-regularizations.service';
 import {
   CreateHrDesignationDto, CreateHrEmployeeDto, CreateHrAttendanceDto,
-  CreateHrLeaveRequestDto, CreateHrLeaveTypeDto, CreateHrShiftDto, CreateHrHolidayDto,
-  GetMyAttendanceDto,
+  CreateHrLeaveRequestDto, UpdateHrLeaveRequestDto, ApproveHrLeaveDto, RejectHrLeaveDto,
+  CreateHrLeaveTypeDto, CreateHrShiftDto, CreateHrHolidayDto,
+  GetMyAttendanceDto, GetAttendanceRegisterDto, GetShiftRosterDto, GetLiveMapDto,
+  CreateHrShiftRosterDto, UpdateHrShiftRosterDto, GetLeaveRequestsDto,
+  CreateRegularizationDto, UpdateRegularizationDto, RegularizationDecisionDto, GetRegularizationsDto,
 } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
@@ -14,7 +18,77 @@ import { PermissionGuard, RequirePermission } from '../../auth/guards/permission
 @UseGuards(SupabaseJwtGuard)
 @ApiBearerAuth()
 export class HrController {
-  constructor(private readonly hrService: HrService) {}
+  constructor(
+    private readonly hrService: HrService,
+    private readonly regularizationService: HrRegularizationsService,
+  ) {}
+
+  // ---- Shift Roster ----
+  @Get('shift-roster/options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.shift_roster.view')
+  async shiftRosterOptions(@Request() req: any) {
+    const data = await this.hrService.getShiftRosterOptions(req.user?.id);
+    return { success: true, data };
+  }
+
+  @Get('shift-roster')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.shift_roster.view')
+  async shiftRoster(@Query() query: GetShiftRosterDto, @Request() req: any) {
+    const data = await this.hrService.getShiftRoster(req.user?.id, query);
+    return { success: true, data };
+  }
+
+  @Get('shift-roster/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.shift_roster.view')
+  async shiftRosterById(@Param('id') id: string, @Request() req: any) {
+    const data = await this.hrService.getShiftRosterById(req.user?.id, id);
+    return { success: true, data };
+  }
+
+  @Post('shift-roster')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.shift_roster.create')
+  async createShiftRoster(@Body() dto: CreateHrShiftRosterDto, @Request() req: any) {
+    const data = await this.hrService.createShiftRoster(req.user?.id, dto);
+    return { success: true, data, message: 'Shift assignment created' };
+  }
+
+  @Patch('shift-roster/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.shift_roster.update')
+  async updateShiftRoster(@Param('id') id: string, @Body() dto: UpdateHrShiftRosterDto, @Request() req: any) {
+    const data = await this.hrService.updateShiftRoster(req.user?.id, id, dto);
+    return { success: true, data, message: 'Shift assignment updated' };
+  }
+
+  @Delete('shift-roster/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.shift_roster.delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteShiftRoster(@Param('id') id: string, @Request() req: any) {
+    const data = await this.hrService.softDeleteShiftRoster(req.user?.id, id);
+    return { success: true, data, message: 'Shift assignment removed' };
+  }
+
+  // ---- Live Map ----
+  @Get('live-map/options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.live_map.view')
+  async liveMapOptions(@Request() req: any) {
+    const data = await this.hrService.getLiveMapOptions(req.user?.id);
+    return { success: true, data };
+  }
+
+  @Get('live-map')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.live_map.view')
+  async liveMap(@Query() query: GetLiveMapDto, @Request() req: any) {
+    const data = await this.hrService.getLiveMap(req.user?.id, query);
+    return { success: true, data };
+  }
 
   // ---- Designations ----
   @Get('designations')
@@ -111,6 +185,22 @@ export class HrController {
     return { success: true, data };
   }
 
+  @Get('attendance-register/options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.attendance.view')
+  async attendanceRegisterOptions(@Request() req: any) {
+    const data = await this.hrService.getAttendanceRegisterOptions(req.user?.id);
+    return { success: true, data };
+  }
+
+  @Get('attendance-register')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.attendance.view')
+  async attendanceRegister(@Query() query: GetAttendanceRegisterDto, @Request() req: any) {
+    const data = await this.hrService.getAttendanceRegister(req.user?.id, query);
+    return { success: true, data };
+  }
+
   @Get('attendance')
   @UseGuards(PermissionGuard)
   @RequirePermission('hr.attendance.view')
@@ -147,32 +237,80 @@ export class HrController {
     return { success: true, data, message: 'Leave type created' };
   }
 
+  @Get('leave-requests/options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.leave.view')
+  async leaveRequestOptions(@Request() req: any) {
+    const data = await this.hrService.getLeaveRequestOptions(req.user?.id);
+    return { success: true, data };
+  }
+
   @Get('leave-requests')
   @UseGuards(PermissionGuard)
   @RequirePermission('hr.leave.view')
-  async listLeaveRequests(
-    @Query('companyId') companyId: string, @Query('page') page?: number, @Query('limit') limit?: number,
-    @Query('employeeId') employeeId?: string, @Query('status') status?: string,
-  ) {
-    const result = await this.hrService.listLeaveRequests(companyId, { page, limit, employeeId, status });
-    return { success: true, ...result };
+  async listLeaveRequests(@Query() query: GetLeaveRequestsDto, @Request() req: any) {
+    const data = await this.hrService.listLeaveRequests(req.user?.id, query);
+    return { success: true, data };
+  }
+
+  @Get('leave-requests/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.leave.view')
+  async leaveRequestById(@Param('id') id: string, @Request() req: any) {
+    const data = await this.hrService.getLeaveRequestById(req.user?.id, id);
+    return { success: true, data };
   }
 
   @Post('leave-requests')
   @UseGuards(PermissionGuard)
-  @RequirePermission('hr.leave.manage')
-  async createLeaveRequest(@Body() dto: CreateHrLeaveRequestDto) {
-    const data = await this.hrService.createLeaveRequest(dto);
+  @RequirePermission('hr.leave.create')
+  async createLeaveRequest(@Body() dto: CreateHrLeaveRequestDto, @Request() req: any) {
+    const data = await this.hrService.createLeaveRequest(req.user?.id, dto);
     return { success: true, data, message: 'Leave request submitted' };
+  }
+
+  @Patch('leave-requests/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.leave.update')
+  async updateLeaveRequest(@Param('id') id: string, @Body() dto: UpdateHrLeaveRequestDto, @Request() req: any) {
+    const data = await this.hrService.updateLeaveRequest(req.user?.id, id, dto);
+    return { success: true, data, message: 'Leave request updated' };
+  }
+
+  @Delete('leave-requests/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.leave.delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteLeaveRequest(@Param('id') id: string, @Request() req: any) {
+    const data = await this.hrService.deleteLeaveRequest(req.user?.id, id);
+    return { success: true, data, message: 'Leave request removed' };
   }
 
   @Patch('leave-requests/:id/approve')
   @UseGuards(PermissionGuard)
   @RequirePermission('hr.leave.manage')
   @HttpCode(HttpStatus.OK)
-  async approveLeave(@Param('id') id: string, @Request() req: any) {
-    const data = await this.hrService.approveLeave(id, req.user?.id);
+  async approveLeave(@Param('id') id: string, @Body() dto: ApproveHrLeaveDto, @Request() req: any) {
+    const data = await this.hrService.approveLeave(req.user?.id, id, dto);
     return { success: true, data, message: 'Leave approved' };
+  }
+
+  @Patch('leave-requests/:id/reject')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.leave.manage')
+  @HttpCode(HttpStatus.OK)
+  async rejectLeave(@Param('id') id: string, @Body() dto: RejectHrLeaveDto, @Request() req: any) {
+    const data = await this.hrService.rejectLeave(req.user?.id, id, dto);
+    return { success: true, data, message: 'Leave rejected' };
+  }
+
+  @Patch('leave-requests/:id/cancel')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.leave.manage')
+  @HttpCode(HttpStatus.OK)
+  async cancelLeave(@Param('id') id: string, @Request() req: any) {
+    const data = await this.hrService.cancelLeave(req.user?.id, id);
+    return { success: true, data, message: 'Leave cancelled' };
   }
 
   // ---- Shifts ----
@@ -207,5 +345,73 @@ export class HrController {
   async createHoliday(@Body() dto: CreateHrHolidayDto) {
     const data = await this.hrService.createHoliday(dto);
     return { success: true, data, message: 'Holiday created' };
+  }
+
+  // ---- Attendance Regularizations ----
+  @Get('regularizations/options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.regularization.view')
+  async regularizationOptions(@Request() req: any) {
+    const data = await this.regularizationService.getRegularizationOptions(req.user?.id);
+    return { success: true, data };
+  }
+
+  @Get('regularizations')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.regularization.view')
+  async listRegularizations(@Query() query: GetRegularizationsDto, @Request() req: any) {
+    const data = await this.regularizationService.listRegularizations(req.user?.id, query);
+    return { success: true, data };
+  }
+
+  @Get('regularizations/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.regularization.view')
+  async regularizationById(@Param('id') id: string, @Request() req: any) {
+    const data = await this.regularizationService.getById(req.user?.id, id);
+    return { success: true, data };
+  }
+
+  @Post('regularizations')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.regularization.create')
+  async createRegularization(@Body() dto: CreateRegularizationDto, @Request() req: any) {
+    const data = await this.regularizationService.create(req.user?.id, dto);
+    return { success: true, data, message: 'Regularization submitted successfully.' };
+  }
+
+  @Patch('regularizations/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.regularization.update')
+  async updateRegularization(@Param('id') id: string, @Body() dto: UpdateRegularizationDto, @Request() req: any) {
+    const data = await this.regularizationService.update(req.user?.id, id, dto);
+    return { success: true, data, message: 'Regularization updated' };
+  }
+
+  @Delete('regularizations/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.regularization.delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteRegularization(@Param('id') id: string, @Request() req: any) {
+    const data = await this.regularizationService.delete(req.user?.id, id);
+    return { success: true, data, message: 'Regularization removed' };
+  }
+
+  @Patch('regularizations/:id/approve')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.regularization.approve')
+  @HttpCode(HttpStatus.OK)
+  async approveRegularization(@Param('id') id: string, @Body() dto: RegularizationDecisionDto, @Request() req: any) {
+    const data = await this.regularizationService.approve(req.user?.id, id, dto);
+    return { success: true, data, message: 'Regularization approved successfully.' };
+  }
+
+  @Patch('regularizations/:id/reject')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.regularization.approve')
+  @HttpCode(HttpStatus.OK)
+  async rejectRegularization(@Param('id') id: string, @Body() dto: RegularizationDecisionDto, @Request() req: any) {
+    const data = await this.regularizationService.reject(req.user?.id, id, dto);
+    return { success: true, data, message: 'Regularization rejected.' };
   }
 }

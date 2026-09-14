@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Alert, App, Badge, Button, Card, DatePicker, Descriptions, Dropdown, Form, Input, InputNumber,
-  Modal, Segmented, Select, Space, Spin, Table, Tooltip, Typography, Upload,
+  Alert, App, Badge, Button, Card, Checkbox, DatePicker, Descriptions, Dropdown, Form, Input, InputNumber,
+  Modal, Popover, Segmented, Select, Space, Spin, Table, Tooltip, Typography, Upload,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, ReloadOutlined, QrcodeOutlined,
   EyeOutlined, MoreOutlined, PrinterOutlined, ClearOutlined, FilterOutlined,
-  ToolOutlined, DeleteOutlined, TagOutlined, SettingOutlined,
+  ToolOutlined, DeleteOutlined, TagOutlined, SettingOutlined, DesktopOutlined,
   ApartmentOutlined, ShopOutlined, SubnodeOutlined, TeamOutlined, EnvironmentOutlined,
   TagsOutlined, AlertOutlined, CheckCircleOutlined,
   DownloadOutlined, FilePdfOutlined, ImportOutlined, InboxOutlined,
   HistoryOutlined, BarChartOutlined, ScheduleOutlined,
-  ArrowUpOutlined, ArrowDownOutlined, MinusOutlined,
+  ArrowUpOutlined, ArrowDownOutlined, MinusOutlined, AppstoreOutlined,
+  ThunderboltOutlined, ClockCircleOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -142,15 +143,31 @@ interface JobCardLite {
   requestedByUser?: { fullName?: string | null; name?: string | null; email?: string | null } | null;
 }
 
-type ViewSection = 'identity' | 'org' | 'tech' | 'production' | 'jobcards' | 'dates';
+/** Light projection of a machine tooling component for the View → Tooling tab. */
+interface ToolingComponentLite {
+  id: string;
+  componentCode: string;
+  componentName: string;
+  componentType: string;
+  expectedLifeQuantity?: number | string | null;
+  minThreshold?: number | string | null;
+  maxThreshold?: number | string | null;
+  isActive: boolean;
+  item?: { itemCode: string; name?: string | null } | null;
+  uom?: { code: string; name?: string | null } | null;
+}
 
-const VIEW_SECTIONS: Array<{ key: ViewSection; label: string }> = [
-  { key: 'identity', label: 'Machine Identity' },
-  { key: 'org', label: 'Organization + Location' },
-  { key: 'tech', label: 'Technical Information' },
-  { key: 'production', label: 'Production' },
-  { key: 'jobcards', label: 'Job Cards' },
-  { key: 'dates', label: 'Dates + Description' },
+type ViewSection = 'identity' | 'org' | 'tech' | 'production' | 'jobcards' | 'tooling' | 'dates';
+
+
+const VIEW_SECTIONS: Array<{ key: ViewSection; label: string; icon: React.ReactNode }> = [
+  { key: 'identity', label: 'Machine Identity', icon: <DesktopOutlined /> },
+  { key: 'org', label: 'Organization + Location', icon: <EnvironmentOutlined /> },
+  { key: 'tech', label: 'Technical Information', icon: <ToolOutlined /> },
+  { key: 'production', label: 'Production', icon: <BarChartOutlined /> },
+  { key: 'jobcards', label: 'Job Cards', icon: <FileTextOutlined /> },
+  { key: 'tooling', label: 'Tooling', icon: <ApartmentOutlined /> },
+  { key: 'dates', label: 'Dates + Description', icon: <HistoryOutlined /> },
 ];
 
 const badge = (v?: string | null): React.ReactNode =>
@@ -361,7 +378,926 @@ const FormGroup: React.FC<{ title: string; children: React.ReactNode; marginBott
   </div>
 );
 
+/* ─── Job Cards Section (TASK-CURRENT) ────────────────────────────────────────
+ * Shows arrow-shaped status filter chips, a column-toggle popover, the job
+ * cards table with compact single-line cells, and a KPI summary row with
+ * Total Running Time, Total Downtime, Total Job Cards, MTTR, MTBF.          */
+
+/** Arrow-shaped status chip — mimics a "chevron badge" style */
+const ArrowChip: React.FC<{
+  label: string; count: number; color: string; bg: string; active: boolean;
+  onClick: () => void; isFirst?: boolean; isLast?: boolean;
+}> = ({ label, count, color, bg, active, onClick, isFirst, isLast }) => (
+  <button
+    onClick={onClick}
+    style={{
+      position: 'relative',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      paddingLeft: isFirst ? 14 : 20,
+      paddingRight: isLast ? 14 : 20,
+      height: 32,
+      cursor: 'pointer',
+      border: 'none',
+      background: active ? color : bg,
+      color: active ? '#fff' : color,
+      fontWeight: 700,
+      fontSize: 11,
+      letterSpacing: 0.4,
+      textTransform: 'uppercase' as const,
+      clipPath: isFirst
+        ? 'polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%)'
+        : isLast
+        ? 'polygon(10px 0, 100% 0, 100% 100%, 10px 100%, 0 50%)'
+        : 'polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%)',
+      transition: 'all 0.18s ease',
+      outline: 'none',
+      boxShadow: active ? `0 2px 8px ${color}55` : 'none',
+      marginLeft: isFirst ? 0 : -2,
+      zIndex: active ? 2 : 1,
+    }}
+  >
+    {label}
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      background: active ? 'rgba(255,255,255,0.25)' : color,
+      color: active ? '#fff' : '#fff',
+      fontSize: 10,
+      fontWeight: 800,
+      lineHeight: 1,
+    }}>
+      {count}
+    </span>
+  </button>
+);
+
+/** KPI metric tile for the job cards summary row */
+const JcKpiTile: React.FC<{
+  icon: React.ReactNode; label: string; value: React.ReactNode;
+  color?: string; bg?: string;
+}> = ({ icon, label, value, color = 'var(--theme-primary,#f59e0b)', bg = 'rgba(245,158,11,0.08)' }) => (
+  <div style={{
+    flex: 1, minWidth: 120, padding: '10px 14px', borderRadius: 10,
+    background: bg,
+    border: `1px solid ${color}30`,
+    display: 'flex', flexDirection: 'column' as const, gap: 2,
+  }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ color, fontSize: 13 }}>{icon}</span>
+      <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, color: 'var(--theme-text-muted)' }}>
+        {label}
+      </span>
+    </div>
+    <span style={{ fontSize: 18, fontWeight: 800, color, lineHeight: 1.2, whiteSpace: 'nowrap' as const }}>
+      {value}
+    </span>
+  </div>
+);
+
+const JC_ALL_COLS = [
+  { key: 'no',  title: 'Job Card No' },
+  { key: 'rd',  title: 'Requested Date' },
+  { key: 'cm',  title: 'Complaint' },
+  { key: 'st',  title: 'Status' },
+  { key: 'pr',  title: 'Priority' },
+  { key: 'ty',  title: 'Type' },
+  { key: 'rb',  title: 'Requested By' },
+  { key: 'sa',  title: 'Started' },
+  { key: 'cl',  title: 'Closed' },
+  { key: 'dt',  title: 'Downtime' },
+] as const;
+
+type JcColKey = typeof JC_ALL_COLS[number]['key'];
+
+const JC_STATUS_FILTERS: Array<{ key: string; label: string; color: string; bg: string; match: (s?: string|null) => boolean }> = [
+  { key: 'all',        label: 'ALL',        color: '#374151', bg: '#f3f4f6', match: () => true },
+  { key: 'inprogress', label: 'IN PROGRESS',color: '#2563eb', bg: '#eff6ff', match: (s) => (s ?? '').toLowerCase().includes('progress') },
+  { key: 'approved',   label: 'APPROVED',   color: '#16a34a', bg: '#f0fdf4', match: (s) => (s ?? '').toLowerCase().includes('approv') },
+  { key: 'pending',    label: 'PENDING',    color: '#d97706', bg: '#fffbeb', match: (s) => (s ?? '').toLowerCase().includes('pending') || (s ?? '').toLowerCase().includes('open') },
+  { key: 'closed',     label: 'CLOSED',     color: '#6b7280', bg: '#f9fafb', match: (s) => (s ?? '').toLowerCase().includes('clos') || (s ?? '').toLowerCase().includes('complet') },
+];
+
+const JobCardsSection: React.FC<{ jobCards: JobCardLite[]; jobCardsLoading: boolean }> = ({
+  jobCards, jobCardsLoading,
+}) => {
+  const [statusFilter, setStatusFilter] = React.useState<string>('all');
+  const [visibleCols, setVisibleCols] = React.useState<Set<JcColKey>>(
+    new Set(['no', 'rd', 'cm', 'st', 'pr', 'ty', 'sa', 'cl', 'dt'])
+  );
+  const [colPopOpen, setColPopOpen] = React.useState(false);
+
+  const filtered = React.useMemo(() => {
+    const sf = JC_STATUS_FILTERS.find((f) => f.key === statusFilter);
+    if (!sf || sf.key === 'all') return jobCards;
+    return jobCards.filter((r) => sf.match(r.currentStatus));
+  }, [jobCards, statusFilter]);
+
+  /* KPI calculations */
+  const kpis = React.useMemo(() => {
+    const totalJobs = jobCards.length;
+    const totalDownMin = jobCards.reduce((s, r) => s + (r.downtimeMinutes ?? 0), 0);
+    const closedCards = jobCards.filter((r) => r.closedAt && r.startedAt);
+    let repairTimes: number[] = [];
+    closedCards.forEach((r) => {
+      const diff = dayjs(r.closedAt!).diff(dayjs(r.startedAt!), 'minute');
+      if (diff > 0) repairTimes.push(diff);
+    });
+    const mttr = repairTimes.length ? repairTimes.reduce((a, b) => a + b, 0) / repairTimes.length : null;
+    // MTBF: assume total observation window from first to last job card
+    let mtbf: number | null = null;
+    if (jobCards.length >= 2) {
+      const sorted = [...jobCards].sort((a, b) => dayjs(a.requestedAt ?? '').valueOf() - dayjs(b.requestedAt ?? '').valueOf());
+      const windowMin = dayjs(sorted[sorted.length - 1].requestedAt ?? '').diff(dayjs(sorted[0].requestedAt ?? ''), 'minute');
+      if (windowMin > 0 && jobCards.length > 1) mtbf = windowMin / (jobCards.length - 1);
+    }
+    const runningMin = closedCards.reduce((s, r) => {
+      const diff = dayjs(r.closedAt!).diff(dayjs(r.startedAt!), 'minute');
+      return s + (diff > 0 ? diff : 0);
+    }, 0);
+    return { totalJobs, totalDownMin, runningMin, mttr, mtbf };
+  }, [jobCards]);
+
+  const buildColumns = (): ColumnsType<JobCardLite> => {
+    const all: ColumnsType<JobCardLite> = [
+      {
+        title: 'Job Card No', key: 'no', width: 120,
+        render: (_, r) => r.jobCardNo
+          ? <code style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted)', whiteSpace: 'nowrap' }}>{r.jobCardNo}</code>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      {
+        title: 'Req. Date', key: 'rd', width: 95,
+        render: (_, r) => <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{r.requestedAt ? fmtDate(r.requestedAt) : '—'}</span>,
+      },
+      { title: 'Complaint', key: 'cm', ellipsis: true, render: (_, r) => r.complaint ?? <Typography.Text type="secondary">—</Typography.Text> },
+      { title: 'Status', key: 'st', width: 110, render: (_, r) => r.currentStatus ? badge(r.currentStatus) : <Typography.Text type="secondary">—</Typography.Text> },
+      { title: 'Priority', key: 'pr', width: 80, render: (_, r) => r.priority ? label(r.priority) : <Typography.Text type="secondary">—</Typography.Text> },
+      {
+        title: 'Type', key: 'ty', width: 110,
+        render: (_, r) => r.maintenanceType
+          ? <span style={{ whiteSpace: 'nowrap', display: 'inline-block' }}>{label(r.maintenanceType)}</span>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      { title: 'Req. By', key: 'rb', ellipsis: true, render: (_, r) => r.requestedByUser?.fullName ?? r.requestedByUser?.name ?? r.requestedByUser?.email ?? <Typography.Text type="secondary">—</Typography.Text> },
+      {
+        title: 'Started', key: 'sa', width: 130,
+        render: (_, r) => r.startedAt
+          ? <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{fmtDateTime(r.startedAt)}</span>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      {
+        title: 'Closed', key: 'cl', width: 130,
+        render: (_, r) => r.closedAt
+          ? <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{fmtDateTime(r.closedAt)}</span>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      {
+        title: 'Downtime', key: 'dt', align: 'right' as const, width: 80,
+        render: (_, r) => r.downtimeMinutes != null
+          ? <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--theme-danger,#dc2626)' }}>{fmtMinutes(r.downtimeMinutes)}</span>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+    ];
+    return all.filter((c) => visibleCols.has(c.key as JcColKey));
+  };
+
+  const colToggleContent = (
+    <div style={{ minWidth: 160 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        Visible Columns
+      </div>
+      {JC_ALL_COLS.map((col) => (
+        <div key={col.key} style={{ padding: '3px 0' }}>
+          <Checkbox
+            checked={visibleCols.has(col.key)}
+            onChange={(e) => {
+              const next = new Set(visibleCols);
+              if (e.target.checked) next.add(col.key); else next.delete(col.key);
+              setVisibleCols(next);
+            }}
+          >
+            <span style={{ fontSize: 12 }}>{col.title}</span>
+          </Checkbox>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <HistoryOutlined style={{ color: 'var(--theme-text-secondary)' }} />
+        <Typography.Text strong style={{ fontSize: 13 }}>Job Card History</Typography.Text>
+        <div style={{ flex: 1 }} />
+        <Popover
+          content={colToggleContent}
+          trigger="click"
+          open={colPopOpen}
+          onOpenChange={setColPopOpen}
+          placement="bottomRight"
+        >
+          <Button size="small" icon={<AppstoreOutlined />} style={{ fontSize: 11 }}>
+            Columns
+          </Button>
+        </Popover>
+        <Link to="/maintenance/job-cards" style={{ fontSize: 12 }}>Open Job Cards</Link>
+      </div>
+
+      {/* Arrow-shaped status filter chips */}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0 }}>
+        {JC_STATUS_FILTERS.map((sf, i) => {
+          const cnt = sf.key === 'all' ? jobCards.length : jobCards.filter((r) => sf.match(r.currentStatus)).length;
+          return (
+            <ArrowChip
+              key={sf.key}
+              label={sf.label}
+              count={cnt}
+              color={sf.color}
+              bg={sf.bg}
+              active={statusFilter === sf.key}
+              onClick={() => setStatusFilter(sf.key)}
+              isFirst={i === 0}
+              isLast={i === JC_STATUS_FILTERS.length - 1}
+            />
+          );
+        })}
+      </div>
+
+      {/* Table */}
+      <Table
+        rowKey="id"
+        size="small"
+        loading={jobCardsLoading}
+        dataSource={filtered}
+        pagination={false}
+        locale={{ emptyText: jobCardsLoading ? ' ' : <EmptyState title="No job card history available." description="Job cards raised against this machine will appear here." /> }}
+        scroll={{ x: 700 }}
+        columns={buildColumns()}
+      />
+
+      {/* KPI Summary Row */}
+      {jobCards.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 4 }}>
+          <JcKpiTile
+            icon={<FileTextOutlined />}
+            label="Total Job Cards"
+            value={kpis.totalJobs}
+            color="#2563eb" bg="rgba(37,99,235,0.07)"
+          />
+          <JcKpiTile
+            icon={<ClockCircleOutlined />}
+            label="Running Time"
+            value={fmtMinutes(kpis.runningMin)}
+            color="#16a34a" bg="rgba(22,163,74,0.07)"
+          />
+          <JcKpiTile
+            icon={<ThunderboltOutlined />}
+            label="Total Downtime"
+            value={fmtMinutes(kpis.totalDownMin)}
+            color="#dc2626" bg="rgba(220,38,38,0.07)"
+          />
+          <JcKpiTile
+            icon={<ToolOutlined />}
+            label="MTTR"
+            value={kpis.mttr !== null ? fmtMinutes(Math.round(kpis.mttr)) : '—'}
+            color="#d97706" bg="rgba(217,119,6,0.07)"
+          />
+          <JcKpiTile
+            icon={<BarChartOutlined />}
+            label="MTBF"
+            value={kpis.mtbf !== null ? fmtMinutes(Math.round(kpis.mtbf)) : '—'}
+            color="#7c3aed" bg="rgba(124,58,237,0.07)"
+          />
+        </div>
+      )}
+    </Space>
+  );
+};
+
+/* ─── Tooling Section ─────────────────────────────────────────────────────────
+
+ * Shows tooling components registered for this machine with arrow-chip type
+ * filter, column-toggle, KPI tiles (active/inactive/total counts, life info). */
+
+const COMPONENT_TYPE_COLORS_MM: Record<string, string> = {
+  DIE: '#f97316', MOULD: '#a855f7', CHAIN: '#06b6d4', TOOL: '#3b82f6',
+  FIXTURE: '#f59e0b', COMPONENT: '#eab308', OTHER: '#6b7280',
+};
+
+const TOOLING_TYPE_FILTERS: Array<{
+  key: string; label: string; color: string; bg: string;
+  match: (c: ToolingComponentLite) => boolean;
+}> = [
+  { key: 'all',       label: 'ALL',       color: '#374151', bg: '#f3f4f6', match: () => true },
+  { key: 'active',    label: 'ACTIVE',    color: '#16a34a', bg: '#f0fdf4', match: (c) => c.isActive },
+  { key: 'inactive',  label: 'INACTIVE',  color: '#6b7280', bg: '#f9fafb', match: (c) => !c.isActive },
+  { key: 'die',       label: 'DIE',       color: '#f97316', bg: '#fff7ed', match: (c) => c.componentType === 'DIE' },
+  { key: 'mould',     label: 'MOULD',     color: '#a855f7', bg: '#faf5ff', match: (c) => c.componentType === 'MOULD' },
+  { key: 'tool',      label: 'TOOL',      color: '#3b82f6', bg: '#eff6ff', match: (c) => c.componentType === 'TOOL' },
+  { key: 'fixture',   label: 'FIXTURE',   color: '#f59e0b', bg: '#fffbeb', match: (c) => c.componentType === 'FIXTURE' },
+];
+
+const TOOLING_COLS_DEF = [
+  { key: 'code',  title: 'Code' },
+  { key: 'name',  title: 'Name' },
+  { key: 'type',  title: 'Type' },
+  { key: 'item',  title: 'Item (Store)' },
+  { key: 'life',  title: 'Expected Life' },
+  { key: 'min',   title: 'Min Threshold' },
+  { key: 'max',   title: 'Max Threshold' },
+  { key: 'uom',   title: 'UOM' },
+  { key: 'status',title: 'Status' },
+] as const;
+
+type ToolingColKey = typeof TOOLING_COLS_DEF[number]['key'];
+
+const ToolingSection: React.FC<{
+  components: ToolingComponentLite[];
+  loading: boolean;
+  machineId?: string;
+}> = ({ components, loading }) => {
+  const [typeFilter, setTypeFilter] = React.useState<string>('all');
+  const [visibleCols, setVisibleCols] = React.useState<Set<ToolingColKey>>(
+    new Set(['code', 'name', 'type', 'item', 'life', 'uom', 'status'])
+  );
+  const [colPopOpen, setColPopOpen] = React.useState(false);
+
+  const filtered = React.useMemo(() => {
+    const f = TOOLING_TYPE_FILTERS.find((x) => x.key === typeFilter);
+    return f ? components.filter(f.match) : components;
+  }, [components, typeFilter]);
+
+  const kpis = React.useMemo(() => ({
+    total: components.length,
+    active: components.filter((c) => c.isActive).length,
+    inactive: components.filter((c) => !c.isActive).length,
+    types: [...new Set(components.map((c) => c.componentType))].length,
+  }), [components]);
+
+  const buildCols = (): ColumnsType<ToolingComponentLite> => {
+    const all: ColumnsType<ToolingComponentLite> = [
+      {
+        title: 'Code', key: 'code', width: 110,
+        render: (_, r) => (
+          <code style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', whiteSpace: 'nowrap' }}>
+            {r.componentCode}
+          </code>
+        ),
+      },
+      { title: 'Name', key: 'name', ellipsis: true, render: (_, r) => <span style={{ fontWeight: 600, fontSize: 12 }}>{r.componentName}</span> },
+      {
+        title: 'Type', key: 'type', width: 90,
+        render: (_, r) => {
+          const col = COMPONENT_TYPE_COLORS_MM[r.componentType] ?? '#6b7280';
+          return (
+            <span style={{
+              whiteSpace: 'nowrap', display: 'inline-block',
+              padding: '1px 7px', borderRadius: 6, fontSize: 10,
+              fontWeight: 700, color: '#fff', background: col, letterSpacing: 0.3,
+            }}>
+              {r.componentType}
+            </span>
+          );
+        },
+      },
+      {
+        title: 'Item (Store)', key: 'item', ellipsis: true,
+        render: (_, r) => r.item
+          ? <span style={{ fontSize: 11 }}><b>{r.item.name ?? r.item.itemCode}</b>{r.item.name ? <> <Typography.Text type="secondary">({r.item.itemCode})</Typography.Text></> : null}</span>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      {
+        title: 'Expected Life', key: 'life', align: 'right' as const, width: 105,
+        render: (_, r) => r.expectedLifeQuantity != null
+          ? <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{Number(r.expectedLifeQuantity).toLocaleString()} {r.uom?.code ?? ''}</span>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      {
+        title: 'Min', key: 'min', align: 'right' as const, width: 70,
+        render: (_, r) => r.minThreshold != null
+          ? <span style={{ whiteSpace: 'nowrap', color: '#d97706', fontWeight: 600 }}>{Number(r.minThreshold).toLocaleString()}</span>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      {
+        title: 'Max', key: 'max', align: 'right' as const, width: 70,
+        render: (_, r) => r.maxThreshold != null
+          ? <span style={{ whiteSpace: 'nowrap', color: '#16a34a', fontWeight: 600 }}>{Number(r.maxThreshold).toLocaleString()}</span>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      {
+        title: 'UOM', key: 'uom', width: 60,
+        render: (_, r) => r.uom?.code
+          ? <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.uom.code}</code>
+          : <Typography.Text type="secondary">—</Typography.Text>,
+      },
+      {
+        title: 'Status', key: 'status', width: 80,
+        render: (_, r) => r.isActive
+          ? <span style={{ color: '#16a34a', fontWeight: 700, fontSize: 11 }}>● Active</span>
+          : <span style={{ color: '#6b7280', fontWeight: 600, fontSize: 11 }}>○ Inactive</span>,
+      },
+    ];
+    return all.filter((c) => visibleCols.has(c.key as ToolingColKey));
+  };
+
+  const colToggleContent = (
+    <div style={{ minWidth: 160 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        Visible Columns
+      </div>
+      {TOOLING_COLS_DEF.map((col) => (
+        <div key={col.key} style={{ padding: '3px 0' }}>
+          <Checkbox
+            checked={visibleCols.has(col.key)}
+            onChange={(e) => {
+              const next = new Set(visibleCols);
+              if (e.target.checked) next.add(col.key); else next.delete(col.key);
+              setVisibleCols(next);
+            }}
+          >
+            <span style={{ fontSize: 12 }}>{col.title}</span>
+          </Checkbox>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <ToolOutlined style={{ color: 'var(--theme-text-secondary)' }} />
+        <Typography.Text strong style={{ fontSize: 13 }}>Tooling Components</Typography.Text>
+        <div style={{ flex: 1 }} />
+        <Popover content={colToggleContent} trigger="click" open={colPopOpen} onOpenChange={setColPopOpen} placement="bottomRight">
+          <Button size="small" icon={<AppstoreOutlined />} style={{ fontSize: 11 }}>Columns</Button>
+        </Popover>
+        <Link to="/master-data/machine-tooling" style={{ fontSize: 12 }}>Open Tooling</Link>
+      </div>
+
+      {/* Arrow-chip type filters */}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0 }}>
+        {TOOLING_TYPE_FILTERS.map((sf, i) => {
+          const cnt = sf.key === 'all' ? components.length : components.filter(sf.match).length;
+          return (
+            <ArrowChip
+              key={sf.key}
+              label={sf.label}
+              count={cnt}
+              color={sf.color}
+              bg={sf.bg}
+              active={typeFilter === sf.key}
+              onClick={() => setTypeFilter(sf.key)}
+              isFirst={i === 0}
+              isLast={i === TOOLING_TYPE_FILTERS.length - 1}
+            />
+          );
+        })}
+      </div>
+
+      {/* Table */}
+      <Table
+        rowKey="id"
+        size="small"
+        loading={loading}
+        dataSource={filtered}
+        pagination={false}
+        locale={{ emptyText: loading ? ' ' : <EmptyState title="No tooling components found." description="Register tooling components for this machine in Machine Tooling." /> }}
+        scroll={{ x: 700 }}
+        columns={buildCols()}
+      />
+
+      {/* KPI tiles */}
+      {components.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 4 }}>
+          <JcKpiTile icon={<ToolOutlined />} label="Total Components" value={kpis.total} color="#3b82f6" bg="rgba(59,130,246,0.07)" />
+          <JcKpiTile icon={<CheckCircleOutlined />} label="Active" value={kpis.active} color="#16a34a" bg="rgba(22,163,74,0.07)" />
+          <JcKpiTile icon={<MinusOutlined />} label="Inactive" value={kpis.inactive} color="#6b7280" bg="rgba(107,114,128,0.07)" />
+          <JcKpiTile icon={<TagsOutlined />} label="Types" value={kpis.types} color="#a855f7" bg="rgba(168,85,247,0.07)" />
+        </div>
+      )}
+    </Space>
+  );
+};
+
+/* ─── Production Section ─────────────────────────────────────────────────────
+ * Enhanced production view with arrow-chip shift filters, KPI tiles, and
+ * column-toggle — matching the Job Cards design style.                        */
+
+const PROD_SHIFT_FILTERS: Array<{
+  key: string; label: string; color: string; bg: string;
+  match: (e: ProductionEntry) => boolean;
+}> = [
+  { key: 'all',       label: 'ALL',        color: '#374151', bg: '#f3f4f6', match: () => true },
+  { key: 'morning',   label: 'MORNING',    color: '#f59e0b', bg: '#fffbeb', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('morning') || (e.shift?.name ?? '').toLowerCase().includes('a') },
+  { key: 'afternoon', label: 'AFTERNOON',  color: '#3b82f6', bg: '#eff6ff', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('afternoon') || (e.shift?.name ?? '').toLowerCase().includes('b') },
+  { key: 'night',     label: 'NIGHT',      color: '#7c3aed', bg: '#f5f3ff', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('night') || (e.shift?.name ?? '').toLowerCase().includes('c') },
+];
+
+const PROD_ENTRY_COLS = [
+  { key: 'date', title: 'Date' },
+  { key: 'shift', title: 'Shift' },
+  { key: 'item', title: 'Item' },
+  { key: 'target', title: 'Target' },
+  { key: 'actual', title: 'Actual' },
+  { key: 'ach', title: 'Achievement %' },
+  { key: 'scrap', title: 'Scrap' },
+] as const;
+type ProdColKey = typeof PROD_ENTRY_COLS[number]['key'];
+
+const ProductionSection: React.FC<{
+  entries: ProductionEntry[];
+  targets: MachineTargetLite[];
+  entriesLoading: boolean;
+  targetsLoading: boolean;
+}> = ({ entries, targets, entriesLoading, targetsLoading }) => {
+  const [shiftFilter, setShiftFilter] = React.useState<string>('all');
+  const [visibleCols, setVisibleCols] = React.useState<Set<ProdColKey>>(
+    new Set(['date', 'shift', 'item', 'target', 'actual', 'ach'])
+  );
+  const [colPopOpen, setColPopOpen] = React.useState(false);
+
+  const filtered = React.useMemo(() => {
+    const f = PROD_SHIFT_FILTERS.find((x) => x.key === shiftFilter);
+    return f && f.key !== 'all' ? entries.filter(f.match) : entries;
+  }, [entries, shiftFilter]);
+
+  const kpis = React.useMemo(() => {
+    const totalTarget = entries.reduce((s, e) => s + (Number(e.targetQuantity) || 0), 0);
+    const totalActual = entries.reduce((s, e) => s + (Number(e.actualQuantity) || 0), 0);
+    const totalScrap = entries.reduce((s, e) => s + (Number(e.scrapQuantity) || 0), 0);
+    const avgAch = entries.length ? (entries.reduce((s, e) => s + (Number(e.achievementPercentage) || (totalTarget ? (totalActual / totalTarget) * 100 : 0)), 0) / entries.length) : null;
+    return { totalTarget, totalActual, totalScrap, avgAch };
+  }, [entries]);
+
+  const buildCols = (): ColumnsType<ProductionEntry> => {
+    const all: ColumnsType<ProductionEntry> = [
+      { title: 'Date', key: 'date', width: 100, render: (_, r) => <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{r.entryDate ? dayjs(r.entryDate).format('DD-MMM-YYYY') : '—'}</span> },
+      { title: 'Shift', key: 'shift', width: 90, render: (_, r) => r.shift?.name ? <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600 }}>{r.shift.name}</span> : <Typography.Text type="secondary">—</Typography.Text> },
+      { title: 'Item', key: 'item', ellipsis: true, render: (_, r) => <ItemCell item={r.item} /> },
+      { title: 'Target', key: 'target', align: 'right' as const, width: 75, render: (_, r) => <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{r.targetQuantity ?? '—'}</span> },
+      { title: 'Actual', key: 'actual', align: 'right' as const, width: 75, render: (_, r) => <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#2563eb' }}>{r.actualQuantity ?? '—'}</span> },
+      { title: 'Achievement %', key: 'ach', align: 'right' as const, width: 110, render: (_, r) => <AchievementCell value={r.achievementPercentage ?? (num(r.targetQuantity) ? ((num(r.actualQuantity) ?? 0) / num(r.targetQuantity)!) * 100 : null)} /> },
+      { title: 'Scrap', key: 'scrap', align: 'right' as const, width: 70, render: (_, r) => r.scrapQuantity != null ? <span style={{ whiteSpace: 'nowrap', color: '#dc2626', fontWeight: 600 }}>{r.scrapQuantity}</span> : <Typography.Text type="secondary">—</Typography.Text> },
+    ];
+    return all.filter((c) => visibleCols.has(c.key as ProdColKey));
+  };
+
+  const colToggleContent = (
+    <div style={{ minWidth: 160 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Visible Columns</div>
+      {PROD_ENTRY_COLS.map((col) => (
+        <div key={col.key} style={{ padding: '3px 0' }}>
+          <Checkbox checked={visibleCols.has(col.key)} onChange={(e) => {
+            const next = new Set(visibleCols);
+            if (e.target.checked) next.add(col.key); else next.delete(col.key);
+            setVisibleCols(next);
+          }}>
+            <span style={{ fontSize: 12 }}>{col.title}</span>
+          </Checkbox>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <Space direction="vertical" size={14} style={{ width: '100%' }}>
+      {/* Summary stats strip (existing ProductionSummary) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <BarChartOutlined style={{ color: 'var(--theme-text-secondary)' }} />
+        <Typography.Text strong style={{ fontSize: 13 }}>Production Summary</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>Target / Actual / Achievement (from recent entries)</Typography.Text>
+      </div>
+      <ProductionSummary entries={entries} />
+
+      {/* Machine Targets (compact table) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <ScheduleOutlined style={{ color: 'var(--theme-text-secondary)' }} />
+        <Typography.Text strong style={{ fontSize: 13 }}>Machine Targets</Typography.Text>
+        <div style={{ flex: 1 }} />
+        <Link to="/production/targets" style={{ fontSize: 12 }}>Open Machine Targets</Link>
+      </div>
+      <Table
+        rowKey="id" size="small" loading={targetsLoading} dataSource={targets} pagination={false}
+        locale={{ emptyText: targetsLoading ? ' ' : <Typography.Text type="secondary">No machine targets for this machine</Typography.Text> }}
+        scroll={{ x: 640 }}
+        columns={[
+          { title: 'Shift', key: 'shift', render: (_, r) => <span style={{ whiteSpace: 'nowrap' }}>{r.shift?.name ?? r.shift?.shiftCode ?? '—'}</span> },
+          { title: 'Item', key: 'item', width: 210, render: (_, r) => <ItemCell item={r.item} /> },
+          { title: 'Target Qty', key: 'tq', align: 'right' as const, render: (_, r) => <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{r.targetQuantity ?? '—'}</span> },
+          { title: 'Std Hrs', key: 'sh', align: 'right' as const, render: (_, r) => <span style={{ whiteSpace: 'nowrap' }}>{r.standardHours ?? '—'}</span> },
+          { title: 'From', key: 'ef', width: 100, render: (_, r) => <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{r.effectiveFrom ?? '—'}</span> },
+          { title: 'To', key: 'et', width: 100, render: (_, r) => <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{r.effectiveTo ?? '—'}</span> },
+        ]}
+      />
+
+      {/* Production History with arrow-chips + column toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <BarChartOutlined style={{ color: 'var(--theme-text-secondary)' }} />
+        <Typography.Text strong style={{ fontSize: 13 }}>Production History</Typography.Text>
+        <div style={{ flex: 1 }} />
+        <Popover content={colToggleContent} trigger="click" open={colPopOpen} onOpenChange={setColPopOpen} placement="bottomRight">
+          <Button size="small" icon={<AppstoreOutlined />} style={{ fontSize: 11 }}>Columns</Button>
+        </Popover>
+        <Link to="/production/entries" style={{ fontSize: 12 }}>Open Daily Production Entry</Link>
+      </div>
+
+      {/* Arrow shift filter chips */}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0 }}>
+        {PROD_SHIFT_FILTERS.map((sf, i) => {
+          const cnt = sf.key === 'all' ? entries.length : entries.filter(sf.match).length;
+          return (
+            <ArrowChip
+              key={sf.key} label={sf.label} count={cnt} color={sf.color} bg={sf.bg}
+              active={shiftFilter === sf.key} onClick={() => setShiftFilter(sf.key)}
+              isFirst={i === 0} isLast={i === PROD_SHIFT_FILTERS.length - 1}
+            />
+          );
+        })}
+      </div>
+
+      <Table
+        rowKey="id" size="small" loading={entriesLoading} dataSource={filtered} pagination={false}
+        locale={{ emptyText: entriesLoading ? ' ' : <Typography.Text type="secondary">No production entries for this machine</Typography.Text> }}
+        scroll={{ x: 640 }}
+        columns={buildCols()}
+      />
+
+      {/* Production KPI tiles */}
+      {entries.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 4 }}>
+          <JcKpiTile icon={<BarChartOutlined />} label="Total Target" value={kpis.totalTarget.toLocaleString()} color="#374151" bg="rgba(55,65,81,0.07)" />
+          <JcKpiTile icon={<ArrowUpOutlined />} label="Total Actual" value={kpis.totalActual.toLocaleString()} color="#2563eb" bg="rgba(37,99,235,0.07)" />
+          <JcKpiTile icon={<ThunderboltOutlined />} label="Total Scrap" value={kpis.totalScrap.toLocaleString()} color="#dc2626" bg="rgba(220,38,38,0.07)" />
+          {kpis.avgAch !== null && (
+            <JcKpiTile
+              icon={<CheckCircleOutlined />}
+              label="Avg Achievement"
+              value={`${kpis.avgAch.toFixed(1)}%`}
+              color={kpis.avgAch >= 70 ? '#16a34a' : kpis.avgAch >= 50 ? '#d97706' : '#dc2626'}
+              bg={kpis.avgAch >= 70 ? 'rgba(22,163,74,0.07)' : kpis.avgAch >= 50 ? 'rgba(217,119,6,0.07)' : 'rgba(220,38,38,0.07)'}
+            />
+          )}
+        </div>
+      )}
+    </Space>
+  );
+};
+
+// ─── Table Column Visibility Constants ─────────────────────────────────────
+const DEFAULT_VISIBLE_COLUMNS: Record<string, boolean> = {
+  machineId: true,
+  codeNo: true,
+  name: true,
+  division: true,
+  department: true,
+  location: true,
+  makeModel: true,
+  criticality: true,
+  status: true,
+  actions: true,
+};
+
+const COLUMN_LABELS: Record<string, string> = {
+  machineId: 'Machine ID',
+  codeNo: 'Code / No.',
+  name: 'Machine Name & Type',
+  division: 'Division & Section',
+  department: 'Department',
+  location: 'Location',
+  makeModel: 'Make / Model',
+  criticality: 'Criticality',
+  status: 'Status',
+  actions: 'Actions',
+};
+
+/* ─── 2027 Modal Process Chevron Navigation (Image 1 Upgrade) ─────────────── */
+const ModalProcessChevronNav: React.FC<{
+  sections: Array<{ key: ViewSection; label: string; icon: React.ReactNode }>;
+  active: ViewSection;
+  onChange: (key: ViewSection) => void;
+}> = ({ sections, active, onChange }) => {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        width: '100%',
+        overflowX: 'auto',
+        padding: '6px 2px 10px 2px',
+        scrollbarWidth: 'thin',
+        filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.06))',
+      }}
+    >
+      {sections.map((s, idx) => {
+        const isActive = s.key === active;
+        const isFirst = idx === 0;
+        const isLast = idx === sections.length - 1;
+
+        const clipPath = isFirst
+          ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
+          : isLast
+          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+
+        return (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => onChange(s.key)}
+            style={{
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: isFirst
+                ? '10px 22px 10px 16px'
+                : isLast
+                ? '10px 18px 10px 24px'
+                : '10px 20px 10px 24px',
+              marginLeft: isFirst ? 0 : -6,
+              zIndex: isActive ? 10 : sections.length - idx,
+              fontSize: 12.5,
+              fontWeight: isActive ? 700 : 600,
+              letterSpacing: '0.2px',
+              color: isActive ? '#ffffff' : '#334155',
+              background: isActive
+                ? 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)'
+                : '#f8fafc',
+              border: 'none',
+              clipPath,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flex: '1 0 auto',
+              transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: isActive
+                ? '0 4px 14px rgba(37, 99, 235, 0.4)'
+                : 'inset 0 1px 0 rgba(255,255,255,0.8)',
+              transform: isActive ? 'scale(1.02)' : 'none',
+            }}
+            onMouseEnter={(e) => {
+              if (!isActive) {
+                e.currentTarget.style.background = '#e2e8f0';
+                e.currentTarget.style.color = '#0f172a';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isActive) {
+                e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.color = '#334155';
+              }
+            }}
+          >
+            <span
+              style={{
+                fontSize: 14,
+                display: 'flex',
+                alignItems: 'center',
+                color: isActive ? '#ffffff' : '#3b82f6',
+              }}
+            >
+              {s.icon}
+            </span>
+            <span>{s.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ─── 2027 Main Status Chevron Ribbon (Image 2 Attendance Style) ──────────── */
+const STATUS_CHEVRONS = [
+  { key: 'ALL', label: 'ALL', color: '#334155', activeBg: '#1e293b', icon: <AppstoreOutlined /> },
+  { key: 'ACTIVE', label: 'ACTIVE', color: '#16a34a', activeBg: '#15803d', icon: <CheckCircleOutlined /> },
+  { key: 'MAINTENANCE', label: 'MAINTENANCE', color: '#d97706', activeBg: '#b45309', icon: <ToolOutlined /> },
+  { key: 'CRITICAL', label: 'BREAKDOWN', color: '#dc2626', activeBg: '#b91c1c', icon: <AlertOutlined /> },
+  { key: 'INACTIVE', label: 'INACTIVE', color: '#0891b2', activeBg: '#0e7490', icon: <MinusOutlined /> },
+  { key: 'RETIRED', label: 'RETIRED', color: '#64748b', activeBg: '#475569', icon: <DeleteOutlined /> },
+];
+
+const StatusChevronRibbon: React.FC<{
+  counts: { all: number; active: number; maintenance: number; breakdown: number; inactive: number; retired: number };
+  activeKey: string;
+  onSelect: (key: string) => void;
+}> = ({ counts, activeKey, onSelect }) => {
+  const getCount = (k: string) => {
+    switch (k) {
+      case 'ALL': return counts.all;
+      case 'ACTIVE': return counts.active;
+      case 'MAINTENANCE': return counts.maintenance;
+      case 'CRITICAL': return counts.breakdown;
+      case 'INACTIVE': return counts.inactive;
+      case 'RETIRED': return counts.retired;
+      default: return 0;
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        width: '100%',
+        overflowX: 'auto',
+        padding: '2px 2px 8px 2px',
+        marginBottom: 12,
+        scrollbarWidth: 'thin',
+        filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.08))',
+      }}
+    >
+      {STATUS_CHEVRONS.map((ch, idx) => {
+        const isSelected = activeKey === ch.key;
+        const isFirst = idx === 0;
+        const isLast = idx === STATUS_CHEVRONS.length - 1;
+        const count = getCount(ch.key);
+
+        const clipPath = isFirst
+          ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
+          : isLast
+          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+
+        return (
+          <button
+            key={ch.key}
+            type="button"
+            onClick={() => onSelect(ch.key)}
+            style={{
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: isFirst
+                ? '10px 22px 10px 16px'
+                : isLast
+                ? '10px 18px 10px 24px'
+                : '10px 20px 10px 24px',
+              marginLeft: isFirst ? 0 : -6,
+              zIndex: isSelected ? 12 : STATUS_CHEVRONS.length - idx,
+              fontSize: 12.5,
+              fontWeight: 700,
+              letterSpacing: '0.4px',
+              color: '#ffffff',
+              background: isSelected ? ch.activeBg : ch.color,
+              border: 'none',
+              clipPath,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flex: '1 0 auto',
+              transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: isSelected ? '0 0 0 2px #ffffff, 0 4px 14px rgba(0,0,0,0.35)' : undefined,
+              transform: isSelected ? 'scale(1.025) translateY(-1px)' : 'none',
+              opacity: isSelected ? 1 : 0.93,
+            }}
+            onMouseEnter={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.opacity = '0.93';
+                e.currentTarget.style.transform = 'none';
+              }
+            }}
+          >
+            <span style={{ fontSize: 13, display: 'flex', alignItems: 'center' }}>{ch.icon}</span>
+            <span>{ch.label}</span>
+            <span
+              style={{
+                display: 'inline-block',
+                background: 'rgba(255, 255, 255, 0.25)',
+                borderRadius: 10,
+                padding: '1px 7px',
+                fontSize: 11.5,
+                fontWeight: 800,
+                letterSpacing: 0,
+                marginLeft: 2,
+              }}
+            >
+              {count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 /** Renders one Machine Details section as clean Label → Value rows. Shared by
+
+
  *  the View modal (no title — the Segmented tab names the section) and the
  *  pre-save Machine Details preview (title shown once per logical group). */
 const MachineSection: React.FC<{ model: MachineDetailModel; section: ViewSection; showTitle?: boolean }> = ({
@@ -560,6 +1496,45 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [fCriticality, setFCriticality] = useState<string | undefined>();
   const [showFilters, setShowFilters] = useState(false);
 
+  // ─── Status Counts for 2027 Chevron Status Ribbon ──────────────────────────
+  const [statusCounts, setStatusCounts] = useState<{
+    all: number;
+    active: number;
+    maintenance: number;
+    breakdown: number;
+    inactive: number;
+    retired: number;
+  }>({ all: 0, active: 0, maintenance: 0, breakdown: 0, inactive: 0, retired: 0 });
+
+  // ─── Column visibility toggle state (Image 2 style) ───────────────────────
+  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('pwi_machine_table_columns_v1');
+      if (saved) return { ...DEFAULT_VISIBLE_COLUMNS, ...JSON.parse(saved) };
+    } catch {}
+    return DEFAULT_VISIBLE_COLUMNS;
+  });
+
+  const activeStatusKey = useMemo(() => {
+    if (fCriticality === 'CRITICAL') return 'CRITICAL';
+    if (fStatus) return fStatus;
+    return 'ALL';
+  }, [fStatus, fCriticality]);
+
+  const handleStatusRibbonSelect = (key: string) => {
+    if (key === 'ALL') {
+      setFStatus(undefined);
+      setFCriticality(undefined);
+    } else if (key === 'CRITICAL') {
+      setFCriticality('CRITICAL');
+      setFStatus(undefined);
+    } else {
+      setFStatus(key);
+      setFCriticality(undefined);
+    }
+    setPage(1);
+  };
+
   const [divisions, setDivisions] = useState<DivisionLk[]>([]);
   const [sections, setSections] = useState<SectionLk[]>([]);
   const [departments, setDepartments] = useState<DepartmentLk[]>([]);
@@ -568,6 +1543,12 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [editing, setEditing] = useState<Machine | null>(null);
   const [detail, setDetail] = useState<Machine | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // Minimized Window Tabs State
+  const [isFormMinimized, setIsFormMinimized] = useState(false);
+  const [isDetailMinimized, setIsDetailMinimized] = useState(false);
+  const [isImportMinimized, setIsImportMinimized] = useState(false);
+
   const [qrModal, setQrModal] = useState<{ visible: boolean; machine: Machine | null; dataUrl: string; payload: string; url: string }>({
     visible: false, machine: null, dataUrl: '', payload: '', url: '',
   });
@@ -597,6 +1578,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [prodTargetsLoading, setProdTargetsLoading] = useState(false);
   const [jobCards, setJobCards] = useState<JobCardLite[]>([]);
   const [jobCardsLoading, setJobCardsLoading] = useState(false);
+  const [toolingComponents, setToolingComponents] = useState<ToolingComponentLite[]>([]);
+  const [toolingLoading, setToolingLoading] = useState(false);
   const [formTick, setFormTick] = useState(0);
   const [vw, setVw] = useState(() => window.innerWidth || 1280);
   const [resultOpen, setResultOpen] = useState(false);
@@ -646,6 +1629,35 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     }
   }, [page, pageSize, sortBy, sortDir, search, fMachineId, fDivision, fSection, fDepartment, fStatus, fCriticality]);
 
+  const fetchStatusCounts = useCallback(async () => {
+    try {
+      const res = await apiService.get<{ data: Machine[]; total: number }>('/machines', { limit: 1000 });
+      const list = res.data || [];
+      let act = 0, maint = 0, bk = 0, inact = 0, ret = 0;
+      list.forEach((m) => {
+        const s = String(m.status || '').toUpperCase();
+        const crit = String(m.criticality || '').toUpperCase();
+        if (s === 'ACTIVE') act++;
+        else if (s === 'MAINTENANCE' || s === 'UNDER_MAINTENANCE') maint++;
+        else if (s === 'INACTIVE' || s === 'IDLE') inact++;
+        else if (s === 'RETIRED') ret++;
+
+        if (crit === 'CRITICAL' || s === 'BREAKDOWN') bk++;
+      });
+      setStatusCounts({
+        all: res.total || list.length,
+        active: act,
+        maintenance: maint,
+        breakdown: bk,
+        inactive: inact,
+        retired: ret,
+      });
+    } catch {
+      // ignore silently on status counts failure
+    }
+  }, []);
+
+  useEffect(() => { fetchStatusCounts(); }, [fetchStatusCounts]);
   useEffect(() => { fetchMachines(page); }, [page, pageSize, fetchMachines]);
 
   useEffect(() => {
@@ -680,12 +1692,14 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   );
 
   const openCreate = () => {
+    setIsFormMinimized(false);
     setEditing(null);
     form.resetFields();
     setModalVisible(true);
   };
 
   const openEdit = (m: Machine) => {
+    setIsFormMinimized(false);
     setEditing(m);
     form.setFieldsValue({
       ...m,
@@ -1114,6 +2128,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   };
 
   const openDetail = async (m: Machine) => {
+    setIsDetailMinimized(false);
     setDetail(null);
     setDetailLoading(true);
     setViewSection('identity');
@@ -1177,6 +2192,27 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       fetchJobCards();
     }
   }, [viewSection, detail, fetchJobCards]);
+
+  const fetchTooling = useCallback(async () => {
+    if (!detail || !detail.id) return;
+    setToolingLoading(true);
+    try {
+      const res = await apiService.get<{ data: ToolingComponentLite[]; total: number }>(
+        '/machine-tooling/components', { machineId: detail.id, limit: 100, sortBy: 'componentCode' }
+      );
+      setToolingComponents(Array.isArray(res?.data) ? res.data : []);
+    } catch {
+      setToolingComponents([]);
+    } finally {
+      setToolingLoading(false);
+    }
+  }, [detail]);
+
+  useEffect(() => {
+    if (viewSection === 'tooling' && detail) {
+      fetchTooling();
+    }
+  }, [viewSection, detail, fetchTooling]);
 
   /** Live pre-save preview bag, rebuilt after every Add/Edit-form keystroke.
    *  In Add mode the Machine ID (and status) are generated on save, so they
@@ -1485,6 +2521,14 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     },
   ];
 
+  const filteredColumns = useMemo(() => {
+    return columns.filter((col) => {
+      const key = String(col.key || '');
+      if (key === 'actions' || key === 'codeNo') return true;
+      return visibleCols[key] !== false;
+    });
+  }, [columns, visibleCols]);
+
   const sortInfo = `Sorted by ${sortBy} (${sortDir.toLowerCase()})`;
 
   // Unified Add/Edit workspace responsive geometry (ONE movable/resizable popup).
@@ -1533,28 +2577,138 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         }
       />
 
-      <Card styles={{ body: { paddingBottom: 0 } }} style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 4 }}>
+      <Card styles={{ body: { padding: '12px 14px 14px' } }} style={{ marginBottom: 16 }}>
+        {/* 2027 Status Chevron Ribbon (Attendance style as requested in Image 2) */}
+        <StatusChevronRibbon
+          counts={statusCounts}
+          activeKey={activeStatusKey}
+          onSelect={handleStatusRibbonSelect}
+        />
+
+        {/* Main Filter Toolbar matching Image 2 */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <Input
             allowClear
-            prefix={<SearchOutlined style={{ color: '#bbb' }} />}
-            placeholder="Search by code, name, serial…"
-            style={{ width: 280, maxWidth: '100%' }}
+            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+            placeholder="Search Machine Register..."
+            style={{ width: 260, maxWidth: '100%' }}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="All Divisions"
+            style={{ width: 170 }}
+            value={fDivision}
+            options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+            onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="All Departments"
+            style={{ width: 170 }}
+            value={fDepartment}
+            options={(fSection ? departmentsForSection(fSection) : fDivision
+              ? departments.filter((d) => d.divisionId === fDivision)
+              : departments).map((d) => ({ value: d.id, label: d.name }))}
+            onChange={(v) => { setFDepartment(v); setPage(1); }}
+          />
           <Badge count={activeFilterCount}>
-            <Button icon={<FilterOutlined />} onClick={() => setShowFilters((v) => !v)}>
-              Filters
+            <Button
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((v) => !v)}
+              style={{
+                background: showFilters ? '#eff6ff' : undefined,
+                borderColor: showFilters ? '#3b82f6' : undefined,
+                color: showFilters ? '#1d4ed8' : undefined,
+                fontWeight: 600,
+              }}
+            >
+              More Filters
             </Button>
           </Badge>
+
           <div style={{ flex: 1 }} />
+
+          {/* Columns Toggle Dropdown (Image 1 & Image 2) */}
+          <Dropdown
+            trigger={['click']}
+            placement="bottomRight"
+            dropdownRender={() => (
+              <div
+                style={{
+                  background: '#ffffff',
+                  padding: '12px 16px',
+                  borderRadius: 8,
+                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                  minWidth: 200,
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 10,
+                    paddingBottom: 8,
+                    borderBottom: '1px solid #f1f5f9',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                    Table Columns
+                  </span>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                    onClick={() => {
+                      setVisibleCols(DEFAULT_VISIBLE_COLUMNS);
+                      try { localStorage.removeItem('pwi_machine_table_columns_v1'); } catch {}
+                    }}
+                  >
+                    Reset All
+                  </Button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {Object.entries(COLUMN_LABELS).map(([key, label]) => (
+                    <Checkbox
+                      key={key}
+                      checked={visibleCols[key] !== false}
+                      disabled={key === 'codeNo' || key === 'actions'}
+                      onChange={(e) => {
+                        const next = { ...visibleCols, [key]: e.target.checked };
+                        setVisibleCols(next);
+                        try { localStorage.setItem('pwi_machine_table_columns_v1', JSON.stringify(next)); } catch {}
+                      }}
+                      style={{ fontSize: 13, color: '#334155' }}
+                    >
+                      {label}
+                    </Checkbox>
+                  ))}
+                </div>
+              </div>
+            )}
+          >
+            <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
+              Columns
+            </Button>
+          </Dropdown>
+
+          <Button icon={<ClearOutlined />} onClick={resetFilters}>
+            Reset
+          </Button>
           <Text type="secondary" style={{ fontSize: 12 }}>{sortInfo}</Text>
         </div>
+
         {showFilters && (
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: 12, padding: '14px 0 16px', marginTop: 12, borderTop: '1px solid #f0f0f0',
+            gap: 12, padding: '14px 0 6px', marginTop: 12, borderTop: '1px solid #f0f0f0',
           }}>
             <Input
               allowClear prefix={<SearchOutlined style={{ color: '#bbb' }} />}
@@ -1563,28 +2717,12 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               onChange={(e) => { setFMachineId(e.target.value); setPage(1); }}
             />
             <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Division"
-              style={{ width: '100%' }}
-              value={fDivision}
-              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-              onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
-            />
-            <Select
               allowClear showSearch optionFilterProp="label" placeholder="Section"
               style={{ width: '100%' }}
               value={fSection}
               options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
               onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
               disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
-            />
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Department"
-              style={{ width: '100%' }}
-              value={fDepartment}
-              options={(fSection ? departmentsForSection(fSection) : fDivision
-                ? departments.filter((d) => d.divisionId === fDivision)
-                : departments).map((d) => ({ value: d.id, label: d.name }))}
-              onChange={(v) => { setFDepartment(v); setPage(1); }}
             />
             <Select
               allowClear placeholder="Status"
@@ -1620,7 +2758,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         <div className="erp-table-container erp-table-container--dense">
           <Table
             rowKey="id"
-            columns={columns}
+            columns={filteredColumns}
             dataSource={machines}
             loading={loading}
             scroll={{ x: 1600 }}
@@ -1662,8 +2800,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       <DraggableResizableModal
         title="Machine Details"
         subtitle={detail ? `${detail.name ?? ''}${detail.machineCode ? ` · ${detail.machineCode}` : ''}`.trim() : ' '}
-        open={!!detail || detailLoading}
-        onCancel={() => { setDetail(null); setDetailLoading(false); setViewSection('identity'); }}
+        open={(!!detail || detailLoading) && !isDetailMinimized}
+        onCancel={() => { setDetail(null); setDetailLoading(false); setViewSection('identity'); setIsDetailMinimized(false); }}
+        onMinimize={() => setIsDetailMinimized(true)}
         width={900}
         height={640}
         minWidth={560}
@@ -1690,125 +2829,48 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           <LoadingState tip="Loading machine details…" />
         ) : detail && detailModel ? (
           <Space direction="vertical" size={14} style={{ width: '100%' }}>
-            <div className="erp-modal-nav" style={{ overflowX: 'auto', paddingBottom: 2 }}>
-              <Segmented
-                block
-                size="small"
-                value={viewSection}
-                onChange={(v) => setViewSection(v as ViewSection)}
-                options={VIEW_SECTIONS.map((s) => ({ value: s.key, label: s.label }))}
+            <div className="erp-modal-nav" style={{ overflowX: 'auto', paddingBottom: 4 }}>
+              <ModalProcessChevronNav
+                sections={VIEW_SECTIONS}
+                active={viewSection}
+                onChange={setViewSection}
               />
             </div>
 
-            {viewSection !== 'production' && viewSection !== 'jobcards' && (
+            {viewSection !== 'production' && viewSection !== 'jobcards' && viewSection !== 'tooling' && (
               <MachineSection model={detailModel} section={viewSection} />
             )}
 
             {viewSection === 'production' && (
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <BarChartOutlined style={{ color: 'var(--theme-text-secondary)' }} />
-                    <Text strong style={{ fontSize: 13 }}>Production Summary</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>Target / Actual / Achievement (from recent entries)</Text>
-                  </div>
-                  <ProductionSummary entries={prodEntries} />
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <ScheduleOutlined style={{ color: 'var(--theme-text-secondary)' }} />
-                    <Text strong style={{ fontSize: 13 }}>Machine Targets</Text>
-                    <div style={{ flex: 1 }} />
-                    <Link to="/production/targets" style={{ fontSize: 12 }}>Open Machine Targets</Link>
-                  </div>
-                  <Table
-                    rowKey="id"
-                    size="small"
-                    loading={prodTargetsLoading}
-                    dataSource={prodTargets}
-                    pagination={false}
-                    locale={{ emptyText: prodTargetsLoading ? ' ' : <Text type="secondary">No machine targets for this machine</Text> }}
-                    scroll={{ x: 640 }}
-                    columns={[
-                      { title: 'Shift', key: 'shift', render: (_, r) => r.shift?.name ?? r.shift?.shiftCode ?? <Text type="secondary">—</Text> },
-                      { title: 'Item', key: 'item', width: 210, render: (_, r) => <ItemCell item={r.item} /> },
-                      { title: 'Target Qty', key: 'tq', align: 'right', render: (_, r) => r.targetQuantity ?? <Text type="secondary">—</Text> },
-                      { title: 'Std Hrs', key: 'sh', align: 'right', render: (_, r) => r.standardHours ?? <Text type="secondary">—</Text> },
-                      { title: 'Effective From', key: 'ef', render: (_, r) => r.effectiveFrom ?? <Text type="secondary">—</Text> },
-                      { title: 'Effective To', key: 'et', render: (_, r) => r.effectiveTo ?? <Text type="secondary">—</Text> },
-                    ]}
-                  />
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <BarChartOutlined style={{ color: 'var(--theme-text-secondary)' }} />
-                    <Text strong style={{ fontSize: 13 }}>Production History</Text>
-                    <div style={{ flex: 1 }} />
-                    <Link to="/production/entries" style={{ fontSize: 12 }}>Open Daily Production Entry</Link>
-                  </div>
-                  <Table
-                    rowKey="id"
-                    size="small"
-                    loading={prodEntriesLoading}
-                    dataSource={prodEntries}
-                    pagination={false}
-                    locale={{ emptyText: prodEntriesLoading ? ' ' : <Text type="secondary">No production entries for this machine</Text> }}
-                    scroll={{ x: 640 }}
-                    columns={[
-                      {
-                        title: 'Date', key: 'date', width: 110,
-                        render: (_, r) => (r.entryDate ? dayjs(r.entryDate).format('DD-MMM-YYYY') : <Text type="secondary">—</Text>),
-                      },
-                      { title: 'Shift', key: 'shift', render: (_, r) => r.shift?.name ?? <Text type="secondary">—</Text> },
-                      { title: 'Item', key: 'item', width: 210, render: (_, r) => <ItemCell item={r.item} /> },
-                      { title: 'Target', key: 'tq', align: 'right', render: (_, r) => r.targetQuantity ?? <Text type="secondary">—</Text> },
-                      { title: 'Actual', key: 'aq', align: 'right', render: (_, r) => r.actualQuantity ?? <Text type="secondary">—</Text> },
-                      {
-                        title: 'Achievement %', key: 'ach', align: 'right',
-                        render: (_, r) => <AchievementCell value={r.achievementPercentage ?? (num(r.targetQuantity) ? ((num(r.actualQuantity) ?? 0) / num(r.targetQuantity)!) * 100 : null)} />,
-                      },
-                    ]}
-                  />
-                </Space>
+                <ProductionSection
+                  entries={prodEntries}
+                  targets={prodTargets}
+                  entriesLoading={prodEntriesLoading}
+                  targetsLoading={prodTargetsLoading}
+                />
               )}
 
               {viewSection === 'jobcards' && (
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <HistoryOutlined style={{ color: 'var(--theme-text-secondary)' }} />
-                    <Text strong style={{ fontSize: 13 }}>Job Card History</Text>
-                    <div style={{ flex: 1 }} />
-                    <Link to="/maintenance/job-cards" style={{ fontSize: 12 }}>Open Job Cards</Link>
-                  </div>
-                  <Table
-                    rowKey="id"
-                    size="small"
-                    loading={jobCardsLoading}
-                    dataSource={jobCards}
-                    pagination={false}
-                    locale={{ emptyText: jobCardsLoading ? ' ' : <EmptyState title="No job card history available for this machine." description="Job cards raised against this machine will appear here." /> }}
-                    scroll={{ x: 880 }}
-                    columns={[
-                      {
-                        title: 'Job Card No', key: 'no', width: 130,
-                        render: (_, r) => (r.jobCardNo ? <code style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted)' }}>{r.jobCardNo}</code> : <Text type="secondary">—</Text>),
-                      },
-                      { title: 'Requested Date', key: 'rd', width: 110, render: (_, r) => (r.requestedAt ? fmtDate(r.requestedAt) : <Text type="secondary">—</Text>) },
-                      { title: 'Complaint', key: 'cm', ellipsis: true, render: (_, r) => r.complaint ?? <Text type="secondary">—</Text> },
-                      { title: 'Status', key: 'st', render: (_, r) => (r.currentStatus ? badge(r.currentStatus) : <Text type="secondary">—</Text>) },
-                      { title: 'Priority', key: 'pr', render: (_, r) => (r.priority ? label(r.priority) : <Text type="secondary">—</Text>) },
-                      { title: 'Type', key: 'ty', render: (_, r) => (r.maintenanceType ? label(r.maintenanceType) : <Text type="secondary">—</Text>) },
-                      { title: 'Requested By', key: 'rb', ellipsis: true, render: (_, r) => r.requestedByUser?.fullName ?? r.requestedByUser?.name ?? r.requestedByUser?.email ?? <Text type="secondary">—</Text> },
-                      { title: 'Started', key: 'sa', width: 120, render: (_, r) => (r.startedAt ? fmtDateTime(r.startedAt) : <Text type="secondary">—</Text>) },
-                      { title: 'Closed', key: 'cl', width: 120, render: (_, r) => (r.closedAt ? fmtDateTime(r.closedAt) : <Text type="secondary">—</Text>) },
-                      { title: 'Downtime', key: 'dt', align: 'right', render: (_, r) => (r.downtimeMinutes != null ? fmtMinutes(r.downtimeMinutes) : <Text type="secondary">—</Text>) },
-                    ]}
-                  />
-                </Space>
+                <JobCardsSection
+                  jobCards={jobCards}
+                  jobCardsLoading={jobCardsLoading}
+                />
+              )}
+
+              {viewSection === 'tooling' && (
+                <ToolingSection
+                  components={toolingComponents}
+                  loading={toolingLoading}
+                  machineId={detail?.id}
+                />
               )}
             </Space>
           ) : null}
       </DraggableResizableModal>
 
       <FormModal
-        open={modalVisible}
+        open={modalVisible && !isFormMinimized}
+        onMinimize={() => setIsFormMinimized(true)}
         editing={editing}
         saving={saving}
         form={form}
@@ -1878,8 +2940,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       />
 
       <DraggableResizableModal
-        open={importOpen}
+        open={importOpen && !isImportMinimized}
         onCancel={closeImport}
+        onMinimize={() => setIsImportMinimized(true)}
         width={960}
         height={620}
         minWidth={640}
@@ -2040,6 +3103,78 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           </div>
         )}
       </DraggableResizableModal>
+
+      {/* Universal Floating Minimized Dock for Machine Management */}
+      {(isFormMinimized || isDetailMinimized || isImportMinimized) && (
+        <div className="erp-minimized-dock" data-testid="machine-minimized-dock">
+          {isFormMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsFormMinimized(false);
+                setModalVisible(true);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <SettingOutlined style={{ color: '#4f46e5' }} />
+              <span>{editing ? `Edit: ${editing.machineCode}` : 'Add Machine'}</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsFormMinimized(false);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+          {isDetailMinimized && detail && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsDetailMinimized(false);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <DesktopOutlined style={{ color: '#0ea5e9' }} />
+              <span>{`Machine: ${detail.machineCode}`}</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsDetailMinimized(false);
+                  setDetail(null);
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+          {isImportMinimized && (
+            <div
+              className="erp-minimized-tab"
+              onClick={() => {
+                setIsImportMinimized(false);
+              }}
+            >
+              <span className="erp-minimized-pulse" />
+              <ImportOutlined style={{ color: '#10b981' }} />
+              <span>Import Machines</span>
+              <span
+                className="erp-minimized-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsImportMinimized(false);
+                  closeImport();
+                }}
+              >
+                ×
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -2067,12 +3202,14 @@ interface FormModalProps {
   /** Live pre-save preview bag rendered in the right-hand Details pane. */
   previewModel?: MachineDetailModel | null;
   onFormTick?: () => void;
+  onMinimize?: () => void;
 }
 
 const FormModal: React.FC<FormModalProps> = ({
   open, editing, saving, form, formDivisionId, formSectionId,
   divisions, sections, departments, sectionsForDivision, departmentsForSection,
   width, height, minWidth, minHeight, stacked, previewModel, onCancel, onOk, onFormTick,
+  onMinimize,
 }) => (
   <DraggableResizableModal
     title={editing ? `Edit Machine — ${editing.machineCode}` : 'Add Machine'}
@@ -2085,6 +3222,7 @@ const FormModal: React.FC<FormModalProps> = ({
     onOk={onOk}
     confirmLoading={saving}
     onCancel={onCancel}
+    onMinimize={onMinimize}
     okText={editing ? 'Save Changes' : 'Save'}
   >
     <div className={`erp-workspace-panes${stacked ? ' erp-workspace-panes--column' : ''}`}>
@@ -2238,7 +3376,7 @@ const FormModal: React.FC<FormModalProps> = ({
         )}
       </div>
     </div>
-  </DraggableResizableModal>
-);
+    </DraggableResizableModal>
+  );
 
 export default MachineManagement;
