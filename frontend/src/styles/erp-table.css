@@ -4,6 +4,20 @@
    Adapts automatically to Light and Dark themes via CSS tokens.
 ============================================================================ */
 
+/* ── Remove all fixed/frozen table columns across all tables ──
+   Tables scroll naturally with pure horizontal scroll without any column
+   floating, freezing, or overlapping content on mobile or laptop. */
+.ant-table-cell-fix-left,
+.ant-table-cell-fix-right,
+.ant-table-cell-fix-left-last,
+.ant-table-cell-fix-right-first {
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  box-shadow: none !important;
+  z-index: auto !important;
+}
+
 /* ── 1. Table Container (Subtle light border, no heavy double-card side borders) ── */
 .erp-table-container {
   background: var(--theme-surface, #ffffff);

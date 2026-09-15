@@ -426,7 +426,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           minWidth: 0,
           width: '100%',
           maxWidth: '100vw',
-          overflowX: 'hidden',
+          overflowX: 'clip',
         }}
       >
         <Header
@@ -443,6 +443,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             position: 'sticky',
             top: 0,
             zIndex: 1000,
+            background: 'var(--theme-surface, #ffffff)',
             width: '100%',
             maxWidth: '100vw',
             boxSizing: 'border-box',

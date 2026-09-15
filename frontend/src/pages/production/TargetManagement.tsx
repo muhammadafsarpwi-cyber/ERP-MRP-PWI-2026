@@ -905,7 +905,6 @@ const TargetManagement: React.FC = () => {
       title: <HeaderCell icon={<TagOutlined />} first="MACHINE" second="ID" />,
       key: 'machineId',
       width: 80,
-      fixed: 'left',
       render: (_: any, t: MachineTarget) => (
         <Tooltip title={t.machine?.machineId ?? 'No Machine ID'}>
           <code style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted)', cursor: 'default' }}>
@@ -1130,7 +1129,6 @@ const TargetManagement: React.FC = () => {
       title: <HeaderCell first="Actions" />,
       key: 'actions',
       width: 160,
-      fixed: 'right',
       align: 'center',
       render: (_: any, t: MachineTarget) => {
         const machineLabel = t.machine?.machineCode || t.machine?.name || t.machine?.machineNumber || 'this record';

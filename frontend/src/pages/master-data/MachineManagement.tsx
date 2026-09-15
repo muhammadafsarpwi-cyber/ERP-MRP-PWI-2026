@@ -2308,7 +2308,6 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       dataIndex: 'machineId',
       key: 'machineId',
       width: 80,
-      fixed: 'left',
       sorter: true,
       render: (mid: string | null | undefined) => (
         <Tooltip title={mid ?? 'No Machine ID'}>
@@ -2324,7 +2323,6 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       key: 'codeNo',
       width: 110,
       align: 'center',
-      fixed: 'left',
       sorter: true,
       render: (code: string, m: Machine) => {
         const mc = getMachineColor(m);
@@ -2465,7 +2463,6 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       title: <HeaderCell first="Row" second="Actions" />,
       key: 'actions',
       width: 180,
-      fixed: screens.lg ? 'right' : undefined,
       align: 'center',
       render: (_: any, m: Machine) => {
         const machineLabel = m.machineCode || m.name || m.machineNumber || 'this record';

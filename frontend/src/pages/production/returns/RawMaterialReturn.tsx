@@ -391,7 +391,7 @@ const RawMaterialReturn: React.FC = () => {
     { title: 'Quantity', dataIndex: 'quantityTotal', key: 'quantityTotal', width: 110, align: 'right' as const, render: (v?: number) => formatNumber(v, 2) },
     { title: 'Status', dataIndex: 'status', key: 'status', width: 105, render: (v: string) => <Tag color={v === 'CONFIRMED' ? 'green' : v === 'DRAFT' ? 'gold' : 'red'}>{v}</Tag> },
     {
-      title: 'Actions', key: 'actions', width: 150, fixed: 'right' as const,
+      title: 'Actions', key: 'actions', width: 150,
       render: (_, r) => (
         <Space size={0}>
           <Tooltip title="View">
