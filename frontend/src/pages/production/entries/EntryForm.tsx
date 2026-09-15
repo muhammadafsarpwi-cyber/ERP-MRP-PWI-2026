@@ -184,6 +184,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   // confirms the entry was persisted (POST/PUT /production/entries).
   const [savedEntry, setSavedEntry] = useState<SavedEntrySummary | null>(null);
   const [savedOpen, setSavedOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Machine pre-selected on the availability screen (Step 1): context is locked
   // so the operator cannot drift into a duplicate date/shift/machine combination.
@@ -1028,6 +1029,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     // the success modal must appear exactly once per persisted entry.
     if (saving || submitBlocked) return;
     setSaving(true);
+    setSavedOpen(true);
+    setSaveError(null);
+    setSavedEntry(null);
     try {
       const payload: Record<string, unknown> = { ...values };
       if (isActualAuto) {
@@ -1185,6 +1189,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           uom: uomLk?.code || uomLk?.symbol,
           status: (values as { postToInventory?: boolean }).postToInventory ? 'Saved • Posted to Inventory' : 'Saved',
         });
+        setSaveError(null);
         setSavedOpen(true);
       };
 
@@ -1203,13 +1208,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         showSavedSuccess(updated.data);
       }
     } catch (err: unknown) {
-      setSavedOpen(false);
       const axiosErr = err as { response?: { data?: { message?: string | string[] } } };
       console.error('ENTRY_SAVE_ERROR_RESPONSE:', JSON.stringify(axiosErr.response?.data));
       const msg = Array.isArray(axiosErr.response?.data?.message)
         ? axiosErr.response!.data!.message!.join(', ')
         : axiosErr.response?.data?.message ?? 'Failed to save entry';
-      message.error(String(msg));
+      setSaveError(String(msg));
+      setSavedOpen(true);
     } finally {
       setSaving(false);
     }
@@ -1218,11 +1223,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   // ── PROMPT-35 success-modal actions ───────────────────────────────────────
   const viewSavedEntry = useCallback(() => {
     setSavedOpen(false);
+    setSaveError(null);
     if (savedEntry?.entryId) navigate(`/production/entries/${savedEntry.entryId}`);
   }, [savedEntry, navigate]);
 
   const newSavedEntry = useCallback(() => {
     setSavedOpen(false);
+    setSaveError(null);
     if (mode === 'edit') {
       // Editing flow has no clean "another entry" slot → reusable New Entry via
       // the canonical machine-selection screen.
@@ -1249,6 +1256,10 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
   const closeSavedEntry = useCallback(() => {
     setSavedOpen(false);
+    if (saveError) {
+      setSaveError(null);
+      return;
+    }
     if (mode === 'edit') {
       if (id) navigate(`/production/entries/${id}`);
       return;
@@ -2608,6 +2619,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       <ProductionSaveSuccessModal
         open={savedOpen}
         saving={saving}
+        error={saveError}
         entry={savedEntry}
         mode={mode}
         onView={viewSavedEntry}
@@ -3340,26 +3352,9 @@ const RawMaterialAvailability: React.FC<{
             rawQuantity = toNum(producingOp?.inputQuantity);
             reqSource = 'routing';
           }
-          const lineUomId = bomLine?.uomId ?? componentBaseUomId;
-          const componentItem = lookups.items.find((i) => i.id === prevStageItemId) || rawItemRef.item;
-          const convertedUnits = convertProductToComponentQty(units, item, componentItem);
-          let req = convertedUnits * rawQuantity * (1 + rawScrapFactor) / (rawYield / 100);
-          req = convertBetweenUoms(lineUomId, componentBaseUomId, req, lookups.uomConversions);
-          if (rawQuantity <= 0) {
-            setData((prev) => ({
-              ...prev,
-              [itemId]: {
-                ...emptyTrace, itemId, loading: false, traceStatus: 'no-raw-material',
-                prevStageItemId, prevStageItemCode, prevStageItemName,
-                prevStageName: prevStageOpName,
-              },
-            }));
-            return;
-          }
 
           // TASK #32: Fetch the raw material item's wire size + UOM from Item Master
-          // for wire-size mismatch detection and display. The raw material is the
-          // exact Item Master record resolved via productionInItemId — never guessed.
+          // for wire-size mismatch detection, display, and conversion.
           let rawWireSizeMm: number | null = null;
           let rawBaseUomCode: string | null = null;
           let rawDepartmentName: string | null = null;
@@ -3374,6 +3369,30 @@ const RawMaterialAvailability: React.FC<{
               rawBaseUomCode = rawItemData?.baseUom?.code ?? null;
               rawDepartmentName = rawItemData?.department?.name ?? null;
             } catch { /* non-critical: display without wire size if fetch fails */ }
+          }
+
+          const lineUomId = bomLine?.uomId ?? componentBaseUomId;
+          const componentItem = lookups.items.find((i) => i.id === prevStageItemId) || rawItemRef.item;
+          const compUom = rawBaseUomCode || componentItem?.baseUom?.code || bomLine?.uom?.code || 'KG';
+          const prodUom = lookups.uoms.find((u) => u.id === (p.uomId || item?.baseUomId));
+          const enrichedProduct = {
+            ...(item || {}),
+            uomCode: prodUom?.code || item?.baseUom?.code || 'PCS',
+            uomType: prodUom?.uomType || (prodUom?.code === 'PCS' ? 'COUNT' : prodUom?.code === 'M' ? 'LENGTH' : undefined),
+          };
+          const convertedUnits = convertProductToComponentQty(units, enrichedProduct, compUom);
+          let req = convertedUnits * rawQuantity * (1 + rawScrapFactor) / (rawYield / 100);
+          req = convertBetweenUoms(lineUomId, componentBaseUomId, req, lookups.uomConversions);
+          if (rawQuantity <= 0) {
+            setData((prev) => ({
+              ...prev,
+              [itemId]: {
+                ...emptyTrace, itemId, loading: false, traceStatus: 'no-raw-material',
+                prevStageItemId, prevStageItemCode, prevStageItemName,
+                prevStageName: prevStageOpName,
+              },
+            }));
+            return;
           }
           // TASK #35: the raw material belongs to its source/store department —
           // the input Item Master record's own department, NOT the production
@@ -3527,8 +3546,15 @@ const RawMaterialAvailability: React.FC<{
         if (it.loading || !it.lines.length) { next[key] = it; continue; }
         const prod = selected.find((p) => p.itemId === key);
         if (!prod) { next[key] = it; continue; }
-        const item = lookups.items.find((i) => i.id === key);
+        const item = lookups.items.find((i) => i.id === key)
+          || (Object.values(lookups.deptItemsMap).flat() as ItemLk[]).find((i) => i.id === key);
         const productBaseUomId = item?.baseUomId ?? prod.uomId;
+        const prodUom = lookups.uoms.find((u) => u.id === (prod.uomId || productBaseUomId));
+        const enrichedProduct = {
+          ...(item || {}),
+          uomCode: prodUom?.code || item?.baseUom?.code || 'PCS',
+          uomType: prodUom?.uomType || (prodUom?.code === 'PCS' ? 'COUNT' : prodUom?.code === 'M' ? 'LENGTH' : undefined),
+        };
         // TASK #37: consumption basis = actual + scrap, mirroring the backend.
         const qtyInBase = convertBetweenUoms(prod.uomId, productBaseUomId, Math.max(0, toNum(prod.actualQuantity) + rowScrap(prod)), lookups.uomConversions);
         const units = qtyInBase / it.baseQuantity;
@@ -3536,7 +3562,8 @@ const RawMaterialAvailability: React.FC<{
           ...it,
           lines: it.lines.map((l) => {
             const componentItem = lookups.items.find((i) => i.id === l.rawItemId);
-            const convertedUnits = convertProductToComponentQty(units, item, componentItem);
+            const compUom = l.uomCode || l.rawBaseUomCode || componentItem?.baseUom?.code || 'KG';
+            const convertedUnits = convertProductToComponentQty(units, enrichedProduct, compUom);
             let req = convertedUnits * l.rawQuantity * (1 + l.rawScrapFactor) / (l.rawYield / 100);
             req = convertBetweenUoms(l.lineUomId, l.componentBaseUomId, req, lookups.uomConversions);
             const required = Math.round(req * 10000) / 10000;

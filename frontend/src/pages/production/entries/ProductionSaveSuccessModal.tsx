@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, Button, Space, Typography, Divider, Tag } from 'antd';
-import { CheckCircleFilled, EyeOutlined, PlusOutlined, UndoOutlined, LoadingOutlined } from '@ant-design/icons';
+import { CheckCircleFilled, EyeOutlined, PlusOutlined, UndoOutlined, LoadingOutlined, CloseCircleFilled, ExclamationCircleFilled } from '@ant-design/icons';
 
 const { Text, Title } = Typography;
 
@@ -35,22 +35,23 @@ const Row: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, valu
 };
 
 /**
- * PROMPT-35 success confirmation & saving modal.
+ * PROMPT-35 success confirmation, loading spinner, and feedback modal.
  * When saving is in progress, displays a prominent spinning loader in an independent modal popup.
- * Once saved, displays a big green checkmark and the 3 key figures:
- * Actual Production, Target, and Achievement %, along with Machine No. and Entry Reference.
+ * If saving succeeds, displays a big green checkmark and key figures (Actual, Target, Achievement %).
+ * If saving fails or returns shortage/error comments, displays the server feedback inside the modal popup.
  */
 const ProductionSaveSuccessModal: React.FC<{
   open: boolean;
   saving?: boolean;
+  error?: string | null;
   entry: SavedEntrySummary | null;
   mode?: 'create' | 'edit';
   onView: () => void;
   onNew: () => void;
   onClose: () => void;
-}> = ({ open, saving = false, entry, mode = 'create', onView, onNew, onClose }) => {
+}> = ({ open, saving = false, error = null, entry, mode = 'create', onView, onNew, onClose }) => {
   if (!open) return null;
-  if (!saving && !entry) return null;
+  if (!saving && !entry && !error) return null;
 
   return (
     <Modal
@@ -85,6 +86,56 @@ const ProductionSaveSuccessModal: React.FC<{
           <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 13 }}>
             Recording production shift figures, inventory updates, and calculating targets. Please wait...
           </Text>
+        </div>
+      ) : error ? (
+        <div style={{ textAlign: 'center', padding: '16px 8px 8px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 76,
+              height: 76,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+              color: '#dc2626',
+              marginBottom: 12,
+              boxShadow: '0 4px 12px rgba(220, 38, 38, 0.2)',
+            }}
+          >
+            <CloseCircleFilled style={{ fontSize: 44 }} />
+          </div>
+          <Title level={4} style={{ margin: 0, color: 'var(--theme-text, #0f172a)' }}>
+            Production Entry Feedback / Alert
+          </Title>
+          <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            The production entry could not be completed due to the following requirement:
+          </Text>
+
+          <div
+            style={{
+              marginTop: 16,
+              marginBottom: 18,
+              padding: '12px 16px',
+              borderRadius: 8,
+              border: '1px solid #fca5a5',
+              background: '#fef2f2',
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <ExclamationCircleFilled style={{ color: '#dc2626', fontSize: 18, marginTop: 2, flexShrink: 0 }} />
+              <Text strong style={{ fontSize: 13, color: '#991b1b', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                {error}
+              </Text>
+            </div>
+          </div>
+
+          <Space direction="vertical" style={{ width: '100%', padding: '0 4px' }}>
+            <Button type="primary" danger block size="large" onClick={onClose}>
+              Review & Adjust Entry
+            </Button>
+          </Space>
         </div>
       ) : entry ? (
         <>

@@ -169,51 +169,49 @@ export function lineToKg(quantity: number | string | null | undefined, item: KgC
 export function convertProductToComponentQty(
   quantity: number | string | null | undefined,
   product: KgConversionItem | null | undefined,
-  component: KgConversionItem | null | undefined,
+  component?: KgConversionItem | string | null,
 ): number {
   const q = toNum2(quantity);
   if (q <= 0 || !product) return q;
 
   const prodUom = (product.uomCode || product.baseUom?.code || '').toUpperCase();
-  const compUom = (component?.uomCode || component?.baseUom?.code || '').toUpperCase();
+  const compUom = (typeof component === 'string' ? component : (component?.uomCode || component?.baseUom?.code || '')).toUpperCase();
   const prodFamily = (product.uomType || product.baseUom?.uomType || '').toUpperCase();
-  const compFamily = (component?.uomType || component?.baseUom?.uomType || '').toUpperCase();
+  const compFamily = (typeof component === 'string' ? '' : (component?.uomType || component?.baseUom?.uomType || '')).toUpperCase();
 
   // If both UOM codes match, 1:1
   if (prodUom && compUom && prodUom === compUom) return q;
 
-  const isProdCount = prodFamily === 'COUNT' || prodUom === 'PCS' || prodUom === 'EA';
-  const isCompWeight = compFamily === 'WEIGHT' || compUom === 'KG';
-  const isProdLength = prodFamily === 'LENGTH' || prodUom === 'M' || prodUom === 'METER';
-  const isProdWeight = prodFamily === 'WEIGHT' || prodUom === 'KG';
-  const isCompCount = compFamily === 'COUNT' || compUom === 'PCS' || compUom === 'EA';
-  const isCompLength = compFamily === 'LENGTH' || compUom === 'M' || compUom === 'METER';
+  const wpp = toNum2(product.weightPerPiece);
+  const ppk = toNum2(product.piecesPerKg);
+  const wpm = toNum2(product.weightPerMeter);
 
-  // Product in PCS/COUNT and Component in KG/WEIGHT
+  const isProdCount = prodFamily === 'COUNT' || prodUom === 'PCS' || prodUom === 'PC' || prodUom === 'EA' || (wpp > 0 || ppk > 0);
+  const isCompWeight = compFamily === 'WEIGHT' || compUom === 'KG' || compUom === 'KILOGRAM' || (!compUom && !compFamily);
+  const isProdLength = prodFamily === 'LENGTH' || prodUom === 'M' || prodUom === 'METER' || prodUom === 'METERS' || (wpm > 0 && !isProdCount);
+  const isProdWeight = prodFamily === 'WEIGHT' || prodUom === 'KG' || prodUom === 'KILOGRAM';
+  const isCompCount = compFamily === 'COUNT' || compUom === 'PCS' || compUom === 'PC' || compUom === 'EA';
+  const isCompLength = compFamily === 'LENGTH' || compUom === 'M' || compUom === 'METER' || compUom === 'METERS';
+
+  // Product in PCS/COUNT and Component in KG/WEIGHT (or default component weight)
   if (isProdCount && isCompWeight) {
-    const wpp = toNum2(product.weightPerPiece);
-    const ppk = toNum2(product.piecesPerKg);
     if (wpp > 0) return round6(q * wpp);
     if (ppk > 0) return round6(q / ppk);
   }
 
   // Product in METER/LENGTH and Component in KG/WEIGHT
   if (isProdLength && isCompWeight) {
-    const wpm = toNum2(product.weightPerMeter);
     if (wpm > 0) return round6(q * wpm);
   }
 
   // Product in KG/WEIGHT and Component in PCS/COUNT
   if (isProdWeight && isCompCount) {
-    const wpp = toNum2(product.weightPerPiece);
-    const ppk = toNum2(product.piecesPerKg);
     if (wpp > 0) return round6(q / wpp);
     if (ppk > 0) return round6(q * ppk);
   }
 
   // Product in KG/WEIGHT and Component in METER/LENGTH
   if (isProdWeight && isCompLength) {
-    const wpm = toNum2(product.weightPerMeter);
     if (wpm > 0) return round6(q / wpm);
   }
 
