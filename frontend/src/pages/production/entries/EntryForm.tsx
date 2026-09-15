@@ -224,6 +224,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const productionItemsWatch = Form.useWatch('productionItems', form);
   const machineNoWatch = Form.useWatch('machineNo', form);
   const entryDateWatch = Form.useWatch('entryDate', form);
+  const coilSizeWatch = Form.useWatch('coilSize', form);
 
   // Auto-fill Supervisor Name from currently logged-in user
   const currentUser = useUserStore((s) => s.user);
@@ -782,6 +783,20 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return selectedItem;
   }, [productionItemsWatch, lookups.items, departmentItems, selectedItem]);
 
+  // Auto-fill Coil Size from primary item's Wire Size (Wire Size == Coil Size)
+  const lastAutoCoilRef = useRef<string | null>(null);
+  useEffect(() => {
+    const effectiveWire = primaryItem?.wireSizeMm ?? (primaryItem?.id ? rawMaterialData[primaryItem.id]?.wireSizeMm : null);
+    if (effectiveWire != null) {
+      const wireSizeStr = `${formatDimension(effectiveWire)} mm`;
+      const currentCoil = form.getFieldValue('coilSize');
+      if (!currentCoil || currentCoil === lastAutoCoilRef.current) {
+        form.setFieldValue('coilSize', wireSizeStr);
+        lastAutoCoilRef.current = wireSizeStr;
+      }
+    }
+  }, [primaryItem, rawMaterialData, form]);
+
   const operatorOptions = useMemo(() => {
     const list = lookups.employeesForDepartment(effectiveDeptId);
     const opts = list.map((e) => ({
@@ -969,19 +984,23 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     (machineLinked ? displayTarget !== null : Boolean(targetQty && toNum(targetQty) > 0))
   );
   const isStep5Done = useMemo(() => {
-    const dtEntries = (downtimeEntriesWatch ?? []) as any[];
-    const hasIncompleteRow = dtEntries.some((d) => {
-      if (!d) return false;
-      const hasReason = Boolean(d.downtimeReasonId);
-      const hasHours = d.downtimeHours !== undefined && d.downtimeHours !== null && d.downtimeHours !== '' && toNum(d.downtimeHours) > 0;
-      return (hasReason && !hasHours) || (!hasReason && hasHours);
-    });
-    if (hasIncompleteRow) return false;
+    const rawDt = (downtimeEntriesWatch ?? []) as any[];
+    const dtEntries = rawDt.filter(Boolean);
+
+    // If downtime rows are present in the list, EVERY row must be fully fed (valid reason + positive hours)
+    if (dtEntries.length > 0) {
+      const anyIncompleteOrUnfed = dtEntries.some(
+        (d) => !d?.downtimeReasonId || !(toNum(d?.downtimeHours) > 0)
+      );
+      if (anyIncompleteOrUnfed) {
+        return false;
+      }
+    }
 
     if (plannedHours > 0) {
       return Math.abs(round2(derivedRunning + totalDowntime) - plannedHours) <= 0.05;
     }
-    return derivedRunning > 0 || totalDowntime >= 0;
+    return derivedRunning > 0 || totalDowntime > 0;
   }, [downtimeEntriesWatch, plannedHours, derivedRunning, totalDowntime]);
   const isStep6Done = Boolean(!productionOrderId || Boolean(form.getFieldValue('productionOrderOperationId')));
   const isStep7Done = true; // Production Route is verified
@@ -1000,7 +1019,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   ], [isStep1Done, isStep2Done, isStep3Done, isStep4Done, isStep5Done, isStep6Done, isStep7Done, isStep8Done]);
 
   const completedStepsCount = useMemo(() => stepList.filter((s) => s.done).length, [stepList]);
-  const progressPercent = Math.round((completedStepsCount / 8) * 100);
+  const progressPercent = Math.round((completedStepsCount / stepList.length) * 100);
 
   const onFinish = useCallback(async (values: Record<string, unknown>) => {
     console.log('ON_FINISH_START', values);
@@ -1601,7 +1620,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           </Col>
         </Row>
 
-        {/* ── 7-STEP WORKFLOW GUIDE WITH LIVE GREEN PROGRESS LINE ── */}
+        {/* ── 8-STEP WORKFLOW GUIDE WITH LIVE GREEN PROGRESS LINE ── */}
         <div
           data-testid="form-workflow-steps"
           style={{
@@ -1609,8 +1628,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             padding: '12px 16px',
             background: 'var(--theme-surface-alt, #f8fafc)',
             borderRadius: 10,
-            border: isStep7Done ? '1.5px solid #16a34a' : '1px solid var(--theme-border, #e2e8f0)',
-            boxShadow: isStep7Done ? '0 0 12px rgba(22, 163, 74, 0.15)' : 'none',
+            border: isAllPriorStepsDone ? '1.5px solid #16a34a' : '1px solid var(--theme-border, #e2e8f0)',
+            boxShadow: isAllPriorStepsDone ? '0 0 12px rgba(22, 163, 74, 0.15)' : 'none',
             transition: 'all 0.3s ease',
           }}
         >
@@ -1618,12 +1637,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Text strong style={{ fontSize: 12, textTransform: 'uppercase', color: 'var(--theme-text, #0f172a)', letterSpacing: 0.5 }}>
-                Workflow Progress ({completedStepsCount} of 7 Complete)
+                Workflow Progress ({completedStepsCount} of {stepList.length} Complete)
               </Text>
-              {isStep7Done ? (
+              {isAllPriorStepsDone ? (
                 <Tag color="#16a34a" style={{ fontWeight: 700, borderRadius: 10, padding: '2px 10px', fontSize: 12 }}>
                   <CheckCircleFilled style={{ marginRight: 4 }} />
-                  7 STEPS OK · 100% COMPLETE
+                  {stepList.length} STEPS OK · 100% COMPLETE
                 </Tag>
               ) : (
                 <Tag color="#16a34a" style={{ fontWeight: 700, borderRadius: 10, padding: '2px 8px', fontSize: 11, background: '#f0fdf4', border: '1px solid #86efac', color: '#15803d' }}>
@@ -1632,9 +1651,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               )}
             </div>
             <Text type="secondary" style={{ fontSize: 11 }}>
-              {isStep7Done
-                ? 'All 7 steps completed & verified — ready to save!'
-                : `${7 - completedStepsCount} step(s) pending (complete remaining cards)`}
+              {isAllPriorStepsDone
+                ? `All ${stepList.length} steps completed & verified — ready to save!`
+                : `${stepList.length - completedStepsCount} step(s) pending (complete remaining cards)`}
             </Text>
           </div>
 
@@ -1757,8 +1776,22 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               </Row>
               <Row gutter={12}>
                 <Col xs={24} md={12}>
-                  <Form.Item name="coilSize" label="Coil Size" tooltip="Optional coil identifier for this production run.">
-                    <Input maxLength={50} placeholder="Optional" />
+                  <Form.Item
+                    name="coilSize"
+                    label="Coil Size"
+                    tooltip="Auto-filled from selected item's Wire Size. You can also edit or customize it."
+                  >
+                    <Input
+                      maxLength={50}
+                      placeholder={
+                        primaryItem?.wireSizeMm != null
+                          ? `${formatDimension(primaryItem.wireSizeMm)} mm`
+                          : (primaryItem?.id && rawMaterialData[primaryItem.id]?.wireSizeMm != null
+                            ? `${formatDimension(rawMaterialData[primaryItem.id]!.wireSizeMm!)} mm`
+                            : 'Optional')
+                      }
+                      className={coilSizeWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                    />
                   </Form.Item>
                 </Col>
               </Row>
