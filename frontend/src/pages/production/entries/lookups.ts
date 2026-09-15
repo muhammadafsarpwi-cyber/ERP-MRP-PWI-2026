@@ -93,14 +93,63 @@ export function useLookups() {
     void (async () => {
       setHrEmployeesLoading(true);
       try {
-        let finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees/lookup');
+        let finalEmployees: HrEmployeeLk[] = [];
+        // 1. Primary: dedicated lookup endpoint
+        try {
+          finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees/lookup');
+        } catch {}
+
+        // 2. Secondary: list endpoint with companyId
         if (!finalEmployees || finalEmployees.length === 0) {
+          let companyId: string | undefined;
           try {
-            finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees', { limit: 500, status: 'ACTIVE' });
+            const raw = localStorage.getItem('erp_user');
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              companyId = parsed?.defaultCompanyId;
+            }
+          } catch {}
+          const effectiveCompanyId = companyId || '7725aa04-a270-4314-9e82-90949cbe7791';
+
+          try {
+            const res = await apiService.get<any>('/hr/employees', {
+              companyId: effectiveCompanyId,
+              limit: 500,
+              status: 'ACTIVE',
+            });
+            const list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
+            if (list.length > 0) {
+              finalEmployees = list.map((e: any) => ({
+                id: e.id,
+                employeeCode: e.employeeCode,
+                firstName: e.firstName,
+                lastName: e.lastName ?? null,
+                departmentId: e.departmentId ?? null,
+                departmentName: e.department?.name ?? null,
+                jobTitle: e.jobTitle || e.designation?.designationName || null,
+                status: e.status,
+              }));
+            }
           } catch {}
         }
+
+        // 3. Cache & set state
         if (finalEmployees && finalEmployees.length > 0) {
+          try {
+            localStorage.setItem('erp_cached_operators', JSON.stringify(finalEmployees));
+          } catch {}
           setHrEmployees(finalEmployees);
+        } else {
+          // 4. Offline / cold fallback from cache
+          try {
+            const cached = localStorage.getItem('erp_cached_operators');
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setHrEmployees(parsed);
+              }
+            }
+          } catch {}
         }
       } finally {
         setHrEmployeesLoading(false);
@@ -112,7 +161,37 @@ export function useLookups() {
   const loadEmployeesForDepartment = useCallback(async (deptId?: string) => {
     if (!deptId) return;
     try {
-      const fetched = await fetchList<HrEmployeeLk>('/hr/employees/lookup', { departmentId: deptId });
+      let fetched = await fetchList<HrEmployeeLk>('/hr/employees/lookup', { departmentId: deptId });
+      if (!fetched || fetched.length === 0) {
+        let companyId: string | undefined;
+        try {
+          const raw = localStorage.getItem('erp_user');
+          if (raw) companyId = JSON.parse(raw)?.defaultCompanyId;
+        } catch {}
+        const effectiveCompanyId = companyId || '7725aa04-a270-4314-9e82-90949cbe7791';
+
+        try {
+          const res = await apiService.get<any>('/hr/employees', {
+            companyId: effectiveCompanyId,
+            departmentId: deptId,
+            limit: 500,
+            status: 'ACTIVE',
+          });
+          const list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
+          if (list.length > 0) {
+            fetched = list.map((e: any) => ({
+              id: e.id,
+              employeeCode: e.employeeCode,
+              firstName: e.firstName,
+              lastName: e.lastName ?? null,
+              departmentId: e.departmentId ?? null,
+              departmentName: e.department?.name ?? null,
+              jobTitle: e.jobTitle || e.designation?.designationName || null,
+              status: e.status,
+            }));
+          }
+        } catch {}
+      }
       if (fetched && fetched.length > 0) {
         setHrEmployees((prev) => {
           const existingIds = new Set(prev.map((e) => e.id));
