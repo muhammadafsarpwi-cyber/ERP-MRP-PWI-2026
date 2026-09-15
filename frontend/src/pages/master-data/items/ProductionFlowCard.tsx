@@ -3,6 +3,7 @@ import { Card, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import { ApartmentOutlined, ArrowRightOutlined, MinusCircleOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import apiService from '../../../services/api';
 import { formatDimension } from '../../../utils/numberFormat';
+import { isValidUUID } from '../../../utils/uuid';
 import {
   ITEM_TYPES,
   type ProductionFlowResponse,
@@ -202,7 +203,7 @@ export const StageBlock: React.FC<StageBlockProps> = ({ stage }) => {
               </span>
             </div>
           </Tooltip>
-          {stage.operationCode && (
+          {stage.operationCode && !isValidUUID(stage.operationCode) && (
             <code
               style={{
                 display: 'inline-block',
@@ -236,9 +237,13 @@ export const StageBlock: React.FC<StageBlockProps> = ({ stage }) => {
                   {stage.itemCode}
                 </code>
               </Tooltip>
-              {stage.itemName && (
+              {stage.itemName ? (
                 <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={stage.itemName}>
                   {stage.itemName}
+                </div>
+              ) : (
+                <div style={{ fontSize: 10, fontStyle: 'italic', color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  Item Name unavailable
                 </div>
               )}
             </div>
@@ -267,14 +272,15 @@ export const StageBlock: React.FC<StageBlockProps> = ({ stage }) => {
               <div
                 style={{
                   fontSize: 11,
-                  color: 'var(--theme-text, inherit)',
+                  color: stage.itemName ? 'var(--theme-text, inherit)' : 'var(--theme-text-muted, #94a3b8)',
+                  fontStyle: stage.itemName ? undefined : 'italic',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                 }}
                 title={stage.itemName ?? undefined}
               >
-                {stage.itemName}
+                {stage.itemName ?? 'Item Name unavailable'}
               </div>
             </>
           ) : stage.itemName ? (

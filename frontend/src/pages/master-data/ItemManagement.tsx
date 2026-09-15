@@ -4620,7 +4620,8 @@ const ItemManagement: React.FC = () => {
                       message={
                         <>
                           <strong>Circular route detected:</strong> the same Output Item appears
-                          at multiple stages ({cycleIds.slice(0, 3).join(', ')}
+                          at multiple stages (
+                          {cycleIds.slice(0, 3).map((id) => itemLookup.get(id)?.itemCode ?? 'Unavailable').join(', ')}
                           {cycleIds.length > 3 ? ' …' : ''}). The backend will reject this on
                           save.
                         </>

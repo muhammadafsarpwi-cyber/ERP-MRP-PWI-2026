@@ -166,4 +166,81 @@ describe('TASK 14 — ProductionFlowCard StageBlock rendering', () => {
     );
     expect(screen.getByText('Not configured')).toBeInTheDocument();
   });
+
+  it('never renders a raw UUID (department ID used as operationCode)', () => {
+    render(
+      <StageBlock
+        stage={stage({
+          kind: 'process',
+          operationName: 'Swagging',
+          departmentName: 'Swagging',
+          operationCode: 'd3000000-0000-0000-0000-000000000002',
+          itemCode: 'WIP-SW-001',
+          itemName: 'CD-250*17 Swagged',
+        })}
+      />,
+    );
+    expect(screen.queryByText('d3000000-0000-0000-0000-000000000002')).not.toBeInTheDocument();
+    expect(screen.getByText('WIP-SW-001')).toBeInTheDocument();
+    expect(screen.getByText('CD-250*17 Swagged')).toBeInTheDocument();
+  });
+
+  it('still renders a real (non-UUID) operation code', () => {
+    render(
+      <StageBlock
+        stage={stage({
+          kind: 'process',
+          operationName: 'Flattening',
+          departmentName: 'Flattening',
+          operationCode: 'MCH035',
+        })}
+      />,
+    );
+    expect(screen.getByText('MCH035')).toBeInTheDocument();
+  });
+
+  it('shows the item code + name on a process stage (reference item)', () => {
+    render(
+      <StageBlock
+        stage={stage({
+          kind: 'process',
+          operationName: 'Straightening',
+          itemCode: 'WIP-ST-001',
+          itemName: 'CD-250*17 Butted',
+        })}
+      />,
+    );
+    expect(screen.getByText('WIP-ST-001')).toBeInTheDocument();
+    expect(screen.getByText('CD-250*17 Butted')).toBeInTheDocument();
+  });
+
+  it('shows a professional fallback when the Item Name is missing', () => {
+    render(
+      <StageBlock
+        stage={stage({
+          kind: 'process',
+          operationName: 'Spiral',
+          itemCode: 'WIP-SP-001',
+          itemName: null,
+        })}
+      />,
+    );
+    expect(screen.queryByText(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText('Item Name unavailable').length).toBeGreaterThan(0);
+  });
+
+  it('shows the fallback on an output stage when the Item Name is missing', () => {
+    render(
+      <StageBlock
+        stage={stage({
+          kind: 'output',
+          title: 'SPIRAL OUTPUT',
+          itemCode: 'WIP-SP-002',
+          itemName: null,
+        })}
+      />,
+    );
+    expect(screen.getByText('WIP-SP-002')).toBeInTheDocument();
+    expect(screen.getByText('Item Name unavailable')).toBeInTheDocument();
+  });
 });
