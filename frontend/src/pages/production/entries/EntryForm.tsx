@@ -2,14 +2,14 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
-  App, Typography, Switch, Alert, Spin, AutoComplete, Tooltip,
+  App, Typography, Switch, Alert, Spin, AutoComplete, Tooltip, Tag,
 } from 'antd';
 import {
   ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined,
   PlusOutlined, DeleteOutlined, ClockCircleOutlined, ThunderboltOutlined,
   WarningOutlined, GoldOutlined, CloseCircleOutlined, TrophyOutlined,
   CheckOutlined, UndoOutlined, DatabaseOutlined, CalendarOutlined,
-  ToolOutlined, TeamOutlined, ApartmentOutlined,
+  ToolOutlined, TeamOutlined, ApartmentOutlined, CheckCircleFilled,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -926,6 +926,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     // the success modal must appear exactly once per persisted entry.
     if (saving || submitBlocked) return;
     setSaving(true);
+    setSavedOpen(true);
     try {
       const payload: Record<string, unknown> = { ...values };
       if (isActualAuto) {
@@ -958,6 +959,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       if (!firstProdItem?.itemId) {
         message.error('At least one production item with an Item is required.');
         setSaving(false);
+        setSavedOpen(false);
         return;
       }
       payload.itemId = firstProdItem.itemId;
@@ -986,6 +988,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       // Validate downtime doesn't exceed planned hours
       if (plannedHours > 0 && computedDowntime > plannedHours) {
         message.error(`Total downtime (${formatNumber(computedDowntime, 2)}h) cannot exceed planned shift hours (${formatNumber(plannedHours, 2)}h)`);
+        setSaving(false);
+        setSavedOpen(false);
         return;
       }
 
@@ -1013,6 +1017,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         message.error(
           'Production context is incomplete. Please return to Machine Selection and select the required Division, Section, Department, Date and Shift.',
         );
+        setSaving(false);
+        setSavedOpen(false);
         return;
       }
 
@@ -1048,6 +1054,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         const uomLk = lookups.uoms.find((u) => u.id === payload.uomId);
         const firstLine = itemLines.find((l) => !!l.itemId);
         const qty = firstLine?.actualQuantity ?? payload.actualQuantity;
+        const tgt = machineLinked ? displayTarget : toNum(targetQty);
         setSavedEntry({
           entryId: saved.id,
           entryNumber: saved.entryNumber,
@@ -1060,6 +1067,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           itemCode: itm?.itemCode,
           itemName: itm?.name,
           quantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 4) : undefined,
+          actualQuantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 2) : undefined,
+          targetQuantity: tgt !== null && tgt !== undefined ? formatNumber(toNum(tgt), 2) : undefined,
+          achievementPercentage: achievement !== null ? achievement : undefined,
           uom: uomLk?.code || uomLk?.symbol,
           status: (values as { postToInventory?: boolean }).postToInventory ? 'Saved • Posted to Inventory' : 'Saved',
         });
@@ -1081,6 +1091,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         showSavedSuccess(updated.data);
       }
     } catch (err: unknown) {
+      setSavedOpen(false);
       const axiosErr = err as { response?: { data?: { message?: string | string[] } } };
       console.error('ENTRY_SAVE_ERROR_RESPONSE:', JSON.stringify(axiosErr.response?.data));
       const msg = Array.isArray(axiosErr.response?.data?.message)
@@ -1090,7 +1101,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     } finally {
       setSaving(false);
     }
-  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode, lookups.items, saving]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode, lookups.items, saving, displayTarget, targetQty, achievement]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── PROMPT-35 success-modal actions ───────────────────────────────────────
   const viewSavedEntry = useCallback(() => {
@@ -1490,10 +1501,76 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           </Col>
         </Row>
 
+        {/* ── 7-STEP WORKFLOW GUIDE ── */}
+        <div
+          data-testid="form-workflow-steps"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 8,
+            marginBottom: 16,
+            padding: '10px 14px',
+            background: 'var(--theme-surface-alt, #f8fafc)',
+            borderRadius: 8,
+            border: '1px solid var(--theme-border, #e2e8f0)',
+            alignItems: 'center',
+          }}
+        >
+          <Text strong style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted, #64748b)', marginRight: 4, letterSpacing: 0.5 }}>
+            Workflow Steps:
+          </Text>
+          {[
+            { step: 'Step 1', label: 'Operator' },
+            { step: 'Step 2', label: 'Production Items' },
+            { step: 'Step 3', label: 'Raw Material' },
+            { step: 'Step 4', label: 'Production Figures' },
+            { step: 'Step 5', label: 'Downtime' },
+            { step: 'Step 6', label: 'Order Linkage' },
+            { step: 'Step 7', label: 'Save Entry' },
+          ].map((s, idx, arr) => (
+            <div
+              key={s.step}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 8px',
+                borderRadius: 6,
+                background: 'var(--theme-surface, #ffffff)',
+                border: '1px solid var(--theme-border, #cbd5e1)',
+                fontSize: 12,
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  background: '#1d4ed8',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  fontSize: 10,
+                  letterSpacing: 0.5,
+                }}
+              >
+                {s.step}
+              </span>
+              <span style={{ fontWeight: 600, color: 'var(--theme-text, #334155)' }}>{s.label}</span>
+              {idx < arr.length - 1 && <span style={{ color: '#94a3b8', marginLeft: 2 }}>›</span>}
+            </div>
+          ))}
+        </div>
+
         <Row gutter={16}>
           {/* ── LEFT / CENTER: Manpower, Item, UOM & Production Figures ── */}
           <Col xs={24} xl={15}>
-            <Card title="Operator" size="small">
+            <Card
+              title="Operator"
+              size="small"
+              extra={<Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 1</Tag>}
+            >
               <Row gutter={12}>
                 <Col xs={24} md={12}>
                   <Form.Item
@@ -1553,22 +1630,25 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               size="small"
               style={{ marginTop: 16 }}
               extra={
-                maxItemsReached ? (
-                  <Tooltip title="Maximum 2 production items are allowed.">
-                    <span>
-                      <Button type="primary" size="small" icon={<PlusOutlined />} disabled>
-                        + Add Item
-                      </Button>
-                    </span>
-                  </Tooltip>
-                ) : (
-                  <Button
-                    type="primary" size="small" icon={<PlusOutlined />}
-                    onClick={() => addProductionItemRef.current()}
-                  >
-                    + Add Item
-                  </Button>
-                )
+                <Space>
+                  <Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 2</Tag>
+                  {maxItemsReached ? (
+                    <Tooltip title="Maximum 2 production items are allowed.">
+                      <span>
+                        <Button type="primary" size="small" icon={<PlusOutlined />} disabled>
+                          + Add Item
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  ) : (
+                    <Button
+                      type="primary" size="small" icon={<PlusOutlined />}
+                      onClick={() => addProductionItemRef.current()}
+                    >
+                      + Add Item
+                    </Button>
+                  )}
+                </Space>
               }
             >
               <Form.List name="productionItems">
@@ -1599,18 +1679,107 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                         remove={() => remove(f.name)}
                       />
                     ))}
-                    {multiItemAggregate && fields.length > 0 && (
-                      <Row gutter={6} style={{ marginTop: 8, padding: '8px 0', borderTop: '1px solid var(--theme-border, #f0f0f0)' }}>
-                        <Col span={10}><Text strong style={{ fontSize: 12 }}>Totals ({fields.length} items)</Text></Col>
-                        <Col span={14}>
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            Actual: <Text strong>{formatNumber(multiItemAggregate.totalActual, 3)}</Text>
-                            {' · '}Scrap: <Text strong>{formatNumber(multiItemAggregate.totalScrap, 3)}</Text>
-                            {' · '}KG: <Text strong>{formatNumber(multiItemAggregate.totalKg, 3)}</Text>
-                          </Text>
-                        </Col>
-                      </Row>
-                    )}
+                    {multiItemAggregate && fields.length > 0 && (() => {
+                      const uomLabel = primaryItem?.baseUom?.code || mtResolution?.uom?.code || 'KG';
+                      const tgtVal = machineLinked ? displayTarget : toNum(targetQty);
+                      const isTargetMet = achievement !== null && achievement >= 100;
+                      return (
+                        <div
+                          data-testid="production-items-totals-bar"
+                          style={{
+                            marginTop: 10,
+                            padding: '10px 12px',
+                            borderRadius: 8,
+                            background: 'var(--theme-surface-alt, #f8fafc)',
+                            border: '1px solid var(--theme-border, #e2e8f0)',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>
+                              Totals ({fields.length} {fields.length === 1 ? 'item' : 'items'})
+                            </Text>
+                          </div>
+
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                            {/* 1. Actual Production */}
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: '#eff6ff',
+                                border: '1px solid #93c5fd',
+                                color: '#1e40af',
+                                borderRadius: 6,
+                                padding: '3px 10px',
+                                fontSize: 12,
+                                fontWeight: 600,
+                              }}
+                            >
+                              <span style={{ color: '#64748b', fontWeight: 500 }}>Actual:</span>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}>{formatNumber(multiItemAggregate.totalActual, 2)}</span>
+                              <span style={{ fontSize: 11, color: '#3b82f6' }}>{uomLabel}</span>
+                            </span>
+
+                            {/* 2. Target Production */}
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: '#f5f3ff',
+                                border: '1px solid #c4b5fd',
+                                color: '#5b21b6',
+                                borderRadius: 6,
+                                padding: '3px 10px',
+                                fontSize: 12,
+                                fontWeight: 600,
+                              }}
+                            >
+                              <span style={{ color: '#64748b', fontWeight: 500 }}>Target:</span>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}>
+                                {tgtVal !== null && tgtVal !== undefined ? formatNumber(tgtVal, 2) : '—'}
+                              </span>
+                              <span style={{ fontSize: 11, color: '#8b5cf6' }}>{uomLabel}</span>
+                            </span>
+
+                            {/* 3. Target Achievement % */}
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: achievement === null ? '#f1f5f9' : isTargetMet ? '#ecfdf5' : '#fffbeb',
+                                border: `1px solid ${achievement === null ? '#cbd5e1' : isTargetMet ? '#6ee7b7' : '#fcd34d'}`,
+                                color: achievement === null ? '#475569' : isTargetMet ? '#065f46' : '#92400e',
+                                borderRadius: 6,
+                                padding: '3px 10px',
+                                fontSize: 12,
+                                fontWeight: 700,
+                              }}
+                            >
+                              <span style={{ fontWeight: 500 }}>Achievement:</span>
+                              <span style={{ fontSize: 13 }}>
+                                {achievement !== null ? `${formatNumber(achievement, 1)}%` : '—'}
+                              </span>
+                              {isTargetMet && <CheckCircleFilled style={{ color: '#10b981', fontSize: 13 }} />}
+                            </span>
+
+                            {/* Scrap & KG Details */}
+                            <span style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', paddingLeft: 4 }}>
+                              Scrap: <strong>{formatNumber(multiItemAggregate.totalScrap, 2)}</strong> {uomLabel}
+                              {' · '}
+                              Weight: <strong>{formatNumber(multiItemAggregate.totalKg, 2)}</strong> KG
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </>
                   );
                 }
@@ -1658,7 +1827,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               onData={handleRawMaterialData}
             />
 
-            <Card title="Production Figures" size="small" style={{ marginTop: 16 }}>
+            <Card
+              title="Production Figures"
+              size="small"
+              style={{ marginTop: 16 }}
+              extra={<Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 4</Tag>}
+            >
               <Row gutter={8}>
                 <Col span={12}>
                   {machineLinked ? (
@@ -1805,12 +1979,15 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               title={<span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6, color: '#f97316' }} />Downtime Tracking</span>}
               size="small"
               extra={
-                <Button
-                  type="primary" size="small" icon={<PlusOutlined />}
-                  onClick={() => addDowntimeRef.current()}
-                >
-                  + Add Downtime
-                </Button>
+                <Space>
+                  <Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 5</Tag>
+                  <Button
+                    type="primary" size="small" icon={<PlusOutlined />}
+                    onClick={() => addDowntimeRef.current()}
+                  >
+                    + Add Downtime
+                  </Button>
+                </Space>
               }
             >
               {plannedHours > 0 && (
@@ -2032,7 +2209,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               </Form.Item>
             </Card>
 
-            <Card title="Production Order Linkage (optional)" size="small" style={{ marginTop: 16 }}>
+            <Card
+              title="Production Order Linkage (optional)"
+              size="small"
+              style={{ marginTop: 16 }}
+              extra={<Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 6</Tag>}
+            >
               <Alert
                 type="info" showIcon style={{ marginBottom: 12 }}
                 message="Link an order to track output against it. Do NOT also enable direct inventory posting — order completion posts stock once."
@@ -2153,10 +2335,18 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           </Col>
         </Row>
 
+        {/* ── STEP 7: ACTION BAR ── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 }}>
+          <Space>
+            <Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 7</Tag>
+            <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>Finalize & Submit Production Entry</Text>
+          </Space>
+          <Text type="secondary" style={{ fontSize: 11 }}>Review figures & record entry to database</Text>
+        </div>
         <Button
           type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}
           disabled={submitBlocked}
-          block size="large" style={{ marginTop: 16 }}
+          block size="large"
         >
           {mode === 'create' ? 'Save Production Entry' : 'Update Production Entry'}
         </Button>
@@ -2171,6 +2361,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
       <ProductionSaveSuccessModal
         open={savedOpen}
+        saving={saving}
         entry={savedEntry}
         mode={mode}
         onView={viewSavedEntry}
@@ -3481,6 +3672,7 @@ const RawMaterialAvailability: React.FC<{
       data-testid="raw-material-card"
       style={{ marginTop: 16, borderLeft: '3px solid var(--theme-primary)' }}
       title={<span style={{ fontSize: 13 }}><DatabaseOutlined style={{ marginRight: 6, color: 'var(--theme-primary)' }} />RAW MATERIAL REQUIREMENT</span>}
+      extra={<Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 3</Tag>}
     >
       {order.length === 0 ? (
         <Text type="secondary" style={{ fontSize: 12 }}>
