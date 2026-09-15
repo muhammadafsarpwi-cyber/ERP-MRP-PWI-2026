@@ -834,17 +834,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   }, [productionItemsWatch, uomId, primaryItem, lookups.uoms]);
 
   const scrapWeightKg = useMemo(() => {
-    const rows = (productionItemsWatch ?? []) as Array<{ itemId?: string; uomId?: string; scrapQuantity?: number | string }>;
-    const first = rows.find((it) => !!it.itemId);
-    const uomIdForType = first?.uomId ?? uomId ?? primaryItem?.baseUomId;
-    const foundUom = lookups.uoms.find((u) => u.id === uomIdForType);
-    const val = lineToKg(Math.max(0, toNum(scrapQty)), {
-      ...primaryItem,
-      uomType: primaryUomType,
-      uomCode: foundUom?.code || primaryItem?.baseUom?.code,
-    });
-    return val == null ? 0 : val;
-  }, [scrapQty, primaryItem, primaryUomType, productionItemsWatch, uomId, lookups.uoms]);
+    // Rejection / Scrap is entered directly in KG (weighed on shop floor scales)
+    return round2(toNum(scrapQty));
+  }, [scrapQty]);
 
   const maxProductionItems = 2;
   const productionItemsCount = (productionItemsWatch ?? []).length;
@@ -946,13 +938,15 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return { kg: kg ?? 0, rejKg: rejKg ?? 0, rejPct };
   }, [primaryItem, effectiveActualQty, scrapQty, uomId, lookups.uoms]);
 
-  // Combined scrap weight: prefer line-aggregated scrap KG if present, else single-item scrap KG
+  // Combined scrap weight: prefer direct scrapQty (entered in KG), else line-aggregated scrap KG
   const effectiveScrapWeightKg = useMemo(() => {
+    const rawVal = Math.max(0, toNum(scrapQty));
+    if (rawVal > 0) return rawVal;
     if (multiItemAggregate && multiItemAggregate.totalRejectionKg > 0) {
       return multiItemAggregate.totalRejectionKg;
     }
-    return scrapWeightKg;
-  }, [multiItemAggregate, scrapWeightKg]);
+    return 0;
+  }, [scrapQty, multiItemAggregate]);
 
   // Unified Rejection %:
   // Derived from Production Weight (KG) and Rejection Weight (KG).
@@ -2129,7 +2123,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                 <Col span={12}>
                   <Form.Item
                     name="scrapQuantity"
-                    label={<span>Rejection / Scrap <InputBadge type="input" /></span>}
+                    label={<span>Rejection / Scrap (KG) <InputBadge type="input" /></span>}
                     rules={[{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
                   >
                     <InputNumber
@@ -3266,10 +3260,11 @@ const RawMaterialAvailability: React.FC<{
           const prevStageItemName = rawItemRef?.item?.name ?? null;
 
           const productBaseUomId = item?.baseUomId ?? p.uomId;
-          // TASK #37: consumption basis = GOOD output (actual) + REJECTED (scrap),
+          // TASK #37: consumption basis = GOOD output (actual) converted + REJECTED (scrap in KG),
           // mirroring the backend consumeForProductionItem.
-          const prodQty = Math.max(0, toNum(p.actualQuantity) + rowScrap(p));
+          const prodQty = Math.max(0, toNum(p.actualQuantity));
           const qtyInBase = convertBetweenUoms(p.uomId, productBaseUomId, prodQty, lookups.uomConversions);
+          const scrapKg = rowScrap(p);
 
           if (!rawItemRef || !prevStageItemId) {
             setData((prev) => ({
@@ -3381,7 +3376,11 @@ const RawMaterialAvailability: React.FC<{
             uomType: prodUom?.uomType || (prodUom?.code === 'PCS' ? 'COUNT' : prodUom?.code === 'M' ? 'LENGTH' : undefined),
           };
           const convertedUnits = convertProductToComponentQty(units, enrichedProduct, compUom);
-          let req = convertedUnits * rawQuantity * (1 + rawScrapFactor) / (rawYield / 100);
+          const scrapInComp = (compUom === 'KG' || compUom === 'KILOGRAM')
+            ? scrapKg
+            : convertProductToComponentQty(scrapKg, { uomCode: 'KG', uomType: 'WEIGHT', weightPerPiece: enrichedProduct.weightPerPiece }, compUom);
+          const totalUnits = convertedUnits + scrapInComp;
+          let req = totalUnits * rawQuantity * (1 + rawScrapFactor) / (rawYield / 100);
           req = convertBetweenUoms(lineUomId, componentBaseUomId, req, lookups.uomConversions);
           if (rawQuantity <= 0) {
             setData((prev) => ({
@@ -3555,16 +3554,21 @@ const RawMaterialAvailability: React.FC<{
           uomCode: prodUom?.code || item?.baseUom?.code || 'PCS',
           uomType: prodUom?.uomType || (prodUom?.code === 'PCS' ? 'COUNT' : prodUom?.code === 'M' ? 'LENGTH' : undefined),
         };
-        // TASK #37: consumption basis = actual + scrap, mirroring the backend.
-        const qtyInBase = convertBetweenUoms(prod.uomId, productBaseUomId, Math.max(0, toNum(prod.actualQuantity) + rowScrap(prod)), lookups.uomConversions);
+        // TASK #37: consumption basis = actual good output converted + scrap in KG, mirroring the backend.
+        const qtyInBase = convertBetweenUoms(prod.uomId, productBaseUomId, Math.max(0, toNum(prod.actualQuantity)), lookups.uomConversions);
         const units = qtyInBase / it.baseQuantity;
+        const scrapKg = rowScrap(prod);
         next[key] = {
           ...it,
           lines: it.lines.map((l) => {
             const componentItem = lookups.items.find((i) => i.id === l.rawItemId);
             const compUom = l.uomCode || l.rawBaseUomCode || componentItem?.baseUom?.code || 'KG';
             const convertedUnits = convertProductToComponentQty(units, enrichedProduct, compUom);
-            let req = convertedUnits * l.rawQuantity * (1 + l.rawScrapFactor) / (l.rawYield / 100);
+            const scrapInComp = (compUom === 'KG' || compUom === 'KILOGRAM')
+              ? scrapKg
+              : convertProductToComponentQty(scrapKg, { uomCode: 'KG', uomType: 'WEIGHT', weightPerPiece: enrichedProduct.weightPerPiece }, compUom);
+            const totalUnits = convertedUnits + scrapInComp;
+            let req = totalUnits * l.rawQuantity * (1 + l.rawScrapFactor) / (l.rawYield / 100);
             req = convertBetweenUoms(l.lineUomId, l.componentBaseUomId, req, lookups.uomConversions);
             const required = Math.round(req * 10000) / 10000;
             let balance = l.balance;

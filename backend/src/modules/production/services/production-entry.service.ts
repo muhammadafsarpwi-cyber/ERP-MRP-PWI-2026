@@ -1599,15 +1599,26 @@ export class ProductionEntryService {
     }
 
     // The exact IN Item is always consumed. When the ACTIVE BOM does not already
-    // deduct it, add a converted per-unit requirement (scrap-inclusive basis).
+    // deduct it, add a converted per-unit requirement (scrap in KG inclusive basis).
     if (authoritativeInItemId && !requirements.some((r) => r.line.itemId === authoritativeInItemId)) {
       const component = await this.itemRepo.findOne({ where: { id: authoritativeInItemId }, relations: ['baseUom'] });
+      const compUom = (component?.baseUom?.code || '').toUpperCase();
       const productBaseUomId = product?.baseUomId ?? output.uomId;
+      const goodQty = Number(output.actualQuantity);
+      const scrapKg = Number(output.scrapQuantity || 0);
       const qtyInBase = output.uomId === productBaseUomId
-        ? productionQty
-        : await this.convertQty(output.uomId, productBaseUomId, productionQty);
+        ? goodQty
+        : await this.convertQty(output.uomId, productBaseUomId, goodQty);
       const units = qtyInBase / Number(bom?.baseQuantity || 1);
-      const convertedRequired = await this.convertProductQtyToComponentUom(product, component, units);
+      const convertedGood = await this.convertProductQtyToComponentUom(product, component, units);
+      const scrapInComp = (compUom === 'KG' || compUom === 'KILOGRAM')
+        ? scrapKg
+        : await this.convertProductQtyToComponentUom(
+            { baseUom: { code: 'KG', uomType: 'WEIGHT' }, weightPerPiece: product?.weightPerPiece } as Item,
+            component,
+            scrapKg,
+          );
+      const convertedRequired = convertedGood + scrapInComp;
       const uomId = component?.baseUomId ?? output.uomId;
       const uomCode = component?.baseUom?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
@@ -1689,11 +1700,16 @@ export class ProductionEntryService {
       }
       const component = await this.itemRepo.findOne({ where: { id: inp.itemId }, relations: ['baseUom'] });
       const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
+      const compUom = (component?.baseUom?.code || '').toUpperCase();
+      const goodQty = Number(output.actualQuantity);
+      const scrapKg = Number(output.scrapQuantity || 0);
       let required: number;
       if (Number(inp.quantity || 1) === 1) {
-        required = await this.convertProductQtyToComponentUom(product, component, productionQty);
+        const goodReq = await this.convertProductQtyToComponentUom(product, component, goodQty);
+        const scrapInComp = (compUom === 'KG' || compUom === 'KILOGRAM') ? scrapKg : 0;
+        required = this.round4(goodReq + scrapInComp);
       } else {
-        required = this.round4(Number(inp.quantity || 1) * productionQty);
+        required = this.round4(Number(inp.quantity || 1) * goodQty + scrapKg);
       }
       const uomCode = component?.baseUom?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
@@ -1753,31 +1769,43 @@ export class ProductionEntryService {
 
   /**
    * Correct BOM requirement for the output's total production quantity
-   * (good + scrap):
-   *   productionQty (output UOM) → product base UOM → divide by BOM base quantity
-   *   → × line quantity → × (1 + scrapFactor) ÷ (yield%/100) → line UOM → item base UOM.
+   * (good converted + scrap in KG):
    */
   private async computeBomRequirement(
     companyId: string,
-    output: { itemId: string; uomId: string },
+    output: { itemId: string; uomId: string; actualQuantity?: number; scrapQuantity?: number },
     bom: BillOfMaterials,
     line: BomLine,
     productionQty: number,
   ): Promise<number> {
     const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
     const productBaseUomId = product?.baseUomId ?? output.uomId;
+    const goodQty = output.actualQuantity !== undefined ? Number(output.actualQuantity) : productionQty;
+    const scrapKg = Number(output.scrapQuantity || 0);
     const qtyInBase = output.uomId === productBaseUomId
-      ? productionQty
-      : await this.convertQty(output.uomId, productBaseUomId, productionQty);
+      ? goodQty
+      : await this.convertQty(output.uomId, productBaseUomId, goodQty);
     const units = qtyInBase / Number(bom.baseQuantity || 1);
     const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
+    const compUom = (component?.baseUom?.code || '').toUpperCase();
     let req: number;
     if (Number(line.quantity || 1) === 1 && line.uomId === component?.baseUomId) {
-      req = (await this.convertProductQtyToComponentUom(product, component, units)) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
+      const convertedGood = await this.convertProductQtyToComponentUom(product, component, units);
+      const scrapInComp = (compUom === 'KG' || compUom === 'KILOGRAM')
+        ? scrapKg
+        : await this.convertProductQtyToComponentUom(
+            { baseUom: { code: 'KG', uomType: 'WEIGHT' }, weightPerPiece: product?.weightPerPiece } as Item,
+            component,
+            scrapKg,
+          );
+      req = (convertedGood + scrapInComp) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
     } else {
       req = units * Number(line.quantity) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
       if (component?.baseUomId && component.baseUomId !== line.uomId) {
         req = await this.convertQty(line.uomId, component.baseUomId, req);
+      }
+      if (compUom === 'KG' || compUom === 'KILOGRAM') {
+        req += scrapKg;
       }
     }
     return this.round4(req);
