@@ -1562,7 +1562,7 @@ export class ProductionEntryService {
       return this.consumeRoutingInputs(manager, companyId, output, entryRef, sourceStoreId, routingInputs, userId);
     }
 
-    const product = await this.itemRepo.findOne({ where: { id: output.itemId } });
+    const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
     const authoritativeInItemId = product?.productionInItemId ?? null;
 
     const bom = await this.findActiveBom(companyId, output.itemId);
@@ -1590,7 +1590,7 @@ export class ProductionEntryService {
     const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number }> = [];
     for (const line of lines) {
       const required = await this.computeBomRequirement(companyId, output, bom!, line, productionQty);
-      const component = await this.itemRepo.findOne({ where: { id: line.itemId } });
+      const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
       const uomCode = component?.baseUom?.code ?? (await this.uomRepo.findOne({ where: { id: line.uomId } }))?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
         companyId, line.itemId, sourceStoreId, undefined, undefined, manager,
@@ -1599,14 +1599,15 @@ export class ProductionEntryService {
     }
 
     // The exact IN Item is always consumed. When the ACTIVE BOM does not already
-    // deduct it, add a 1:1 per-unit requirement (scrap-inclusive basis).
+    // deduct it, add a converted per-unit requirement (scrap-inclusive basis).
     if (authoritativeInItemId && !requirements.some((r) => r.line.itemId === authoritativeInItemId)) {
-      const component = await this.itemRepo.findOne({ where: { id: authoritativeInItemId } });
+      const component = await this.itemRepo.findOne({ where: { id: authoritativeInItemId }, relations: ['baseUom'] });
       const productBaseUomId = product?.baseUomId ?? output.uomId;
       const qtyInBase = output.uomId === productBaseUomId
         ? productionQty
         : await this.convertQty(output.uomId, productBaseUomId, productionQty);
       const units = qtyInBase / Number(bom?.baseQuantity || 1);
+      const convertedRequired = await this.convertProductQtyToComponentUom(product, component, units);
       const uomId = component?.baseUomId ?? output.uomId;
       const uomCode = component?.baseUom?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
@@ -1622,7 +1623,7 @@ export class ProductionEntryService {
           yieldPercentage: 100,
           lineNumber: 999,
         } as BomLine,
-        required: this.round4(units),
+        required: this.round4(convertedRequired),
         uomCode,
         available,
       });
@@ -1686,8 +1687,14 @@ export class ProductionEntryService {
           `Raw Material Source Warehouse could not be determined for routing input '${componentForCode?.itemCode ?? inp.itemId}'. Assign an ACTIVE RAW MATERIAL warehouse, pass rawMaterialWarehouseId, or set a source warehouse on the routing input.`,
         );
       }
-      const required = this.round4(Number(inp.quantity || 1) * productionQty);
-      const component = await this.itemRepo.findOne({ where: { id: inp.itemId } });
+      const component = await this.itemRepo.findOne({ where: { id: inp.itemId }, relations: ['baseUom'] });
+      const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
+      let required: number;
+      if (Number(inp.quantity || 1) === 1) {
+        required = await this.convertProductQtyToComponentUom(product, component, productionQty);
+      } else {
+        required = this.round4(Number(inp.quantity || 1) * productionQty);
+      }
       const uomCode = component?.baseUom?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
         companyId, inp.itemId, warehouseId, undefined, undefined, manager,
@@ -1729,6 +1736,10 @@ export class ProductionEntryService {
     return consumed;
   }
 
+  /**
+   * Loads the ACTIVE BOM for an item, scoped to the company and effective on
+   * today's date. Falls back to any company-matching BOM for test setups.
+   */
   private async findActiveBom(companyId: string, productId: string): Promise<BillOfMaterials | null> {
     const boms = await this.bomRepo.find({ where: { companyId, productId, status: BomStatus.ACTIVE } });
     if (!boms.length) return null;
@@ -1753,18 +1764,90 @@ export class ProductionEntryService {
     line: BomLine,
     productionQty: number,
   ): Promise<number> {
-    const product = await this.itemRepo.findOne({ where: { id: output.itemId } });
+    const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
     const productBaseUomId = product?.baseUomId ?? output.uomId;
     const qtyInBase = output.uomId === productBaseUomId
       ? productionQty
       : await this.convertQty(output.uomId, productBaseUomId, productionQty);
     const units = qtyInBase / Number(bom.baseQuantity || 1);
-    let req = units * Number(line.quantity) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
-    const component = await this.itemRepo.findOne({ where: { id: line.itemId } });
-    if (component?.baseUomId && component.baseUomId !== line.uomId) {
-      req = await this.convertQty(line.uomId, component.baseUomId, req);
+    const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
+    let req: number;
+    if (Number(line.quantity || 1) === 1 && line.uomId === component?.baseUomId) {
+      req = (await this.convertProductQtyToComponentUom(product, component, units)) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
+    } else {
+      req = units * Number(line.quantity) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
+      if (component?.baseUomId && component.baseUomId !== line.uomId) {
+        req = await this.convertQty(line.uomId, component.baseUomId, req);
+      }
     }
     return this.round4(req);
+  }
+
+  /**
+   * Converts a product quantity into its raw-material component's UOM
+   * using Item Master conversions (weightPerPiece, piecesPerKg, weightPerMeter)
+   * or standard UOM conversions table.
+   */
+  private async convertProductQtyToComponentUom(
+    product: Item | null,
+    component: Item | null,
+    quantity: number,
+  ): Promise<number> {
+    if (!product || !component || quantity <= 0) return quantity;
+
+    const prodUom = (product.baseUom?.code || '').toUpperCase();
+    const compUom = (component.baseUom?.code || '').toUpperCase();
+    const prodFamily = (product.baseUom?.uomType || '').toUpperCase();
+    const compFamily = (component.baseUom?.uomType || '').toUpperCase();
+
+    // If both UOM codes match, 1:1
+    if (prodUom && compUom && prodUom === compUom) return quantity;
+
+    const isProdCount = prodFamily === 'COUNT' || prodUom === 'PCS' || prodUom === 'EA';
+    const isCompWeight = compFamily === 'WEIGHT' || compUom === 'KG';
+    const isProdLength = prodFamily === 'LENGTH' || prodUom === 'M' || prodUom === 'METER';
+    const isProdWeight = prodFamily === 'WEIGHT' || prodUom === 'KG';
+    const isCompCount = compFamily === 'COUNT' || compUom === 'PCS' || compUom === 'EA';
+    const isCompLength = compFamily === 'LENGTH' || compUom === 'M' || compUom === 'METER';
+
+    // Product in PCS/COUNT and Component in KG/WEIGHT: qty × weightPerPiece (or qty ÷ piecesPerKg)
+    if (isProdCount && isCompWeight) {
+      const wpp = Number(product.weightPerPiece || 0);
+      const ppk = Number(product.piecesPerKg || 0);
+      if (wpp > 0) return this.round4(quantity * wpp);
+      if (ppk > 0) return this.round4(quantity / ppk);
+    }
+
+    // Product in METER/LENGTH and Component in KG/WEIGHT: qty × weightPerMeter
+    if (isProdLength && isCompWeight) {
+      const wpm = Number(product.weightPerMeter || 0);
+      if (wpm > 0) return this.round4(quantity * wpm);
+    }
+
+    // Product in KG/WEIGHT and Component in PCS/COUNT: qty ÷ weightPerPiece (or qty × piecesPerKg)
+    if (isProdWeight && isCompCount) {
+      const wpp = Number(product.weightPerPiece || 0);
+      const ppk = Number(product.piecesPerKg || 0);
+      if (wpp > 0) return this.round4(quantity / wpp);
+      if (ppk > 0) return this.round4(quantity * ppk);
+    }
+
+    // Product in KG/WEIGHT and Component in METER/LENGTH: qty ÷ weightPerMeter
+    if (isProdWeight && isCompLength) {
+      const wpm = Number(product.weightPerMeter || 0);
+      if (wpm > 0) return this.round4(quantity / wpm);
+    }
+
+    // Fallback: check standard uomConversion table
+    try {
+      if (product.baseUomId && component.baseUomId) {
+        return await this.convertQty(product.baseUomId, component.baseUomId, quantity);
+      }
+    } catch {
+      // no UOM conversion record found
+    }
+
+    return quantity;
   }
 
   private async convertQty(fromUomId: string | null, toUomId: string, quantity: number): Promise<number> {

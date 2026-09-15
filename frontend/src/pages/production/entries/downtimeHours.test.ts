@@ -2,6 +2,7 @@ import {
   deriveFromRunning, deriveFromDowntime, rebalancePair,
   effectiveRunning, effectiveDowntime, sumDowntimeLines,
   sumProductionLines, productionTotalsByUom, lineToKg, aggregateProductionTotals,
+  convertProductToComponentQty,
 } from './downtimeHours';
 
 describe('downtimeHours — AUTO mode', () => {
@@ -246,5 +247,31 @@ describe('downtimeHours — aggregateProductionTotals (comparable-unit rejection
     expect(agg.totalKg).toBe(10);
     expect(agg.totalRejectionKg).toBe(2);
     expect(agg.rejectionPct).toBeCloseTo(2 / 12 * 100, 2); // ≈ 16.67% (comparable subset only)
+  });
+});
+
+describe('downtimeHours — convertProductToComponentQty (Raw Material conversion)', () => {
+  it('converts PCS output to KG raw material using weightPerPiece (50,000 PCS × 0.01049 = 524.5 KG)', () => {
+    const product = { uomType: 'COUNT', uomCode: 'PCS', weightPerPiece: 0.01049 };
+    const rawMaterial = { uomType: 'WEIGHT', uomCode: 'KG' };
+    expect(convertProductToComponentQty(50000, product, rawMaterial)).toBe(524.5);
+  });
+
+  it('converts PCS output to KG raw material with scrap (50,005 PCS × 0.01049 = 524.55245 KG)', () => {
+    const product = { uomType: 'COUNT', uomCode: 'PCS', weightPerPiece: 0.01049 };
+    const rawMaterial = { uomType: 'WEIGHT', uomCode: 'KG' };
+    expect(convertProductToComponentQty(50005, product, rawMaterial)).toBeCloseTo(524.55245, 4);
+  });
+
+  it('converts METER output to KG raw material using weightPerMeter', () => {
+    const product = { uomType: 'LENGTH', uomCode: 'M', weightPerMeter: 0.05 };
+    const rawMaterial = { uomType: 'WEIGHT', uomCode: 'KG' };
+    expect(convertProductToComponentQty(1000, product, rawMaterial)).toBe(50);
+  });
+
+  it('leaves KG to KG unchanged (1:1 conversion)', () => {
+    const product = { uomType: 'WEIGHT', uomCode: 'KG' };
+    const rawMaterial = { uomType: 'WEIGHT', uomCode: 'KG' };
+    expect(convertProductToComponentQty(300, product, rawMaterial)).toBe(300);
   });
 });

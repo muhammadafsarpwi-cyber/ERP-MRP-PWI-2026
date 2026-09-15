@@ -20,6 +20,7 @@ import {
   DowntimeMode, deriveFromRunning, rebalancePair,
   effectiveRunning, effectiveDowntime, round2, sumDowntimeLines,
   lineToKg, aggregateProductionTotals, buildDowntimePayload, buildProductionItemsPayload,
+  convertProductToComponentQty,
 } from './downtimeHours';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 import ProductionSaveSuccessModal, { SavedEntrySummary } from './ProductionSaveSuccessModal';
@@ -1027,7 +1028,6 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     // the success modal must appear exactly once per persisted entry.
     if (saving || submitBlocked) return;
     setSaving(true);
-    setSavedOpen(true);
     try {
       const payload: Record<string, unknown> = { ...values };
       if (isActualAuto) {
@@ -3341,7 +3341,9 @@ const RawMaterialAvailability: React.FC<{
             reqSource = 'routing';
           }
           const lineUomId = bomLine?.uomId ?? componentBaseUomId;
-          let req = units * rawQuantity * (1 + rawScrapFactor) / (rawYield / 100);
+          const componentItem = lookups.items.find((i) => i.id === prevStageItemId) || rawItemRef.item;
+          const convertedUnits = convertProductToComponentQty(units, item, componentItem);
+          let req = convertedUnits * rawQuantity * (1 + rawScrapFactor) / (rawYield / 100);
           req = convertBetweenUoms(lineUomId, componentBaseUomId, req, lookups.uomConversions);
           if (rawQuantity <= 0) {
             setData((prev) => ({
@@ -3533,7 +3535,9 @@ const RawMaterialAvailability: React.FC<{
         next[key] = {
           ...it,
           lines: it.lines.map((l) => {
-            let req = units * l.rawQuantity * (1 + l.rawScrapFactor) / (l.rawYield / 100);
+            const componentItem = lookups.items.find((i) => i.id === l.rawItemId);
+            const convertedUnits = convertProductToComponentQty(units, item, componentItem);
+            let req = convertedUnits * l.rawQuantity * (1 + l.rawScrapFactor) / (l.rawYield / 100);
             req = convertBetweenUoms(l.lineUomId, l.componentBaseUomId, req, lookups.uomConversions);
             const required = Math.round(req * 10000) / 10000;
             let balance = l.balance;

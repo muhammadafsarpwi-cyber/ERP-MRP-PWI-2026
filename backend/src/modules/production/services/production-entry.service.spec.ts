@@ -1078,6 +1078,54 @@ describe('ProductionEntryService — automatic BOM consumption', () => {
     const receipt = stockLedgerService.create.mock.calls.find((c: any) => c[0].transactionType === 'PRODUCTION_RECEIPT');
     expect(receipt[0]).toMatchObject({ itemId: 'item-1', direction: 'IN', warehouseId: 'wh-1', quantity: 7200 });
   });
+
+  it('consumes raw material converted from PCS to KG using weightPerPiece (50,000 PCS @ 0.01049 kg/pc = 524.5 KG)', async () => {
+    makeOrgMocks();
+    bomRepo.find.mockResolvedValue([]);
+    warehouseRepo.findOne.mockResolvedValue({ id: 'rw-wh-1', status: 'ACTIVE' });
+    itemRepo.findOne.mockImplementation(({ where }: any) => {
+      if (where.id === 'item-pcs') {
+        return Promise.resolve({
+          id: 'item-pcs', companyId: COMPANY, itemCode: 'WIP-ST-011',
+          baseUomId: 'uom-pcs', baseUom: { code: 'PCS', uomType: 'COUNT' },
+          weightPerPiece: 0.01049, status: 'ACTIVE', productionInItemId: 'raw-wire-kg',
+        });
+      }
+      if (where.id === 'raw-wire-kg') {
+        return Promise.resolve({
+          id: 'raw-wire-kg', companyId: COMPANY, itemCode: 'RM-WIRE-008',
+          baseUomId: 'uom-kg', baseUom: { code: 'KG', uomType: 'WEIGHT' },
+          status: 'ACTIVE',
+        });
+      }
+      return Promise.resolve({ id: where.id, companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' });
+    });
+    uomRepo.findOne.mockResolvedValue({ id: 'uom-kg', code: 'KG' });
+    balanceService.getAvailableStock.mockResolvedValue(1000);
+
+    const pcsEntry = {
+      ...validDto(),
+      itemId: 'item-pcs',
+      uomId: 'uom-pcs',
+      actualQuantity: 50000,
+      scrapQuantity: 0,
+      postToInventory: true,
+      warehouseId: 'wh-1',
+      rawMaterialWarehouseId: 'rw-wh-1',
+    } as any;
+
+    await service.create(pcsEntry, COMPANY);
+
+    const consumes = stockLedgerService.create.mock.calls.filter((c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION');
+    expect(consumes.length).toBe(1);
+    // 50,000 PCS × 0.01049 kg/pc = 524.5 KG
+    expect(consumes[0][0]).toMatchObject({
+      itemId: 'raw-wire-kg',
+      quantity: 524.5,
+      direction: 'OUT',
+      warehouseId: 'rw-wh-1',
+    });
+  });
 });
 
 describe('ProductionEntryService — atomic create (no orphan entries)', () => {
