@@ -23,7 +23,7 @@ function getInitials(name: string): string {
 
 function resolveSrc(avatarUrl: string | null | undefined): string | undefined {
   if (!avatarUrl) return undefined;
-  if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) return avatarUrl;
+  if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://') || avatarUrl.startsWith('data:')) return avatarUrl;
   try {
     const origin = new URL(API_BASE_URL).origin;
     return `${origin}${avatarUrl}`;

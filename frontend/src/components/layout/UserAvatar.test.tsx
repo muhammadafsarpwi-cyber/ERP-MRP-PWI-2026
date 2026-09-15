@@ -41,6 +41,12 @@ describe('UserAvatar', () => {
     expect(resolved).toContain('/uploads/avatars/abc/def.jpg');
   });
 
+  it('preserves data: image URIs directly without prepending API origin', () => {
+    const dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const resolved = resolveSrc(dataUri);
+    expect(resolved).toBe(dataUri);
+  });
+
   it('renders the generic user icon when no name or avatar is available', () => {
     const { container } = render(<UserAvatar />);
     expect(container.querySelector('.anticon-user')).toBeInTheDocument();

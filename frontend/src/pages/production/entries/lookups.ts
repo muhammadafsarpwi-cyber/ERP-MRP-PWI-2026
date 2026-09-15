@@ -78,6 +78,7 @@ export function useLookups() {
   const [downtimeReasonsFailed, setDowntimeReasonsFailed] = useState(false);
   const [productionOrders, setProductionOrders] = useState<ProductionOrderLk[]>([]);
   const [hrEmployees, setHrEmployees] = useState<HrEmployeeLk[]>([]);
+  const [hrEmployeesLoading, setHrEmployeesLoading] = useState(true);
 
   useEffect(() => {
     void fetchList<Division>('/divisions', { limit: 200 }).then(setDivisions);
@@ -90,14 +91,19 @@ export function useLookups() {
     void fetchList<ProductionOrderLk>('/production/orders', { limit: 200 }).then(setProductionOrders);
     void fetchList<MachineLk>('/production/machines', { limit: 500 }).then(setMachines);
     void (async () => {
-      let finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees/lookup');
-      if (!finalEmployees || finalEmployees.length === 0) {
-        try {
-          finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees', { limit: 500, status: 'ACTIVE' });
-        } catch {}
-      }
-      if (finalEmployees && finalEmployees.length > 0) {
-        setHrEmployees(finalEmployees);
+      setHrEmployeesLoading(true);
+      try {
+        let finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees/lookup');
+        if (!finalEmployees || finalEmployees.length === 0) {
+          try {
+            finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees', { limit: 500, status: 'ACTIVE' });
+          } catch {}
+        }
+        if (finalEmployees && finalEmployees.length > 0) {
+          setHrEmployees(finalEmployees);
+        }
+      } finally {
+        setHrEmployeesLoading(false);
       }
     })();
   }, []);
@@ -204,7 +210,7 @@ export function useLookups() {
 
   return {
     divisions, sections, departments, items, uoms, uomConversions,
-    shifts, machines, downtimeReasons, productionOrders, hrEmployees,
+    shifts, machines, downtimeReasons, productionOrders, hrEmployees, hrEmployeesLoading,
     deptItemsMap, deptItemsLoading, loadDepartmentItems,
     downtimeReasonsLoading, downtimeReasonsFailed, loadDowntimeReasons,
     loadMachines, sectionsForDivision, departmentsForSection, validUomsForItem,

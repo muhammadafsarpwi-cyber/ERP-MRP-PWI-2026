@@ -225,9 +225,11 @@ export class AuthService {
 
     const filename = `${crypto.randomUUID()}.${ext}`;
     const filePath = path.join(avatarDir, filename);
-    fs.writeFileSync(filePath, buffer);
+    try {
+      fs.writeFileSync(filePath, buffer);
+    } catch {}
 
-    const avatarUrl = `/uploads/avatars/${authUserId}/${filename}`;
+    const avatarUrl = `data:${dto.mime};base64,${dto.data}`;
     const saved = await this.userService.setAvatarUrl(authUserId, avatarUrl);
     const permissions = await this.permissionMatrixService.getUserPermissions(saved.id);
 

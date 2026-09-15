@@ -43,6 +43,40 @@ html, body {
 @import './styles/erp-table.css';
 @import './styles/category-badge.css';
 
+/* ── Production Entry Top KPI Cards Responsive Layout ──
+   Ensures cards never get crushed or display overlapping text on mobile screens. */
+[data-testid="kpi-row"] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+}
+
+@media (max-width: 575px) {
+  [data-testid="kpi-row"] > .ant-col,
+  .erp-kpi-col {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    display: block !important;
+  }
+}
+
+@media (min-width: 576px) and (max-width: 1199px) {
+  [data-testid="kpi-row"] > .ant-col,
+  .erp-kpi-col {
+    flex: 0 0 50% !important;
+    max-width: 50% !important;
+    width: 50% !important;
+  }
+}
+
+@media (min-width: 1200px) {
+  [data-testid="kpi-row"] > .ant-col,
+  .erp-kpi-col {
+    flex: 1 1 0 !important;
+    max-width: 20% !important;
+  }
+}
+
 /* Production item select dropdown full-width and readable figures */
 .production-item-select-popup {
   min-width: 540px !important;

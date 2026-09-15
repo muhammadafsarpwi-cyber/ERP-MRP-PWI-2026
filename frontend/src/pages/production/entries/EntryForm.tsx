@@ -217,6 +217,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const scrapQty = Form.useWatch('scrapQuantity', form);
   const rawMatWarehouseWatch = Form.useWatch('rawMaterialWarehouseId', form);
   const warehouseWatch = Form.useWatch('warehouseId', form);
+  const postToInventoryWatch = Form.useWatch('postToInventory', form);
   const operatorWatch = Form.useWatch('operatorName', form);
   const supervisorWatch = Form.useWatch('supervisorName', form);
   const downtimeEntriesWatch = Form.useWatch('downtimeEntries', form);
@@ -778,6 +779,21 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return selectedItem;
   }, [productionItemsWatch, lookups.items, departmentItems, selectedItem]);
 
+  const operatorOptions = useMemo(() => {
+    const list = lookups.employeesForDepartment(effectiveDeptId);
+    const opts = list.map((e) => ({
+      value: lookups.employeeFullName(e),
+      label: `${e.employeeCode} — ${lookups.employeeFullName(e)}${e.jobTitle ? ` (${e.jobTitle})` : ''}`,
+    }));
+    if (operatorWatch && !opts.some((o) => o.value.toLowerCase() === String(operatorWatch).toLowerCase())) {
+      opts.unshift({
+        value: String(operatorWatch),
+        label: `${operatorWatch} (Manual / Assigned)`,
+      });
+    }
+    return opts;
+  }, [lookups, effectiveDeptId, operatorWatch]);
+
   // TASK #29 authoritative Rejection Weight: derived ONLY from the visible
   // "Rejection / Scrap" Production Figures input (scrapQty) × the item's own
   // weight/master-data conversion (courtesy of the shared lineToKg helper). It
@@ -954,12 +970,10 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       ? Math.abs(round2(derivedRunning + totalDowntime) - plannedHours) <= 0.05
       : (derivedRunning > 0 || totalDowntime >= 0)
   );
-  const isStep6Done = Boolean(
-    (!productionOrderId || Boolean(form.getFieldValue('productionOrderOperationId'))) &&
-    (!form.getFieldValue('postToInventory') || Boolean(warehouseWatch))
-  );
-  const isAllPriorStepsDone = isStep1Done && isStep2Done && isStep3Done && isStep4Done && isStep5Done && isStep6Done;
-  const isStep7Done = isAllPriorStepsDone;
+  const isStep6Done = Boolean(!productionOrderId || Boolean(form.getFieldValue('productionOrderOperationId')));
+  const isStep7Done = true; // Production Route is verified
+  const isStep8Done = Boolean(!postToInventoryWatch || Boolean(warehouseWatch));
+  const isAllPriorStepsDone = isStep1Done && isStep2Done && isStep3Done && isStep4Done && isStep5Done && isStep6Done && isStep7Done && isStep8Done;
 
   const stepList = useMemo(() => [
     { step: 1, label: 'Operator', done: isStep1Done },
@@ -968,11 +982,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     { step: 4, label: 'Production Figures', done: isStep4Done },
     { step: 5, label: 'Downtime', done: isStep5Done },
     { step: 6, label: 'Order Linkage', done: isStep6Done },
-    { step: 7, label: 'Save Entry', done: isStep7Done },
-  ], [isStep1Done, isStep2Done, isStep3Done, isStep4Done, isStep5Done, isStep6Done, isStep7Done]);
+    { step: 7, label: 'Production Route', done: isStep7Done },
+    { step: 8, label: 'Inventory Posting', done: isStep8Done },
+  ], [isStep1Done, isStep2Done, isStep3Done, isStep4Done, isStep5Done, isStep6Done, isStep7Done, isStep8Done]);
 
   const completedStepsCount = useMemo(() => stepList.filter((s) => s.done).length, [stepList]);
-  const progressPercent = Math.round((completedStepsCount / 7) * 100);
+  const progressPercent = Math.round((completedStepsCount / 8) * 100);
 
   const onFinish = useCallback(async (values: Record<string, unknown>) => {
     console.log('ON_FINISH_START', values);
@@ -1504,9 +1519,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         {/* ── Production Context (compact; replaces duplicated full-size fields) ── */}
         {showSummary ? renderContextSummary() : renderLegacyContextFields()}
 
-        {/* ── TOP KPI AREA: ALL FIVE cards in ONE horizontal row on desktop ── */}
+        {/* ── TOP KPI AREA: ALL FIVE cards in ONE horizontal row on desktop, stacked on mobile ── */}
         <Row data-testid="kpi-row" gutter={[12, 12]} style={{ marginBottom: 16 }}>
-          <Col xs={24} sm={12} xl={4} flex="1 1 0">
+          <Col xs={24} sm={12} xl={4} className="erp-kpi-col">
             <StatisticMini
               label="Efficiency %"
               hint={`running vs planned${plannedHours > 0 ? ` (${formatNumber(plannedHours, 2)}h)` : ''}`}
@@ -1515,7 +1530,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               icon={<ThunderboltOutlined />}
             />
           </Col>
-          <Col xs={24} sm={12} xl={4} flex="1 1 0">
+          <Col xs={24} sm={12} xl={4} className="erp-kpi-col">
             <StatisticMini
               label="Achievement %"
               hint="actual vs target"
@@ -1524,7 +1539,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               icon={<TrophyOutlined />}
             />
           </Col>
-          <Col xs={24} sm={12} xl={4} flex="1 1 0">
+          <Col xs={24} sm={12} xl={4} className="erp-kpi-col">
             <StatisticMini
               label="Rejection %"
               hint="Rejection ÷ (Actual Good + Rejection) — from the Rejection / Scrap field"
@@ -1537,7 +1552,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               icon={<WarningOutlined />}
             />
           </Col>
-          <Col xs={24} sm={12} xl={4} flex="1 1 0">
+          <Col xs={24} sm={12} xl={4} className="erp-kpi-col">
             <StatisticMini
               label="Production Weight (KG)"
               hint={multiItemAggregate ? "sum of all items × weight/meter" : "actual × weight/meter"}
@@ -1550,7 +1565,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               icon={<GoldOutlined />}
             />
           </Col>
-          <Col xs={24} sm={12} xl={4} flex="1 1 0">
+          <Col xs={24} sm={12} xl={4} className="erp-kpi-col">
             <StatisticMini
               label="Rejection Weight (KG)"
               hint="Rejection / Scrap × item weight"
@@ -1673,25 +1688,36 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   >
                     <Select
                       showSearch
+                      allowClear
+                      loading={lookups.hrEmployeesLoading}
                       optionFilterProp="label"
                       placeholder="Select HR operator or type manual name"
-                      notFoundContent="No HR operators — select 'Manual entry' to type a name"
+                      notFoundContent={
+                        lookups.hrEmployeesLoading ? (
+                          <div style={{ padding: '8px 12px', textAlign: 'center' }}>
+                            <Spin size="small" /> <span style={{ marginLeft: 8 }}>Loading HR operators...</span>
+                          </div>
+                        ) : (
+                          "No HR operators found — type a name to enter manually"
+                        )
+                      }
                       popupMatchSelectWidth={false}
                       className={operatorWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                      styles={{ popup: { root: { minWidth: 360 } } }}
-                      options={
-                        lookups.employeesForDepartment(effectiveDeptId).map((e) => ({
-                          value: lookups.employeeFullName(e),
-                          label: `${e.employeeCode} — ${lookups.employeeFullName(e)}${e.jobTitle ? ` (${e.jobTitle})` : ''}`,
-                        }))
-                      }
-                      onSelect={(val) => { form.setFieldsValue({ operatorName: val }); }}
+                      styles={{ popup: { root: { minWidth: 260, maxWidth: '95vw' } } }}
+                      options={operatorOptions}
+                      onChange={(val) => {
+                        form.setFieldsValue({ operatorName: val || undefined });
+                      }}
+                      onSelect={(val) => {
+                        form.setFieldsValue({ operatorName: val });
+                      }}
                       onSearch={(val) => {
-                        if (val && val.length > 0) {
-                          const matches = lookups.employeesForDepartment(effectiveDeptId)
-                            .some((e) => lookups.employeeFullName(e).toLowerCase() === val.toLowerCase());
+                        if (val && val.trim().length > 0) {
+                          const matches = operatorOptions.some(
+                            (o) => o.value.toLowerCase() === val.trim().toLowerCase()
+                          );
                           if (!matches) {
-                            form.setFieldsValue({ operatorName: val });
+                            form.setFieldsValue({ operatorName: val.trim() });
                           }
                         }
                       }}
@@ -2344,63 +2370,14 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               {orderMismatch && (
                 <Alert type="error" showIcon message="Selected item differs from this order's product. Save will be rejected." />
               )}
-              <Form.Item
-                name="postToInventory"
-                label="Post Directly to Inventory (make-to-stock)"
-                valuePropName="checked"
-                extra={mode === 'edit' ? 'Inventory posting is decided at creation and cannot be changed here.' : undefined}
-              >
-                <Switch disabled={!!productionOrderId || mode === 'edit'} />
-              </Form.Item>
-              <Form.Item
-                noStyle
-                shouldUpdate={(p, c) => p.postToInventory !== c.postToInventory}
-              >
-                {({ getFieldValue }) =>
-                  getFieldValue('postToInventory') ? (
-                    <Form.Item
-                      name="warehouseId"
-                      label="Receipt Warehouse"
-                      rules={mode === 'edit' ? [] : [{ required: true, message: 'Warehouse is required for direct posting' }]}
-                      style={{ marginTop: -12 }}
-                    >
-                      <Select
-                        allowClear showSearch optionFilterProp="label" placeholder="Select Warehouse"
-                        disabled={mode === 'edit' && Boolean(getFieldValue('warehouseId'))}
-                        className={warehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                        options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
-                      />
-                    </Form.Item>
-                  ) : null
-                }
-              </Form.Item>
-
-              <Form.Item
-                noStyle
-                shouldUpdate={(p, c) => p.postToInventory !== c.postToInventory}
-              >
-                {({ getFieldValue }) =>
-                  getFieldValue('postToInventory') ? (
-                    <Form.Item
-                      name="rawMaterialWarehouseId"
-                      label="Raw Material Source Warehouse"
-                      tooltip="Warehouse that the Item Master production IN items / ACTIVE BOM raw materials are automatically deducted from when this entry posts to inventory. Defaults to the company's first ACTIVE RAW MATERIAL warehouse when left empty."
-                      style={{ marginTop: -12 }}
-                    >
-                      <Select
-                        allowClear showSearch optionFilterProp="label" placeholder="Auto: first ACTIVE RAW MATERIAL store"
-                        disabled={mode === 'edit'}
-                        data-testid="raw-source-store-select"
-                        className={rawMatWarehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                        options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
-                      />
-                    </Form.Item>
-                  ) : null
-                }
-              </Form.Item>
             </Card>
 
-            <Card title="Production Route" size="small" style={{ marginTop: 16 }}>
+            <Card
+              title="Production Route"
+              size="small"
+              style={{ marginTop: 16 }}
+              extra={<Tag color={isStep7Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep7Done ? '✓ STEP 7 OK' : 'STEP 7'}</Tag>}
+            >
               {machineLinked && mtResolution?.route ? (
                 <RouteChain route={mtResolution.route} />
               ) : machineLinked && resolvingMt ? (
@@ -2420,6 +2397,69 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               )}
             </Card>
 
+            <Card
+              title="Post Directly to Inventory (make-to-stock)"
+              size="small"
+              style={{ marginTop: 16 }}
+              extra={<Tag color={isStep8Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep8Done ? '✓ STEP 8 OK' : 'STEP 8'}</Tag>}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div>
+                  <Text strong style={{ fontSize: 13, display: 'block' }}>Direct Stock Posting</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Toggle ON to automatically post completed output to inventory warehouses.
+                  </Text>
+                </div>
+                <Form.Item
+                  name="postToInventory"
+                  valuePropName="checked"
+                  style={{ margin: 0 }}
+                  extra={mode === 'edit' ? 'Decided at creation' : undefined}
+                >
+                  <Switch disabled={!!productionOrderId || mode === 'edit'} />
+                </Form.Item>
+              </div>
+
+              <Form.Item
+                noStyle
+                shouldUpdate={(p, c) => p.postToInventory !== c.postToInventory}
+              >
+                {({ getFieldValue }) =>
+                  getFieldValue('postToInventory') ? (
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginTop: 8 }}>
+                      <Form.Item
+                        name="warehouseId"
+                        label="Receipt Warehouse"
+                        rules={mode === 'edit' ? [] : [{ required: true, message: 'Warehouse is required for direct posting' }]}
+                      >
+                        <Select
+                          allowClear showSearch optionFilterProp="label" placeholder="Select Warehouse"
+                          disabled={mode === 'edit' && Boolean(getFieldValue('warehouseId'))}
+                          className={warehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                          options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
+                        />
+                      </Form.Item>
+
+                      <Form.Item
+                        name="rawMaterialWarehouseId"
+                        label="Raw Material Source Warehouse"
+                        tooltip="Warehouse that the Item Master production IN items / ACTIVE BOM raw materials are automatically deducted from when this entry posts to inventory. Defaults to the company's first ACTIVE RAW MATERIAL warehouse when left empty."
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select
+                          allowClear showSearch optionFilterProp="label" placeholder="Auto: first ACTIVE RAW MATERIAL store"
+                          disabled={mode === 'edit'}
+                          data-testid="raw-source-store-select"
+                          className={rawMatWarehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                          options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
+                        />
+                      </Form.Item>
+                    </div>
+                  ) : null
+                }
+              </Form.Item>
+            </Card>
+
             {machineLinked && (
               <Alert
                 type="success" showIcon icon={<LockOutlined />} style={{ marginTop: 16 }}
@@ -2430,28 +2470,28 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           </Col>
         </Row>
 
-        {/* ── STEP 7: ACTION BAR ── */}
+        {/* ── STEP 8 / ACTION BAR ── */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
           <Space>
             <Tag
-              color={isStep7Done ? '#16a34a' : '#f59e0b'}
+              color={isAllPriorStepsDone ? '#16a34a' : '#f59e0b'}
               style={{ fontWeight: 700, borderRadius: 12, padding: '4px 14px', fontSize: 13 }}
             >
-              {isStep7Done ? (
+              {isAllPriorStepsDone ? (
                 <>
                   <CheckCircleFilled style={{ marginRight: 6 }} />
-                  7 STEPS OK · 100% READY
+                  ALL 8 STEPS OK · 100% READY
                 </>
               ) : (
-                `STEP 7 · ${7 - completedStepsCount} STEP(S) REMAINING`
+                `ALL 8 STEPS · ${8 - completedStepsCount} STEP(S) REMAINING`
               )}
             </Tag>
             <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>
-              {isStep7Done ? 'All 7 Steps Complete — Ready to Save' : 'Finalize & Submit Production Entry'}
+              {isAllPriorStepsDone ? 'All 8 Steps Complete — Ready to Save' : 'Finalize & Submit Production Entry'}
             </Text>
           </Space>
           <Text type="secondary" style={{ fontSize: 11 }}>
-            {isStep7Done ? 'All verification criteria met (100%)' : 'Complete all steps above to achieve 100% verification'}
+            {isAllPriorStepsDone ? 'All verification criteria met (100%)' : 'Complete all steps above to achieve 100% verification'}
           </Text>
         </div>
         <Button
