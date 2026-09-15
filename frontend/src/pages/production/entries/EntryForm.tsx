@@ -370,13 +370,16 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   // unregistered fields are NOT returned by antd's onFinish values.
   useEffect(() => {
     if (mode !== 'create') return;
-    const patch: Record<string, unknown> = {};
+    const patch: Record<string, unknown> = {
+      postToInventory: true,
+      downtimeEntries: [{ confirmed: false }],
+    };
     if (qDate) patch.entryDate = dayjs(qDate);
     if (qShiftId) patch.shiftId = qShiftId;
     if (qDivisionId) patch.divisionId = qDivisionId;
     if (qSectionId) patch.sectionId = qSectionId;
     if (qDepartmentId) patch.departmentId = qDepartmentId;
-    if (Object.keys(patch).length > 0) form.setFieldsValue(patch);
+    form.setFieldsValue(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -965,11 +968,21 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     derivedRunning >= 0 &&
     (machineLinked ? displayTarget !== null : Boolean(targetQty && toNum(targetQty) > 0))
   );
-  const isStep5Done = Boolean(
-    plannedHours > 0
-      ? Math.abs(round2(derivedRunning + totalDowntime) - plannedHours) <= 0.05
-      : (derivedRunning > 0 || totalDowntime >= 0)
-  );
+  const isStep5Done = useMemo(() => {
+    const dtEntries = (downtimeEntriesWatch ?? []) as any[];
+    const hasIncompleteRow = dtEntries.some((d) => {
+      if (!d) return false;
+      const hasReason = Boolean(d.downtimeReasonId);
+      const hasHours = d.downtimeHours !== undefined && d.downtimeHours !== null && d.downtimeHours !== '' && toNum(d.downtimeHours) > 0;
+      return (hasReason && !hasHours) || (!hasReason && hasHours);
+    });
+    if (hasIncompleteRow) return false;
+
+    if (plannedHours > 0) {
+      return Math.abs(round2(derivedRunning + totalDowntime) - plannedHours) <= 0.05;
+    }
+    return derivedRunning > 0 || totalDowntime >= 0;
+  }, [downtimeEntriesWatch, plannedHours, derivedRunning, totalDowntime]);
   const isStep6Done = Boolean(!productionOrderId || Boolean(form.getFieldValue('productionOrderOperationId')));
   const isStep7Done = true; // Production Route is verified
   const isStep8Done = Boolean(!postToInventoryWatch || Boolean(warehouseWatch));
@@ -1044,7 +1057,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       }
 
       // ── Compute aggregate downtime from lines ──────────────────────────────
-      const downtimeLines = (values.downtimeEntries as any[] | undefined) ?? [];
+      const rawDowntimeLines = (values.downtimeEntries as any[] | undefined) ?? [];
+      const downtimeLines = rawDowntimeLines.filter((d: any) => d?.downtimeReasonId && toNum(d?.downtimeHours) > 0);
       const computedDowntime = sumDowntimeLines(downtimeLines);
       if (downtimeLines.length) {
         payload.downtimes = buildDowntimePayload(downtimeLines);
@@ -1508,7 +1522,14 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         </Title>
       </Space>
 
-      <Form form={form} layout="vertical" onFinish={onFinish} onFinishFailed={(err) => console.log('ON_FINISH_FAILED', JSON.stringify(err))} autoComplete="off">
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={mode === 'create' ? { postToInventory: true, downtimeEntries: [{ confirmed: false }] } : undefined}
+        onFinish={onFinish}
+        onFinishFailed={(err) => console.log('ON_FINISH_FAILED', JSON.stringify(err))}
+        autoComplete="off"
+      >
         {loadingEntry && (
           <Card>
             <Spin style={{ width: '100%', marginTop: 80 }} />
@@ -2213,6 +2234,10 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                             const confirmed = getFieldValue(['downtimeEntries', f.name, 'confirmed']) === true;
                             const reasonId = getFieldValue(['downtimeEntries', f.name, 'downtimeReasonId']);
                             const hours = getFieldValue(['downtimeEntries', f.name, 'downtimeHours']);
+                            const hasReason = Boolean(reasonId);
+                            const hasHours = hours !== undefined && hours !== null && hours !== '' && toNum(hours) > 0;
+                            const isIncomplete = (hasReason && !hasHours) || (!hasReason && hasHours);
+                            const isComplete = hasReason && hasHours;
                             const reason = lookups.downtimeReasons.find((r) => r.id === reasonId);
                             const isOther = reason?.name?.toLowerCase() === 'other';
                             return (
@@ -2224,9 +2249,11 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                                   padding: '6px 8px',
                                   background: confirmed
                                     ? 'rgba(82, 196, 26, 0.08)'
-                                    : (reasonId ? 'rgba(255, 77, 79, 0.06)' : 'transparent'),
+                                    : (isIncomplete ? 'rgba(239, 68, 68, 0.06)' : (isComplete ? 'rgba(82, 196, 26, 0.04)' : 'transparent')),
                                   border: `1px solid ${
-                                    confirmed ? 'rgba(82, 196, 26, 0.40)' : (reasonId ? 'rgba(255, 77, 79, 0.35)' : 'var(--theme-border)')
+                                    confirmed
+                                      ? 'rgba(82, 196, 26, 0.40)'
+                                      : (isIncomplete ? 'rgba(239, 68, 68, 0.45)' : (isComplete ? 'rgba(82, 196, 26, 0.35)' : 'var(--theme-border)'))
                                   }`,
                                 }}
                               >
@@ -2245,7 +2272,17 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                                     <Form.Item
                                       name={[f.name, 'downtimeReasonId']}
                                       noStyle
-                                      rules={[{ required: true, message: 'Required' }]}
+                                      rules={[
+                                        ({ getFieldValue }) => ({
+                                          validator(_, value) {
+                                            const h = getFieldValue(['downtimeEntries', f.name, 'downtimeHours']);
+                                            if (h !== undefined && h !== null && h !== '' && toNum(h) > 0 && !value) {
+                                              return Promise.reject(new Error('Reason required'));
+                                            }
+                                            return Promise.resolve();
+                                          },
+                                        }),
+                                      ]}
                                     >
                                       <Select
                                         size="small"
@@ -2262,7 +2299,17 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                                     <Form.Item
                                       name={[f.name, 'downtimeHours']}
                                       noStyle
-                                      rules={[{ required: true, message: 'Required' }]}
+                                      rules={[
+                                        ({ getFieldValue }) => ({
+                                          validator(_, value) {
+                                            const r = getFieldValue(['downtimeEntries', f.name, 'downtimeReasonId']);
+                                            if (r && (value === undefined || value === null || value === '' || toNum(value) <= 0)) {
+                                              return Promise.reject(new Error('Hours required'));
+                                            }
+                                            return Promise.resolve();
+                                          },
+                                        }),
+                                      ]}
                                     >
                                       <InputNumber
                                         size="small"
