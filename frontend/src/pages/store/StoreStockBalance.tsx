@@ -18,6 +18,7 @@ interface StockItem {
   itemId: string;
   itemCode: string;
   itemName: string;
+  materialRoleUsage?: string;
   uomCode: string;
   onHand: number;
   reserved: number;
@@ -68,10 +69,12 @@ const StoreStockBalance: React.FC = () => {
         const minimumStock = Number(b.item?.minimumStockLevel || 0);
         const reorderLevel = Number(b.item?.reorderLevel || 0);
         const maximumStock = Number(b.item?.maximumStockLevel || 0);
+        const isRaw = (b.item?.itemType || b.item?.item_type || '').toUpperCase().includes('RAW');
         return {
           itemId: b.itemId,
           itemCode: b.item?.itemCode || '',
           itemName: b.item?.name || '',
+          materialRoleUsage: b.item?.materialRoleUsage || b.item?.material_role_usage || (isRaw ? 'Process Component Materials' : ''),
           uomCode: b.uom?.code || '',
           onHand,
           reserved,
@@ -107,6 +110,13 @@ const StoreStockBalance: React.FC = () => {
   const columns: ColumnsType<StockItem> = [
     { title: 'Item Code', dataIndex: 'itemCode', key: 'itemCode', width: 120 },
     { title: 'Item Name', dataIndex: 'itemName', key: 'itemName', width: 200 },
+    {
+      title: 'Material Role / Usage',
+      dataIndex: 'materialRoleUsage',
+      key: 'materialRoleUsage',
+      width: 170,
+      render: (v: string) => (v ? <Tag color="cyan" style={{ fontWeight: 600 }}>{v}</Tag> : <span style={{ color: '#999' }}>—</span>),
+    },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 80 },
     { title: 'On Hand', dataIndex: 'onHand', key: 'onHand', width: 100, align: 'right' },
     { title: 'Reserved', dataIndex: 'reserved', key: 'reserved', width: 100, align: 'right' },

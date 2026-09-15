@@ -180,7 +180,7 @@ export class StoreMaterialTraceService {
 
   private async fetchItem(companyId: string, itemId: string) {
     return this.dataSource.query(
-      `SELECT i.id, i.item_code, i.sku, i.name, i.short_name, i.description, i.notes, i.item_type, i.status,
+      `SELECT i.id, i.item_code, i.sku, i.name, i.short_name, i.description, i.notes, i.item_type, i.material_role_usage, i.status,
               i.barcode, i.brand, i.model, i.manufacturer_part_number, i.category_id,
               c.name AS category_name,
               i.base_uom_id, u.code AS base_uom_code,

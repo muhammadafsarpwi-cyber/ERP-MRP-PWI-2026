@@ -221,6 +221,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const supervisorWatch = Form.useWatch('supervisorName', form);
   const downtimeEntriesWatch = Form.useWatch('downtimeEntries', form);
   const productionItemsWatch = Form.useWatch('productionItems', form);
+  const machineNoWatch = Form.useWatch('machineNo', form);
+  const entryDateWatch = Form.useWatch('entryDate', form);
 
   // Auto-fill Supervisor Name from currently logged-in user
   const currentUser = useUserStore((s) => s.user);
@@ -264,6 +266,28 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     chainWarning?: string | null;
   }>>({});
 
+  const handleRawMaterialData = useCallback((newData: Record<string, any>) => {
+    setRawMaterialData((prev) => {
+      const prevKeys = Object.keys(prev);
+      const newKeys = Object.keys(newData);
+      if (prevKeys.length !== newKeys.length) return newData;
+      const changed = newKeys.some((k) => {
+        const p = prev[k];
+        const n = newData[k];
+        if (!p || !n) return true;
+        return (
+          p.itemCode !== n.itemCode ||
+          p.available !== n.available ||
+          p.wireSizeMm !== n.wireSizeMm ||
+          p.uomCode !== n.uomCode ||
+          p.productionInItemId !== n.productionInItemId ||
+          p.chainWarning !== n.chainWarning
+        );
+      });
+      return changed ? newData : prev;
+    });
+  }, []);
+
   // ── First production item = authoritative item for the Machine Target ─────
   // The Production Items Form.List is the source of item selection. When the
   // operator picks a different item in row 1, the item-scoped machine target
@@ -282,13 +306,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     const s = (x: unknown): string | undefined => (typeof x === 'string' && x.length > 0 ? x : undefined);
     if (mode === 'edit') {
       return {
-        divisionId: entry?.divisionId ?? s(form.getFieldValue('divisionId')),
-        sectionId: entry?.sectionId ?? s(form.getFieldValue('sectionId')),
-        departmentId: entry?.departmentId ?? s(form.getFieldValue('departmentId')),
-        shiftId: entry?.shiftId ?? entry?.shift?.id ?? s(form.getFieldValue('shiftId')),
+        divisionId: entry?.divisionId ?? s(divisionId),
+        sectionId: entry?.sectionId ?? s(sectionId),
+        departmentId: entry?.departmentId ?? s(departmentId),
+        shiftId: entry?.shiftId ?? entry?.shift?.id ?? s(shiftId),
         entryDate: entry?.entryDate ? entry.entryDate.slice(0, 10) : undefined,
         machineId: entry?.machineId ?? undefined,
-        machineNo: entry?.machineNo ?? s(form.getFieldValue('machineNo')),
+        machineNo: entry?.machineNo ?? s(machineNoWatch),
       };
     }
     if (lockedContext) {
@@ -303,18 +327,18 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       };
     }
     // Legacy free-form flow — those Form.Items are registered here.
-    const d = form.getFieldValue('entryDate') as dayjs.Dayjs | undefined;
+    const d = entryDateWatch as dayjs.Dayjs | undefined;
     return {
       divisionId: s(divisionId),
       sectionId: s(sectionId),
       departmentId: s(departmentId),
       shiftId: s(shiftId),
-      entryDate: d ? d.format('YYYY-MM-DD') : undefined,
+      entryDate: d && typeof d.format === 'function' ? d.format('YYYY-MM-DD') : undefined,
       machineId: undefined,
-      machineNo: s(form.getFieldValue('machineNo')),
+      machineNo: s(machineNoWatch),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, lockedContext, entry, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, qMachineId]);
+  }, [mode, lockedContext, entry, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, qMachineId, divisionId, sectionId, departmentId, shiftId, machineNoWatch, entryDateWatch]);
   const ctxShiftId = ctxIds.shiftId;
 
   useEffect(() => {
@@ -690,12 +714,6 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return null;
   }, [machineLinked, mtResolution, derivedRunning, mode, entry?.targetQuantity]);
 
-  const achievement = useMemo(() => {
-    const t = machineLinked ? displayTarget : toNum(targetQty);
-    const a = toNum(actualQty);
-    return !!t && t > 0 ? Math.round((a / t) * 10000) / 100 : null;
-  }, [machineLinked, displayTarget, targetQty, actualQty]);
-
   const efficiency = useMemo(() => {
     if (plannedHours > 0) return Math.round((derivedRunning / plannedHours) * 10000) / 100;
     const denom = derivedRunning + totalDowntime;
@@ -751,6 +769,10 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return val == null ? 0 : val;
   }, [scrapQty, primaryItem, primaryUomType, productionItemsWatch, uomId, lookups.uoms]);
 
+  const maxProductionItems = 2;
+  const productionItemsCount = (productionItemsWatch ?? []).length;
+  const maxItemsReached = productionItemsCount >= maxProductionItems;
+
   // ── Multi-item details (TASK #26): render one compact Item Details strip for
   //    EVERY selected production item, falling back to selectedItem for single-item entries.
   const selectedProductionItems = useMemo(() => {
@@ -775,7 +797,8 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       }];
     }
     return [];
-  }, [productionItemsWatch, itemId, actualQty, scrapQty, uomId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productionItemsWatch, itemId, productionItemsCount > 0 ? null : actualQty, productionItemsCount > 0 ? null : scrapQty, uomId]);
 
   // ── Department-based item filtering ────────────────────────────────────────
   // Items available in the Production Items row dropdowns are scoped to the
@@ -786,16 +809,32 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     return (typeof d === 'string' && d.length > 0) ? d : (typeof departmentId === 'string' && departmentId.length > 0 ? departmentId : undefined);
   }, [ctxIds.departmentId, departmentId]);
 
-  const departmentItems = useMemo(
-    () => effectiveDeptId
-      ? lookups.items.filter((i) => i.departmentId === effectiveDeptId)
-      : lookups.items,
-    [lookups.items, effectiveDeptId],
-  );
+  useEffect(() => {
+    if (effectiveDeptId) {
+      void lookups.loadDepartmentItems(effectiveDeptId);
+    }
+  }, [effectiveDeptId, lookups.loadDepartmentItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const maxProductionItems = 2;
-  const productionItemsCount = (productionItemsWatch ?? []).length;
-  const maxItemsReached = productionItemsCount >= maxProductionItems;
+  const departmentItems = useMemo(() => {
+    if (!effectiveDeptId) return lookups.items;
+    // 1. Items specifically assigned to this department (either cached from loadDepartmentItems or in lookups.items)
+    const cachedDept = lookups.deptItemsMap[effectiveDeptId];
+    if (cachedDept && cachedDept.length > 0) return cachedDept;
+
+    const filtered = lookups.items.filter((i) => i.departmentId === effectiveDeptId);
+    if (filtered.length > 0) return filtered;
+
+    // 2. If no items match this department directly, check division-linked items
+    const divId = ctxIds.divisionId || (typeof divisionId === 'string' ? divisionId : undefined);
+    if (divId) {
+      const divFiltered = lookups.items.filter((i) => i.divisionId === divId);
+      if (divFiltered.length > 0) return divFiltered;
+    }
+
+    // 3. Fallback to manufacturable items or all items so the picker is never dead/empty
+    const mfg = lookups.items.filter((i) => i.isManufacturable);
+    return mfg.length > 0 ? mfg : lookups.items;
+  }, [effectiveDeptId, lookups.deptItemsMap, lookups.items, ctxIds.divisionId, divisionId]);
 
   // ── Multi-item production aggregate calculations ──────────────────────────
   // When production items (Form.List) are used, aggregate quantities from all lines.
@@ -834,23 +873,19 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   // READ-ONLY sum of all production item quantities (reusing the existing
   // multiItemAggregate.totalActual aggregation — no duplicated calculation).
   const isActualAuto = productionItemsCount > 0;
+  const effectiveActualQty = isActualAuto ? round2(multiItemAggregate?.totalActual ?? 0) : toNum(actualQty);
 
-  // Keep the parent `actualQuantity` field in sync with the aggregate so the
-  // watched value, KPIs, and the onFinish payload all carry the summed actual
-  // without the operator typing anything.
-  useEffect(() => {
-    if (!isActualAuto) return;
-    const sum = round2(multiItemAggregate?.totalActual ?? 0);
-    const current = toNum(form.getFieldValue('actualQuantity'));
-    if (Math.abs(current - sum) > 0.0001) form.setFieldValue('actualQuantity', sum);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActualAuto, multiItemAggregate]);
+  const achievement = useMemo(() => {
+    const t = machineLinked ? displayTarget : toNum(targetQty);
+    const a = effectiveActualQty;
+    return !!t && t > 0 ? Math.round((a / t) * 10000) / 100 : null;
+  }, [machineLinked, displayTarget, targetQty, effectiveActualQty]);
 
   // Single-item KG conversion (legacy single-item fields), family-aware.
   const singleItemKg = useMemo(() => {
     if (!primaryItem) return null;
     const uomType = lookups.uoms.find((u) => u.id === uomId)?.uomType ?? null;
-    const act = Math.max(0, toNum(actualQty));
+    const act = Math.max(0, effectiveActualQty);
     const rej = Math.max(0, toNum(scrapQty));
     const kg = lineToKg(act, { ...primaryItem, uomType });
     const rejKg = lineToKg(rej, { ...primaryItem, uomType });
@@ -858,7 +893,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     const rejPct = total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
     if (kg === null && rejKg === null) return null;
     return { kg: kg ?? 0, rejKg: rejKg ?? 0, rejPct };
-  }, [primaryItem, actualQty, scrapQty, uomId, lookups.uoms]);
+  }, [primaryItem, effectiveActualQty, scrapQty, uomId, lookups.uoms]);
 
   // Combined scrap weight: prefer line-aggregated scrap KG if present, else single-item scrap KG
   const effectiveScrapWeightKg = useMemo(() => {
@@ -893,6 +928,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...values };
+      if (isActualAuto) {
+        payload.actualQuantity = round2(multiItemAggregate?.totalActual ?? 0);
+      }
       delete payload.id;
       delete payload.__computed;
       delete payload.postToInventory; // presentation flag; create decides posting via explicit field below
@@ -1127,7 +1165,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const ctxMachineCode =
     (lockedContext ? lookups.machines.find((m) => m.id === qMachineId)?.machineCode : undefined) ??
     entry?.machineNo ??
-    form.getFieldValue('machineNo') ??
+    machineNoWatch ??
     '…';
 
   const showSummary = lockedContext || mode === 'edit';
@@ -1341,7 +1379,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             <Select
               showSearch optionFilterProp="label" placeholder="Select Shift"
               popupMatchSelectWidth={false}
-              dropdownStyle={{ minWidth: 380 }}
+              styles={{ popup: { root: { minWidth: 380 } } }}
               options={lookups.shifts.map((s) => ({
                 value: s.id,
                 label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''}) · planned ${s.plannedHours}h`,
@@ -1471,9 +1509,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                       notFoundContent="No HR operators — select 'Manual entry' to type a name"
                       popupMatchSelectWidth={false}
                       className={operatorWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                      dropdownStyle={{ minWidth: 360 }}
+                      styles={{ popup: { root: { minWidth: 360 } } }}
                       options={
-                        lookups.employeesForDepartment(departmentId).map((e) => ({
+                        lookups.employeesForDepartment(effectiveDeptId).map((e) => ({
                           value: lookups.employeeFullName(e),
                           label: `${e.employeeCode} — ${lookups.employeeFullName(e)}${e.jobTitle ? ` (${e.jobTitle})` : ''}`,
                         }))
@@ -1481,7 +1519,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                       onSelect={(val) => { form.setFieldsValue({ operatorName: val }); }}
                       onSearch={(val) => {
                         if (val && val.length > 0) {
-                          const matches = lookups.employeesForDepartment(departmentId)
+                          const matches = lookups.employeesForDepartment(effectiveDeptId)
                             .some((e) => lookups.employeeFullName(e).toLowerCase() === val.toLowerCase());
                           if (!matches) {
                             form.setFieldsValue({ operatorName: val });
@@ -1617,7 +1655,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               sourceStoreLabel={rawMatWarehouseWatch ? (warehouses.find((w) => w.id === rawMatWarehouseWatch)?.name ?? undefined) : undefined}
               receiptStoreLabel={warehouseWatch ? (warehouses.find((w) => w.id === warehouseWatch)?.name ?? undefined) : undefined}
               fallbackScrapQty={scrapQty}
-              onData={setRawMaterialData}
+              onData={handleRawMaterialData}
             />
 
             <Card title="Production Figures" size="small" style={{ marginTop: 16 }}>
@@ -1673,14 +1711,29 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   )}
                 </Col>
                 <Col span={12}>
-                  <Form.Item
-                    name="actualQuantity"
-                    label={<span>Actual Good Production <InputBadge type={isActualAuto ? 'auto' : 'input'} /></span>}
-                    rules={[{ required: !isActualAuto, message: 'Actual is required' }]}
-                    extra={isActualAuto ? 'Auto-calculated as the sum of all Production Item quantities.' : undefined}
-                  >
-                    <InputNumber style={{ width: '100%' }} min={0} disabled={isActualAuto} />
-                  </Form.Item>
+                  {isActualAuto ? (
+                    <Form.Item
+                      label={<span>Actual Good Production <InputBadge type="auto" /></span>}
+                      extra="Auto-calculated as the sum of all Production Item quantities."
+                    >
+                      <InputNumber
+                        id="actualQuantity"
+                        aria-label="Actual Good Production"
+                        style={{ width: '100%' }}
+                        min={0}
+                        disabled
+                        value={round2(multiItemAggregate?.totalActual ?? 0)}
+                      />
+                    </Form.Item>
+                  ) : (
+                    <Form.Item
+                      name="actualQuantity"
+                      label={<span>Actual Good Production <InputBadge type="input" /></span>}
+                      rules={[{ required: true, message: 'Actual is required' }]}
+                    >
+                      <InputNumber style={{ width: '100%' }} min={0} />
+                    </Form.Item>
+                  )}
                 </Col>
               </Row>
               <Row gutter={8}>
@@ -1901,7 +1954,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                                         showSearch optionFilterProp="label"
                                         placeholder="Downtime reason"
                                         popupMatchSelectWidth={false}
-                                        dropdownStyle={{ minWidth: 280 }}
+                                        styles={{ popup: { root: { minWidth: 280 } } }}
                                         className={reasonId ? 'erp-field-filled' : 'erp-field-unfilled'}
                                         options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
                                       />
@@ -2682,12 +2735,28 @@ const RawMaterialAvailability: React.FC<{
       const itemId = p.itemId!;
       void (async () => {
         try {
-          const item = lookups.items.find((i) => i.id === itemId);
+          let item = lookups.items.find((i) => i.id === itemId);
+          if (!item || (!item.productionInItemId && !item.productionInItem)) {
+            try {
+              const directItemRes = await apiService.get<{ success?: boolean; data?: ItemLk }>(`/master-data/items/${itemId}`);
+              if (directItemRes?.data) {
+                item = directItemRes.data;
+              }
+            } catch {}
+          }
           const masterInItemId = item?.productionInItemId ?? item?.productionInItem?.id ?? null;
           const masterOutItemId = item?.productionOutItemId ?? item?.productionOutItem?.id ?? null;
           // Prefer the relation object; fall back to the full lookup record so the
           // item code/name still render when only the scalar FK is present.
-          const masterInItem = item?.productionInItem ?? (masterInItemId ? lookups.items.find((i) => i.id === masterInItemId) ?? null : null);
+          let masterInItem = item?.productionInItem ?? (masterInItemId ? lookups.items.find((i) => i.id === masterInItemId) ?? null : null);
+          if (!masterInItem && masterInItemId) {
+            try {
+              const directInRes = await apiService.get<{ success?: boolean; data?: ItemLk }>(`/master-data/items/${masterInItemId}`);
+              if (directInRes?.data) {
+                masterInItem = directInRes.data;
+              }
+            } catch {}
+          }
 
           // Advisory routing resolution. When the Item Master mapping exists a
           // routing failure (e.g. no active routing → 404) is NOT fatal — the
@@ -3434,10 +3503,10 @@ const ProductionItemLine: React.FC<{
   departmentItems: ItemLk[];
   remove: () => void;
 }> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, remove }) => {
-  const lineItemId = Form.useWatch(['productionItems', fieldName, 'itemId'], Form.useFormInstance() as any);
-  const lineActualQty = Form.useWatch(['productionItems', fieldName, 'actualQuantity'], Form.useFormInstance() as any);
-  const lineScrapQty = Form.useWatch(['productionItems', fieldName, 'scrapQuantity'], Form.useFormInstance() as any);
-  const lineUomId = Form.useWatch(['productionItems', fieldName, 'uomId'], Form.useFormInstance() as any);
+  const lineItemId = Form.useWatch(['productionItems', fieldName, 'itemId']);
+  const lineActualQty = Form.useWatch(['productionItems', fieldName, 'actualQuantity']);
+  const lineScrapQty = Form.useWatch(['productionItems', fieldName, 'scrapQuantity']);
+  const lineUomId = Form.useWatch(['productionItems', fieldName, 'uomId']);
 
   const lineItem = useMemo(
     () => lookups.items.find((i) => i.id === lineItemId) ?? null,
@@ -3456,14 +3525,16 @@ const ProductionItemLine: React.FC<{
   const prevLineItemRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (!lineItemId) return;
-    if (prevLineItemRef.current === lineItemId) return;
+    if (prevLineItemRef.current === lineItemId && lineUomId) return;
     prevLineItemRef.current = lineItemId;
-    const item = lookups.items.find((i) => i.id === lineItemId);
-    const targetUomId = (machineLinked && mtResolution?.uom?.id) ? mtResolution.uom.id : item?.baseUomId;
-    if (targetUomId) {
-      form.setFieldValue(['productionItems', fieldName, 'uomId'], targetUomId);
+    if (!lineUomId) {
+      const item = lookups.items.find((i) => i.id === lineItemId) || departmentItems.find((i) => i.id === lineItemId);
+      const targetUomId = (machineLinked && mtResolution?.uom?.id) ? mtResolution.uom.id : item?.baseUomId;
+      if (targetUomId) {
+        form.setFieldValue(['productionItems', fieldName, 'uomId'], targetUomId);
+      }
     }
-  }, [lineItemId, machineLinked, mtResolution]); // eslint-disable-line
+  }, [lineItemId, lineUomId, machineLinked, mtResolution, departmentItems]); // eslint-disable-line
 
   // KG conversion: family-aware (LENGTH × weightPerMeter, COUNT × piece weight,
   // WEIGHT stays as-is so M and KG are never mixed). No fabricated conversions.
@@ -3508,9 +3579,18 @@ const ProductionItemLine: React.FC<{
               placeholder="Select item"
               aria-label={`Production item ${rowNumber}`}
               popupMatchSelectWidth={false}
-              popupClassName="production-item-select-popup"
+              classNames={{ popup: { root: 'production-item-select-popup' } }}
               className={lineItemId ? 'erp-field-filled' : 'erp-field-unfilled'}
-              dropdownStyle={{ minWidth: 540, maxWidth: '95vw' }}
+              styles={{ popup: { root: { minWidth: 540, maxWidth: '95vw' } } }}
+              onChange={(val) => {
+                if (val) {
+                  const item = lookups.items.find((i) => i.id === val) || departmentItems.find((i) => i.id === val);
+                  const targetUomId = (machineLinked && mtResolution?.uom?.id) ? mtResolution.uom.id : item?.baseUomId;
+                  if (targetUomId) {
+                    form.setFieldValue(['productionItems', fieldName, 'uomId'], targetUomId);
+                  }
+                }
+              }}
               options={departmentItems.map((i: ItemLk) => ({
                 value: i.id,
                 label: `${i.itemCode} — ${i.name}`,

@@ -15,6 +15,7 @@ export interface TraceItem {
   description: string | null;
   notes: string | null;
   item_type: string;
+  material_role_usage?: string | null;
   status: string;
   barcode: string | null;
   brand: string | null;

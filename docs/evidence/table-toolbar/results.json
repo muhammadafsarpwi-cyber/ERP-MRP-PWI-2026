@@ -1,0 +1,2406 @@
+{
+  "checks": [
+    {
+      "name": "targets@1920x1000/light :: page loads",
+      "ok": true,
+      "extra": "Machine Targets headingVisible=true, tables=1"
+    },
+    {
+      "name": "targets@1920x1000/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "targets@1920x1000/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "targets@1920x1000/light :: add button visible",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@1920x1000/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "targets@1920x1000/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1591,95 refresh=1703,95"
+    },
+    {
+      "name": "targets@1920x1000/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "targets@1920x1000/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1920 winW=1920"
+    },
+    {
+      "name": "targets@1920x1000/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1615/1615/hidden | ant-table-body:1615/1615/auto"
+    },
+    {
+      "name": "targets@1920x1000/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "targets@1920x1000/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=3"
+    },
+    {
+      "name": "targets@1920x1000/light :: modal opens",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@1920x1000/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1920x1000/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1920x1000/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1920x1000/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1280x900/light :: page loads",
+      "ok": true,
+      "extra": "Machine Targets headingVisible=true, tables=1"
+    },
+    {
+      "name": "targets@1280x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "targets@1280x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "targets@1280x900/light :: add button visible",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@1280x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "targets@1280x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=951,95 refresh=1063,95"
+    },
+    {
+      "name": "targets@1280x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "targets@1280x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "targets@1280x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1600/975/hidden | ant-table-body:1600/975/auto"
+    },
+    {
+      "name": "targets@1280x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=10, pagination=1"
+    },
+    {
+      "name": "targets@1280x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "targets@1280x900/light :: modal opens",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@1280x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1280x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1280x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1280x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@768x900/light :: page loads",
+      "ok": true,
+      "extra": "Machine Targets headingVisible=true, tables=1"
+    },
+    {
+      "name": "targets@768x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "targets@768x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "targets@768x900/light :: add button visible",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@768x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "targets@768x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=6,123 refresh=118,123"
+    },
+    {
+      "name": "targets@768x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "targets@768x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=768 winW=768"
+    },
+    {
+      "name": "targets@768x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1600/738/hidden | ant-table-body:1600/738/auto"
+    },
+    {
+      "name": "targets@768x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "targets@768x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=3"
+    },
+    {
+      "name": "targets@768x900/light :: modal opens",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@768x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@768x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@768x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@768x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@390x844/light :: page loads",
+      "ok": true,
+      "extra": "Machine Targets headingVisible=true, tables=1"
+    },
+    {
+      "name": "targets@390x844/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "targets@390x844/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "targets@390x844/light :: add button visible",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@390x844/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "targets@390x844/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=6,123 refresh=118,123"
+    },
+    {
+      "name": "targets@390x844/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "targets@390x844/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=390 winW=390"
+    },
+    {
+      "name": "targets@390x844/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1600/372/hidden | ant-table-body:1600/372/auto"
+    },
+    {
+      "name": "targets@390x844/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "targets@390x844/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "targets@390x844/light :: modal opens",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@390x844/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@390x844/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@390x844/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@390x844/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1280x900/dark :: page loads",
+      "ok": true,
+      "extra": "Machine Targets headingVisible=true, tables=1"
+    },
+    {
+      "name": "targets@1280x900/dark :: theme applied",
+      "ok": true,
+      "extra": "theme=dark"
+    },
+    {
+      "name": "targets@1280x900/dark :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "targets@1280x900/dark :: add button visible",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@1280x900/dark :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "targets@1280x900/dark :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=951,95 refresh=1063,95"
+    },
+    {
+      "name": "targets@1280x900/dark :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "targets@1280x900/dark :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "targets@1280x900/dark :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1600/975/hidden | ant-table-body:1600/975/auto"
+    },
+    {
+      "name": "targets@1280x900/dark :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=10, pagination=1"
+    },
+    {
+      "name": "targets@1280x900/dark :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "targets@1280x900/dark :: modal opens",
+      "ok": true,
+      "extra": "Add Target"
+    },
+    {
+      "name": "targets@1280x900/dark :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1280x900/dark :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1280x900/dark :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "targets@1280x900/dark :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1920x1000/light :: page loads",
+      "ok": true,
+      "extra": "Machine Master headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: add button visible",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1144,95 refresh=1269,95"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1920 winW=1920"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1613/1613/hidden | ant-table-body:1613/1613/auto"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=6"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: modal opens",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@1920x1000/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1920x1000/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1920x1000/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1920x1000/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1280x900/light :: page loads",
+      "ok": true,
+      "extra": "Machine Master headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-master@1280x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "machine-master@1280x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-master@1280x900/light :: add button visible",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@1280x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-master@1280x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=504,95 refresh=629,95"
+    },
+    {
+      "name": "machine-master@1280x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "machine-master@1280x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "machine-master@1280x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1110/973/hidden | ant-table-body:1136/973/auto"
+    },
+    {
+      "name": "machine-master@1280x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "machine-master@1280x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=6"
+    },
+    {
+      "name": "machine-master@1280x900/light :: modal opens",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@1280x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1280x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1280x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1280x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@768x900/light :: page loads",
+      "ok": true,
+      "extra": "Machine Master headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-master@768x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "machine-master@768x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-master@768x900/light :: add button visible",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@768x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-master@768x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=6,123 refresh=131,123"
+    },
+    {
+      "name": "machine-master@768x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "machine-master@768x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=768 winW=768"
+    },
+    {
+      "name": "machine-master@768x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1110/736/hidden | ant-table-body:1134/736/auto"
+    },
+    {
+      "name": "machine-master@768x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "machine-master@768x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=6"
+    },
+    {
+      "name": "machine-master@768x900/light :: modal opens",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@768x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@768x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@768x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@768x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@390x844/light :: page loads",
+      "ok": true,
+      "extra": "Machine Master headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-master@390x844/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "machine-master@390x844/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-master@390x844/light :: add button visible",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@390x844/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-master@390x844/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=6,123 refresh=131,123"
+    },
+    {
+      "name": "machine-master@390x844/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "machine-master@390x844/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=390 winW=390"
+    },
+    {
+      "name": "machine-master@390x844/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1110/370/hidden | ant-table-body:1134/370/auto"
+    },
+    {
+      "name": "machine-master@390x844/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "machine-master@390x844/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=6"
+    },
+    {
+      "name": "machine-master@390x844/light :: modal opens",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@390x844/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@390x844/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@390x844/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@390x844/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1280x900/dark :: page loads",
+      "ok": true,
+      "extra": "Machine Master headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: theme applied",
+      "ok": true,
+      "extra": "theme=dark"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: add button visible",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=504,95 refresh=629,95"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=1, expect=true"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-header ant-table-sticky-holder:1110/973/hidden | ant-table-body:1136/973/auto"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=6"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: modal opens",
+      "ok": true,
+      "extra": "Add Machine"
+    },
+    {
+      "name": "machine-master@1280x900/dark :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1280x900/dark :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1280x900/dark :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-master@1280x900/dark :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: page loads",
+      "ok": true,
+      "extra": "Machine Tools & Components headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: add button visible",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1699,95 refresh=1878,95"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1920 winW=1920"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1627/1627/auto"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=7, pagination=1"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=5"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: modal opens",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1920x1000/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: page loads",
+      "ok": true,
+      "extra": "Machine Tools & Components headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: add button visible",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1059,95 refresh=1238,95"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1340/987/auto"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=7, pagination=1"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=5"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: modal opens",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1280x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@768x900/light :: page loads",
+      "ok": true,
+      "extra": "Machine Tools & Components headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: add button visible",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=6,125 refresh=185,125"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=768 winW=768"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1340/750/auto"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=7, pagination=1"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=5"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: modal opens",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@768x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@768x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@768x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@768x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@390x844/light :: page loads",
+      "ok": true,
+      "extra": "Machine Tools & Components headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: add button visible",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=6,125 refresh=185,125"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=390 winW=390"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1340/384/auto"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=7, pagination=1"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=5"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: modal opens",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@390x844/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@390x844/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@390x844/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@390x844/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: page loads",
+      "ok": true,
+      "extra": "Machine Tools & Components headingVisible=true, tables=1"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: theme applied",
+      "ok": true,
+      "extra": "theme=dark"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: add button visible",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1059,95 refresh=1238,95"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1340/987/auto"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=7, pagination=1"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=5"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: modal opens",
+      "ok": true,
+      "extra": "Add Tool / Component"
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "machine-tooling@1280x900/dark :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1920x1000/light :: page loads",
+      "ok": true,
+      "extra": "Production Routings headingVisible=true, tables=1"
+    },
+    {
+      "name": "routing@1920x1000/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "routing@1920x1000/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "routing@1920x1000/light :: add button visible",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@1920x1000/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "routing@1920x1000/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1636,144 refresh=1781,144"
+    },
+    {
+      "name": "routing@1920x1000/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "routing@1920x1000/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1920 winW=1920"
+    },
+    {
+      "name": "routing@1920x1000/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1567/1567/visible"
+    },
+    {
+      "name": "routing@1920x1000/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "routing@1920x1000/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "routing@1920x1000/light :: modal opens",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@1920x1000/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1920x1000/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1920x1000/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1920x1000/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1280x900/light :: page loads",
+      "ok": true,
+      "extra": "Production Routings headingVisible=true, tables=1"
+    },
+    {
+      "name": "routing@1280x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "routing@1280x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "routing@1280x900/light :: add button visible",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@1280x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "routing@1280x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=996,144 refresh=1141,144"
+    },
+    {
+      "name": "routing@1280x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "routing@1280x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "routing@1280x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:927/927/visible"
+    },
+    {
+      "name": "routing@1280x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "routing@1280x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "routing@1280x900/light :: modal opens",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@1280x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1280x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1280x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1280x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@768x900/light :: page loads",
+      "ok": true,
+      "extra": "Production Routings headingVisible=true, tables=1"
+    },
+    {
+      "name": "routing@768x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "routing@768x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "routing@768x900/light :: add button visible",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@768x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "routing@768x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=484,133 refresh=629,133"
+    },
+    {
+      "name": "routing@768x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "routing@768x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=768 winW=768"
+    },
+    {
+      "name": "routing@768x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:690/690/auto"
+    },
+    {
+      "name": "routing@768x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "routing@768x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "routing@768x900/light :: modal opens",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@768x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@768x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@768x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@768x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@390x844/light :: page loads",
+      "ok": true,
+      "extra": "Production Routings headingVisible=false, tables=1"
+    },
+    {
+      "name": "routing@390x844/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "routing@390x844/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "routing@390x844/light :: add button visible",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@390x844/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "routing@390x844/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=429,129 refresh=574,129"
+    },
+    {
+      "name": "routing@390x844/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "routing@390x844/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=390 winW=390"
+    },
+    {
+      "name": "routing@390x844/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:433/324/auto"
+    },
+    {
+      "name": "routing@390x844/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "routing@390x844/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "routing@390x844/light :: modal opens",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@390x844/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@390x844/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@390x844/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@390x844/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1280x900/dark :: page loads",
+      "ok": true,
+      "extra": "Production Routings headingVisible=true, tables=1"
+    },
+    {
+      "name": "routing@1280x900/dark :: theme applied",
+      "ok": true,
+      "extra": "theme=dark"
+    },
+    {
+      "name": "routing@1280x900/dark :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "routing@1280x900/dark :: add button visible",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@1280x900/dark :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "routing@1280x900/dark :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=996,144 refresh=1141,144"
+    },
+    {
+      "name": "routing@1280x900/dark :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "routing@1280x900/dark :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "routing@1280x900/dark :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:927/927/visible"
+    },
+    {
+      "name": "routing@1280x900/dark :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "routing@1280x900/dark :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "routing@1280x900/dark :: modal opens",
+      "ok": true,
+      "extra": "New Routing"
+    },
+    {
+      "name": "routing@1280x900/dark :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1280x900/dark :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1280x900/dark :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "routing@1280x900/dark :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1920x1000/light :: page loads",
+      "ok": true,
+      "extra": "Bill of Materials headingVisible=true, tables=1"
+    },
+    {
+      "name": "bom@1920x1000/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "bom@1920x1000/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "bom@1920x1000/light :: add button visible",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@1920x1000/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "bom@1920x1000/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1661,140 refresh=1787,140"
+    },
+    {
+      "name": "bom@1920x1000/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "bom@1920x1000/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1920 winW=1920"
+    },
+    {
+      "name": "bom@1920x1000/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1579/1579/visible"
+    },
+    {
+      "name": "bom@1920x1000/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=6, pagination=1"
+    },
+    {
+      "name": "bom@1920x1000/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "bom@1920x1000/light :: modal opens",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@1920x1000/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1920x1000/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1920x1000/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1920x1000/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1280x900/light :: page loads",
+      "ok": true,
+      "extra": "Bill of Materials headingVisible=true, tables=1"
+    },
+    {
+      "name": "bom@1280x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "bom@1280x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "bom@1280x900/light :: add button visible",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@1280x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "bom@1280x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1021,140 refresh=1147,140"
+    },
+    {
+      "name": "bom@1280x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "bom@1280x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "bom@1280x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:939/939/visible"
+    },
+    {
+      "name": "bom@1280x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=6, pagination=1"
+    },
+    {
+      "name": "bom@1280x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "bom@1280x900/light :: modal opens",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@1280x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1280x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1280x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1280x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@768x900/light :: page loads",
+      "ok": true,
+      "extra": "Bill of Materials headingVisible=true, tables=1"
+    },
+    {
+      "name": "bom@768x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "bom@768x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "bom@768x900/light :: add button visible",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@768x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "bom@768x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=509,129 refresh=635,129"
+    },
+    {
+      "name": "bom@768x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "bom@768x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=768 winW=768"
+    },
+    {
+      "name": "bom@768x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:702/702/auto"
+    },
+    {
+      "name": "bom@768x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=6, pagination=1"
+    },
+    {
+      "name": "bom@768x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "bom@768x900/light :: modal opens",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@768x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@768x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@768x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@768x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@390x844/light :: page loads",
+      "ok": true,
+      "extra": "Bill of Materials headingVisible=true, tables=1"
+    },
+    {
+      "name": "bom@390x844/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "bom@390x844/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "bom@390x844/light :: add button visible",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@390x844/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "bom@390x844/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=363,125 refresh=490,125"
+    },
+    {
+      "name": "bom@390x844/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "bom@390x844/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=390 winW=390"
+    },
+    {
+      "name": "bom@390x844/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:610/336/auto"
+    },
+    {
+      "name": "bom@390x844/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=6, pagination=1"
+    },
+    {
+      "name": "bom@390x844/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "bom@390x844/light :: modal opens",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@390x844/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@390x844/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@390x844/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@390x844/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1280x900/dark :: page loads",
+      "ok": true,
+      "extra": "Bill of Materials headingVisible=true, tables=1"
+    },
+    {
+      "name": "bom@1280x900/dark :: theme applied",
+      "ok": true,
+      "extra": "theme=dark"
+    },
+    {
+      "name": "bom@1280x900/dark :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "bom@1280x900/dark :: add button visible",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@1280x900/dark :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "bom@1280x900/dark :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1021,140 refresh=1147,140"
+    },
+    {
+      "name": "bom@1280x900/dark :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "bom@1280x900/dark :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "bom@1280x900/dark :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:939/939/visible"
+    },
+    {
+      "name": "bom@1280x900/dark :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=0, pagination=0"
+    },
+    {
+      "name": "bom@1280x900/dark :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=4"
+    },
+    {
+      "name": "bom@1280x900/dark :: modal opens",
+      "ok": true,
+      "extra": "New BOM"
+    },
+    {
+      "name": "bom@1280x900/dark :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1280x900/dark :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1280x900/dark :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "bom@1280x900/dark :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1920x1000/light :: page loads",
+      "ok": true,
+      "extra": "Employees Master Directory headingVisible=true, tables=1"
+    },
+    {
+      "name": "employees@1920x1000/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "employees@1920x1000/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "employees@1920x1000/light :: add button visible",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@1920x1000/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "employees@1920x1000/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=1405,96 refresh=1539,96"
+    },
+    {
+      "name": "employees@1920x1000/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "employees@1920x1000/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1920 winW=1920"
+    },
+    {
+      "name": "employees@1920x1000/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1810/1571/auto"
+    },
+    {
+      "name": "employees@1920x1000/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "employees@1920x1000/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=8"
+    },
+    {
+      "name": "employees@1920x1000/light :: modal opens",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@1920x1000/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1920x1000/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1920x1000/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1920x1000/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1280x900/light :: page loads",
+      "ok": true,
+      "extra": "Employees Master Directory headingVisible=true, tables=1"
+    },
+    {
+      "name": "employees@1280x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "employees@1280x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "employees@1280x900/light :: add button visible",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@1280x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "employees@1280x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=765,96 refresh=899,96"
+    },
+    {
+      "name": "employees@1280x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "employees@1280x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "employees@1280x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1810/931/auto"
+    },
+    {
+      "name": "employees@1280x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "employees@1280x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=8"
+    },
+    {
+      "name": "employees@1280x900/light :: modal opens",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@1280x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1280x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1280x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1280x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@768x900/light :: page loads",
+      "ok": true,
+      "extra": "Employees Master Directory headingVisible=true, tables=1"
+    },
+    {
+      "name": "employees@768x900/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "employees@768x900/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "employees@768x900/light :: add button visible",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@768x900/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "employees@768x900/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=6,126 refresh=140,126"
+    },
+    {
+      "name": "employees@768x900/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "employees@768x900/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=768 winW=768"
+    },
+    {
+      "name": "employees@768x900/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1810/694/auto"
+    },
+    {
+      "name": "employees@768x900/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "employees@768x900/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=8"
+    },
+    {
+      "name": "employees@768x900/light :: modal opens",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@768x900/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@768x900/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@768x900/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@768x900/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@390x844/light :: page loads",
+      "ok": true,
+      "extra": "Employees Master Directory headingVisible=true, tables=1"
+    },
+    {
+      "name": "employees@390x844/light :: theme applied",
+      "ok": true,
+      "extra": "theme=light"
+    },
+    {
+      "name": "employees@390x844/light :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "employees@390x844/light :: add button visible",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@390x844/light :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "employees@390x844/light :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=6,126 refresh=140,126"
+    },
+    {
+      "name": "employees@390x844/light :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "employees@390x844/light :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=390 winW=390"
+    },
+    {
+      "name": "employees@390x844/light :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1810/328/auto"
+    },
+    {
+      "name": "employees@390x844/light :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "employees@390x844/light :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=8"
+    },
+    {
+      "name": "employees@390x844/light :: modal opens",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@390x844/light :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@390x844/light :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@390x844/light :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@390x844/light :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1280x900/dark :: page loads",
+      "ok": true,
+      "extra": "Employees Master Directory headingVisible=true, tables=1"
+    },
+    {
+      "name": "employees@1280x900/dark :: theme applied",
+      "ok": true,
+      "extra": "theme=dark"
+    },
+    {
+      "name": "employees@1280x900/dark :: table rendered",
+      "ok": true,
+      "extra": "tables=2"
+    },
+    {
+      "name": "employees@1280x900/dark :: add button visible",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@1280x900/dark :: refresh button visible",
+      "ok": true,
+      "extra": "icon-only reload"
+    },
+    {
+      "name": "employees@1280x900/dark :: toolbar order Add→Refresh",
+      "ok": true,
+      "extra": "add=765,96 refresh=899,96"
+    },
+    {
+      "name": "employees@1280x900/dark :: sticky header as opted-in",
+      "ok": true,
+      "extra": "sticky-holders=0, expect=false"
+    },
+    {
+      "name": "employees@1280x900/dark :: no page-level horizontal overflow",
+      "ok": true,
+      "extra": "docScrollW=1280 winW=1280"
+    },
+    {
+      "name": "employees@1280x900/dark :: table overflow contained in internal scroll",
+      "ok": true,
+      "extra": "ant-table-content:1810/931/auto"
+    },
+    {
+      "name": "employees@1280x900/dark :: pagination present when rows > 0",
+      "ok": true,
+      "extra": "rows=20, pagination=1"
+    },
+    {
+      "name": "employees@1280x900/dark :: filter controls present",
+      "ok": true,
+      "extra": "filterControls=8"
+    },
+    {
+      "name": "employees@1280x900/dark :: modal opens",
+      "ok": true,
+      "extra": "New Employee"
+    },
+    {
+      "name": "employees@1280x900/dark :: modal closes",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1280x900/dark :: no page errors (exceptions)",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1280x900/dark :: no console errors",
+      "ok": true,
+      "extra": ""
+    },
+    {
+      "name": "employees@1280x900/dark :: no http 5xx",
+      "ok": true,
+      "extra": ""
+    }
+  ],
+  "failed": 0,
+  "total": 480
+}

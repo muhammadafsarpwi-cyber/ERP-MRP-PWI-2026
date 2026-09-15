@@ -89,6 +89,12 @@ export class CreateItemDto {
   @IsOptional()
   itemTypeId?: string;
 
+  @ApiPropertyOptional({ description: 'Material Role / Usage' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(150)
+  materialRoleUsage?: string;
+
   @ApiPropertyOptional({ description: 'Barcode' })
   @IsString()
   @IsOptional()
@@ -544,6 +550,12 @@ export class UpdateItemDto {
   @IsOptional()
   itemTypeId?: string;
 
+  @ApiPropertyOptional({ description: 'Material Role / Usage' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(150)
+  materialRoleUsage?: string;
+
   @ApiPropertyOptional({ description: 'Barcode' })
   @IsString()
   @IsOptional()
@@ -945,6 +957,14 @@ export class UpdateItemDto {
   sellingPrice?: number;
 }
 
+export class BulkCreateItemsDto {
+  @ApiProperty({ description: 'Array of items to import' })
+  @IsArray()
+  @IsNotEmpty()
+  items: CreateItemDto[];
+}
+
+
 export class ItemFilterDto {
   @ApiPropertyOptional({ description: 'Page number', default: 1 })
   @IsNumber()
@@ -977,6 +997,11 @@ export class ItemFilterDto {
   @IsUUID('loose')
   @IsOptional()
   itemTypeId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by Material Role / Usage' })
+  @IsString()
+  @IsOptional()
+  materialRoleUsage?: string;
 
   @ApiPropertyOptional({ description: 'Filter by category ID' })
   @IsUUID('loose')

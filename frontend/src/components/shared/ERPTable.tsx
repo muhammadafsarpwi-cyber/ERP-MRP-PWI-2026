@@ -213,29 +213,36 @@ export const TableActions: React.FC<TableActionsProps> = ({
 
           if (act.confirm) {
             return (
-              <Popconfirm
-                key={act.key}
-                title={act.confirm.title}
-                description={act.confirm.description}
-                onConfirm={act.confirm.onConfirm}
-                okText={act.confirm.okText}
-                cancelText={act.confirm.cancelText}
-                okButtonProps={act.danger ? { danger: true } : undefined}
-              >
-                <Tooltip title={act.label}>
-                  {btn}
-                </Tooltip>
-              </Popconfirm>
+              <Tooltip key={act.key} title={act.label}>
+                <Popconfirm
+                  title={act.confirm.title}
+                  description={act.confirm.description}
+                  onConfirm={act.confirm.onConfirm}
+                  okText={act.confirm.okText}
+                  cancelText={act.confirm.cancelText}
+                  okButtonProps={act.danger ? { danger: true } : undefined}
+                >
+                  <span style={{ display: 'inline-flex' }}>
+                    {btn}
+                  </span>
+                </Popconfirm>
+              </Tooltip>
             );
           }
 
           return (
             <Tooltip key={act.key} title={act.label}>
-              {btn}
+              <span style={{ display: 'inline-flex' }}>
+                {btn}
+              </span>
             </Tooltip>
           );
         })}
-        {extraActions}
+        {extraActions && extraActions.map((extra, idx) => (
+          <span key={`extra-${idx}`} style={{ display: 'inline-flex' }}>
+            {extra}
+          </span>
+        ))}
       </div>
     );
   }

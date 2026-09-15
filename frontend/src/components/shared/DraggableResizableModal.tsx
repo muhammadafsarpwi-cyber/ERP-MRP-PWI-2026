@@ -10,9 +10,9 @@ import './draggableResizableModal.css';
  */
 export interface DraggableResizableModalProps extends ModalProps {
   /** Initial width (also used when `open` becomes true). Defaults to 880. */
-  width?: number;
+  width?: number | string;
   /** Initial/restored height when opened. Defaults to 560. */
-  height?: number;
+  height?: number | string;
   minWidth?: number;
   minHeight?: number;
   /** Extra actions rendered on the right side of the modal header. */
@@ -60,22 +60,44 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   initialOffset,
   ...rest
 }) => {
-  const [size, setSize] = useState({ w: width, h: height });
+  const parseDim = (val: number | string | undefined, defaultVal: number): number => {
+    if (typeof val === 'number' && !isNaN(val)) return val;
+    if (typeof val === 'string') {
+      const parsed = parseInt(val, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return defaultVal;
+  };
+
+  const [size, setSize] = useState({ w: parseDim(width, 880), h: parseDim(height, 560) });
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ active: boolean; startX: number; startY: number; baseX: number; baseY: number }>({
     active: false, startX: 0, startY: 0, baseX: 0, baseY: 0,
   });
   const resizeRef = useRef<{ active: boolean; startX: number; startY: number; baseW: number; baseH: number }>({
-    active: false, startX: 0, startY: 0, baseW: width, baseH: height,
+    active: false, startX: 0, startY: 0, baseW: parseDim(width, 880), baseH: parseDim(height, 560),
   });
 
   useEffect(() => {
     if (!open) return;
-    const vw = window.innerWidth || 1280;
-    const vh = window.innerHeight || 768;
-    const w = clamp(width, minWidth, vw - EDGE_MARGIN);
-    const h = clamp(height, minHeight, vh - EDGE_MARGIN);
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+    const isMobile = vw <= 768;
+
+    if (isMobile) {
+      setSize({ w: vw, h: vh });
+      setPos({ x: 0, y: 0 });
+      return;
+    }
+
+    const numW = parseDim(width, 880);
+    const numH = parseDim(height, 560);
+    const effectiveMinW = Math.min(minWidth, vw - EDGE_MARGIN);
+    const effectiveMinH = Math.min(minHeight, vh - EDGE_MARGIN);
+    const w = clamp(numW, effectiveMinW, vw - EDGE_MARGIN);
+    const h = clamp(numH, effectiveMinH, vh - EDGE_MARGIN);
     setSize({ w, h });
+
     // Clamp initialOffset so the modal stays within viewport (≥ 24 px from each edge).
     const rawX = initialOffset?.x ?? 0;
     const rawY = initialOffset?.y ?? 0;
@@ -91,9 +113,11 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
+      const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+      const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+      if (vw <= 768) return;
+
       if (dragRef.current.active) {
-        const vw = window.innerWidth || 1280;
-        const vh = window.innerHeight || 768;
         const dx = e.clientX - dragRef.current.startX;
         const dy = e.clientY - dragRef.current.startY;
         setPos({
@@ -101,8 +125,6 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
           y: clamp(dragRef.current.baseY + dy, -(size.h - VISIBLE_EDGE), vh - VISIBLE_EDGE),
         });
       } else if (resizeRef.current.active) {
-        const vw = window.innerWidth || 1280;
-        const vh = window.innerHeight || 768;
         const dw = e.clientX - resizeRef.current.startX;
         const dh = e.clientY - resizeRef.current.startY;
         setSize({
@@ -126,6 +148,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   }, [size, minWidth, minHeight]);
 
   const onHeaderMouseDown = (e: React.MouseEvent) => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) return;
     const target = e.target as HTMLElement;
     if (!target.closest('.ant-modal-header')) return;
     if (
@@ -139,6 +162,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   };
 
   const onResizeMouseDown = (e: React.MouseEvent) => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) return;
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -151,23 +175,34 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
     };
   };
 
-  const modalRender = (modalNode: React.ReactNode) => (
-    <div
-      className="erp-draggable-modal"
-      style={{
-        width: size.w,
-        pointerEvents: 'auto',
-        transform: `translate(${pos.x}px, ${pos.y}px)`,
-        transition: dragRef.current.active ? 'none' : 'transform 0.08s ease-out',
-      }}
-      onMouseDown={onHeaderMouseDown}
-    >
-      <div className="erp-draggable-modal-inner" style={{ height: size.h, maxHeight: size.h }}>
-        {modalNode}
+  const modalRender = (modalNode: React.ReactNode) => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+    return (
+      <div
+        className={`erp-draggable-modal ${isMobile ? 'erp-draggable-modal--mobile' : ''}`}
+        style={{
+          width: isMobile ? '100vw' : size.w,
+          pointerEvents: 'auto',
+          transform: isMobile ? 'none' : `translate(${pos.x}px, ${pos.y}px)`,
+          transition: dragRef.current.active ? 'none' : 'transform 0.08s ease-out',
+        }}
+        onMouseDown={onHeaderMouseDown}
+      >
+        <div
+          className="erp-draggable-modal-inner"
+          style={{
+            height: isMobile ? '100vh' : size.h,
+            maxHeight: isMobile ? '100vh' : size.h,
+          }}
+        >
+          {modalNode}
+        </div>
+        {!isMobile && (
+          <div className="erp-draggable-modal-resize-handle" onMouseDown={onResizeMouseDown} aria-hidden="true" />
+        )}
       </div>
-      <div className="erp-draggable-modal-resize-handle" onMouseDown={onResizeMouseDown} aria-hidden="true" />
-    </div>
-  );
+    );
+  };
 
   return (
     <Modal

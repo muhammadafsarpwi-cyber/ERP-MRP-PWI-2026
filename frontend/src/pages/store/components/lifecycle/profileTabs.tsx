@@ -12,6 +12,9 @@ export const ItemInfoTab: React.FC<{ item: MaterialLifecycle['item'] }> = ({ ite
       <Descriptions title="Item Information" bordered column={{ xs: 1, sm: 2, md: 3 }} size="small" style={{ marginBottom: 8 }}>
         <Descriptions.Item label="Item Code">{item.item_code}</Descriptions.Item>
         <Descriptions.Item label="Item Type">{item.item_type}</Descriptions.Item>
+        <Descriptions.Item label="Material Role / Usage">
+          {item.material_role_usage || ((item.item_type || '').toUpperCase().includes('RAW') ? <Tag color="cyan">Process Component Materials</Tag> : '—')}
+        </Descriptions.Item>
         <Descriptions.Item label="Status">
           <Tag color={statusColor(item.status) as string}>{item.status}</Tag>
         </Descriptions.Item>

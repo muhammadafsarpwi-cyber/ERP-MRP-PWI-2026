@@ -21,6 +21,8 @@ import MyAttendance from './pages/hr/MyAttendance';
 import AttendanceRegister from './pages/hr/AttendanceRegister';
 import ShiftRoster from './pages/hr/ShiftRoster';
 import LiveMap from './pages/hr/LiveMap';
+import Regularizations from './pages/hr/Regularizations';
+import OvertimeApproval from './pages/hr/OvertimeApproval';
 import HrComingSoon from './pages/hr/HrComingSoon';
 import QcPage from './pages/qc/QcPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
@@ -201,8 +203,8 @@ const App: React.FC = () => {
                   <Route path="/hr/my-attendance" element={<MyAttendance />} />
                   <Route path="/hr/shift-roster" element={<ShiftRoster />} />
                   <Route path="/hr/live-map" element={<LiveMap />} />
-                  <Route path="/hr/regularizations" element={<HrComingSoon section="Regularizations" />} />
-                  <Route path="/hr/overtime-approval" element={<HrComingSoon section="Overtime Approval" />} />
+                  <Route path="/hr/regularizations" element={<Regularizations />} />
+                  <Route path="/hr/overtime-approval" element={<OvertimeApproval />} />
                   <Route path="/hr/advances" element={<HrComingSoon section="Advances" />} />
                   <Route path="/hr/employee-documents" element={<HrComingSoon section="Employee Documents" />} />
                   <Route path="/hr/attendance-exceptions" element={<HrComingSoon section="Attendance Exceptions" />} />

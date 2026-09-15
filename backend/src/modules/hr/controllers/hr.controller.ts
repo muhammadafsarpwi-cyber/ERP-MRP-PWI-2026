@@ -2,6 +2,8 @@ import { Controller, Get, Post, Patch, Delete, Param, Query, Body, UseGuards, Re
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { HrService } from '../services/hr.service';
 import { HrRegularizationsService } from '../services/hr-regularizations.service';
+import { HrOvertimeService } from '../services/hr-overtime.service';
+import { HrAdvancesService } from '../services/hr-advances.service';
 import {
   CreateHrDesignationDto, CreateHrEmployeeDto, CreateHrAttendanceDto,
   CreateHrLeaveRequestDto, UpdateHrLeaveRequestDto, ApproveHrLeaveDto, RejectHrLeaveDto,
@@ -9,6 +11,9 @@ import {
   GetMyAttendanceDto, GetAttendanceRegisterDto, GetShiftRosterDto, GetLiveMapDto,
   CreateHrShiftRosterDto, UpdateHrShiftRosterDto, GetLeaveRequestsDto,
   CreateRegularizationDto, UpdateRegularizationDto, RegularizationDecisionDto, GetRegularizationsDto,
+  CreateOvertimeDto, UpdateOvertimeDto, ApproveOvertimeDto, RejectOvertimeDto, GetOvertimeDto,
+  CreateAdvanceDto, UpdateAdvanceDto, ApproveAdvanceDto, RejectAdvanceDto,
+  DisburseAdvanceDto, RecoverAdvanceDto, GetAdvancesDto,
 } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
@@ -21,6 +26,8 @@ export class HrController {
   constructor(
     private readonly hrService: HrService,
     private readonly regularizationService: HrRegularizationsService,
+    private readonly overtimeService: HrOvertimeService,
+    private readonly advancesService: HrAdvancesService,
   ) {}
 
   // ---- Shift Roster ----
@@ -108,6 +115,12 @@ export class HrController {
   }
 
   // ---- Employees ----
+  @Get('employees/lookup')
+  async employeeLookup(@Request() req: any, @Query('departmentId') departmentId?: string) {
+    const data = await this.hrService.getEmployeeLookup(req.user?.id, departmentId);
+    return { success: true, data };
+  }
+
   @Get('employees')
   @UseGuards(PermissionGuard)
   @RequirePermission('hr.employee.view')
@@ -115,8 +128,9 @@ export class HrController {
     @Query('companyId') companyId: string, @Query('page') page?: number, @Query('limit') limit?: number,
     @Query('search') search?: string, @Query('status') status?: string,
     @Query('departmentId') departmentId?: string, @Query('designationId') designationId?: string,
+    @Query('divisionId') divisionId?: string, @Query('sectionId') sectionId?: string,
   ) {
-    const result = await this.hrService.listEmployees(companyId, { page, limit, search, status, departmentId, designationId });
+    const result = await this.hrService.listEmployees(companyId, { page, limit, search, status, departmentId, designationId, divisionId, sectionId });
     return { success: true, ...result };
   }
 
@@ -136,12 +150,28 @@ export class HrController {
     return { success: true, data, message: 'Employee created' };
   }
 
+  @Post('employees/bulk')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.employee.create')
+  async bulkImportEmployees(@Body() body: { companyId: string; employees: any[] }) {
+    const data = await this.hrService.bulkImportEmployees(body.companyId, body.employees || []);
+    return { success: true, data, message: `Processed ${data.total} employees: ${data.created} created, ${data.updated} updated.` };
+  }
+
   @Patch('employees/:id')
   @UseGuards(PermissionGuard)
   @RequirePermission('hr.employee.update')
   async updateEmployee(@Param('id') id: string, @Body() dto: Partial<CreateHrEmployeeDto>) {
     const data = await this.hrService.updateEmployee(id, dto);
     return { success: true, data, message: 'Employee updated' };
+  }
+
+  @Delete('employees/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.employee.delete')
+  async deleteEmployee(@Param('id') id: string) {
+    const data = await this.hrService.deleteEmployee(id);
+    return { success: true, data, message: 'Employee status toggled' };
   }
 
   @Post('employees/:id/skills')
@@ -413,5 +443,186 @@ export class HrController {
   async rejectRegularization(@Param('id') id: string, @Body() dto: RegularizationDecisionDto, @Request() req: any) {
     const data = await this.regularizationService.reject(req.user?.id, id, dto);
     return { success: true, data, message: 'Regularization rejected.' };
+  }
+
+  // ---- Overtime Approvals ----
+  @Get('overtime/options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.view')
+  async overtimeOptions(@Request() req: any) {
+    const data = await this.overtimeService.getOvertimeOptions(req.user?.id);
+    return { success: true, data };
+  }
+
+  @Get('overtime')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.view')
+  async listOvertime(@Query() query: GetOvertimeDto, @Request() req: any) {
+    const data = await this.overtimeService.listOvertime(req.user?.id, query);
+    return { success: true, data };
+  }
+
+  @Get('overtime/:id/history')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.view')
+  async overtimeHistory(@Param('id') id: string, @Request() req: any) {
+    const detail = await this.overtimeService.getById(req.user?.id, id);
+    return { success: true, data: detail.history ?? [] };
+  }
+
+  @Get('overtime/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.view')
+  async overtimeById(@Param('id') id: string, @Request() req: any) {
+    const data = await this.overtimeService.getById(req.user?.id, id);
+    return { success: true, data };
+  }
+
+  @Post('overtime')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.create')
+  async createOvertime(@Body() dto: CreateOvertimeDto, @Request() req: any) {
+    const data = await this.overtimeService.create(req.user?.id, dto);
+    return { success: true, data, message: 'Overtime request submitted successfully.' };
+  }
+
+  @Patch('overtime/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.update')
+  async updateOvertime(@Param('id') id: string, @Body() dto: UpdateOvertimeDto, @Request() req: any) {
+    const data = await this.overtimeService.update(req.user?.id, id, dto);
+    return { success: true, data, message: 'Overtime request updated' };
+  }
+
+  @Patch('overtime/:id/approve')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.approve')
+  @HttpCode(HttpStatus.OK)
+  async approveOvertime(@Param('id') id: string, @Body() dto: ApproveOvertimeDto, @Request() req: any) {
+    const data = await this.overtimeService.approve(req.user?.id, id, dto);
+    return { success: true, data, message: 'Overtime approved successfully.' };
+  }
+
+  @Patch('overtime/:id/reject')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.approve')
+  @HttpCode(HttpStatus.OK)
+  async rejectOvertime(@Param('id') id: string, @Body() dto: RejectOvertimeDto, @Request() req: any) {
+    const data = await this.overtimeService.reject(req.user?.id, id, dto);
+    return { success: true, data, message: 'Overtime rejected.' };
+  }
+
+  @Delete('overtime/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.overtime.delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteOvertime(@Param('id') id: string, @Request() req: any) {
+    const data = await this.overtimeService.delete(req.user?.id, id);
+    return { success: true, data, message: 'Overtime request removed' };
+  }
+
+  // ---- Employee Advances ----
+  @Get('advances/options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.view')
+  async getAdvanceOptions(@Request() req: any) {
+    const data = await this.advancesService.getAdvanceOptions(req.user?.id);
+    return { success: true, data };
+  }
+
+  @Get('advances')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.view')
+  async listAdvances(@Request() req: any, @Query() query: GetAdvancesDto) {
+    const data = await this.advancesService.listAdvances(req.user?.id, query as Record<string, any>);
+    return { success: true, data };
+  }
+
+  @Get('advances/:id/history')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.view')
+  async getAdvanceDetailWithHistory(@Param('id') id: string, @Request() req: any) {
+    const data = await this.advancesService.getById(req.user?.id, id);
+    return { success: true, data };
+  }
+
+  @Get('advances/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.view')
+  async getAdvanceDetail(@Param('id') id: string, @Request() req: any) {
+    const data = await this.advancesService.getById(req.user?.id, id);
+    return { success: true, data };
+  }
+
+  @Post('advances')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.create')
+  @HttpCode(HttpStatus.CREATED)
+  async createAdvance(@Body() dto: CreateAdvanceDto, @Request() req: any) {
+    const data = await this.advancesService.create(req.user?.id, dto);
+    return { success: true, data, message: 'Advance request created' };
+  }
+
+  @Patch('advances/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.update')
+  @HttpCode(HttpStatus.OK)
+  async updateAdvance(@Param('id') id: string, @Body() dto: UpdateAdvanceDto, @Request() req: any) {
+    const data = await this.advancesService.update(req.user?.id, id, dto);
+    return { success: true, data, message: 'Advance updated' };
+  }
+
+  @Patch('advances/:id/submit')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.update')
+  @HttpCode(HttpStatus.OK)
+  async submitAdvance(@Param('id') id: string, @Request() req: any) {
+    const data = await this.advancesService.submit(req.user?.id, id);
+    return { success: true, data, message: 'Advance submitted for approval' };
+  }
+
+  @Delete('advances/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.delete')
+  @HttpCode(HttpStatus.OK)
+  async deleteAdvance(@Param('id') id: string, @Request() req: any) {
+    const data = await this.advancesService.delete(req.user?.id, id);
+    return { success: true, data, message: 'Advance request removed' };
+  }
+
+  @Patch('advances/:id/approve')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.approve')
+  @HttpCode(HttpStatus.OK)
+  async approveAdvance(@Param('id') id: string, @Body() dto: ApproveAdvanceDto, @Request() req: any) {
+    const data = await this.advancesService.approve(req.user?.id, id, dto);
+    return { success: true, data, message: 'Advance approved' };
+  }
+
+  @Patch('advances/:id/reject')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.reject')
+  @HttpCode(HttpStatus.OK)
+  async rejectAdvance(@Param('id') id: string, @Body() dto: RejectAdvanceDto, @Request() req: any) {
+    const data = await this.advancesService.reject(req.user?.id, id, dto);
+    return { success: true, data, message: 'Advance rejected' };
+  }
+
+  @Post('advances/:id/disburse')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.disburse')
+  @HttpCode(HttpStatus.OK)
+  async disburseAdvance(@Param('id') id: string, @Body() dto: DisburseAdvanceDto, @Request() req: any) {
+    const data = await this.advancesService.disburse(req.user?.id, id, dto);
+    return { success: true, data, message: 'Loan disbursed' };
+  }
+
+  @Post('advances/:id/recover')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('hr.advance.recover')
+  @HttpCode(HttpStatus.OK)
+  async recoverAdvance(@Param('id') id: string, @Body() dto: RecoverAdvanceDto, @Request() req: any) {
+    const data = await this.advancesService.recover(req.user?.id, id, dto);
+    return { success: true, data, message: 'Loan recovery recorded' };
   }
 }

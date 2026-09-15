@@ -73,6 +73,7 @@ export interface Item {
   description?: string | null;
   notes?: string | null;
   itemType: string;
+  materialRoleUsage?: string | null;
   categoryId?: string | null;
   categoryName?: string | null;
   category?: { id: string; categoryCode?: string; name: string } | null;
@@ -291,8 +292,36 @@ export const stageTitleForOperation = (
 export const isEmptyValue = (v?: string | null): boolean =>
   v == null || String(v).trim() === '';
 
+/**
+ * Division code prefix mapping:
+ * - Main Division E-51 -> MD-
+ * - Control Cable Division -> CCD-
+ * - Spoke Division -> SPI-
+ * - NB Division -> NB-
+ */
+export const getDivisionPrefix = (divisionNameOrCode?: string | null): string => {
+  if (!divisionNameOrCode) return '';
+  const s = String(divisionNameOrCode).toLowerCase();
+  if (s.includes('main division') || s.includes('e-51') || s.includes('div-pwi')) return 'MD-';
+  if (s.includes('control cable') || s.includes('div-ccd') || s.includes('ccd')) return 'CCD-';
+  if (s.includes('spoke') || s.includes('div-spd') || s.includes('spi')) return 'SPI-';
+  if (s.includes('nb') || s.includes('div-nb')) return 'NB-';
+  return '';
+};
+
+export const formatItemCodeWithDivisionPrefix = (code: string, prefix?: string): string => {
+  let clean = (code || '').trim();
+  clean = clean.replace(/^([A-Za-z0-9]+)\s*-\s*/, '$1-').toUpperCase();
+  if (!prefix) return clean;
+  if (clean.startsWith(prefix.toUpperCase())) return clean;
+  if (/^[0-9]+$/.test(clean)) {
+    return `${prefix}${clean}`;
+  }
+  return clean;
+};
+
 export const IMPORT_COLUMNS = [
-  'itemCode', 'name', 'sku', 'shortName', 'itemType', 'uomCode', 'categoryName',
+  'itemCode', 'name', 'sku', 'shortName', 'itemType', 'materialRoleUsage', 'uomCode', 'categoryName',
   'divisionCodeOrName', 'sectionCodeOrName', 'departmentCodeOrName', 'wireSizeMm',
   'thicknessMm', 'widthMm', 'routeType', 'process1', 'process2', 'process3',
   'process4', 'process5', 'finalProduct', 'packingNextStep', 'weightPerPiece',
@@ -300,7 +329,8 @@ export const IMPORT_COLUMNS = [
 ];
 
 export const TEMPLATE_CSV =
-  'itemCode,name,sku,shortName,itemType,uomCode,categoryName,divisionCodeOrName,sectionCodeOrName,departmentCodeOrName,wireSizeMm,thicknessMm,widthMm,routeType,process1,process2,process3,process4,process5,finalProduct,packingNextStep,weightPerPiece,piecesPerKg,weightPerMeter,lengthPerPiece,barcode,remarks\n' +
-  'WIRE-3MM-001,Wire Rod 3mm,,W3,RAW_MATERIAL,KG,,,Spoke,Wire Drawing,3,,,DIRECT_SPOKE,Drawing,Annealing,Packing,,,,,0.0555,18.02,,,,Sample remark\n' +
-  'FLAT-040-260-001,0.40 x 2.60 mm Flat Wire [SAMPLE],,FLAT,SEMI_FINISHED,KG,,,Flat Wire,,,0.40,2.60,CCD,Flattening,Spiral,PVC,,,,,0.1150,8.70,,,,Sample remark\n';
+  'itemCode,name,sku,shortName,itemType,materialRoleUsage,uomCode,categoryName,divisionCodeOrName,sectionCodeOrName,departmentCodeOrName,wireSizeMm,thicknessMm,widthMm,routeType,process1,process2,process3,process4,process5,finalProduct,packingNextStep,weightPerPiece,piecesPerKg,weightPerMeter,lengthPerPiece,barcode,remarks\n' +
+  'WIRE-3MM-001,Wire Rod 3mm,,W3,RAW_MATERIAL,Process Component Materials,KG,,,Spoke,Wire Drawing,3,,,DIRECT_SPOKE,Drawing,Annealing,Packing,,,,,0.0555,18.02,,,,Sample remark\n' +
+  'FLAT-040-260-001,0.40 x 2.60 mm Flat Wire [SAMPLE],,FLAT,SEMI_FINISHED,,KG,,,Flat Wire,,,0.40,2.60,CCD,Flattening,Spiral,PVC,,,,,0.1150,8.70,,,,Sample remark\n';
+
 

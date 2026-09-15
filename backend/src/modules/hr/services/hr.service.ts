@@ -1359,41 +1359,127 @@ export class HrService {
   }
 
   // ---- Employees ----
-  async listEmployees(companyId: string, query: { page?: number; limit?: number; search?: string; status?: string; departmentId?: string; designationId?: string }) {
+  async getEmployeeLookup(authUserId?: string, departmentId?: string) {
+    let companyId: string | null = null;
+    if (authUserId) {
+      const user = await this.userRepo.findOne({ where: { authUserId } });
+      if (user?.defaultCompanyId) {
+        companyId = user.defaultCompanyId;
+      }
+    }
+    const qb = this.employeeRepo.createQueryBuilder('e')
+      .where('e.status = :status', { status: 'ACTIVE' });
+    if (companyId) {
+      qb.andWhere('e.company_id = :companyId', { companyId });
+    }
+    if (departmentId) {
+      qb.andWhere('(e.department_id = :dept OR e.department_id IS NULL)', { dept: departmentId });
+    }
+    qb.orderBy('e.employee_code', 'ASC');
+    const employees = await qb.getMany();
+    const ids = employees.map((e) => e.id);
+    const withRelations = ids.length
+      ? await this.employeeRepo.find({ where: { id: In(ids) }, relations: ['designation', 'department'] })
+      : [];
+    const dMap = new Map(withRelations.map((e) => [e.id, e.designation?.designationName ?? null]));
+    const deptMap = new Map(withRelations.map((e) => [e.id, e.department?.name ?? null]));
+
+    return employees.map((e) => ({
+      id: e.id,
+      employeeCode: e.employeeCode,
+      firstName: e.firstName,
+      lastName: e.lastName ?? null,
+      departmentId: e.departmentId ?? null,
+      departmentName: deptMap.get(e.id) ?? null,
+      jobTitle: dMap.get(e.id) ?? null,
+      status: e.status,
+    }));
+  }
+
+  async listEmployees(companyId: string, query: { page?: number; limit?: number; search?: string; status?: string; departmentId?: string; designationId?: string; divisionId?: string; sectionId?: string }) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
-    const qb = this.employeeRepo.createQueryBuilder('e')
-      .where('e.company_id = :companyId', { companyId });
+    const qb = this.employeeRepo.createQueryBuilder('e');
+    if (companyId) {
+      qb.where('e.company_id = :companyId', { companyId });
+    }
     if (query.search) qb.andWhere('(e.first_name ILIKE :s OR e.last_name ILIKE :s OR e.employee_code ILIKE :s OR e.email ILIKE :s)', { s: `%${query.search}%` });
     if (query.status) qb.andWhere('e.status = :st', { st: query.status });
     if (query.departmentId) qb.andWhere('e.department_id = :dept', { dept: query.departmentId });
     if (query.designationId) qb.andWhere('e.designation_id = :des', { des: query.designationId });
+    if (query.divisionId) {
+      qb.innerJoin(Department, 'd_div', 'd_div.id = e.department_id')
+        .andWhere('d_div.division_id = :divId', { divId: query.divisionId });
+    }
+    if (query.sectionId) {
+      qb.innerJoin(Department, 'd_sec', 'd_sec.id = e.department_id')
+        .andWhere('d_sec.section_id = :secId', { secId: query.sectionId });
+    }
     qb.orderBy('e.employee_code', 'ASC');
     const [data, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
-    // load designation names in a second pass to avoid join+pagination metadata issues
     const ids = data.map((e) => e.id);
-    const withDesignations = ids.length
-      ? await this.employeeRepo.find({ where: { id: In(ids) }, relations: ['designation'] })
+    const withRelations = ids.length
+      ? await this.employeeRepo.find({
+          where: { id: In(ids) },
+          relations: ['designation', 'department', 'department.division', 'department.section'],
+        })
       : [];
-    const dMap = new Map(withDesignations.map((e) => [e.id, e.designation]));
-    data.forEach((e) => { (e as any).designation = dMap.get(e.id) ?? null; });
+    const rMap = new Map(withRelations.map((e) => [e.id, e]));
+    data.forEach((e) => {
+      const full = rMap.get(e.id);
+      (e as any).designation = full?.designation ?? null;
+      (e as any).department = full?.department ?? null;
+      (e as any).designationName = full?.designation?.designationName ?? (e as any).jobTitle ?? null;
+      (e as any).departmentName = full?.department?.name ?? null;
+      (e as any).divisionName = full?.department?.division?.name ?? null;
+      (e as any).sectionName = full?.department?.section?.name ?? null;
+    });
     return { data, total, page, limit };
   }
 
   async findEmployee(id: string) {
     const emp = await this.employeeRepo.findOne({
       where: { id },
-      relations: ['designation', 'manager', 'skills', 'training', 'documents', 'histories'],
+      relations: ['designation', 'department', 'department.division', 'department.section', 'manager', 'skills', 'training', 'documents', 'histories'],
     });
     if (!emp) throw new NotFoundException('Employee not found');
+    (emp as any).departmentName = emp.department?.name ?? null;
+    (emp as any).designationName = emp.designation?.designationName ?? emp.jobTitle ?? null;
+    (emp as any).divisionName = emp.department?.division?.name ?? null;
+    (emp as any).sectionName = emp.department?.section?.name ?? null;
     return emp;
   }
 
+  async deleteEmployee(id: string) {
+    const emp = await this.employeeRepo.findOne({ where: { id } });
+    if (!emp) throw new NotFoundException('Employee not found');
+    emp.status = emp.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    return this.employeeRepo.save(emp);
+  }
+
   async createEmployee(dto: CreateHrEmployeeDto) {
-    const exists = await this.employeeRepo.findOne({ where: { companyId: dto.companyId, employeeCode: dto.employeeCode } });
-    if (exists) throw new BadRequestException('Employee code already exists');
-    const emp = this.employeeRepo.create({
-      ...dto, dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
+    let emp = await this.employeeRepo.findOne({ where: { companyId: dto.companyId, employeeCode: dto.employeeCode } });
+    if (emp) {
+      if (dto.firstName) emp.firstName = dto.firstName;
+      if (dto.lastName !== undefined) emp.lastName = dto.lastName;
+      if (dto.email !== undefined) emp.email = dto.email;
+      if (dto.phone !== undefined) emp.phone = dto.phone;
+      if (dto.cnic !== undefined) emp.cnic = dto.cnic;
+      if (dto.departmentId !== undefined) emp.departmentId = dto.departmentId;
+      if (dto.designationId !== undefined) emp.designationId = dto.designationId;
+      if (dto.jobTitle !== undefined) emp.jobTitle = dto.jobTitle;
+      if (dto.employmentType) emp.employmentType = dto.employmentType;
+      if (dto.status) emp.status = dto.status;
+      if (dto.address !== undefined) emp.address = dto.address;
+      if (dto.dateOfBirth) emp.dateOfBirth = new Date(dto.dateOfBirth);
+      if (dto.joinDate) emp.joinDate = new Date(dto.joinDate);
+      await this.employeeRepo.save(emp);
+      return this.findEmployee(emp.id);
+    }
+
+    emp = this.employeeRepo.create({
+      ...dto,
+      dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
       joinDate: dto.joinDate ? new Date(dto.joinDate) : null,
     });
     const saved = await this.employeeRepo.save(emp);
@@ -1411,7 +1497,124 @@ export class HrService {
       this.logger.warn(`Failed to create centralized barcode for employee ${saved.id}: ${err}`);
     }
 
-    return saved;
+    return this.findEmployee(saved.id);
+  }
+
+  async bulkImportEmployees(companyId: string, rows: Array<any>) {
+    const results = {
+      total: rows.length,
+      created: 0,
+      updated: 0,
+      failed: 0,
+      errors: [] as Array<{ row: number; code: string; message: string }>,
+    };
+
+    const [departments, designations] = await Promise.all([
+      this.departmentRepo.find({ where: { companyId } }),
+      this.designationRepo.find({ where: { companyId } }),
+    ]);
+
+    const normalize = (str?: string) => (str || '').toLowerCase().replace(/[\s&_.-]+/g, '').trim();
+
+    const findDepartment = (deptName?: string) => {
+      if (!deptName) return null;
+      const n = normalize(deptName);
+      if (n === 'spril' || n === 'spiral') return departments.find((d) => normalize(d.name) === 'spiral');
+      if (n === 'cuttingpacking' || n === 'cuttingandpacking' || n === 'packing') {
+        return departments.find((d) => normalize(d.name) === 'cuttingpacking') || departments.find((d) => normalize(d.name) === 'packing');
+      }
+      return departments.find((d) => normalize(d.name) === n) || departments.find((d) => normalize(d.name).includes(n)) || null;
+    };
+
+    const findOrCreateDesignation = async (desigName?: string) => {
+      if (!desigName || !desigName.trim()) return null;
+      const clean = desigName.trim();
+      const n = normalize(clean);
+      let found = designations.find((d) => normalize(d.designationName) === n);
+      if (!found) {
+        const code = `DES-${(clean.slice(0, 4).toUpperCase().replace(/[^A-Z]/g, '') + Math.floor(Math.random() * 900 + 100))}`;
+        found = this.designationRepo.create({
+          companyId,
+          designationCode: code,
+          designationName: clean,
+        });
+        found = await this.designationRepo.save(found);
+        designations.push(found);
+      }
+      return found;
+    };
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const code = String(r.employeeCode || r.code || r.EmployeeID || r.employeeId || '').trim();
+      if (!code) {
+        results.failed++;
+        results.errors.push({ row: i + 1, code: '', message: 'Missing employee code / ID' });
+        continue;
+      }
+      const rawName = String(r.employeeName || r.name || r.firstName || r.EmployeeName || '').trim();
+      const parts = rawName ? rawName.split(' ') : [];
+      const firstName = r.firstName ? String(r.firstName).trim() : (parts[0] || undefined);
+      const lastName = r.lastName !== undefined ? String(r.lastName).trim() : (parts.slice(1).join(' ') || undefined);
+
+      const dept = findDepartment(r.departmentName || r.department || r.Department);
+      const desig = await findOrCreateDesignation(r.designationName || r.designation || r.jobTitle || r.Designation);
+      const cnic = String(r.cnic || r.CNIC || r.nationalId || r.national_id || r.NationalID || r.idCard || r.IdCard || r.nic || r.NIC || '').trim() || undefined;
+      const rawDob = r.dateOfBirth || r.date_of_birth || r.DateOfBirth || r.dob || r.DOB || r.birthDate || r.BirthDate;
+      const dob = rawDob ? new Date(rawDob) : undefined;
+      const address = (r.address || r.Address || r.city || r.City) ? String(r.address || r.Address || r.city || r.City).trim() : undefined;
+
+      try {
+        let emp = await this.employeeRepo.findOne({ where: { companyId, employeeCode: code } });
+        const isUpdate = Boolean(emp);
+
+        if (!emp) {
+          emp = this.employeeRepo.create({
+            companyId,
+            employeeCode: code,
+            firstName: firstName || code,
+            lastName: lastName || null,
+            status: r.status || 'ACTIVE',
+          });
+        } else {
+          // Selective partial update: only change name if a non-empty name was explicitly provided
+          if (firstName && firstName !== code) emp.firstName = firstName;
+          if (lastName !== undefined && lastName !== '') emp.lastName = lastName;
+          if (r.status) emp.status = r.status;
+        }
+
+        if (dept) emp.departmentId = dept.id;
+        if (desig) emp.designationId = desig.id;
+        if (r.designation || r.jobTitle) emp.jobTitle = r.designation || r.jobTitle;
+        if (r.email) emp.email = String(r.email).trim();
+        if (r.phone) emp.phone = String(r.phone).trim();
+        if (cnic) emp.cnic = cnic;
+        if (address) emp.address = address;
+        if (dob && !isNaN(dob.getTime())) emp.dateOfBirth = dob;
+        if (r.employmentType) emp.employmentType = r.employmentType;
+        if (r.joinDate) emp.joinDate = new Date(r.joinDate);
+
+        const saved = await this.employeeRepo.save(emp);
+
+        try {
+          await this.barcodeService.ensureBarcodeForEntity(
+            companyId,
+            BarcodeEntityType.EMPLOYEE,
+            saved.id,
+            saved.employeeCode,
+            `${saved.firstName} ${saved.lastName || ''}`.trim(),
+          );
+        } catch (_) {}
+
+        if (isUpdate) results.updated++;
+        else results.created++;
+      } catch (err: any) {
+        results.failed++;
+        results.errors.push({ row: i + 1, code, message: err?.message || 'Database error' });
+      }
+    }
+
+    return results;
   }
 
   async updateEmployee(id: string, dto: Partial<CreateHrEmployeeDto> & { status?: string }) {
@@ -1430,7 +1633,7 @@ export class HrService {
         changeDate: new Date(), remarks: 'Updated via employee edit',
       }));
     }
-    return saved;
+    return this.findEmployee(saved.id);
   }
 
   // ---- Attendance ----

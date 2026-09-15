@@ -1200,6 +1200,9 @@ const TargetManagement: React.FC = () => {
         style={{ marginBottom: 8 }}
         extra={
           <>
+            <Button size="middle" type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ fontWeight: 600 }}>
+              Add Target
+            </Button>
             <Tooltip title="Refresh">
               <Button size="middle" icon={<ReloadOutlined />} onClick={() => fetchTargets(page)} />
             </Tooltip>
@@ -1213,9 +1216,6 @@ const TargetManagement: React.FC = () => {
                 Import
               </Button>
             </Tooltip>
-            <Button size="middle" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              Add Target
-            </Button>
           </>
         }
       />
@@ -1295,6 +1295,7 @@ const TargetManagement: React.FC = () => {
         dataSource={targets}
         loading={loading}
         scroll={{ x: 1600 }}
+        sticky={{ offsetHeader: 0 }}
         pagination={{
           current: page,
           pageSize,

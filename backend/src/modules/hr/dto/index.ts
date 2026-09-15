@@ -8,4 +8,8 @@ export {
   GetLeaveRequestsDto, HR_LEAVE_STATUSES,
   CreateRegularizationDto, UpdateRegularizationDto, RegularizationDecisionDto, GetRegularizationsDto,
   HR_REGULARIZATION_STATUSES, HR_REGULARIZATION_TYPES, HR_REGULARIZATION_REASONS,
+  CreateOvertimeDto, UpdateOvertimeDto, ApproveOvertimeDto, RejectOvertimeDto, GetOvertimeDto,
+  HR_OVERTIME_STATUSES,
+  CreateAdvanceDto, UpdateAdvanceDto, ApproveAdvanceDto, RejectAdvanceDto,
+  DisburseAdvanceDto, RecoverAdvanceDto, GetAdvancesDto, HR_ADVANCE_STATUSES, HR_ADVANCE_SORTABLE,
 } from './hr.dto';

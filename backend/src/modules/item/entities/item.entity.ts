@@ -84,6 +84,10 @@ export class Item extends BaseEntity {
   @Column({ type: 'varchar', length: 20, default: ItemStatus.ACTIVE })
   status: ItemStatus;
 
+  /** Material Role / Usage (e.g. 'Process Component Materials' for Raw Materials) */
+  @Column({ name: 'material_role_usage', type: 'varchar', length: 150, nullable: true })
+  materialRoleUsage?: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   barcode: string | null;
 

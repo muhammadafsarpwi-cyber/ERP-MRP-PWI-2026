@@ -73,7 +73,7 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   // finance, HR, QC, communication, notifications
   'finance.account.view', 'finance.journal.view', 'finance.report.trial_balance',
   'hr.employee.view', 'hr.attendance.view', 'hr.leave.view',
-  'hr.dashboard.view', 'hr.shift_roster.view', 'hr.live_map.view',
+  'hr.dashboard.view', 'hr.shift_roster.view', 'hr.live_map.view', 'hr.regularization.view', 'hr.overtime.view',
   'qc.inspection.view', 'qc.ncr.view', 'qc.capa.view',
   'notifications.view', 'notifications.rules.view',
   'email.settings.manage', 'email.template.manage', 'email.log.view',

@@ -22,6 +22,7 @@ interface LedgerEntry {
   itemId: string;
   itemCode: string;
   itemName: string;
+  materialRoleUsage?: string;
   quantity: number;
   uomCode: string;
   direction: string;
@@ -82,20 +83,24 @@ const StoreItemLedger: React.FC = () => {
         url += `&startDate=${dateRange[0].format('YYYY-MM-DD')}&endDate=${dateRange[1].format('YYYY-MM-DD')}`;
       }
       const response = await apiService.get<any[]>(url);
-      const entries: LedgerEntry[] = (response || []).map((e: any) => ({
-        id: e.id,
-        createdAt: e.createdAt || e.created_at,
-        transactionType: e.transactionType || e.transaction_type,
-        itemId: e.itemId || e.item_id,
-        itemCode: e.item?.itemCode || e.item?.item_code || '',
-        itemName: e.item?.name || '',
-        quantity: Number(e.quantity || 0),
-        uomCode: e.uom?.code || '',
-        direction: e.direction,
-        referenceType: e.referenceType || e.reference_type || '',
-        referenceNumber: e.referenceNumber || e.reference_number || '',
-        notes: e.notes || '',
-      }));
+      const entries: LedgerEntry[] = (response || []).map((e: any) => {
+        const isRaw = (e.item?.itemType || e.item?.item_type || '').toUpperCase().includes('RAW');
+        return {
+          id: e.id,
+          createdAt: e.createdAt || e.created_at,
+          transactionType: e.transactionType || e.transaction_type,
+          itemId: e.itemId || e.item_id,
+          itemCode: e.item?.itemCode || e.item?.item_code || '',
+          itemName: e.item?.name || '',
+          materialRoleUsage: e.item?.materialRoleUsage || e.item?.material_role_usage || (isRaw ? 'Process Component Materials' : ''),
+          quantity: Number(e.quantity || 0),
+          uomCode: e.uom?.code || '',
+          direction: e.direction,
+          referenceType: e.referenceType || e.reference_type || '',
+          referenceNumber: e.referenceNumber || e.reference_number || '',
+          notes: e.notes || '',
+        };
+      });
       setLedgerData(entries);
     } catch {
       console.error('Failed to load ledger');
@@ -130,6 +135,13 @@ const StoreItemLedger: React.FC = () => {
     },
     { title: 'Item Code', dataIndex: 'itemCode', key: 'itemCode', width: 120 },
     { title: 'Item Name', dataIndex: 'itemName', key: 'itemName', width: 200 },
+    {
+      title: 'Material Role / Usage',
+      dataIndex: 'materialRoleUsage',
+      key: 'materialRoleUsage',
+      width: 170,
+      render: (v: string) => (v ? <Tag color="cyan" style={{ fontWeight: 600 }}>{v}</Tag> : <span style={{ color: '#999' }}>—</span>),
+    },
     { title: 'Qty', dataIndex: 'quantity', key: 'quantity', width: 100, align: 'right' },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 80 },
     {

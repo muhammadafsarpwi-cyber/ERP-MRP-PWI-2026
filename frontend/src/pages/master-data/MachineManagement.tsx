@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Alert, App, Badge, Button, Card, Checkbox, DatePicker, Descriptions, Dropdown, Form, Input, InputNumber,
+  Alert, App, Badge, Button, Card, Checkbox, DatePicker, Descriptions, Dropdown, Form, Grid, Input, InputNumber,
   Modal, Popover, Segmented, Select, Space, Spin, Table, Tooltip, Typography, Upload,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -9,7 +9,7 @@ import {
   EyeOutlined, MoreOutlined, PrinterOutlined, ClearOutlined, FilterOutlined,
   ToolOutlined, DeleteOutlined, TagOutlined, SettingOutlined, DesktopOutlined,
   ApartmentOutlined, ShopOutlined, SubnodeOutlined, TeamOutlined, EnvironmentOutlined,
-  TagsOutlined, AlertOutlined, CheckCircleOutlined,
+  TagsOutlined, AlertOutlined, CheckCircleOutlined, ScanOutlined,
   DownloadOutlined, FilePdfOutlined, ImportOutlined, InboxOutlined,
   HistoryOutlined, BarChartOutlined, ScheduleOutlined,
   ArrowUpOutlined, ArrowDownOutlined, MinusOutlined, AppstoreOutlined,
@@ -21,7 +21,7 @@ import { Link } from 'react-router-dom';
 import apiService from '../../services/api';
 import {
   PageHeader, StatusBadge, EmptyState, LoadingState, HeaderCell, HighlightedCell, TableActions,
-  DraggableResizableModal, SaveResultDialog, SaveResultPhase, SaveResultData,
+  DraggableResizableModal, SaveResultDialog, SaveResultPhase, SaveResultData, BarcodeScanner,
 } from '../../components/shared';
 import { label } from '../maintenance/jobCards.types';
 import { getMachineColor } from '../../utils/colorMapping';
@@ -1478,6 +1478,7 @@ const EXPORT_HEADERS = [
 
 const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMachineId }) => {
   const { message } = App.useApp();
+  const screens = Grid.useBreakpoint();
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1488,6 +1489,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('ASC');
 
   const [search, setSearch] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [fMachineId, setFMachineId] = useState<string>('');
   const [fDivision, setFDivision] = useState<string | undefined>();
   const [fSection, setFSection] = useState<string | undefined>();
@@ -1495,6 +1497,12 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [fStatus, setFStatus] = useState<string | undefined>();
   const [fCriticality, setFCriticality] = useState<string | undefined>();
   const [showFilters, setShowFilters] = useState(false);
+
+  const handleBarcodeScan = (scannedCode: string) => {
+    setScannerOpen(false);
+    setSearch(scannedCode);
+    setPage(1);
+  };
 
   // ─── Status Counts for 2027 Chevron Status Ribbon ──────────────────────────
   const [statusCounts, setStatusCounts] = useState<{
@@ -2066,47 +2074,53 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       let failed = 0;
       const errors: string[] = [];
 
-      for (const row of validRows) {
-        const code = (row.data['machineCode'] || row.data['Machine Code'] || row.data['machinecode'] || '').trim();
-        if (existingCodes.has(code.toUpperCase())) {
-          row.status = 'DUPLICATE';
-          row.errors = ['Machine Code already exists'];
-          failed++;
-          errors.push(`Row ${row.rowNumber}: Duplicate machine code '${code}'`);
-          continue;
-        }
-        const status = (row.data['status'] || row.data['Status'] || 'ACTIVE').toUpperCase();
-        const payload: any = {
-          machineCode: code,
-          name: (row.data['machineName'] || row.data['Machine Name'] || row.data['machinename'] || '').trim(),
-          machineNumber: (row.data['machineNumber'] || row.data['Machine Number'] || row.data['machinenumber'] || '').trim() || null,
-          machineType: (row.data['machineType'] || row.data['Machine Type'] || row.data['machinetype'] || '').trim() || null,
-          manufacturer: (row.data['manufacturer'] || row.data['Manufacturer'] || '').trim() || null,
-          model: (row.data['model'] || row.data['Model'] || '').trim() || null,
-          serialNumber: (row.data['serialNumber'] || row.data['Serial Number'] || row.data['serialnumber'] || '').trim() || null,
-          location: (row.data['location'] || row.data['Location'] || '').trim() || null,
-          capacity: (row.data['capacity'] || row.data['Capacity']) ? Number(row.data['capacity'] || row.data['Capacity']) : null,
-          powerRating: (row.data['powerRating'] || row.data['Power Rating'] || row.data['powerrating'] || '').trim() || null,
-          criticality: (row.data['criticality'] || row.data['Criticality'] || 'MEDIUM').toUpperCase(),
-          installationDate: (row.data['installationDate'] || row.data['Installation Date'] || row.data['installationdate'] || '').trim() || null,
-          warrantyExpiryDate: (row.data['warrantyExpiry'] || row.data['Warranty Expiry'] || row.data['warrantyexpiry'] || '').trim() || null,
-          description: (row.data['description'] || row.data['Description'] || '').trim() || null,
-        };
-        try {
-          const created = await apiService.post<{ id: string }>('/machines', payload);
-          if (status !== 'ACTIVE') {
-            try {
-              await apiService.patch(`/machines/${created.id}/status`, { status });
-            } catch {
-              // machine was created; status patch is best-effort
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
+        const batch = validRows.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(async (row) => {
+            const code = (row.data['machineCode'] || row.data['Machine Code'] || row.data['machinecode'] || '').trim();
+            if (existingCodes.has(code.toUpperCase())) {
+              row.status = 'DUPLICATE';
+              row.errors = ['Machine Code already exists'];
+              failed++;
+              errors.push(`Row ${row.rowNumber}: Duplicate machine code '${code}'`);
+              return;
             }
-          }
-          imported++;
-          existingCodes.add(code.toUpperCase());
-        } catch (err: any) {
-          failed++;
-          errors.push(`Row ${row.rowNumber}: ${err?.response?.data?.message || err?.message || 'Unknown error'}`);
-        }
+            const status = (row.data['status'] || row.data['Status'] || 'ACTIVE').toUpperCase();
+            const payload: any = {
+              machineCode: code,
+              name: (row.data['machineName'] || row.data['Machine Name'] || row.data['machinename'] || '').trim(),
+              machineNumber: (row.data['machineNumber'] || row.data['Machine Number'] || row.data['machinenumber'] || '').trim() || null,
+              machineType: (row.data['machineType'] || row.data['Machine Type'] || row.data['machinetype'] || '').trim() || null,
+              manufacturer: (row.data['manufacturer'] || row.data['Manufacturer'] || '').trim() || null,
+              model: (row.data['model'] || row.data['Model'] || '').trim() || null,
+              serialNumber: (row.data['serialNumber'] || row.data['Serial Number'] || row.data['serialnumber'] || '').trim() || null,
+              location: (row.data['location'] || row.data['Location'] || '').trim() || null,
+              capacity: (row.data['capacity'] || row.data['Capacity']) ? Number(row.data['capacity'] || row.data['Capacity']) : null,
+              powerRating: (row.data['powerRating'] || row.data['Power Rating'] || row.data['powerrating'] || '').trim() || null,
+              criticality: (row.data['criticality'] || row.data['Criticality'] || 'MEDIUM').toUpperCase(),
+              installationDate: (row.data['installationDate'] || row.data['Installation Date'] || row.data['installationdate'] || '').trim() || null,
+              warrantyExpiryDate: (row.data['warrantyExpiry'] || row.data['Warranty Expiry'] || row.data['warrantyexpiry'] || '').trim() || null,
+              description: (row.data['description'] || row.data['Description'] || '').trim() || null,
+            };
+            try {
+              const created = await apiService.post<{ id: string }>('/machines', payload);
+              if (status !== 'ACTIVE') {
+                try {
+                  await apiService.patch(`/machines/${created.id}/status`, { status });
+                } catch {
+                  // machine was created; status patch is best-effort
+                }
+              }
+              imported++;
+              existingCodes.add(code.toUpperCase());
+            } catch (err: any) {
+              failed++;
+              errors.push(`Row ${row.rowNumber}: ${err?.response?.data?.message || err?.message || 'Unknown error'}`);
+            }
+          }),
+        );
       }
 
       setImportSummary({
@@ -2290,7 +2304,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
 
   const columns: ColumnsType<Machine> = [
     {
-      title: <HeaderCell icon={<TagOutlined />} first="Machine" second="ID" />,
+      title: <HeaderCell icon={<TagOutlined />} first="System" second="ID" />,
       dataIndex: 'machineId',
       key: 'machineId',
       width: 80,
@@ -2305,30 +2319,33 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       ),
     },
     {
-      title: <HeaderCell icon={<SettingOutlined />} first="Code /" second="No." />,
+      title: <HeaderCell icon={<SettingOutlined />} first="Machine" second="ID" />,
       dataIndex: 'machineCode',
       key: 'codeNo',
-      width: 150,
+      width: 110,
+      align: 'center',
+      fixed: 'left',
       sorter: true,
       render: (code: string, m: Machine) => {
         const mc = getMachineColor(m);
         const machineNo = m.machineNumber;
         return (
           <Tooltip title={m.name ? `${m.machineCode} — ${m.name}` : m.machineCode}>
-            <div style={{ lineHeight: 1.35 }}>
+            <div style={{ lineHeight: 1.35, textAlign: 'center' }}>
               <div>
                 <span style={{
                   display: 'inline-block',
-                  padding: '0 5px',
+                  padding: '2px 8px',
                   borderRadius: 4,
-                  fontWeight: 600,
-                  fontSize: 11,
+                  fontWeight: 700,
+                  fontSize: 13.5,
+                  letterSpacing: '0.02em',
                   color: mc.light.text,
                   background: mc.light.bg,
                   border: `1px solid ${mc.light.border}`,
                 }}>{code ?? '—'}</span>
               </div>
-              {machineNo ? <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{machineNo}</div> : null}
+              {machineNo ? <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10.5, fontWeight: 500, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{machineNo}</div> : null}
             </div>
           </Tooltip>
         );
@@ -2338,7 +2355,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       title: <HeaderCell icon={<ApartmentOutlined />} first="Machine" second="Name" />,
       dataIndex: 'name',
       key: 'name',
-      width: 175,
+      width: 145,
       sorter: true,
       render: (_: any, m: Machine) => {
         if (!m.name) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
@@ -2357,7 +2374,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     {
       title: <HeaderCell icon={<ShopOutlined />} first="Division" second="Section" />,
       key: 'division',
-      width: 150,
+      width: 120,
       render: (_: any, m: Machine) => {
         const d = m.division;
         const s = m.section;
@@ -2376,7 +2393,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     {
       title: <HeaderCell icon={<TeamOutlined />} first="Department" />,
       key: 'department',
-      width: 130,
+      width: 100,
       render: (_: any, m: Machine) => (m.department?.name ? (
         <HighlightedCell
           icon={<TeamOutlined />}
@@ -2391,7 +2408,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       title: <HeaderCell icon={<EnvironmentOutlined />} first="Location" />,
       dataIndex: 'location',
       key: 'location',
-      width: 110,
+      width: 90,
       render: (l: string | null | undefined) => (l ? (
         <Tooltip title={l}>
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', fontSize: 12, color: 'var(--theme-text-secondary)' }}>
@@ -2405,7 +2422,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     {
       title: <HeaderCell icon={<TagsOutlined />} first="Make /" second="Model" />,
       key: 'makeModel',
-      width: 150,
+      width: 115,
       render: (_: any, m: Machine) => {
         const make = m.manufacturer;
         const model = m.model;
@@ -2432,7 +2449,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       title: <HeaderCell icon={<AlertOutlined />} first="Criticality" />,
       dataIndex: 'criticality',
       key: 'criticality',
-      width: 100,
+      width: 85,
       sorter: true,
       render: (c: string) => <StatusBadge status={c} colorMap={CRITICALITY_COLORS} />,
     },
@@ -2440,15 +2457,15 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       title: <HeaderCell icon={<CheckCircleOutlined />} first="Status" />,
       dataIndex: 'status',
       key: 'status',
-      width: 110,
+      width: 85,
       sorter: true,
       render: (s: string) => <StatusBadge status={s} colorMap={STATUS_COLORS} />,
     },
     {
-      title: <HeaderCell first="Actions" />,
+      title: <HeaderCell first="Row" second="Actions" />,
       key: 'actions',
-      width: 230,
-      fixed: 'right',
+      width: 180,
+      fixed: screens.lg ? 'right' : undefined,
       align: 'center',
       render: (_: any, m: Machine) => {
         const machineLabel = m.machineCode || m.name || m.machineNumber || 'this record';
@@ -2499,20 +2516,22 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
             ]}
             extraActions={[
               <Tooltip key="status" title="Change status">
-                <Dropdown
-                  menu={{
-                    items: [
-                      ...(m.status !== 'ACTIVE' ? [{ key: 'ACTIVE', label: 'Set Active' }] : []),
-                      ...(m.status !== 'MAINTENANCE' ? [{ key: 'MAINTENANCE', label: 'Set Maintenance' }] : []),
-                      ...(m.status !== 'INACTIVE' ? [{ key: 'INACTIVE', label: 'Deactivate' }] : []),
-                      ...(m.status !== 'RETIRED' ? [{ key: 'RETIRED', label: 'Retire' }] : []),
-                    ],
-                    onClick: ({ key }) => handleStatus(m, key),
-                  }}
-                  trigger={['click']}
-                >
-                  <Button type="text" size="small" className="act-neutral" icon={<MoreOutlined />} aria-label={`Change status — ${machineLabel}`} />
-                </Dropdown>
+                <span style={{ display: 'inline-flex' }}>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        ...(m.status !== 'ACTIVE' ? [{ key: 'ACTIVE', label: 'Set Active' }] : []),
+                        ...(m.status !== 'MAINTENANCE' ? [{ key: 'MAINTENANCE', label: 'Set Maintenance' }] : []),
+                        ...(m.status !== 'INACTIVE' ? [{ key: 'INACTIVE', label: 'Deactivate' }] : []),
+                        ...(m.status !== 'RETIRED' ? [{ key: 'RETIRED', label: 'Retire' }] : []),
+                      ],
+                      onClick: ({ key }) => handleStatus(m, key),
+                    }}
+                    trigger={['click']}
+                  >
+                    <Button type="text" size="small" className="act-neutral" icon={<MoreOutlined />} aria-label={`Change status — ${machineLabel}`} />
+                  </Dropdown>
+                </span>
               </Tooltip>,
             ]}
           />
@@ -2548,30 +2567,31 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         showBreadcrumbs
         extra={
           <>
-            <Tooltip title="Reload the machine list">
-              <Button icon={<ReloadOutlined />} onClick={() => fetchMachines(page)}>
-                Refresh
-              </Button>
-            </Tooltip>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} className="erp-toolbar-action-btn" style={{ fontWeight: 600 }}>
+              Add Machine
+            </Button>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchMachines(page)} className="erp-toolbar-action-btn">
+              Refresh
+            </Button>
+            <Button icon={<ScanOutlined />} onClick={() => setScannerOpen(true)} className="erp-toolbar-action-btn">
+              Scan QR / Barcode
+            </Button>
             <Dropdown menu={{ items: exportMenu, onClick: onExportMenu }}>
-              <Button icon={<DownloadOutlined />} loading={exporting || pdfing || printing}>
+              <Button icon={<DownloadOutlined />} loading={exporting || pdfing || printing} className="erp-toolbar-action-btn">
                 Export
               </Button>
             </Dropdown>
-            <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
+            <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)} className="erp-toolbar-action-btn">
               Import
             </Button>
-            <Button icon={<FilePdfOutlined />} loading={pdfing} onClick={handleExportPdf}>
+            <Button icon={<FilePdfOutlined />} loading={pdfing} onClick={handleExportPdf} className="erp-toolbar-action-btn">
               PDF
             </Button>
-            <Button icon={<PrinterOutlined />} loading={printing} onClick={handlePrintReport}>
+            <Button icon={<PrinterOutlined />} loading={printing} onClick={handlePrintReport} className="erp-toolbar-action-btn">
               Print
             </Button>
-            <Button icon={<ClearOutlined />} onClick={resetFilters}>
+            <Button icon={<ClearOutlined />} onClick={resetFilters} className="erp-toolbar-action-btn">
               Clear
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              Add Machine
             </Button>
           </>
         }
@@ -2585,124 +2605,129 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           onSelect={handleStatusRibbonSelect}
         />
 
-        {/* Main Filter Toolbar matching Image 2 */}
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Input
-            allowClear
-            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-            placeholder="Search Machine Register..."
-            style={{ width: 260, maxWidth: '100%' }}
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          />
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder="All Divisions"
-            style={{ width: 170 }}
-            value={fDivision}
-            options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-            onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
-          />
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder="All Departments"
-            style={{ width: 170 }}
-            value={fDepartment}
-            options={(fSection ? departmentsForSection(fSection) : fDivision
-              ? departments.filter((d) => d.divisionId === fDivision)
-              : departments).map((d) => ({ value: d.id, label: d.name }))}
-            onChange={(v) => { setFDepartment(v); setPage(1); }}
-          />
-          <Badge count={activeFilterCount}>
-            <Button
-              icon={<FilterOutlined />}
-              onClick={() => setShowFilters((v) => !v)}
-              style={{
-                background: showFilters ? '#eff6ff' : undefined,
-                borderColor: showFilters ? '#3b82f6' : undefined,
-                color: showFilters ? '#1d4ed8' : undefined,
-                fontWeight: 600,
-              }}
-            >
-              More Filters
-            </Button>
-          </Badge>
-
-          <div style={{ flex: 1 }} />
-
-          {/* Columns Toggle Dropdown (Image 1 & Image 2) */}
-          <Dropdown
-            trigger={['click']}
-            placement="bottomRight"
-            dropdownRender={() => (
-              <div
+        {/* 2-Row Compact Filter Toolbar matching User Specifications */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8, borderTop: '1px solid var(--theme-border, #f0f0f0)' }}>
+          {/* Row 1: Search Bar + More Filters + Columns + Reset */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Input
+              allowClear
+              prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+              placeholder="Search Machine Register..."
+              style={{ flex: '1 1 200px', minWidth: 160 }}
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            />
+            <Badge count={activeFilterCount} size="small">
+              <Button
+                icon={<FilterOutlined />}
+                onClick={() => setShowFilters((v) => !v)}
                 style={{
-                  background: '#ffffff',
-                  padding: '12px 16px',
-                  borderRadius: 8,
-                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
-                  minWidth: 200,
-                  border: '1px solid #e2e8f0',
+                  background: showFilters ? 'var(--theme-accent-soft, #eff6ff)' : undefined,
+                  borderColor: showFilters ? 'var(--theme-accent, #3b82f6)' : undefined,
+                  color: showFilters ? 'var(--theme-accent, #1d4ed8)' : undefined,
+                  fontWeight: 600,
                 }}
               >
+                More Filters
+              </Button>
+            </Badge>
+
+            {/* Columns Toggle Dropdown */}
+            <Dropdown
+              trigger={['click']}
+              placement="bottomRight"
+              popupRender={() => (
                 <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 10,
-                    paddingBottom: 8,
-                    borderBottom: '1px solid #f1f5f9',
+                    background: '#ffffff',
+                    padding: '12px 16px',
+                    borderRadius: 8,
+                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                    minWidth: 200,
+                    border: '1px solid #e2e8f0',
                   }}
                 >
-                  <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
-                    Table Columns
-                  </span>
-                  <Button
-                    type="link"
-                    size="small"
-                    style={{ padding: 0, height: 'auto', fontSize: 11 }}
-                    onClick={() => {
-                      setVisibleCols(DEFAULT_VISIBLE_COLUMNS);
-                      try { localStorage.removeItem('pwi_machine_table_columns_v1'); } catch {}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: 10,
+                      paddingBottom: 8,
+                      borderBottom: '1px solid #f1f5f9',
                     }}
                   >
-                    Reset All
-                  </Button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {Object.entries(COLUMN_LABELS).map(([key, label]) => (
-                    <Checkbox
-                      key={key}
-                      checked={visibleCols[key] !== false}
-                      disabled={key === 'codeNo' || key === 'actions'}
-                      onChange={(e) => {
-                        const next = { ...visibleCols, [key]: e.target.checked };
-                        setVisibleCols(next);
-                        try { localStorage.setItem('pwi_machine_table_columns_v1', JSON.stringify(next)); } catch {}
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                      Table Columns
+                    </span>
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                      onClick={() => {
+                        setVisibleCols(DEFAULT_VISIBLE_COLUMNS);
+                        try { localStorage.removeItem('pwi_machine_table_columns_v1'); } catch {}
                       }}
-                      style={{ fontSize: 13, color: '#334155' }}
                     >
-                      {label}
-                    </Checkbox>
-                  ))}
+                      Reset All
+                    </Button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {Object.entries(COLUMN_LABELS).map(([key, label]) => (
+                      <Checkbox
+                        key={key}
+                        checked={visibleCols[key] !== false}
+                        disabled={key === 'codeNo' || key === 'actions'}
+                        onChange={(e) => {
+                          const next = { ...visibleCols, [key]: e.target.checked };
+                          setVisibleCols(next);
+                          try { localStorage.setItem('pwi_machine_table_columns_v1', JSON.stringify(next)); } catch {}
+                        }}
+                        style={{ fontSize: 13, color: '#334155' }}
+                      >
+                        {label}
+                      </Checkbox>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          >
-            <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
-              Columns
-            </Button>
-          </Dropdown>
+              )}
+            >
+              <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
+                Columns
+              </Button>
+            </Dropdown>
 
-          <Button icon={<ClearOutlined />} onClick={resetFilters}>
-            Reset
-          </Button>
-          <Text type="secondary" style={{ fontSize: 12 }}>{sortInfo}</Text>
+            <Button icon={<ClearOutlined />} onClick={resetFilters}>
+              Reset
+            </Button>
+            {sortInfo && <Text type="secondary" style={{ fontSize: 12 }}>{sortInfo}</Text>}
+          </div>
+
+          {/* Row 2: Division & Department side-by-side (امنے سامنے) */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="All Divisions"
+              style={{ flex: '1 1 140px', minWidth: 130 }}
+              value={fDivision}
+              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+              onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
+            />
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="All Departments"
+              style={{ flex: '1 1 140px', minWidth: 130 }}
+              value={fDepartment}
+              options={(fSection ? departmentsForSection(fSection) : fDivision
+                ? departments.filter((d) => d.divisionId === fDivision)
+                : departments).map((d) => ({ value: d.id, label: d.name }))}
+              onChange={(v) => { setFDepartment(v); setPage(1); }}
+            />
+          </div>
         </div>
 
         {showFilters && (
@@ -2761,8 +2786,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
             columns={filteredColumns}
             dataSource={machines}
             loading={loading}
-            scroll={{ x: 1600 }}
-            sticky
+            scroll={{ x: 1040 }}
+            sticky={{ offsetHeader: 0 }}
             size="middle"
             pagination={{
               current: page,
@@ -2926,6 +2951,12 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         itemName={printModal.machine?.name || ''}
         barcode={printModal.machine?.qrPayload || null}
         companyName="PWI ERP"
+      />
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleBarcodeScan}
       />
 
       <SaveResultDialog

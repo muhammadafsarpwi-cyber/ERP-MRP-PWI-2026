@@ -95,8 +95,12 @@ body {
 }
 
 .erp-app-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1000 !important;
   background: var(--theme-surface);
   border-bottom: 1px solid var(--theme-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
@@ -516,3 +520,146 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
     width: 100%;
   }
 }
+
+/* =====================================================================
+   PWI Corporate Running Slide / Marquee Banner (Theme Reactive & Sticky)
+   ===================================================================== */
+.pwi-company-marquee-banner {
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  background: var(--theme-accent-soft, rgba(63, 81, 181, 0.08));
+  border: 1px solid var(--theme-border, rgba(63, 81, 181, 0.2));
+  border-radius: 6px;
+  padding: 4px 0;
+  margin-bottom: 3px;
+  box-sizing: border-box;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+[data-theme='dark'] .pwi-company-marquee-banner {
+  background: var(--theme-accent-soft, rgba(129, 140, 248, 0.14));
+  border-color: var(--theme-border, rgba(129, 140, 248, 0.25));
+}
+
+.pwi-marquee-track {
+  display: inline-flex;
+  gap: 36px;
+  animation: pwiMarqueeScroll 28s linear infinite;
+  will-change: transform;
+}
+
+.pwi-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+.pwi-marquee-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--theme-accent, var(--theme-primary, #3f51b5));
+  letter-spacing: 0.3px;
+  transition: color 0.25s ease;
+}
+
+[data-theme='dark'] .pwi-marquee-item {
+  color: var(--theme-accent, #818cf8);
+}
+
+.pwi-marquee-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--theme-accent, var(--theme-primary, #3f51b5));
+  box-shadow: 0 0 6px var(--theme-accent, rgba(63, 81, 181, 0.5));
+  transition: background-color 0.25s ease;
+}
+
+@keyframes pwiMarqueeScroll {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+/* Breadcrumb strictly single horizontal line, never breaking vertically */
+.ant-breadcrumb,
+.ant-breadcrumb ol,
+.ant-breadcrumb ul {
+  display: inline-flex !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+  align-items: center !important;
+}
+
+.ant-breadcrumb li {
+  display: inline-flex !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+  align-items: center !important;
+}
+
+/* Header extra buttons & toolbar:
+   Purple / Accent outline border by default.
+   On mouse hover: fills with purple background and text / icons turn white. */
+.erp-header-extra .ant-btn,
+.erp-toolbar-action-btn {
+  background: transparent !important;
+  border: 1.5px solid var(--theme-accent, #6366f1) !important;
+  color: var(--theme-accent, #6366f1) !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  transition: all 0.22s ease-in-out !important;
+  box-shadow: none !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+}
+
+.erp-header-extra .ant-btn .anticon,
+.erp-header-extra .ant-btn svg,
+.erp-toolbar-action-btn .anticon,
+.erp-toolbar-action-btn svg {
+  color: var(--theme-accent, #6366f1) !important;
+  fill: currentColor !important;
+  transition: all 0.22s ease-in-out !important;
+}
+
+.erp-header-extra .ant-btn:hover,
+.erp-toolbar-action-btn:hover {
+  background: var(--theme-accent, #6366f1) !important;
+  color: #ffffff !important;
+  border-color: var(--theme-accent, #6366f1) !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35) !important;
+}
+
+.erp-header-extra .ant-btn:hover .anticon,
+.erp-header-extra .ant-btn:hover svg,
+.erp-toolbar-action-btn:hover .anticon,
+.erp-toolbar-action-btn:hover svg {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+/* Viewport Lock & Theme Studio Responsive Constraints */
+html, body {
+  overflow-x: hidden !important;
+  max-width: 100vw !important;
+  width: 100% !important;
+}
+
+.erp-theme-studio-modal .ant-modal {
+  max-width: 96vw !important;
+}
+
+@media (max-width: 768px) {
+  .erp-theme-studio-modal .ant-modal {
+    width: 96vw !important;
+    max-width: 96vw !important;
+    margin: 8px auto !important;
+  }
+}
+
+
+
+

@@ -34,7 +34,7 @@ export const ThemeSettingsButton: React.FC = () => {
         open={open}
         onCancel={handleClose}
         footer={null}
-        width={1040}
+        width="min(1040px, 96vw)"
         centered
         destroyOnHidden={false}
         className="erp-theme-studio-modal"

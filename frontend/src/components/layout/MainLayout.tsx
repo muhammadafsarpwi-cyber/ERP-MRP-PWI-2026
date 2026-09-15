@@ -425,6 +425,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           transition: 'margin-left 0.2s',
           minWidth: 0,
           width: '100%',
+          maxWidth: '100vw',
+          overflowX: 'hidden',
         }}
       >
         <Header
@@ -432,17 +434,38 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           style={{
             height: 'auto',
             minHeight: 'auto',
-            padding: isMobile ? '6px 8px' : '6px 10px',
+            padding: isMobile ? '3px 6px 6px' : '4px 10px 6px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            gap: 4,
+            gap: isMobile ? 3 : 5,
             lineHeight: 'normal',
             position: 'sticky',
             top: 0,
-            zIndex: 100,
+            zIndex: 1000,
+            width: '100%',
+            maxWidth: '100vw',
+            boxSizing: 'border-box',
           }}
         >
+          {/* Running Corporate Slide / Marquee Banner */}
+          <div className="pwi-company-marquee-banner" role="marquee" aria-label="Company Announcement">
+            <div className="pwi-marquee-track">
+              <span className="pwi-marquee-item">
+                <span className="pwi-marquee-dot" /> <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+              </span>
+              <span className="pwi-marquee-item">
+                <span className="pwi-marquee-dot" /> <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+              </span>
+              <span className="pwi-marquee-item">
+                <span className="pwi-marquee-dot" /> <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+              </span>
+              <span className="pwi-marquee-item">
+                <span className="pwi-marquee-dot" /> <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+              </span>
+            </div>
+          </div>
+
           {/* TOP ROW — menu · page icon · breadcrumb · right controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12, minWidth: 0 }}>
             {isMobile && (
@@ -451,11 +474,30 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 type="text"
                 icon={<MenuOutlined style={{ fontSize: 20 }} />}
                 onClick={() => setMobileOpen(true)}
-                style={{ flexShrink: 0, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                style={{ flexShrink: 0, minWidth: 40, minHeight: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               />
             )}
-            <div style={{ minWidth: 0, overflow: 'hidden', flex: '1 1 auto' }}>
-              <Breadcrumbs style={{ marginBottom: 0 }} />
+            <div
+              style={{
+                minWidth: 0,
+                overflowX: 'auto',
+                overflowY: 'hidden',
+                whiteSpace: 'nowrap',
+                flex: '1 1 auto',
+                scrollbarWidth: 'none',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <Breadcrumbs
+                style={{
+                  marginBottom: 0,
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  flexWrap: 'nowrap',
+                }}
+              />
             </div>
             <div
               style={{
@@ -489,15 +531,15 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               flexDirection: isMobile ? 'column' : 'row',
               alignItems: isMobile ? 'stretch' : 'center',
               justifyContent: 'space-between',
-              gap: isMobile ? 8 : 12,
+              gap: isMobile ? 4 : 12,
               minWidth: 0,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: isMobile ? '1 1 auto' : '1 1 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, minWidth: 0, flex: isMobile ? '1 1 auto' : '1 1 auto' }}>
               {headerIconNode && (
                 <span
                   className="erp-app-header-icon"
-                  style={{ color: headerIconColor, fontSize: isMobile ? 22 : 26, flexShrink: 0 }}
+                  style={{ color: headerIconColor, fontSize: isMobile ? 20 : 26, flexShrink: 0 }}
                 >
                   {headerIconNode}
                 </span>
@@ -505,7 +547,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <div style={{ minWidth: 0 }}>
                 <div
                   style={{
-                    fontSize: isMobile ? 18 : 22,
+                    fontSize: isMobile ? 16 : 22,
                     fontWeight: 700,
                     lineHeight: 1.2,
                     color: 'var(--theme-text)',
@@ -519,8 +561,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 {headerSubtitle && (
                   <div
                     style={{
-                      fontSize: isMobile ? 12 : 13,
-                      marginTop: 2,
+                      fontSize: isMobile ? 11 : 13,
+                      marginTop: 1,
                       color: 'var(--theme-text-muted)',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',

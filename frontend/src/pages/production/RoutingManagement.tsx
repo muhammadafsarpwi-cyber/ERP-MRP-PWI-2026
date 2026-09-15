@@ -433,8 +433,8 @@ const RoutingManagement: React.FC = () => {
             <Select.Option value="ACTIVE">Active</Select.Option>
             <Select.Option value="OBSOLETE">Obsolete</Select.Option>
           </Select>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>New Routing</Button>
           <Button icon={<ReloadOutlined />} onClick={fetchRoutings}>Refresh</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>New Routing</Button>
         </Space>
       }>
         <Table dataSource={filteredRoutings} columns={columns} rowKey="id" loading={loading} pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `Total ${t} routings` }} />

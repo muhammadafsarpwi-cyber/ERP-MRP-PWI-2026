@@ -4,26 +4,31 @@ import {
   Alert, App, Badge, Button, Card, Checkbox, Col, Descriptions, Dropdown, Form, Grid, Input,
   InputNumber, Modal, Popconfirm, Progress, Row, Segmented, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DollarOutlined, DownloadOutlined, EditOutlined,
-  EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined,
+  EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined, MoreOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined, CloseCircleOutlined,
   ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
   BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
-  MinusOutlined, WarningOutlined, TagOutlined, SyncOutlined, UploadOutlined, FileTextOutlined,
+  MinusOutlined, WarningOutlined, TagOutlined, TagsOutlined, SyncOutlined, UploadOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import { formatDimension } from '../../utils/numberFormat';
-import { PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable, BarcodeScanner, BarcodePrint, DraggableResizableModal } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
+import {
+  PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable,
+  BarcodeScanner, BarcodePrint, DraggableResizableModal, HeaderCell,
+  SaveResultDialog, type SaveResultPhase, type SaveResultData,
+} from '../../components/shared';
 import JsBarcode from 'jsbarcode';
 import {
   ITEM_TYPES, ROUTE_TYPES, STATUS_OPTIONS, statusColorMap, TRACKING_SWITCHES,
   routeColorMap, IMPORT_COLUMNS, REQUIRED_IMPORT_COLUMNS, TEMPLATE_CSV,
-  stageTitleForOperation, isEmptyValue,
+  stageTitleForOperation, isEmptyValue, getDivisionPrefix, formatItemCodeWithDivisionPrefix,
   type Item, type DivisionOption, type SectionOption, type DepartmentOption,
   type UomOption, type SimpleOption, type CategoryOption, type ConversionInfo,
   type ImportRow, type ProductionFlowStage, type ProcessStep,
@@ -321,6 +326,7 @@ const DEFAULT_ITEM_VISIBLE_COLUMNS: Record<string, boolean> = {
   wireDiaLength: true,
   flatSpec: true,
   itemType: true,
+  materialRoleUsage: true,
   routeType: true,
   uom: true,
   status: true,
@@ -335,6 +341,7 @@ const ITEM_COLUMN_LABELS: Record<string, string> = {
   wireDiaLength: 'Wire / Dia · Length',
   flatSpec: 'Flat Spec (mm)',
   itemType: 'Item Type',
+  materialRoleUsage: 'Material Role / Usage',
   routeType: 'Route Type',
   uom: 'UOM / Conversion',
   status: 'Status',
@@ -583,13 +590,21 @@ const ItemManagement: React.FC = () => {
   const [fDepartment, setFDepartment] = useState<string | undefined>();
   const [fCategory, setFCategory] = useState<string | undefined>();
   const [fItemType, setFItemType] = useState<string | undefined>();
+  const [fRoleUsage, setFRoleUsage] = useState<string | undefined>();
   const [fRouteType, setFRouteType] = useState<string | undefined>();
   const [fStatus, setFStatus] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState<string>('all');
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem('pwi_item_table_columns_v1');
-      if (saved) return { ...DEFAULT_ITEM_VISIBLE_COLUMNS, ...JSON.parse(saved) };
+      const saved = localStorage.getItem('pwi_item_table_columns_v2') || localStorage.getItem('pwi_item_table_columns_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_ITEM_VISIBLE_COLUMNS,
+          ...parsed,
+          materialRoleUsage: parsed.materialRoleUsage !== false,
+        };
+      }
     } catch {}
     return DEFAULT_ITEM_VISIBLE_COLUMNS;
   });
@@ -634,6 +649,14 @@ const ItemManagement: React.FC = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // SaveResultDialog states matching Machine Master
+  const [resultOpen, setResultOpen] = useState(false);
+  const [resultPhase, setResultPhase] = useState<SaveResultPhase>('loading');
+  const [resultData, setResultData] = useState<SaveResultData | null>(null);
+  const [resultError, setResultError] = useState<string>('');
+  const lastItemPayload = useRef<Record<string, unknown> | null>(null);
+
   const [form] = Form.useForm();
   // TASK #34B: live Item Code / Name so the read-only OUTPUT PRODUCT field on the
   // form reflects the current item while it is being typed.
@@ -723,10 +746,19 @@ const ItemManagement: React.FC = () => {
     estimatedSecondsRemaining: number;
   } | null>(null);
 
+  // Live Import Activity Console states (PROMPT-2027 UX)
+  const [liveImportedItems, setLiveImportedItems] = useState<
+    Array<{ rowNumber: number; itemCode: string; name: string; itemType?: string; division?: string }>
+  >([]);
+  const [liveFailedItems, setLiveFailedItems] = useState<
+    Array<{ rowNumber: number; itemCode: string; reason: string }>
+  >([]);
+
   // Barcode Scanner & Print state
   const [scannerOpen, setScannerOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [printItem, setPrintItem] = useState<Item | null>(null);
+  const [showLivePreview, setShowLivePreview] = useState<boolean>(false);
 
   // Barcode Detail Modal state
   const [barcodeModalOpen, setBarcodeModalOpen] = useState(false);
@@ -869,8 +901,8 @@ const ItemManagement: React.FC = () => {
   }, [searchInput]);
 
   const activeFilterCount = useMemo(
-    () => [fDivision, fSection, fDepartment, fCategory, fItemType, fRouteType, fStatus].filter(Boolean).length,
-    [fDivision, fSection, fDepartment, fCategory, fItemType, fRouteType, fStatus],
+    () => [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus].filter(Boolean).length,
+    [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus],
   );
 
   const flatCategories = useMemo(() => {
@@ -935,11 +967,12 @@ const ItemManagement: React.FC = () => {
       if (fDepartment) params.departmentId = fDepartment;
       if (fCategory) params.categoryId = fCategory;
       if (fItemType) params.itemType = fItemType;
+      if (fRoleUsage) params.materialRoleUsage = fRoleUsage;
       if (fRouteType) params.routeTypeId = fRouteType;
       if (fStatus) params.status = fStatus;
       return params;
     },
-    [page, pageSize, sortField, sortOrder, search, fDivision, fSection, fDepartment, fCategory, fItemType, fRouteType, fStatus],
+    [page, pageSize, sortField, sortOrder, search, fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus],
   );
 
   // Normalize relation data: derive display names from the nested relations the
@@ -1108,6 +1141,7 @@ const ItemManagement: React.FC = () => {
     setFDepartment(undefined);
     setFCategory(undefined);
     setFItemType(undefined);
+    setFRoleUsage(undefined);
     setFRouteType(undefined);
     setFStatus(undefined);
     setActiveTab('all');
@@ -1116,8 +1150,59 @@ const ItemManagement: React.FC = () => {
     setSortOrder('ASC');
   };
 
+  const handleDivisionChange = (val?: string) => {
+    form.setFieldsValue({ sectionId: undefined, departmentId: undefined });
+    if (val) {
+      const sel = divisions.find((d) => d.id === val);
+      const prefix = getDivisionPrefix(sel?.name || sel?.divisionCode);
+      if (prefix && !editing) {
+        const cur = form.getFieldValue('itemCode');
+        if (cur && cur.trim()) {
+          form.setFieldValue('itemCode', formatItemCodeWithDivisionPrefix(cur, prefix));
+        } else {
+          form.setFieldValue('itemCode', `${prefix}-`);
+        }
+      }
+      const availSections = sectionsForDivision(val);
+      if (availSections.length === 1) {
+        const singleSec = availSections[0];
+        form.setFieldValue('sectionId', singleSec.id);
+        const availDepts = departmentsForSection(val, singleSec.id);
+        if (availDepts.length === 1) {
+          form.setFieldValue('departmentId', availDepts[0].id);
+        }
+      }
+    }
+  };
+
+  const handleSectionChange = (val?: string) => {
+    form.setFieldsValue({ departmentId: undefined });
+    if (val) {
+      const divId = form.getFieldValue('divisionId');
+      const availDepts = departmentsForSection(divId, val);
+      if (availDepts.length === 1) {
+        form.setFieldValue('departmentId', availDepts[0].id);
+      }
+    }
+  };
+
+  const handleDepartmentChange = (val?: string) => {
+    if (val) {
+      const dept = departments.find((d) => d.id === val);
+      if (dept) {
+        if (dept.divisionId && !form.getFieldValue('divisionId')) {
+          handleDivisionChange(dept.divisionId);
+        }
+        if (dept.sectionId && !form.getFieldValue('sectionId')) {
+          form.setFieldValue('sectionId', dept.sectionId);
+        }
+      }
+    }
+  };
+
   const openCreate = () => {
     setIsFormMinimized(false);
+    setShowLivePreview(false);
     setEditing(null);
     setSelectedInputDetail(null);
     setRouteItemDetails({});
@@ -1144,6 +1229,7 @@ const ItemManagement: React.FC = () => {
 
   const openEdit = (record: Item) => {
     setIsFormMinimized(false);
+    setShowLivePreview(false);
     setEditing(record);
     setSelectedInputDetail(record.productionInItem ?? null);
     // TASK 15: populate route-item-details for any output items already referenced
@@ -1160,23 +1246,18 @@ const ItemManagement: React.FC = () => {
       setRouteItemDetails({});
     }
 
-    const initialProcs = (record.processes && record.processes.length > 0)
+    const initialProcs = (record.processes && Array.isArray(record.processes) && record.processes.length > 0)
       ? record.processes.map((p, idx) => ({
-          sequence: p.sequence ?? (idx + 1),
-          name: p.name,
-          departmentId: (p as any).departmentId ?? undefined,
-          departmentName: (p as any).departmentName ?? undefined,
-          divisionId: (p as any).divisionId ?? undefined,
-          divisionName: (p as any).divisionName ?? undefined,
-          sectionId: (p as any).sectionId ?? undefined,
-          sectionName: (p as any).sectionName ?? undefined,
-          // TASK 15: EVERY configured row is user-authored — no row is forced to
-          // the current item. outputItemId is taken straight from the stored row.
-          outputItemId: (p as any).outputItemId ?? undefined,
+          sequence: Number(p.sequence ?? (idx + 1)),
+          name: typeof p.name === 'string' ? p.name : '',
+          departmentId: typeof (p as any).departmentId === 'string' ? (p as any).departmentId : undefined,
+          departmentName: typeof (p as any).departmentName === 'string' ? (p as any).departmentName : undefined,
+          divisionId: typeof (p as any).divisionId === 'string' ? (p as any).divisionId : undefined,
+          divisionName: typeof (p as any).divisionName === 'string' ? (p as any).divisionName : undefined,
+          sectionId: typeof (p as any).sectionId === 'string' ? (p as any).sectionId : undefined,
+          sectionName: typeof (p as any).sectionName === 'string' ? (p as any).sectionName : undefined,
+          outputItemId: typeof (p as any).outputItemId === 'string' ? (p as any).outputItemId : undefined,
         }))
-      // Legacy TASK 14 items (no configured route rows) open with an EMPTY route;
-      // the legacy typed process1..process6 names are preserved in the form store
-      // and re-sent on save so the un-migrated flow is never destroyed.
       : [];
 
     form.setFieldsValue({
@@ -1233,6 +1314,7 @@ const ItemManagement: React.FC = () => {
       costPrice: record.costPrice ?? undefined,
       sellingPrice: record.sellingPrice ?? undefined,
       productionInItemId: record.productionInItemId ?? undefined,
+      materialRoleUsage: record.materialRoleUsage ?? (((record.itemType === 'RAW_MATERIAL' || (record.itemType || '').toUpperCase().includes('RAW'))) ? 'Process Component Materials' : undefined),
     });
     setFormOpen(true);
   };
@@ -1243,6 +1325,7 @@ const ItemManagement: React.FC = () => {
       const payload: Record<string, unknown> = {};
 
       const CLEARABLE_FIELDS = [
+        'materialRoleUsage',
         'weightPerMeter',
         'weightPerPiece',
         'piecesPerKg',
@@ -1359,6 +1442,18 @@ const ItemManagement: React.FC = () => {
       if (payload.itemType) {
         const typeOpt = displayTypes.find((t) => t.value === payload.itemType);
         if (typeOpt?.itemTypeId) payload.itemTypeId = typeOpt.itemTypeId;
+        const isRaw = payload.itemType === 'RAW_MATERIAL' || String(payload.itemType || '').toUpperCase().includes('RAW');
+        if (isRaw && !payload.materialRoleUsage) {
+          payload.materialRoleUsage = 'Process Component Materials';
+        }
+      }
+
+      if (!editing && payload.divisionId && payload.itemCode) {
+        const selDiv = divisions.find((d) => d.id === payload.divisionId);
+        const prefix = getDivisionPrefix(selDiv?.name || selDiv?.divisionCode);
+        if (prefix) {
+          payload.itemCode = formatItemCodeWithDivisionPrefix(String(payload.itemCode), prefix);
+        }
       }
 
       // Sanitize and normalize process keys so no aliases with spaces or underscores reach the backend
@@ -1427,24 +1522,67 @@ const ItemManagement: React.FC = () => {
       } else if (companyId) {
         payload.companyId = companyId;
       }
+      lastItemPayload.current = payload;
       setSaving(true);
+      setResultOpen(true);
+      setResultPhase('loading');
+      setResultData(null);
+      setResultError('');
+
+      let savedItemCode = String(payload.itemCode || editing?.itemCode || '');
+      let savedItemName = String(payload.name || editing?.name || '');
+
       if (editing) {
-        await apiService.patch(`/master-data/items/${editing.id}`, payload);
-        message.success(`Item ${editing.itemCode} updated`);
+        const res = await apiService.patch<any>(`/master-data/items/${editing.id}`, payload);
+        const data = res?.data?.data || res?.data || {};
+        savedItemCode = data.itemCode || savedItemCode;
+        savedItemName = data.name || savedItemName;
       } else {
-        await apiService.post('/master-data/items', payload);
-        message.success('Item created');
+        const res = await apiService.post<any>('/master-data/items', payload);
+        const data = res?.data?.data || res?.data || {};
+        savedItemCode = data.itemCode || savedItemCode;
+        savedItemName = data.name || savedItemName;
       }
-      setFormOpen(false);
-      fetchItems();
+
+      setResultData({
+        title: editing ? 'Item Updated Successfully' : 'Item Saved Successfully',
+        message: editing
+          ? 'The item master record has been successfully updated.'
+          : 'New item master record has been successfully recorded.',
+        recordType: 'Item Code',
+        recordCode: savedItemCode,
+        recordName: savedItemName,
+        tags: [
+          typeName(String(payload.itemType || editing?.itemType || '')),
+          String(payload.status || editing?.status || 'ACTIVE'),
+        ].filter(Boolean),
+      });
+      setResultPhase('success');
     } catch (err: any) {
-      if (err?.errorFields) return;
+      if (err?.errorFields) {
+        setResultOpen(false);
+        return;
+      }
       const msg = err?.response?.data?.message;
-      const text = Array.isArray(msg) ? msg.join('; ') : (msg || 'Operation failed');
-      message.error(text);
+      const text = Array.isArray(msg) ? msg.join('; ') : (msg || err?.message || 'Operation failed');
+      setResultError(text);
+      setResultPhase('error');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleResultClose = () => {
+    setResultOpen(false);
+    if (resultPhase === 'success') {
+      setFormOpen(false);
+      form.resetFields();
+      fetchItems();
+    }
+  };
+
+  const handleResultRetry = () => {
+    handleSubmit();
   };
 
   const handleStatusChange = async (record: Item, action: 'activate' | 'deactivate') => {
@@ -1620,7 +1758,7 @@ const ItemManagement: React.FC = () => {
   };
 
   const EXPORT_HEADERS = [
-    'Item Code', 'Name', 'SKU', 'Short Name', 'Item Type', 'Category', 'Division', 'Section',
+    'Item Code', 'Name', 'SKU', 'Short Name', 'Item Type', 'Material Role / Usage', 'Category', 'Division', 'Section',
     'Department', 'Wire Size (mm)', 'Diameter (mm)', 'Thickness (mm)', 'Width (mm)', 'Route Type',
     'Process 1', 'Process 2', 'Process 3', 'Process 4', 'Process 5', 'Process 6',
     'Final Product', 'Packing / Next Step', 'Base UOM', 'Weight per Piece (KG)',
@@ -1630,6 +1768,7 @@ const ItemManagement: React.FC = () => {
   const itemToExportRow = (r: Item): Array<string | number | null | undefined> => [
     r.itemCode, r.name, r.sku ?? '', r.shortName ?? '',
     typeName(r.itemType),
+    r.materialRoleUsage || ((r.itemType === 'RAW_MATERIAL' || (r.itemType || '').toUpperCase().includes('RAW')) ? 'Process Component Materials' : ''),
     categoryName(r) ?? '',
     divisionName(r) ?? '',
     sectionName(r) ?? '',
@@ -1672,6 +1811,7 @@ const ItemManagement: React.FC = () => {
     if (dep) parts.push(`Department: ${dep}`);
     if (fCategory) parts.push(`Category: ${flatCategories.find((c) => c.id === fCategory)?.name ?? fCategory}`);
     if (fItemType) parts.push(`Type: ${typeName(fItemType)}`);
+    if (fRoleUsage) parts.push(`Role / Usage: ${fRoleUsage}`);
     if (fRouteType) {
       const rt = routeTypes.find((t) => t.id === fRouteType);
       if (rt) parts.push(`Route: ${rt.name?.trim() ? rt.name : rt.routeCode}`);
@@ -1699,6 +1839,7 @@ const ItemManagement: React.FC = () => {
             <td class="num">${formatDimension(r.thicknessMm)}</td>
             <td class="num">${formatDimension(r.widthMm)}</td>
             <td>${typeName(r.itemType)}</td>
+            <td>${r.materialRoleUsage || ((r.itemType === 'RAW_MATERIAL' || (r.itemType || '').toUpperCase().includes('RAW')) ? 'Process Component Materials' : '')}</td>
             <td>${r.routeType ? routeTypeLabel({ routeType: r.routeType, routeTypeId: r.routeTypeId, routeTypeRef: r.routeTypeRef } as Item) : ''}</td>
             <td>${r.baseUomName ?? ''}</td><td class="status ${(r.status ? String(r.status).toLowerCase() : '')}">${r.status ?? ''}</td>
           </tr>`,
@@ -1724,8 +1865,8 @@ const ItemManagement: React.FC = () => {
   <div class="meta">Generated ${new Date().toLocaleString()} &nbsp;&middot;&nbsp; ${rows.length} items</div>
   <div class="filters"><b>Filters:</b> ${filterSummary()}</div>
   <table>
-    <thead><tr><th>Item Code</th><th>Name</th><th>Division</th><th>Section</th><th>Department</th><th class="num">Wire (mm)</th><th class="num">Thk (mm)</th><th class="num">Wid (mm)</th><th>Type</th><th>Route</th><th>UOM</th><th>Status</th></tr></thead>
-    <tbody>${bodyRows || '<tr><td colspan="12" style="text-align:center;color:#999">No items found</td></tr>'}</tbody>
+    <thead><tr><th>Item Code</th><th>Name</th><th>Division</th><th>Section</th><th>Department</th><th class="num">Wire (mm)</th><th class="num">Thk (mm)</th><th class="num">Wid (mm)</th><th>Type</th><th>Role / Usage</th><th>Route</th><th>UOM</th><th>Status</th></tr></thead>
+    <tbody>${bodyRows || '<tr><td colspan="13" style="text-align:center;color:#999">No items found</td></tr>'}</tbody>
   </table>
 <script>window.onload = function () { window.print(); };</script>
 </body></html>`);
@@ -1753,7 +1894,7 @@ const ItemManagement: React.FC = () => {
       doc.setTextColor(120);
       doc.text(`Generated ${new Date().toLocaleString()} \u00B7 ${rows.length} item(s)`, 40, 56);
       doc.text(`Filters: ${filterSummary()}`, 40, 70);
-      const head = [['Item Code', 'Item Name', 'Division', 'Section', 'Department', 'Wire (mm)', 'Thk (mm)', 'Wid (mm)', 'Item Type', 'Route', 'UOM', 'Status']];
+      const head = [['Item Code', 'Item Name', 'Division', 'Section', 'Department', 'Wire (mm)', 'Thk (mm)', 'Wid (mm)', 'Item Type', 'Role / Usage', 'Route', 'UOM', 'Status']];
       const body = rows.map((r) => [
         r.itemCode,
         r.name,
@@ -1764,6 +1905,7 @@ const ItemManagement: React.FC = () => {
         formatDimension(r.thicknessMm),
         formatDimension(r.widthMm),
         typeName(r.itemType),
+        r.materialRoleUsage || ((r.itemType === 'RAW_MATERIAL' || (r.itemType || '').toUpperCase().includes('RAW')) ? 'Process Component Materials' : ''),
         routeTypeLabel(r),
         r.baseUomName ?? '',
         r.status,
@@ -1822,7 +1964,14 @@ const ItemManagement: React.FC = () => {
       return '';
     };
 
-    const itemCode = get('itemCode').toUpperCase();
+    const rawDiv = get('divisionCodeOrName');
+    let divisionId = matchLookup(rawDiv, divisions as any, 'divisionCode');
+    if (rawDiv && !divisionId) errors.push(`Unknown Division '${rawDiv}'`);
+
+    const selectedDiv = divisionId ? divisions.find((d) => d.id === divisionId) : undefined;
+    const divPrefix = getDivisionPrefix(selectedDiv?.name || selectedDiv?.divisionCode || rawDiv);
+
+    const itemCode = formatItemCodeWithDivisionPrefix(get('itemCode'), divPrefix);
     if (!itemCode) errors.push('Item Code is required');
     else if (!/^[A-Z0-9_-]{1,50}$/.test(itemCode)) errors.push('Item Code must be uppercase letters, numbers, hyphens or underscores');
 
@@ -1847,9 +1996,6 @@ const ItemManagement: React.FC = () => {
     const uom = matchLookup(get('uomCode'), uoms, 'code');
     if (!get('uomCode')) errors.push('UOM is required');
     else if (!uom) errors.push(`Unknown UOM '${get('uomCode')}'`);
-
-    let divisionId = matchLookup(get('divisionCodeOrName'), divisions as any, 'divisionCode');
-    if (get('divisionCodeOrName') && !divisionId) errors.push(`Unknown Division '${get('divisionCodeOrName')}'`);
 
     let sectionId: string | undefined;
     let departmentId: string | undefined;
@@ -1908,11 +2054,18 @@ const ItemManagement: React.FC = () => {
 
     if (errors.length > 0) return { duplicate: false, errors };
 
+    let materialRole = get('materialRoleUsage');
+    const isRaw = itemType === 'RAW_MATERIAL' || (itemType || '').includes('RAW');
+    if (isRaw && !materialRole) {
+      materialRole = 'Process Component Materials';
+    }
+
     const payload: Record<string, unknown> = {
       companyId,
       itemCode,
       name,
       itemType,
+      ...(materialRole ? { materialRoleUsage: materialRole } : {}),
       ...(masterType?.itemTypeId ? { itemTypeId: masterType.itemTypeId } : {}),
       baseUomId: uom,
       ...(get('sku') ? { sku: get('sku') } : {}),
@@ -2088,6 +2241,9 @@ const ItemManagement: React.FC = () => {
     const validRows = importRows.filter((r) => r.status === 'VALID');
     if (validRows.length === 0) return;
     setImporting(true);
+    setLiveImportedItems([]);
+    setLiveFailedItems([]);
+
     let imported = 0;
     let failed = 0;
     const errors: string[] = [];
@@ -2099,35 +2255,101 @@ const ItemManagement: React.FC = () => {
       current: 0,
       total: totalCount,
       percent: 0,
-      currentCode: (validRows[0]?.data?.['itemCode'] as string) || '',
+      currentCode: (validRows[0]?.payload?.itemCode as string) || (validRows[0]?.data?.['itemCode'] as string) || '',
       successCount: 0,
       failCount: 0,
       speed: 0,
       estimatedSecondsRemaining: 0,
     });
 
-    for (let i = 0; i < validRows.length; i++) {
-      const row = validRows[i];
+    const BATCH_SIZE = 50;
+
+    for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
+      const chunk = validRows.slice(i, i + BATCH_SIZE);
+      const chunkPayloads = chunk.map((r) => r.payload).filter(Boolean);
+
       try {
-        await apiService.post('/master-data/items', row.payload);
-        imported += 1;
+        const res = await apiService.post<any>('/master-data/items/bulk', { items: chunkPayloads, companyId });
+        const batchData = res?.data?.data || res?.data || {};
+        const batchResults: any[] = Array.isArray(batchData?.results) ? batchData.results : [];
+
+        const newImported: Array<{ rowNumber: number; itemCode: string; name: string; itemType?: string; division?: string }> = [];
+        const newFailed: Array<{ rowNumber: number; itemCode: string; reason: string }> = [];
+
+        chunk.forEach((row, idxInChunk) => {
+          const resItem = batchResults[idxInChunk] || batchResults.find((b: any) => b.itemCode === (row.payload?.itemCode || row.data['itemCode']));
+          if (!resItem || resItem.status === 'SUCCESS') {
+            imported += 1;
+            newImported.push({
+              rowNumber: row.rowNumber,
+              itemCode: (row.payload?.itemCode as string) || row.data['itemCode'] || '',
+              name: (row.payload?.name as string) || row.data['name'] || '',
+              itemType: (row.payload?.itemType as string) || row.data['itemType'] || '',
+              division: (row.data['divisionCodeOrName'] as string) || '',
+            });
+          } else {
+            failed += 1;
+            const errMsg = resItem.message || 'Import failed';
+            errors.push(`Row ${row.rowNumber} (${resItem.itemCode}): ${errMsg}`);
+            newFailed.push({
+              rowNumber: row.rowNumber,
+              itemCode: resItem.itemCode || row.data['itemCode'] || '',
+              reason: errMsg,
+            });
+          }
+        });
+
+        if (newImported.length > 0) {
+          setLiveImportedItems((prev) => [...newImported, ...prev].slice(0, 150));
+        }
+        if (newFailed.length > 0) {
+          setLiveFailedItems((prev) => [...newFailed, ...prev]);
+        }
       } catch (err: any) {
-        failed += 1;
-        errors.push(`Row ${row.rowNumber} (${row.data['itemCode']}): ${err?.response?.data?.message || 'failed'}`);
+        // Fallback: if bulk endpoint errors, try individual requests for this batch
+        for (const row of chunk) {
+          try {
+            await apiService.post('/master-data/items', row.payload);
+            imported += 1;
+            setLiveImportedItems((prev) => [
+              {
+                rowNumber: row.rowNumber,
+                itemCode: (row.payload?.itemCode as string) || row.data['itemCode'] || '',
+                name: (row.payload?.name as string) || row.data['name'] || '',
+                itemType: (row.payload?.itemType as string) || row.data['itemType'] || '',
+                division: (row.data['divisionCodeOrName'] as string) || '',
+              },
+              ...prev,
+            ].slice(0, 150));
+          } catch (singleErr: any) {
+            failed += 1;
+            const errMsg = singleErr?.response?.data?.message || 'failed';
+            errors.push(`Row ${row.rowNumber} (${row.data['itemCode']}): ${errMsg}`);
+            setLiveFailedItems((prev) => [
+              {
+                rowNumber: row.rowNumber,
+                itemCode: (row.payload?.itemCode as string) || row.data['itemCode'] || '',
+                reason: errMsg,
+              },
+              ...prev,
+            ]);
+          }
+        }
       }
 
-      const processed = i + 1;
+      const processed = Math.min(i + BATCH_SIZE, totalCount);
       const elapsedSec = Math.max((Date.now() - startTime) / 1000, 0.05);
       const currentSpeed = Math.max(1, Math.round(processed / elapsedSec));
       const remainingItems = totalCount - processed;
       const estSec = Math.max(0, Math.round(remainingItems / currentSpeed));
       const percent = Math.min(100, Math.floor((processed / totalCount) * 100));
 
+      const lastRow = chunk[chunk.length - 1];
       setImportProgress({
         current: processed,
         total: totalCount,
         percent,
-        currentCode: (row.data['itemCode'] as string) || '',
+        currentCode: (lastRow?.payload?.itemCode as string) || (lastRow?.data?.['itemCode'] as string) || '',
         successCount: imported,
         failCount: failed,
         speed: currentSpeed,
@@ -2159,6 +2381,8 @@ const ItemManagement: React.FC = () => {
     setImportFileName(null);
     setImportFilter('ALL');
     setImportPage(1);
+    setLiveImportedItems([]);
+    setLiveFailedItems([]);
   };
 
   const convChips = (r: Item): string[] => {
@@ -2188,14 +2412,17 @@ const ItemManagement: React.FC = () => {
 
   const columns: ColumnsType<Item> = [
     {
-      title: <Space size={5}><TagOutlined aria-hidden="true" /><span>Item Code</span></Space>,
-      dataIndex: 'itemCode', key: 'itemCode', width: 120, fixed: 'left',
+      title: <HeaderCell icon={<TagOutlined />} first="Item" second="Code" />,
+      dataIndex: 'itemCode',
+      key: 'itemCode',
+      width: 85,
+      fixed: screens.md ? 'left' : undefined,
       sorter: true,
       render: (v: string, r: Item) => (
         <Button
           type="link"
           size="small"
-          style={{ padding: 0, height: 'auto', fontSize: 13, fontWeight: 700, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}
+          style={{ padding: 0, height: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}
           onClick={() => openDetail(r)}
           aria-label={`View item ${v}`}
         >
@@ -2204,30 +2431,39 @@ const ItemManagement: React.FC = () => {
       ),
     },
     {
-      title: <Space size={5}><AppstoreOutlined aria-hidden="true" /><span>Item Name</span></Space>,
-      dataIndex: 'name', key: 'name', width: 210, ellipsis: { showTitle: true },
+      title: <HeaderCell icon={<AppstoreOutlined />} first="Item" second="Name" />,
+      dataIndex: 'name',
+      key: 'name',
+      width: 140,
       sorter: true,
       render: (_: unknown, r: Item) => (
         <Tooltip title={r.name}>
-          <div>
-            <div style={{ fontSize: 13, lineHeight: 1.3 }}>{r.name}</div>
-            {r.shortName && <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>{r.shortName}</Text>}
+          <div style={{ lineHeight: 1.25 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 135 }}>
+              {r.name}
+            </div>
+            {r.shortName && (
+              <Text type="secondary" style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 135 }}>
+                {r.shortName}
+              </Text>
+            )}
           </div>
         </Tooltip>
       ),
     },
     {
-      title: <Space size={5}><ApartmentOutlined aria-hidden="true" /><span>Division / Section</span></Space>,
-      key: 'divisionSection', width: 160,
+      title: <HeaderCell icon={<ApartmentOutlined />} first="Division /" second="Section" />,
+      key: 'divisionSection',
+      width: 105,
       render: (_: unknown, r: Item) => {
         const d = divisionName(r);
         const s = sectionName(r);
         return (
-          <div>
-            <div style={{ fontSize: 13, lineHeight: 1.3 }}>
+          <div style={{ lineHeight: 1.25 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>
               {d ?? <Text type="secondary">—</Text>}
             </div>
-            <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>
+            <Text type="secondary" style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>
               {s ?? '—'}
             </Text>
           </div>
@@ -2235,13 +2471,21 @@ const ItemManagement: React.FC = () => {
       },
     },
     {
-      title: <Space size={5}><FolderOutlined aria-hidden="true" /><span>Department</span></Space>,
-      key: 'department', width: 140, ellipsis: true,
-      render: (_: unknown, r: Item) => departmentName(r) ?? <Text type="secondary">—</Text>,
+      title: <HeaderCell icon={<FolderOutlined />} first="Dept" second="Name" />,
+      key: 'department',
+      width: 90,
+      render: (_: unknown, r: Item) => {
+        const d = departmentName(r);
+        return d ? (
+          <span style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 85 }}>{d}</span>
+        ) : <Text type="secondary">—</Text>;
+      },
     },
     {
-      title: <Space size={5}><ToolOutlined aria-hidden="true" /><span>Wire / Dia · Length</span></Space>,
-      key: 'wireDiaLength', width: 130, align: 'right',
+      title: <HeaderCell icon={<ToolOutlined />} first="Wire / Dia" second="Length" />,
+      key: 'wireDiaLength',
+      width: 85,
+      align: 'right',
       sorter: (a: Item, b: Item) => (Number(a.diameterMm ?? a.wireSizeMm ?? 0) - Number(b.diameterMm ?? b.wireSizeMm ?? 0)),
       render: (_: unknown, r: Item) => {
         const dia = r.diameterMm != null ? r.diameterMm : r.wireSizeMm;
@@ -2250,15 +2494,15 @@ const ItemManagement: React.FC = () => {
         const hasLen = len !== null && len !== undefined;
         if (!hasDia && !hasLen) return <Text type="secondary">—</Text>;
         return (
-          <div>
+          <div style={{ lineHeight: 1.25, textAlign: 'right' }}>
             {hasDia && (
-              <Text strong style={{ fontSize: 13, lineHeight: 1.3, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}>
+              <Text strong style={{ fontSize: 11.5, display: 'block', color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}>
                 {formatDimension(dia)}
               </Text>
             )}
             {hasLen && (
-              <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2, display: 'block' }}>
-                Length: {formatDimension(len)}
+              <Text type="secondary" style={{ fontSize: 10, lineHeight: 1.1, display: 'block' }}>
+                L: {formatDimension(len)}
               </Text>
             )}
           </div>
@@ -2266,121 +2510,221 @@ const ItemManagement: React.FC = () => {
       },
     },
     {
-      title: <Space size={5}><BuildOutlined aria-hidden="true" /><span>Flat Spec (mm)</span></Space>,
-      key: 'flatSpec', width: 120, align: 'right',
+      title: <HeaderCell icon={<BuildOutlined />} first="Flat Spec" second="(mm)" />,
+      key: 'flatSpec',
+      width: 80,
+      align: 'right',
       render: (_: unknown, r: Item) => {
         const t = r.thicknessMm;
         const w = r.widthMm;
-        if (t != null && w != null) return <Text style={{ fontSize: 13 }}>{formatDimension(t)} × {formatDimension(w)}</Text>;
-        if (t != null) return <Text style={{ fontSize: 13 }}>{formatDimension(t)} (T)</Text>;
-        if (w != null) return <Text style={{ fontSize: 13 }}>{formatDimension(w)} (W)</Text>;
+        if (t != null && w != null) {
+          return (
+            <div style={{ lineHeight: 1.2, textAlign: 'right' }}>
+              <div style={{ fontSize: 11 }}>T: {formatDimension(t)}</div>
+              <Text type="secondary" style={{ fontSize: 10 }}>W: {formatDimension(w)}</Text>
+            </div>
+          );
+        }
+        if (t != null) return <Text style={{ fontSize: 11 }}>T: {formatDimension(t)}</Text>;
+        if (w != null) return <Text style={{ fontSize: 11 }}>W: {formatDimension(w)}</Text>;
         return <Text type="secondary">—</Text>;
       },
     },
     {
-      title: <Space size={5}><ProjectOutlined aria-hidden="true" /><span>Item Type</span></Space>,
-      dataIndex: 'itemType', key: 'itemType', width: 130,
+      title: <HeaderCell icon={<ProjectOutlined />} first="Item" second="Type" />,
+      dataIndex: 'itemType',
+      key: 'itemType',
+      width: 85,
       render: (v: string) => {
         const label = typeName(v);
-        return <Tag style={{ marginInlineEnd: 0 }}>{label}</Tag>;
+        const parts = label.split(' ');
+        if (parts.length === 2) {
+          return (
+            <Tag style={{ marginInlineEnd: 0, padding: '1px 4px', fontSize: 10, lineHeight: 1.2, textAlign: 'center' }}>
+              <div>{parts[0]}</div>
+              <div>{parts[1]}</div>
+            </Tag>
+          );
+        }
+        return <Tag style={{ marginInlineEnd: 0, padding: '1px 5px', fontSize: 10.5 }}>{label}</Tag>;
       },
     },
     {
-      title: <Space size={5}><ArrowRightOutlined aria-hidden="true" /><span>Route</span></Space>,
-      dataIndex: 'routeType', key: 'routeType', width: 140,
+      title: <HeaderCell icon={<TagsOutlined />} first="Material" second="Role / Use" />,
+      dataIndex: 'materialRoleUsage',
+      key: 'materialRoleUsage',
+      width: 105,
+      sorter: true,
+      render: (v: string | null | undefined, r: Item) => {
+        const isRaw = (r.itemType || '').toUpperCase().includes('RAW') || (typeName(r.itemType) || '').toUpperCase().includes('RAW');
+        const role = v || (isRaw ? 'Process Component Materials' : null);
+        if (role) {
+          if (role === 'Process Component Materials') {
+            return (
+              <Tag color="cyan" style={{ marginInlineEnd: 0, padding: '1px 4px', fontSize: 10, lineHeight: 1.2, fontWeight: 600, borderRadius: 4, textAlign: 'center' }}>
+                <div>Process Comp.</div>
+                <div>Materials</div>
+              </Tag>
+            );
+          }
+          return (
+            <Tag color="cyan" style={{ marginInlineEnd: 0, padding: '1px 5px', fontSize: 10.5, fontWeight: 600, borderRadius: 4 }}>
+              {role}
+            </Tag>
+          );
+        }
+        return <Text type="secondary">—</Text>;
+      },
+    },
+    {
+      title: <HeaderCell icon={<ArrowRightOutlined />} first="Route" second="Type" />,
+      dataIndex: 'routeType',
+      key: 'routeType',
+      width: 85,
       sorter: true,
       render: (v: string | null, r: Item) => {
         const label = routeTypeLabel(r);
-        return label ? <span style={{ fontSize: 13 }}>{label}</span> : <Text type="secondary">—</Text>;
+        if (!label) return <Text type="secondary">—</Text>;
+        const parts = label.split(' ');
+        if (parts.length >= 2) {
+          return (
+            <div style={{ fontSize: 11, lineHeight: 1.2 }}>
+              <div style={{ fontWeight: 600 }}>{parts[0]}</div>
+              <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10 }}>{parts.slice(1).join(' ')}</div>
+            </div>
+          );
+        }
+        return <span style={{ fontSize: 11.5 }}>{label}</span>;
       },
     },
     {
-      title: <Space size={5}><DatabaseOutlined aria-hidden="true" /><span>UOM / Conversion</span></Space>,
-      key: 'uom', width: 140,
+      title: <HeaderCell icon={<DatabaseOutlined />} first="UOM /" second="Conv" />,
+      key: 'uom',
+      width: 80,
       render: (_: unknown, r: Item) => (
-        <div>
-          <div style={{ fontSize: 13, lineHeight: 1.3 }}>{r.baseUomName ?? '—'}</div>
+        <div style={{ lineHeight: 1.25 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600 }}>{r.baseUomName ?? '—'}</div>
           {convChips(r).length > 0 && (
-            <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.2 }}>{convChips(r).join(' · ')}</Text>
+            <Text type="secondary" style={{ fontSize: 10, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {convChips(r)[0]}
+            </Text>
           )}
         </div>
       ),
     },
     {
-      title: <Space size={5}><CheckCircleOutlined aria-hidden="true" /><span>Status</span></Space>,
-      dataIndex: 'status', key: 'status', width: 90,
+      title: <HeaderCell icon={<CheckCircleOutlined />} first="Item" second="Status" />,
+      dataIndex: 'status',
+      key: 'status',
+      width: 75,
       sorter: true,
       render: (s: string) => (
-        <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 60, textAlign: 'center' }} />
+        <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 55, fontSize: 10.5, padding: '1px 4px', textAlign: 'center' }} />
       ),
     },
     {
-      title: <Space size={5}><SettingOutlined aria-hidden="true" /><span>Actions</span></Space>,
-      key: 'actions', width: 210, fixed: 'right',
-      render: (_: unknown, record: Item) => (
-        <Space size={6}>
-          {can('item.view') && (
-            <Tooltip title="View">
-              <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)} className="erp-action-btn erp-action-btn--view" aria-label={`View ${record.itemCode}`} />
-            </Tooltip>
-          )}
-          {can('item.view') && (
-            <Tooltip title="History">
-              <Button type="text" size="small" icon={<HistoryOutlined />} onClick={() => openHistory(record)} className="erp-action-btn" aria-label={`History for ${record.itemCode}`} />
-            </Tooltip>
-          )}
-          {can('item_barcode.view') && (
-            <Tooltip title="Barcode">
-              <Button type="text" size="small" icon={<DatabaseOutlined />} onClick={() => openBarcodeModal(record)} className="erp-action-btn" aria-label={`Barcode for ${record.itemCode}`} />
-            </Tooltip>
-          )}
-          {can('item.update') && (
-            <Tooltip title="Edit">
-              <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} className="erp-action-btn erp-action-btn--edit" aria-label={`Edit ${record.itemCode}`} />
-            </Tooltip>
-          )}
-          <span style={{ display: 'inline-block', width: 1, height: 20, background: 'var(--theme-border, rgba(128,128,128,0.25))', margin: '0 4px' }} />
-          {record.status === 'ACTIVE' ? (
-            can('item.deactivate') && (
-              <Popconfirm
-                title={`Deactivate '${record.itemCode}'?`}
-                description="Inactive items are hidden from most transaction screens."
-                onConfirm={() => handleStatusChange(record, 'deactivate')}
-              >
-                <Tooltip title="Deactivate">
-                  <Button type="text" size="small" icon={<PauseCircleOutlined />} className="erp-action-btn erp-action-btn--deactivate" aria-label={`Deactivate ${record.itemCode}`} />
-                </Tooltip>
-              </Popconfirm>
-            )
-          ) : (
-            can('item.activate') && (
-              <Popconfirm title={`Activate '${record.itemCode}'?`} onConfirm={() => handleStatusChange(record, 'activate')}>
-                <Tooltip title="Activate">
-                  <Button type="text" size="small" icon={<PlayCircleOutlined />} className="erp-action-btn erp-action-btn--activate" aria-label={`Activate ${record.itemCode}`} />
-                </Tooltip>
-              </Popconfirm>
-            )
-          )}
-          {can('item.delete') && (
-            <Popconfirm
-              title={`Delete '${record.itemCode}'?`}
-              description="Permanent. Blocked automatically if referenced by BOM, production, stock, routing or targets."
-              okButtonProps={{ danger: true }}
-              onConfirm={() => handleDelete(record)}
-            >
-              <Tooltip title="Delete">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<DeleteOutlined />}
-                  aria-label={`Delete ${record.itemCode}`}
-                  className="erp-action-btn erp-action-btn--delete"
-                />
+      title: <HeaderCell first="Row" second="Actions" />,
+      key: 'actions',
+      width: 90,
+      fixed: screens.md ? 'right' : undefined,
+      align: 'center',
+      render: (_: unknown, record: Item) => {
+        const moreItems: MenuProps['items'] = [
+          ...(can('item.view') ? [{
+            key: 'history',
+            icon: <HistoryOutlined />,
+            label: 'View History',
+            onClick: () => openHistory(record),
+          }] : []),
+          ...(can('item_barcode.view') ? [{
+            key: 'barcode',
+            icon: <DatabaseOutlined />,
+            label: 'Barcode & QR',
+            onClick: () => openBarcodeModal(record),
+          }] : []),
+          ...(record.status === 'ACTIVE'
+            ? (can('item.deactivate') ? [{
+                key: 'deactivate',
+                icon: <PauseCircleOutlined />,
+                label: 'Deactivate',
+                onClick: () => handleStatusChange(record, 'deactivate'),
+              }] : [])
+            : (can('item.activate') ? [{
+                key: 'activate',
+                icon: <PlayCircleOutlined />,
+                label: 'Activate',
+                onClick: () => handleStatusChange(record, 'activate'),
+              }] : [])
+          ),
+          ...(can('item.delete') ? [
+            { type: 'divider' as const },
+            {
+              key: 'delete',
+              icon: <DeleteOutlined />,
+              danger: true,
+              label: 'Delete Item',
+              onClick: () => {
+                Modal.confirm({
+                  title: `Delete '${record.itemCode}'?`,
+                  content: 'Permanent. Blocked automatically if referenced by BOM, production, stock, routing or targets.',
+                  okText: 'Delete',
+                  okType: 'danger',
+                  cancelText: 'Cancel',
+                  onOk: () => handleDelete(record),
+                });
+              },
+            }
+          ] : []),
+        ];
+
+        return (
+          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+            {can('item.view') && (
+              <Tooltip title="View">
+                <span style={{ display: 'inline-flex' }}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EyeOutlined />}
+                    onClick={() => openDetail(record)}
+                    className="erp-action-btn erp-action-btn--view"
+                    aria-label={`View ${record.itemCode}`}
+                  />
+                </span>
               </Tooltip>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+            )}
+            {can('item.update') && (
+              <Tooltip title="Edit">
+                <span style={{ display: 'inline-flex' }}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => openEdit(record)}
+                    className="erp-action-btn erp-action-btn--edit"
+                    aria-label={`Edit ${record.itemCode}`}
+                  />
+                </span>
+              </Tooltip>
+            )}
+            {moreItems.length > 0 && (
+              <Tooltip title="More Actions">
+                <span style={{ display: 'inline-flex' }}>
+                  <Dropdown menu={{ items: moreItems }} trigger={['click']}>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<MoreOutlined />}
+                      className="erp-action-btn"
+                      aria-label={`More actions for ${record.itemCode}`}
+                    />
+                  </Dropdown>
+                </span>
+              </Tooltip>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
@@ -2393,10 +2737,20 @@ const ItemManagement: React.FC = () => {
   }, [columns, visibleCols]);
 
   const detailDesc = (itemsSpec: Array<{ label: string; children: React.ReactNode }>) => (
-    <Descriptions size="small" column={2} styles={{ label: { width: 150 } }}>
+    <Descriptions
+      size="small"
+      column={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 2 }}
+      layout={!screens.md ? 'vertical' : 'horizontal'}
+      styles={{
+        label: { width: !screens.md ? '100%' : 140, fontWeight: 600, paddingBottom: !screens.md ? 2 : undefined },
+        content: { width: '100%', wordBreak: 'break-word', whiteSpace: 'normal' },
+      }}
+    >
       {itemsSpec.map((s) => (
         <Descriptions.Item key={s.label} label={s.label}>
-          {s.children ?? <Text type="secondary">—</Text>}
+          <div style={{ wordBreak: 'break-word', whiteSpace: 'normal', minWidth: 0, width: '100%' }}>
+            {s.children ?? <Text type="secondary">—</Text>}
+          </div>
         </Descriptions.Item>
       ))}
     </Descriptions>
@@ -2447,11 +2801,22 @@ const ItemManagement: React.FC = () => {
         style={{ marginBottom: 8 }}
         extra={
           <>
+            {can('item.create') && (
+              <Button
+                size="middle"
+                className="erp-toolbar-action-btn"
+                icon={<PlusOutlined />}
+                onClick={openCreate}
+                style={{ fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
+                Add Item
+              </Button>
+            )}
             <Tooltip title="Refresh">
-              <Button size="middle" icon={<ReloadOutlined />} onClick={() => fetchItems()} />
+              <Button size="middle" className="erp-toolbar-action-btn" icon={<ReloadOutlined />} onClick={() => fetchItems()} />
             </Tooltip>
             {can('item.view') && (
-              <Button size="middle" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
+              <Button size="middle" className="erp-toolbar-action-btn" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
                 Scan Barcode
               </Button>
             )}
@@ -2462,22 +2827,19 @@ const ItemManagement: React.FC = () => {
                   onClick: handleExport,
                 }}
               >
-                <Button size="middle" icon={<DownloadOutlined />} loading={exporting}>Export</Button>
+                <Button size="middle" className="erp-toolbar-action-btn" icon={<DownloadOutlined />} loading={exporting}>Export</Button>
               </Dropdown>
             )}
             {can('item.view') && (
-              <Button size="middle" icon={<FilePdfOutlined />} loading={pdfing} onClick={handlePdf}>PDF</Button>
+              <Button size="middle" className="erp-toolbar-action-btn" icon={<FilePdfOutlined />} loading={pdfing} onClick={handlePdf}>PDF</Button>
             )}
             {can('item.view') && (
-              <Button size="middle" icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
+              <Button size="middle" className="erp-toolbar-action-btn" icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
             )}
             {can('item.create') && (
-              <Button size="middle" icon={<ImportOutlined />} onClick={() => { setImportOpen(true); setImportRows([]); setImportSummary(null); setImportFileName(null); }}>
+              <Button size="middle" className="erp-toolbar-action-btn" icon={<ImportOutlined />} onClick={() => { setImportOpen(true); setImportRows([]); setImportSummary(null); setImportFileName(null); }}>
                 Import
               </Button>
-            )}
-            {can('item.create') && (
-              <Button size="middle" type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add Item</Button>
             )}
           </>
         }
@@ -2598,7 +2960,7 @@ const ItemManagement: React.FC = () => {
           <Dropdown
             trigger={['click']}
             placement="bottomRight"
-            dropdownRender={() => (
+            popupRender={() => (
               <div
                 style={{
                   background: '#ffffff',
@@ -2628,7 +2990,10 @@ const ItemManagement: React.FC = () => {
                     style={{ padding: 0, height: 'auto', fontSize: 11 }}
                     onClick={() => {
                       setVisibleCols(DEFAULT_ITEM_VISIBLE_COLUMNS);
-                      try { localStorage.removeItem('pwi_item_table_columns_v1'); } catch {}
+                      try {
+                        localStorage.removeItem('pwi_item_table_columns_v2');
+                        localStorage.removeItem('pwi_item_table_columns_v1');
+                      } catch {}
                     }}
                   >
                     Reset All
@@ -2643,7 +3008,9 @@ const ItemManagement: React.FC = () => {
                       onChange={(e) => {
                         const next = { ...visibleCols, [key]: e.target.checked };
                         setVisibleCols(next);
-                        try { localStorage.setItem('pwi_item_table_columns_v1', JSON.stringify(next)); } catch {}
+                        try {
+                          localStorage.setItem('pwi_item_table_columns_v2', JSON.stringify(next));
+                        } catch {}
                       }}
                       style={{ fontSize: 13, color: '#334155' }}
                     >
@@ -2699,6 +3066,14 @@ const ItemManagement: React.FC = () => {
               onChange={(v) => { setFRouteType(v); setPage(1); }}
             />
             <Select
+              allowClear showSearch optionFilterProp="label" placeholder="Material Role / Usage"
+              value={fRoleUsage}
+              options={[
+                { value: 'Process Component Materials', label: 'Process Component Materials' },
+              ]}
+              onChange={(v) => { setFRoleUsage(v); setPage(1); }}
+            />
+            <Select
               allowClear placeholder="Status" options={STATUS_OPTIONS.map((status) => ({ value: status, label: status }))}
               value={fStatus}
               onChange={(v) => { setFStatus(v); setPage(1); }}
@@ -2724,7 +3099,7 @@ const ItemManagement: React.FC = () => {
         columns={filteredColumns}
         dataSource={items}
         loading={loading}
-        scroll={{ x: 1490 }}
+        scroll={{ x: 1045 }}
         sticky
         size="small"
         pagination={pagination}
@@ -2751,8 +3126,9 @@ const ItemManagement: React.FC = () => {
         open={detailOpen && !isDetailMinimized}
         onCancel={() => { setDetailOpen(false); setIsDetailMinimized(false); }}
         onMinimize={() => setIsDetailMinimized(true)}
-        width={980}
-        height={620}
+        width={screens.md ? 980 : '96vw'}
+        height={screens.md ? 620 : 'auto'}
+        wrapClassName="erp-mobile-modal erp-detail-mobile-modal"
         destroyOnHidden
         title={
           detailItem ? (
@@ -2817,6 +3193,16 @@ const ItemManagement: React.FC = () => {
                         { label: 'SKU', children: txt(detailItem.sku) },
                         { label: 'Short Name', children: txt(detailItem.shortName) },
                         { label: 'Item Type', children: txt(typeName(detailItem.itemType)) },
+                        {
+                          label: 'Material Role / Usage',
+                          children: (
+                            detailItem.materialRoleUsage || ((detailItem.itemType || '').toUpperCase().includes('RAW')) ? (
+                              <Tag color="cyan" style={{ fontWeight: 600, borderRadius: 4 }}>
+                                {detailItem.materialRoleUsage || 'Process Component Materials'}
+                              </Tag>
+                            ) : <Text type="secondary">—</Text>
+                          ),
+                        },
                         { label: 'Category', children: txt(categoryName(detailItem)) },
                         {
                           label: 'Status',
@@ -3264,8 +3650,9 @@ const ItemManagement: React.FC = () => {
         onMinimize={() => setIsFormMinimized(true)}
         onOk={handleSubmit}
         confirmLoading={saving}
-        width={1240}
-        height={700}
+        width={screens.md ? (showLivePreview && screens.lg ? 1240 : 880) : '96vw'}
+        height={screens.md ? 720 : 640}
+        wrapClassName="erp-mobile-modal"
         okText={editing ? 'Save Changes' : 'Create Item'}
         title={
           <Space>
@@ -3273,142 +3660,327 @@ const ItemManagement: React.FC = () => {
             {editing ? `Edit Item — ${editing.itemCode}` : 'Add New Item'}
           </Space>
         }
-        styles={{ body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } }}
+        extra={
+          screens.lg && (
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => setShowLivePreview((v) => !v)}
+              style={{ fontSize: 12, marginRight: 8 }}
+            >
+              {showLivePreview ? 'Hide Live Preview' : 'Show Live Preview'}
+            </Button>
+          )
+        }
+        styles={{
+          body: {
+            maxHeight: screens.md ? 'calc(100vh - 180px)' : 'calc(100vh - 130px)',
+            overflowY: 'auto',
+            padding: screens.xs ? '8px 10px 80px' : '16px 20px',
+          },
+        }}
       >
         <Form form={form} layout="vertical" requiredMark="optional">
-          <div className="erp-item-split-layout">
+          <div className={`erp-item-split-layout ${showLivePreview && screens.lg ? 'with-preview' : 'form-only'}`}>
             <div className="erp-item-form-pane">
-              {/* SECTION 1 — BASIC INFORMATION */}
-              <Card size="small" title="Basic Information" style={{ marginBottom: 12, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
-              <Form.Item
-                name="itemCode" label="Item Code" rules={[
-                  { required: true, message: 'Item Code is required' },
-                  { pattern: /^[A-Z0-9_-]+$/, message: 'Uppercase letters, numbers, hyphens and underscores only' },
-                ]}
-                extra={editing ? 'Item Code cannot be changed' : 'e.g. DEMO-RM-CU-001'}
+              {/* SECTION 1 — ORGANIZATION (TOP) */}
+              <Card
+                size="small"
+                title={
+                  <Space>
+                    <ApartmentOutlined style={{ color: '#0284c7' }} />
+                    <span style={{ fontWeight: 600 }}>Section 1 — Organization</span>
+                  </Space>
+                }
+                style={{ marginBottom: 12, borderRadius: 8 }}
               >
-                <Input disabled={!!editing} placeholder="e.g. DEMO-RM-CU-001" maxLength={50} />
-              </Form.Item>
-              <Form.Item name="name" label="Item Name" rules={[{ required: true, message: 'Item Name is required' }]}>
-                <Input placeholder="e.g. Copper Wire 2.00 mm" maxLength={255} />
-              </Form.Item>
-              <Form.Item name="shortName" label="Short Name">
-                <Input maxLength={100} placeholder="e.g. Cu Wire 2mm" />
-              </Form.Item>
-              <Form.Item name="description" label="Description" style={{ gridColumn: '1 / -1' }}>
-                <Input.TextArea rows={2} maxLength={1000} placeholder="e.g. Demo raw material received from another manufacturing unit" />
-              </Form.Item>
-            </div>
-          </Card>
-
-          {/* SECTION 2 — ORGANIZATION */}
-          <Card size="small" title="Organization" style={{ marginBottom: 12, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
-              <Form.Item name="divisionId" label="Division">
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="Select division"
-                  options={toUnique(divisions, (d) => d.name)}
-                  onChange={() => form.setFieldsValue({ sectionId: undefined, departmentId: undefined })}
-                />
-              </Form.Item>
-              <Form.Item noStyle shouldUpdate={(p, c) => p.divisionId !== c.divisionId}>
-                {({ getFieldValue }) => (
-                  <Form.Item name="sectionId" label="Section">
+                <div className="erp-form-responsive-grid">
+                  <Form.Item
+                    name="divisionId"
+                    label={<span style={{ fontWeight: 600 }}>Division</span>}
+                    extra="Selecting a division automatically sets the Item Code prefix (e.g. CCD-, MD-, SPI-, NB-)"
+                  >
                     <Select
-                      allowClear showSearch optionFilterProp="label" placeholder="Select section"
-                      disabled={!getFieldValue('divisionId')}
-                      options={toUnique(sectionsForDivision(getFieldValue('divisionId')), (s) => s.name)}
-                      onChange={() => form.setFieldsValue({ departmentId: undefined })}
+                      size={screens.xs ? 'large' : 'middle'}
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="Select division (e.g. Control Cable Division)"
+                      options={toUnique(divisions, (d) => d.name)}
+                      onChange={handleDivisionChange}
                     />
                   </Form.Item>
-                )}
-              </Form.Item>
-              <Form.Item noStyle shouldUpdate={(p, c) => p.sectionId !== c.sectionId || p.divisionId !== c.divisionId}>
-                {({ getFieldValue }) => (
-                  <Form.Item name="departmentId" label="Department">
-                    <Select
-                      allowClear showSearch optionFilterProp="label" placeholder="Select department"
-                      disabled={!getFieldValue('sectionId')}
-                      options={toUnique(departmentsForSection(getFieldValue('divisionId'), getFieldValue('sectionId')), (d) => d.name)}
+
+                  <Form.Item noStyle shouldUpdate={(p, c) => p.divisionId !== c.divisionId}>
+                    {({ getFieldValue }) => (
+                      <Form.Item
+                        name="sectionId"
+                        label={<span style={{ fontWeight: 600 }}>Section</span>}
+                      >
+                        <Select
+                          size={screens.xs ? 'large' : 'middle'}
+                          allowClear
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder="Select section"
+                          disabled={!getFieldValue('divisionId')}
+                          options={toUnique(sectionsForDivision(getFieldValue('divisionId')), (s) => s.name)}
+                          onChange={handleSectionChange}
+                        />
+                      </Form.Item>
+                    )}
+                  </Form.Item>
+
+                  <Form.Item noStyle shouldUpdate={(p, c) => p.sectionId !== c.sectionId || p.divisionId !== c.divisionId}>
+                    {({ getFieldValue }) => (
+                      <Form.Item
+                        name="departmentId"
+                        label={<span style={{ fontWeight: 600 }}>Department</span>}
+                      >
+                        <Select
+                          size={screens.xs ? 'large' : 'middle'}
+                          allowClear
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder="Select department"
+                          disabled={!getFieldValue('sectionId')}
+                          options={toUnique(departmentsForSection(getFieldValue('divisionId'), getFieldValue('sectionId')), (d) => d.name)}
+                          onChange={handleDepartmentChange}
+                        />
+                      </Form.Item>
+                    )}
+                  </Form.Item>
+                </div>
+              </Card>
+
+              {/* SECTION 2 — BASIC INFORMATION */}
+              <Card
+                size="small"
+                title={
+                  <Space>
+                    <FileTextOutlined style={{ color: '#10b981' }} />
+                    <span style={{ fontWeight: 600 }}>Section 2 — Basic Information</span>
+                  </Space>
+                }
+                style={{ marginBottom: 12, borderRadius: 8 }}
+              >
+                <div className="erp-form-responsive-grid">
+                  <Form.Item noStyle shouldUpdate={(p, c) => p.divisionId !== c.divisionId}>
+                    {({ getFieldValue }) => {
+                      const divId = getFieldValue('divisionId');
+                      const selDiv = divisions.find((d) => d.id === divId);
+                      const prefix = getDivisionPrefix(selDiv?.name || selDiv?.divisionCode);
+                      return (
+                        <Form.Item
+                          name="itemCode"
+                          label={
+                            <Space>
+                              <span style={{ fontWeight: 600 }}>Item Code</span>
+                              {prefix ? (
+                                <Tag color="blue" style={{ fontWeight: 700, borderRadius: 4 }}>
+                                  Prefix: {prefix}-
+                                </Tag>
+                              ) : null}
+                            </Space>
+                          }
+                          rules={[
+                            { required: true, message: 'Item Code is required' },
+                            { pattern: /^[A-Z0-9_-]+$/, message: 'Uppercase letters, numbers, hyphens and underscores only' },
+                          ]}
+                          extra={
+                            editing
+                              ? 'Item Code cannot be changed'
+                              : prefix
+                              ? `Division selected: Code prefix "${prefix}-" will be applied automatically (e.g. typing 114011 becomes ${prefix}-114011)`
+                              : 'e.g. CCD-114011, MD-114011, SPI-114011, NB-175198 (select Division above to auto-prefix)'
+                          }
+                        >
+                          <Input
+                            size={screens.xs ? 'large' : 'middle'}
+                            disabled={!!editing}
+                            placeholder={prefix ? `e.g. ${prefix}-114011` : 'e.g. CCD-114011'}
+                            maxLength={50}
+                            style={{ fontWeight: 600 }}
+                            onBlur={(e) => {
+                              if (editing) return;
+                              if (prefix && e.target.value) {
+                                form.setFieldValue('itemCode', formatItemCodeWithDivisionPrefix(e.target.value, prefix));
+                              }
+                            }}
+                          />
+                        </Form.Item>
+                      );
+                    }}
+                  </Form.Item>
+
+                  <Form.Item
+                    name="name"
+                    label={<span style={{ fontWeight: 600 }}>Item Name</span>}
+                    rules={[{ required: true, message: 'Item Name is required' }]}
+                  >
+                    <Input size={screens.xs ? 'large' : 'middle'} placeholder="e.g. Copper Wire 2.00 mm" maxLength={255} />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="shortName"
+                    label={<span style={{ fontWeight: 600 }}>Short Name</span>}
+                  >
+                    <Input size={screens.xs ? 'large' : 'middle'} maxLength={100} placeholder="e.g. Cu Wire 2mm" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="description"
+                    label={<span style={{ fontWeight: 600 }}>Description</span>}
+                    style={{ gridColumn: '1 / -1' }}
+                  >
+                    <Input.TextArea
+                      rows={2}
+                      maxLength={1000}
+                      placeholder="e.g. Demo raw material received from another manufacturing unit"
                     />
                   </Form.Item>
-                )}
-              </Form.Item>
-            </div>
-          </Card>
+                </div>
+              </Card>
 
-          {/* SECTION 3 — CLASSIFICATION */}
-          <Card size="small" title="Classification" style={{ marginBottom: 12, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
-              <Form.Item name="itemType" label="Item Type" rules={[{ required: true, message: 'Item Type is required' }]}>
-                <Select
-                  showSearch optionFilterProp="label"
-                  loading={masterTypesState === 'loading'}
-                  status={masterTypesState === 'error' ? 'error' : undefined}
-                  notFoundContent={masterTypesState === 'error' ? 'Item types could not be loaded' : 'No item types'}
-                  options={displayTypes.map((o) => ({
-                    ...o,
-                    disabled: o.status === 'INACTIVE' && o.value !== (editing?.itemType ?? null),
-                  }))}
-                  placeholder="Select item type"
-                />
-              </Form.Item>
-              <Form.Item name="categoryId" label="Item Category">
-                <Select
-                  allowClear showSearch optionFilterProp="label"
-                  options={toUnique(flatCategories, (c) => c.name)}
-                  placeholder="Select category"
-                />
-              </Form.Item>
-              <Form.Item name="routeTypeId" label="Route Type">
-                <Select
-                  allowClear showSearch optionFilterProp="label"
-                  loading={routeTypesState === 'loading'}
-                  status={routeTypesState === 'error' ? 'error' : undefined}
-                  notFoundContent={routeTypesState === 'error' ? 'Route types could not be loaded' : 'No active route types'}
-                  options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
-                  placeholder="Select route type"
-                />
-              </Form.Item>
-            </div>
-          </Card>
+              {/* SECTION 3 — CLASSIFICATION */}
+              <Card
+                size="small"
+                title={
+                  <Space>
+                    <AppstoreOutlined style={{ color: '#8b5cf6' }} />
+                    <span style={{ fontWeight: 600 }}>Section 3 — Classification</span>
+                  </Space>
+                }
+                style={{ marginBottom: 12, borderRadius: 8 }}
+              >
+                <div className="erp-form-responsive-grid">
+                  <Form.Item
+                    name="itemType"
+                    label={<span style={{ fontWeight: 600 }}>Item Type</span>}
+                    rules={[{ required: true, message: 'Item Type is required' }]}
+                  >
+                    <Select
+                      size={screens.xs ? 'large' : 'middle'}
+                      showSearch optionFilterProp="label"
+                      loading={masterTypesState === 'loading'}
+                      status={masterTypesState === 'error' ? 'error' : undefined}
+                      notFoundContent={masterTypesState === 'error' ? 'Item types could not be loaded' : 'No item types'}
+                      options={displayTypes.map((o) => ({
+                        ...o,
+                        disabled: o.status === 'INACTIVE' && o.value !== (editing?.itemType ?? null),
+                      }))}
+                      placeholder="Select item type"
+                      onChange={(val) => {
+                        if (val === 'RAW_MATERIAL' || String(val).toUpperCase().includes('RAW')) {
+                          form.setFieldValue('materialRoleUsage', 'Process Component Materials');
+                        }
+                      }}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="materialRoleUsage"
+                    label={<span style={{ fontWeight: 600 }}>Material Role / Usage</span>}
+                    extra="Auto-filled for Raw Materials"
+                  >
+                    <Input size={screens.xs ? 'large' : 'middle'} placeholder="e.g. Process Component Materials" maxLength={150} />
+                  </Form.Item>
+                  <Form.Item
+                    name="categoryId"
+                    label={<span style={{ fontWeight: 600 }}>Item Category</span>}
+                  >
+                    <Select
+                      size={screens.xs ? 'large' : 'middle'}
+                      allowClear showSearch optionFilterProp="label"
+                      options={toUnique(flatCategories, (c) => c.name)}
+                      placeholder="Select category"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="routeTypeId"
+                    label={<span style={{ fontWeight: 600 }}>Route Type</span>}
+                  >
+                    <Select
+                      size={screens.xs ? 'large' : 'middle'}
+                      allowClear showSearch optionFilterProp="label"
+                      loading={routeTypesState === 'loading'}
+                      status={routeTypesState === 'error' ? 'error' : undefined}
+                      notFoundContent={routeTypesState === 'error' ? 'Route types could not be loaded' : 'No active route types'}
+                      options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
+                      placeholder="Select route type"
+                    />
+                  </Form.Item>
+                </div>
+              </Card>
 
-          {/* SECTION 4 — UOM / INVENTORY */}
-          <Card size="small" title="UOM & Inventory" style={{ marginBottom: 12, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
-              <Form.Item name="baseUomId" label="Base UOM" rules={[{ required: true, message: 'Base UOM is required' }]}>
-                <Select
-                  showSearch optionFilterProp="label" placeholder="e.g. KG"
-                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
-                />
-              </Form.Item>
-              <Form.Item name="purchaseUomId" label="Purchase UOM">
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="Optional"
-                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
-                />
-              </Form.Item>
-              <Form.Item name="salesUomId" label="Sales UOM">
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="Optional"
-                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
-                />
-              </Form.Item>
-              <Form.Item name="weightPerPiece" label="Weight per Piece (kg)" extra="Enables KG ↔ PCS">
-                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 0.0555" />
-              </Form.Item>
-              <Form.Item name="piecesPerKg" label="Pieces per KG" extra="Manually maintained">
-                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 18.02" />
-              </Form.Item>
-              <Form.Item name="weightPerMeter" label="Weight per Meter (kg/m)" extra="Enables KG ↔ METER">
-                <InputNumber min={0} step={0.000001} style={{ width: '100%' }} placeholder="Optional" />
-              </Form.Item>
-            </div>
-            <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
-              💡 Length is managed under <strong>Production Specifications</strong> below.
-            </div>
-          </Card>
+              {/* SECTION 4 — UOM & INVENTORY */}
+              <Card
+                size="small"
+                title={
+                  <Space>
+                    <DatabaseOutlined style={{ color: '#d97706' }} />
+                    <span style={{ fontWeight: 600 }}>Section 4 — UOM & Inventory</span>
+                  </Space>
+                }
+                style={{ marginBottom: 12, borderRadius: 8 }}
+              >
+                <div className="erp-form-responsive-grid">
+                  <Form.Item
+                    name="baseUomId"
+                    label={<span style={{ fontWeight: 600 }}>Base UOM</span>}
+                    rules={[{ required: true, message: 'Base UOM is required' }]}
+                  >
+                    <Select
+                      size={screens.xs ? 'large' : 'middle'}
+                      showSearch optionFilterProp="label" placeholder="e.g. KG"
+                      options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="purchaseUomId"
+                    label={<span style={{ fontWeight: 600 }}>Purchase UOM</span>}
+                  >
+                    <Select
+                      size={screens.xs ? 'large' : 'middle'}
+                      allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                      options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="salesUomId"
+                    label={<span style={{ fontWeight: 600 }}>Sales UOM</span>}
+                  >
+                    <Select
+                      size={screens.xs ? 'large' : 'middle'}
+                      allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                      options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="weightPerPiece"
+                    label={<span style={{ fontWeight: 600 }}>Weight per Piece (kg)</span>}
+                    extra="Enables KG ↔ PCS"
+                  >
+                    <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 0.0555" />
+                  </Form.Item>
+                  <Form.Item
+                    name="piecesPerKg"
+                    label={<span style={{ fontWeight: 600 }}>Pieces per KG</span>}
+                    extra="Manually maintained"
+                  >
+                    <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 18.02" />
+                  </Form.Item>
+                  <Form.Item
+                    name="weightPerMeter"
+                    label={<span style={{ fontWeight: 600 }}>Weight per Meter (kg/m)</span>}
+                    extra="Enables KG ↔ METER"
+                  >
+                    <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="Optional" />
+                  </Form.Item>
+                </div>
+                <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
+                  💡 Length is managed under <strong>Production Specifications</strong> below.
+                </div>
+              </Card>
 
           {/* SECTION 5 — PRODUCTION */}
           <Card
@@ -3443,7 +4015,7 @@ const ItemManagement: React.FC = () => {
                 })()}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0 12px' }}>
+              <div className="erp-form-responsive-grid">
                 <Form.Item name="wireSizeMm" label="Wire Size (mm)" extra="Raw wire dimension">
                   <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="Optional (e.g. 1.20)" />
                 </Form.Item>
@@ -3488,22 +4060,19 @@ const ItemManagement: React.FC = () => {
                     const secName = deptObj?.sectionId
                       ? sections.find((s) => s.id === deptObj.sectionId)?.name ?? null
                       : null;
-                    form.setFieldsValue({
-                      processes: {
-                        [rowIdx]: {
-                          departmentId: deptId ?? null,
-                          departmentName: deptObj?.name ?? null,
-                          divisionId: deptObj?.divisionId ?? null,
-                          divisionName: divName,
-                          sectionId: deptObj?.sectionId ?? null,
-                          sectionName: secName,
-                          // Operation name auto-derived from Department — backend
-                          // also writes this on save; set it here so the preview
-                          // resolves the stage title immediately.
-                          name: deptObj?.name ?? null,
-                        },
-                      },
-                    });
+                    const cur = form.getFieldValue('processes') || [];
+                    const updated = Array.isArray(cur) ? [...cur] : [];
+                    updated[rowIdx] = {
+                      ...(updated[rowIdx] || {}),
+                      departmentId: deptId ?? null,
+                      departmentName: deptObj?.name ?? null,
+                      divisionId: deptObj?.divisionId ?? null,
+                      divisionName: divName,
+                      sectionId: deptObj?.sectionId ?? null,
+                      sectionName: secName,
+                      name: deptObj?.name ?? null,
+                    };
+                    form.setFieldValue('processes', updated);
                   };
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -3513,15 +4082,7 @@ const ItemManagement: React.FC = () => {
                         return (
                           <div
                             key={field.key}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              padding: '6px 10px',
-                              borderRadius: 6,
-                              border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
-                              background: 'transparent',
-                            }}
+                            className="erp-route-process-row"
                           >
                             <span
                               style={{
@@ -3581,6 +4142,7 @@ const ItemManagement: React.FC = () => {
                             <Form.Item
                               {...field}
                               name={[field.name, 'departmentId']}
+                              className="erp-route-dept-item"
                               style={{ marginBottom: 0, minWidth: 170, maxWidth: 190 }}
                             >
                               <Select
@@ -3596,6 +4158,7 @@ const ItemManagement: React.FC = () => {
                             <Form.Item
                               {...field}
                               name={[field.name, 'outputItemId']}
+                              className="erp-route-output-item"
                               rules={[{ required: true, message: 'Output Item is required' }]}
                               style={{ flex: 1, marginBottom: 0, minWidth: 180 }}
                             >
@@ -3613,35 +4176,37 @@ const ItemManagement: React.FC = () => {
                               />
                             </Form.Item>
 
-                            <Tooltip title="Move Up">
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<ArrowUpOutlined />}
-                                disabled={index <= 0}
-                                onClick={() => move(index, index - 1)}
-                              />
-                            </Tooltip>
+                            <div className="erp-route-actions">
+                              <Tooltip title="Move Up">
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<ArrowUpOutlined />}
+                                  disabled={index <= 0}
+                                  onClick={() => move(index, index - 1)}
+                                />
+                              </Tooltip>
 
-                            <Tooltip title="Move Down">
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<ArrowDownOutlined />}
-                                disabled={index === fields.length - 1}
-                                onClick={() => move(index, index + 1)}
-                              />
-                            </Tooltip>
+                              <Tooltip title="Move Down">
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<ArrowDownOutlined />}
+                                  disabled={index === fields.length - 1}
+                                  onClick={() => move(index, index + 1)}
+                                />
+                              </Tooltip>
 
-                            <Tooltip title="Remove Stage">
-                              <Button
-                                type="text"
-                                danger
-                                size="small"
-                                icon={<DeleteOutlined />}
-                                onClick={() => remove(field.name)}
-                              />
-                            </Tooltip>
+                              <Tooltip title="Remove Stage">
+                                <Button
+                                  type="text"
+                                  danger
+                                  size="small"
+                                  icon={<DeleteOutlined />}
+                                  onClick={() => remove(field.name)}
+                                />
+                              </Tooltip>
+                            </div>
                           </div>
                         );
                       })}
@@ -3667,7 +4232,7 @@ const ItemManagement: React.FC = () => {
               <Text strong style={{ display: 'block', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)', marginBottom: 8 }}>
                 Output / Next Step
               </Text>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
+              <div className="erp-form-responsive-grid">
                 <Form.Item name="finalProduct" label="Final Product" extra="Resulting product/output associated with this flow">
                   <Input maxLength={255} placeholder="e.g. 250 × 17 B or Finished Wire" />
                 </Form.Item>
@@ -3692,7 +4257,7 @@ const ItemManagement: React.FC = () => {
             }
             style={{ marginBottom: 12, borderRadius: 8 }}
           >
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 12px' }}>
+            <div className="erp-form-responsive-grid">
               <Form.Item
                 name="productionInItemId"
                 label="INPUT MATERIAL"
@@ -4282,7 +4847,7 @@ const ItemManagement: React.FC = () => {
 
           {/* SECTION 6 — ADDITIONAL */}
           <Card size="small" title="Additional" style={{ marginBottom: 12, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 12px' }}>
+            <div className="erp-form-responsive-grid">
               <Form.Item name="sku" label="SKU" extra={editing ? 'SKU cannot be changed' : 'Auto-generated if left empty'}>
                 <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
               </Form.Item>
@@ -4308,7 +4873,7 @@ const ItemManagement: React.FC = () => {
                 </Col>
               ))}
             </Row>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0 12px', marginTop: 8 }}>
+            <div className="erp-form-responsive-grid" style={{ marginTop: 8 }}>
               <Form.Item name="minimumStockLevel" label="Min Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
               <Form.Item name="maximumStockLevel" label="Max Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
               <Form.Item name="reorderLevel" label="Reorder Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
@@ -4327,155 +4892,157 @@ const ItemManagement: React.FC = () => {
           </Card>
         </div>
 
-        {/* RIGHT SIDE: LIVE ITEM DETAIL SHEET */}
-        <div className="erp-item-live-pane" data-testid="item-live-detail-sheet">
-          <div className="erp-item-live-header">
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="erp-item-live-code">
-                  {watchedCode || editing?.itemCode || 'NEW-ITEM'}
-                </span>
-                <StatusBadge
-                  status={editing?.status || 'ACTIVE'}
-                  colorMap={statusColorMap}
-                />
+        {/* RIGHT SIDE: LIVE ITEM DETAIL SHEET (ONLY ON DESKTOP WHEN ENABLED) */}
+        {showLivePreview && screens.lg && (
+          <div className="erp-item-live-pane" data-testid="item-live-detail-sheet">
+            <div className="erp-item-live-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="erp-item-live-code">
+                    {watchedCode || editing?.itemCode || (editing ? 'EDIT ITEM' : 'ADD ITEM')}
+                  </span>
+                  <StatusBadge
+                    status={editing?.status || 'ACTIVE'}
+                    colorMap={statusColorMap}
+                  />
+                </div>
+                <div className="erp-item-live-title">
+                  {watchedName || editing?.name || 'New Item'}
+                </div>
               </div>
-              <div className="erp-item-live-title">
-                {watchedName || editing?.name || 'Unnamed Item'}
+              <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>
+                <SyncOutlined spin style={{ marginRight: 4 }} />
+                Live Form Preview
+              </Tag>
+            </div>
+
+            {/* Classification & Organization */}
+            <div className="erp-item-live-section">
+              <div className="erp-item-live-section-title">
+                <ApartmentOutlined /> Organization & Classification
               </div>
+              <Descriptions size="small" column={1} styles={{ label: { width: 110, fontSize: 11 }, content: { fontSize: 12 } }}>
+                <Descriptions.Item label="Item Type">
+                  <Tag color="blue">{typeName(watchedItemType || editing?.itemType || 'FINISHED_GOOD')}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Category">
+                  {flatCategories.find((c) => c.id === (watchedCategoryId || editing?.categoryId))?.name || (editing ? categoryName(editing) : null) || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Organization">
+                  {[
+                    divisions.find((d) => d.id === (watchedDivisionId || editing?.divisionId))?.name || (editing ? divisionName(editing) : null),
+                    sections.find((s) => s.id === (watchedSectionId || editing?.sectionId))?.name || (editing ? sectionName(editing) : null),
+                    departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId))?.name || (editing ? departmentName(editing) : null),
+                  ].filter(Boolean).join(' → ') || 'Not configured'}
+                </Descriptions.Item>
+              </Descriptions>
             </div>
-            <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>
-              <SyncOutlined spin style={{ marginRight: 4 }} />
-              Live Preview
-            </Tag>
-          </div>
 
-          {/* Classification & Organization */}
-          <div className="erp-item-live-section">
-            <div className="erp-item-live-section-title">
-              <ApartmentOutlined /> Organization & Classification
+            {/* Technical Specifications */}
+            <div className="erp-item-live-section">
+              <div className="erp-item-live-section-title">
+                <ToolOutlined /> Technical Specifications
+              </div>
+              <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+                <Descriptions.Item label="Wire Size">
+                  {(watchedWireSizeMm != null || editing?.wireSizeMm != null)
+                    ? `${formatDimension(watchedWireSizeMm ?? editing?.wireSizeMm)} mm`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Diameter">
+                  {(watchedDiameterMm != null || editing?.diameterMm != null)
+                    ? `${formatDimension(watchedDiameterMm ?? editing?.diameterMm)} mm`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thickness">
+                  {(watchedThicknessMm != null || editing?.thicknessMm != null)
+                    ? `${formatDimension(watchedThicknessMm ?? editing?.thicknessMm)} mm`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Width">
+                  {(watchedWidthMm != null || editing?.widthMm != null)
+                    ? `${formatDimension(watchedWidthMm ?? editing?.widthMm)} mm`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Length / Piece" span={2}>
+                  {(watchedLengthPerPiece != null || editing?.lengthPerPiece != null)
+                    ? `${formatDimension(watchedLengthPerPiece ?? editing?.lengthPerPiece)} m`
+                    : '—'}
+                </Descriptions.Item>
+              </Descriptions>
             </div>
-            <Descriptions size="small" column={1} styles={{ label: { width: 110, fontSize: 11 }, content: { fontSize: 12 } }}>
-              <Descriptions.Item label="Item Type">
-                <Tag color="blue">{typeName(watchedItemType || editing?.itemType || 'FINISHED_GOOD')}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="Category">
-                {flatCategories.find((c) => c.id === (watchedCategoryId || editing?.categoryId))?.name || (editing ? categoryName(editing) : null) || '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Organization">
-                {[
-                  divisions.find((d) => d.id === (watchedDivisionId || editing?.divisionId))?.name || (editing ? divisionName(editing) : null),
-                  sections.find((s) => s.id === (watchedSectionId || editing?.sectionId))?.name || (editing ? sectionName(editing) : null),
-                  departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId))?.name || (editing ? departmentName(editing) : null),
-                ].filter(Boolean).join(' → ') || 'Not configured'}
-              </Descriptions.Item>
-            </Descriptions>
-          </div>
 
-          {/* Technical Specifications */}
-          <div className="erp-item-live-section">
-            <div className="erp-item-live-section-title">
-              <ToolOutlined /> Technical Specifications
+            {/* UOM, Weights & Commercial */}
+            <div className="erp-item-live-section">
+              <div className="erp-item-live-section-title">
+                <DatabaseOutlined /> UOM, Weights & Commercial
+              </div>
+              <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+                <Descriptions.Item label="Base UOM">
+                  <Tag color="geekblue">{uoms.find((u) => u.id === (watchedBaseUomId || editing?.baseUomId))?.name || editing?.baseUomName || '—'}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Cost Price">
+                  {(watchedCostPrice != null || editing?.costPrice != null)
+                    ? `$${Number(watchedCostPrice ?? editing?.costPrice).toFixed(2)}`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Selling Price">
+                  {(watchedSellingPrice != null || editing?.sellingPrice != null)
+                    ? `$${Number(watchedSellingPrice ?? editing?.sellingPrice).toFixed(2)}`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Weight/Pc">
+                  {(watchedWeightPerPiece != null || editing?.weightPerPiece != null)
+                    ? `${Number(watchedWeightPerPiece ?? editing?.weightPerPiece)} kg`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Weight/Mtr">
+                  {(watchedWeightPerMeter != null || editing?.weightPerMeter != null)
+                    ? `${Number(watchedWeightPerMeter ?? editing?.weightPerMeter)} kg/m`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Pieces/KG">
+                  {(watchedPiecesPerKg != null || editing?.piecesPerKg != null)
+                    ? `${Number(watchedPiecesPerKg ?? editing?.piecesPerKg)}`
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="SKU">
+                  <Text code>{watchedSku || editing?.sku || 'Auto'}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Barcode">
+                  <Text code>{watchedBarcode || editing?.barcode || 'Auto'}</Text>
+                </Descriptions.Item>
+              </Descriptions>
             </div>
-            <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
-              <Descriptions.Item label="Wire Size">
-                {(watchedWireSizeMm != null || editing?.wireSizeMm != null)
-                  ? `${formatDimension(watchedWireSizeMm ?? editing?.wireSizeMm)} mm`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Diameter">
-                {(watchedDiameterMm != null || editing?.diameterMm != null)
-                  ? `${formatDimension(watchedDiameterMm ?? editing?.diameterMm)} mm`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Thickness">
-                {(watchedThicknessMm != null || editing?.thicknessMm != null)
-                  ? `${formatDimension(watchedThicknessMm ?? editing?.thicknessMm)} mm`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Width">
-                {(watchedWidthMm != null || editing?.widthMm != null)
-                  ? `${formatDimension(watchedWidthMm ?? editing?.widthMm)} mm`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Length / Piece" span={2}>
-                {(watchedLengthPerPiece != null || editing?.lengthPerPiece != null)
-                  ? `${formatDimension(watchedLengthPerPiece ?? editing?.lengthPerPiece)} m`
-                  : '—'}
-              </Descriptions.Item>
-            </Descriptions>
-          </div>
 
-          {/* UOM, Weights & Commercial */}
-          <div className="erp-item-live-section">
-            <div className="erp-item-live-section-title">
-              <DatabaseOutlined /> UOM, Weights & Commercial
+            {/* Stock Levels & Route */}
+            <div className="erp-item-live-section" style={{ marginBottom: 0 }}>
+              <div className="erp-item-live-section-title">
+                <BuildOutlined /> Inventory Levels & Flow
+              </div>
+              <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+                <Descriptions.Item label="Min Stock">
+                  {watchedMinStock ?? editing?.minimumStockLevel ?? '0'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Max Stock">
+                  {watchedMaxStock ?? editing?.maximumStockLevel ?? '0'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Reorder">
+                  {watchedReorder ?? editing?.reorderLevel ?? '0'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Safety">
+                  {watchedSafety ?? editing?.safetyStockLevel ?? '0'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Input Mat." span={2}>
+                  {selectedInputDetail ? `${selectedInputDetail.itemCode} — ${selectedInputDetail.name}` : (editing?.productionInItem ? `${editing.productionInItem.itemCode} — ${editing.productionInItem.name}` : 'None')}
+                </Descriptions.Item>
+                <Descriptions.Item label="Output Prod." span={2}>
+                  {outputProductDisplay}
+                </Descriptions.Item>
+              </Descriptions>
             </div>
-            <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
-              <Descriptions.Item label="Base UOM">
-                <Tag color="geekblue">{uoms.find((u) => u.id === (watchedBaseUomId || editing?.baseUomId))?.name || editing?.baseUomName || '—'}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="Cost Price">
-                {(watchedCostPrice != null || editing?.costPrice != null)
-                  ? `$${Number(watchedCostPrice ?? editing?.costPrice).toFixed(2)}`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Selling Price">
-                {(watchedSellingPrice != null || editing?.sellingPrice != null)
-                  ? `$${Number(watchedSellingPrice ?? editing?.sellingPrice).toFixed(2)}`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Weight/Pc">
-                {(watchedWeightPerPiece != null || editing?.weightPerPiece != null)
-                  ? `${Number(watchedWeightPerPiece ?? editing?.weightPerPiece)} kg`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Weight/Mtr">
-                {(watchedWeightPerMeter != null || editing?.weightPerMeter != null)
-                  ? `${Number(watchedWeightPerMeter ?? editing?.weightPerMeter)} kg/m`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Pieces/KG">
-                {(watchedPiecesPerKg != null || editing?.piecesPerKg != null)
-                  ? `${Number(watchedPiecesPerKg ?? editing?.piecesPerKg)}`
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="SKU">
-                <Text code>{watchedSku || editing?.sku || 'Auto'}</Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="Barcode">
-                <Text code>{watchedBarcode || editing?.barcode || 'Auto'}</Text>
-              </Descriptions.Item>
-            </Descriptions>
           </div>
-
-          {/* Stock Levels & Route */}
-          <div className="erp-item-live-section" style={{ marginBottom: 0 }}>
-            <div className="erp-item-live-section-title">
-              <BuildOutlined /> Inventory Levels & Flow
-            </div>
-            <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
-              <Descriptions.Item label="Min Stock">
-                {watchedMinStock ?? editing?.minimumStockLevel ?? '0'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Max Stock">
-                {watchedMaxStock ?? editing?.maximumStockLevel ?? '0'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Reorder">
-                {watchedReorder ?? editing?.reorderLevel ?? '0'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Safety">
-                {watchedSafety ?? editing?.safetyStockLevel ?? '0'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Input Mat." span={2}>
-                {selectedInputDetail ? `${selectedInputDetail.itemCode} — ${selectedInputDetail.name}` : (editing?.productionInItem ? `${editing.productionInItem.itemCode} — ${editing.productionInItem.name}` : 'None')}
-              </Descriptions.Item>
-              <Descriptions.Item label="Output Prod." span={2}>
-                {outputProductDisplay}
-              </Descriptions.Item>
-            </Descriptions>
-          </div>
-        </div>
+        )}
       </div>
     </Form>
   </DraggableResizableModal>
@@ -4815,7 +5382,8 @@ const ItemManagement: React.FC = () => {
         )}
 
         {importing && (
-          <div className="import-live-progress-card">
+          <>
+            <div className="import-live-progress-card">
             <div className="import-progress-header">
               <div className="import-progress-title-wrap">
                 <div className="import-progress-pulse-dot" />
@@ -4905,6 +5473,104 @@ const ItemManagement: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Live Activity Console: Dual Panels (Imported Feed on Left, Faulty Console on Right) */}
+          <div className="import-live-console-container">
+            <Row gutter={[16, 16]}>
+              {/* Left Panel: Successfully Imported Live Feed */}
+              <Col xs={24} md={14}>
+                <Card
+                  size="small"
+                  className="import-console-panel import-console-success"
+                  title={
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Space size={6}>
+                        <CheckCircleOutlined style={{ color: '#10b981' }} />
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>Live Imported Feed</span>
+                      </Space>
+                      <Tag color="success" style={{ fontWeight: 700, borderRadius: 10, marginInlineEnd: 0 }}>
+                        {importProgress?.successCount ?? 0} imported
+                      </Tag>
+                    </div>
+                  }
+                  styles={{ body: { padding: '8px 12px', height: 260, overflowY: 'auto' } }}
+                >
+                  {liveImportedItems.length === 0 ? (
+                    <div className="import-console-empty">
+                      <Spin size="small" style={{ marginBottom: 8 }} />
+                      <Text type="secondary" style={{ fontSize: 12 }}>Streaming items as they are saved to database…</Text>
+                    </div>
+                  ) : (
+                    <div className="import-console-stream">
+                      {liveImportedItems.map((item, idx) => (
+                        <div key={`${item.itemCode}-${idx}`} className="import-stream-row">
+                          <div className="import-stream-left">
+                            <span className="import-row-badge">#{item.rowNumber}</span>
+                            <Tag color="blue" style={{ fontWeight: 700, marginInlineEnd: 4, fontFamily: 'monospace' }}>
+                              {item.itemCode}
+                            </Tag>
+                            <span className="import-stream-name" title={item.name}>
+                              {item.name}
+                            </span>
+                          </div>
+                          <div className="import-stream-right">
+                            {item.division && <Tag style={{ fontSize: 10, marginInlineEnd: 4 }}>{item.division}</Tag>}
+                            <Tag color="success" style={{ fontSize: 10, marginInlineEnd: 0 }}>IMPORTED</Tag>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </Col>
+
+              {/* Right Panel: Faulty / Failed Rows Console */}
+              <Col xs={24} md={10}>
+                <Card
+                  size="small"
+                  className="import-console-panel import-console-fault"
+                  title={
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Space size={6}>
+                        <CloseCircleOutlined style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#ef4444' : '#94a3b8' }} />
+                        <span style={{ fontWeight: 700, fontSize: 13, color: (importProgress?.failCount ?? 0) > 0 ? '#ef4444' : undefined }}>
+                          Faulty / Failed Items
+                        </span>
+                      </Space>
+                      <Tag color={(importProgress?.failCount ?? 0) > 0 ? 'error' : 'default'} style={{ fontWeight: 700, borderRadius: 10, marginInlineEnd: 0 }}>
+                        {importProgress?.failCount ?? 0} faulty
+                      </Tag>
+                    </div>
+                  }
+                  styles={{ body: { padding: '8px 12px', height: 260, overflowY: 'auto' } }}
+                >
+                  {liveFailedItems.length === 0 ? (
+                    <div className="import-console-empty" style={{ color: '#10b981' }}>
+                      <CheckCircleOutlined style={{ fontSize: 26, marginBottom: 8, color: '#10b981' }} />
+                      <div style={{ fontWeight: 600 }}>Zero Faults Detected</div>
+                      <Text type="secondary" style={{ fontSize: 11, marginTop: 2 }}>All processed rows are importing cleanly.</Text>
+                    </div>
+                  ) : (
+                    <div className="import-fault-stream">
+                      {liveFailedItems.map((fail, idx) => (
+                        <div key={`${fail.itemCode}-${idx}`} className="import-fault-row">
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                            <Space size={4}>
+                              <span className="import-fault-badge">Row #{fail.rowNumber}</span>
+                              <strong style={{ color: '#dc2626', fontFamily: 'monospace' }}>{fail.itemCode}</strong>
+                            </Space>
+                            <Tag color="error" style={{ fontSize: 10, marginInlineEnd: 0 }}>FAILED</Tag>
+                          </div>
+                          <div className="import-fault-msg">{fail.reason}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </Col>
+            </Row>
+          </div>
+          </>
         )}
 
         {importSummary && !importing && (
@@ -5183,6 +5849,17 @@ const ItemManagement: React.FC = () => {
           </Space>
         )}
       </DraggableResizableModal>
+
+      <SaveResultDialog
+        open={resultOpen}
+        phase={resultPhase}
+        result={resultData}
+        errorMessage={resultError}
+        onRetry={handleResultRetry}
+        onClose={handleResultClose}
+        successTitle="Successful Save"
+        okLabel="OK"
+      />
     </div>
   );
 };

@@ -449,7 +449,7 @@ const CategoryManagement: React.FC = () => {
             <Dropdown
               trigger={['click']}
               placement="bottomRight"
-              dropdownRender={() => (
+              popupRender={() => (
                 <div
                   style={{
                     background: '#ffffff',

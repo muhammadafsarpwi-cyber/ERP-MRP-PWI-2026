@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, Htt
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ItemService } from '../services/item.service';
 import { ItemConversionService } from '../services/item-conversion.service';
-import { CreateItemDto, UpdateItemDto, ConvertUomDto } from '../dto/item.dto';
+import { CreateItemDto, UpdateItemDto, ConvertUomDto, BulkCreateItemsDto } from '../dto/item.dto';
 import { ItemStatus } from '../entities';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
@@ -16,6 +16,16 @@ export class ItemController {
     private readonly itemService: ItemService,
     private readonly conversionService: ItemConversionService,
   ) {}
+
+  @Post('bulk')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.create')
+  @ApiOperation({ summary: 'Bulk import items' })
+  async bulkCreate(@Body() body: { items: CreateItemDto[]; companyId?: string }, @Req() req: any) {
+    const companyId = body.companyId || body.items?.[0]?.companyId;
+    const result = await this.itemService.bulkImportItems(companyId, body.items || [], req.user?.id);
+    return { success: true, data: result, message: 'Bulk import completed' };
+  }
 
   @Post()
   @UseGuards(PermissionGuard)

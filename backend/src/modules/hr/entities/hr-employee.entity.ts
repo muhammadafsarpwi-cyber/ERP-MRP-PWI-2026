@@ -1,6 +1,7 @@
 import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { HrDesignation } from './hr-designation.entity';
+import { Department } from '../../organization/entities/department.entity';
 
 @Entity('hr_employees')
 export class HrEmployee extends BaseEntity {
@@ -22,6 +23,9 @@ export class HrEmployee extends BaseEntity {
   @Column({ type: 'varchar', length: 30, nullable: true })
   phone: string | null;
 
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  cnic: string | null;
+
   @Column({ name: 'date_of_birth', type: 'date', nullable: true })
   dateOfBirth: Date | null;
 
@@ -33,6 +37,10 @@ export class HrEmployee extends BaseEntity {
 
   @Column({ name: 'department_id', type: 'uuid', nullable: true })
   departmentId: string | null;
+
+  @ManyToOne(() => Department, { nullable: true })
+  @JoinColumn({ name: 'department_id' })
+  department: Department | null;
 
   @Column({ name: 'designation_id', type: 'uuid', nullable: true })
   designationId: string | null;

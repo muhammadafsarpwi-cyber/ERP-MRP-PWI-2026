@@ -51,7 +51,7 @@
   font-weight: 600 !important;
   font-size: 12.5px !important;
   letter-spacing: 0.01em;
-  padding: 10px 12px !important;
+  padding: 6px 6px !important;
   border-bottom: 1px solid var(--theme-border, rgba(15, 23, 42, 0.12)) !important;
   white-space: nowrap !important;
   word-break: keep-all !important;
@@ -65,8 +65,8 @@
 
 /* ── 3. Table Body Rows & Cells ── */
 .erp-table-container .ant-table-tbody > tr > td {
-  padding: 10px 12px !important;
-  font-size: 13px;
+  padding: 5px 6px !important;
+  font-size: 12.5px;
   color: var(--theme-text, rgba(15, 23, 42, 0.88));
   border-bottom: 1px solid var(--theme-border, rgba(15, 23, 42, 0.06)) !important;
   transition: background 0.15s ease;
@@ -85,13 +85,13 @@
 
 /* ── 4. Dense / Compact Mode Variant ── */
 .erp-table-container--dense .ant-table-thead > tr > th {
-  padding: 7px 10px !important;
-  font-size: 12px !important;
+  padding: 4px 5px !important;
+  font-size: 11.5px !important;
 }
 
 .erp-table-container--dense .ant-table-tbody > tr > td {
-  padding: 7px 10px !important;
-  font-size: 12.5px;
+  padding: 3px 5px !important;
+  font-size: 11.5px;
 }
 
 /* ── 5. Standardized Direction Indicators (IN / OUT) ── */
@@ -625,4 +625,140 @@
   color: #ffffff !important;
   border-color: #ff4d4f !important;
 }
+
+/* ============================================================================
+   16. Universal Mobile-First Compact & Dense Table System
+   Applied across ALL ERP tables in the software for small screens.
+   - Eliminates page-level horizontal wobble/spill.
+   - Tightens vertical and horizontal cell padding from 10px-12px down to 4px-6px.
+   - Crisp, slightly smaller typography (11.5px) for maximum readability.
+   - Removes empty gaps between columns and rows.
+   - Horizontal swiping stays strictly contained inside the table body.
+   ============================================================================ */
+@media (max-width: 768px) {
+  /* 1. Prevent entire viewport/body from swaying or sliding horizontally */
+  html, body, #root, .ant-layout {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+    width: 100% !important;
+  }
+
+  /* 2. Global Table Containers */
+  .erp-table-container,
+  .ant-table-wrapper,
+  .erp-table {
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 6px !important;
+  }
+
+  /* 3. Table Header Cells: Super compact, close together, minimal gap */
+  .ant-table-thead > tr > th,
+  .erp-table-container .ant-table-thead > tr > th,
+  .ant-table-wrapper .erp-table-header th,
+  .ant-table-thead th {
+    padding: 4px 6px !important;
+    font-size: 11.5px !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+    white-space: nowrap !important;
+    letter-spacing: 0 !important;
+  }
+
+  /* 4. Table Body Cells: Minor padding, tight rows, maximum visible items */
+  .ant-table-tbody > tr > td,
+  .erp-table-container .ant-table-tbody > tr > td,
+  .ant-table-tbody td,
+  .ant-table-cell {
+    padding: 3px 4px !important;
+    font-size: 11.5px !important;
+    line-height: 1.25 !important;
+  }
+
+  .ant-table-tbody > tr {
+    height: auto !important;
+  }
+
+  /* 5. Typography inside cells: Clean, crisp, legible */
+  .ant-table-cell .ant-typography,
+  .ant-table-cell span,
+  .ant-table-cell div {
+    font-size: 11.5px;
+    line-height: 1.25;
+  }
+
+  .ant-table-cell .ant-typography-secondary,
+  .ant-table-cell small {
+    font-size: 10px !important;
+    line-height: 1.15 !important;
+  }
+
+  .ant-table-cell .ant-btn-link {
+    font-size: 11.5px !important;
+    height: auto !important;
+    padding: 0 !important;
+    font-weight: 700 !important;
+  }
+
+  /* 6. Tags & Badges: Compact */
+  .ant-table-cell .ant-tag {
+    font-size: 10px !important;
+    line-height: 16px !important;
+    padding: 0 4px !important;
+    margin-inline-end: 2px !important;
+    border-radius: 3px !important;
+  }
+
+  .ant-table-cell .ant-space {
+    gap: 3px !important;
+  }
+
+  /* 7. Action Micro-buttons: Mini touch targets */
+  .erp-action-btn {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 11px !important;
+    border-radius: 4px !important;
+  }
+
+  /* 8. Unpin fixed left/right columns on mobile so content never overlaps */
+  .ant-table-cell-fix-left,
+  .ant-table-cell-fix-left-last,
+  .ant-table-cell-fix-right,
+  .ant-table-cell-fix-right-first {
+    position: static !important;
+  }
+
+  /* 9. Scrollable table body only — page stays firmly locked */
+  .ant-table-body,
+  .ant-table-content {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: thin !important;
+  }
+
+  /* 10. Table card padding */
+  .ant-card.erp-table-card > .ant-card-body,
+  .erp-table-container-card > .ant-card-body {
+    padding: 6px 4px !important;
+  }
+
+  /* 11. Compact pagination */
+  .ant-table-pagination.ant-pagination {
+    margin: 6px 0 !important;
+    padding: 0 2px !important;
+    gap: 2px !important;
+  }
+
+  .ant-table-pagination .ant-pagination-item,
+  .ant-table-pagination .ant-pagination-prev,
+  .ant-table-pagination .ant-pagination-next {
+    min-width: 26px !important;
+    height: 26px !important;
+    line-height: 24px !important;
+    font-size: 11px !important;
+  }
+}
+
 

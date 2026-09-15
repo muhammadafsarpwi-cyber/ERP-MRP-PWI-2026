@@ -1494,17 +1494,6 @@ const MachineToolingManagement: React.FC = () => {
       `Track tool / die / mould life per machine, record changes, and review monthly consumption · ${componentsTotal} components`,
       <ToolOutlined />,
       <Space size={8}>
-        <Button
-          icon={<ReloadOutlined />}
-          title="Refresh current tab data"
-          onClick={() => {
-            if (activeTab === 'setup') fetchComponents(compPage);
-            else if (activeTab === 'changes') fetchChanges(chgPage);
-            else if (activeTab === 'active') fetchActiveTools(atPage);
-            else if (activeTab === 'life') fetchLifeReport(lifePage);
-            else if (activeTab === 'report') fetchReport();
-          }}
-        />
         {primaryAdd?.show && (
           <Button
             type="primary"
@@ -1521,6 +1510,17 @@ const MachineToolingManagement: React.FC = () => {
             {primaryAdd.label}
           </Button>
         )}
+        <Button
+          icon={<ReloadOutlined />}
+          title="Refresh current tab data"
+          onClick={() => {
+            if (activeTab === 'setup') fetchComponents(compPage);
+            else if (activeTab === 'changes') fetchChanges(chgPage);
+            else if (activeTab === 'active') fetchActiveTools(atPage);
+            else if (activeTab === 'life') fetchLifeReport(lifePage);
+            else if (activeTab === 'report') fetchReport();
+          }}
+        />
       </Space>,
     );
     return () => clearHeaderMeta();

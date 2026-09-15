@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsDateString, IsInt, MaxLength, Min, Max } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsDateString, IsInt, MaxLength, Min, Max, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /** Canonical attendance statuses accepted by the HR module. */
@@ -39,6 +39,7 @@ export class CreateHrEmployeeDto {
   @ApiPropertyOptional() @IsString() @IsOptional() lastName?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() email?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() phone?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() cnic?: string;
   @ApiPropertyOptional() @IsDateString() @IsOptional() dateOfBirth?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() gender?: string;
   @ApiPropertyOptional() @IsUUID() @IsOptional() departmentId?: string;
@@ -47,6 +48,8 @@ export class CreateHrEmployeeDto {
   @ApiPropertyOptional() @IsDateString() @IsOptional() joinDate?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() jobTitle?: string;
   @ApiPropertyOptional() @IsNumber() @IsOptional() @Min(0) monthlySalary?: number;
+  @ApiPropertyOptional() @IsString() @IsOptional() address?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() status?: string;
 }
 
 export class CreateHrAttendanceDto {
@@ -342,8 +345,87 @@ export class GetRegularizationsDto {
 
   @ApiPropertyOptional({ description: 'Search employee code or name.' })
   @IsOptional() @IsString() @MaxLength(100) search?: string;
+@ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) page?: number;
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(500) limit?: number;
+}
+
+/** Overtime request status lifecycle supported by the Overtime Approval module. */
+export const HR_OVERTIME_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
+
+/**
+ * Submit an overtime approval request. `employeeId` is optional: when omitted
+ * the request is for the authenticated user themselves (self-service). The
+ * company is always resolved server-side from the authenticated user's default
+ * company (HR module convention). `overtimeDate` must be a working date; the
+ * linked attendance (check-in/out) and shift snapshot are attached when found.
+ */
+export class CreateOvertimeDto {
+  @ApiPropertyOptional({ description: 'Employee the request is for. Omit for self-service.' })
+  @IsOptional() @IsUUID() employeeId?: string;
+
+  @ApiProperty({ description: 'Working date the overtime applies to (YYYY-MM-DD).' })
+  @IsDateString() overtimeDate: string;
+
+  @ApiPropertyOptional({ description: 'Assigned shift for that date. Normally resolved from attendance; optional override.' })
+  @IsOptional() @IsUUID() shiftId?: string;
+
+  @ApiProperty({ description: 'Requested overtime hours (0.01 - 24).' })
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) @Max(24) requestedHours: number;
+
+  @ApiProperty({ description: 'Short reason for the overtime request.' })
+  @IsString() @IsNotEmpty() @MinLength(3) @MaxLength(255) reason: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) remarks?: string;
+}
+
+/** Update a still-pending overtime request (self-service edits before decision). */
+export class UpdateOvertimeDto {
+  @ApiPropertyOptional() @IsOptional() @IsUUID() shiftId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) @Max(24) requestedHours?: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(3) @MaxLength(255) reason?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) remarks?: string;
+}
+
+/** Approve a pending overtime request (approved hours + optional remarks). */
+export class ApproveOvertimeDto {
+  @ApiPropertyOptional({ description: 'Approved overtime hours. Defaults to requested hours.' })
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) @Max(24) approvedHours?: number;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) remarks?: string;
+}
+
+/** Reject a pending overtime request. A rejection reason is required for auditability. */
+export class RejectOvertimeDto {
+  @ApiProperty({ description: 'Rejection reason (also the decision remarks).' })
+  @IsString() @IsNotEmpty() @MinLength(3) @MaxLength(2000) remarks: string;
+}
+
+/**
+ * Overtime Approval query. There is intentionally NO `companyId`: the company
+ * is always resolved server-side from the authenticated user's default company.
+ */
+export class GetOvertimeDto {
+  @ApiPropertyOptional({ description: 'Only requests whose overtime date is on or after this date.' })
+  @IsOptional() @IsDateString() dateFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Only requests whose overtime date is on or before this date.' })
+  @IsOptional() @IsDateString() dateTo?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsUUID() divisionId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() sectionId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() departmentId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() employeeId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() shiftId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by exact request status.' })
+  @IsOptional() @IsString() @IsIn(HR_OVERTIME_STATUSES) status?: string;
+
+  @ApiPropertyOptional({ description: 'Search employee code or name.' })
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) page?: number;
+
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(500) limit?: number;
 }
 
@@ -398,6 +480,123 @@ export class GetAttendanceRegisterDto {
 
   @ApiPropertyOptional({ description: 'Search employee code, name or email.' })
   @IsOptional() @IsString() @MaxLength(100) search?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) page?: number;
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(500) limit?: number;
+}
+
+/**
+ * Employee advance status lifecycle (HR-09, final model). New records begin as
+ * PENDING; approvers move PENDING -> APPROVED / REJECTED; cancellation moves
+ * PENDING -> CANCELLED; disbursement (one full payment of the approved amount)
+ * moves APPROVED -> DISBURSED; recoveries move DISBURSED ->
+ * PARTIALLY_RECOVERED -> RECOVERED. There is no DRAFT / SUBMITTED /
+ * FULLY_RECOVERED state.
+ */
+export const HR_ADVANCE_STATUSES = [
+  'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'DISBURSED', 'PARTIALLY_RECOVERED', 'RECOVERED',
+];
+
+/**
+ * Create an employee advance request (starts as PENDING). `employeeId` is
+ * optional: when omitted the advance is for the authenticated user themselves
+ * (self-service). The company is always resolved server-side from the
+ * authenticated user's default company (HR module convention). `currency` is
+ * never free-entry — it is resolved from the employee master.
+ */
+export class CreateAdvanceDto {
+  @ApiPropertyOptional({ description: 'Employee the advance is for. Omit for self-service.' })
+  @IsOptional() @IsUUID() employeeId?: string;
+
+  @ApiProperty({ description: 'Request date (YYYY-MM-DD). Defaults to today.' })
+  @IsOptional() @IsDateString() requestDate?: string;
+
+  @ApiProperty({ description: 'Requested advance amount (> 0).' })
+  @IsNumber({ maxDecimalPlaces: 4 }) @Min(0.0001) requestedAmount: number;
+
+  @ApiProperty({ description: 'Short reason/purpose for the advance.' })
+  @IsString() @IsNotEmpty() @MinLength(3) @MaxLength(255) reason: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) remarks?: string;
+}
+
+/** Update a PENDING advance request (self-service edits before decision). */
+export class UpdateAdvanceDto {
+  @ApiPropertyOptional() @IsOptional() @IsDateString() requestDate?: string;
+  @ApiPropertyOptional() @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) @Min(0.0001) requestedAmount?: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(3) @MaxLength(255) reason?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) remarks?: string;
+}
+
+/**
+ * Approve a PENDING advance request. `approvedAmount` may be lower than the
+ * requested amount but never higher.
+ */
+export class ApproveAdvanceDto {
+  @ApiPropertyOptional({ description: 'Approved advance amount (<= requested). Defaults to requested.' })
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) @Min(0.0001) approvedAmount?: number;
+
+  @ApiPropertyOptional({ description: 'Optional approval/decision remarks.' })
+  @IsOptional() @IsString() @MaxLength(2000) remarks?: string;
+}
+
+/** Reject a PENDING advance request. A rejection reason is required for auditability. */
+export class RejectAdvanceDto {
+  @ApiProperty({ description: 'Rejection reason (also the decision remarks).' })
+  @IsString() @IsNotEmpty() @MinLength(3) @MaxLength(2000) remarks: string;
+}
+
+/**
+ * Disburse an approved advance. The amount is NOT client-supplied: a single
+ * full disbursement of the approved amount is posted (APPROVED -> DISBURSED)
+ * and the finance journal is created server-side (DR 1100 / CR 1000).
+ */
+export class DisburseAdvanceDto {
+  @ApiPropertyOptional({ description: 'Optional disbursement remarks (no amount is accepted).' })
+  @IsOptional() @IsString() @MaxLength(2000) remarks?: string;
+}
+
+/** Record a recovery against a disbursed advance (must not exceed outstanding). */
+export class RecoverAdvanceDto {
+  @ApiProperty({ description: 'Amount recovered now (must not exceed the outstanding balance).' })
+  @IsNumber({ maxDecimalPlaces: 4 }) @Min(0.0001) amount: number;
+
+  @ApiPropertyOptional({ description: 'Optional recovery remarks.' })
+  @IsOptional() @IsString() @MaxLength(2000) remarks?: string;
+}
+
+/** Sort columns accepted for the advance list query. */
+export const HR_ADVANCE_SORTABLE = ['requestDate', 'requestedAmount', 'approvedAmount', 'status', 'createdAt', 'employeeCode'];
+
+/**
+ * Employee Advance query. There is intentionally NO `companyId`: the company
+ * is always resolved server-side from the authenticated user's default company.
+ * The date range mirrors the HR list-query convention (dateFrom/dateTo).
+ */
+export class GetAdvancesDto {
+  @ApiPropertyOptional({ description: 'Only advances whose request date is on or after this date.' })
+  @IsOptional() @IsDateString() dateFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Only advances whose request date is on or before this date.' })
+  @IsOptional() @IsDateString() dateTo?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsUUID() divisionId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() sectionId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() departmentId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() employeeId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by exact request status.' })
+  @IsOptional() @IsString() @IsIn(HR_ADVANCE_STATUSES) status?: string;
+
+  @ApiPropertyOptional({ description: 'Search employee code or name.' })
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+
+  @ApiPropertyOptional({ description: 'Sort column.' })
+  @IsOptional() @IsString() @IsIn(HR_ADVANCE_SORTABLE) sortBy?: string;
+
+  @ApiPropertyOptional({ description: 'Sort direction.' })
+  @IsOptional() @IsString() @IsIn(['ASC', 'DESC']) sortOrder?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) page?: number;
 

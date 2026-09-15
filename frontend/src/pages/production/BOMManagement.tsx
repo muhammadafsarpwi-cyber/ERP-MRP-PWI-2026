@@ -280,8 +280,8 @@ const BomManagement: React.FC = () => {
             <Select.Option value="ACTIVE">Active</Select.Option>
             <Select.Option value="OBSOLETE">Obsolete</Select.Option>
           </Select>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>New BOM</Button>
           <Button icon={<ReloadOutlined />} onClick={fetchBoms}>Refresh</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>New BOM</Button>
         </Space>
       }>
         <Table

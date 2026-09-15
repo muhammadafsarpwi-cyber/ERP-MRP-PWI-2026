@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import apiService from '../../../services/api';
 
 export interface LookupItem { id: string; name: string; }
@@ -67,6 +67,8 @@ export function useLookups() {
   const [sections, setSections] = useState<Section[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [items, setItems] = useState<ItemLk[]>([]);
+  const [deptItemsMap, setDeptItemsMap] = useState<Record<string, ItemLk[]>>({});
+  const [deptItemsLoading, setDeptItemsLoading] = useState<Record<string, boolean>>({});
   const [uoms, setUoms] = useState<UomLk[]>([]);
   const [uomConversions, setUomConversions] = useState<UomConversionLk[]>([]);
   const [shifts, setShifts] = useState<ShiftLk[]>([]);
@@ -78,29 +80,22 @@ export function useLookups() {
   const [hrEmployees, setHrEmployees] = useState<HrEmployeeLk[]>([]);
 
   useEffect(() => {
+    void fetchList<Division>('/divisions', { limit: 200 }).then(setDivisions);
+    void fetchList<Section>('/sections', { limit: 500 }).then(setSections);
+    void fetchList<Department>('/departments', { limit: 500 }).then((dep) => setDepartments(dep.filter((d) => d.divisionId && d.sectionId)));
+    void fetchList<ItemLk>('/master-data/items', { limit: 2000, status: 'ACTIVE' }).then(setItems);
+    void fetchList<UomLk>('/master-data/uom', { limit: 200 }).then(setUoms);
+    void fetchList<UomConversionLk>('/master-data/uom-conversions', { limit: 500 }).then((conv) => setUomConversions(conv.filter((c) => c.status === 'ACTIVE')));
+    void fetchList<ShiftLk>('/production/shifts').then(setShifts);
+    void fetchList<ProductionOrderLk>('/production/orders', { limit: 200 }).then(setProductionOrders);
+    void fetchList<MachineLk>('/production/machines', { limit: 500 }).then(setMachines);
     void (async () => {
-      const [div, sec, dep, itm, uom, conv, shf, po, emp, mch] = await Promise.all([
-        fetchList<Division>('/divisions', { limit: 200 }),
-        fetchList<Section>('/sections', { limit: 500 }),
-        fetchList<Department>('/departments', { limit: 500 }),
-        fetchList<ItemLk>('/master-data/items', { limit: 500 }),
-        fetchList<UomLk>('/master-data/uom', { limit: 200 }),
-        fetchList<UomConversionLk>('/master-data/uom-conversions', { limit: 500 }),
-        fetchList<ShiftLk>('/production/shifts'),
-        fetchList<ProductionOrderLk>('/production/orders', { limit: 200 }),
-        fetchList<HrEmployeeLk>('/hr/employees', { limit: 500, status: 'ACTIVE' }),
-        fetchList<MachineLk>('/production/machines', { limit: 500 }),
-      ]);
-      setDivisions(div);
-      setSections(sec);
-      setDepartments(dep.filter((d) => d.divisionId && d.sectionId));
-      setItems(itm);
-      setUoms(uom);
-      setUomConversions(conv.filter((c) => c.status === 'ACTIVE'));
-      setShifts(shf);
-      setProductionOrders(po);
-      setMachines(mch);
-      let finalEmployees = emp;
+      let finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees/lookup');
+      if (!finalEmployees || finalEmployees.length === 0) {
+        try {
+          finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees', { limit: 500, status: 'ACTIVE' });
+        } catch {}
+      }
       if (!finalEmployees || finalEmployees.length === 0) {
         try {
           const users = await fetchList<any>('/admin/users', { limit: 200, status: 'ACTIVE' });
@@ -120,6 +115,32 @@ export function useLookups() {
       setHrEmployees(finalEmployees);
     })();
   }, []);
+
+  /** Dynamically loads items for a specific department and caches them */
+  const loadDepartmentItems = useCallback(async (departmentId: string): Promise<ItemLk[]> => {
+    if (!departmentId) return [];
+    if (deptItemsMap[departmentId]?.length) return deptItemsMap[departmentId];
+    setDeptItemsLoading((prev) => ({ ...prev, [departmentId]: true }));
+    try {
+      const fetched = await fetchList<ItemLk>('/master-data/items', {
+        departmentId,
+        limit: 1000,
+        status: 'ACTIVE',
+      });
+      if (fetched && fetched.length > 0) {
+        setDeptItemsMap((prev) => ({ ...prev, [departmentId]: fetched }));
+        setItems((prevItems) => {
+          const existingIds = new Set(prevItems.map((i) => i.id));
+          const toAdd = fetched.filter((i) => !existingIds.has(i.id));
+          return toAdd.length > 0 ? [...prevItems, ...toAdd] : prevItems;
+        });
+        return fetched;
+      }
+    } finally {
+      setDeptItemsLoading((prev) => ({ ...prev, [departmentId]: false }));
+    }
+    return [];
+  }, [deptItemsMap]);
 
   /** HR operators filtered to the selected department (Phase 12 org filtering).
    * If department has no directly assigned employees, fall back to all company active employees
@@ -183,6 +204,7 @@ export function useLookups() {
   return {
     divisions, sections, departments, items, uoms, uomConversions,
     shifts, machines, downtimeReasons, productionOrders, hrEmployees,
+    deptItemsMap, deptItemsLoading, loadDepartmentItems,
     downtimeReasonsLoading, downtimeReasonsFailed, loadDowntimeReasons,
     loadMachines, sectionsForDivision, departmentsForSection, validUomsForItem,
     employeesForDepartment, employeeFullName,
