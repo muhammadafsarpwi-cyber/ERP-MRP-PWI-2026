@@ -743,6 +743,10 @@ export class ProductionEntryService {
       ? await this.resolveRawMaterialSourceStore(companyId, requestedSource)
       : null;
 
+    const effectiveRunning = (resolved.plannedHours > 0 && dto.downtimeHours > 0 && (dto.runningHours + dto.downtimeHours > resolved.plannedHours))
+      ? this.round2(Math.max(0, resolved.plannedHours - dto.downtimeHours))
+      : dto.runningHours;
+
     const entry = this.entryRepo.create({
       companyId,
       entryNumber: await this.generateEntryNumber(companyId),
@@ -769,8 +773,8 @@ export class ProductionEntryService {
         dto.actualQuantity,
         mt ? mt.calculatedTarget : (dto.targetQuantity as number),
       ),
-      efficiencyPercentage: this.computeEfficiency(dto.runningHours, resolved.plannedHours),
-      runningHours: dto.runningHours,
+      efficiencyPercentage: this.computeEfficiency(effectiveRunning, resolved.plannedHours),
+      runningHours: effectiveRunning,
       downtimeHours: dto.downtimeHours,
       downtimeReasonId: dto.downtimeReasonId ?? null,
       downtimeReasonText: dto.downtimeReason ?? null,
@@ -875,8 +879,13 @@ export class ProductionEntryService {
       );
     }
 
+    const effectiveRunning = (resolved.plannedHours > 0 && merged.downtimeHours > 0 && (merged.runningHours + merged.downtimeHours > resolved.plannedHours))
+      ? this.round2(Math.max(0, resolved.plannedHours - merged.downtimeHours))
+      : merged.runningHours;
+
     Object.assign(entry, {
       ...merged,
+      runningHours: effectiveRunning,
       machineNo: resolved.machineNo,
       operatorName: dto.operatorName?.trim() ?? entry.operatorName,
       supervisorName: dto.supervisorName !== undefined ? (dto.supervisorName?.trim() ?? null) : entry.supervisorName,
@@ -885,7 +894,7 @@ export class ProductionEntryService {
       standardHours: mt?.standardHours ?? null,
       calculatedTarget: mt?.calculatedTarget ?? null,
       achievementPercentage: this.computeAchievement(merged.actualQuantity, merged.targetQuantity),
-      efficiencyPercentage: this.computeEfficiency(merged.runningHours, resolved.plannedHours),
+      efficiencyPercentage: this.computeEfficiency(effectiveRunning, resolved.plannedHours),
       downtimeReasonText: dto.downtimeReason !== undefined ? (dto.downtimeReason ?? null) : entry.downtimeReasonText,
       remarks: dto.remarks !== undefined ? (dto.remarks ?? null) : entry.remarks,
       updatedBy: userId ?? null,
@@ -1820,15 +1829,25 @@ export class ProductionEntryService {
    */
   private async generateEntryNumber(companyId: string): Promise<string> {
     const year = String(new Date().getFullYear());
-    const rows = await this.entryRepo.query(
-      `SELECT entry_number FROM production_entries
-       WHERE company_id = $1 AND entry_number LIKE $2
-       ORDER BY created_at DESC LIMIT 200`,
-      [companyId, `PE-${year}-%`],
-    );
+    let rows: any[] = [];
+    if (typeof this.entryRepo.query === 'function') {
+      rows = await this.entryRepo.query(
+        `SELECT entry_number FROM production_entries
+         WHERE company_id = $1 AND entry_number LIKE $2
+         ORDER BY created_at DESC LIMIT 200`,
+        [companyId, `PE-${year}-%`],
+      );
+    } else if (typeof this.entryRepo.find === 'function') {
+      rows = await this.entryRepo.find({
+        where: { companyId },
+        select: ['entryNumber'],
+        take: 200,
+      });
+    }
     let maxSeq = 0;
     for (const row of rows) {
-      const match = new RegExp(`^PE-${year}-(\\d+)$`).exec(String(row.entry_number ?? ''));
+      const num = row.entry_number ?? row.entryNumber;
+      const match = new RegExp(`^PE-${year}-(\\d+)$`).exec(String(num ?? ''));
       if (match) maxSeq = Math.max(maxSeq, parseInt(match[1], 10));
     }
     return `PE-${year}-${String(maxSeq + 1).padStart(5, '0')}`;

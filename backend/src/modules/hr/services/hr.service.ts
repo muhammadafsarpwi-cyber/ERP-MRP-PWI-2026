@@ -1362,9 +1362,15 @@ export class HrService {
   async getEmployeeLookup(authUserId?: string, departmentId?: string) {
     let companyId: string | null = null;
     if (authUserId) {
-      const user = await this.userRepo.findOne({ where: { authUserId } });
+      const user = await this.userRepo.findOne({ where: [{ authUserId }, { id: authUserId }] });
       if (user?.defaultCompanyId) {
         companyId = user.defaultCompanyId;
+      }
+    }
+    if (!companyId) {
+      const sampleEmp = await this.employeeRepo.findOne({ where: { status: 'ACTIVE' }, select: ['companyId'] });
+      if (sampleEmp?.companyId) {
+        companyId = sampleEmp.companyId;
       }
     }
     const qb = this.employeeRepo.createQueryBuilder('e')
@@ -1391,7 +1397,7 @@ export class HrService {
       lastName: e.lastName ?? null,
       departmentId: e.departmentId ?? null,
       departmentName: deptMap.get(e.id) ?? null,
-      jobTitle: dMap.get(e.id) ?? null,
+      jobTitle: e.jobTitle || (dMap.get(e.id) ?? null),
       status: e.status,
     }));
   }

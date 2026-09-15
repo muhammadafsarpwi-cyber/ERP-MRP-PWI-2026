@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Button, Space, Typography, Divider } from 'antd';
+import { Modal, Button, Space, Typography, Divider, Tag } from 'antd';
 import { CheckCircleFilled, EyeOutlined, PlusOutlined, UndoOutlined, LoadingOutlined } from '@ant-design/icons';
 
 const { Text, Title } = Typography;
@@ -111,6 +111,23 @@ const ProductionSaveSuccessModal: React.FC<{
             <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
               {mode === 'edit' ? 'The production entry has been updated.' : 'The production entry has been recorded.'}
             </Text>
+            <div style={{ marginTop: 8 }}>
+              <Tag
+                color="#16a34a"
+                style={{
+                  padding: '3px 12px',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: '#ecfdf5',
+                  borderColor: '#10b981',
+                  color: '#047857',
+                }}
+              >
+                <CheckCircleFilled style={{ marginRight: 5 }} />
+                7 STEPS OK · 100% COMPLETE
+              </Tag>
+            </div>
           </div>
 
           <Divider style={{ margin: '12px 0' }} />

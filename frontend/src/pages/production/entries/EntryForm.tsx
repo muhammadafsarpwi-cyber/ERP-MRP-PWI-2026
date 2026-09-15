@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
-  App, Typography, Switch, Alert, Spin, AutoComplete, Tooltip, Tag,
+  App, Typography, Switch, Alert, Spin, AutoComplete, Tooltip, Tag, Progress,
 } from 'antd';
 import {
   ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined,
@@ -686,13 +686,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plannedHours]);
 
-  // When downtime entries change in MANUAL mode, re-derive running hours.
+  // When downtime entries change in MANUAL mode or whenever downtime is entered, re-derive running hours.
   useEffect(() => {
-    if (downtimeMode === 'manual' && plannedHours > 0) {
+    if (plannedHours > 0 && (downtimeMode === 'manual' || totalDowntime > 0)) {
       setRunningFromDowntimeLines(totalDowntime);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalDowntime, downtimeMode]);
+  }, [totalDowntime, downtimeMode, plannedHours]);
 
   const derivedRunning = effectiveRunning(toNum(runningHours), totalDowntime, plannedHours);
   const derivedDowntime = effectiveDowntime(toNum(runningHours), totalDowntime, plannedHours);
@@ -722,9 +722,46 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
 
 
+  // ── Department-based item filtering ────────────────────────────────────────
+  // Items available in the Production Items row dropdowns are scoped to the
+  // selected Department — matching Item.departmentId. No department selected →
+  // show all items (legacy behaviour preserved).
+  const effectiveDeptId = useMemo(() => {
+    const d = ctxIds.departmentId;
+    return (typeof d === 'string' && d.length > 0) ? d : (typeof departmentId === 'string' && departmentId.length > 0 ? departmentId : undefined);
+  }, [ctxIds.departmentId, departmentId]);
+
+  useEffect(() => {
+    if (effectiveDeptId) {
+      void lookups.loadDepartmentItems(effectiveDeptId);
+      void lookups.loadEmployeesForDepartment(effectiveDeptId);
+    }
+  }, [effectiveDeptId, lookups.loadDepartmentItems, lookups.loadEmployeesForDepartment]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const departmentItems = useMemo(() => {
+    if (!effectiveDeptId) return lookups.items;
+    // 1. Items specifically assigned to this department (either cached from loadDepartmentItems or in lookups.items)
+    const cachedDept = lookups.deptItemsMap[effectiveDeptId];
+    if (cachedDept && cachedDept.length > 0) return cachedDept;
+
+    const filtered = lookups.items.filter((i) => i.departmentId === effectiveDeptId);
+    if (filtered.length > 0) return filtered;
+
+    // 2. If no items match this department directly, check division-linked items
+    const divId = ctxIds.divisionId || (typeof divisionId === 'string' ? divisionId : undefined);
+    if (divId) {
+      const divFiltered = lookups.items.filter((i) => i.divisionId === divId);
+      if (divFiltered.length > 0) return divFiltered;
+    }
+
+    // 3. Fallback to manufacturable items or all items so the picker is never dead/empty
+    const mfg = lookups.items.filter((i) => i.isManufacturable);
+    return mfg.length > 0 ? mfg : lookups.items;
+  }, [effectiveDeptId, lookups.deptItemsMap, lookups.items, ctxIds.divisionId, divisionId]);
+
   const selectedItem = useMemo(
-    () => lookups.items.find((i) => i.id === itemId) ?? null,
-    [lookups.items, itemId],
+    () => lookups.items.find((i) => i.id === itemId) || departmentItems.find((i) => i.id === itemId) || null,
+    [lookups.items, departmentItems, itemId],
   );
 
   // ── Primary item = first production item (historically used for the legacy
@@ -733,9 +770,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const primaryItem = useMemo(() => {
     const items = (productionItemsWatch ?? []) as Array<{ itemId?: string }>;
     const first = items.find((it) => !!it.itemId);
-    if (first?.itemId) return lookups.items.find((i) => i.id === first.itemId) ?? null;
+    if (first?.itemId) {
+      return lookups.items.find((i) => i.id === first.itemId)
+        || departmentItems.find((i) => i.id === first.itemId)
+        || null;
+    }
     return selectedItem;
-  }, [productionItemsWatch, lookups.items, selectedItem]);
+  }, [productionItemsWatch, lookups.items, departmentItems, selectedItem]);
 
   // TASK #29 authoritative Rejection Weight: derived ONLY from the visible
   // "Rejection / Scrap" Production Figures input (scrapQty) × the item's own
@@ -778,12 +819,12 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const selectedProductionItems = useMemo(() => {
     const items = (productionItemsWatch ?? []) as Array<{ itemId?: string }>;
     const fromRows = items
-      .map((it) => it.itemId ? lookups.items.find((i) => i.id === it.itemId) ?? null : null)
+      .map((it) => it.itemId ? (lookups.items.find((i) => i.id === it.itemId) || departmentItems.find((i) => i.id === it.itemId)) ?? null : null)
       .filter((x): x is ItemLk => !!x);
     if (fromRows.length > 0) return fromRows;
     if (selectedItem) return [selectedItem];
     return [];
-  }, [productionItemsWatch, lookups.items, selectedItem]);
+  }, [productionItemsWatch, lookups.items, departmentItems, selectedItem]);
 
   const effectiveProductionItems = useMemo(() => {
     const items = ((productionItemsWatch ?? []) as Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string; scrapQuantity?: number | string }>).filter((p) => !!p.itemId);
@@ -800,42 +841,6 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productionItemsWatch, itemId, productionItemsCount > 0 ? null : actualQty, productionItemsCount > 0 ? null : scrapQty, uomId]);
 
-  // ── Department-based item filtering ────────────────────────────────────────
-  // Items available in the Production Items row dropdowns are scoped to the
-  // selected Department — matching Item.departmentId. No department selected →
-  // show all items (legacy behaviour preserved).
-  const effectiveDeptId = useMemo(() => {
-    const d = ctxIds.departmentId;
-    return (typeof d === 'string' && d.length > 0) ? d : (typeof departmentId === 'string' && departmentId.length > 0 ? departmentId : undefined);
-  }, [ctxIds.departmentId, departmentId]);
-
-  useEffect(() => {
-    if (effectiveDeptId) {
-      void lookups.loadDepartmentItems(effectiveDeptId);
-    }
-  }, [effectiveDeptId, lookups.loadDepartmentItems]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const departmentItems = useMemo(() => {
-    if (!effectiveDeptId) return lookups.items;
-    // 1. Items specifically assigned to this department (either cached from loadDepartmentItems or in lookups.items)
-    const cachedDept = lookups.deptItemsMap[effectiveDeptId];
-    if (cachedDept && cachedDept.length > 0) return cachedDept;
-
-    const filtered = lookups.items.filter((i) => i.departmentId === effectiveDeptId);
-    if (filtered.length > 0) return filtered;
-
-    // 2. If no items match this department directly, check division-linked items
-    const divId = ctxIds.divisionId || (typeof divisionId === 'string' ? divisionId : undefined);
-    if (divId) {
-      const divFiltered = lookups.items.filter((i) => i.divisionId === divId);
-      if (divFiltered.length > 0) return divFiltered;
-    }
-
-    // 3. Fallback to manufacturable items or all items so the picker is never dead/empty
-    const mfg = lookups.items.filter((i) => i.isManufacturable);
-    return mfg.length > 0 ? mfg : lookups.items;
-  }, [effectiveDeptId, lookups.deptItemsMap, lookups.items, ctxIds.divisionId, divisionId]);
-
   // ── Multi-item production aggregate calculations ──────────────────────────
   // When production items (Form.List) are used, aggregate quantities from all lines.
   // Each line can have its own item, UOM, and weight-per-meter for KG conversion.
@@ -847,27 +852,37 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     if (!items.length) return null;
     return aggregateProductionTotals(
       items.map((line) => {
-        const item = lookups.items.find((i) => i.id === line.itemId);
-        if (!item) return { actualQuantity: line.actualQuantity, scrapQuantity: line.scrapQuantity };
-        const resolvedUomId = line.uomId || item.baseUomId;
+        const item = lookups.items.find((i) => i.id === line.itemId)
+          || departmentItems.find((i) => i.id === line.itemId)
+          || Object.values(lookups.deptItemsMap).flat().find((i) => i.id === line.itemId);
+        const resolvedUomId = line.uomId || item?.baseUomId;
         const foundUom = lookups.uoms.find((u) => u.id === resolvedUomId);
         let uomType = foundUom?.uomType ?? null;
+        let uomCode = (foundUom?.code || item?.baseUom?.code || '').toUpperCase();
+        if (!uomCode && (resolvedUomId === '52a2a811-b692-497e-9467-10a06b66043b' || !resolvedUomId)) {
+          uomCode = 'KG';
+        }
         if (!uomType) {
-          if (foundUom?.code === 'KG' || item.baseUom?.code === 'KG') uomType = 'WEIGHT';
-          else if (foundUom?.code === 'M' || foundUom?.code === 'METER' || item.baseUom?.code === 'M' || item.baseUom?.code === 'METER') uomType = 'LENGTH';
+          if (uomCode === 'KG' || uomCode === 'KILOGRAM') uomType = 'WEIGHT';
+          else if (uomCode === 'M' || uomCode === 'METER' || uomCode === 'METERS') uomType = 'LENGTH';
+          else if (uomCode === 'PCS' || uomCode === 'PC' || uomCode === 'EA') uomType = 'COUNT';
+          else uomType = 'WEIGHT';
         }
         return {
           actualQuantity: line.actualQuantity,
           scrapQuantity: line.scrapQuantity,
           item: {
-            ...item,
+            ...(item || {}),
             uomType,
-            uomCode: foundUom?.code || item.baseUom?.code,
+            uomCode: uomCode || 'KG',
+            weightPerMeter: item?.weightPerMeter,
+            weightPerPiece: item?.weightPerPiece,
+            piecesPerKg: item?.piecesPerKg,
           },
         };
       }),
     );
-  }, [productionItemsWatch, lookups.items, lookups.uoms]);
+  }, [productionItemsWatch, lookups.items, departmentItems, lookups.deptItemsMap, lookups.uoms]);
 
   // TASK #24: when Production Items are in use, Actual Good Production is the
   // READ-ONLY sum of all production item quantities (reusing the existing
@@ -914,11 +929,50 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
     if (totalKg > 0) {
       return Math.round((rejKg / totalKg) * 10000) / 100;
     }
-    const good = Math.max(0, toNum(actualQty));
+    const good = Math.max(0, toNum(effectiveActualQty));
     const rej = Math.max(0, toNum(scrapQty));
     const total = good + rej;
     return total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
-  }, [actualQty, scrapQty, multiItemAggregate, singleItemKg, effectiveScrapWeightKg]);
+  }, [effectiveActualQty, scrapQty, multiItemAggregate, singleItemKg, effectiveScrapWeightKg]);
+
+  // ── Step-by-Step Completion Status (Steps 1 to 7) ──────────────────────────
+  const isStep1Done = Boolean(operatorWatch && String(operatorWatch).trim().length > 0);
+  const isStep2Done = Boolean(
+    effectiveActualQty > 0 ||
+    (Array.isArray(productionItemsWatch) && productionItemsWatch.some((p: any) => p?.itemId && toNum(p?.actualQuantity) > 0))
+  );
+  const isStep3Done = Boolean(
+    isStep2Done && (Object.keys(rawMaterialData).length > 0 || selectedProductionItems.length > 0)
+  );
+  const isStep4Done = Boolean(
+    effectiveActualQty > 0 &&
+    derivedRunning >= 0 &&
+    (machineLinked ? displayTarget !== null : Boolean(targetQty && toNum(targetQty) > 0))
+  );
+  const isStep5Done = Boolean(
+    plannedHours > 0
+      ? Math.abs(round2(derivedRunning + totalDowntime) - plannedHours) <= 0.05
+      : (derivedRunning > 0 || totalDowntime >= 0)
+  );
+  const isStep6Done = Boolean(
+    (!productionOrderId || Boolean(form.getFieldValue('productionOrderOperationId'))) &&
+    (!form.getFieldValue('postToInventory') || Boolean(warehouseWatch))
+  );
+  const isAllPriorStepsDone = isStep1Done && isStep2Done && isStep3Done && isStep4Done && isStep5Done && isStep6Done;
+  const isStep7Done = isAllPriorStepsDone;
+
+  const stepList = useMemo(() => [
+    { step: 1, label: 'Operator', done: isStep1Done },
+    { step: 2, label: 'Production Items', done: isStep2Done },
+    { step: 3, label: 'Raw Material', done: isStep3Done },
+    { step: 4, label: 'Production Figures', done: isStep4Done },
+    { step: 5, label: 'Downtime', done: isStep5Done },
+    { step: 6, label: 'Order Linkage', done: isStep6Done },
+    { step: 7, label: 'Save Entry', done: isStep7Done },
+  ], [isStep1Done, isStep2Done, isStep3Done, isStep4Done, isStep5Done, isStep6Done, isStep7Done]);
+
+  const completedStepsCount = useMemo(() => stepList.filter((s) => s.done).length, [stepList]);
+  const progressPercent = Math.round((completedStepsCount / 7) * 100);
 
   const onFinish = useCallback(async (values: Record<string, unknown>) => {
     console.log('ON_FINISH_START', values);
@@ -982,8 +1036,18 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       }
       // Authoritative aggregate downtime + running hours for the parent entry
       payload.downtimeHours = computedDowntime;
-      if (downtimeMode === 'manual' && plannedHours > 0) {
-        payload.runningHours = round2(Math.max(0, plannedHours - computedDowntime));
+      if (plannedHours > 0) {
+        if (computedDowntime > 0) {
+          payload.runningHours = round2(Math.max(0, plannedHours - computedDowntime));
+        } else if (values.runningHours !== undefined && values.runningHours !== null && values.runningHours !== '') {
+          payload.runningHours = round2(Math.min(plannedHours, toNum(values.runningHours)));
+          payload.downtimeHours = round2(Math.max(0, plannedHours - (payload.runningHours as number)));
+        } else {
+          payload.runningHours = round2(plannedHours);
+          payload.downtimeHours = 0;
+        }
+      } else {
+        payload.runningHours = toNum(values.runningHours);
       }
       // Validate downtime doesn't exceed planned hours
       if (plannedHours > 0 && computedDowntime > plannedHours) {
@@ -1501,66 +1565,94 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           </Col>
         </Row>
 
-        {/* ── 7-STEP WORKFLOW GUIDE ── */}
+        {/* ── 7-STEP WORKFLOW GUIDE WITH LIVE GREEN PROGRESS LINE ── */}
         <div
           data-testid="form-workflow-steps"
           style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 8,
             marginBottom: 16,
-            padding: '10px 14px',
+            padding: '12px 16px',
             background: 'var(--theme-surface-alt, #f8fafc)',
-            borderRadius: 8,
-            border: '1px solid var(--theme-border, #e2e8f0)',
-            alignItems: 'center',
+            borderRadius: 10,
+            border: isStep7Done ? '1.5px solid #16a34a' : '1px solid var(--theme-border, #e2e8f0)',
+            boxShadow: isStep7Done ? '0 0 12px rgba(22, 163, 74, 0.15)' : 'none',
+            transition: 'all 0.3s ease',
           }}
         >
-          <Text strong style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted, #64748b)', marginRight: 4, letterSpacing: 0.5 }}>
-            Workflow Steps:
-          </Text>
-          {[
-            { step: 'Step 1', label: 'Operator' },
-            { step: 'Step 2', label: 'Production Items' },
-            { step: 'Step 3', label: 'Raw Material' },
-            { step: 'Step 4', label: 'Production Figures' },
-            { step: 'Step 5', label: 'Downtime' },
-            { step: 'Step 6', label: 'Order Linkage' },
-            { step: 'Step 7', label: 'Save Entry' },
-          ].map((s, idx, arr) => (
-            <div
-              key={s.step}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '3px 8px',
-                borderRadius: 6,
-                background: 'var(--theme-surface, #ffffff)',
-                border: '1px solid var(--theme-border, #cbd5e1)',
-                fontSize: 12,
-              }}
-            >
-              <span
+          {/* Header row with Status & Percentage */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Text strong style={{ fontSize: 12, textTransform: 'uppercase', color: 'var(--theme-text, #0f172a)', letterSpacing: 0.5 }}>
+                Workflow Progress ({completedStepsCount} of 7 Complete)
+              </Text>
+              {isStep7Done ? (
+                <Tag color="#16a34a" style={{ fontWeight: 700, borderRadius: 10, padding: '2px 10px', fontSize: 12 }}>
+                  <CheckCircleFilled style={{ marginRight: 4 }} />
+                  7 STEPS OK · 100% COMPLETE
+                </Tag>
+              ) : (
+                <Tag color="#16a34a" style={{ fontWeight: 700, borderRadius: 10, padding: '2px 8px', fontSize: 11, background: '#f0fdf4', border: '1px solid #86efac', color: '#15803d' }}>
+                  {progressPercent}% Complete
+                </Tag>
+              )}
+            </div>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {isStep7Done
+                ? 'All 7 steps completed & verified — ready to save!'
+                : `${7 - completedStepsCount} step(s) pending (complete remaining cards)`}
+            </Text>
+          </div>
+
+          {/* Progress Line running across: fills with rich emerald green at each step */}
+          <Progress
+            percent={progressPercent}
+            strokeColor={{ '0%': '#4ade80', '100%': '#16a34a' }}
+            trailColor="#e2e8f0"
+            strokeWidth={10}
+            showInfo={false}
+            style={{ marginBottom: 12 }}
+          />
+
+          {/* 7 Step Badges */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {stepList.map((s, idx, arr) => (
+              <div
+                key={s.step}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '1px 6px',
-                  borderRadius: 4,
-                  background: '#1d4ed8',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                  fontSize: 10,
-                  letterSpacing: 0.5,
+                  gap: 6,
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  background: s.done ? '#ecfdf5' : '#ffffff',
+                  border: s.done ? '1.5px solid #10b981' : '1px solid #cbd5e1',
+                  color: s.done ? '#065f46' : '#64748b',
+                  fontSize: 12,
+                  fontWeight: s.done ? 600 : 500,
+                  boxShadow: s.done ? '0 1px 3px rgba(16, 185, 129, 0.15)' : 'none',
+                  transition: 'all 0.25s ease',
                 }}
               >
-                {s.step}
-              </span>
-              <span style={{ fontWeight: 600, color: 'var(--theme-text, #334155)' }}>{s.label}</span>
-              {idx < arr.length - 1 && <span style={{ color: '#94a3b8', marginLeft: 2 }}>›</span>}
-            </div>
-          ))}
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 18,
+                    height: 18,
+                    borderRadius: '50%',
+                    background: s.done ? '#16a34a' : '#94a3b8',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: 10,
+                  }}
+                >
+                  {s.done ? '✓' : s.step}
+                </span>
+                <span>{s.label}</span>
+                {idx < arr.length - 1 && <span style={{ color: '#cbd5e1', marginLeft: 2 }}>›</span>}
+              </div>
+            ))}
+          </div>
         </div>
 
         <Row gutter={16}>
@@ -1569,7 +1661,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             <Card
               title="Operator"
               size="small"
-              extra={<Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 1</Tag>}
+              extra={<Tag color={isStep1Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep1Done ? '✓ STEP 1 OK' : 'STEP 1'}</Tag>}
             >
               <Row gutter={12}>
                 <Col xs={24} md={12}>
@@ -1631,7 +1723,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               style={{ marginTop: 16 }}
               extra={
                 <Space>
-                  <Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 2</Tag>
+                  <Tag color={isStep2Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep2Done ? '✓ STEP 2 OK' : 'STEP 2'}</Tag>
                   {maxItemsReached ? (
                     <Tooltip title="Maximum 2 production items are allowed.">
                       <span>
@@ -1825,13 +1917,14 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               receiptStoreLabel={warehouseWatch ? (warehouses.find((w) => w.id === warehouseWatch)?.name ?? undefined) : undefined}
               fallbackScrapQty={scrapQty}
               onData={handleRawMaterialData}
+              isDone={isStep3Done}
             />
 
             <Card
               title="Production Figures"
               size="small"
               style={{ marginTop: 16 }}
-              extra={<Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 4</Tag>}
+              extra={<Tag color={isStep4Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep4Done ? '✓ STEP 4 OK' : 'STEP 4'}</Tag>}
             >
               <Row gutter={8}>
                 <Col span={12}>
@@ -1980,7 +2073,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               size="small"
               extra={
                 <Space>
-                  <Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 5</Tag>
+                  <Tag color={isStep5Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>
+                    {isStep5Done ? '✓ STEP 5 OK' : 'STEP 5'}
+                  </Tag>
                   <Button
                     type="primary" size="small" icon={<PlusOutlined />}
                     onClick={() => addDowntimeRef.current()}
@@ -2213,7 +2308,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               title="Production Order Linkage (optional)"
               size="small"
               style={{ marginTop: 16 }}
-              extra={<Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 6</Tag>}
+              extra={<Tag color={isStep6Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep6Done ? '✓ STEP 6 OK' : 'STEP 6'}</Tag>}
             >
               <Alert
                 type="info" showIcon style={{ marginBottom: 12 }}
@@ -2336,19 +2431,50 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         </Row>
 
         {/* ── STEP 7: ACTION BAR ── */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
           <Space>
-            <Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 7</Tag>
-            <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>Finalize & Submit Production Entry</Text>
+            <Tag
+              color={isStep7Done ? '#16a34a' : '#f59e0b'}
+              style={{ fontWeight: 700, borderRadius: 12, padding: '4px 14px', fontSize: 13 }}
+            >
+              {isStep7Done ? (
+                <>
+                  <CheckCircleFilled style={{ marginRight: 6 }} />
+                  7 STEPS OK · 100% READY
+                </>
+              ) : (
+                `STEP 7 · ${7 - completedStepsCount} STEP(S) REMAINING`
+              )}
+            </Tag>
+            <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>
+              {isStep7Done ? 'All 7 Steps Complete — Ready to Save' : 'Finalize & Submit Production Entry'}
+            </Text>
           </Space>
-          <Text type="secondary" style={{ fontSize: 11 }}>Review figures & record entry to database</Text>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {isStep7Done ? 'All verification criteria met (100%)' : 'Complete all steps above to achieve 100% verification'}
+          </Text>
         </div>
         <Button
-          type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}
+          type="primary"
+          htmlType="submit"
+          icon={isStep7Done ? <CheckCircleFilled /> : <SaveOutlined />}
+          loading={saving}
           disabled={submitBlocked}
-          block size="large"
+          block
+          size="large"
+          style={{
+            background: isStep7Done ? '#16a34a' : undefined,
+            borderColor: isStep7Done ? '#16a34a' : undefined,
+            boxShadow: isStep7Done ? '0 4px 16px rgba(22, 163, 74, 0.4)' : undefined,
+            fontSize: 15,
+            fontWeight: 700,
+            height: 44,
+            transition: 'all 0.3s ease',
+          }}
         >
-          {mode === 'create' ? 'Save Production Entry' : 'Update Production Entry'}
+          {isStep7Done
+            ? (mode === 'create' ? '✓ Save Production Entry (7 Steps OK · 100%)' : '✓ Update Production Entry (7 Steps OK · 100%)')
+            : (mode === 'create' ? 'Save Production Entry' : 'Update Production Entry')}
         </Button>
         {submitBlocked && !resolvingMt && (
           <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 6 }}>
@@ -2877,6 +3003,7 @@ const RawMaterialAvailability: React.FC<{
    *  consumption basis (row 1 = the entry item) when the row itself carries no
    *  scrap — mirroring backend consumeForProductionItem (entry-level fields). */
   fallbackScrapQty?: number | string;
+  isDone?: boolean;
   onData?: (data: Record<string, {
     itemCode: string;
     itemName?: string | null;
@@ -2890,7 +3017,7 @@ const RawMaterialAvailability: React.FC<{
     productionOutItemName?: string | null;
     chainWarning?: string | null;
   }>) => void;
-}> = ({ productionItems, lookups, warehouseId, receiptWarehouseId, sourceStoreLabel, receiptStoreLabel, fallbackScrapQty, onData }) => {
+}> = ({ productionItems, lookups, warehouseId, receiptWarehouseId, sourceStoreLabel, receiptStoreLabel, fallbackScrapQty, isDone, onData }) => {
   const [data, setData] = useState<Record<string, RawMatItem>>({});
   const selected = productionItems.filter((p) => !!p.itemId);
   const selectedIds = selected.map((p) => p.itemId).join('|');
@@ -3672,7 +3799,7 @@ const RawMaterialAvailability: React.FC<{
       data-testid="raw-material-card"
       style={{ marginTop: 16, borderLeft: '3px solid var(--theme-primary)' }}
       title={<span style={{ fontSize: 13 }}><DatabaseOutlined style={{ marginRight: 6, color: 'var(--theme-primary)' }} />RAW MATERIAL REQUIREMENT</span>}
-      extra={<Tag color="#1d4ed8" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>STEP 3</Tag>}
+      extra={<Tag color={isDone ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isDone ? '✓ STEP 3 OK' : 'STEP 3'}</Tag>}
     >
       {order.length === 0 ? (
         <Text type="secondary" style={{ fontSize: 12 }}>

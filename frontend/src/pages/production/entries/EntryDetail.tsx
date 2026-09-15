@@ -435,11 +435,21 @@ const EntryDetail: React.FC = () => {
   if (!entry) return <Card>Entry not found.</Card>;
 
   const ach = toNum(entry.achievementPercentage);
-  const eff = toNum(entry.efficiencyPercentage);
-  const planned = entry.downtime?.plannedHours ?? null;
   const totalDowntime = toNum(entry.downtimeHours);
   const running = toNum(entry.runningHours);
-  const remaining = planned != null ? Math.max(0, planned - running - totalDowntime) : null;
+  const shiftPlanned = entry.shift?.plannedHours != null && toNum(entry.shift.plannedHours) > 0
+    ? toNum(entry.shift.plannedHours)
+    : null;
+  const planned = shiftPlanned ?? (entry.downtime?.plannedHours != null && toNum(entry.downtime.plannedHours) > 0 ? toNum(entry.downtime.plannedHours) : null);
+  // Re-derive effective running if planned hours exist and downtime is recorded
+  const effectiveRunning = (planned != null && planned > 0 && totalDowntime > 0 && running + totalDowntime > planned)
+    ? Math.max(0, planned - totalDowntime)
+    : running;
+  const remaining = planned != null ? Math.max(0, planned - effectiveRunning - totalDowntime) : null;
+  // If downtime > 0 and running + downtime exceeded planned (stale/bad saved DB row), re-derive efficiency from effectiveRunning
+  const eff = (planned != null && planned > 0 && totalDowntime > 0 && running + totalDowntime > planned)
+    ? Math.round((effectiveRunning / planned) * 10000) / 100
+    : toNum(entry.efficiencyPercentage);
   const wireSize = entry.item?.wireSizeMm != null ? `${formatDimension(entry.item.wireSizeMm)} mm` : '—';
   const productionInItem = entry.item?.productionInItem ?? null;
   const sourceStoreId = entry.rawMaterialWarehouseId ?? null;
@@ -498,7 +508,7 @@ const EntryDetail: React.FC = () => {
   const outCompanyBefore = posted ? Math.max(0, outCompanyTotal - outProduced) : outCompanyTotal;
 
   const sectionCtx = (
-    <Descriptions column={3} size="small" bordered>
+    <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
       <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
       <Descriptions.Item label="Entry Reference"><Text strong style={{ fontSize: 13 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
       <Descriptions.Item label="Division">{entry.division?.divisionCode} — {entry.division?.name}</Descriptions.Item>
@@ -515,7 +525,7 @@ const EntryDetail: React.FC = () => {
   );
 
   const sectionSummary = (
-    <Descriptions column={3} size="small" bordered>
+    <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
       <Descriptions.Item label="Item" span={2}>
         <Text strong>{entry.item?.itemCode}</Text> — {entry.item?.name}
       </Descriptions.Item>
@@ -535,7 +545,7 @@ const EntryDetail: React.FC = () => {
       <Descriptions.Item label="Base UOM">{entry.item?.baseUom?.code ?? '—'}</Descriptions.Item>
       <Descriptions.Item label="Actual Good Production"><Text strong>{formatNumber(entry.actualQuantity, 3)}</Text></Descriptions.Item>
       <Descriptions.Item label="Rejection / Scrap">{formatNumber(entry.scrapQuantity, 3)}</Descriptions.Item>
-      <Descriptions.Item label="Running Hours">{formatNumber(running, 2)}h</Descriptions.Item>
+      <Descriptions.Item label="Running Hours">{formatNumber(effectiveRunning, 2)}h</Descriptions.Item>
       <Descriptions.Item
         label="Downtime Hours"
         contentStyle={totalDowntime > 0 ? { background: 'var(--theme-warning-soft)' } : undefined}
@@ -559,7 +569,7 @@ const EntryDetail: React.FC = () => {
         <Text type="secondary">Input Material: Not configured.</Text>
       ) : (
         <div>
-          <Descriptions column={3} size="small" bordered>
+          <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
             <Descriptions.Item label="Input Item" span={2}>
               <Text strong>{productionInItem.itemCode}</Text> — {productionInItem.name}
             </Descriptions.Item>
@@ -718,7 +728,7 @@ const EntryDetail: React.FC = () => {
   const sectionDowntime = (
     <DowntimeView
       downtimeHours={entry.downtimeHours}
-      runningHours={entry.runningHours}
+      runningHours={effectiveRunning}
       plannedHours={planned}
       remainingHours={remaining}
       lines={entry.downtimes ?? []}
@@ -746,17 +756,17 @@ const EntryDetail: React.FC = () => {
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                 width: 20, height: 20, borderRadius: '50%',
                 background: 'var(--theme-primary)', color: '#fff',
-                fontSize: 11, fontWeight: 600, flexShrink: 0,
+                fontSize: 10, fontWeight: 700, flexShrink: 0,
               }}>
-                {idx + 1}
+                {op.sequenceNo}
               </span>
-              <Text strong style={{ fontSize: 12 }}>{op.operationName ?? 'Operation'}</Text>
+              <Text strong style={{ fontSize: 12 }}>{op.operationName ?? `Op #${op.sequenceNo}`}</Text>
               {op.department?.name && (
-                <Text type="secondary" style={{ fontSize: 11 }}>({op.department.name})</Text>
+                <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>{op.department.name}</Tag>
               )}
             </div>
             {idx < arr.length - 1 && (
-              <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 14, lineHeight: '16px' }}>
+              <div style={{ paddingLeft: 18, color: 'var(--theme-text-muted)', fontSize: 11, lineHeight: '14px' }}>
                 ↓
               </div>
             )}
@@ -808,6 +818,7 @@ const EntryDetail: React.FC = () => {
         <Table
           key={balances.map((b) => b.id).join('|')}
           rowKey="id" size="small" pagination={false}
+          scroll={{ x: 'max-content' }}
           dataSource={balances}
           columns={[
             { title: 'Warehouse', key: 'warehouse', render: (_, r) => r.warehouse?.name ?? '—' },
@@ -879,6 +890,7 @@ const EntryDetail: React.FC = () => {
           </Descriptions>
           <Table
             rowKey="id" size="small" pagination={false}
+            scroll={{ x: 'max-content' }}
             dataSource={movements}
             columns={[
               { title: 'Date', key: 'date', width: 120, render: (_, m) => m.transactionDate ? dayjs(m.transactionDate).format('DD-MMM HH:mm') : '—' },
@@ -900,15 +912,34 @@ const EntryDetail: React.FC = () => {
 
   return (
     <div>
+      <style>{`
+        .erp-detail-descriptions .ant-descriptions-item-label {
+          min-width: 120px;
+          font-weight: 500;
+        }
+        @media (max-width: 640px) {
+          .erp-detail-descriptions .ant-descriptions-item-label {
+            width: 40% !important;
+            min-width: 110px !important;
+            white-space: normal !important;
+            word-break: break-word !important;
+          }
+          .erp-detail-descriptions .ant-descriptions-item-content {
+            width: 60% !important;
+            word-break: break-word !important;
+          }
+        }
+      `}</style>
+
       {/* ── Global header: identity + machine/department + date + actions ── */}
-      <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }} align="start">
-        <Space>
+      <div style={{ marginBottom: 12, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <Space style={{ flexWrap: 'wrap' }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
           <Title level={4} style={{ margin: 0 }}>
             Production Entry — {dayjs(entry.entryDate).format('DD-MMM-YYYY')}
           </Title>
         </Space>
-        <Space>
+        <Space style={{ flexWrap: 'wrap' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {entry.department?.name} · {entry.machineNo} · {dayjs(entry.entryDate).format('YYYY-MM-DD')}
           </Text>
@@ -917,7 +948,7 @@ const EntryDetail: React.FC = () => {
           </Button>
           <PopconfirmDelete onDeleted={() => navigate('/production/entries')} id={id!} />
         </Space>
-      </Space>
+      </div>
 
       {/* ── Compact KPI strip ── */}
       <Row gutter={[8, 8]} style={{ marginBottom: 4 }}>
@@ -926,7 +957,7 @@ const EntryDetail: React.FC = () => {
         <KpiCell label="Scrap" value={formatNumber(entry.scrapQuantity, 3)} sub={entry.uom?.code} accent={toNum(entry.scrapQuantity) > 0 ? 'warn' : undefined} icon={<DeleteFilled />} />
         <KpiCell label="Achievement" value={<KpiPercentage value={ach} fontSize={16} fontWeight={700} />} sub="% of target" icon={<TrophyFilled />} />
         <KpiCell label="Efficiency" value={<KpiPercentage value={eff} fontSize={16} fontWeight={700} />} sub="% of shift" icon={<ThunderboltFilled />} />
-        <KpiCell label="Running" value={`${formatNumber(running, 2)}h`} sub={planned != null ? `of ${formatNumber(planned, 2)}h` : undefined} icon={<ClockCircleFilled />} />
+        <KpiCell label="Running" value={`${formatNumber(effectiveRunning, 2)}h`} sub={planned != null ? `of ${formatNumber(planned, 2)}h` : undefined} icon={<ClockCircleFilled />} />
         <KpiCell label="Downtime" value={`${formatNumber(totalDowntime, 2)}h`} sub={remaining != null ? `remaining ${formatNumber(remaining, 2)}h` : undefined} accent={totalDowntime > 0 ? 'warn' : undefined} icon={<FieldTimeOutlined />} />
       </Row>
 
@@ -943,6 +974,7 @@ const EntryDetail: React.FC = () => {
           {entry.items && entry.items.length > 0 && (
             <Section letter="E" title="Production Output Lines">
               <Table rowKey="id" size="small" pagination={false}
+                scroll={{ x: 'max-content' }}
                 dataSource={entry.items}
                 columns={[
                   { title: '#', dataIndex: 'lineNumber', width: 40 },
@@ -968,7 +1000,7 @@ const EntryDetail: React.FC = () => {
           <Section letter="G" title="Production Route">{sectionRoute}</Section>
 
           <Section letter="H" title="Linkages">
-            <Descriptions column={2} size="small" bordered>
+            <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered className="erp-detail-descriptions">
               <Descriptions.Item label="Production Order">
                 {entry.productionOrder ? (
                   <Button type="link" size="small" onClick={() => navigate(`/production/orders/${entry.productionOrder!.id}`)}>
@@ -983,7 +1015,7 @@ const EntryDetail: React.FC = () => {
           </Section>
 
           <Section letter="I" title="Remarks & Entry Metadata">
-            <Descriptions column={2} size="small" bordered>
+            <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered className="erp-detail-descriptions">
               <Descriptions.Item label="Remarks" span={2}>{entry.remarks ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Created By">{entry.createdByUser?.fullName ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
@@ -1085,6 +1117,7 @@ const DowntimeView: React.FC<{
         <Table
           rowKey={(l) => l.id || `${l.lineNumber}`}
           size="small" pagination={false}
+          scroll={{ x: 'max-content' }}
           dataSource={lines}
           columns={[
             { title: '#', key: 'idx', width: 40, render: (_: unknown, _r: DowntimeDetail, idx: number) => idx + 1 },

@@ -96,24 +96,25 @@ export function useLookups() {
           finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees', { limit: 500, status: 'ACTIVE' });
         } catch {}
       }
-      if (!finalEmployees || finalEmployees.length === 0) {
-        try {
-          const users = await fetchList<any>('/admin/users', { limit: 200, status: 'ACTIVE' });
-          if (users && users.length > 0) {
-            finalEmployees = users.map((u: any) => ({
-              id: u.id,
-              employeeCode: u.username || (u.email ? u.email.split('@')[0] : 'OP'),
-              firstName: u.fullName || u.firstName || (u.displayName ? u.displayName.split(' ')[0] : 'Operator'),
-              lastName: u.lastName || (u.displayName ? u.displayName.split(' ').slice(1).join(' ') : ''),
-              jobTitle: u.userRoles?.[0]?.role?.name || 'Operator',
-              departmentId: u.defaultDepartmentId ?? undefined,
-              status: u.status || 'ACTIVE',
-            }));
-          }
-        } catch {}
+      if (finalEmployees && finalEmployees.length > 0) {
+        setHrEmployees(finalEmployees);
       }
-      setHrEmployees(finalEmployees);
     })();
+  }, []);
+
+  /** Dynamically loads employees for a specific department to ensure department-level operators are available */
+  const loadEmployeesForDepartment = useCallback(async (deptId?: string) => {
+    if (!deptId) return;
+    try {
+      const fetched = await fetchList<HrEmployeeLk>('/hr/employees/lookup', { departmentId: deptId });
+      if (fetched && fetched.length > 0) {
+        setHrEmployees((prev) => {
+          const existingIds = new Set(prev.map((e) => e.id));
+          const toAdd = fetched.filter((e) => !existingIds.has(e.id));
+          return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+        });
+      }
+    } catch {}
   }, []);
 
   /** Dynamically loads items for a specific department and caches them */
@@ -207,6 +208,6 @@ export function useLookups() {
     deptItemsMap, deptItemsLoading, loadDepartmentItems,
     downtimeReasonsLoading, downtimeReasonsFailed, loadDowntimeReasons,
     loadMachines, sectionsForDivision, departmentsForSection, validUomsForItem,
-    employeesForDepartment, employeeFullName,
+    employeesForDepartment, employeeFullName, loadEmployeesForDepartment,
   };
 }
