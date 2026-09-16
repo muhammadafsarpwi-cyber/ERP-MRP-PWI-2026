@@ -1,7 +1,8 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, Req, Query, UseGuards, HttpCode, HttpStatus, BadRequestException, NotFoundException,
+  Controller, Get, Post, Patch, Delete, Body, Param, Req, Query, UseGuards, HttpCode, HttpStatus, BadRequestException, NotFoundException, UploadedFile, UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IsUUID, IsNumber, Min, IsOptional, IsString, MaxLength, IsDateString } from 'class-validator';
@@ -11,7 +12,7 @@ import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guar
 import { StockLedgerService } from '../services/stock-ledger.service';
 import { InventoryBalanceService } from '../services/inventory-balance.service';
 import { RawMaterialReceivingService } from '../services/raw-material-receiving.service';
-import { CreateRawMaterialReceiptDto, CreateRawMaterialReturnDto, UpdateRawMaterialReceiptDto, UpdateRawMaterialReturnDto, RawMaterialReceivingReportQuery } from '../dto/raw-material-receiving.dto';
+import { CreateRawMaterialReceiptDto, CreateRawMaterialReturnDto, UpdateRawMaterialReceiptDto, UpdateRawMaterialReturnDto, RawMaterialReceivingReportQuery, WhatsAppReceiptShareDto } from '../dto/raw-material-receiving.dto';
 import { Division, Section, Department } from '../../organization/entities';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { Item } from '../../item/entities/item.entity';
@@ -406,6 +407,17 @@ export class InventoryReceiptController {
     return { success: true, data };
   }
 
+  @Get('gate-pass/:id/inventory')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('inventory.view')
+  @ApiOperation({ summary: 'READ-ONLY current inventory (on-hand/reserved/available) for every item received in a receipt, from the existing inventory_balances source of truth' })
+  async getReceiptInventory(@Param('id') id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.getReceiptInventory(companyId, id);
+    return { success: true, data };
+  }
+
   @Patch('gate-pass/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
@@ -427,6 +439,68 @@ export class InventoryReceiptController {
     const companyId = this.getCompanyId(req);
     await this.rawMaterialService.removeReceipt(id, companyId);
     return { success: true, message: 'Receipt deleted and inventory balance reversed.' };
+  }
+
+  @Post('gate-pass/:id/documents')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.update')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a photo (PHOTO) or supporting document (ATTACHMENT) for a receipt' })
+  async uploadReceiptDocument(
+    @Param('id') id: string,
+    @UploadedFile() file: any,
+    @Req() req: any,
+    @Body('kind') kind?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.addReceiptDocument(
+      companyId, id, kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT', file, req.erpUser?.id,
+    );
+    return { success: true, data };
+  }
+
+  @Get('gate-pass/:id/documents')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.view')
+  @ApiOperation({ summary: 'List photos/attachments for a receipt' })
+  async listReceiptDocuments(@Param('id') id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.listReceiptDocuments(companyId, id);
+    return { success: true, data };
+  }
+
+  @Delete('gate-pass/:id/documents/:docId')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.update')
+  @ApiOperation({ summary: 'Remove a receipt document and delete its stored file' })
+  async removeReceiptDocument(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    await this.rawMaterialService.removeReceiptDocument(companyId, id, docId);
+    return { success: true, message: 'Document removed.' };
+  }
+
+  @Post('gate-pass/:id/whatsapp-share')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.view')
+  @ApiOperation({ summary: 'Share receipt details via the real WhatsApp provider when configured; otherwise signals unconfigured for a manual wa.me fallback' })
+  async shareReceiptWhatsApp(
+    @Param('id') id: string,
+    @Body() dto: WhatsAppReceiptShareDto,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.shareReceiptWhatsApp(companyId, id, dto, req.erpUser?.id);
+    return { success: true, data };
   }
 
   @Post('return-multi')

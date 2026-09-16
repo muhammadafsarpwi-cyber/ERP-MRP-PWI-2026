@@ -12,5 +12,6 @@ export { RawMaterialReceipt } from './raw-material-receipt.entity';
 export { RawMaterialReceiptLine } from './raw-material-receipt-line.entity';
 export { RawMaterialReturn } from './raw-material-return.entity';
 export { RawMaterialReturnLine } from './raw-material-return-line.entity';
+export { RawMaterialReceiptDocument } from './raw-material-receipt-document.entity';
 export { StockAdjustmentHistory } from './stock-adjustment-history.entity';
 export { StockTransferHistory } from './stock-transfer-history.entity';

@@ -51,6 +51,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
+import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
 import { useLookups, Department, ShiftLk } from './lookups';
 import KpiPercentage, { kpiIndicator } from '../../../components/kpi/KpiPercentage';
 import {
@@ -82,7 +83,7 @@ export interface ProductionEntryRow {
   supervisorName: string | null;
   coilSize: string | null;
   itemId: string;
-  item?: { id: string; name: string; itemCode: string; sku?: string; shortName?: string };
+  item?: { id: string; name: string; itemCode: string; sku?: string; shortName?: string; weightPerPiece?: number | null; weightPerMeter?: number | null };
   uomId: string;
   uom?: { id: string; code: string; symbol: string; name?: string };
   targetQuantity: number | string;
@@ -106,6 +107,9 @@ interface ReportItemGroup {
   itemCode: string;
   itemName: string;
   uomCode: string;
+  weightPerPiece?: number | null;
+  weightPerMeter?: number | null;
+  actualKg?: number | null;
   targetQuantity: number;
   actualQuantity: number;
   scrapQuantity: number;
@@ -323,11 +327,13 @@ const EntryList: React.FC = () => {
       'Target Qty',
       'Actual Qty',
       'UOM',
+      'Per Unit Weight',
+      'Actual KG',
       'Achievement %',
       'Efficiency %',
       'Running Hours',
       'Downtime Hours',
-      'Scrap Qty',
+      'Scrap (KG)',
       'Status',
     ];
 
@@ -354,6 +360,8 @@ const EntryList: React.FC = () => {
         r.targetQuantity ?? 0,
         r.actualQuantity ?? 0,
         r.uom?.code || '',
+        perUnitWeightLabel(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—',
+        calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '',
         r.achievementPercentage ?? 0,
         r.efficiencyPercentage ?? 0,
         r.runningHours ?? 0,
@@ -394,7 +402,7 @@ const EntryList: React.FC = () => {
       doc.text(`Generated: ${dateStr} · Total entries: ${displayedRows.length}`, 40, 50);
 
       const head = [
-        ['Sr', 'Date', 'Division', 'Department', 'Shift', 'Machine', 'Operator', 'Item / Product', 'Target', 'Actual', 'UOM', 'Achv %', 'Run/Down', 'Status']
+        ['Sr', 'Date', 'Division', 'Department', 'Shift', 'Machine', 'Operator', 'Item / Product', 'Target', 'Actual', 'UOM', 'Per Unit Weight', 'Actual KG', 'Achv %', 'Run/Down', 'Status']
       ];
 
       const body = displayedRows.map((r, i) => {
@@ -421,6 +429,11 @@ const EntryList: React.FC = () => {
           formatNumber(r.targetQuantity, 2),
           formatNumber(r.actualQuantity, 2),
           r.uom?.code || '',
+          perUnitWeightLabel(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—',
+          (() => {
+            const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
+            return kg == null ? '—' : formatNumber(kg, 2);
+          })(),
           `${ach.toFixed(1)}%`,
           `${formatNumber(runH, 1)}h / ${formatNumber(downH, 1)}h`,
           getEntryStatus(r),
@@ -481,6 +494,11 @@ const EntryList: React.FC = () => {
         <td>${itemName.replace(/[<>&]/g, '')}</td>
         <td style="text-align:right;">${formatNumber(r.targetQuantity, 2)} ${r.uom?.code || ''}</td>
         <td style="text-align:right; font-weight:600;">${formatNumber(r.actualQuantity, 2)} ${r.uom?.code || ''}</td>
+        <td style="text-align:right; color:#64748b;">${(perUnitWeightLabel(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—').replace(/[<>&]/g, '')}</td>
+        <td style="text-align:right; font-weight:600;">${(() => {
+          const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
+          return kg == null ? '—' : formatNumber(kg, 2);
+        })()} KG</td>
         <td style="text-align:right;">${ach.toFixed(1)}%</td>
         <td style="text-align:center;">${status}</td>
       </tr>`;
@@ -519,6 +537,8 @@ const EntryList: React.FC = () => {
             <th>Item / Product</th>
             <th style="text-align:right;">Target</th>
             <th style="text-align:right;">Actual</th>
+            <th style="text-align:right;">Per Unit Weight</th>
+            <th style="text-align:right;">Actual KG</th>
             <th style="text-align:right;">Achievement</th>
             <th style="text-align:center;">Status</th>
           </tr>
@@ -757,6 +777,50 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Per Unit Weight</span>
+        </span>
+      ),
+      align: 'right',
+      width: 120,
+      ellipsis: true,
+      responsive: ['lg'],
+      render: (_t, r) => (
+        <span
+          style={{
+            whiteSpace: 'nowrap',
+            fontVariantNumeric: 'tabular-nums',
+            fontSize: 12,
+            color: 'var(--theme-text-secondary, #475569)',
+          }}
+        >
+          {perUnitWeightLabel(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—'}
+        </span>
+      ),
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Actual KG</span>
+        </span>
+      ),
+      align: 'right',
+      width: 100,
+      ellipsis: true,
+      responsive: ['lg'],
+      render: (_t, r) => {
+        const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
+        return (
+          <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+            {kg == null ? '—' : `${formatNumber(kg, 2)} KG`}
+          </span>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <PercentageOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
           <span>Achievement</span>
         </span>
@@ -843,16 +907,15 @@ const EntryList: React.FC = () => {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <DeleteOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Scrap</span>
+          <span>Scrap (KG)</span>
         </span>
       ),
       align: 'right',
-      width: 80,
+      width: 95,
       ellipsis: true,
       responsive: ['lg'],
       render: (_t, r) => {
         const scrap = toNum(r.scrapQuantity);
-        const uom = r.uom?.code || '';
         return (
           <span
             style={{
@@ -861,7 +924,7 @@ const EntryList: React.FC = () => {
               fontWeight: scrap > 0 ? 500 : 400,
             }}
           >
-            {formatNumber(scrap, 0)} {scrap > 0 && <span style={{ fontSize: 10.5 }}>{uom}</span>}
+            {formatNumber(scrap, 2)} KG
           </span>
         );
       },
@@ -936,26 +999,38 @@ const EntryList: React.FC = () => {
             >
               <Space size="middle" wrap>
                 <ItemBadge item={{ id: g.itemId, itemCode: g.itemCode, name: g.itemName }} showCode />
-                <span style={{ fontSize: 12 }}>
-                  Target <Text strong>{formatNumber(g.targetQuantity, 0)} {g.uomCode}</Text> · Actual{' '}
-                  <Text strong>{formatNumber(g.actualQuantity, 0)} {g.uomCode}</Text>
-                </span>
-                {g.achievementPercentage !== null && (
-                  <span style={{ fontSize: 12 }}>
-                    <Text type="secondary">Achv </Text>
-                    <KpiPercentage value={g.achievementPercentage} fontSize={12} fontWeight={600} />
+<span style={{ fontSize: 12 }}>
+                    Target <Text strong>{formatNumber(g.targetQuantity, 0)} {g.uomCode}</Text> · Actual{' '}
+                    <Text strong>{formatNumber(g.actualQuantity, 0)} {g.uomCode}</Text>
                   </span>
-                )}
-                {g.efficiencyPercentage !== null && (
-                  <span style={{ fontSize: 12 }}>
-                    <Text type="secondary">Eff </Text>
-                    <KpiPercentage value={g.efficiencyPercentage} fontSize={12} fontWeight={600} />
-                  </span>
-                )}
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  Run {formatNumber(g.runningHours, 1)}h · Down {formatNumber(g.downtimeHours, 1)}h · Scrap{' '}
-                  {formatNumber(g.scrapQuantity, 0)} {g.uomCode}
-                </Text>
+                  {g.actualKg != null && (
+                    <span style={{ fontSize: 12 }}>
+                      <Text type="secondary">Actual KG </Text>
+                      <Text strong>{formatNumber(g.actualKg, 2)}</Text>
+                    </span>
+                  )}
+                  {perUnitWeightLabel(g.uomCode, g.weightPerPiece, g.weightPerMeter) && (
+                    <span style={{ fontSize: 12 }}>
+                      <Text type="secondary">Unit Wt </Text>
+                      <Text>{perUnitWeightLabel(g.uomCode, g.weightPerPiece, g.weightPerMeter)}</Text>
+                    </span>
+                  )}
+                  {g.achievementPercentage !== null && (
+                    <span style={{ fontSize: 12 }}>
+                      <Text type="secondary">Achv </Text>
+                      <KpiPercentage value={g.achievementPercentage} fontSize={12} fontWeight={600} />
+                    </span>
+                  )}
+                  {g.efficiencyPercentage !== null && (
+                    <span style={{ fontSize: 12 }}>
+                      <Text type="secondary">Eff </Text>
+                      <KpiPercentage value={g.efficiencyPercentage} fontSize={12} fontWeight={600} />
+                    </span>
+                  )}
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Run {formatNumber(g.runningHours, 1)}h · Down {formatNumber(g.downtimeHours, 1)}h · Scrap{' '}
+                    {formatNumber(g.scrapQuantity, 0)} KG
+                  </Text>
               </Space>
             </div>
           ))}
@@ -1243,7 +1318,7 @@ const EntryList: React.FC = () => {
                       <Statistic title="Actual Good Production" value={summary.actual} precision={0} />
                     </Col>
                     <Col xs={12} sm={6}>
-                      <Statistic title="Rejection / Scrap" value={summary.scrap} precision={0} />
+                      <Statistic title="Rejection / Scrap (KG)" value={summary.scrap} precision={2} />
                     </Col>
                     <Col xs={12} sm={6}>
                       <Statistic

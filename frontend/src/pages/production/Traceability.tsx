@@ -9,6 +9,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { PageHeader, EmptyState } from '../../components/shared';
 import { formatDimension, formatDecimal } from '../../utils/numberFormat';
+import { calcActualKg, perUnitWeightLabel } from '../../utils/productionWeight';
 import { ITEM_TYPES } from '../master-data/items/itemTypes';
 
 const { Text } = Typography;
@@ -50,7 +51,7 @@ interface LedgerRow {
 
 interface HistoryRow {
   id: string; entryDate: string;
-  item?: { id: string; itemCode: string; name: string; itemType: string } | null;
+  item?: { id: string; itemCode: string; name: string; itemType: string; weightPerPiece?: number | null; weightPerMeter?: number | null } | null;
   uom?: { id: string; code: string; name: string } | null;
   division?: { id: string; name: string } | null;
   section?: { id: string; name: string } | null;
@@ -235,8 +236,15 @@ const Traceability: React.FC = () => {
     { title: 'Operator', dataIndex: 'operatorName', key: 'op', width: 110 },
     { title: 'Target', dataIndex: 'targetQuantity', key: 'target', align: 'right', width: 80, render: (v) => num(v) },
     { title: 'Actual', dataIndex: 'actualQuantity', key: 'actual', align: 'right', width: 80, render: (v) => num(v) },
-    { title: 'Scrap', dataIndex: 'scrapQuantity', key: 'scrap', align: 'right', width: 80, render: (v) => num(v) },
+    { title: 'Actual KG', key: 'actualKg', align: 'right', width: 90, render: (_, r) => {
+      const kg = calcActualKg(r.uom?.code ?? '', Number(r.actualQuantity) || 0, r.item?.weightPerPiece, r.item?.weightPerMeter);
+      return kg == null ? <Text type="secondary">—</Text> : <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{kg.toFixed(2)}</Text>;
+    } },
+    { title: 'Scrap (KG)', dataIndex: 'scrapQuantity', key: 'scrap', align: 'right', width: 85, render: (v) => num(v) },
     { title: 'UOM', key: 'uom', width: 60, render: (_, r) => r.uom?.code || '-' },
+    { title: 'Per Unit Weight', key: 'perUnitWeight', width: 112, render: (_, r) => (
+      <Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{perUnitWeightLabel(r.uom?.code ?? '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—'}</Text>
+    ) },
     { title: 'Order', key: 'order', width: 110, render: (_, r) => r.productionOrder?.orderNumber || '-' },
     { title: 'Created', dataIndex: 'createdAt', key: 'created', width: 130, render: (v) => dateTime(v) },
   ];

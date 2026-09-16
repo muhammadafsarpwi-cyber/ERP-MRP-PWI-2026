@@ -1,23 +1,30 @@
 import {
   Injectable, BadRequestException, NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, EntityManager } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
 import {
   RawMaterialReceipt, RawMaterialReceiptLine,
   RawMaterialReturn, RawMaterialReturnLine,
+  RawMaterialReceiptDocument,
 } from '../entities';
 import { StockLedger } from '../entities';
 import { Item, ItemType } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { Division, Section, Department } from '../../organization/entities';
+import { NotificationDelivery } from '../../notification/entities/notification-delivery.entity';
+import { CommunicationSetting } from '../../notification/entities/communication-setting.entity';
 import { StockLedgerService } from './stock-ledger.service';
 import { InventoryBalanceService } from './inventory-balance.service';
 import {
   CreateRawMaterialReceiptDto, CreateRawMaterialReturnDto,
   UpdateRawMaterialReceiptDto, UpdateRawMaterialReturnDto,
-  RawMaterialReceivingReportQuery,
+  RawMaterialReceivingReportQuery, WhatsAppReceiptShareDto,
 } from '../dto/raw-material-receiving.dto';
 
 interface LineArg {
@@ -31,11 +38,34 @@ interface LineArg {
 
 @Injectable()
 export class RawMaterialReceivingService {
+  private static readonly PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+  private static readonly PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+  private static readonly ATTACH_EXT_ALLOW = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv']);
+  private static readonly BLOCKED_EXT = new Set(['exe', 'bat', 'cmd', 'com', 'sh', 'ps1', 'js', 'jar', 'dll', 'msi', 'scr', 'vbs', 'wsf', 'apk', 'bin', 'iso', 'svg', 'html', 'htm']);
+  private static readonly ATTACH_MIME_RE = /^(application\/pdf|application\/msword|application\/vnd\.ms-excel|application\/vnd\.ms-powerpoint|application\/vnd\.openxmlformats-officedocument\.[a-z0-9.]+|text\/plain|text\/csv|application\/csv)$/;
+  private static readonly MAGIC: Array<{ check: string; test: (buf: Buffer) => boolean }> = [
+    { check: 'pdf', test: (b) => b.length >= 4 && b.slice(0, 4).toString() === '%PDF' },
+    { check: 'image/jpeg', test: (b) => b.length > 2 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+    { check: 'image/png', test: (b) => b.length > 8 && b[0] === 0x89 && b.slice(1, 4).toString() === 'PNG' },
+    { check: 'image/webp', test: (b) => b.length > 12 && b.slice(0, 4).toString() === 'RIFF' && b.slice(8, 12).toString() === 'WEBP' },
+    { check: 'ole', test: (b) => b.length >= 8 && b.slice(0, 8).toString('hex') === 'd0cf11e0a1b11ae1' },
+    { check: 'zip', test: (b) => b.length > 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04 },
+    { check: 'text', test: (b) => {
+      const len = Math.min(b.length, 512);
+      for (let i = 0; i < len; i += 1) if (b[i] === 0) return false;
+      return len > 0;
+    } },
+  ];
+
+  private readonly storagePath: string;
+
   constructor(
     @InjectRepository(RawMaterialReceipt)
     private readonly receiptRepo: Repository<RawMaterialReceipt>,
     @InjectRepository(RawMaterialReceiptLine)
     private readonly receiptLineRepo: Repository<RawMaterialReceiptLine>,
+    @InjectRepository(RawMaterialReceiptDocument)
+    private readonly docRepo: Repository<RawMaterialReceiptDocument>,
     @InjectRepository(RawMaterialReturn)
     private readonly returnRepo: Repository<RawMaterialReturn>,
     @InjectRepository(RawMaterialReturnLine)
@@ -54,9 +84,16 @@ export class RawMaterialReceivingService {
     private readonly sectionRepo: Repository<Section>,
     @InjectRepository(Department)
     private readonly departmentRepo: Repository<Department>,
+    @InjectRepository(CommunicationSetting)
+    private readonly settingRepo: Repository<CommunicationSetting>,
+    @InjectRepository(NotificationDelivery)
+    private readonly deliveryRepo: Repository<NotificationDelivery>,
     private readonly ledgerService: StockLedgerService,
     private readonly balanceService: InventoryBalanceService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.storagePath = path.resolve(configService.get<string>('STORAGE_PATH', './storage'));
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Validators
@@ -172,6 +209,161 @@ export class RawMaterialReceivingService {
       }
       seen.add(key);
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Receipt documents (photos + attachments) — validation & local-FS storage
+  // ─────────────────────────────────────────────────────────────────────────
+
+  private validateReceiptFile(file: any, kind: 'PHOTO' | 'ATTACHMENT'): { buffer: Buffer; mime: string; ext: string } {
+    if (!file || !file.buffer || !file.originalname) {
+      throw new BadRequestException('No file uploaded.');
+    }
+    const originalName = String(file.originalname);
+    const ext = path.extname(originalName).slice(1).toLowerCase();
+    const mime = String(file.mimetype || '').toLowerCase();
+    const size = Number(file.size) || Buffer.byteLength(file.buffer);
+
+    if (kind === 'PHOTO') {
+      if (!RawMaterialReceivingService.PHOTO_MIMES.includes(mime)) {
+        throw new BadRequestException('Photo must be a JPEG, PNG or WebP image.');
+      }
+      if (size > RawMaterialReceivingService.PHOTO_MAX_BYTES) {
+        throw new BadRequestException('Photo exceeds the 5 MB limit.');
+      }
+      const ok = RawMaterialReceivingService.MAGIC.some((m) => m.check === mime && m.test(file.buffer));
+      if (!ok) throw new BadRequestException('Photo content does not match its file type.');
+      const extMap: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+      return { buffer: file.buffer, mime, ext: extMap[mime] || 'jpg' };
+    }
+
+    // ATTACHMENT — safe document allow-list + executable(s) blocked.
+    if (RawMaterialReceivingService.BLOCKED_EXT.has(ext)) {
+      throw new BadRequestException(`File type '.${ext}' is not allowed.`);
+    }
+    if (!RawMaterialReceivingService.ATTACH_EXT_ALLOW.has(ext)) {
+      throw new BadRequestException(
+        `File extension '.${ext}' is not in the allowed list (pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv).`,
+      );
+    }
+    if (!RawMaterialReceivingService.ATTACH_MIME_RE.test(mime)) {
+      throw new BadRequestException(`File type '${mime || 'unknown'}' is not an allowed document type.`);
+    }
+    if (size > Number(process.env.STORAGE_MAX_SIZE || 10 * 1024 * 1024)) {
+      throw new BadRequestException('Attachment exceeds the 10 MB limit.');
+    }
+
+    const byExt: Record<string, string[]> = {
+      pdf: ['pdf'], doc: ['ole'], xls: ['ole'], ppt: ['ole'],
+      docx: ['zip'], xlsx: ['zip'], pptx: ['zip'], txt: ['text'], csv: ['text'],
+    };
+    const checks = byExt[ext] || [];
+    const ok = checks.some((c) => RawMaterialReceivingService.MAGIC.some((m) => m.check === c && m.test(file.buffer)));
+    if (!ok) throw new BadRequestException('File content does not match its declared type.');
+
+    return { buffer: file.buffer, mime, ext };
+  }
+
+  private deleteReceiptFile(fileUrl: string): void {
+    if (!fileUrl || !fileUrl.startsWith('/uploads/receipts/')) return;
+    const relativePath = fileUrl.replace('/uploads/', '');
+    const filePath = path.join(this.storagePath, relativePath);
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch {
+      // non-fatal: file may have been deleted already
+    }
+  }
+
+  async addReceiptDocument(
+    companyId: string,
+    receiptId: string,
+    kind: 'PHOTO' | 'ATTACHMENT',
+    file: any,
+    userId?: string,
+  ) {
+    const receipt = await this.receiptRepo.findOne({ where: { id: receiptId, companyId } });
+    if (!receipt) throw new NotFoundException(`Receipt '${receiptId}' not found in this company.`);
+
+    const normKind = kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT';
+    const { buffer, mime, ext } = this.validateReceiptFile(file, normKind);
+
+    const dir = path.join(this.storagePath, 'receipts', companyId, receiptId);
+    const fileName = `${crypto.randomUUID()}.${ext}`;
+    const filePath = path.join(dir, fileName);
+    let written = false;
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(filePath, buffer);
+      written = true;
+      const doc = await this.docRepo.save(this.docRepo.create({
+        companyId,
+        receiptId,
+        kind: normKind,
+        fileName: String(file.originalname).slice(0, 255),
+        fileUrl: `/uploads/receipts/${companyId}/${receiptId}/${fileName}`,
+        mimeType: mime,
+        fileSize: Buffer.byteLength(buffer),
+        createdBy: userId ?? null,
+      }));
+      return doc;
+    } catch (error) {
+      if (written && fs.existsSync(filePath)) {
+        try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+      }
+      throw error;
+    }
+  }
+
+  async listReceiptDocuments(companyId: string, receiptId: string) {
+    const receipt = await this.receiptRepo.findOne({ where: { id: receiptId, companyId } });
+    if (!receipt) throw new NotFoundException(`Receipt '${receiptId}' not found in this company.`);
+    const docs = await this.docRepo.find({
+      where: { receiptId, companyId },
+      order: { uploadedAt: 'ASC' },
+    });
+    return docs.map((d) => ({
+      id: d.id,
+      kind: d.kind,
+      fileName: d.fileName,
+      fileUrl: d.fileUrl,
+      mimeType: d.mimeType,
+      fileSize: d.fileSize,
+      uploadedAt: d.uploadedAt,
+    }));
+  }
+
+  async removeReceiptDocument(companyId: string, receiptId: string, docId: string): Promise<void> {
+    const doc = await this.docRepo.findOne({ where: { id: docId, receiptId, companyId } });
+    if (!doc) throw new NotFoundException(`Document '${docId}' not found in this company.`);
+    await this.docRepo.delete({ id: docId });
+    this.deleteReceiptFile(doc.fileUrl);
+  }
+
+  async shareReceiptWhatsApp(companyId: string, receiptId: string, dto: WhatsAppReceiptShareDto, userId?: string) {
+    const receipt = await this.receiptRepo.findOne({ where: { id: receiptId, companyId } });
+    if (!receipt) throw new NotFoundException(`Receipt '${receiptId}' not found in this company.`);
+
+    const setting = await this.settingRepo.findOne({
+      where: { settingType: 'WHATSAPP', enabled: true, isActive: true, companyId },
+    } as any);
+    if (!setting) {
+      return { enqueued: false, reason: 'WA_NOT_CONFIGURED' };
+    }
+
+    const delivery = await this.deliveryRepo.save(this.deliveryRepo.create({
+      companyId,
+      channel: 'WHATSAPP',
+      recipientType: 'PHONE',
+      recipientAddress: dto.phone,
+      renderedSubject: null,
+      renderedBody: dto.message,
+      templateCode: 'RMR_RECEIPT_SHARE',
+      status: 'QUEUED',
+      maxRetries: 3,
+      createdBy: userId ?? null,
+    }));
+    return { enqueued: true, deliveryId: delivery.id };
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -569,7 +761,7 @@ export class RawMaterialReceivingService {
   async removeReceipt(id: string, companyId: string): Promise<void> {
     const existing = await this.receiptRepo.findOne({
       where: { id, companyId },
-      relations: ['lines'],
+      relations: ['lines', 'documents'],
     });
     if (!existing) throw new NotFoundException(`Receipt '${id}' not found in this company.`);
 
@@ -585,6 +777,12 @@ export class RawMaterialReceivingService {
       );
       await manager.getRepository(RawMaterialReceipt).delete({ id });
     });
+
+    // Header (and its document rows) are gone via ON DELETE CASCADE — clean bytes
+    // off disk so no orphans remain.
+    for (const doc of existing.documents || []) {
+      this.deleteReceiptFile(doc.fileUrl);
+    }
   }
 
   async removeReturn(id: string, companyId: string): Promise<void> {
@@ -613,7 +811,7 @@ export class RawMaterialReceivingService {
   // ─────────────────────────────────────────────────────────────────────────
 
   async getFormReferenceData(companyId: string) {
-    const [warehouses, items, uoms, divisions, productionOrders] = await Promise.all([
+    const [warehouses, items, uoms, divisions, productionOrders, sections, departments] = await Promise.all([
       this.warehouseRepo.find({
         where: { companyId, status: 'ACTIVE' as any },
         order: { warehouseCode: 'ASC' },
@@ -639,8 +837,19 @@ export class RawMaterialReceivingService {
           LIMIT 100`,
         [companyId],
       ),
+      // Bundle the full (small) organization lookup lists into the single form-data
+      // response so Division → Section → Department cascades resolve client-side
+      // without three extra guarded round-trips to the (high-latency) database.
+      this.sectionRepo.find({
+        where: { status: 'ACTIVE' as any },
+        order: { name: 'ASC' },
+      }),
+      this.departmentRepo.find({
+        where: { status: 'ACTIVE' as any },
+        order: { name: 'ASC' },
+      }),
     ]);
-    return { warehouses, items, uoms, divisions, productionOrders };
+    return { warehouses, items, uoms, divisions, productionOrders, sections, departments };
   }
 
   async findAllReceipts(companyId: string, filter: {
@@ -713,7 +922,7 @@ export class RawMaterialReceivingService {
   async findReceiptById(companyId: string, id: string) {
     const header = await this.receiptRepo.findOne({
       where: { id, companyId },
-      relations: ['division', 'section', 'department', 'warehouse', 'lines', 'lines.item', 'lines.uom'],
+      relations: ['division', 'section', 'department', 'warehouse', 'lines', 'lines.item', 'lines.uom', 'documents'],
     });
     if (!header) throw new NotFoundException(`Receipt '${id}' not found in this company.`);
 
@@ -742,6 +951,15 @@ export class RawMaterialReceivingService {
       gatePassTotal,
       receivedTotal,
       differenceTotal,
+      documents: (header.documents || []).map((d) => ({
+        id: d.id,
+        kind: d.kind,
+        fileName: d.fileName,
+        fileUrl: d.fileUrl,
+        mimeType: d.mimeType,
+        fileSize: d.fileSize,
+        uploadedAt: d.uploadedAt,
+      })),
       ledgerEntries: ledgerEntries.map((l) => ({
         id: l.id,
         transactionType: l.transactionType,
@@ -750,6 +968,74 @@ export class RawMaterialReceivingService {
         transactionDate: l.transactionDate,
         referenceNumber: l.referenceNumber,
       })),
+    };
+  }
+
+  /**
+   * READ-ONLY inventory view for the items received in a receipt.
+   * One company-scoped request: loads the receipt (from the authenticated
+   * user's company), reads its lines, then resolves current on-hand balance
+   * for every distinct (item, warehouse) pair from the EXISTING
+   * inventory_balances source of truth in a single bulk query (no N+1).
+   * This NEVER posts ledger / mutates balances — it is a viewing feature.
+   */
+  async getReceiptInventory(companyId: string, id: string) {
+    const header = await this.receiptRepo.findOne({
+      where: { id, companyId },
+      relations: ['warehouse'],
+    });
+    if (!header) throw new NotFoundException(`Receipt '${id}' not found in this company.`);
+
+    const lines = await this.receiptLineRepo.find({
+      where: { receiptId: header.id },
+      relations: ['item', 'uom'],
+      order: { lineNumber: 'ASC' },
+    });
+
+    const warehouseId = header.warehouseId;
+    const pairs: Array<{ itemId: string; warehouseId: string }> = [];
+    const seen = new Set<string>();
+    for (const l of lines) {
+      if (l.itemId && warehouseId) {
+        const key = `${l.itemId}|${warehouseId}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          pairs.push({ itemId: l.itemId, warehouseId });
+        }
+      }
+    }
+
+    const balances = await this.balanceService.findBalancesForItemWarehousePairs(companyId, pairs);
+    const byPair = new Map(balances.map((b) => [`${b.itemId}|${b.warehouseId}`, b]));
+
+    return {
+      receiptCode: header.receiptCode,
+      receiptDate: header.receiptDate,
+      status: header.status,
+      warehouse: header.warehouse
+        ? { id: header.warehouse.id, name: header.warehouse.name, warehouseCode: header.warehouse.warehouseCode, warehouseType: header.warehouse.warehouseType }
+        : null,
+      items: lines.map((l, idx) => {
+        const pair = l.itemId && warehouseId ? `${l.itemId}|${warehouseId}` : null;
+        const balance = pair ? byPair.get(pair) : null;
+        return {
+          lineNumber: l.lineNumber ?? idx + 1,
+          item: l.item ? { id: l.item.id, itemCode: l.item.itemCode, name: l.item.name, uomCode: l.uom?.code || null } : null,
+          uom: l.uom ? { id: l.uom.id, code: l.uom.code, name: l.uom.name, symbol: l.uom.symbol } : null,
+          receivedQuantity: Number(l.receivedQuantity || 0),
+          gatePassQuantity: Number(l.gatePassQuantity || 0),
+          balance: balance
+            ? {
+                exists: true,
+                onHand: Number(balance.onHand),
+                reserved: Number(balance.reserved),
+                available: Number(balance.available),
+                uom: balance.uom ? { code: balance.uom.code, symbol: balance.uom.symbol } : null,
+                lastUpdatedAt: balance.updatedAt || null,
+              }
+            : { exists: false, onHand: null, reserved: null, available: null, uom: null, lastUpdatedAt: null },
+        };
+      }),
     };
   }
 

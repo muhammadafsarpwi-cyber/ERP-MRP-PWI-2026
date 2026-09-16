@@ -6,6 +6,7 @@ import { Section } from '../../organization/entities';
 import { Department } from '../../organization/entities';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { RawMaterialReceiptLine } from './raw-material-receipt-line.entity';
+import { RawMaterialReceiptDocument } from './raw-material-receipt-document.entity';
 
 @Entity('raw_material_receipts')
 @Index(['companyId', 'receiptDate'])
@@ -74,4 +75,7 @@ export class RawMaterialReceipt extends BaseEntity {
 
   @OneToMany(() => RawMaterialReceiptLine, (line) => line.receipt, { cascade: true })
   lines: RawMaterialReceiptLine[];
+
+  @OneToMany(() => RawMaterialReceiptDocument, (doc) => doc.receipt, { cascade: true })
+  documents: RawMaterialReceiptDocument[];
 }

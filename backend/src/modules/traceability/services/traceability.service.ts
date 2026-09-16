@@ -248,7 +248,7 @@ export class TraceabilityService {
 
     const mapped = data.map((e) => ({
       id: e.id, entryDate: e.entryDate,
-      item: e.item ? { id: e.item.id, itemCode: e.item.itemCode, name: e.item.name, itemType: e.item.itemType } : null,
+      item: e.item ? { id: e.item.id, itemCode: e.item.itemCode, name: e.item.name, itemType: e.item.itemType, weightPerPiece: e.item.weightPerPiece ?? null, weightPerMeter: e.item.weightPerMeter ?? null } : null,
       uom: e.uom ? { id: e.uom.id, code: e.uom.code, name: e.uom.name } : null,
       division: e.division ? { id: e.division.id, name: e.division.name } : null,
       section: e.section ? { id: e.section.id, name: e.section.name } : null,

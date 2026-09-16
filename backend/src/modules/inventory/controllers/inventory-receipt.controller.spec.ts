@@ -51,6 +51,11 @@ describe('InventoryReceiptController (return)', () => {
       createReturn: jest.fn(),
       findAllReturns: jest.fn(),
       getReport: jest.fn(),
+      addReceiptDocument: jest.fn(),
+      listReceiptDocuments: jest.fn(),
+      removeReceiptDocument: jest.fn(),
+      shareReceiptWhatsApp: jest.fn(),
+      getReceiptInventory: jest.fn(),
     };
     ledgerService = { create: jest.fn().mockResolvedValue({ id: 'ledger-1' }),
       findOneByCompany: jest.fn().mockResolvedValue({ id: 'ledger-1', companyId: COMPANY, transactionType: 'RECEIPT', direction: 'IN', itemId: 'item-1', warehouseId: 'wh-1', quantity: 100, uomId: 'uom-kg', divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1' }),
@@ -228,6 +233,101 @@ describe('InventoryReceiptController (return)', () => {
 
       await expect(controller.remove('ledger-3', makeReq())).rejects.toThrow(BadRequestException);
       expect(ledgerService.remove).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('receipt documents (photos + attachments)', () => {
+    it('uploads a PHOTO document via the raw material service', async () => {
+      rawMaterialService.addReceiptDocument.mockResolvedValue({ id: 'doc-1', kind: 'PHOTO' });
+      const file = { originalname: 'goods.jpg', mimetype: 'image/jpeg', size: 1234, buffer: Buffer.from('ffd8ffdb', 'hex') };
+
+      const result = await controller.uploadReceiptDocument('rec-1', file, makeReq(), 'PHOTO');
+
+      expect(result.success).toBe(true);
+      expect(result.data.id).toBe('doc-1');
+      expect(rawMaterialService.addReceiptDocument).toHaveBeenCalledWith(
+        COMPANY, 'rec-1', 'PHOTO', file, 'user-1',
+      );
+    });
+
+    it('defaults to ATTACHMENT when no kind field is provided', async () => {
+      rawMaterialService.addReceiptDocument.mockResolvedValue({ id: 'doc-2', kind: 'ATTACHMENT' });
+      const file = { originalname: 'invoice.pdf', mimetype: 'application/pdf', size: 500, buffer: Buffer.from('%PDF', 'ascii') };
+
+      const result = await controller.uploadReceiptDocument('rec-1', file, makeReq());
+
+      expect(rawMaterialService.addReceiptDocument).toHaveBeenCalledWith(COMPANY, 'rec-1', 'ATTACHMENT', file, 'user-1');
+      expect(result.data.kind).toBe('ATTACHMENT');
+    });
+
+    it('lists documents scope-scoped to the user company', async () => {
+      rawMaterialService.listReceiptDocuments.mockResolvedValue([{ id: 'doc-1', kind: 'PHOTO' }]);
+
+      const result = await controller.listReceiptDocuments('rec-1', makeReq());
+
+      expect(rawMaterialService.listReceiptDocuments).toHaveBeenCalledWith(COMPANY, 'rec-1');
+      expect(result.data).toHaveLength(1);
+    });
+
+    it('removes a document through the service (bytes + row)', async () => {
+      rawMaterialService.removeReceiptDocument.mockResolvedValue(undefined);
+
+      const result = await controller.removeReceiptDocument('rec-1', 'doc-1', makeReq());
+
+      expect(rawMaterialService.removeReceiptDocument).toHaveBeenCalledWith(COMPANY, 'rec-1', 'doc-1');
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('receipt WhatsApp share', () => {
+    it('delegates to the service with company scope and the share payload', async () => {
+      const dto = { phone: '923001234567', message: 'RMR-00005 — received qty 10 KG' };
+      rawMaterialService.shareReceiptWhatsApp.mockResolvedValue({ enqueued: true, deliveryId: 'del-1' });
+
+      const result = await controller.shareReceiptWhatsApp('rec-1', dto, makeReq());
+
+      expect(rawMaterialService.shareReceiptWhatsApp).toHaveBeenCalledWith(COMPANY, 'rec-1', dto, 'user-1');
+      expect(result.data.enqueued).toBe(true);
+      expect(result.data.deliveryId).toBe('del-1');
+    });
+
+    it('surfaces an honest enqueued:false signal when the provider is unconfigured', async () => {
+      const dto = { phone: '923001234567', message: 'message' };
+      rawMaterialService.shareReceiptWhatsApp.mockResolvedValue({ enqueued: false, reason: 'WA_NOT_CONFIGURED' });
+
+      const result = await controller.shareReceiptWhatsApp('rec-1', dto, makeReq());
+
+      expect(result.data.enqueued).toBe(false);
+      expect(result.data.reason).toBe('WA_NOT_CONFIGURED');
+    });
+  });
+
+  describe('receipt inventory view (RMR-01-C)', () => {
+    it('delegates to the service with the AUTHENTICATED user company — a client companyId is never trusted', async () => {
+      rawMaterialService.getReceiptInventory.mockResolvedValue({
+        receiptCode: 'RMR-00020', warehouse: { name: 'SPI Warehouse' }, items: [],
+      });
+
+      const req = makeReq();
+      const result = await controller.getReceiptInventory('rec-1', req);
+
+      expect(rawMaterialService.getReceiptInventory).toHaveBeenCalledWith(COMPANY, 'rec-1');
+      expect(result.success).toBe(true);
+      expect(result.data.receiptCode).toBe('RMR-00020');
+    });
+
+    it('propagates NotFound for a receipt that does not exist in the user company', async () => {
+      rawMaterialService.getReceiptInventory.mockRejectedValue(new NotFoundException('Receipt not found'));
+
+      await expect(controller.getReceiptInventory('foreign-receipt', makeReq())).rejects.toThrow(NotFoundException);
+      expect(rawMaterialService.getReceiptInventory).toHaveBeenCalledWith(COMPANY, 'foreign-receipt');
+    });
+
+    it('fails closed when no company scope can be derived from the authenticated user', async () => {
+      const noScopeReq = { erpUser: { id: 'user-1' }, orgScopes: [] };
+
+      await expect(controller.getReceiptInventory('rec-1', noScopeReq)).rejects.toThrow(BadRequestException);
+      expect(rawMaterialService.getReceiptInventory).not.toHaveBeenCalled();
     });
   });
 });

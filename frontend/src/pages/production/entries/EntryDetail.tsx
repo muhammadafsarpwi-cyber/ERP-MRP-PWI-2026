@@ -10,6 +10,7 @@ import {
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber, formatDimension, toNum } from '../../../utils/numberFormat';
+import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
 import { ITEM_TYPES } from '../../master-data/items/itemTypes';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 
@@ -29,7 +30,7 @@ interface ProductionItemDetail {
   id: string;
   lineNumber: number;
   itemId: string | null;
-  item?: { itemCode: string; name: string; wireSizeMm?: number | null; weightPerMeter?: number | null } | null;
+  item?: { itemCode: string; name: string; wireSizeMm?: number | null; weightPerPiece?: number | null; weightPerMeter?: number | null } | null;
   uom?: { code: string; symbol: string } | null;
   targetQuantity: number | string;
   actualQuantity: number | string;
@@ -986,10 +987,16 @@ const EntryDetail: React.FC = () => {
                     title: 'Wire Size', key: 'wire', width: 110,
                     render: (_, r) => r.item?.wireSizeMm != null ? `${formatDimension(r.item.wireSizeMm)} mm` : '—',
                   },
-                  { title: 'Actual', dataIndex: 'actualQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
-                  { title: 'Scrap', dataIndex: 'scrapQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
                   { title: 'UOM', key: 'uom', width: 70, render: (_, r) => r.uom?.code ?? '—' },
-                  { title: 'KG', key: 'kg', width: 90, align: 'right', render: (_, r) => r.item?.weightPerMeter != null ? formatNumber(toNum(r.actualQuantity) * toNum(r.item.weightPerMeter), 3) : '—' },
+                  { title: 'Per Unit Weight', key: 'perUnitWeight', width: 115, render: (_, r) => (
+                    <Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{perUnitWeightLabel(r.uom?.code ?? '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—'}</Text>
+                  ) },
+                  { title: 'Actual', dataIndex: 'actualQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
+                  { title: 'Actual KG', key: 'actualKg', width: 100, align: 'right', render: (_, r) => {
+                    const kg = calcActualKg(r.uom?.code ?? '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
+                    return kg == null ? <Text type="secondary">—</Text> : <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(kg, 3)}</Text>;
+                  } },
+                  { title: 'Scrap', dataIndex: 'scrapQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
                 ]}
               />
             </Section>

@@ -2,7 +2,7 @@ import { getMetadataArgsStorage } from 'typeorm';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { ProductionEntryService } from './production-entry.service';
+import { ProductionEntryService, calcActualKg, calcScrapPct } from './production-entry.service';
 import { ProductionEntry, ProductionEntryItem, ProductionEntryDowntime, Machine, Shift, DowntimeReason, ProductionOrder, ProductionOrderOperation } from '../entities';
 import { Item, Uom, UomConversion } from '../../item/entities';
 import { Division, Section, Department, Warehouse } from '../../organization/entities';
@@ -1410,5 +1410,36 @@ describe('ProductionEntryService — TASK #37 real production inventory posting'
     expect(stockLedgerService.create).not.toHaveBeenCalled();
     expect(balanceService.updateBalance).not.toHaveBeenCalled();
     entryRepo.manager.transaction = originalTransaction;
+  });
+});
+
+describe('Production report weight calculations (Actual KG + Scrap % on Actual KG)', () => {
+  it('PCS: Actual KG = Actual PCS × weight_per_piece (50000 × 0.01261 = 630.5)', () => {
+    expect(calcActualKg('PCS', 50000, 0.01261, null)).toBe(630.5);
+  });
+  it('PCS without a master weight → null (no invented conversion)', () => {
+    expect(calcActualKg('PCS', 50000, null, null)).toBeNull();
+  });
+  it('MTR/METRE/M: Actual KG = Actual × weight_per_meter (1000 M × 0.25 = 250)', () => {
+    expect(calcActualKg('M', 1000, null, 0.25)).toBe(250);
+    expect(calcActualKg('MTR', 500, null, 2)).toBe(1000);
+    expect(calcActualKg('METRE', 120, null, 0.05)).toBe(6);
+  });
+  it('KG: Actual KG remains the existing Actual quantity (never re-multiplied)', () => {
+    expect(calcActualKg('KG', 2170, 5, 2)).toBe(2170);
+    expect(calcActualKg('KGS', 523.5, 5, null)).toBe(523.5);
+  });
+  it('other UOM (L/ROLL): no conversion, returns null', () => {
+    expect(calcActualKg('L', 10, 1, 1)).toBeNull();
+    expect(calcActualKg('ROLL', 4, 1, null)).toBeNull();
+  });
+  it('Scrap % = Scrap KG ÷ Actual KG × 100 (5 ÷ 630.5 = 0.79)', () => {
+    expect(calcScrapPct(5, 630.5)).toBe(0.79);
+  });
+  it('zero/empty Actual KG → null Scrap % (never Inf/NaN)', () => {
+    expect(calcScrapPct(5, 0)).toBeNull();
+    expect(calcScrapPct(5, null)).toBeNull();
+    expect(calcScrapPct(0, 630.5)).toBe(0);
+    expect(() => calcScrapPct(5, 0)).not.toThrow();
   });
 });

@@ -9,6 +9,7 @@ import NotificationBell from './NotificationBell';
 import EmailCommunicationIcon from './EmailCommunicationIcon';
 import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
 import ProfileMenu from './ProfileMenu';
+import RawReceiptMinimizedDock from './RawReceiptMinimizedDock';
 import './sidebar-nav.css';
 import './gradientLoadingBar.css';
 import GradientLoadingBar from './GradientLoadingBar';
@@ -315,6 +316,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   };
 
   const themeMode = useThemeStore((state) => state.draft.mode);
+  const isLight = themeMode === 'light';
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -328,20 +330,34 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           breakpoint="lg"
           collapsedWidth={80}
           width={SIDER_WIDTH}
-          style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0 }}
+          theme={isLight ? 'light' : 'dark'}
+          className={`erp-desktop-sider ${isLight ? 'theme-light-sider' : 'theme-dark-sider'}`}
+          style={{
+            overflow: 'auto',
+            height: '100vh',
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            background: isLight ? '#ffffff' : '#0b1120',
+            borderRight: isLight ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+            zIndex: 1001,
+          }}
         >
         <div
           style={{
-            minHeight: 32,
-            margin: 16,
-            padding: '4px 8px',
-            background: 'rgba(255, 255, 255, 0.2)',
-            borderRadius: 6,
+            minHeight: 38,
+            margin: '14px 12px 14px',
+            padding: '6px 12px',
+            background: '#0f172a',
+            border: '1px solid #1e293b',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            borderRadius: 8,
             display: 'flex',
             alignItems: 'center',
             justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',
             flexWrap: 'nowrap',
-            gap: 14,
+            gap: 12,
             overflow: 'hidden',
           }}
         >
@@ -351,19 +367,20 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             style={{
               display: 'block',
               flex: 'none',
-              height: effectivelyCollapsed ? 24 : 30,
-              width: effectivelyCollapsed ? 24 : 30,
+              height: effectivelyCollapsed ? 26 : 30,
+              width: effectivelyCollapsed ? 26 : 30,
               objectFit: 'contain',
             }}
           />
           {!effectivelyCollapsed && (
             <span
               style={{
-                color: '#fff',
+                color: '#ffffff',
                 fontSize: 15,
-                fontWeight: 600,
+                fontWeight: 700,
+                letterSpacing: '-0.01em',
                 whiteSpace: 'nowrap',
-                marginLeft: 4,
+                marginLeft: 2,
                 minWidth: 0,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -374,7 +391,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           )}
         </div>
         <Menu
-          theme="dark"
+          theme={isLight ? 'light' : 'dark'}
           mode="inline"
           inlineIndent={16}
           selectedKeys={[activeKeys.selectedKey]}
@@ -382,6 +399,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           items={menuItems}
           onClick={handleMenuClick}
           onOpenChange={handleOpenChange}
+          style={{
+            background: 'transparent',
+            borderRight: 0,
+            paddingBottom: 96,
+          }}
         />
         </Sider>
       )}
@@ -453,16 +475,20 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           <div className="pwi-company-marquee-banner" role="marquee" aria-label="Company Announcement">
             <div className="pwi-marquee-track">
               <span className="pwi-marquee-item">
-                <span className="pwi-marquee-dot" /> <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <span className="pwi-marquee-dot" /> <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <span className="pwi-marquee-dot" /> <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <span className="pwi-marquee-dot" /> <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
             </div>
           </div>
@@ -617,6 +643,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           {children}
         </Content>
       </Layout>
+      {/* Application-level persistent minimized receipt bar (RMR-01-A).
+          Lives outside the routed <Content> so it survives page changes. */}
+      <RawReceiptMinimizedDock />
     </Layout>
   );
 };

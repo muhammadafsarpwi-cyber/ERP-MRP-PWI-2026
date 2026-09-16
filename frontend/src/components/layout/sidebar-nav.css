@@ -12,45 +12,71 @@
   vertical-align: middle;
 }
 
-/* Top-level navigation icons: 20px glyph inside a 22px box */
+/* Top-level navigation icons: 23px glyph inside a 26px box (2027 enterprise high-readability) */
 .erp-nav-icon--lg {
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  font-size: 20px;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  font-size: 23px;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s ease;
 }
 
-/* Submenu child icons: slightly smaller to preserve hierarchy */
+/* Submenu child icons: 20.5px glyph inside a 24px box */
 .erp-nav-icon--sm {
-  width: 20px;
-  min-width: 20px;
-  height: 20px;
-  font-size: 18px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  font-size: 20.5px;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s ease;
 }
 
 /* Horizontal gap between each sidebar navigation icon and its label.
    Scoped to the sidebar Menu only; does not affect any other icon. */
 .ant-menu-item > .erp-nav-icon,
 .ant-menu-submenu-title > .erp-nav-icon {
-  margin-right: 10px;
+  margin-right: 11px;
+}
+
+/* Top-level Submenu Headings (Categories containing child pages): bold, crisp, prominent hierarchy */
+.erp-desktop-sider .ant-menu-submenu-title {
+  font-weight: 650 !important;
+  font-size: 14px !important;
+  letter-spacing: -0.01em;
+  margin-top: 3px;
+  margin-bottom: 3px;
+}
+
+.erp-desktop-sider .ant-menu-submenu-title .erp-nav-label-text {
+  font-weight: 650 !important;
+  font-size: 14px !important;
+}
+
+.erp-desktop-sider .ant-menu-item {
+  font-size: 13.5px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  border-radius: 8px;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Active item: stronger label weight + brighter semantic icon so it stays
    clearly visible on the active background pill. */
 .ant-menu-item-selected .ant-menu-title-content,
 .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-title-content {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .ant-menu-item-selected > .erp-nav-icon,
 .ant-menu-submenu-selected > .ant-menu-submenu-title > .erp-nav-icon {
   filter: brightness(1.25);
+  transform: scale(1.05);
 }
 
-/* Hover: subtle brightness lift, no glow or gradient */
+/* Hover: subtle scale and brightness lift so mouse position is immediately obvious */
 .ant-menu-item:not(.ant-menu-item-selected):hover > .erp-nav-icon,
 .ant-menu-submenu-title:not(.ant-menu-submenu-selected-list):hover > .erp-nav-icon {
-  filter: brightness(1.35);
+  filter: brightness(1.2);
+  transform: scale(1.08);
 }
 
 /* Fully collapsed (80px) sidebar: drop the gap so the icon stays centered */
@@ -139,10 +165,21 @@
    Keeps vertical scrolling functional (mobile included) without the heavy
    default scrollbar. */
 
+.erp-desktop-sider,
+.erp-desktop-sider .ant-layout-sider-children,
 .ant-layout-sider,
 .ant-layout-sider-children {
   scrollbar-width: thin;
+}
+
+.theme-dark-sider,
+.theme-dark-sider .ant-layout-sider-children {
   scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+.theme-light-sider,
+.theme-light-sider .ant-layout-sider-children {
+  scrollbar-color: rgba(15, 23, 42, 0.22) transparent;
 }
 
 .ant-layout-sider::-webkit-scrollbar,
@@ -156,15 +193,210 @@
   background: transparent;
 }
 
+.theme-dark-sider::-webkit-scrollbar-thumb,
+.theme-dark-sider .ant-layout-sider-children::-webkit-scrollbar-thumb,
 .ant-layout-sider::-webkit-scrollbar-thumb,
 .ant-layout-sider-children::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
 }
 
+.theme-dark-sider::-webkit-scrollbar-thumb:hover,
+.theme-dark-sider .ant-layout-sider-children::-webkit-scrollbar-thumb:hover,
 .ant-layout-sider::-webkit-scrollbar-thumb:hover,
 .ant-layout-sider-children::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.35);
+}
+
+.theme-light-sider::-webkit-scrollbar-thumb,
+.theme-light-sider .ant-layout-sider-children::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.15);
+}
+
+.theme-light-sider::-webkit-scrollbar-thumb:hover,
+.theme-light-sider .ant-layout-sider-children::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+/* ── Bottom clearance for Desktop Sider scrolling ───────────────────────
+   Ensures bottom items can be scrolled past the collapse trigger bar.
+   Applied ONLY to the root menu; child submenus MUST remain tight. */
+.erp-desktop-sider .ant-menu-root {
+  padding-bottom: 96px !important;
+}
+
+.erp-desktop-sider .ant-menu-sub {
+  padding-bottom: 2px !important;
+  margin-bottom: 2px !important;
+}
+
+/* ── Light Mode Desktop Sidebar (2027 Enterprise Aesthetic) ─────────────── */
+.theme-light-sider {
+  background: #ffffff !important;
+  border-right: 1px solid #e2e8f0 !important;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.03);
+}
+
+/* Light menu container */
+.theme-light-sider .ant-menu-light {
+  background: transparent !important;
+  color: #334155;
+}
+
+/* Submenu titles / headings in light mode */
+.theme-light-sider .ant-menu-light .ant-menu-submenu-title {
+  color: #0f172a !important;
+}
+
+.theme-light-sider .ant-menu-light .ant-menu-submenu-title .erp-nav-label-text {
+  color: #0f172a !important;
+}
+
+.theme-light-sider .ant-menu-light .ant-menu-submenu-arrow {
+  color: #64748b !important;
+}
+
+/* Parent Category Heading when a child item inside it is selected (e.g. Master Data active tint) */
+.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  background: rgba(79, 70, 229, 0.09) !important;
+  color: #4338ca !important;
+  font-weight: 750 !important;
+  border-left: 3.5px solid #4f46e5 !important;
+  border-radius: 0 8px 8px 0 !important;
+}
+
+.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .erp-nav-label-text {
+  color: #4338ca !important;
+  font-weight: 750 !important;
+}
+
+.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: #4f46e5 !important;
+}
+
+.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title > .erp-nav-icon {
+  transform: scale(1.08);
+  filter: brightness(1.2);
+}
+
+/* Normal item in light mode */
+.theme-light-sider .ant-menu-light .ant-menu-item {
+  color: #334155 !important;
+}
+
+.theme-light-sider .ant-menu-light .ant-menu-item .erp-nav-label-text {
+  color: #334155 !important;
+}
+
+/* Hover state in light mode - distinct & smooth 2027 interaction */
+.theme-light-sider .ant-menu-light .ant-menu-item:not(.ant-menu-item-selected):hover,
+.theme-light-sider .ant-menu-light .ant-menu-submenu-title:hover {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-radius: 8px;
+}
+
+.theme-light-sider .ant-menu-light .ant-menu-item:not(.ant-menu-item-selected):hover .erp-nav-label-text,
+.theme-light-sider .ant-menu-light .ant-menu-submenu-title:hover .erp-nav-label-text {
+  color: #0f172a !important;
+}
+
+/* Selected state in light mode - bold, unmistakable 2027 enterprise active styling */
+.theme-light-sider .ant-menu-light .ant-menu-item-selected {
+  background: linear-gradient(90deg, #eef2ff 0%, #e0e7ff 100%) !important;
+  color: #4338ca !important;
+  font-weight: 700 !important;
+  border-left: 4px solid #4f46e5 !important;
+  border-radius: 0 8px 8px 0 !important;
+  box-shadow: 0 1px 4px rgba(79, 70, 229, 0.12);
+}
+
+.theme-light-sider .ant-menu-light .ant-menu-item-selected .erp-nav-label-text {
+  color: #4338ca !important;
+  font-weight: 700 !important;
+}
+
+.theme-light-sider .ant-menu-light .ant-menu-item-selected > .erp-nav-icon {
+  transform: scale(1.06);
+  filter: drop-shadow(0 1px 2px rgba(79, 70, 229, 0.25));
+}
+
+/* Submenu background in light mode */
+.theme-light-sider .ant-menu-light .ant-menu-sub.ant-menu-inline {
+  background: rgba(248, 250, 252, 0.75) !important;
+  border-radius: 8px;
+  margin: 2px 4px;
+}
+
+/* Badge chips in light mode */
+.theme-light-sider .erp-nav-chip:not(.erp-nav-chip--hot) {
+  color: #475569;
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.theme-light-sider .ant-menu-item-selected .erp-nav-chip--hot {
+  color: #ffffff;
+  border-color: #4338ca;
+  background: #4f46e5;
+}
+
+/* Light mode collapse trigger bar at bottom */
+.theme-light-sider .ant-layout-sider-trigger {
+  background: #ffffff !important;
+  color: #64748b !important;
+  border-top: 1px solid #e2e8f0 !important;
+  border-right: 1px solid #e2e8f0 !important;
+  transition: all 0.2s ease;
+}
+
+.theme-light-sider .ant-layout-sider-trigger:hover {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* ── Dark Mode Desktop Sidebar Enhancements ────────────────────── */
+.theme-dark-sider {
+  background: #0b1120 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-dark-sider .ant-layout-sider-trigger {
+  background: #0b1120 !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  transition: all 0.2s ease;
+}
+
+.theme-dark-sider .ant-layout-sider-trigger:hover {
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.theme-dark-sider .ant-menu-item-selected {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.24) 0%, rgba(99, 102, 241, 0.08) 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-left: 4px solid #818cf8 !important;
+  border-radius: 0 8px 8px 0 !important;
+}
+
+.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  background: rgba(99, 102, 241, 0.16) !important;
+  color: #a5b4fc !important;
+  font-weight: 750 !important;
+  border-left: 3.5px solid #818cf8 !important;
+  border-radius: 0 8px 8px 0 !important;
+}
+
+.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .erp-nav-label-text {
+  color: #e0e7ff !important;
+  font-weight: 750 !important;
+}
+
+.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: #a5b4fc !important;
 }
 
 /* ── Mobile Sidebar Navigation Drawer ────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager } from 'typeorm';
+import { Repository, EntityManager, In } from 'typeorm';
 import { InventoryBalance, InventoryPolicy } from '../entities';
 
 @Injectable()
@@ -27,6 +27,33 @@ export class InventoryBalanceService {
     if (locationId) where.locationId = locationId;
     if (batchId) where.batchId = batchId;
     return repo.findOne({ where, relations: ['item', 'warehouse', 'location', 'batch', 'uom'] });
+  }
+
+  /**
+   * Bulk, company-scoped, read-only balance lookup for many item/warehouse
+   * pairs in a SINGLE query. Used by Inventory View on a multi-line receipt so
+   * we never issue N separate balance requests (and never load the whole
+   * company's inventory). Missing pairs simply have no row in the result —
+   * that is a "no balance record" state, not a fabricated zero.
+   */
+  async findBalancesForItemWarehousePairs(
+    companyId: string,
+    pairs: Array<{ itemId: string; warehouseId: string }>,
+  ): Promise<InventoryBalance[]> {
+    if (!pairs.length) return [];
+    const itemIds = [...new Set(pairs.map((p) => p.itemId).filter(Boolean))];
+    const warehouseIds = [...new Set(pairs.map((p) => p.warehouseId).filter(Boolean))];
+    if (!itemIds.length || !warehouseIds.length) return [];
+
+    return this.repo.find({
+      where: {
+        companyId,
+        status: 'ACTIVE',
+        itemId: In(itemIds),
+        warehouseId: In(warehouseIds),
+      },
+      relations: ['item', 'warehouse', 'uom'],
+    });
   }
 
   async findAll(filter: {

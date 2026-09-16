@@ -1,6 +1,7 @@
 import React from 'react';
 import { Breadcrumb } from 'antd';
 import { Link, useLocation } from 'react-router-dom';
+import { HomeOutlined } from '@ant-design/icons';
 
 interface RouteLabel {
   pattern: RegExp;
@@ -51,6 +52,7 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/products/, label: 'Products' },
   { pattern: /^\/production\/inventory-report/, label: 'Inventory Report' },
   { pattern: /^\/production\/targets/, label: 'Machine Targets' },
+  { pattern: /^\/production\/receiving/, label: 'Raw Material Receiving' },
   { pattern: /^\/production/, label: 'Production' },
   { pattern: /^\/qc\/inspections/, label: 'Inspections' },
   { pattern: /^\/qc\/ncr/, label: 'NCR' },
@@ -95,7 +97,11 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
 
   const items: Array<{ title: React.ReactNode }> = [
     {
-      title: <Link to="/dashboard">Home</Link>,
+      title: (
+        <Link to="/dashboard">
+          <HomeOutlined aria-hidden="true" style={{ marginRight: 4 }} /> Home
+        </Link>
+      ),
     },
   ];
 

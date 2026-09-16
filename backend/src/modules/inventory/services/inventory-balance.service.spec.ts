@@ -8,6 +8,7 @@ describe('InventoryBalanceService — availability contracts (TASK #39 Part C)',
 
   const repo: any = {
     findOne: jest.fn(),
+    find: jest.fn(),
     createQueryBuilder: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
@@ -68,5 +69,31 @@ describe('InventoryBalanceService — availability contracts (TASK #39 Part C)',
     expect(await service.getAvailableStock(undefined, ITEM, WH_A)).toBe(0);
     expect(await service.getAvailableStock(COMPANY, undefined, WH_A)).toBe(0);
     expect(repo.findOne).not.toHaveBeenCalled();
+  });
+
+  it('C5: bulk pair lookup runs ONE company-scoped query for many item/warehouse pairs (RMR-01-C)', async () => {
+    repo.find.mockResolvedValue([
+      { itemId: 'a', warehouseId: WH_A, onHand: 10, reserved: 2, available: 8 },
+      { itemId: 'b', warehouseId: WH_A, onHand: 5, reserved: 0, available: 5 },
+    ]);
+
+    const rows = await service.findBalancesForItemWarehousePairs(COMPANY, [
+      { itemId: 'a', warehouseId: WH_A },
+      { itemId: 'b', warehouseId: WH_A },
+      { itemId: 'a', warehouseId: WH_A }, // duplicate pair must not cause extra work
+    ]);
+
+    expect(rows).toHaveLength(2);
+    // ONE query total — no N+1 per pair
+    expect(repo.find).toHaveBeenCalledTimes(1);
+    const where = repo.find.mock.calls[0][0].where;
+    expect(where).toEqual(expect.objectContaining({ companyId: COMPANY, status: 'ACTIVE' }));
+    expect(where.itemId._value).toEqual(['a', 'b']);
+    expect(where.warehouseId._value).toEqual([WH_A]);
+  });
+
+  it('C6: bulk pair lookup with no pairs returns [] without touching the DB', async () => {
+    await expect(service.findBalancesForItemWarehousePairs(COMPANY, [])).resolves.toEqual([]);
+    expect(repo.find).not.toHaveBeenCalled();
   });
 });

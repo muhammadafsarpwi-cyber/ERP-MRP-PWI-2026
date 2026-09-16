@@ -649,6 +649,7 @@ const ItemManagement: React.FC = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [saving, setSaving] = useState(false);
+  const [autoFillMaterialRole, setAutoFillMaterialRole] = useState(true);
 
   // SaveResultDialog states matching Machine Master
   const [resultOpen, setResultOpen] = useState(false);
@@ -1224,6 +1225,7 @@ const ItemManagement: React.FC = () => {
       // TASK #34C: stock-level / lead-time numeric inputs start BLANK (no '0').
       // The database defaults to 0 when left unset on create.
     });
+    setAutoFillMaterialRole(true);
     setFormOpen(true);
   };
 
@@ -1316,6 +1318,9 @@ const ItemManagement: React.FC = () => {
       productionInItemId: record.productionInItemId ?? undefined,
       materialRoleUsage: record.materialRoleUsage ?? (((record.itemType === 'RAW_MATERIAL' || (record.itemType || '').toUpperCase().includes('RAW'))) ? 'Process Component Materials' : undefined),
     });
+    const isRaw = record.itemType === 'RAW_MATERIAL' || String(record.itemType || '').toUpperCase().includes('RAW');
+    const isAutoRole = isRaw ? (!record.materialRoleUsage || record.materialRoleUsage === 'Process Component Materials') : false;
+    setAutoFillMaterialRole(isAutoRole);
     setFormOpen(true);
   };
 
@@ -1443,7 +1448,7 @@ const ItemManagement: React.FC = () => {
         const typeOpt = displayTypes.find((t) => t.value === payload.itemType);
         if (typeOpt?.itemTypeId) payload.itemTypeId = typeOpt.itemTypeId;
         const isRaw = payload.itemType === 'RAW_MATERIAL' || String(payload.itemType || '').toUpperCase().includes('RAW');
-        if (isRaw && !payload.materialRoleUsage) {
+        if (isRaw && autoFillMaterialRole) {
           payload.materialRoleUsage = 'Process Component Materials';
         }
       }
@@ -3871,18 +3876,60 @@ const ItemManagement: React.FC = () => {
                       }))}
                       placeholder="Select item type"
                       onChange={(val) => {
-                        if (val === 'RAW_MATERIAL' || String(val).toUpperCase().includes('RAW')) {
+                        const isRaw = val === 'RAW_MATERIAL' || String(val || '').toUpperCase().includes('RAW');
+                        if (isRaw && autoFillMaterialRole) {
                           form.setFieldValue('materialRoleUsage', 'Process Component Materials');
                         }
                       }}
                     />
                   </Form.Item>
-                  <Form.Item
-                    name="materialRoleUsage"
-                    label={<span style={{ fontWeight: 600 }}>Material Role / Usage</span>}
-                    extra="Auto-filled for Raw Materials"
-                  >
-                    <Input size={screens.xs ? 'large' : 'middle'} placeholder="e.g. Process Component Materials" maxLength={150} />
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.itemType !== cur.itemType}>
+                    {({ getFieldValue }) => {
+                      const currentType = getFieldValue('itemType');
+                      const isRaw = currentType === 'RAW_MATERIAL' || String(currentType || '').toUpperCase().includes('RAW');
+                      return (
+                        <Form.Item
+                          name="materialRoleUsage"
+                          label={
+                            <Space size={6}>
+                              <span style={{ fontWeight: 600 }}>Material Role / Usage</span>
+                              <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 400 }}>(optional)</span>
+                            </Space>
+                          }
+                          extra={
+                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <Checkbox
+                                checked={autoFillMaterialRole}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setAutoFillMaterialRole(checked);
+                                  if (checked) {
+                                    form.setFieldValue('materialRoleUsage', 'Process Component Materials');
+                                  }
+                                }}
+                                style={{ fontSize: 12 }}
+                              >
+                                <span style={{ color: autoFillMaterialRole ? '#2563eb' : '#64748b', fontWeight: autoFillMaterialRole ? 600 : 400 }}>
+                                  Auto-fill for Raw Materials
+                                </span>
+                              </Checkbox>
+                              {!autoFillMaterialRole && (
+                                <Tag color="blue" style={{ fontSize: 10.5, margin: 0, padding: '0 6px', borderRadius: 4 }}>
+                                  Manual Mode
+                                </Tag>
+                              )}
+                            </div>
+                          }
+                        >
+                          <Input
+                            size={screens.xs ? 'large' : 'middle'}
+                            placeholder={autoFillMaterialRole ? 'Auto-filled: Process Component Materials' : 'Enter manual material role / usage'}
+                            maxLength={150}
+                            disabled={autoFillMaterialRole}
+                          />
+                        </Form.Item>
+                      );
+                    }}
                   </Form.Item>
                   <Form.Item
                     name="categoryId"

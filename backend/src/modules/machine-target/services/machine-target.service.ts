@@ -708,7 +708,7 @@ export class MachineTargetService {
       return idx !== undefined ? (data[idx] ?? '').trim() : '';
     };
 
-    const toInsert: Array<Partial<MachineTarget>> = [];
+    const toInsert: Array<{ entity: Partial<MachineTarget>; rowNum: number }> = [];
 
     for (let idx = 1; idx < rows.length; idx++) {
       const data = rows[idx];
@@ -851,31 +851,36 @@ export class MachineTargetService {
       }
 
       toInsert.push({
-        companyId,
-        machineId: machine.id,
-        shiftId: shift.id,
-        itemId: itemId,
-        uomId: uom.id,
-        standardHours: String(hours),
-        targetQuantity: String(targetQty),
-        effectiveFrom,
-        effectiveTo: effectiveTo || null,
-        status: status as MachineTargetStatus,
-        remarks,
-        createdBy: userId ?? null,
-        updatedBy: userId ?? null,
+        entity: {
+          companyId,
+          machineId: machine.id,
+          shiftId: shift.id,
+          itemId: itemId,
+          uomId: uom.id,
+          standardHours: String(hours),
+          targetQuantity: String(targetQty),
+          effectiveFrom,
+          effectiveTo: effectiveTo || null,
+          status: status as MachineTargetStatus,
+          remarks,
+          createdBy: userId ?? null,
+          updatedBy: userId ?? null,
+        },
+        rowNum,
       });
     }
 
     // Transactional bulk insert
     if (toInsert.length > 0) {
-      const entities = toInsert.map((d) => this.targetRepo.create(d));
+      const entities = toInsert.map((d) => this.targetRepo.create(d.entity));
       await this.targetRepo.save(entities);
       imported = toInsert.length;
-      for (let i = 0; i < toInsert.length; i++) {
-        results.push({ row: i + 2, status: 'imported', message: 'Created successfully' });
+      for (const item of toInsert) {
+        results.push({ row: item.rowNum, status: 'imported', message: 'Created successfully' });
       }
     }
+
+    results.sort((a, b) => a.row - b.row);
 
     return {
       totalRows: rows.length - 1,

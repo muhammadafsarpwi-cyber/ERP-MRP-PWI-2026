@@ -1,10 +1,12 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, StockTransferHistory, InventoryReservation, SerialNumber, RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine } from './entities';
+import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, StockTransferHistory, InventoryReservation, SerialNumber, RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine, RawMaterialReceiptDocument } from './entities';
 import { Division, Section, Department } from '../organization/entities';
 import { Warehouse } from '../organization/entities/warehouse.entity';
 import { Item } from '../item/entities/item.entity';
 import { Uom } from '../item/entities/uom.entity';
+import { NotificationDelivery } from '../notification/entities/notification-delivery.entity';
+import { CommunicationSetting } from '../notification/entities/communication-setting.entity';
 import { InventoryPolicyService } from './services/inventory-policy.service';
 import { BatchService } from './services/batch.service';
 import { InventoryBalanceService } from './services/inventory-balance.service';
@@ -35,8 +37,9 @@ import { UserModule } from '../user/user.module';
       InventoryPolicy, Batch, InventoryBalance, StockLedger,
       StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, StockTransferHistory,
       InventoryReservation, SerialNumber,
-      RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine,
+      RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine, RawMaterialReceiptDocument,
       Division, Section, Department, Warehouse, Item, Uom,
+      NotificationDelivery, CommunicationSetting,
     ]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),

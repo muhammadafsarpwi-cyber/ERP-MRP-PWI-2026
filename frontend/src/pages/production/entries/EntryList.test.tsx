@@ -182,6 +182,14 @@ describe('Daily Production Entry — EntryList Component', () => {
       // Tabs
       expect(screen.getByText('Production Records')).toBeInTheDocument();
       expect(screen.getByText('Department-Wise Report')).toBeInTheDocument();
+
+      // Item-weight columns are present on the Production Records grid, and the
+      // top-level Rejection/Scrap is labeled KG (scrap_quantity is stored in KG,
+      // independent of the entry's own UOM).
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '');
+      expect(headers.some((h) => h.includes('Per Unit Weight'))).toBe(true);
+      expect(headers.some((h) => h.includes('Actual KG'))).toBe(true);
+      expect(headers.some((h) => h.includes('Scrap (KG)'))).toBe(true);
     });
   });
 });

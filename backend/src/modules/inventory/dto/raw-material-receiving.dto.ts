@@ -298,3 +298,15 @@ export class RawMaterialReceivingReportQuery {
   @IsString()
   type?: string;
 }
+
+export class WhatsAppReceiptShareDto {
+  @IsString()
+  @Min(8)
+  @MaxLength(20)
+  phone!: string;
+
+  @IsString()
+  @Min(1)
+  @MaxLength(4096)
+  message!: string;
+}

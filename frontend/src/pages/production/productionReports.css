@@ -1,18 +1,180 @@
-/* Production Reports — reuses the global ERP dashboard design system
-   (.erp-dashboard, .erp-section-card) plus report-specific spacing. */
+/* ============================================================================
+   PRODUCTION REPORTS — Enterprise Design System (matches Items & Products)
+   Crystal KPI cards, achievement semantics, family badges, toolbars, print.
+   Adapts automatically to Light / Dark themes via CSS tokens.
+   ============================================================================ */
 
-.erp-pr { display: flex; flex-direction: column; gap: 12px; }
-
-.erp-pr__toolbar {
+.erp-pr {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 12px;
+  padding: 4px 6px;
+  width: 100%;
 }
 
+/* ── Crystal KPI Cards (frosted glass with luminous sheen) ── */
+.erp-pr-kpi-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.68) 100%);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 14px;
+  box-shadow:
+    0 10px 25px -5px rgba(15, 23, 42, 0.06),
+    0 8px 10px -6px rgba(15, 23, 42, 0.04),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  height: 96px;
+  padding: 14px 16px;
+}
+
+[data-theme='dark'] .erp-pr-kpi-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.7) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 12px 30px -5px rgba(0, 0, 0, 0.35),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.erp-pr-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 32px -8px rgba(99, 102, 241, 0.14),
+    0 8px 12px -6px rgba(15, 23, 42, 0.05),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 1);
+  border-color: rgba(165, 180, 252, 0.8);
+}
+
+.erp-pr-kpi-card .ant-statistic-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--theme-text-muted, #64748b);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-pr-kpi-card .ant-statistic-content {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--theme-text, #0f172a);
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.erp-pr-kpi-card--tone-primary .ant-statistic-content { color: #4f46e5; }
+.erp-pr-kpi-card--tone-success .ant-statistic-content { color: #16a34a; }
+.erp-pr-kpi-card--tone-danger .ant-statistic-content { color: #dc2626; }
+.erp-pr-kpi-card--tone-warning .ant-statistic-content { color: #d97706; }
+.erp-pr-kpi-card--tone-cyan .ant-statistic-content { color: #0891b2; }
+.erp-pr-kpi-card--tone-purple .ant-statistic-content { color: #7c3aed; }
+
+/* ── Shipment: visually distinct from Target (cyan family, own icon) ── */
+.erp-pr-kpi-card--tone-shipment .ant-statistic-content { color: #0891b2; }
+
+/* ── Shipment % — real only, ≥70 green, <70 red (70 degrades to green) ── */
+.erp-pr-kpi-card--shipment-pct .ant-statistic-content { color: #16a34a; }
+.erp-pr-kpi-card--shipment-pct.erp-pr-kpi-card--pct-low .ant-statistic-content { color: #dc2626; }
+
+/* ── Rejection % — KG-based; stays neutral (no shipment color rule) ── */
+.erp-pr-kpi-card--tone-neutral .ant-statistic-content { color: #64748b; }
+
+[data-theme='dark'] .erp-pr-kpi-card .ant-statistic-content { color: #e2e8f0; }
+[data-theme='dark'] .erp-pr-kpi-card--tone-primary .ant-statistic-content { color: #818cf8; }
+[data-theme='dark'] .erp-pr-kpi-card--tone-success .ant-statistic-content { color: #4ade80; }
+[data-theme='dark'] .erp-pr-kpi-card--tone-danger .ant-statistic-content { color: #f87171; }
+[data-theme='dark'] .erp-pr-kpi-card--tone-warning .ant-statistic-content { color: #fbbf24; }
+[data-theme='dark'] .erp-pr-kpi-card--tone-cyan .ant-statistic-content { color: #22d3ee; }
+[data-theme='dark'] .erp-pr-kpi-card--tone-purple .ant-statistic-content { color: #a78bfa; }
+
+/* ── Achievement badge (green >70%, red <70%, neutral =70%) ── */
+.erp-achv {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.erp-achv--good {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+.erp-achv--bad {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.erp-achv--neutral {
+  color: #a16207;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+[data-theme='dark'] .erp-achv--good { color: #4ade80; background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.4); }
+[data-theme='dark'] .erp-achv--bad { color: #f87171; background: rgba(239, 68, 68, 0.18); border-color: rgba(239, 68, 68, 0.4); }
+[data-theme='dark'] .erp-achv--neutral { color: #fbbf24; background: rgba(245, 158, 11, 0.18); border-color: rgba(245, 158, 11, 0.4); }
+
+/* ── Production family badge ── */
+.erp-family-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.erp-family-chip--weight { color: #1d4ed8; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.28); }
+.erp-family-chip--count { color: #6d28d9; background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.28); }
+.erp-family-chip--length { color: #0e7490; background: rgba(6, 182, 212, 0.12); border: 1px solid rgba(6, 182, 212, 0.28); }
+.erp-family-chip--other { color: var(--theme-text-muted, #64748b); background: var(--theme-surface-alt, rgba(15, 23, 42, 0.04)); border: 1px solid var(--theme-border, rgba(15, 23, 42, 0.12)); }
+[data-theme='dark'] .erp-family-chip--weight { color: #93c5fd; background: rgba(59, 130, 246, 0.18); border-color: rgba(59, 130, 246, 0.4); }
+[data-theme='dark'] .erp-family-chip--count { color: #d8b4fe; background: rgba(168, 85, 247, 0.18); border-color: rgba(168, 85, 247, 0.4); }
+[data-theme='dark'] .erp-family-chip--length { color: #67e8f9; background: rgba(6, 182, 212, 0.18); border-color: rgba(6, 182, 212, 0.4); }
+
+/* ── Report banner (summary line / assembly note) ── */
+.erp-pr-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--theme-text-muted, #64748b);
+}
+
+/* ── Section cards ── */
+.erp-pr .erp-section-card .ant-card-head {
+  min-height: 40px;
+}
+.erp-pr .erp-section-card .ant-card-head-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--theme-text, #0f172a);
+}
+
+/* ── Tabs sizing ── */
 .erp-pr .ant-tabs-nav { margin-bottom: 10px; }
 
-@media (max-width: 640px) {
-  .erp-pr__toolbar { justify-content: flex-start; }
+/* ── Machine / numeric cells nowrap ── */
+.erp-pr .ant-table-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Print rules ── */
+@media print {
+  .erp-pr__no-print { display: none !important; }
+  .erp-pr .ant-tabs-ink-bar,
+  .erp-pr .ant-tabs-nav { display: none !important; }
+  body { background: #fff !important; }
 }

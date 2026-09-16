@@ -16,6 +16,7 @@ describe('InventoryBalanceController', () => {
       getAvailableStock: jest.fn(),
       findByItemWarehouse: jest.fn(),
       getPolicySummary: jest.fn(),
+      findBalancesForItemWarehousePairs: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -113,6 +114,70 @@ describe('InventoryBalanceController', () => {
 
       expect(service.getAvailableStock).toHaveBeenCalledWith('comp-123', 'non-existent-item', undefined, undefined, undefined);
       expect(result).toEqual({ success: true, data: 0 });
+    });
+  });
+
+  describe('previewBalances (RMR-01-C-C)', () => {
+    it('returns one bulk, read-only balance per requested item for the receiving warehouse', async () => {
+      const req = { erpUser: { defaultCompanyId: 'comp-123' } };
+      service.findBalancesForItemWarehousePairs.mockResolvedValue([
+        {
+          itemId: 'item-a', warehouseId: 'wh-1',
+          onHand: '9940', reserved: '0', available: '9940', updatedAt: '2026-09-16T10:00:00Z',
+          item: { itemCode: 'RM-WIRE-010', name: 'Steel Wire Coil 3.45mm SR' }, uom: { code: 'KG' },
+        },
+      ]);
+
+      const result = await controller.previewBalances(req, 'wh-1', 'item-a,item-b');
+
+      expect(service.findBalancesForItemWarehousePairs).toHaveBeenCalledWith('comp-123', [
+        { itemId: 'item-a', warehouseId: 'wh-1' },
+        { itemId: 'item-b', warehouseId: 'wh-1' },
+      ]);
+      expect(result.success).toBe(true);
+      expect(result.data.items).toHaveLength(2);
+      const found = result.data.items[0];
+      expect(found).toMatchObject({
+        itemId: 'item-a', itemCode: 'RM-WIRE-010', itemName: 'Steel Wire Coil 3.45mm SR',
+        uomCode: 'KG', exists: true, onHand: 9940, reserved: 0, available: 9940,
+      });
+      const missing = result.data.items[1];
+      expect(missing).toEqual({
+        itemId: 'item-b', itemCode: null, itemName: null, uomCode: null,
+        exists: false, onHand: null, reserved: null, available: null, lastUpdatedAt: null,
+      });
+    });
+
+    it('uses exactly ONE bulk call for multiple items (no N+1)', async () => {
+      const req = { erpUser: { defaultCompanyId: 'comp-123' } };
+      service.findBalancesForItemWarehousePairs.mockResolvedValue([]);
+
+      await controller.previewBalances(req, 'wh-1', 'a,b,c,d');
+
+      expect(service.findBalancesForItemWarehousePairs).toHaveBeenCalledTimes(1);
+      expect(service.findBalancesForItemWarehousePairs).toHaveBeenCalledWith('comp-123',
+        expect.arrayContaining([
+          { itemId: 'a', warehouseId: 'wh-1' },
+          { itemId: 'b', warehouseId: 'wh-1' },
+          { itemId: 'c', warehouseId: 'wh-1' },
+          { itemId: 'd', warehouseId: 'wh-1' },
+        ]));
+    });
+
+    it('deduplicates repeat item ids and rejects empty item lists', async () => {
+      const req = { erpUser: { defaultCompanyId: 'comp-123' } };
+      service.findBalancesForItemWarehousePairs.mockResolvedValue([]);
+
+      await controller.previewBalances(req, 'wh-1', 'item-a, item-a ,item-b');
+      expect(service.findBalancesForItemWarehousePairs).toHaveBeenCalledWith('comp-123', [
+        { itemId: 'item-a', warehouseId: 'wh-1' },
+        { itemId: 'item-b', warehouseId: 'wh-1' },
+      ]);
+
+      await expect(controller.previewBalances(req, 'wh-1', ' , , ')).rejects.toThrow(BadRequestException);
+      await expect(controller.previewBalances(req, 'wh-1', undefined)).rejects.toThrow(BadRequestException);
+      await expect(controller.previewBalances(req, undefined, 'item-a')).rejects.toThrow(BadRequestException);
+      expect(service.findBalancesForItemWarehousePairs).toHaveBeenCalledTimes(1);
     });
   });
 });

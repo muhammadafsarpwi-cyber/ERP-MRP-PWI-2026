@@ -91,6 +91,14 @@ describe('ProductionOrders', () => {
     );
 
     expect(await screen.findByText('Create Order')).toBeInTheDocument();
+
+    // Orders grid carries the Item-weight columns consistently (Per Unit Weight
+    // from Item Master weight fields, Actual KG from completedQuantity).
+    expect(screen.getByRole('columnheader', { name: /UOM/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Per Unit Weight/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Actual KG/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Produced/i })).toBeInTheDocument();
+
     await user.click(screen.getByText('Create Order'));
     // The form collects the required routing and UOM fields (previously missing).
     expect(await screen.findByLabelText('Routing')).toBeInTheDocument();

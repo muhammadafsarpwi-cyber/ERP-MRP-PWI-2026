@@ -75,6 +75,58 @@ export class InventoryBalanceController {
     return { success: true, data: result };
   }
 
+  @Get('preview')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.create')
+  @ApiOperation({ summary: 'Bulk, read-only inventory balance preview for the Raw Material Receiving form (company + items + receiving warehouse)' })
+  @ApiQuery({ name: 'warehouseId', required: true })
+  @ApiQuery({ name: 'itemIds', required: true, description: 'Comma-separated item ids' })
+  async previewBalances(
+    @Req() req: any,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('itemIds') itemIds?: string,
+  ) {
+    const companyId = this.resolveCompanyId(req);
+    if (!warehouseId) throw new BadRequestException('warehouseId is required.');
+    if (!itemIds) throw new BadRequestException('itemIds is required.');
+    const ids = [...new Set(itemIds.split(',').map((s) => s.trim()).filter(Boolean))];
+    if (!ids.length) throw new BadRequestException('itemIds must contain at least one item.');
+
+    const pairs = ids.map((itemId) => ({ itemId, warehouseId }));
+    const balances = await this.inventoryBalanceService.findBalancesForItemWarehousePairs(companyId, pairs);
+    const byItem = new Map(balances.map((b) => [b.itemId, b]));
+
+    const items = ids.map((id) => {
+      const b = byItem.get(id);
+      return b
+        ? {
+            itemId: b.itemId,
+            itemCode: b.item?.itemCode ?? null,
+            itemName: b.item?.name ?? null,
+            uomCode: b.uom?.code ?? null,
+            exists: true,
+            onHand: Number(b.onHand),
+            reserved: Number(b.reserved),
+            available: Number(b.available),
+            lastUpdatedAt: b.updatedAt || null,
+          }
+        : {
+            itemId: id,
+            itemCode: null,
+            itemName: null,
+            uomCode: null,
+            exists: false,
+            onHand: null,
+            reserved: null,
+            available: null,
+            lastUpdatedAt: null,
+          };
+    });
+
+    return { success: true, data: { companyId, warehouseId, items } };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

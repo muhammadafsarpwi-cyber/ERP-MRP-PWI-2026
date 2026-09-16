@@ -1,0 +1,350 @@
+/* =====================================================================
+   2027 Enterprise Model — Machine Targets & Real-time Import System
+   ===================================================================== */
+
+/* 2027 Model System Badge in Header */
+.item-model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #6366f1;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* =====================================================================
+   Import Machine Targets Modal — Enhanced UX & Error Triage
+   ===================================================================== */
+
+/* Error Highlighted Rows */
+.import-table-row-invalid {
+  background-color: rgba(254, 242, 242, 0.7) !important;
+}
+
+[data-theme='dark'] .import-table-row-invalid {
+  background-color: rgba(127, 29, 29, 0.25) !important;
+}
+
+.import-table-row-duplicate {
+  background-color: rgba(254, 252, 232, 0.7) !important;
+}
+
+[data-theme='dark'] .import-table-row-duplicate {
+  background-color: rgba(113, 63, 18, 0.25) !important;
+}
+
+/* Touch-Friendly Pagination */
+.import-preview-pagination {
+  margin-top: 14px;
+}
+
+.import-preview-pagination .ant-pagination-item,
+.import-preview-pagination .ant-pagination-prev,
+.import-preview-pagination .ant-pagination-next {
+  min-width: 36px !important;
+  height: 36px !important;
+  line-height: 34px !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+}
+
+.import-preview-pagination .ant-pagination-item-active {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
+  border-color: transparent !important;
+}
+
+.import-preview-pagination .ant-pagination-item-active a {
+  color: #ffffff !important;
+}
+
+/* Filter Segmented Bar in Import Modal */
+.import-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: rgba(248, 250, 252, 0.85);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+[data-theme='dark'] .import-filter-bar {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* =====================================================================
+   Real-Time Import Progress Card & Ambient Flowing Progress Bar
+   ===================================================================== */
+
+.import-live-progress-card {
+  position: relative;
+  margin: 16px 0;
+  padding: 24px 28px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 16px;
+  box-shadow: 0 16px 36px -8px rgba(79, 70, 229, 0.12), 0 4px 12px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+[data-theme='dark'] .import-live-progress-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.5);
+}
+
+.import-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.import-progress-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.import-progress-pulse-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.25);
+  animation: importProgressPulse 1.6s infinite ease-in-out;
+  flex-shrink: 0;
+}
+
+@keyframes importProgressPulse {
+  0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1.08); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.import-progress-large-percent {
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, #4f46e5 0%, #10b981 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.import-progress-large-percent span {
+  font-size: 20px;
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+.import-progress-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.import-metric-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(241, 245, 249, 0.75);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 10px;
+}
+
+[data-theme='dark'] .import-metric-chip {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.import-metric-chip .metric-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.import-metric-chip .metric-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--theme-text-muted);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.import-metric-chip .metric-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--theme-text);
+  margin-top: 2px;
+  line-height: 1.2;
+}
+
+/* Animated Ambient Flowing Line */
+.import-progress-ambient-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  background: rgba(99, 102, 241, 0.12);
+  border-radius: 2px;
+  margin-top: 18px;
+  overflow: hidden;
+}
+
+.import-progress-ambient-glow {
+  position: relative;
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5 0%, #06b6d4 50%, #10b981 100%);
+  border-radius: 2px;
+  transition: width 0.25s ease-out;
+}
+
+.import-progress-ambient-glow::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.8) 50%, transparent 100%);
+  animation: ambientShimmer 1.8s infinite;
+}
+
+@keyframes ambientShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Live Import Activity Console (Dual Panels) */
+.import-live-console-container {
+  margin-top: 16px;
+}
+
+.import-console-panel {
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  border: 1px solid var(--theme-border, #e2e8f0);
+  background: var(--theme-card-bg, #ffffff);
+}
+
+.import-console-success {
+  border-top: 3px solid #10b981;
+}
+
+.import-console-fault {
+  border-top: 3px solid #ef4444;
+}
+
+.import-console-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 180px;
+  text-align: center;
+}
+
+.import-console-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.import-stream-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(241, 245, 249, 0.6);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+[data-theme='dark'] .import-stream-row {
+  background: rgba(30, 41, 59, 0.5);
+  border-color: rgba(51, 65, 85, 0.6);
+}
+
+.import-stream-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.import-stream-name {
+  font-weight: 500;
+  color: var(--theme-text, #1e293b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.import-row-badge {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+}
+
+/* Centered, bold, interactive MACHINE ID badge */
+.pwi-machine-id-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(79, 70, 229, 0.25);
+  background: rgba(79, 70, 229, 0.08);
+  color: #4338ca;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pwi-machine-id-badge:hover {
+  background: #4f46e5 !important;
+  color: #ffffff !important;
+  border-color: #4338ca !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3);
+}
+
+[data-theme='dark'] .pwi-machine-id-badge {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #c7d2fe;
+}
+
+[data-theme='dark'] .pwi-machine-id-badge:hover {
+  background: #6366f1 !important;
+  color: #ffffff !important;
+}

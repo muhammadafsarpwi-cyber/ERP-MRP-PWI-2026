@@ -136,6 +136,19 @@ describe('EntryDetail redesign (TASK #39 Part A)', () => {
     expect(screen.getByText('Inventory Movements & Reconciliation')).toBeInTheDocument();
   });
 
+  it('E: Production Output Lines expose Per Unit Weight + Actual KG (KG line never re-multiplied)', async () => {
+    renderDetail(entry, { outBalances, inBalances });
+    expect((await screen.findAllByText(/FLAT-001/, undefined, { timeout: 15000 })).length).toBeGreaterThan(0);
+
+    // Section E carries the Item-weight columns consistently with the reports.
+    expect(screen.getAllByText('Per Unit Weight').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Actual KG').length).toBeGreaterThan(0);
+    // The line UOM is KG, so Actual KG equals the Actual quantity (48).
+    // The old buggy KG column multiplied by weightPerMeter (0.1) → 4.8; that is gone.
+    expect(screen.getAllByText(/^48$/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^4\.8$/)).not.toBeInTheDocument();
+  }, 30000);
+
   it('A2: production summary shows target/actual/scrap + input material with the exact item', async () => {
     renderDetail(entry, { outBalances, inBalances });
     expect((await screen.findAllByText(/RM-WIRE-001/)).length).toBeGreaterThan(0);

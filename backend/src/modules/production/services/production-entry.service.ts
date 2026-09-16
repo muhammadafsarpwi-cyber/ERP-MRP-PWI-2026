@@ -31,6 +31,38 @@ import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 
 const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
 
+/* ── Report weight model (authoritative UOM-aware conversions) ────────────
+   The production report's Scrap is stored/displayed in KG and the Actual
+   quantity is unit-agnostic (PCS / M / KG...). For reporting we derive a
+   comparable "Actual KG" from the Item Master weight data only:
+     · PCS / count   → Actual × weight_per_piece
+     · M / MTR/...   → Actual × weight_per_meter
+     · KG (weight)   → Actual (never re-multiplied)
+     · other UOM     → null (no invented conversion)
+   Scrap % is then Scrap KG ÷ Actual KG × 100 (null when Actual KG is 0 —
+   never Infinity/NaN). These are derived report values, NOT persisted.          */
+const UOM_WEIGHT = new Set(['KG', 'KGS', 'KGM', 'KILOGRAM', 'KILOGRAMS']);
+const UOM_LENGTH = new Set(['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES']);
+const UOM_COUNT = new Set(['PCS', 'PC', 'PIECE', 'PIECES', 'EA', 'NOS', 'NO', 'UNIT']);
+
+export function calcActualKg(
+  uomCode: string,
+  actualQuantity: number,
+  weightPerPiece: number | null | undefined,
+  weightPerMeter: number | null | undefined,
+): number | null {
+  const u = (uomCode || '').toUpperCase().trim();
+  if (UOM_WEIGHT.has(u)) return Math.round(actualQuantity * 10000) / 10000;
+  if (UOM_LENGTH.has(u)) return weightPerMeter == null ? null : Math.round(actualQuantity * weightPerMeter * 10000) / 10000;
+  if (UOM_COUNT.has(u)) return weightPerPiece == null ? null : Math.round(actualQuantity * weightPerPiece * 10000) / 10000;
+  return null;
+}
+
+export function calcScrapPct(scrapQuantity: number, actualKg: number | null | undefined): number | null {
+  if (actualKg == null || actualKg <= 0) return null;
+  return Math.round((scrapQuantity / actualKg) * 10000) / 100;
+}
+
 @Injectable()
 export class ProductionEntryService {
   constructor(
@@ -235,38 +267,129 @@ export class ProductionEntryService {
     uomId?: string;
     productionOrderId?: string;
   }): Promise<any> {
-    const qb = this.entryRepo.createQueryBuilder('pe')
-      .leftJoinAndSelect('pe.division', 'division')
-      .leftJoinAndSelect('pe.section', 'section')
-      .leftJoinAndSelect('pe.department', 'department')
-      .leftJoinAndSelect('pe.shift', 'shift')
-      .leftJoinAndSelect('pe.item', 'item')
-      .leftJoinAndSelect('pe.uom', 'uom')
-      .leftJoinAndSelect('pe.machine', 'machine')
-      .where('pe.companyId = :companyId', { companyId })
-      .andWhere('pe.isActive = true');
+    /**
+     * DATA SOURCE (Item Master driven — COMPLETE production-class catalogue):
+     *
+     * The report STARTS from the authoritative Products & Items records and LEFT
+     * JOINs production/scrap aggregates. EVERY active Item Master record whose
+     * Item Type is a production class — RAW_MATERIAL, WORK_IN_PROGRESS,
+     * SEMI_FINISHED, FINISHED_GOOD — is a report row, regardless of whether it
+     * has any production transaction. Items without transactions show their
+     * Target/Actual/Scrap as zero (never dropped, never blank).
+     *
+     * No relational "production-flow" restriction (machine targets / BOM /
+     * routings / entries) is applied to the item set: any such restriction
+     * silently drops legitimate Item Master raw materials (the root cause of
+     * "raw materials missing from the report"). Company isolation is enforced
+     * via company_id on every item.
+     *
+     * Division/Department grouping uses the Item Master's OWN organizational
+     * relationship (item.division_id / section / department), so the report is
+     * Division → Department → Items from the authoritative Item record.
+     *
+     * Per-item master weights (weight_per_piece / weight_per_meter / weight)
+     * are passed through unchanged — never computed, never defaulted to zero.
+     */
+    const { divisionId, sectionId, departmentId, dateFrom, dateTo, shiftId, machineNo, machineId, itemId, uomId, productionOrderId } = filters;
 
-    if (filters.divisionId) qb.andWhere('pe.divisionId = :divisionId', { divisionId: filters.divisionId });
-    if (filters.sectionId) qb.andWhere('pe.sectionId = :sectionId', { sectionId: filters.sectionId });
-    if (filters.departmentId) qb.andWhere('pe.departmentId = :departmentId', { departmentId: filters.departmentId });
-    if (filters.dateFrom) qb.andWhere('pe.entryDate >= :dateFrom', { dateFrom: filters.dateFrom });
-    if (filters.dateTo) qb.andWhere('pe.entryDate <= :dateTo', { dateTo: filters.dateTo });
-    if (filters.shiftId) qb.andWhere('pe.shiftId = :shiftId', { shiftId: filters.shiftId });
-    if (filters.machineNo) qb.andWhere('pe.machineNo ILIKE :machineNo', { machineNo: `%${filters.machineNo}%` });
-    if (filters.machineId) qb.andWhere('pe.machineId = :machineId', { machineId: filters.machineId });
-    if (filters.itemId) qb.andWhere('pe.itemId = :itemId', { itemId: filters.itemId });
-    if (filters.uomId) qb.andWhere('pe.uomId = :uomId', { uomId: filters.uomId });
-    if (filters.productionOrderId) qb.andWhere('pe.productionOrderId = :productionOrderId', { productionOrderId: filters.productionOrderId });
+    // Production-class Item Types shown in the report (authoritative Item Master values).
+    const ITEM_TYPE_FILTER = "i.item_type IN ('RAW_MATERIAL','WORK_IN_PROGRESS','SEMI_FINISHED','FINISHED_GOOD')";
 
-    qb.orderBy('division.name', 'ASC').addOrderBy('section.name', 'ASC').addOrderBy('department.name', 'ASC');
-    const entries = await qb.getMany();
+    const itemWhere: string[] = ['i.company_id = $1'];
+    const itemParams: unknown[] = [companyId];
+    if (divisionId) { itemParams.push(divisionId); itemWhere.push(`i.division_id = $${itemParams.length}`); }
+    if (sectionId) { itemParams.push(sectionId); itemWhere.push(`i.section_id = $${itemParams.length}`); }
+    if (departmentId) { itemParams.push(departmentId); itemWhere.push(`i.department_id = $${itemParams.length}`); }
+    if (itemId) { itemParams.push(itemId); itemWhere.push(`i.id = $${itemParams.length}`); }
+    if (uomId) {
+      itemParams.push(uomId);
+      itemWhere.push(`(i.base_uom_id = $${itemParams.length}
+        OR EXISTS (SELECT 1 FROM production_entries upe WHERE upe.item_id = i.id AND upe.uom_id = $${itemParams.length}))`);
+    }
+
+    const items = await this.itemRepo.manager.query(
+      `SELECT
+         i.id, i.item_code, i.name, i.item_type, i.material_role_usage,
+         i.weight, i.weight_per_piece, i.weight_per_meter, i.weight_uom_id,
+         wu.code AS weight_uom_code,
+         idv.id AS item_division_id, idv.name AS item_division_name,
+         isec.id AS item_section_id, isec.name AS item_section_name,
+         idept.id AS item_department_id, idept.name AS item_department_name,
+         bu.id AS base_uom_id, bu.code AS base_uom_code
+       FROM items i
+       LEFT JOIN uoms wu ON wu.id = i.weight_uom_id
+       LEFT JOIN divisions idv ON idv.id = i.division_id
+       LEFT JOIN sections isec ON isec.id = i.section_id
+       LEFT JOIN departments idept ON idept.id = i.department_id
+       LEFT JOIN uoms bu ON bu.id = i.base_uom_id
+       WHERE i.company_id = $1 AND i.is_active = true
+         AND ${ITEM_TYPE_FILTER}
+         AND ${itemWhere.join(' AND ')}
+       ORDER BY idv.name, isec.name, idept.name, i.item_code`,
+      itemParams,
+    );
+
+    // Real production aggregates (target/actual/scrap/hours) per item + UOM.
+    // Org/date/shift/machine/order filters apply ONLY to the entries aggregated —
+    // the Item Master rows themselves always survive (their values become zero).
+    const aggWhere: string[] = ['pe.company_id = $1', 'pe.is_active = true'];
+    const aggParams: unknown[] = [companyId];
+    if (dateFrom) { aggParams.push(dateFrom); aggWhere.push(`pe.entry_date >= $${aggParams.length}`); }
+    if (dateTo) { aggParams.push(dateTo); aggWhere.push(`pe.entry_date <= $${aggParams.length}`); }
+    if (shiftId) { aggParams.push(shiftId); aggWhere.push(`pe.shift_id = $${aggParams.length}`); }
+    if (machineNo) { aggParams.push(`%${machineNo}%`); aggWhere.push(`pe.machine_no ILIKE $${aggParams.length}`); }
+    if (machineId) { aggParams.push(machineId); aggWhere.push(`pe.machine_id = $${aggParams.length}`); }
+    if (productionOrderId) { aggParams.push(productionOrderId); aggWhere.push(`pe.production_order_id = $${aggParams.length}`); }
+
+    const agg = await this.itemRepo.manager.query(
+      `SELECT
+         pe.item_id, pe.uom_id, u.code AS uom_code,
+         SUM(pe.target_quantity) AS target_quantity,
+         SUM(pe.actual_quantity) AS actual_quantity,
+         SUM(pe.scrap_quantity) AS scrap_quantity,
+         SUM(pe.running_hours) AS running_hours,
+         SUM(pe.downtime_hours) AS downtime_hours,
+         SUM(COALESCE(NULLIF(sh.planned_hours, 0), pe.running_hours + pe.downtime_hours)) AS planned_hours,
+         COUNT(*) AS entry_count
+       FROM production_entries pe
+       LEFT JOIN shifts sh ON sh.id = pe.shift_id
+       LEFT JOIN uoms u ON u.id = pe.uom_id
+       WHERE ${aggWhere.join(' AND ')}
+       GROUP BY pe.item_id, pe.uom_id, u.code`,
+      aggParams,
+    );
+
+    const aggByItem = new Map<string, any[]>();
+    for (const row of agg) {
+      const bucket = aggByItem.get(row.item_id) ?? [];
+      bucket.push(row);
+      aggByItem.set(row.item_id, bucket);
+    }
 
     interface ItemGroup {
       itemId: string;
       itemCode: string;
       itemName: string;
-      uomId: string;
+      /** Item Master classification (RAW_MATERIAL, WORK_IN_PROGRESS, FINISHED_GOOD, …) — lets report tabs isolate raw-material scrap. */
+      itemType: string;
+      /** Material Role / Usage from the Item Master (e.g. 'Process Component Materials'). */
+      materialRoleUsage: string;
+      /** Item Master Division name (source of truth for mapping). */
+      itemDivisionName: string;
+      /** Item Master Section name. */
+      itemSectionName: string;
+      /** Item Master Department name. */
+      itemDepartmentName: string;
+      departmentId: string | null;
+      divisionId: string | null;
+      sectionId: string | null;
+      uomId: string | null;
       uomCode: string;
+      /** Item Master weight fields (passed through, null preserved — never computed, never zeroed). */
+      baseWeight: number | null;
+      weightPerPiece: number | null;
+      weightPerMeter: number | null;
+      weightUomCode: string | null;
       targetQuantity: number;
       actualQuantity: number;
       scrapQuantity: number;
@@ -279,26 +402,89 @@ export class ProductionEntryService {
       departmentId: string;
       departmentCode: string;
       departmentName: string;
-      divisionId: string;
+      divisionId: string | null;
       divisionName: string;
-      sectionId: string;
+      sectionId: string | null;
       sectionName: string;
       itemsMap: Map<string, ItemGroup>;
     }
 
     const deptMap = new Map<string, DeptGroup>();
-    const grandUomMap = new Map<string, ItemGroup>();
 
-    const addTo = (bucket: Map<string, ItemGroup>, e: ProductionEntry) => {
-      const key = `${e.itemId}:${e.uomId}`;
-      let g = bucket.get(key);
-      if (!g) {
-        g = {
-          itemId: e.itemId,
-          itemCode: e.item?.itemCode ?? '',
-          itemName: e.item?.name ?? '',
-          uomId: e.uomId,
-          uomCode: e.uom?.code ?? '',
+    const addToDept = (item: { divisionId: string | null; divisionName: string; sectionId: string | null; sectionName: string; departmentId: string | null; departmentName: string }, g: ItemGroup) => {
+      const deptKey = item.departmentId ?? `unassigned-${item.divisionId ?? 'none'}-${item.sectionId ?? 'none'}`;
+      let d = deptMap.get(deptKey);
+      if (!d) {
+        d = {
+          departmentId: item.departmentId ?? deptKey,
+          departmentCode: '',
+          departmentName: item.departmentName ?? 'Unassigned',
+          divisionId: item.divisionId,
+          divisionName: item.divisionName || '–',
+          sectionId: item.sectionId,
+          sectionName: item.sectionName || '–',
+          itemsMap: new Map(),
+        };
+        deptMap.set(deptKey, d);
+      }
+      d.itemsMap.set(`${g.itemId}:${g.uomId}`, g);
+    };
+
+    // Build one ItemGroup row per (item, uom): real aggregates from production
+    // entries or COALESCE 0 for items without any transaction in scope.
+    for (const it of items) {
+      const base = {
+        itemId: it.id,
+        itemCode: it.item_code,
+        itemName: it.name,
+        itemType: it.item_type ?? '',
+        materialRoleUsage: it.material_role_usage ?? '',
+        itemDivisionName: it.item_division_name ?? '',
+        itemSectionName: it.item_section_name ?? '',
+        itemDepartmentName: it.item_department_name ?? '',
+        departmentId: it.item_department_id ?? null,
+        divisionId: it.item_division_id ?? null,
+        sectionId: it.item_section_id ?? null,
+      };
+      const org = {
+        divisionId: base.divisionId,
+        divisionName: base.itemDivisionName,
+        sectionId: base.sectionId,
+        sectionName: base.itemSectionName,
+        departmentId: base.departmentId,
+        departmentName: base.itemDepartmentName,
+      };
+      const rows = aggByItem.get(it.id);
+      if (rows && rows.length > 0) {
+        for (const r of rows) {
+addToDept(org, {
+            ...base,
+            uomId: r.uom_id ?? null,
+            uomCode: r.uom_code ?? '',
+            baseWeight: it.weight === null || it.weight === undefined ? null : Number(it.weight),
+            weightPerPiece: it.weight_per_piece === null || it.weight_per_piece === undefined ? null : Number(it.weight_per_piece),
+            weightPerMeter: it.weight_per_meter === null || it.weight_per_meter === undefined ? null : Number(it.weight_per_meter),
+            weightUomCode: it.weight_uom_code ?? null,
+            targetQuantity: Number(r.target_quantity),
+            actualQuantity: Number(r.actual_quantity),
+            scrapQuantity: Number(r.scrap_quantity),
+            runningHours: Number(r.running_hours),
+            downtimeHours: Number(r.downtime_hours),
+            plannedHours: Number(r.planned_hours),
+            entryCount: Number(r.entry_count),
+          });
+        }
+      } else {
+        // Relevant configured item with NO production/scrap transaction in scope
+        // — must STILL appear with zero values (§7 hard requirement).
+        addToDept(org, {
+          ...base,
+          uomId: it.base_uom_id ?? null,
+          uomCode: it.base_uom_code ?? '',
+          baseWeight: it.weight === null || it.weight === undefined ? null : Number(it.weight),
+          weightPerPiece: it.weight_per_piece === null || it.weight_per_piece === undefined ? null : Number(it.weight_per_piece),
+          weightPerMeter: it.weight_per_meter === null || it.weight_per_meter === undefined ? null : Number(it.weight_per_meter),
+          weightUomCode: it.weight_uom_code ?? null,
           targetQuantity: 0,
           actualQuantity: 0,
           scrapQuantity: 0,
@@ -306,57 +492,45 @@ export class ProductionEntryService {
           downtimeHours: 0,
           plannedHours: 0,
           entryCount: 0,
-        };
-        bucket.set(key, g);
+        });
       }
-      g.targetQuantity += Number(e.targetQuantity);
-      g.actualQuantity += Number(e.actualQuantity);
-      g.scrapQuantity += Number(e.scrapQuantity);
-      g.runningHours += Number(e.runningHours);
-      g.downtimeHours += Number(e.downtimeHours);
-      g.plannedHours += this.resolvePlannedHours(e);
-      g.entryCount += 1;
-    };
-
-    for (const e of entries) {
-      const deptKey = `${e.departmentId}`;
-      let d = deptMap.get(deptKey);
-      if (!d) {
-        d = {
-          departmentId: e.departmentId,
-          departmentCode: e.department?.departmentCode ?? '',
-          departmentName: e.department?.name ?? '',
-          divisionId: e.divisionId,
-          divisionName: e.division?.name ?? '',
-          sectionId: e.sectionId,
-          sectionName: e.section?.name ?? '',
-          itemsMap: new Map(),
-        };
-        deptMap.set(deptKey, d);
-      }
-      addTo(d.itemsMap, e);
-      addTo(grandUomMap, e);
     }
 
-    const decorate = (g: ItemGroup) => ({
-      itemId: g.itemId,
-      itemCode: g.itemCode,
-      itemName: g.itemName,
-      uomId: g.uomId,
-      uomCode: g.uomCode,
-      targetQuantity: this.round4(g.targetQuantity),
-      actualQuantity: this.round4(g.actualQuantity),
-      scrapQuantity: this.round4(g.scrapQuantity),
-      runningHours: this.round2(g.runningHours),
-      downtimeHours: this.round2(g.downtimeHours),
-      plannedHours: this.round2(g.plannedHours),
-      entryCount: g.entryCount,
-      achievementPercentage: g.targetQuantity > 0 ? this.round2((g.actualQuantity / g.targetQuantity) * 100) : null,
-      efficiencyPercentage: g.plannedHours > 0 ? this.round2((g.runningHours / g.plannedHours) * 100) : null,
-    });
+    const decorate = (g: ItemGroup) => {
+      // Derived report values (never persisted): Actual KG derives from Item
+      // Master weights; Scrap % is against Actual KG (never Actual PCS).
+      const actualKg = calcActualKg(g.uomCode, g.actualQuantity, g.weightPerPiece, g.weightPerMeter);
+      return {
+        itemId: g.itemId,
+        itemCode: g.itemCode,
+        itemName: g.itemName,
+        itemType: g.itemType,
+        materialRoleUsage: g.materialRoleUsage,
+        itemDivisionName: g.itemDivisionName,
+        itemSectionName: g.itemSectionName,
+        itemDepartmentName: g.itemDepartmentName,
+        uomId: g.uomId,
+        uomCode: g.uomCode,
+        baseWeight: g.baseWeight,
+        weightPerPiece: g.weightPerPiece,
+        weightPerMeter: g.weightPerMeter,
+        weightUomCode: g.weightUomCode,
+        targetQuantity: this.round4(g.targetQuantity),
+        actualQuantity: this.round4(g.actualQuantity),
+        actualKg,
+        scrapPct: calcScrapPct(g.scrapQuantity, actualKg),
+        scrapQuantity: this.round4(g.scrapQuantity),
+        runningHours: this.round2(g.runningHours),
+        downtimeHours: this.round2(g.downtimeHours),
+        plannedHours: this.round2(g.plannedHours),
+        entryCount: g.entryCount,
+        achievementPercentage: g.targetQuantity > 0 ? this.round2((g.actualQuantity / g.targetQuantity) * 100) : null,
+        efficiencyPercentage: g.plannedHours > 0 ? this.round2((g.runningHours / g.plannedHours) * 100) : null,
+      };
+    };
 
     const departments = [...deptMap.values()].map((d) => {
-      const items = [...d.itemsMap.values()].map(decorate).sort((a, b) => a.itemCode.localeCompare(b.itemCode));
+      const itemsList = [...d.itemsMap.values()].map(decorate).sort((a, b) => a.itemCode.localeCompare(b.itemCode));
       return {
         departmentId: d.departmentId,
         departmentCode: d.departmentCode,
@@ -365,9 +539,9 @@ export class ProductionEntryService {
         divisionName: d.divisionName,
         sectionId: d.sectionId,
         sectionName: d.sectionName,
-        items,
-        totalsByUom: [...new Set(items.map((i) => i.uomCode))].map((uomCode) => {
-          const groupItems = items.filter((i) => i.uomCode === uomCode);
+        items: itemsList,
+        totalsByUom: [...new Set(itemsList.map((i) => i.uomCode))].map((uomCode) => {
+          const groupItems = itemsList.filter((i) => i.uomCode === uomCode);
           const target = this.round4(groupItems.reduce((s, i) => s + i.targetQuantity, 0));
           const actual = this.round4(groupItems.reduce((s, i) => s + i.actualQuantity, 0));
           const planned = groupItems.reduce((s, i) => s + i.plannedHours, 0);
@@ -387,6 +561,24 @@ export class ProductionEntryService {
     });
 
     // Grand totals: aggregate ACROSS all departments per UOM (never sum across UOMs)
+    const grandUomMap = new Map<string, ItemGroup>();
+    for (const d of deptMap.values()) {
+      for (const g of d.itemsMap.values()) {
+        const key = `${g.itemId}:${g.uomId}`;
+        const existing = grandUomMap.get(key);
+        if (existing) {
+          existing.targetQuantity += g.targetQuantity;
+          existing.actualQuantity += g.actualQuantity;
+          existing.scrapQuantity += g.scrapQuantity;
+          existing.runningHours += g.runningHours;
+          existing.downtimeHours += g.downtimeHours;
+          existing.plannedHours += g.plannedHours;
+          existing.entryCount += g.entryCount;
+        } else {
+          grandUomMap.set(key, { ...g });
+        }
+      }
+    }
     const grandTotalsByUom = [...new Set([...grandUomMap.values()].map((g) => g.uomCode))].map((uomCode) => {
       const groups = [...grandUomMap.values()].filter((g) => g.uomCode === uomCode);
       const target = this.round4(groups.reduce((s, g) => s + g.targetQuantity, 0));
@@ -409,7 +601,7 @@ export class ProductionEntryService {
 
     return {
       filters: filters ?? {},
-      entryCount: entries.length,
+      entryCount: agg.reduce((s: number, r: any) => s + Number(r.entry_count), 0),
       departments,
       grandTotalsByUom,
     };

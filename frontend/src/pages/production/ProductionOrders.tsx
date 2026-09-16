@@ -7,6 +7,7 @@ import { PlusOutlined, EyeOutlined, SendOutlined, CloseOutlined } from '@ant-des
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatNumber } from '../../utils/numberFormat';
+import { calcActualKg, perUnitWeightLabel } from '../../utils/productionWeight';
 import { PageHeader, ERPTable, TableToolbar, TableActions } from '../../components/shared';
 
 interface ProductionOrder {
@@ -15,8 +16,13 @@ interface ProductionOrder {
   status: string;
   productId?: string;
   plannedQuantity?: number;
+  completedQuantity?: number;
   producedQuantity?: number;
+  scrappedQuantity?: number;
   scrapQuantity?: number;
+  product?: { name?: string; weightPerPiece?: number | null; weightPerMeter?: number | null } | null;
+  productName?: string;
+  uom?: { id?: string; code?: string; symbol?: string; name?: string } | null;
   orderDate?: string;
 }
 
@@ -226,11 +232,26 @@ const ProductionOrders: React.FC = () => {
     },
     {
       title: 'Product',
-      dataIndex: 'productName',
       key: 'product',
       width: 200,
       ellipsis: true,
-      render: (name) => <span>{name || '—'}</span>,
+      render: (_, record) => <span>{record.product?.name || record.productName || '—'}</span>,
+    },
+    {
+      title: 'UOM',
+      key: 'uom',
+      width: 70,
+      render: (_, record) => <span>{record.uom?.code || '—'}</span>,
+    },
+    {
+      title: 'Per Unit Weight',
+      key: 'perUnitWeight',
+      width: 115,
+      render: (_, record) => (
+        <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--theme-text-secondary)' }}>
+          {perUnitWeightLabel(record.uom?.code || '', record.product?.weightPerPiece, record.product?.weightPerMeter) || '—'}
+        </span>
+      ),
     },
     {
       title: 'Planned Qty',
@@ -242,23 +263,38 @@ const ProductionOrders: React.FC = () => {
     },
     {
       title: 'Produced',
-      dataIndex: 'producedQuantity',
       key: 'produced',
       width: 100,
       align: 'right' as const,
-      render: (v) => <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--theme-success)' }}>{formatNumber(v, 4)}</span>,
+      render: (_, record) => {
+        const produced = record.completedQuantity ?? record.producedQuantity ?? 0;
+        return <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--theme-success)' }}>{formatNumber(produced, 4)}</span>;
+      },
+    },
+    {
+      title: 'Actual KG',
+      key: 'actualKg',
+      width: 100,
+      align: 'right' as const,
+      render: (_, record) => {
+        const produced = record.completedQuantity ?? record.producedQuantity ?? 0;
+        const kg = calcActualKg(record.uom?.code || '', produced, record.product?.weightPerPiece, record.product?.weightPerMeter);
+        return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{kg == null ? '—' : formatNumber(kg, 2)}</span>;
+      },
     },
     {
       title: 'Scrap',
-      dataIndex: 'scrapQuantity',
       key: 'scrap',
       width: 90,
       align: 'right' as const,
-      render: (v) => (
-        <span style={{ fontVariantNumeric: 'tabular-nums', color: Number(v) > 0 ? 'var(--theme-danger)' : undefined }}>
-          {formatNumber(v, 4)}
-        </span>
-      ),
+      render: (_, record) => {
+        const scrap = record.scrappedQuantity ?? record.scrapQuantity ?? 0;
+        return (
+          <span style={{ fontVariantNumeric: 'tabular-nums', color: Number(scrap) > 0 ? 'var(--theme-danger)' : undefined }}>
+            {formatNumber(scrap, 4)}
+          </span>
+        );
+      },
     },
     {
       title: 'Status',
@@ -437,8 +473,8 @@ const ProductionOrders: React.FC = () => {
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="Status"><Tag color={statusColorMap[detail.status]}>{detail.status}</Tag></Descriptions.Item>
               <Descriptions.Item label="Planned Quantity">{detail.plannedQuantity}</Descriptions.Item>
-              <Descriptions.Item label="Produced Quantity">{detail.producedQuantity ?? 0}</Descriptions.Item>
-              <Descriptions.Item label="Scrap Quantity">{detail.scrapQuantity ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="Produced Quantity">{detail.completedQuantity ?? detail.producedQuantity ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="Scrap Quantity">{detail.scrappedQuantity ?? detail.scrapQuantity ?? 0}</Descriptions.Item>
             </Descriptions>
             <Divider />
             <Typography.Text strong>Material Requirements</Typography.Text>
