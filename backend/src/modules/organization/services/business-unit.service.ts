@@ -1,14 +1,17 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, DataSource } from 'typeorm';
 import { BusinessUnit, BusinessUnitStatus } from '../entities';
 import { CreateBusinessUnitDto, UpdateBusinessUnitDto } from '../dto';
+import { populateAuditNames } from '../helpers/audit-names';
 
 @Injectable()
 export class BusinessUnitService {
   constructor(
     @InjectRepository(BusinessUnit)
     private readonly businessUnitRepository: Repository<BusinessUnit>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createBusinessUnitDto: CreateBusinessUnitDto, userId?: string): Promise<BusinessUnit> {
@@ -71,6 +74,7 @@ export class BusinessUnitService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await populateAuditNames(this.dataSource, data);
 
     return { data, total };
   }
@@ -85,6 +89,7 @@ export class BusinessUnitService {
       throw new NotFoundException(`Business unit with ID '${id}' not found`);
     }
 
+    await populateAuditNames(this.dataSource, [businessUnit]);
     return businessUnit;
   }
 
@@ -150,6 +155,15 @@ export class BusinessUnitService {
       throw new BadRequestException('Cannot delete business unit with existing dependencies');
     }
 
-    await this.businessUnitRepository.remove(businessUnit);
+    try {
+      await this.businessUnitRepository.remove(businessUnit);
+    } catch (error: any) {
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete business unit because it is referenced by existing operations, stores, or users. Please deactivate it instead.',
+        );
+      }
+      throw error;
+    }
   }
 }

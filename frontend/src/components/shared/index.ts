@@ -27,3 +27,4 @@ export {
   type SaveResultData,
   type SaveResultPhase,
 } from './SaveResultDialog';
+export { default as LargeLoadingBuffer, type LargeLoadingBufferProps } from './LargeLoadingBuffer';

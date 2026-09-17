@@ -7,4 +7,6 @@ export {
   ReorderRoutingOperationDto,
   RoutingOperationInputDto,
   RoutingOperationOutputDto,
+  CreateRoutingConnectionDto,
+  UpdateRoutingConnectionDto,
 } from './production-routing.dto';

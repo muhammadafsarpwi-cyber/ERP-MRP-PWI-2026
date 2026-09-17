@@ -14,7 +14,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { RoutingStatus, RoutingInputScrapBasis, RoutingOutputType } from '../entities';
+import { RoutingStatus, RoutingInputScrapBasis, RoutingOutputType, RoutingConnectionType } from '../entities';
 
 /**
  * Version-agnostic UUID check. Org seed data uses synthetic UUIDs
@@ -537,3 +537,70 @@ export class ReorderRoutingOperationDto {
   @Min(1)
   newSequenceNo: number;
 }
+
+export class CreateRoutingConnectionDto {
+  @ApiProperty({ description: 'Source operation ID' })
+  @IsUUID()
+  @IsNotEmpty()
+  fromOperationId: string;
+
+  @ApiProperty({ description: 'Target operation ID' })
+  @IsUUID()
+  @IsNotEmpty()
+  toOperationId: string;
+
+  @ApiPropertyOptional({
+    description: 'Connection type',
+    enum: RoutingConnectionType,
+    default: RoutingConnectionType.SEQUENTIAL,
+  })
+  @IsEnum(RoutingConnectionType)
+  @IsOptional()
+  connectionType?: RoutingConnectionType;
+
+  @ApiPropertyOptional({ description: 'Branch label (e.g. Branch A, Branch B)' })
+  @IsString()
+  @IsOptional()
+  branchLabel?: string;
+
+  @ApiPropertyOptional({ description: 'Order index for multiple branches', default: 1 })
+  @IsNumber()
+  @IsOptional()
+  orderIndex?: number;
+
+  @ApiPropertyOptional({ description: 'Notes or remarks' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
+}
+
+export class UpdateRoutingConnectionDto {
+  @ApiPropertyOptional({
+    description: 'Connection type',
+    enum: RoutingConnectionType,
+  })
+  @IsEnum(RoutingConnectionType)
+  @IsOptional()
+  connectionType?: RoutingConnectionType;
+
+  @ApiPropertyOptional({ description: 'Branch label' })
+  @IsString()
+  @IsOptional()
+  branchLabel?: string;
+
+  @ApiPropertyOptional({ description: 'Order index' })
+  @IsNumber()
+  @IsOptional()
+  orderIndex?: number;
+
+  @ApiPropertyOptional({ description: 'Status' })
+  @IsString()
+  @IsOptional()
+  status?: string;
+
+  @ApiPropertyOptional({ description: 'Notes' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
+}
+

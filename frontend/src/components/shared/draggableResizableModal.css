@@ -1,5 +1,6 @@
 .erp-draggable-modal-wrap {
   pointer-events: none;
+  z-index: 1060 !important;
 }
 
 .erp-draggable-modal-wrap .ant-modal-mask {

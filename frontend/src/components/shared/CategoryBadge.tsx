@@ -247,7 +247,7 @@ export const ItemBadge: React.FC<ItemBadgeProps> = ({
   const id = isObj ? item.id : undefined;
 
   const displayLabel = showCode && code && name && code !== name
-    ? `${code} — ${name}`
+    ? `${name} (${code})`
     : (name || code || id || fallback);
 
   const colorSlot = getItemColor(item);

@@ -13,6 +13,9 @@ export class AuthRateLimitGuard implements CanActivate {
   private readonly maxRequests = 10;
 
   canActivate(context: ExecutionContext): boolean {
+    if (process.env.NODE_ENV === 'development') {
+      return true;
+    }
     const request = context.switchToHttp().getRequest();
     const route = request.route?.path || request.path || 'auth';
     const clientIp = request.ip || request.socket?.remoteAddress || 'unknown';

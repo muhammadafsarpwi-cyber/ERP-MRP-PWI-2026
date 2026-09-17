@@ -1,14 +1,835 @@
-/* Production Inventory Report — reuses the global ERP design system. */
+/* Production Inventory Report — 2027 Enterprise Workspace Styling */
 
-.erp-pir { display: flex; flex-direction: column; gap: 12px; }
+.erp-pir {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
 
-.erp-pir__cards .ant-card { height: 100%; }
+/* ── Top Action & Filter Toolbar ────────────────────────────────────────── */
+.erp-pir__toolbar-card {
+  border-radius: 8px;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
 
-.erp-num--success { color: #389e0d; font-variant-numeric: tabular-nums; }
-.erp-num--danger { color: #cf1322; font-weight: 500; font-variant-numeric: tabular-nums; }
+.erp-pir__toolbar-card .ant-card-body {
+  padding: 10px 14px;
+}
 
-.erp-pir .ant-table-row:hover td { background: #f0f7ff; }
+.erp-pir__main-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 
-@media (max-width: 640px) {
-  .erp-pir .ant-statistic-title { font-size: 12px; }
+.erp-pir__toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.erp-pir__quick-search {
+  max-width: 380px;
+  width: 100%;
+}
+
+.erp-pir__toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Collapsible Filter Panel */
+.erp-pir__filter-panel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--theme-border, #e2e8f0);
+  animation: erpSlideDown 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes erpSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── 2027 KPI Cards ─────────────────────────────────────────────────────── */
+.erp-pir__cards {
+  margin-bottom: 2px;
+}
+
+.erp-kpi-card {
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border, #e2e8f0);
+  background: var(--theme-surface, #ffffff);
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.erp-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  border-color: #cbd5e1;
+}
+
+.erp-kpi-card .ant-card-body {
+  padding: 10px 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.erp-kpi-card__watermark {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  font-size: 52px;
+  line-height: 1;
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.erp-kpi-card:hover .erp-kpi-card__watermark {
+  opacity: 0.15;
+  transform: scale(1.08);
+}
+
+.erp-kpi-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.erp-kpi-card__title {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--theme-text-secondary, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.erp-kpi-card__icon {
+  font-size: 13px;
+}
+
+.erp-kpi-card__value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--theme-text, #0f172a);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.erp-kpi-card--primary { border-top: 3px solid #4f46e5; }
+.erp-kpi-card--primary .erp-kpi-card__icon { color: #4f46e5; }
+.erp-kpi-card--primary .erp-kpi-card__watermark { color: #4f46e5; }
+
+.erp-kpi-card--success { border-top: 3px solid #16a34a; }
+.erp-kpi-card--success .erp-kpi-card__icon { color: #16a34a; }
+.erp-kpi-card--success .erp-kpi-card__watermark { color: #16a34a; }
+
+.erp-kpi-card--info { border-top: 3px solid #0284c7; }
+.erp-kpi-card--info .erp-kpi-card__icon { color: #0284c7; }
+.erp-kpi-card--info .erp-kpi-card__watermark { color: #0284c7; }
+
+.erp-kpi-card--warning { border-top: 3px solid #d97706; }
+.erp-kpi-card--warning .erp-kpi-card__icon { color: #d97706; }
+.erp-kpi-card--warning .erp-kpi-card__watermark { color: #d97706; }
+
+.erp-kpi-card--danger { border-top: 3px solid #dc2626; }
+.erp-kpi-card--danger .erp-kpi-card__icon { color: #dc2626; }
+.erp-kpi-card--danger .erp-kpi-card__watermark { color: #dc2626; }
+.erp-kpi-card--danger .erp-kpi-card__value { color: #dc2626; }
+
+.erp-kpi-card--cyan { border-top: 3px solid #0891b2; }
+.erp-kpi-card--cyan .erp-kpi-card__icon { color: #0891b2; }
+.erp-kpi-card--cyan .erp-kpi-card__watermark { color: #0891b2; }
+
+.erp-kpi-card--purple { border-top: 3px solid #9333ea; }
+.erp-kpi-card--purple .erp-kpi-card__icon { color: #9333ea; }
+.erp-kpi-card--purple .erp-kpi-card__watermark { color: #9333ea; }
+
+/* ── Number Formatting ─────────────────────────────────────────────────── */
+.erp-num--success { color: #16a34a; font-weight: 600; font-variant-numeric: tabular-nums; }
+.erp-num--danger { color: #dc2626; font-weight: 600; font-variant-numeric: tabular-nums; }
+.erp-num--bold { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── Table Styling ─────────────────────────────────────────────────────── */
+.erp-pir .ant-table-thead > tr > th {
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 8px 8px !important;
+  white-space: nowrap;
+}
+
+.erp-th-icon {
+  margin-right: 5px;
+  font-size: 12px;
+  vertical-align: -1px;
+  opacity: 0.85;
+}
+
+.erp-pir .ant-table-row:hover td {
+  background: #f0f7ff !important;
+}
+
+[data-theme='dark'] .erp-pir .ant-table-row:hover td {
+  background: #1e293b !important;
+}
+
+/* ── Draggable Modal Handle ────────────────────────────────────────────── */
+.erp-modal-drag-header {
+  cursor: move;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+  user-select: none;
+}
+
+.erp-modal-drag-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ── Multi-Department Report Modal ─────────────────────────────────────── */
+.erp-dept-modal__filters {
+  background: var(--theme-surface-alt, #f8fafc);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border, #e2e8f0);
+  margin-bottom: 14px;
+}
+
+.erp-dept-modal__dept-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 6px;
+  max-height: 130px;
+  overflow-y: auto;
+}
+
+/* ── Category Quick-Filter Cards ────────────────────────────────────────── */
+.erp-category-card {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.erp-category-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.erp-category-card--active {
+  box-shadow: 0 0 0 2px #4f46e5, 0 6px 20px rgba(79, 70, 229, 0.25) !important;
+  border-color: #4f46e5 !important;
+}
+
+.erp-category-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: rgba(79, 70, 229, 0.1);
+  color: #4f46e5;
+}
+
+/* ── Floating Batch Selection Action Bar ───────────────────────────────── */
+.erp-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid #6366f1;
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.15);
+  animation: erpSlideDown 0.2s ease;
+}
+
+.erp-batch-bar__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--theme-text, #1e293b);
+}
+
+/* ── End-to-End Material Flow & Journey Modal ──────────────────────────── */
+.erp-journey-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 4px;
+}
+
+.erp-journey-stage-card {
+  display: flex;
+  align-items: stretch;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s ease;
+}
+
+.erp-journey-stage-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.erp-journey-stage-card--current {
+  border: 2px solid #16a34a !important;
+  background: rgba(22, 163, 74, 0.02);
+}
+
+.erp-journey-stage-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 70px;
+  min-width: 70px;
+  background: #f1f5f9;
+  border-right: 1px solid var(--theme-border, #e2e8f0);
+  padding: 12px 6px;
+  text-align: center;
+}
+
+.erp-journey-stage-number {
+  font-size: 20px;
+  font-weight: 800;
+  color: #334155;
+  line-height: 1;
+}
+
+.erp-journey-stage-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.erp-journey-stage-content {
+  flex: 1;
+  padding: 12px 16px;
+}
+
+.erp-journey-stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.erp-journey-stage-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--theme-text, #0f172a);
+}
+
+.erp-journey-arrow-connector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+  color: #94a3b8;
+  font-size: 16px;
+}
+
+.erp-journey-flow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  color: #475569;
+}
+
+[data-theme='dark'] .erp-category-card--active {
+  box-shadow: 0 0 0 2px #6366f1, 0 6px 20px rgba(99, 102, 241, 0.4) !important;
+  border-color: #6366f1 !important;
+}
+
+[data-theme='dark'] .erp-batch-bar {
+  background: #1e293b;
+  border-color: #6366f1;
+}
+
+[data-theme='dark'] .erp-journey-stage-card {
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+[data-theme='dark'] .erp-journey-stage-badge {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+[data-theme='dark'] .erp-journey-stage-number {
+  color: #f1f5f9;
+}
+
+[data-theme='dark'] .erp-journey-stage-title {
+  color: #f1f5f9;
+}
+
+[data-theme='dark'] .erp-journey-flow-pill {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+/* ── Workspace-Bounded Modal (Respects Sidebar Collapse & Expand) ───────── */
+.erp-workspace-modal.ant-modal-wrap {
+  left: var(--erp-sidebar-width, 0px) !important;
+  width: calc(100vw - var(--erp-sidebar-width, 0px)) !important;
+  transition: left 0.2s cubic-bezier(0.2, 0, 0, 1), width 0.2s cubic-bezier(0.2, 0, 0, 1);
+  padding: 16px !important;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.ant-modal-root:has(.erp-workspace-modal) .ant-modal-mask {
+  left: var(--erp-sidebar-width, 0px) !important;
+  width: calc(100vw - var(--erp-sidebar-width, 0px)) !important;
+  transition: left 0.2s cubic-bezier(0.2, 0, 0, 1), width 0.2s cubic-bezier(0.2, 0, 0, 1);
+  backdrop-filter: blur(3px);
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.erp-workspace-modal .ant-modal {
+  margin: 0 auto !important;
+  transition: all 0.2s ease;
+}
+
+.erp-workspace-modal .ant-modal-content {
+  border-radius: 12px;
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+/* ── 2027 Modern Stock Ledger Table & Movement Pills ─────────────────────── */
+.erp-modern-ledger-table {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--theme-border, #e2e8f0);
+}
+
+.erp-modern-ledger-table .ant-table-thead > tr > th {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  padding: 10px 12px !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  white-space: nowrap !important;
+}
+
+.erp-modern-ledger-table .ant-table-tbody > tr > td {
+  padding: 9px 12px !important;
+  font-size: 12.5px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.erp-modern-ledger-table .ant-table-tbody > tr:hover > td {
+  background: #f8fafc !important;
+}
+
+/* Movement Pills: Zero awkward wrapping, clean enterprise look */
+.erp-mvt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap !important;
+  padding: 2.5px 9px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  line-height: 1.2;
+}
+
+.erp-mvt-pill--in {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.erp-mvt-pill--out {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+}
+
+.erp-mvt-raw-type {
+  font-size: 10px;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+}
+
+/* Department / Destination Badges */
+.erp-dest-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2.5px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.erp-dest-badge--out {
+  color: #4338ca;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+}
+
+.erp-dest-badge--in {
+  color: #047857;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.erp-dest-badge--neutral {
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+
+.erp-dest-produces-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: #6b21a8;
+  background: #faf5ff;
+  border: 1px solid #e9d5ff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* Numeric & Balance Alignment */
+.erp-cell-num {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+/* Dark Mode Adaptations */
+[data-theme='dark'] .erp-modern-ledger-table {
+  border-color: #1e293b;
+}
+
+[data-theme='dark'] .erp-modern-ledger-table .ant-table-thead > tr > th {
+  background: #0f172a !important;
+  color: #94a3b8 !important;
+  border-bottom-color: #1e293b !important;
+}
+
+[data-theme='dark'] .erp-modern-ledger-table .ant-table-tbody > tr > td {
+  border-bottom-color: #1e293b;
+  color: #e2e8f0;
+}
+
+[data-theme='dark'] .erp-modern-ledger-table .ant-table-tbody > tr:hover > td {
+  background: #1e293b !important;
+}
+
+[data-theme='dark'] .erp-mvt-pill--in {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+[data-theme='dark'] .erp-mvt-pill--out {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fb7185;
+  border-color: rgba(244, 63, 94, 0.35);
+}
+
+[data-theme='dark'] .erp-dest-badge--out {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+[data-theme='dark'] .erp-dest-badge--in {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+[data-theme='dark'] .erp-dest-badge--neutral {
+  color: #cbd5e1;
+  background: #1e293b;
+  border-color: #334155;
+}
+
+[data-theme='dark'] .erp-dest-produces-tag {
+  color: #d8b4fe;
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.3);
+}
+
+/* ── 2027 Material Flow Stage Strip (Visual Pipeline) ─────────────────── */
+.erp-flow-stage-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #f8fafc 50%, #eff6ff 100%);
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  flex-wrap: wrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.erp-flow-stage-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.erp-flow-stage-node--source {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.erp-flow-stage-node--current {
+  background: #eef2ff;
+  color: #4338ca;
+  border: 1.5px solid #818cf8;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.erp-flow-stage-node--target {
+  background: #fdf4ff;
+  color: #86198f;
+  border: 1px solid #f0abfc;
+}
+
+.erp-flow-stage-arrow {
+  color: #94a3b8;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.erp-flow-stage-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.erp-flow-consumer-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #4f46e5;
+  background: #ffffff;
+  border: 1px solid #c7d2fe;
+  padding: 1px 7px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.erp-flow-consumer-chip:hover {
+  background: #eef2ff;
+  border-color: #6366f1;
+}
+
+/* ── Modern Modal Controls Pill (Minimize, Maximize, Close) ───────────── */
+.erp-modal-ctrl-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(15, 23, 42, 0.07);
+  padding: 2px 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+.erp-modal-ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.erp-modal-ctrl-btn:hover {
+  background: rgba(15, 23, 42, 0.1);
+  color: #0f172a;
+}
+
+.erp-modal-ctrl-btn--close:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* ── Floating Minimized Modal Dock Bar ─────────────────────────────────── */
+.erp-modal-minimized-dock {
+  position: fixed;
+  bottom: 20px;
+  right: 24px;
+  z-index: 1060;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: 9999px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  animation: erpSlideUp 0.25s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.erp-modal-minimized-dock:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+}
+
+.erp-modal-minimized-dock__title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f8fafc;
+}
+
+.erp-modal-minimized-dock__badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: #4f46e5;
+  color: #ffffff;
+  padding: 1px 7px;
+  border-radius: 9999px;
+}
+
+.erp-modal-minimized-dock__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  border-left: 1px solid #334155;
+  padding-left: 8px;
+}
+
+@keyframes erpSlideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Dark Mode for Flow Strip & Dock */
+[data-theme='dark'] .erp-flow-stage-strip {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(15, 23, 42, 0.8) 50%, rgba(79, 70, 229, 0.08) 100%);
+  border-color: #334155;
+}
+
+[data-theme='dark'] .erp-modal-ctrl-group {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme='dark'] .erp-modal-ctrl-btn {
+  color: #94a3b8;
+}
+
+[data-theme='dark'] .erp-modal-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+[data-theme='dark'] .erp-flow-consumer-chip {
+  background: #1e293b;
+  border-color: #4f46e5;
+  color: #a5b4fc;
+}
+
+/* ── Print Styles ──────────────────────────────────────────────────────── */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .erp-app-header,
+  .erp-desktop-sider,
+  .erp-workspace-tabstrip-container,
+  .erp-pir__toolbar-card,
+  .ant-pagination {
+    display: none !important;
+  }
+  .erp-pir {
+    padding: 0 !important;
+  }
 }

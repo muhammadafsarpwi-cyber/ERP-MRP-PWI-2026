@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { App } from 'antd';
@@ -149,6 +149,51 @@ const shipmentsResponse = {
 const shiftsResponse = { success: true, data: [{ id: 'sh-1', shiftCode: 'SHIFT-A', name: 'Shift A (Morning)', plannedHours: '8.00' }] };
 const uomsResponse = { data: [{ id: 'uom-1', code: 'KG', name: 'Kilogram', uomType: 'WEIGHT' }], total: 1 };
 
+/* ── Department-wise fixtures ────────────────────────────────────────────── */
+
+const makeItem = (over: Record<string, unknown> = {}) => ({
+  itemId: 'i-x', itemCode: 'ITEM-X', itemName: 'Item X', itemType: 'FINISHED_GOOD', materialRoleUsage: null,
+  itemDivisionName: 'Control Cable Division', itemSectionName: 'Spiral', itemDepartmentName: 'Flattening',
+  uomCode: 'KG', weightPerPiece: null, weightPerMeter: null, weightUomCode: 'KG',
+  actualKg: 100, scrapPct: 1,
+  targetQuantity: 100, actualQuantity: 90, scrapQuantity: 5,
+  runningHours: 8, downtimeHours: 0, plannedHours: 10,
+  entryCount: 1, achievementPercentage: 90, efficiencyPercentage: 80,
+  ...over,
+});
+
+const makeDept = (name: string, division: string, items: Record<string, unknown>[]) => ({
+  departmentId: `dept-${name}`, departmentCode: name.slice(0, 3).toUpperCase(), departmentName: name,
+  divisionName: division, sectionName: 'Section', items,
+});
+
+const makeReport = (departments: ReturnType<typeof makeDept>[]) => ({
+  success: true, filters: {}, entryCount: departments.reduce((s, d) => s + d.items.length, 0),
+  departments, grandTotalsByUom: [],
+});
+
+const installApiMock = (report: unknown) => {
+  apiMock.get.mockReset();
+  apiMock.get.mockImplementation((url: any) => {
+    const u = String(url);
+    if (u === '/production/entries/report') return Promise.resolve(report);
+    if (u === '/production/entries') return Promise.resolve(entriesResponse);
+    if (u === '/production/orders') return Promise.resolve(ordersResponse);
+    if (u === '/production/machine-targets') return Promise.resolve(targetsResponse);
+    if (u === '/sales/deliveries') return Promise.resolve(shipmentsResponse);
+    if (u === '/production/shifts') return Promise.resolve(shiftsResponse);
+    if (u === '/master-data/uom') return Promise.resolve(uomsResponse);
+    return Promise.resolve({ data: [], total: 0 });
+  });
+};
+
+const deptWiseCard = (): HTMLElement => {
+  const title = screen.getByText(/DEPARTMENT-WISE PRODUCTION REPORT/i);
+  const card = title.closest('.ant-card') as HTMLElement | null;
+  if (!card) throw new Error('Department-wise card not found');
+  return card;
+};
+
 beforeAll(() => {
   window.matchMedia = (query: string) =>
     ({
@@ -209,11 +254,11 @@ describe('ProductionReports', () => {
       expect(within(entriesPanel).getAllByText('Per Unit Weight').length).toBeGreaterThan(0);
       expect(within(entriesPanel).getAllByText('Actual KG').length).toBeGreaterThan(0);
       expect(within(entriesPanel).getByText('0.038 KG/PCS')).toBeInTheDocument();
-      expect(within(entriesPanel).getByText('1,900.00')).toBeInTheDocument();
+      expect(within(entriesPanel).getByText('1,900')).toBeInTheDocument();
     }, { timeout: 5000 });
   }, 20000);
 
-  it('Department Production columns follow Family → Target → Product Name → Per Unit Weight → Actual PCS → Actual KG → Rejection (KG) → Rejection %', async () => {
+  it('Item-wise Production columns follow Family → Product Name → Target → Per Unit Weight → Actual PCS → UOM → Achievement → Efficiency % → Actual KG → Rejection (KG) → Rejection %', async () => {
     render(
       <App>
         <MemoryRouter>
@@ -230,7 +275,7 @@ describe('ProductionReports', () => {
       return pane as HTMLElement;
     }, { timeout: 5000 });
 
-    const headerOrder = ['Family', 'Target', 'Product Name', 'Per Unit Weight', 'Actual PCS', 'Actual KG', 'Rejection (KG)', 'Rejection %'];
+    const headerOrder = ['Family', 'Product Name', 'Target', 'Per Unit Weight', 'Actual PCS', 'UOM', 'Achievement', 'Efficiency %', 'Actual KG', 'Rejection (KG)', 'Rejection %'];
     const positions = headerOrder.map((name) => {
       const headers = within(deptPanel).getAllByRole('columnheader').map((h) => h.textContent?.replace(/\s+/g, ' ').trim() ?? '');
       return headers.findIndex((h) => h.includes(name));
@@ -303,11 +348,11 @@ describe('ProductionReports', () => {
     expect(screen.getAllByText('Actual PCS').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Actual KG').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Rejection %').length).toBeGreaterThan(0);
-    // Actual KG for a KG item: existing Actual quantity, unchanged (620 → 620.00).
-    expect(screen.getAllByText('620.00').length).toBeGreaterThan(0);
+    // Actual KG for a KG item: existing Actual quantity, unchanged (620).
+    expect(screen.getAllByText('620').length).toBeGreaterThan(0);
     // PCS item: Actual PCS stays 50,000 AND Actual KG (50000 × 0.038 = 1900) is shown separately.
     expect(screen.getAllByText('50,000').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('1,900.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1,900').length).toBeGreaterThan(0);
     // Item Master driven: configured production items with no transaction still
     // render with zero Target/Actual/Scrap — never dropped, never blank.
     expect(screen.getByText('RM-WIRE-005')).toBeInTheDocument();
@@ -385,18 +430,18 @@ describe('ProductionReports', () => {
     expect(within(scrapPanel).queryByText('Hydraulic Oil 46')).not.toBeInTheDocument();
     expect(within(scrapPanel).queryByText('CONS-001')).not.toBeInTheDocument();
 
-    // Scrap values keep 2-decimal precision (non-zero and zero both visible).
-    expect(within(scrapPanel).getByText('14.00')).toBeInTheDocument();
-    expect(within(scrapPanel).getAllByText('0.00').length).toBeGreaterThanOrEqual(2);
+    // Rejection quantities display as counts (no unnecessary 3-decimal padding).
+    expect(within(scrapPanel).getByText('14')).toBeInTheDocument();
+    expect(within(scrapPanel).getAllByText('0').length).toBeGreaterThanOrEqual(2);
     // Rejection column label explicitly shows KG; Actual PCS / Actual KG / Rejection % present.
     expect(within(scrapPanel).getAllByText('Rejection (KG)').length).toBeGreaterThanOrEqual(1);
     expect(within(scrapPanel).getAllByText('Actual PCS').length).toBeGreaterThanOrEqual(1);
     expect(within(scrapPanel).getAllByText('Actual KG').length).toBeGreaterThanOrEqual(1);
     expect(within(scrapPanel).getAllByText('Rejection %').length).toBeGreaterThanOrEqual(1);
     // PCS item renders a separate Actual KG computed from Item Master weight
-    // (DEMO-NF-001: 50000 × 0.038 = 1900.00) while Actual PCS stays 50,000.
+    // (DEMO-NF-001: 50000 × 0.038 = 1900) while Actual PCS stays 50,000.
     expect(within(scrapPanel).getByText('DEMO-NF-001')).toBeInTheDocument();
-    expect(within(scrapPanel).getByText('1,900.00')).toBeInTheDocument();
+    expect(within(scrapPanel).getByText('1,900')).toBeInTheDocument();
     expect(within(scrapPanel).getByText('50,000')).toBeInTheDocument();
   }, 20000);
 });
@@ -437,7 +482,7 @@ describe('perUnitWeightLabel', () => {
     expect(perUnitWeightLabel('', 1, 1)).toBeNull();
   });
 
-  it('dept KPI row: 8 cards in order with Target red accent, Shipment distinct/cyan, Shipment % green at 100%, and neutral Rejection %', async () => {
+  it('dept KPI row: 7 cards in order (no Shipment / Shipment %), Target highlighted, Efficiency % present', async () => {
     const user = userEvent.setup();
     render(
       <App>
@@ -449,56 +494,139 @@ describe('perUnitWeightLabel', () => {
 
     await waitFor(() => expect(screen.getAllByText('Wire Drawing').length).toBeGreaterThan(0));
 
-    const box = screen.getByRole('tab', { name: /Department Production/i });
+    const box = screen.getByRole('tab', { name: /Item-wise Production/i });
     await user.click(box);
 
     const kpiCardsOrder = [
-      'Total Target',
+      'Target',
       'Total Actual / Production',
       'Achievement %',
-      'Shipment',
-      'Shipment %',
       'Actual KG',
       'Total Scrap / Rejection (KG)',
       'Rejection %',
+      'Efficiency %',
     ];
 
-    // Render in the exact specified order — read KPI cards off the dept tab panel.
-    const order = kpiCardsOrder.map((title) =>
-      [...document.querySelectorAll('.erp-pr-kpi-card')]
-        .filter((c) => c.querySelector('.ant-statistic-title')?.textContent?.trim() === title)
-        .map((c) => (c as HTMLElement).offsetTop),
+    // DOM order of the dept tab KPI cards must equal the required order.
+    const rendered = [...document.querySelectorAll('.erp-pr-kpi-card')].map(
+      (c) => c.querySelector('.ant-statistic-title')?.textContent?.trim() ?? '',
     );
+    expect(rendered).toEqual(kpiCardsOrder);
 
-    // Every card is present and populates a real value (no drop, no blank).
-    kpiCardsOrder.forEach((title) => {
-      const cards = [...document.querySelectorAll('.erp-pr-kpi-card')].filter(
-        (c) => c.querySelector('.ant-statistic-title')?.textContent?.trim() === title,
-      );
-      expect(cards.length).toBeGreaterThan(0);
+    // Shipment / Shipment % KPI cards are removed entirely (no empty slots).
+    expect(rendered).not.toContain('Shipment');
+    expect(rendered).not.toContain('Shipment %');
+
+    // Target is unmistakably highlighted (red accent + dedicated target treatment).
+    const targetCard = [...document.querySelectorAll('.erp-pr-kpi-card')].find(
+      (c) => c.querySelector('.ant-statistic-title')?.textContent?.trim() === 'Target',
+    ) as HTMLElement;
+    expect(targetCard.className).toContain('erp-pr-kpi-card--tone-danger');
+    expect(targetCard.className).toContain('erp-pr-kpi-card--target');
+  });
+});
+
+describe('Department-wise Production Report', () => {
+  beforeEach(() => {
+    jest.spyOn(dashboardService, 'getFilterDivisions').mockResolvedValue({ success: true, data: [{ id: 'div-1', name: 'Wire Division' }] });
+    jest.spyOn(dashboardService, 'getFilterDepartments').mockResolvedValue({ success: true, data: [{ id: 'dept-Wire Drawing', name: 'Wire Drawing' }] });
+  });
+
+  it('renders one row per department without Item Code / Family, and item-level search never removes departments', async () => {
+    const user = userEvent.setup();
+    installApiMock(makeReport([
+      makeDept('Wire Drawing', 'Wire Division', [makeItem({ itemCode: 'WIRE-120', itemName: '120mm Finished Wire' })]),
+      makeDept('Packing', 'Wire Division', [makeItem({ itemCode: 'PK-01', itemName: 'Pack A' })]),
+      makeDept('Spoke', 'Spoke Division', [makeItem({ itemCode: 'SP-01', itemName: 'Spoke A' })]),
+    ]));
+    render(<App><MemoryRouter><ProductionReports /></MemoryRouter></App>);
+
+    await waitFor(() => expect(screen.getByText(/DEPARTMENT-WISE PRODUCTION REPORT/i)).toBeInTheDocument());
+
+    const card = deptWiseCard();
+    ['Wire Drawing', 'Packing', 'Spoke'].forEach((d) => {
+      expect(within(card).getAllByText(d).length).toBe(1);
     });
 
-    // Target is red-accented and Shipment is visually distinct (cyan), never same tone.
-    const targetCard = [...document.querySelectorAll('.erp-pr-kpi-card')].find(
-      (c) => c.querySelector('.ant-statistic-title')?.textContent?.trim() === 'Total Target',
-    );
-    const shipmentCard = [...document.querySelectorAll('.erp-pr-kpi-card')].find(
-      (c) => c.querySelector('.ant-statistic-title')?.textContent?.trim() === 'Shipment',
-    );
-    const targetSheet = 'erp-pr-kpi-card--tone-danger';
-    expect(targetCard?.className).toContain(targetSheet);
-    expect(shipmentCard?.className).toContain('erp-pr-kpi-card--tone-cyan');
-    expect(shipmentCard?.className).not.toContain(targetSheet);
+    const headers = within(card).getAllByRole('columnheader').map((h) => h.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    expect(headers.some((h) => h.includes('Item Code'))).toBe(false);
+    expect(headers.some((h) => h === 'Family')).toBe(false);
+    expect(headers.some((h) => h.includes('Department'))).toBe(true);
+    expect(headers.some((h) => h.includes('Target'))).toBe(true);
 
-    // Shipment % is real Delivered/Deliveries = 100% (≥70 green) on the fixture.
-    const shipmentPctCard = [...document.querySelectorAll('.erp-pr-kpi-card')].find(
-      (c) => c.querySelector('.ant-statistic-title')?.textContent?.trim() === 'Shipment %',
-    );
-    const val = shipmentPctCard?.querySelector('.ant-statistic-content')?.textContent ?? '';
-    expect(val).toMatch(/^100/);
+    // Item-level search must not remove departments from the department-level view.
+    const searchBox = screen.getByPlaceholderText('Search items, machines, customers…');
+    await user.type(searchBox, 'zzz-no-such-item');
+    await waitFor(() => {
+      const card2 = deptWiseCard();
+      ['Wire Drawing', 'Packing', 'Spoke'].forEach((d) => {
+        expect(within(card2).getAllByText(d).length).toBe(1);
+      });
+    });
+  }, 20000);
 
-    // Rejection % and Actual KG cards are present (KG-based semantics).
-    expect(document.body.textContent).toContain('Rejection %');
-    expect(document.body.textContent).toContain('Actual KG');
-  });
+  it('defaults to 10 rows per page with the size control available above the table', async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 12 }, (_, i) =>
+      makeDept(`Dept ${String(i + 1).padStart(2, '0')}`, 'Wire Division', [makeItem({ uomCode: 'PCS', weightPerPiece: 0.5 })]),
+    );
+    installApiMock(makeReport(many));
+    render(<App><MemoryRouter><ProductionReports /></MemoryRouter></App>);
+
+    await waitFor(() => expect(screen.getByText(/DEPARTMENT-WISE PRODUCTION REPORT/i)).toBeInTheDocument());
+    const card = deptWiseCard();
+
+    expect(within(card).getByText('Dept 01')).toBeInTheDocument();
+    expect(within(card).getByText('Dept 10')).toBeInTheDocument();
+    expect(within(card).queryByText('Dept 11')).not.toBeInTheDocument();
+    expect(within(card).queryByText('Dept 12')).not.toBeInTheDocument();
+
+    // Pagination (incl. page-size control) is rendered ABOVE the table.
+    const paginations = card.querySelectorAll('.ant-pagination');
+    const table = card.querySelector('.ant-table') as Node;
+    expect(paginations.length).toBeGreaterThanOrEqual(1);
+    expect(!!(paginations[0].compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+
+    // Next page reveals the remaining departments.
+    await user.click(within(card).getAllByTitle('Next Page')[0]);
+    await waitFor(() => expect(within(card).getByText('Dept 11')).toBeInTheDocument());
+    expect(within(card).getByText('Dept 12')).toBeInTheDocument();
+  }, 20000);
+
+  it('Division filter scopes the department-wise table to that division departments', async () => {
+    const user = userEvent.setup();
+    apiMock.get.mockReset();
+    apiMock.get.mockImplementation((url: any, params: any) => {
+      const u = String(url);
+      if (u === '/production/entries/report') {
+        const scoped = params?.divisionId === 'div-1';
+        return Promise.resolve(makeReport(scoped
+          ? [makeDept('Wire Drawing', 'Wire Division', [makeItem()])]
+          : [makeDept('Wire Drawing', 'Wire Division', [makeItem()]), makeDept('Packing', 'Spoke Division', [makeItem()])]));
+      }
+      if (u === '/production/entries') return Promise.resolve(entriesResponse);
+      if (u === '/production/orders') return Promise.resolve(ordersResponse);
+      if (u === '/production/machine-targets') return Promise.resolve(targetsResponse);
+      if (u === '/sales/deliveries') return Promise.resolve(shipmentsResponse);
+      if (u === '/production/shifts') return Promise.resolve(shiftsResponse);
+      if (u === '/master-data/uom') return Promise.resolve(uomsResponse);
+      return Promise.resolve({ data: [], total: 0 });
+    });
+    render(<App><MemoryRouter><ProductionReports /></MemoryRouter></App>);
+
+    await waitFor(() => expect(within(deptWiseCard()).getByText('Packing')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Filters/i }));
+    const divisionSelect = screen.getByText('Division').closest('.ant-select') as HTMLElement;
+    fireEvent.mouseDown(divisionSelect.querySelector('.ant-select-selector') as Element);
+    const option = await waitFor(() => {
+      const opt = document.querySelector('.ant-select-item-option[title="Wire Division"]') as HTMLElement | null;
+      expect(opt).toBeTruthy();
+      return opt as HTMLElement;
+    });
+    await user.click(option);
+
+    await waitFor(() => expect(within(deptWiseCard()).queryByText('Packing')).not.toBeInTheDocument());
+    expect(within(deptWiseCard()).getByText('Wire Drawing')).toBeInTheDocument();
+  }, 20000);
 });

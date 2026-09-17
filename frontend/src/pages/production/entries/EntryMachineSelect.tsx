@@ -6,6 +6,7 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined, ReloadOutlined, SelectOutlined, EditOutlined,
+  EyeOutlined, DeleteOutlined, FormOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -74,7 +75,7 @@ interface MachineStatusResponse {
  * data-entry happens. Only "Entry Required" machines can open a new entry form.
  */
 const EntryMachineSelect: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const lookups = useLookups();
@@ -100,10 +101,24 @@ const EntryMachineSelect: React.FC = () => {
   const sectionsFiltered = lookups.sectionsForDivision(divisionId);
   const departmentsFiltered = lookups.departmentsForSection(sectionId);
 
-  const ready = !!dateIso && !!shiftId && !!(divisionId || sectionId || departmentId);
+  // Auto-select first shift when loaded if not yet chosen
+  useEffect(() => {
+    if (!shiftId && lookups.shifts && lookups.shifts.length > 0) {
+      setShiftId(lookups.shifts[0].id);
+    }
+  }, [shiftId, lookups.shifts]);
+
+  // Auto-select first division when loaded if not yet chosen
+  useEffect(() => {
+    if (!divisionId && lookups.divisions && lookups.divisions.length > 0) {
+      setDivisionId(lookups.divisions[0].id);
+    }
+  }, [divisionId, lookups.divisions]);
+
+  const ready = !!dateIso && !!shiftId;
 
   const fetchStatus = useCallback(async () => {
-    if (!dateIso || !shiftId || !(divisionId || sectionId || departmentId)) {
+    if (!dateIso || !shiftId) {
       setMachines([]);
       setMeta(null);
       return;
@@ -134,24 +149,59 @@ const EntryMachineSelect: React.FC = () => {
   }, [fetchStatus, refreshTick]);
 
   const openNewEntry = (m: MachineStatusRow) => {
-    const ctxDivision = m.divisionId ?? divisionId;
-    const ctxSection = m.sectionId ?? sectionId;
     const ctxDepartment = m.departmentId ?? departmentId;
-    if (!ctxDivision || !ctxSection || !ctxDepartment) {
-      message.warning('This machine has no complete Division/Section/Department assignment.');
-      return;
-    }
+    const depObj = lookups.departments.find((d) => d.id === ctxDepartment);
+    const ctxDivision = m.divisionId ?? divisionId ?? depObj?.divisionId;
+    const ctxSection = m.sectionId ?? sectionId ?? depObj?.sectionId;
+    const effectiveShift = lookups.shifts.find((s) => s.id === shiftId);
+    const divObj = lookups.divisions.find((d) => d.id === ctxDivision);
+    const secObj = lookups.sections.find((s) => s.id === ctxSection);
+    const depName = m.departmentName || depObj?.name;
+    const divName = divObj?.name;
+    const secName = secObj?.name;
+    const shiftName = effectiveShift?.name;
+
     const qs = new URLSearchParams({
       from: 'select',
       machineId: m.id,
-      entryDate: dateIso as string,
-      shiftId: shiftId as string,
-      divisionId: ctxDivision,
-      sectionId: ctxSection,
-      departmentId: ctxDepartment,
+      machineCode: m.machineCode,
+      machineName: m.name,
+      ...(dateIso && { entryDate: dateIso }),
+      ...(shiftId && { shiftId }),
+      ...(shiftName && { shiftName }),
+      ...(ctxDivision && { divisionId: ctxDivision }),
+      ...(divName && { divisionName: divName }),
+      ...(ctxSection && { sectionId: ctxSection }),
+      ...(secName && { sectionName: secName }),
+      ...(ctxDepartment && { departmentId: ctxDepartment }),
+      ...(depName && { departmentName: depName }),
     });
     navigate(`/production/entries/new?${qs.toString()}`);
   };
+
+  const deleteEntry = useCallback(
+    (entryId: string) => {
+      modal.confirm({
+        centered: true,
+        title: 'Delete Production Entry?',
+        content:
+          'Are you sure you want to permanently delete this production entry? This will remove dummy or test data and allow you to re-enter production for this machine.',
+        okText: 'Yes, Delete Entry',
+        cancelText: 'Cancel',
+        okButtonProps: { danger: true },
+        onOk: async () => {
+          try {
+            await apiService.delete(`/production/entries/${entryId}`);
+            message.success('Production entry deleted successfully');
+            setRefreshTick((t) => t + 1);
+          } catch (err: any) {
+            message.error(err?.response?.data?.message || 'Failed to delete entry');
+          }
+        },
+      });
+    },
+    [modal, message],
+  );
 
   const scopeLabel = useMemo(() => {
     const parts: string[] = [];
@@ -160,16 +210,25 @@ const EntryMachineSelect: React.FC = () => {
     const div = lookups.divisions.find((d) => d.id === divisionId);
     if (dep) parts.push(`${dep.name} Department`);
     else if (sec) parts.push(`${sec.name} Section`);
-    else if (div) parts.push(`${div.divisionCode} — ${div.name}`);
+    else if (div) parts.push(`${div.name} (${div.divisionCode})`);
     return parts.length ? parts.join(' · ') : undefined;
   }, [lookups.departments, lookups.sections, lookups.divisions, departmentId, sectionId, divisionId]);
 
   return (
     <div>
-      <Space align="center" style={{ marginBottom: 4 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
-        <Title level={4} style={{ margin: 0 }}>New Production Entry</Title>
-      </Space>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+        <Space align="center">
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
+          <Title level={4} style={{ margin: 0 }}>New Production Entry</Title>
+        </Space>
+        <Button
+          icon={<FormOutlined />}
+          onClick={() => navigate('/production/entries/new')}
+          style={{ fontWeight: 600 }}
+        >
+          Direct Entry Form (Skip Machine Pre-Select)
+        </Button>
+      </div>
       <Steps
         size="small"
         current={0}
@@ -184,7 +243,7 @@ const EntryMachineSelect: React.FC = () => {
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
               style={{ width: 180 }} value={divisionId}
-              options={lookups.divisions.map((d) => ({ value: d.id, label: `${d.divisionCode} — ${d.name}` }))}
+              options={lookups.divisions.map((d) => ({ value: d.id, label: `${d.name} (${d.divisionCode})` }))}
               onChange={(v) => { setDivisionId(v); setSectionId(undefined); setDepartmentId(undefined); }}
             />
           </Col>
@@ -202,7 +261,7 @@ const EntryMachineSelect: React.FC = () => {
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="All Departments"
               style={{ width: 170 }} value={departmentId} disabled={!sectionId}
-              options={departmentsFiltered.map((d) => ({ value: d.id, label: d.name }))}
+              options={departmentsFiltered.map((d) => ({ value: d.id, label: `${d.name}${d.departmentCode && d.departmentCode !== d.name ? ` (${d.departmentCode})` : ''}` }))}
               onChange={(v) => setDepartmentId(v)}
             />
           </Col>
@@ -291,7 +350,9 @@ const EntryMachineSelect: React.FC = () => {
                   key={m.id}
                   machine={m}
                   onSelect={() => openNewEntry(m)}
-                  onViewEdit={(entryId) => navigate(`/production/entries/${entryId}`)}
+                  onEdit={(entryId) => navigate(`/production/entries/${entryId}/edit`)}
+                  onView={(entryId) => navigate(`/production/entries/${entryId}`)}
+                  onDelete={(entryId) => deleteEntry(entryId)}
                 />
               ))}
             </div>
@@ -305,8 +366,10 @@ const EntryMachineSelect: React.FC = () => {
 const MachineTile: React.FC<{
   machine: MachineStatusRow;
   onSelect: () => void;
-  onViewEdit: (entryId: string) => void;
-}> = ({ machine, onSelect, onViewEdit }) => {
+  onEdit: (entryId: string) => void;
+  onView: (entryId: string) => void;
+  onDelete: (entryId: string) => void;
+}> = ({ machine, onSelect, onEdit, onView, onDelete }) => {
   const entered = machine.status === 'ENTERED';
   const statusColor = entered ? 'var(--theme-success)' : 'var(--theme-danger)';
   const softBg = entered ? 'var(--theme-success-soft)' : 'transparent';
@@ -364,26 +427,32 @@ const MachineTile: React.FC<{
   }
 
   const entriesList = (
-    <div style={{ minWidth: 240 }}>
+    <div style={{ minWidth: 280 }}>
       {machine.entries.map((e, idx) => (
         <div
           key={e.id}
           style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            gap: 8, padding: '6px 2px',
+            gap: 8, padding: '8px 2px',
             borderBottom: idx < machine.entries.length - 1 ? '1px solid var(--theme-border)' : 'none',
           }}
         >
           <div>
-            <Text strong style={{ fontSize: 12 }}>{e.itemName ?? e.itemId}</Text>
+            <Text strong style={{ fontSize: 13 }}>{e.itemName ?? e.itemId}</Text>
             <br />
             <Text type="secondary" style={{ fontSize: 11 }}>
               Actual {formatQty(e.actualQuantity)} {e.uom || uom} / Target {formatQty(e.targetQuantity)} {e.uom || uom}
             </Text>
           </div>
-          <Button size="small" icon={<EditOutlined />} onClick={() => onViewEdit(e.id)}>
-            View / Edit
-          </Button>
+          <Space size={4}>
+            <Button size="small" type="primary" ghost icon={<EditOutlined />} onClick={() => onEdit(e.id)}>
+              Edit
+            </Button>
+            <Button size="small" icon={<EyeOutlined />} onClick={() => onView(e.id)}>
+              View
+            </Button>
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => onDelete(e.id)} />
+          </Space>
         </div>
       ))}
     </div>
@@ -394,23 +463,31 @@ const MachineTile: React.FC<{
       style={{
         border: `1px solid ${entered ? 'var(--theme-success)' : 'var(--theme-border-strong)'}`,
         borderRadius: 8,
-        padding: '8px 10px',
+        padding: '10px 12px',
         background: softBg,
         display: 'flex',
         flexDirection: 'column',
-        gap: 6,
+        gap: 8,
         opacity: entered ? 0.96 : 1,
       }}
     >
       <div>
-        <Text type="secondary" style={{ fontSize: 11 }}>{machine.systemCode}</Text>
-        <div style={{ fontWeight: 600, lineHeight: 1.25 }}>{machine.machineCode}</div>
-        <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={machine.name}>
-          {machine.name}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--theme-text, #0f172a)', lineHeight: 1.3 }} title={machine.name}>
+            {machine.name}
+          </div>
+          <Tag style={{ fontSize: 11, margin: 0, fontWeight: 600, padding: '0 6px', background: 'var(--theme-surface-alt, #f1f5f9)' }}>
+            {machine.machineCode}
+          </Tag>
         </div>
-        {machine.departmentName && (
-          <Text type="secondary" style={{ fontSize: 11 }}>{machine.departmentName}</Text>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+          {machine.departmentName && (
+            <Text type="secondary" style={{ fontSize: 11 }}>{machine.departmentName}</Text>
+          )}
+          {machine.systemCode && machine.systemCode !== machine.machineCode && (
+            <Text type="secondary" style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>· {machine.systemCode}</Text>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -468,16 +545,39 @@ const MachineTile: React.FC<{
         </div>
       </div>
 
-      <div style={{ marginTop: 'auto', paddingTop: 2 }}>
+      <div style={{ marginTop: 'auto', paddingTop: 4 }}>
         {entered ? (
           machine.entries.length === 1 ? (
-            <Button block size="small" icon={<EditOutlined />} onClick={() => onViewEdit(machine.entries[0].id)}>
-              View / Edit Existing
-            </Button>
+            <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={<EditOutlined />}
+                style={{ flex: 1, fontWeight: 600 }}
+                onClick={() => onEdit(machine.entries[0].id)}
+              >
+                Edit
+              </Button>
+              <Button
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => onView(machine.entries[0].id)}
+              >
+                View
+              </Button>
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                title="Delete dummy / test entry"
+                onClick={() => onDelete(machine.entries[0].id)}
+              />
+            </div>
           ) : (
             <Popover content={entriesList} title={`${machine.entryCount} entries for this shift`} trigger="click">
               <Button block size="small" icon={<EditOutlined />}>
-                View / Edit Existing ({machine.entryCount})
+                Existing Entries ({machine.entryCount})
               </Button>
             </Popover>
           )

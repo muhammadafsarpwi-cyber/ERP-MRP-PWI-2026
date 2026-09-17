@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card } from 'antd';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
+import { getAuditColumns } from './orgUtils';
 
 interface Company {
   id: string;
@@ -23,10 +24,15 @@ interface Branch {
   country: string;
   status: string;
   createdAt: string;
+  updatedAt?: string | null;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
 }
 
 const BranchManagement: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,21 +52,27 @@ const BranchManagement: React.FC = () => {
       });
       setBranches(response.data);
       setTotal(response.total);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch branches'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch branches'),
+      });
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [modal]);
 
   const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch companies'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch companies'),
+      });
     }
-  }, [message]);
+  }, [modal]);
 
   useEffect(() => {
     fetchBranches(page);
@@ -79,63 +91,124 @@ const BranchManagement: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await apiService.delete(`/branches/${id}`);
-      message.success('Branch deleted successfully');
-      fetchBranches(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to delete branch'));
-    }
+  const handleDelete = (record: Branch) => {
+    modal.confirm({
+      title: 'Delete Branch',
+      content: `Are you sure you want to delete branch "${record.branchCode}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.delete(`/branches/${record.id}`);
+          message.success('Branch deleted successfully');
+          fetchBranches(page);
+        } catch (error: any) {
+          modal.error({
+            title: 'Delete Failed',
+            content: formatApiError(error, 'Failed to delete branch'),
+          });
+        }
+      },
+    });
   };
 
-  const handleActivate = async (id: string) => {
-    try {
-      await apiService.patch(`/branches/${id}/activate`);
-      message.success('Branch activated successfully');
-      fetchBranches(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to activate branch'));
-    }
+  const handleActivate = (record: Branch) => {
+    modal.confirm({
+      title: 'Activate Branch',
+      content: `Are you sure you want to activate branch "${record.branchCode}"?`,
+      okText: 'Activate',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/branches/${record.id}/activate`);
+          message.success('Branch activated successfully');
+          fetchBranches(page);
+        } catch (error: any) {
+          modal.error({
+            title: 'Activation Failed',
+            content: formatApiError(error, 'Failed to activate branch'),
+          });
+        }
+      },
+    });
   };
 
-  const handleDeactivate = async (id: string) => {
-    try {
-      await apiService.patch(`/branches/${id}/deactivate`);
-      message.success('Branch deactivated successfully');
-      fetchBranches(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to deactivate branch'));
-    }
+  const handleDeactivate = (record: Branch) => {
+    modal.confirm({
+      title: 'Deactivate Branch',
+      content: `Are you sure you want to deactivate branch "${record.branchCode}"?`,
+      okText: 'Deactivate',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/branches/${record.id}/deactivate`);
+          message.success('Branch deactivated successfully');
+          fetchBranches(page);
+        } catch (error: any) {
+          modal.error({
+            title: 'Deactivation Failed',
+            content: formatApiError(error, 'Failed to deactivate branch'),
+          });
+        }
+      },
+    });
   };
 
   const handleSubmit = async () => {
-    if (submitting) return;
-    setSubmitting(true);
+    let values: any;
     try {
-      const values = await form.validateFields();
-      if (editingBranch) {
-        const { companyId: _co, ...editable } = values;
-        await apiService.patch(`/branches/${editingBranch.id}`, editable);
-        message.success('Branch updated successfully');
-      } else {
-        await apiService.post('/branches', values);
-        message.success('Branch created successfully');
-      }
-      setModalVisible(false);
-      fetchBranches(page);
+      values = await form.validateFields();
     } catch (error: any) {
-      if (error?.errorFields) {
-        message.error('Please complete all required fields.');
-      } else {
-        message.error(formatApiError(error, 'Operation failed'));
-      }
-    } finally {
-      setSubmitting(false);
+      const errorList = error?.errorFields?.flatMap((f: any) => f.errors) || ['Please check required fields'];
+      modal.error({
+        title: 'Validation Failed',
+        content: (
+          <div>
+            <p style={{ marginBottom: 8, fontWeight: 500 }}>Please correct the following errors:</p>
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {errorList.map((msg: string, idx: number) => (
+                <li key={idx} style={{ color: '#ff4d4f' }}>{msg}</li>
+              ))}
+            </ul>
+          </div>
+        ),
+      });
+      return;
     }
+
+    modal.confirm({
+      title: 'Save Confirmation',
+      content: 'Are you sure you want to save these changes?',
+      okText: 'Save',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setSubmitting(true);
+        try {
+          if (editingBranch) {
+            const { companyId: _co, ...editable } = values;
+            await apiService.patch(`/branches/${editingBranch.id}`, editable);
+            message.success('Branch updated successfully');
+          } else {
+            await apiService.post('/branches', values);
+            message.success('Branch created successfully');
+          }
+          setModalVisible(false);
+          fetchBranches(page);
+        } catch (error: any) {
+          modal.error({
+            title: 'Save Failed',
+            content: formatApiError(error, 'Operation failed'),
+          });
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
   };
 
-  const columns: ColumnsType<Branch> = [
+  const baseColumns: ColumnsType<Branch> = [
     {
       title: 'Code',
       dataIndex: 'branchCode',
@@ -180,24 +253,23 @@ const BranchManagement: React.FC = () => {
         <Tag color={status === 'ACTIVE' ? 'green' : 'red'}>{status}</Tag>
       ),
     },
+  ];
+
+  const columns: ColumnsType<Branch> = [
+    ...baseColumns,
+    ...getAuditColumns<Branch>(),
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} title="Edit Branch" />
           {record.status === 'ACTIVE' ? (
-            <Popconfirm title="Deactivate this branch?" onConfirm={() => handleDeactivate(record.id)}>
-              <Button type="link" danger icon={<CloseCircleOutlined />} />
-            </Popconfirm>
+            <Button type="link" danger icon={<CloseCircleOutlined />} onClick={() => handleDeactivate(record)} title="Deactivate Branch" />
           ) : (
-            <Popconfirm title="Activate this branch?" onConfirm={() => handleActivate(record.id)}>
-              <Button type="link" icon={<CheckCircleOutlined />} />
-            </Popconfirm>
+            <Button type="link" icon={<CheckCircleOutlined />} onClick={() => handleActivate(record)} title="Activate Branch" />
           )}
-          <Popconfirm title="Delete this branch?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} title="Delete Branch" />
         </Space>
       ),
     },

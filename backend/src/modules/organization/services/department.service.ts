@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, TreeRepository } from 'typeorm';
-import { Department, DepartmentStatus } from '../entities';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, TreeRepository, DataSource } from 'typeorm';
+import { Department, DepartmentStatus, Division, Section, Company } from '../entities';
 import { CreateDepartmentDto, UpdateDepartmentDto } from '../dto';
 
 @Injectable()
@@ -9,9 +9,107 @@ export class DepartmentService {
   constructor(
     @InjectRepository(Department)
     private readonly departmentRepository: TreeRepository<Department>,
+    @InjectRepository(Division)
+    private readonly divisionRepository: Repository<Division>,
+    @InjectRepository(Section)
+    private readonly sectionRepository: Repository<Section>,
+    @InjectRepository(Company)
+    private readonly companyRepository: Repository<Company>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
+  private async populateAuditNames(departments: Department[]): Promise<Department[]> {
+    if (!departments || departments.length === 0) return departments;
+
+    const userIds = new Set<string>();
+    for (const dept of departments) {
+      if (dept.createdBy) userIds.add(dept.createdBy);
+      if (dept.updatedBy) userIds.add(dept.updatedBy);
+    }
+
+    if (userIds.size === 0) return departments;
+
+    try {
+      const idsArray = Array.from(userIds);
+      const users = await this.dataSource.query(
+        `SELECT id, auth_user_id, display_name, email FROM erp_users WHERE id = ANY($1::uuid[]) OR auth_user_id = ANY($1::uuid[])`,
+        [idsArray],
+      );
+
+      const nameMap = new Map<string, string>();
+      for (const u of users) {
+        const name = u.display_name || u.email || 'User';
+        if (u.id) nameMap.set(u.id, name);
+        if (u.auth_user_id) nameMap.set(u.auth_user_id, name);
+      }
+
+      for (const dept of departments) {
+        (dept as any).createdByName = dept.createdBy ? (nameMap.get(dept.createdBy) || null) : null;
+        (dept as any).updatedByName = dept.updatedBy ? (nameMap.get(dept.updatedBy) || null) : null;
+      }
+    } catch {
+      // Graceful fallback if erp_users cannot be queried
+      for (const dept of departments) {
+        (dept as any).createdByName = (dept as any).createdByName || null;
+        (dept as any).updatedByName = (dept as any).updatedByName || null;
+      }
+    }
+
+    return departments;
+  }
+
+  private async validateHierarchy(
+    companyId: string,
+    divisionId?: string | null,
+    sectionId?: string | null,
+  ): Promise<{ division: Division | null; section: Section | null }> {
+    let division: Division | null = null;
+    let section: Section | null = null;
+
+    if (divisionId) {
+      division = await this.divisionRepository.findOne({ where: { id: divisionId } });
+      if (!division) {
+        throw new NotFoundException(`Division with ID '${divisionId}' not found`);
+      }
+      if (division.companyId !== companyId) {
+        throw new BadRequestException(`Selected division '${division.name}' does not belong to the selected company`);
+      }
+    }
+
+    if (sectionId) {
+      if (!divisionId) {
+        throw new BadRequestException('Cannot assign a section without selecting a division');
+      }
+      section = await this.sectionRepository.findOne({ where: { id: sectionId } });
+      if (!section) {
+        throw new NotFoundException(`Section with ID '${sectionId}' not found`);
+      }
+      if (section.divisionId !== divisionId) {
+        throw new BadRequestException(`Selected section '${section.name}' does not belong to the selected division`);
+      }
+      if (section.companyId !== companyId) {
+        throw new BadRequestException(`Selected section '${section.name}' does not belong to the selected company`);
+      }
+    }
+
+    return { division, section };
+  }
+
   async create(createDepartmentDto: CreateDepartmentDto, userId?: string): Promise<Department> {
+    const company = await this.companyRepository.findOne({
+      where: { id: createDepartmentDto.companyId },
+    });
+    if (!company) {
+      throw new NotFoundException(`Company with ID '${createDepartmentDto.companyId}' not found`);
+    }
+
+    await this.validateHierarchy(
+      createDepartmentDto.companyId,
+      createDepartmentDto.divisionId,
+      createDepartmentDto.sectionId,
+    );
+
     const existingDepartment = await this.departmentRepository.findOne({
       where: {
         departmentCode: createDepartmentDto.departmentCode,
@@ -32,6 +130,10 @@ export class DepartmentService {
         throw new NotFoundException(`Parent department with ID '${createDepartmentDto.parentDepartmentId}' not found`);
       }
 
+      if (parentDepartment.companyId !== createDepartmentDto.companyId) {
+        throw new BadRequestException('Parent department must belong to the same company');
+      }
+
       if (createDepartmentDto.parentDepartmentId === createDepartmentDto.departmentCode) {
         throw new BadRequestException('Department cannot be its own parent');
       }
@@ -39,11 +141,17 @@ export class DepartmentService {
 
     const department = this.departmentRepository.create({
       ...createDepartmentDto,
-      createdBy: userId,
-      updatedBy: userId,
+      divisionId: createDepartmentDto.divisionId || (null as any),
+      sectionId: createDepartmentDto.sectionId || (null as any),
+      branchId: createDepartmentDto.branchId || (null as any),
+      businessUnitId: createDepartmentDto.businessUnitId || (null as any),
+      parentDepartmentId: createDepartmentDto.parentDepartmentId || (null as any),
+      createdBy: userId || null,
+      updatedBy: userId || null,
     });
 
-    return this.departmentRepository.save(department);
+    const saved = await this.departmentRepository.save(department);
+    return this.findOne(saved.id);
   }
 
   async findAll(options?: {
@@ -120,6 +228,7 @@ export class DepartmentService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await this.populateAuditNames(data);
 
     return { data, total };
   }
@@ -134,6 +243,7 @@ export class DepartmentService {
       throw new NotFoundException(`Department with ID '${id}' not found`);
     }
 
+    await this.populateAuditNames([department]);
     return department;
   }
 
@@ -155,13 +265,15 @@ export class DepartmentService {
 
     queryBuilder.orderBy('dept.name', 'ASC');
 
-    return queryBuilder.getMany();
+    const depts = await queryBuilder.getMany();
+    await this.populateAuditNames(depts);
+    return depts;
   }
 
   async update(id: string, updateDepartmentDto: UpdateDepartmentDto, userId?: string): Promise<Department> {
     const department = await this.findOne(id);
 
-    if (updateDepartmentDto.departmentCode) {
+    if (updateDepartmentDto.departmentCode && updateDepartmentDto.departmentCode !== department.departmentCode) {
       const existingDepartment = await this.departmentRepository.findOne({
         where: {
           departmentCode: updateDepartmentDto.departmentCode,
@@ -186,9 +298,53 @@ export class DepartmentService {
       }
     }
 
-    Object.assign(department, updateDepartmentDto, { updatedBy: userId });
+    const targetDivisionId = updateDepartmentDto.divisionId !== undefined
+      ? updateDepartmentDto.divisionId
+      : department.divisionId;
+    const targetSectionId = updateDepartmentDto.sectionId !== undefined
+      ? updateDepartmentDto.sectionId
+      : department.sectionId;
 
-    return this.departmentRepository.save(department);
+    await this.validateHierarchy(
+      department.companyId,
+      targetDivisionId,
+      targetSectionId,
+    );
+
+    const updatePayload: any = {
+      updatedBy: userId || null,
+      updatedAt: new Date(),
+    };
+
+    if (updateDepartmentDto.departmentCode !== undefined) {
+      updatePayload.departmentCode = updateDepartmentDto.departmentCode;
+    }
+    if (updateDepartmentDto.name !== undefined) {
+      updatePayload.name = updateDepartmentDto.name;
+    }
+    if (updateDepartmentDto.description !== undefined) {
+      updatePayload.description = updateDepartmentDto.description;
+    }
+    if (updateDepartmentDto.divisionId !== undefined) {
+      updatePayload.divisionId = updateDepartmentDto.divisionId || null;
+    }
+    if (updateDepartmentDto.sectionId !== undefined) {
+      updatePayload.sectionId = updateDepartmentDto.sectionId || null;
+    }
+    if (updateDepartmentDto.branchId !== undefined) {
+      updatePayload.branchId = updateDepartmentDto.branchId || null;
+    }
+    if (updateDepartmentDto.businessUnitId !== undefined) {
+      updatePayload.businessUnitId = updateDepartmentDto.businessUnitId || null;
+    }
+    if (updateDepartmentDto.parentDepartmentId !== undefined) {
+      updatePayload.parentDepartmentId = updateDepartmentDto.parentDepartmentId || null;
+    }
+
+    // Direct database update eliminates TypeORM relation cache conflict
+    await this.departmentRepository.update(id, updatePayload);
+
+    return this.findOne(id);
   }
 
   private async checkCircularReference(departmentId: string, potentialParentId: string): Promise<boolean> {
@@ -231,10 +387,13 @@ export class DepartmentService {
       throw new BadRequestException('Cannot activate department when parent company is inactive');
     }
 
-    department.status = DepartmentStatus.ACTIVE;
-    department.updatedBy = userId || null;
+    await this.departmentRepository.update(id, {
+      status: DepartmentStatus.ACTIVE,
+      updatedBy: userId || null,
+      updatedAt: new Date(),
+    });
 
-    return this.departmentRepository.save(department);
+    return this.findOne(id);
   }
 
   async deactivate(id: string, userId?: string): Promise<Department> {
@@ -251,10 +410,13 @@ export class DepartmentService {
       }
     }
 
-    department.status = DepartmentStatus.INACTIVE;
-    department.updatedBy = userId || null;
+    await this.departmentRepository.update(id, {
+      status: DepartmentStatus.INACTIVE,
+      updatedBy: userId || null,
+      updatedAt: new Date(),
+    });
 
-    return this.departmentRepository.save(department);
+    return this.findOne(id);
   }
 
   async remove(id: string): Promise<void> {
@@ -264,6 +426,16 @@ export class DepartmentService {
       throw new BadRequestException('Cannot delete department with child departments');
     }
 
-    await this.departmentRepository.remove(department);
+    try {
+      await this.departmentRepository.remove(department);
+    } catch (error: any) {
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete department because it is referenced by existing operations, store requests, or users. Please deactivate it instead.',
+        );
+      }
+      throw error;
+    }
   }
 }
+

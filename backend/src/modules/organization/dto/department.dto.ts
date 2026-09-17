@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches, ValidateIf } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsUuid } from '../../../common/validators';
 
@@ -10,28 +10,28 @@ export class CreateDepartmentDto {
   companyId: string;
 
   @ApiPropertyOptional({ description: 'Branch ID (optional)' })
-  @IsString()
-  @IsUuid()
   @IsOptional()
-  branchId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  branchId?: string | null;
 
   @ApiPropertyOptional({ description: 'Business Unit ID (optional)' })
-  @IsString()
-  @IsUuid()
   @IsOptional()
-  businessUnitId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  businessUnitId?: string | null;
 
   @ApiPropertyOptional({ description: 'Division ID (optional)' })
-  @IsString()
-  @IsUuid()
   @IsOptional()
-  divisionId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  divisionId?: string | null;
 
   @ApiPropertyOptional({ description: 'Section ID (optional)' })
-  @IsString()
-  @IsUuid()
   @IsOptional()
-  sectionId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  sectionId?: string | null;
 
   @ApiProperty({ description: 'Unique department code within company' })
   @IsString()
@@ -52,9 +52,10 @@ export class CreateDepartmentDto {
   description?: string;
 
   @ApiPropertyOptional({ description: 'Parent department ID for hierarchy' })
-  @IsUuid()
   @IsOptional()
-  parentDepartmentId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  parentDepartmentId?: string | null;
 }
 
 export class UpdateDepartmentDto {
@@ -65,24 +66,28 @@ export class UpdateDepartmentDto {
   departmentCode?: string;
 
   @ApiPropertyOptional({ description: 'Branch ID' })
-  @IsUuid()
   @IsOptional()
-  branchId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  branchId?: string | null;
 
   @ApiPropertyOptional({ description: 'Business Unit ID' })
-  @IsUuid()
   @IsOptional()
-  businessUnitId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  businessUnitId?: string | null;
 
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUuid()
   @IsOptional()
-  divisionId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  divisionId?: string | null;
 
   @ApiPropertyOptional({ description: 'Section ID' })
-  @IsUuid()
   @IsOptional()
-  sectionId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  sectionId?: string | null;
 
   @ApiPropertyOptional({ description: 'Department name' })
   @IsString()
@@ -96,7 +101,9 @@ export class UpdateDepartmentDto {
   description?: string;
 
   @ApiPropertyOptional({ description: 'Parent department ID' })
-  @IsUuid()
   @IsOptional()
-  parentDepartmentId?: string;
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUuid()
+  parentDepartmentId?: string | null;
 }
+

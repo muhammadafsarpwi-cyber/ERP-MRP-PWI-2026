@@ -104,6 +104,16 @@ interface DeptRow {
   actualKg: number | null; scrapPct: number | null;
   achievement: number | null; efficiency: number | null;
 }
+/** Genuine department-level summary: exactly ONE row per department. */
+interface DeptSummaryRow {
+  key: string; departmentId: string; departmentName: string; divisionName: string; sectionName: string;
+  uomCodes: string[];
+  /** Only populated when every item shares the same UOM + per-unit weight; never fabricated. */
+  perUnitWeight: string | null;
+  target: number; actual: number; scrap: number;
+  actualKg: number; scrapPct: number | null;
+  achievement: number | null; efficiency: number | null;
+}
 interface ScrapRow {
   key: string;
   itemType: string; materialRole: string;
@@ -122,12 +132,16 @@ interface FamilyRow {
 /* ── Helpers ───────────────────────────────────────────────────────────── */
 
 const fmt = (n: number | string | null | undefined) =>
-  n == null || n === '' ? '–' : Number(n).toLocaleString('en-US');
-/* Fixed 2-decimal format for fragile KG quantities — zero rows render as 0.00. */
+  n == null || n === '' ? '–' : Math.round(Number(n)).toLocaleString('en-US');
+/* Fixed 2-decimal format for fragile KG quantities — zero rows render as 0. */
 const fmt2 = (n: number | string | null | undefined) =>
-  n == null || n === '' ? '–' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n == null || n === '' ? '–' : (Math.round(Number(n) * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const n = (v: number | string | null | undefined): number => (v == null || v === '' ? 0 : Number(v));
-const pct = (v: number | null | undefined) => (v == null ? '–' : `${Number(v).toFixed(1)}%`);
+const pct = (v: number | null | undefined): string => {
+  if (v == null) return '–';
+  const r = Math.round(Number(v) * 100) / 100;
+  return `${r.toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
+};
 const dt = (v?: string | null) =>
   v ? dayjs(v).format('DD MMM YYYY') : '–';
 
@@ -233,6 +247,8 @@ const ProductionReports: React.FC = () => {
   const [uoms, setUoms] = useState<UomLk[]>([]);
 
   const [report, setReport] = useState<EntryReportResponse | null>(null);
+  const [deptPage, setDeptPage] = useState(1);
+  const [deptPageSize, setDeptPageSize] = useState(10);
   const [entries, setEntries] = useState<ProdEntryRow[]>([]);
   const [entriesTotal, setEntriesTotal] = useState(0);
   const [entriesPage, setEntriesPage] = useState(1);
@@ -425,6 +441,51 @@ const ProductionReports: React.FC = () => {
     }));
   }, [report, familyOf]);
 
+  /* ── Department-wise summary (ONE row per department) ──
+     Aggregated from the authoritative report.departments payload, which is
+     already scoped server-side by Division (and Department when chosen).
+     Item-level UI filters/search never remove departments from this view.
+     Per Unit Weight is shown ONLY when a single department-level value is
+     semantically valid (one UOM, consistent Item Master weight) — otherwise '—'. */
+  const deptSummaryRows = useMemo<DeptSummaryRow[]>(() => {
+    return (report?.departments ?? []).map((d) => {
+      let target = 0, actual = 0, scrap = 0, actualKg = 0;
+      const uomSet = new Set<string>();
+      const labels: Array<string | null> = [];
+      const effVals: number[] = [];
+      d.items.forEach((i) => {
+        target += i.targetQuantity;
+        actual += i.actualQuantity;
+        scrap += i.scrapQuantity;
+        actualKg += n(i.actualKg);
+        if (i.uomCode) uomSet.add(i.uomCode);
+        labels.push(perUnitWeightLabel(i.uomCode, i.weightPerPiece, i.weightPerMeter));
+        if (i.efficiencyPercentage != null && Number.isFinite(i.efficiencyPercentage)) effVals.push(i.efficiencyPercentage);
+      });
+      const nonNullLabels = labels.filter((l): l is string => !!l);
+      const singleWeight = uomSet.size === 1
+        && nonNullLabels.length === d.items.length
+        && new Set(nonNullLabels).size === 1;
+      const efficiency = effVals.length > 0 ? effVals.reduce((s, v) => s + v, 0) / effVals.length : null;
+      return {
+        key: d.departmentId,
+        departmentId: d.departmentId,
+        departmentName: d.departmentName,
+        divisionName: d.divisionName || '–',
+        sectionName: d.sectionName || '–',
+        uomCodes: [...uomSet],
+        perUnitWeight: singleWeight ? nonNullLabels[0] : null,
+        target, actual, scrap, actualKg,
+        scrapPct: actualKg > 0 ? (scrap / actualKg) * 100 : null,
+        achievement: target > 0 ? (actual / target) * 100 : null,
+        efficiency,
+      };
+    }).sort((a, b) => a.departmentName.localeCompare(b.departmentName));
+  }, [report]);
+
+  // Keep the department-wise pagination valid when the scoped department set changes.
+  useEffect(() => { setDeptPage(1); }, [deptSummaryRows.length]);
+
   const targetRows = useMemo(() =>
     deptRows
       .filter((r) => search.toLowerCase() === '' || `${r.departmentName} ${r.itemName} ${r.itemCode}`.toLowerCase().includes(search.toLowerCase()))
@@ -452,7 +513,9 @@ const ProductionReports: React.FC = () => {
     const scrapRate = actual > 0 ? (scrap / actual) * 100 : null;
     const topScrapDept = scrapRows[0]?.itemDepartment ?? '–';
     const workingDepts = new Set(deptRows.map((r) => r.departmentId)).size;
-    return { target, actual, scrap, achievement, scrapRate, topScrapDept, workingDepts, entryCount: report?.entryCount ?? 0 };
+    const effVals = deptRows.map((r) => r.efficiency).filter((v): v is number => v != null && Number.isFinite(v));
+  const efficiency = effVals.length > 0 ? effVals.reduce((s, v) => s + v, 0) / effVals.length : null;
+  return { target, actual, scrap, achievement, scrapRate, topScrapDept, workingDepts, efficiency, entryCount: report?.entryCount ?? 0 };
   }, [report, deptRows, scrapRows]);
 
   /* Sum of per-row Actual KG (authoritative: deptRows carry backend-calculated
@@ -475,15 +538,6 @@ const ProductionReports: React.FC = () => {
     const value = delivered.concat(shipped).reduce((s, d) => s + n(d.totalAmount), 0);
     return { total: shipmentsTotal, delivered: delivered.length, shipped: shipped.length, draft: draft.length, value };
   }, [shipments, shipmentsTotal]);
-
-  /* Shipment % — real, authoritative: Delivered deliveries ÷ Total deliveries
-     from the same /sales/deliveries source already used by shipmentKpi. Null
-     (Cannot-Populate) only when there are no deliveries — never fabricated. */
-  const shipmentPct = useMemo(() => {
-    const total = n(shipmentKpi.total);
-    if (total <= 0) return null;
-    return (n(shipmentKpi.delivered) / total) * 100;
-  }, [shipmentKpi]);
 
   /* KPIs scoped to the Scrap & Rejection mapping rows (already Item-Master-filtered). */
   const scrapKpi = useMemo(() => {
@@ -514,18 +568,50 @@ const ProductionReports: React.FC = () => {
     ) },
     { title: 'Item Code', dataIndex: 'itemCode', key: 'code', width: 120, sorter: (a, b) => a.itemCode.localeCompare(b.itemCode) },
     { title: 'Family', key: 'family', width: 90, render: (_, r) => <FamilyChip family={r.family} /> },
-    { title: 'Target', dataIndex: 'target', key: 'target', align: 'right', width: 90, sorter: (a, b) => a.target - b.target, render: (v: number) => fmt(v) },
     { title: 'Product Name', dataIndex: 'itemName', key: 'item', width: 200, sorter: (a, b) => a.itemName.localeCompare(b.itemName) },
-    { title: 'UOM', dataIndex: 'uomCode', key: 'uom', width: 70 },
-    { title: 'Per Unit Weight', key: 'perUnitWeight', width: 110, render: (_, r) => (
+    { title: 'Target', dataIndex: 'target', key: 'target', align: 'right', width: 95, sorter: (a, b) => a.target - b.target,
+      onHeaderCell: () => ({ className: 'erp-pr-target-header' }),
+      onCell: () => ({ className: 'erp-pr-target-cell' }),
+      render: (v: number) => <span className="erp-pr-target-value">{fmt(v)}</span> },
+    { title: 'Per Unit Weight', key: 'perUnitWeight', width: 115, render: (_, r) => (
       <Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{perUnitWeightLabel(r.uomCode, r.weightPerPiece, r.weightPerMeter) ?? '—'}</Text>
     ) },
-    { title: 'Actual PCS', dataIndex: 'actual', key: 'actual', align: 'right', width: 90, sorter: (a, b) => a.actual - b.actual, render: (v: number) => fmt(v) },
-    { title: 'Actual KG', key: 'actualKg', align: 'right', width: 100, sorter: (a, b) => n(a.actualKg) - n(b.actualKg), render: (_, r) => <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt2(r.actualKg)}</Text> },
-    { title: 'Rejection (KG)', dataIndex: 'scrap', key: 'scrap', align: 'right', width: 95, sorter: (a, b) => a.scrap - b.scrap, render: (v: number) => fmt(v) },
-    { title: 'Rejection %', dataIndex: 'scrapPct', key: 'scrapPct', align: 'center', width: 100, sorter: (a, b) => n(a.scrapPct) - n(b.scrapPct), render: (v: number | null) => <ScrapRateBadge value={v} /> },
+    { title: 'Actual PCS', dataIndex: 'actual', key: 'actual', align: 'right', width: 100, sorter: (a, b) => a.actual - b.actual, render: (v: number) => fmt(v) },
+    { title: 'UOM', dataIndex: 'uomCode', key: 'uom', width: 70 },
     { title: 'Achievement', dataIndex: 'achievement', key: 'ach', align: 'center', width: 110, sorter: (a, b) => n(a.achievement) - n(b.achievement), render: (v: number | null) => <AchievementBadge value={v} /> },
-    { title: 'Efficiency %', dataIndex: 'efficiency', key: 'eff', align: 'right', width: 95, sorter: (a, b) => n(a.efficiency) - n(b.efficiency), render: (v: number | null) => (v == null ? <Text type="secondary">–</Text> : <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct(v)}</span>) },
+    { title: 'Efficiency %', dataIndex: 'efficiency', key: 'eff', align: 'right', width: 100, sorter: (a, b) => n(a.efficiency) - n(b.efficiency), render: (v: number | null) => (v == null ? <Text type="secondary">–</Text> : <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct(v)}</span>) },
+    { title: 'Actual KG', key: 'actualKg', align: 'right', width: 100, sorter: (a, b) => n(a.actualKg) - n(b.actualKg), render: (_, r) => <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt2(r.actualKg)}</Text> },
+    { title: 'Rejection (KG)', dataIndex: 'scrap', key: 'scrap', align: 'right', width: 100, sorter: (a, b) => a.scrap - b.scrap, render: (v: number) => <Text strong style={{ color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{fmt2(v)}</Text> },
+    { title: 'Rejection %', dataIndex: 'scrapPct', key: 'scrapPct', align: 'center', width: 100, sorter: (a, b) => n(a.scrapPct) - n(b.scrapPct), render: (v: number | null) => <ScrapRateBadge value={v} /> },
+  ];
+
+  const deptSummaryColumns: ColumnsType<DeptSummaryRow> = [
+    { title: 'Department', dataIndex: 'departmentName', key: 'dept', width: 200, fixed: 'left', sorter: (a, b) => a.departmentName.localeCompare(b.departmentName), render: (v: string, r) => (
+      <div>
+        <Text strong style={{ fontSize: 12.5 }}>{v}</Text>
+        <div><Text type="secondary" style={{ fontSize: 11 }}>{r.divisionName} · {r.sectionName}</Text></div>
+      </div>
+    ) },
+    { title: 'Target', dataIndex: 'target', key: 'target', align: 'right', width: 100, sorter: (a, b) => a.target - b.target,
+      onHeaderCell: () => ({ className: 'erp-pr-target-header' }),
+      onCell: () => ({ className: 'erp-pr-target-cell' }),
+      render: (v: number) => <span className="erp-pr-target-value">{fmt(v)}</span> },
+    { title: 'Per Unit Weight', key: 'perUnitWeight', width: 120, render: (_, r) => (
+      r.perUnitWeight
+        ? <Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{r.perUnitWeight}</Text>
+        : <Tooltip title="Mixed / not applicable at department level"><Text type="secondary">—</Text></Tooltip>
+    ) },
+    { title: 'Actual PCS', dataIndex: 'actual', key: 'actual', align: 'right', width: 100, sorter: (a, b) => a.actual - b.actual, render: (v: number) => fmt(v) },
+    { title: 'UOM', key: 'uom', width: 95, render: (_, r) => (
+      r.uomCodes.length === 1
+        ? r.uomCodes[0]
+        : <Tooltip title={r.uomCodes.join(', ')}><Tag color="orange" style={{ marginInlineEnd: 0 }}>Mixed</Tag></Tooltip>
+    ) },
+    { title: 'Achievement', dataIndex: 'achievement', key: 'ach', align: 'center', width: 110, sorter: (a, b) => n(a.achievement) - n(b.achievement), render: (v: number | null) => <AchievementBadge value={v} /> },
+    { title: 'Efficiency %', dataIndex: 'efficiency', key: 'eff', align: 'right', width: 105, sorter: (a, b) => n(a.efficiency) - n(b.efficiency), render: (v: number | null) => (v == null ? <Text type="secondary">–</Text> : <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct(v)}</span>) },
+    { title: 'Actual KG', key: 'actualKg', align: 'right', width: 110, sorter: (a, b) => a.actualKg - b.actualKg, render: (_, r) => <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt2(r.actualKg)}</Text> },
+    { title: 'Rejection (KG)', dataIndex: 'scrap', key: 'scrap', align: 'right', width: 105, sorter: (a, b) => a.scrap - b.scrap, render: (v: number) => <Text strong style={{ color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{fmt2(v)}</Text> },
+    { title: 'Rejection %', dataIndex: 'scrapPct', key: 'rej', align: 'center', width: 105, sorter: (a, b) => n(a.scrapPct) - n(b.scrapPct), render: (v: number | null) => <ScrapRateBadge value={v} /> },
   ];
 
   const scrapColumns: ColumnsType<ScrapRow> = [
@@ -615,7 +701,7 @@ const ProductionReports: React.FC = () => {
     { title: 'Item', key: 'item', width: 200, render: (_, r) => r.item?.name || r.item?.itemCode || '–' },
     { title: 'UOM', key: 'uom', width: 80, render: (_, r) => r.uom?.code || '–' },
     { title: 'Target Qty', dataIndex: 'targetQuantity', key: 'target', align: 'right', width: 100, render: (v) => fmt(v) },
-    { title: 'Std Hrs', dataIndex: 'standardHours', key: 'std', align: 'right', width: 80, render: (v) => fmt(v) },
+    { title: 'Std Hrs', dataIndex: 'standardHours', key: 'std', align: 'right', width: 80, render: (v) => fmt2(v) },
     { title: 'Effective From', dataIndex: 'effectiveFrom', key: 'from', width: 110, render: (v?: string | null) => dt(v) },
     { title: 'Status', dataIndex: 'status', key: 'status', width: 90, render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag> },
   ];
@@ -635,8 +721,8 @@ const ProductionReports: React.FC = () => {
       const kg = calcActualKg(r.uom?.code ?? '', n(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
       return <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{kg == null ? '—' : fmt2(kg)}</Text>;
     } },
-    { title: 'Rejection (KG)', dataIndex: 'scrapQuantity', key: 'scrap', align: 'right', width: 85, render: (v: number) => (v > 0 ? <Text style={{ color: '#dc2626' }}>{fmt(v)}</Text> : fmt(v)) },
-    { title: 'Run Hrs', dataIndex: 'runningHours', key: 'run', align: 'right', width: 80, render: (v: number) => fmt(v) },
+    { title: 'Rejection (KG)', dataIndex: 'scrapQuantity', key: 'scrap', align: 'right', width: 85, render: (v: number) => (v > 0 ? <Text style={{ color: '#dc2626' }}>{fmt2(v)}</Text> : fmt(v)) },
+    { title: 'Run Hrs', dataIndex: 'runningHours', key: 'run', align: 'right', width: 80, render: (v: number) => fmt2(v) },
     { title: 'Operator', dataIndex: 'operatorName', key: 'op', width: 120, render: (v) => v || '–' },
   ];
 
@@ -670,9 +756,9 @@ const ProductionReports: React.FC = () => {
       </div>
     ) },
     { title: 'Order', key: 'order', width: 140, render: (_, r) => r.salesOrder?.orderNumber || '–' },
-    { title: 'Subtotal', dataIndex: 'subtotal', key: 'subtotal', align: 'right', width: 100, render: (v: number) => fmt(v) },
-    { title: 'Tax', dataIndex: 'taxAmount', key: 'tax', align: 'right', width: 90, render: (v: number) => fmt(v) },
-    { title: 'Total', dataIndex: 'totalAmount', key: 'total', align: 'right', width: 110, sorter: (a, b) => n(a.totalAmount) - n(b.totalAmount), render: (v: number) => <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(v)}</Text> },
+    { title: 'Subtotal', dataIndex: 'subtotal', key: 'subtotal', align: 'right', width: 100, render: (v: number) => fmt2(v) },
+    { title: 'Tax', dataIndex: 'taxAmount', key: 'tax', align: 'right', width: 90, render: (v: number) => fmt2(v) },
+    { title: 'Total', dataIndex: 'totalAmount', key: 'total', align: 'right', width: 110, sorter: (a, b) => n(a.totalAmount) - n(b.totalAmount), render: (v: number) => <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt2(v)}</Text> },
     { title: 'Status', dataIndex: 'status', key: 'status', width: 110, render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag> },
     { title: 'Carrier', dataIndex: 'carrier', key: 'carrier', width: 120, render: (v) => v || '–' },
     { title: 'Tracking', dataIndex: 'trackingNumber', key: 'tracking', width: 130, render: (v) => v || '–' },
@@ -682,8 +768,8 @@ const ProductionReports: React.FC = () => {
   const exportCsv = (tab: string) => {
     switch (tab) {
       case 'dept':
-        downloadCsv('department-production', ['Department', 'Division', 'Section', 'Item Code', 'Family', 'Target', 'Product Name', 'UOM', 'Per Unit Weight', 'Actual PCS', 'Actual KG', 'Rejection (KG)', 'Rejection %', 'Achievement %', 'Efficiency %'],
-          deptRows.map((r) => [r.departmentName, r.divisionName, r.sectionName, r.itemCode, r.family || 'Other', r.target, r.itemName, r.uomCode, perUnitWeightLabel(r.uomCode, r.weightPerPiece, r.weightPerMeter) ?? '—', r.actual, r.actualKg ?? '', r.scrap, r.scrapPct == null ? '' : r.scrapPct.toFixed(2), r.achievement ?? '', r.efficiency ?? '']));
+        downloadCsv('item-wise-production', ['Department', 'Division', 'Section', 'Item Code', 'Family', 'Product Name', 'Target', 'Per Unit Weight', 'Actual PCS', 'UOM', 'Achievement %', 'Efficiency %', 'Actual KG', 'Rejection (KG)', 'Rejection %'],
+          deptRows.map((r) => [r.departmentName, r.divisionName, r.sectionName, r.itemCode, r.family || 'Other', r.itemName, r.target, perUnitWeightLabel(r.uomCode, r.weightPerPiece, r.weightPerMeter) ?? '—', r.actual, r.uomCode, r.achievement ?? '', r.efficiency ?? '', r.actualKg ?? '', r.scrap, r.scrapPct == null ? '' : r.scrapPct.toFixed(2)]));
         break;
       case 'scrap':
         downloadCsv('item-master-mapping-scrap-rejection', ['Division', 'Section', 'Department', 'Item Type', 'Material Role / Use', 'Family', 'Target', 'Item Name', 'Item Code', 'UOM', 'Per Unit Weight', 'Actual PCS', 'Actual KG', 'Rejection (KG)', 'Rejection %'],
@@ -722,7 +808,7 @@ const ProductionReports: React.FC = () => {
     let tables: PdfTable[] = [];
     switch (tab) {
       case 'dept':
-        tables = [{ head: ['Department', 'Division', 'Item Code', 'Family', 'Target', 'Product Name', 'UOM', 'Per Unit Weight', 'Actual PCS', 'Actual KG', 'Rejection (KG)', 'Rejection %', 'Achievement %'], body: deptRows.map((r) => [r.departmentName, r.divisionName, r.itemCode, r.family || 'Other', r.target, r.itemName, r.uomCode, perUnitWeightLabel(r.uomCode, r.weightPerPiece, r.weightPerMeter) ?? '—', r.actual, r.actualKg ?? '', r.scrap, r.scrapPct == null ? '' : r.scrapPct.toFixed(2), r.achievement == null ? '' : r.achievement.toFixed(1)]) }];
+        tables = [{ head: ['Department', 'Division', 'Item Code', 'Family', 'Product Name', 'Target', 'Per Unit Weight', 'Actual PCS', 'UOM', 'Achievement %', 'Efficiency %', 'Actual KG', 'Rejection (KG)', 'Rejection %'], body: deptRows.map((r) => [r.departmentName, r.divisionName, r.itemCode, r.family || 'Other', r.itemName, r.target, perUnitWeightLabel(r.uomCode, r.weightPerPiece, r.weightPerMeter) ?? '—', r.actual, r.uomCode, r.achievement == null ? '' : r.achievement.toFixed(1), r.efficiency == null ? '' : r.efficiency.toFixed(1), r.actualKg ?? '', r.scrap, r.scrapPct == null ? '' : r.scrapPct.toFixed(2)]) }];
         break;
       case 'scrap':
         tables = [{ head: ['Division', 'Section', 'Department', 'Item Type', 'Material Role / Use', 'Family', 'Target', 'Item Name', 'Item Code', 'UOM', 'Per Unit Weight', 'Actual PCS', 'Actual KG', 'Rejection (KG)', 'Rejection %'], body: scrapRows.map((r) => [r.itemDivision, r.itemSection, r.itemDepartment, itemTypeLabel(r.itemType), r.materialRole || '—', r.family || 'Other', r.target, r.itemName, r.itemCode, r.uomCode, perUnitWeightLabel(r.uomCode, r.weightPerPiece, r.weightPerMeter) ?? '—', r.actual, r.actualKg ?? '', r.scrap, r.scrapRate == null ? '' : r.scrapRate.toFixed(2)]) }];
@@ -752,7 +838,7 @@ const ProductionReports: React.FC = () => {
   };
 
   const TAB_LABELS: Record<string, string> = {
-    dept: 'Department Production', scrap: 'Scrap & Rejection — Item Master Mapping', target: 'Target vs Actual',
+    dept: 'Item-wise Production', scrap: 'Scrap & Rejection — Item Master Mapping', target: 'Target vs Actual',
     family: 'Production Family', entries: 'Daily Production', orders: 'Production Orders', shipments: 'Shipment',
   };
 
@@ -777,14 +863,13 @@ const ProductionReports: React.FC = () => {
 
   const kpiCards = (activeTab === 'dept' && (
     <>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger"><Statistic title="Total Target" value={kpi.target} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-success"><Statistic title="Total Actual / Production" value={kpi.actual} /></Card></Col>
+      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger erp-pr-kpi-card--target"><Statistic title="Target" value={Math.round(kpi.target)} /></Card></Col>
+      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-success"><Statistic title="Total Actual / Production" value={Math.round(kpi.actual)} /></Card></Col>
       <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning"><Statistic title="Achievement %" value={kpi.achievement ?? 0} precision={1} suffix="%" /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan"><Statistic title="Shipment" value={shipmentKpi.delivered} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--shipment-pct"><Statistic title="Shipment %" value={shipmentPct ?? 'Cannot-Populate'} precision={shipmentPct != null ? 1 : undefined} suffix={shipmentPct != null ? '%' : undefined} valueStyle={shipmentPct == null ? undefined : (shipmentPct >= 70 ? { color: '#16a34a' } : { color: '#dc2626' })} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-purple"><Statistic title="Actual KG" value={deptKpiKg.actualKg} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger"><Statistic title="Total Scrap / Rejection (KG)" value={kpi.scrap} /></Card></Col>
+      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-purple"><Statistic title="Actual KG" value={deptKpiKg.actualKg == null ? 0 : Math.round(deptKpiKg.actualKg * 100) / 100} /></Card></Col>
+      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger"><Statistic title="Total Scrap / Rejection (KG)" value={Math.round(kpi.scrap * 100) / 100} /></Card></Col>
       <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary"><Statistic title="Rejection %" value={deptKpiKg.rejectionPct ?? 0} precision={1} suffix="%" /></Card></Col>
+      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan"><Statistic title="Efficiency %" value={kpi.efficiency ?? 0} precision={1} suffix="%" /></Card></Col>
     </>
   )) || (activeTab === 'scrap' && (
     <>
@@ -842,8 +927,8 @@ const ProductionReports: React.FC = () => {
         />
 
         {showFilters && (
-          <Card style={{ marginBottom: 16 }} styles={{ body: { padding: '14px 16px 16px' } }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, alignItems: 'center' }}>
+          <Card className="erp-pr-filter-card" style={{ marginBottom: 10 }} styles={{ body: { padding: '10px 14px 12px' } }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, alignItems: 'center', width: '100%', maxWidth: 1440, margin: '0 auto' }}>
               <RangePicker
                 allowClear
                 value={dateRange}
@@ -913,23 +998,50 @@ const ProductionReports: React.FC = () => {
         items={[
           {
             key: 'dept',
-            label: <span><BarChartOutlined /> Department Production</span>,
+            label: <span><BarChartOutlined /> Item-wise Production</span>,
             children: (
-              <Card size="small" className="erp-section-card"
-                title={`Department Production — Target vs Actual · Scrap · Performance (${fmt(kpi.entryCount)} entries)`}
-                extra={<Space size={6}><Tooltip title="Scrap & rejection detail in the next tab"><Tag icon={<AlertOutlined />} color="red">Scrap {fmt(kpi.scrap)}</Tag></Tooltip></Space>}>
-                <ERPTable<DeptRow>
-                  rowKey="key"
-                  dense
-                  columns={deptColumns}
-                  dataSource={filteredDeptRows}
-                  loading={loading}
-                  scroll={{ x: 1280 }}
-                  pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${fmt(t)} rows` }}
-                  emptyTitle="No department production data"
-                  emptyDescription="No production entries match the current filters."
-                />
-              </Card>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Card size="small" className="erp-section-card"
+                  title={`ITEM-WISE PRODUCTION REPORT — Target vs Actual · Scrap · Performance (${fmt(kpi.entryCount)} entries)`}
+                  extra={<Space size={6}><Tooltip title="Scrap & rejection detail in the next tab"><Tag icon={<AlertOutlined />} color="red">Scrap {fmt(kpi.scrap)}</Tag></Tooltip></Space>}>
+                  <ERPTable<DeptRow>
+                    rowKey="key"
+                    dense
+                    columns={deptColumns}
+                    dataSource={filteredDeptRows}
+                    loading={loading}
+                    scroll={{ x: 1280 }}
+                    pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${fmt(t)} rows` }}
+                    emptyTitle="No item production data"
+                    emptyDescription="No production entries match the current filters."
+                  />
+                </Card>
+
+                <Card size="small" className="erp-section-card"
+                  title={`DEPARTMENT-WISE PRODUCTION REPORT — ${fmt(deptSummaryRows.length)} departments`}
+                  extra={<Tag color="blue">One row per department</Tag>}>
+                  <ERPTable<DeptSummaryRow>
+                    rowKey="key"
+                    dense
+                    columns={deptSummaryColumns}
+                    dataSource={deptSummaryRows}
+                    loading={loading}
+                    scroll={{ x: 1180 }}
+                    pagination={{
+                      current: deptPage,
+                      pageSize: deptPageSize,
+                      pageSizeOptions: ['10', '15', '20', '50', '100'],
+                      showSizeChanger: true,
+                      showTotal: (t) => `${fmt(t)} departments`,
+                      position: ['topRight', 'bottomRight'],
+                      onChange: (p) => setDeptPage(p),
+                      onShowSizeChange: (_, size) => { setDeptPageSize(size); setDeptPage(1); },
+                    }}
+                    emptyTitle="No department data"
+                    emptyDescription="No departments match the selected division."
+                  />
+                </Card>
+              </div>
             ),
           },
           {

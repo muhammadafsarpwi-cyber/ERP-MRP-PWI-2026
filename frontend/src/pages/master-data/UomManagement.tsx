@@ -351,7 +351,7 @@ const UomManagement: React.FC = () => {
             ghost={showFilters}
             style={{ borderRadius: 6, fontWeight: 600 }}
           >
-            More Filters ⛭
+            More Filters
           </Button>
 
           {/* Columns Visibility Dropdown */}

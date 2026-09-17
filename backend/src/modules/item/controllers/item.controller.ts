@@ -78,6 +78,7 @@ export class ItemController {
     @Query('departmentId') departmentId?: string,
     @Query('routeType') routeType?: string,
     @Query('routeTypeId') routeTypeId?: string,
+    @Query('materialRoleUsage') materialRoleUsage?: string,
     @Query('wireSizeMm') wireSizeMm?: number,
     @Query('thicknessMm') thicknessMm?: number,
     @Query('widthMm') widthMm?: number,
@@ -92,7 +93,7 @@ export class ItemController {
   ) {
     const result = await this.itemService.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20, search, status, itemType, itemTypeId, categoryId, companyId,
-      divisionId, sectionId, departmentId, routeType,
+      divisionId, sectionId, departmentId, routeType, routeTypeId, materialRoleUsage,
       wireSizeMm: wireSizeMm !== undefined && wireSizeMm !== null && `${wireSizeMm}` !== '' ? Number(wireSizeMm) : undefined,
       thicknessMm: thicknessMm !== undefined && thicknessMm !== null && `${thicknessMm}` !== '' ? Number(thicknessMm) : undefined,
       widthMm: widthMm !== undefined && widthMm !== null && `${widthMm}` !== '' ? Number(widthMm) : undefined,
@@ -101,6 +102,20 @@ export class ItemController {
       sortField, sortOrder,
     });
     return { success: true, ...result };
+  }
+
+  @Get('lookup')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.view')
+  @ApiOperation({ summary: 'Fast item lookup for dropdowns and caches' })
+  @ApiQuery({ name: 'departmentId', required: false })
+  async getLookup(@Query('departmentId') departmentId?: string) {
+    try {
+      const items = await this.itemService.getLookupItems(departmentId);
+      return { success: true, data: items, total: items.length };
+    } catch (err: any) {
+      return { success: false, error: err.message, stack: err.stack };
+    }
   }
 
   @Get('by-code/:companyId/:itemCode')

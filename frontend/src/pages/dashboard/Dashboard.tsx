@@ -473,7 +473,7 @@ const Dashboard: React.FC = () => {
                         {/* Process Steps Sequence */}
                         {itemRoute.productionFlow.processes?.map((proc) => (
                           <React.Fragment key={proc.step}>
-                            <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                            <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}><ArrowRightOutlined /></div>
                             <div
                               style={{
                                 minWidth: 120,
@@ -508,7 +508,7 @@ const Dashboard: React.FC = () => {
                         ))}
 
                         {/* Output / Final Product */}
-                        <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                        <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}><ArrowRightOutlined /></div>
                         <div
                           style={{
                             minWidth: 150,

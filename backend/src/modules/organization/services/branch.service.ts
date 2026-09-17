@@ -1,14 +1,17 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, DataSource } from 'typeorm';
 import { Branch, BranchStatus } from '../entities';
 import { CreateBranchDto, UpdateBranchDto } from '../dto';
+import { populateAuditNames } from '../helpers/audit-names';
 
 @Injectable()
 export class BranchService {
   constructor(
     @InjectRepository(Branch)
     private readonly branchRepository: Repository<Branch>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createBranchDto: CreateBranchDto, userId?: string): Promise<Branch> {
@@ -65,6 +68,7 @@ export class BranchService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await populateAuditNames(this.dataSource, data);
 
     return { data, total };
   }
@@ -79,6 +83,7 @@ export class BranchService {
       throw new NotFoundException(`Branch with ID '${id}' not found`);
     }
 
+    await populateAuditNames(this.dataSource, [branch]);
     return branch;
   }
 
@@ -144,6 +149,15 @@ export class BranchService {
       throw new BadRequestException('Cannot delete branch with existing dependencies');
     }
 
-    await this.branchRepository.remove(branch);
+    try {
+      await this.branchRepository.remove(branch);
+    } catch (error: any) {
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete branch because it is referenced by existing operations, stores, or users. Please deactivate it instead.',
+        );
+      }
+      throw error;
+    }
   }
 }

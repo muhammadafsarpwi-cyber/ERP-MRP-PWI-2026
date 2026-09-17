@@ -12,6 +12,7 @@ import {
   ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
   BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
   MinusOutlined, WarningOutlined, TagOutlined, TagsOutlined, SyncOutlined, UploadOutlined, FileTextOutlined,
+  BulbOutlined, ThunderboltOutlined, CheckOutlined, CloseOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
@@ -3353,7 +3354,8 @@ const ItemManagement: React.FC = () => {
                             color={f.value ? 'green' : 'default'}
                             style={{ fontSize: 12, padding: '2px 10px', borderRadius: 4 }}
                           >
-                            {f.value ? '✓' : '✕'} {f.label}
+                            {f.value ? <CheckOutlined style={{ marginRight: 4 }} /> : <CloseOutlined style={{ marginRight: 4 }} />}
+                            {f.label}
                           </Tag>
                         ))}
                       </div>
@@ -4024,8 +4026,8 @@ const ItemManagement: React.FC = () => {
                     <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="Optional" />
                   </Form.Item>
                 </div>
-                <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
-                  💡 Length is managed under <strong>Production Specifications</strong> below.
+                <div style={{ marginTop: 4, fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center' }}>
+                  <BulbOutlined style={{ color: '#eab308', marginRight: 6 }} /> Length is managed under&nbsp;<strong>Production Specifications</strong>&nbsp;below.
                 </div>
               </Card>
 
@@ -4745,7 +4747,7 @@ const ItemManagement: React.FC = () => {
                     {modalProcesses.length > 0 ? (
                       modalProcesses.map((pName, pIdx) => (
                         <React.Fragment key={pIdx}>
-                          <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                          <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
                           <div
                             style={{
                               minWidth: 120,
@@ -4789,7 +4791,7 @@ const ItemManagement: React.FC = () => {
                       ))
                     ) : (
                       <>
-                        <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                        <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
                         <div
                           style={{
                             minWidth: 120,
@@ -4823,7 +4825,7 @@ const ItemManagement: React.FC = () => {
                     )}
 
                     {/* Right: Output Node */}
-                    <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0 }}>➔</div>
+                    <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
                     <div
                       style={{
                         minWidth: 150,
@@ -5481,7 +5483,7 @@ const ItemManagement: React.FC = () => {
             {/* Metrics Row: Time Remaining, Speed, Success, Failed */}
             <div className="import-progress-metrics-row">
               <div className="import-metric-chip">
-                <span className="metric-icon">⏱️</span>
+                <span className="metric-icon"><ClockCircleOutlined style={{ color: '#4f46e5' }} /></span>
                 <div>
                   <div className="metric-label">Estimated Time</div>
                   <div className="metric-val" style={{ color: '#4f46e5' }}>
@@ -5491,7 +5493,7 @@ const ItemManagement: React.FC = () => {
               </div>
 
               <div className="import-metric-chip">
-                <span className="metric-icon">⚡</span>
+                <span className="metric-icon"><ThunderboltOutlined style={{ color: '#0284c7' }} /></span>
                 <div>
                   <div className="metric-label">Import Speed</div>
                   <div className="metric-val" style={{ color: '#0284c7' }}>
@@ -5501,7 +5503,7 @@ const ItemManagement: React.FC = () => {
               </div>
 
               <div className="import-metric-chip">
-                <span className="metric-icon">✅</span>
+                <span className="metric-icon"><CheckCircleOutlined style={{ color: '#16a34a' }} /></span>
                 <div>
                   <div className="metric-label">Imported</div>
                   <div className="metric-val" style={{ color: '#16a34a' }}>
@@ -5511,7 +5513,7 @@ const ItemManagement: React.FC = () => {
               </div>
 
               <div className="import-metric-chip">
-                <span className="metric-icon">❌</span>
+                <span className="metric-icon"><CloseCircleOutlined style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }} /></span>
                 <div>
                   <div className="metric-label">Failed</div>
                   <div className="metric-val" style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }}>

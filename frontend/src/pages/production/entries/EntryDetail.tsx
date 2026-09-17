@@ -6,6 +6,7 @@ import {
 import {
   ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined,
   AimOutlined, AppstoreFilled, DeleteFilled, TrophyFilled, ThunderboltFilled, ClockCircleFilled, FieldTimeOutlined,
+  ExclamationCircleOutlined, ArrowDownOutlined, ArrowUpOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -72,6 +73,7 @@ interface DetailData {
   shiftId?: string;
   shift?: { id: string; name: string; startTime: string | null; endTime: string | null; plannedHours: number };
   machineNo: string;
+  machine?: { id: string; name: string; machineCode: string } | null;
   operatorName: string;
   supervisorName: string | null;
   coilSize: string | null;
@@ -213,11 +215,14 @@ const InventoryImpactReport: React.FC<{
           <span style={{
             background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
             fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '2px 8px', letterSpacing: 0.3,
+            display: 'inline-flex', alignItems: 'center', gap: 4,
           }}>
-            📥 INPUT (RAW MATERIAL INFLOW)
+            <ArrowDownOutlined style={{ fontSize: 11 }} /> INPUT (RAW MATERIAL INFLOW)
           </span>
-          <Text strong style={{ fontSize: 12 }}>{rawItemCode ?? 'Raw Material'}</Text>
-          {rawItemName && <Text type="secondary" style={{ fontSize: 12 }}>— {rawItemName}</Text>}
+          <Text strong style={{ fontSize: 12 }}>{rawItemName ?? rawItemCode ?? 'Raw Material'}</Text>
+          {rawItemCode && rawItemName && rawItemCode !== rawItemName && (
+            <Text type="secondary" style={{ fontSize: 12 }}>({rawItemCode})</Text>
+          )}
         </div>
         <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', background: 'var(--theme-surface-alt)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
           Source: <strong style={{ color: 'var(--theme-text)' }}>{rawStoreName ?? '—'}</strong>
@@ -269,11 +274,14 @@ const InventoryImpactReport: React.FC<{
           <span style={{
             background: '#dcfce7', color: '#166534', border: '1px solid #86efac',
             fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '2px 8px', letterSpacing: 0.3,
+            display: 'inline-flex', alignItems: 'center', gap: 4,
           }}>
-            📤 OUTPUT (GOOD PRODUCTION OUTFLOW)
+            <ArrowUpOutlined style={{ fontSize: 11 }} /> OUTPUT (GOOD PRODUCTION OUTFLOW)
           </span>
-          <Text strong style={{ fontSize: 12 }}>{outItemCode ?? 'Produced Item'}</Text>
-          {outItemName && <Text type="secondary" style={{ fontSize: 12 }}>— {outItemName}</Text>}
+          <Text strong style={{ fontSize: 12 }}>{outItemName ?? outItemCode ?? 'Produced Item'}</Text>
+          {outItemCode && outItemName && outItemCode !== outItemName && (
+            <Text type="secondary" style={{ fontSize: 12 }}>({outItemCode})</Text>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', background: 'var(--theme-surface-alt)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
@@ -512,14 +520,22 @@ const EntryDetail: React.FC = () => {
     <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
       <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
       <Descriptions.Item label="Entry Reference"><Text strong style={{ fontSize: 13 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
-      <Descriptions.Item label="Division">{entry.division?.divisionCode} — {entry.division?.name}</Descriptions.Item>
-      <Descriptions.Item label="Section">{entry.section?.name}</Descriptions.Item>
-      <Descriptions.Item label="Department">{entry.department?.departmentCode} — {entry.department?.name}</Descriptions.Item>
+      <Descriptions.Item label="Division">
+        {entry.division?.name ? `${entry.division.name} (${entry.division.divisionCode})` : (entry.division?.divisionCode || '—')}
+      </Descriptions.Item>
+      <Descriptions.Item label="Section">{entry.section?.name ?? '—'}</Descriptions.Item>
+      <Descriptions.Item label="Department">
+        {entry.department?.name ? `${entry.department.name} (${entry.department.departmentCode})` : (entry.department?.departmentCode || '—')}
+      </Descriptions.Item>
       <Descriptions.Item label="Date">{dayjs(entry.entryDate).format('DD-MMM-YYYY')}</Descriptions.Item>
       <Descriptions.Item label="Shift">
         {entry.shift ? `${entry.shift.name} (${entry.shift.startTime ?? ''}–${entry.shift.endTime ?? ''})` : '—'}
       </Descriptions.Item>
-      <Descriptions.Item label="Machine No."><Text strong>{entry.machineNo}</Text></Descriptions.Item>
+      <Descriptions.Item label="Machine No.">
+        <Text strong>
+          {entry.machine?.name ? `${entry.machine.name} (${entry.machineNo})` : entry.machineNo}
+        </Text>
+      </Descriptions.Item>
       <Descriptions.Item label="Operator">{entry.operatorName}</Descriptions.Item>
       <Descriptions.Item label="Supervisor">{entry.supervisorName ?? '—'}</Descriptions.Item>
     </Descriptions>
@@ -528,14 +544,14 @@ const EntryDetail: React.FC = () => {
   const sectionSummary = (
     <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
       <Descriptions.Item label="Item" span={2}>
-        <Text strong>{entry.item?.itemCode}</Text> — {entry.item?.name}
+        <Text strong>{entry.item?.name}</Text>{entry.item?.itemCode ? ` (${entry.item.itemCode})` : ''}
       </Descriptions.Item>
       <Descriptions.Item label="Wire Size"><Text strong>{wireSize}</Text></Descriptions.Item>
       {/* TASK #39: explicit "Not configured" state instead of a bare dash. */}
       <Descriptions.Item label="Input Material" span={2}>
         {productionInItem ? (
           <span style={{ color: 'var(--theme-primary)' }}>
-            <Text strong>{productionInItem.itemCode}</Text> — {productionInItem.name}
+            <Text strong>{productionInItem.name}</Text>{productionInItem.itemCode ? ` (${productionInItem.itemCode})` : ''}
           </span>
         ) : (
           <Text type="secondary">Input Material: Not configured</Text>
@@ -572,7 +588,7 @@ const EntryDetail: React.FC = () => {
         <div>
           <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
             <Descriptions.Item label="Input Item" span={2}>
-              <Text strong>{productionInItem.itemCode}</Text> — {productionInItem.name}
+              <Text strong>{productionInItem.name}</Text>{productionInItem.itemCode ? ` (${productionInItem.itemCode})` : ''}
             </Descriptions.Item>
             <Descriptions.Item label="Type">{inputTypeLabel || '—'}</Descriptions.Item>
             <Descriptions.Item label="Wire Size">
@@ -900,7 +916,7 @@ const EntryDetail: React.FC = () => {
                 title: 'Dir', dataIndex: 'direction', width: 70,
                 render: (d) => d === 'IN' ? <Tag color="green">IN</Tag> : <Tag color="red">OUT</Tag>,
               },
-              { title: 'Item', key: 'item', render: (_, m) => m.item ? `${m.item.itemCode} — ${m.item.name}` : '—' },
+              { title: 'Item', key: 'item', render: (_, m) => m.item ? `${m.item.name}${m.item.itemCode ? ` (${m.item.itemCode})` : ''}` : '—' },
               { title: 'Warehouse', key: 'wh', render: (_, m) => m.warehouse?.name ?? '—' },
               { title: 'Qty', dataIndex: 'quantity', align: 'right' as const, width: 100, render: (v) => formatNumber(v, 3) },
               { title: 'Notes', key: 'notes', render: (_, m) => m.notes ?? '—' },
@@ -942,12 +958,12 @@ const EntryDetail: React.FC = () => {
         </Space>
         <Space style={{ flexWrap: 'wrap' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {entry.department?.name} · {entry.machineNo} · {dayjs(entry.entryDate).format('YYYY-MM-DD')}
+            {entry.department?.name} · {entry.machine?.name ? `${entry.machine.name} (${entry.machineNo})` : entry.machineNo} · {dayjs(entry.entryDate).format('YYYY-MM-DD')}
           </Text>
           <Button icon={<EditOutlined />} onClick={() => navigate(`/production/entries/${id}/edit`)}>
             Edit
           </Button>
-          <PopconfirmDelete onDeleted={() => navigate('/production/entries')} id={id!} />
+          <DeleteEntryButton onDeleted={() => navigate('/production/entries')} id={id!} />
         </Space>
       </div>
 
@@ -981,7 +997,7 @@ const EntryDetail: React.FC = () => {
                   { title: '#', dataIndex: 'lineNumber', width: 40 },
                   {
                     title: 'Item', key: 'item',
-                    render: (_, r) => r.item ? <Text strong>{r.item.itemCode} — {r.item.name}</Text> : '—',
+                    render: (_, r) => r.item ? <Text strong>{r.item.name}{r.item.itemCode ? ` (${r.item.itemCode})` : ''}</Text> : '—',
                   },
                   {
                     title: 'Wire Size', key: 'wire', width: 110,
@@ -1060,7 +1076,7 @@ const EntryDetail: React.FC = () => {
             <Button type="primary" icon={<EditOutlined />} block onClick={() => navigate(`/production/entries/${id}/edit`)}>
               Edit Entry
             </Button>
-            <PopconfirmDelete onDeleted={() => navigate('/production/entries')} id={id!} />
+            <DeleteEntryButton onDeleted={() => navigate('/production/entries')} id={id!} block />
           </Space>
         </Col>
       </Row>
@@ -1068,21 +1084,50 @@ const EntryDetail: React.FC = () => {
   );
 };
 
-const PopconfirmDelete: React.FC<{ id: string; onDeleted: () => void }> = ({ id, onDeleted }) => {
-  const { message } = App.useApp();
-  return (
-    <Popconfirm
-      title="Delete this production entry?"
-      onConfirm={async () => {
+const DeleteEntryButton: React.FC<{ id: string; onDeleted: () => void; block?: boolean }> = ({ id, onDeleted, block }) => {
+  const { message, modal } = App.useApp();
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = () => {
+    modal.confirm({
+      title: 'Delete Production Entry',
+      icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f', fontSize: 22 }} />,
+      centered: true,
+      width: 480,
+      content: (
+        <div style={{ paddingTop: 8 }}>
+          <p style={{ fontSize: 14, fontWeight: 500, margin: '0 0 8px 0', color: '#1f2937' }}>
+            Are you sure you want to permanently delete this production entry?
+          </p>
+          <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>
+            This will permanently remove this record, unlock the machine for fresh entry, and clean up test/dummy data. This action cannot be undone.
+          </p>
+        </div>
+      ),
+      okText: 'Yes, Delete Entry',
+      okType: 'danger',
+      okButtonProps: { size: 'middle', style: { minWidth: 120 } },
+      cancelText: 'Cancel',
+      cancelButtonProps: { size: 'middle' },
+      onOk: async () => {
+        setDeleting(true);
         try {
           await apiService.delete(`/production/entries/${id}`);
-          message.success('Entry deleted');
+          message.success('Production entry deleted successfully');
           onDeleted();
-        } catch { message.error('Failed to delete entry'); }
-      }}
-    >
-      <Button danger icon={<DeleteOutlined />} block>Delete Entry</Button>
-    </Popconfirm>
+        } catch {
+          message.error('Failed to delete production entry');
+        } finally {
+          setDeleting(false);
+        }
+      },
+    });
+  };
+
+  return (
+    <Button danger icon={<DeleteOutlined />} loading={deleting} block={block} onClick={handleDelete}>
+      Delete Entry
+    </Button>
   );
 };
 

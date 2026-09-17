@@ -171,6 +171,61 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Target KPI — professional red accent (light red fill + strong type) ── */
+.erp-pr-kpi-card--target {
+  background: linear-gradient(135deg, rgba(254, 226, 226, 0.96) 0%, rgba(254, 242, 242, 0.82) 100%);
+  border: 1px solid rgba(220, 38, 38, 0.45);
+  box-shadow:
+    0 10px 25px -5px rgba(220, 38, 38, 0.14),
+    0 8px 10px -6px rgba(220, 38, 38, 0.08),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+}
+.erp-pr-kpi-card--target .ant-statistic-title {
+  color: #b91c1c;
+  font-weight: 800;
+}
+.erp-pr-kpi-card--target .ant-statistic-content {
+  color: #b91c1c;
+  font-size: 24px;
+}
+[data-theme='dark'] .erp-pr-kpi-card--target {
+  background: linear-gradient(135deg, rgba(127, 29, 29, 0.42) 0%, rgba(69, 10, 10, 0.32) 100%);
+  border-color: rgba(248, 113, 113, 0.55);
+}
+[data-theme='dark'] .erp-pr-kpi-card--target .ant-statistic-title,
+[data-theme='dark'] .erp-pr-kpi-card--target .ant-statistic-content { color: #fca5a5; }
+
+/* ── Target table column — subtle but unmistakable ── */
+.erp-pr .ant-table-thead > tr > th.erp-pr-target-header {
+  color: #b91c1c !important;
+  font-weight: 800;
+  background: rgba(220, 38, 38, 0.08);
+}
+.erp-pr .ant-table-tbody > tr > td.erp-pr-target-cell {
+  background: rgba(220, 38, 38, 0.05);
+}
+.erp-pr-target-value {
+  color: #b91c1c;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+[data-theme='dark'] .erp-pr .ant-table-thead > tr > th.erp-pr-target-header {
+  color: #fca5a5 !important;
+  background: rgba(248, 113, 113, 0.14);
+}
+[data-theme='dark'] .erp-pr .ant-table-tbody > tr > td.erp-pr-target-cell {
+  background: rgba(248, 113, 113, 0.08);
+}
+[data-theme='dark'] .erp-pr-target-value { color: #fca5a5; }
+
+/* ── Compact filter toolbar ── */
+.erp-pr-filter-card {
+  border-radius: 12px;
+}
+.erp-pr-filter-card .ant-card-body {
+  padding: 10px 14px 12px;
+}
+
 /* ── Print rules ── */
 @media print {
   .erp-pr__no-print { display: none !important; }

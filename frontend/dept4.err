@@ -1,0 +1,1156 @@
+FAIL src/pages/organization/DepartmentManagement.test.tsx (188.305 s)
+  DepartmentManagement (ORG-FIX-01)
+    × renders the department list with audit columns (3249 ms)
+    × sends the selected sectionId on edit and strips companyId from the PATCH payload (4505 ms)
+    × shows the Save Confirmation popup before saving and can be cancelled (3958 ms)
+    × does not show false success when the saved sectionId does not match the selected one (4006 ms)
+    × shows a validation popup when a Section is selected without a Division (3713 ms)
+    × calls DELETE after delete confirmation (3699 ms)
+    × calls deactivate endpoint after confirmation (68187 ms)
+    × calls activate endpoint when the department is inactive (65354 ms)
+    × creates a department with the selected company, division and section (25450 ms)
+
+  ● DepartmentManagement (ORG-FIX-01) › renders the department list with audit columns
+
+    TestingLibraryElementError: Found multiple elements with the text: Created By
+
+    Here are the matching elements:
+
+    Ignored nodes: comments, script, style
+    [36m<th[39m
+      [33mclass[39m=[32m"ant-table-cell"[39m
+      [33mscope[39m=[32m"col"[39m
+    [36m>[39m
+      [0mCreated By[0m
+    [36m</th>[39m
+
+    Ignored nodes: comments, script, style
+    [36m<div[39m
+      [33mclass[39m=[32m"ant-table-measure-cell-content"[39m
+    [36m>[39m
+      [0mCreated By[0m
+    [36m</div>[39m
+
+    (If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"css-dev-only-do-not-override-mncuj7 ant-app"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-head"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-card-head-wrapper"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-head-title"[39m
+                [36m>[39m
+                  [0mDepartment Management[0m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-extra"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-primary ant-btn-color-primary ant-btn-variant-solid"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span>[39m
+                          [0mTable View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-default ant-btn-color-default ant-btn-variant-outlined"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-btn-icon"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33maria-label[39m=[32m"apartment"[39m
+                            [33mclass[39m=[32m"anticon anticon-apartment"[39m
+                            [33mrole[39m=[32m"img"[39m
+                          [36m>[39m
+                            [36m<svg[39m
+                              [33maria-hidden[39m=[32m"true"[39m
+                              [33mdata-icon[39m=[32m"apartment"[39m
+                              [33mfill[39m=[32m"currentColor"[39m
+                              [33mfocusable[39m=[32m"false"[39m
+                              [33mheight[39m=[32m"1em"[39m
+                              [33mviewBox[39m=[32m"64 64 896 896"[39m
+                              [33mwidth[39m=[32m"1em"[39m
+                            [36m>[39m
+                              [36m<path[39m
+                                [33md[39m=[32m"M908 640H804V488c0-4.4-3.6-8-8-8H548v-96h108c8.8 0 16-7.2 16-16V80c0-8.8-7.2-16-16-16H368c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h108v96H228c-4.4 0-8 3.6-8 8v152H116c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16H292v-88h440v88H620c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16zm-564 76v168H176V716h168zm84-408V140h168v168H428zm420 576H680V716h168v168z"[39m
+                              [36m/>[39m
+                            [36m</svg>[39m
+                          [36m</span>[39m
+                        [36m</span>[39m
+                        [36m<span>[39m
+                          [0mTree View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-body"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-space-item"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+                    [33mstyle[39m=[32m"width: 200px;"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-select-selector"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-search"[39m
+                        [36m>[39m
+                          [36m<input[39m
+                            [33maria-autocomplete[39m=[32m"list"[39m
+                            [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33maria-expanded[39m=[32m"false"[39m
+                            [33maria-haspopup[39m=[32m"listbox"[39m
+                            [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33mautocomplete[39m=[32m"off"[39m
+                            [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                            [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                            [33mreadonly[39m=[32m""[39m
+                            [33mrole[39m=[32m"combobox"[39m
+                            [33mstyle[39m=[32m"opacity: 0;"[39m
+                            [33mtype[39m=[32m"search"[39m
+                            [33munselectable[39m=[32m"on"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</span>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                        [36m>[39m
+                          [0mFilter by company[0m
+                        [36m</span>[39m
+                      [36m</span>[39m
+                    [36m</div>[39m
+                    [36m<span[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ant-select-arrow"[39m
+                      [33mstyle[39m=[32m"user-select: none;"[39m
+                      [33munselectable[39m=[32m"on"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33maria-label[39m=[32m"down"[39m
+                        [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                        [33mrole[39m=[32m...
+
+    [0m [90m 100 |[39m
+     [90m 101 |[39m     expect([36mawait[39m screen[33m.[39mfindByText([32m'Department Management'[39m))[33m.[39mtoBeInTheDocument()[33m;[39m
+    [31m[1m>[22m[39m[90m 102 |[39m     expect(screen[33m.[39mgetByText([32m'Created By'[39m))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m     |[39m                   [31m[1m^[22m[39m
+     [90m 103 |[39m     expect(screen[33m.[39mgetByText([32m'Created Date'[39m))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m 104 |[39m     expect(screen[33m.[39mgetByText([32m'Updated By'[39m))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m 105 |[39m     expect(screen[33m.[39mgetByText([32m'Updated Date'[39m))[33m.[39mtoBeInTheDocument()[33m;[39m[0m
+
+      at Object.getElementError (node_modules/@testing-library/dom/dist/config.js:37:19)
+      at getElementError (node_modules/@testing-library/dom/dist/query-helpers.js:20:35)
+      at getMultipleElementsFoundError (node_modules/@testing-library/dom/dist/query-helpers.js:23:10)
+      at node_modules/@testing-library/dom/dist/query-helpers.js:55:13
+      at getByText (node_modules/@testing-library/dom/dist/query-helpers.js:95:19)
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:102:19)
+
+  ● DepartmentManagement (ORG-FIX-01) › sends the selected sectionId on edit and strips companyId from the PATCH payload
+
+    Unable to find role="heading" and name `/Edit Department/i`
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"css-dev-only-do-not-override-mncuj7 ant-app"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-head"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-card-head-wrapper"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-head-title"[39m
+                [36m>[39m
+                  [0mDepartment Management[0m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-extra"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-primary ant-btn-color-primary ant-btn-variant-solid"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span>[39m
+                          [0mTable View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-default ant-btn-color-default ant-btn-variant-outlined"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-btn-icon"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33maria-label[39m=[32m"apartment"[39m
+                            [33mclass[39m=[32m"anticon anticon-apartment"[39m
+                            [33mrole[39m=[32m"img"[39m
+                          [36m>[39m
+                            [36m<svg[39m
+                              [33maria-hidden[39m=[32m"true"[39m
+                              [33mdata-icon[39m=[32m"apartment"[39m
+                              [33mfill[39m=[32m"currentColor"[39m
+                              [33mfocusable[39m=[32m"false"[39m
+                              [33mheight[39m=[32m"1em"[39m
+                              [33mviewBox[39m=[32m"64 64 896 896"[39m
+                              [33mwidth[39m=[32m"1em"[39m
+                            [36m>[39m
+                              [36m<path[39m
+                                [33md[39m=[32m"M908 640H804V488c0-4.4-3.6-8-8-8H548v-96h108c8.8 0 16-7.2 16-16V80c0-8.8-7.2-16-16-16H368c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h108v96H228c-4.4 0-8 3.6-8 8v152H116c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16H292v-88h440v88H620c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16zm-564 76v168H176V716h168zm84-408V140h168v168H428zm420 576H680V716h168v168z"[39m
+                              [36m/>[39m
+                            [36m</svg>[39m
+                          [36m</span>[39m
+                        [36m</span>[39m
+                        [36m<span>[39m
+                          [0mTree View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-body"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-space-item"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+                    [33mstyle[39m=[32m"width: 200px;"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-select-selector"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-search"[39m
+                        [36m>[39m
+                          [36m<input[39m
+                            [33maria-autocomplete[39m=[32m"list"[39m
+                            [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33maria-expanded[39m=[32m"false"[39m
+                            [33maria-haspopup[39m=[32m"listbox"[39m
+                            [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33mautocomplete[39m=[32m"off"[39m
+                            [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                            [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                            [33mreadonly[39m=[32m""[39m
+                            [33mrole[39m=[32m"combobox"[39m
+                            [33mstyle[39m=[32m"opacity: 0;"[39m
+                            [33mtype[39m=[32m"search"[39m
+                            [33munselectable[39m=[32m"on"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</span>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                        [36m>[39m
+                          [0mFilter by company[0m
+                        [36m</span>[39m
+                      [36m</span>[39m
+                    [36m</div>[39m
+                    [36m<span[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ant-select-arrow"[39m
+                      [33mstyle[39m=[32m"user-select: none;"[39m
+                      [33munselectable[39m=[32m"on"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33maria-label[39m=[32m"down"[39m
+                        [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                        [33mrole[39m=[32m...
+
+    [0m [90m 120 |[39m     fireEvent[33m.[39mclick(editBtn)[33m;[39m
+     [90m 121 |[39m
+    [31m[1m>[22m[39m[90m 122 |[39m     expect([36mawait[39m screen[33m.[39mfindByRole([32m'heading'[39m[33m,[39m { name[33m:[39m [35m/Edit Department/i[39m }))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m     |[39m                         [31m[1m^[22m[39m
+     [90m 123 |[39m
+     [90m 124 |[39m     [36mconst[39m sectionSelect [33m=[39m [36mawait[39m screen[33m.[39mfindByLabelText([32m'Section'[39m)[33m;[39m
+     [90m 125 |[39m     fireEvent[33m.[39mmouseDown(sectionSelect)[33m;[39m[0m
+
+      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+      at findByRole (node_modules/@testing-library/dom/dist/query-helpers.js:86:33)
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:122:25)
+
+  ● DepartmentManagement (ORG-FIX-01) › shows the Save Confirmation popup before saving and can be cancelled
+
+    Unable to find role="heading" and name `/Edit Department/i`
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"css-dev-only-do-not-override-mncuj7 ant-app"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-head"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-card-head-wrapper"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-head-title"[39m
+                [36m>[39m
+                  [0mDepartment Management[0m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-extra"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-primary ant-btn-color-primary ant-btn-variant-solid"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span>[39m
+                          [0mTable View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-default ant-btn-color-default ant-btn-variant-outlined"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-btn-icon"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33maria-label[39m=[32m"apartment"[39m
+                            [33mclass[39m=[32m"anticon anticon-apartment"[39m
+                            [33mrole[39m=[32m"img"[39m
+                          [36m>[39m
+                            [36m<svg[39m
+                              [33maria-hidden[39m=[32m"true"[39m
+                              [33mdata-icon[39m=[32m"apartment"[39m
+                              [33mfill[39m=[32m"currentColor"[39m
+                              [33mfocusable[39m=[32m"false"[39m
+                              [33mheight[39m=[32m"1em"[39m
+                              [33mviewBox[39m=[32m"64 64 896 896"[39m
+                              [33mwidth[39m=[32m"1em"[39m
+                            [36m>[39m
+                              [36m<path[39m
+                                [33md[39m=[32m"M908 640H804V488c0-4.4-3.6-8-8-8H548v-96h108c8.8 0 16-7.2 16-16V80c0-8.8-7.2-16-16-16H368c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h108v96H228c-4.4 0-8 3.6-8 8v152H116c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16H292v-88h440v88H620c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16zm-564 76v168H176V716h168zm84-408V140h168v168H428zm420 576H680V716h168v168z"[39m
+                              [36m/>[39m
+                            [36m</svg>[39m
+                          [36m</span>[39m
+                        [36m</span>[39m
+                        [36m<span>[39m
+                          [0mTree View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-body"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-space-item"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+                    [33mstyle[39m=[32m"width: 200px;"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-select-selector"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-search"[39m
+                        [36m>[39m
+                          [36m<input[39m
+                            [33maria-autocomplete[39m=[32m"list"[39m
+                            [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33maria-expanded[39m=[32m"false"[39m
+                            [33maria-haspopup[39m=[32m"listbox"[39m
+                            [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33mautocomplete[39m=[32m"off"[39m
+                            [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                            [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                            [33mreadonly[39m=[32m""[39m
+                            [33mrole[39m=[32m"combobox"[39m
+                            [33mstyle[39m=[32m"opacity: 0;"[39m
+                            [33mtype[39m=[32m"search"[39m
+                            [33munselectable[39m=[32m"on"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</span>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                        [36m>[39m
+                          [0mFilter by company[0m
+                        [36m</span>[39m
+                      [36m</span>[39m
+                    [36m</div>[39m
+                    [36m<span[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ant-select-arrow"[39m
+                      [33mstyle[39m=[32m"user-select: none;"[39m
+                      [33munselectable[39m=[32m"on"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33maria-label[39m=[32m"down"[39m
+                        [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                        [33mrole[39m=[32m...
+
+    [0m [90m 146 |[39m
+     [90m 147 |[39m     fireEvent[33m.[39mclick([36mawait[39m screen[33m.[39mfindByTitle([32m'Edit Department'[39m))[33m;[39m
+    [31m[1m>[22m[39m[90m 148 |[39m     expect([36mawait[39m screen[33m.[39mfindByRole([32m'heading'[39m[33m,[39m { name[33m:[39m [35m/Edit Department/i[39m }))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m     |[39m                         [31m[1m^[22m[39m
+     [90m 149 |[39m
+     [90m 150 |[39m     fireEvent[33m.[39mclick(screen[33m.[39mgetByRole([32m'button'[39m[33m,[39m { name[33m:[39m [35m/Save$/i[39m }))[33m;[39m
+     [90m 151 |[39m     expect([36mawait[39m screen[33m.[39mfindByText([32m'Save Confirmation'[39m))[33m.[39mtoBeInTheDocument()[33m;[39m[0m
+
+      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+      at findByRole (node_modules/@testing-library/dom/dist/query-helpers.js:86:33)
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:148:25)
+
+  ● DepartmentManagement (ORG-FIX-01) › does not show false success when the saved sectionId does not match the selected one
+
+    Unable to find role="heading" and name `/Edit Department/i`
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"css-dev-only-do-not-override-mncuj7 ant-app"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-head"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-card-head-wrapper"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-head-title"[39m
+                [36m>[39m
+                  [0mDepartment Management[0m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-extra"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-primary ant-btn-color-primary ant-btn-variant-solid"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span>[39m
+                          [0mTable View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-default ant-btn-color-default ant-btn-variant-outlined"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-btn-icon"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33maria-label[39m=[32m"apartment"[39m
+                            [33mclass[39m=[32m"anticon anticon-apartment"[39m
+                            [33mrole[39m=[32m"img"[39m
+                          [36m>[39m
+                            [36m<svg[39m
+                              [33maria-hidden[39m=[32m"true"[39m
+                              [33mdata-icon[39m=[32m"apartment"[39m
+                              [33mfill[39m=[32m"currentColor"[39m
+                              [33mfocusable[39m=[32m"false"[39m
+                              [33mheight[39m=[32m"1em"[39m
+                              [33mviewBox[39m=[32m"64 64 896 896"[39m
+                              [33mwidth[39m=[32m"1em"[39m
+                            [36m>[39m
+                              [36m<path[39m
+                                [33md[39m=[32m"M908 640H804V488c0-4.4-3.6-8-8-8H548v-96h108c8.8 0 16-7.2 16-16V80c0-8.8-7.2-16-16-16H368c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h108v96H228c-4.4 0-8 3.6-8 8v152H116c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16H292v-88h440v88H620c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16zm-564 76v168H176V716h168zm84-408V140h168v168H428zm420 576H680V716h168v168z"[39m
+                              [36m/>[39m
+                            [36m</svg>[39m
+                          [36m</span>[39m
+                        [36m</span>[39m
+                        [36m<span>[39m
+                          [0mTree View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-body"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-space-item"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+                    [33mstyle[39m=[32m"width: 200px;"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-select-selector"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-search"[39m
+                        [36m>[39m
+                          [36m<input[39m
+                            [33maria-autocomplete[39m=[32m"list"[39m
+                            [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33maria-expanded[39m=[32m"false"[39m
+                            [33maria-haspopup[39m=[32m"listbox"[39m
+                            [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33mautocomplete[39m=[32m"off"[39m
+                            [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                            [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                            [33mreadonly[39m=[32m""[39m
+                            [33mrole[39m=[32m"combobox"[39m
+                            [33mstyle[39m=[32m"opacity: 0;"[39m
+                            [33mtype[39m=[32m"search"[39m
+                            [33munselectable[39m=[32m"on"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</span>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                        [36m>[39m
+                          [0mFilter by company[0m
+                        [36m</span>[39m
+                      [36m</span>[39m
+                    [36m</div>[39m
+                    [36m<span[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ant-select-arrow"[39m
+                      [33mstyle[39m=[32m"user-select: none;"[39m
+                      [33munselectable[39m=[32m"on"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33maria-label[39m=[32m"down"[39m
+                        [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                        [33mrole[39m=[32m...
+
+    [0m [90m 175 |[39m
+     [90m 176 |[39m     fireEvent[33m.[39mclick([36mawait[39m screen[33m.[39mfindByTitle([32m'Edit Department'[39m))[33m;[39m
+    [31m[1m>[22m[39m[90m 177 |[39m     expect([36mawait[39m screen[33m.[39mfindByRole([32m'heading'[39m[33m,[39m { name[33m:[39m [35m/Edit Department/i[39m }))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m     |[39m                         [31m[1m^[22m[39m
+     [90m 178 |[39m
+     [90m 179 |[39m     [36mconst[39m sectionSelect [33m=[39m [36mawait[39m screen[33m.[39mfindByLabelText([32m'Section'[39m)[33m;[39m
+     [90m 180 |[39m     fireEvent[33m.[39mmouseDown(sectionSelect)[33m;[39m[0m
+
+      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+      at findByRole (node_modules/@testing-library/dom/dist/query-helpers.js:86:33)
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:177:25)
+
+  ● DepartmentManagement (ORG-FIX-01) › shows a validation popup when a Section is selected without a Division
+
+    Unable to find role="heading" and name `/Edit Department/i`
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"css-dev-only-do-not-override-mncuj7 ant-app"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-head"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-card-head-wrapper"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-head-title"[39m
+                [36m>[39m
+                  [0mDepartment Management[0m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-extra"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-primary ant-btn-color-primary ant-btn-variant-solid"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span>[39m
+                          [0mTable View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-default ant-btn-color-default ant-btn-variant-outlined"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-btn-icon"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33maria-label[39m=[32m"apartment"[39m
+                            [33mclass[39m=[32m"anticon anticon-apartment"[39m
+                            [33mrole[39m=[32m"img"[39m
+                          [36m>[39m
+                            [36m<svg[39m
+                              [33maria-hidden[39m=[32m"true"[39m
+                              [33mdata-icon[39m=[32m"apartment"[39m
+                              [33mfill[39m=[32m"currentColor"[39m
+                              [33mfocusable[39m=[32m"false"[39m
+                              [33mheight[39m=[32m"1em"[39m
+                              [33mviewBox[39m=[32m"64 64 896 896"[39m
+                              [33mwidth[39m=[32m"1em"[39m
+                            [36m>[39m
+                              [36m<path[39m
+                                [33md[39m=[32m"M908 640H804V488c0-4.4-3.6-8-8-8H548v-96h108c8.8 0 16-7.2 16-16V80c0-8.8-7.2-16-16-16H368c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h108v96H228c-4.4 0-8 3.6-8 8v152H116c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16H292v-88h440v88H620c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16zm-564 76v168H176V716h168zm84-408V140h168v168H428zm420 576H680V716h168v168z"[39m
+                              [36m/>[39m
+                            [36m</svg>[39m
+                          [36m</span>[39m
+                        [36m</span>[39m
+                        [36m<span>[39m
+                          [0mTree View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-body"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-space-item"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+                    [33mstyle[39m=[32m"width: 200px;"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-select-selector"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-search"[39m
+                        [36m>[39m
+                          [36m<input[39m
+                            [33maria-autocomplete[39m=[32m"list"[39m
+                            [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33maria-expanded[39m=[32m"false"[39m
+                            [33maria-haspopup[39m=[32m"listbox"[39m
+                            [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33mautocomplete[39m=[32m"off"[39m
+                            [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                            [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                            [33mreadonly[39m=[32m""[39m
+                            [33mrole[39m=[32m"combobox"[39m
+                            [33mstyle[39m=[32m"opacity: 0;"[39m
+                            [33mtype[39m=[32m"search"[39m
+                            [33munselectable[39m=[32m"on"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</span>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                        [36m>[39m
+                          [0mFilter by company[0m
+                        [36m</span>[39m
+                      [36m</span>[39m
+                    [36m</div>[39m
+                    [36m<span[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ant-select-arrow"[39m
+                      [33mstyle[39m=[32m"user-select: none;"[39m
+                      [33munselectable[39m=[32m"on"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33maria-label[39m=[32m"down"[39m
+                        [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                        [33mrole[39m=[32m...
+
+    [0m [90m 194 |[39m
+     [90m 195 |[39m     fireEvent[33m.[39mclick([36mawait[39m screen[33m.[39mfindByTitle([32m'Edit Department'[39m))[33m;[39m
+    [31m[1m>[22m[39m[90m 196 |[39m     expect([36mawait[39m screen[33m.[39mfindByRole([32m'heading'[39m[33m,[39m { name[33m:[39m [35m/Edit Department/i[39m }))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m     |[39m                         [31m[1m^[22m[39m
+     [90m 197 |[39m
+     [90m 198 |[39m     [36mconst[39m divisionSelect [33m=[39m [36mawait[39m screen[33m.[39mfindByLabelText([32m'Division'[39m)[33m;[39m
+     [90m 199 |[39m     fireEvent[33m.[39mmouseDown(divisionSelect)[33m;[39m[0m
+
+      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+      at findByRole (node_modules/@testing-library/dom/dist/query-helpers.js:86:33)
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:196:25)
+
+  ● DepartmentManagement (ORG-FIX-01) › calls DELETE after delete confirmation
+
+    Found multiple elements with the text: Delete Department
+
+    Here are the matching elements:
+
+    Ignored nodes: comments, script, style
+    [36m<div[39m
+      [33mclass[39m=[32m"ant-modal-title"[39m
+      [33mid[39m=[32m"test-id"[39m
+    [36m>[39m
+      [0mDelete Department[0m
+    [36m</div>[39m
+
+    Ignored nodes: comments, script, style
+    [36m<span[39m
+      [33mclass[39m=[32m"ant-modal-confirm-title"[39m
+    [36m>[39m
+      [0mDelete Department[0m
+    [36m</span>[39m
+
+    (If this is intentional, then use the `*AllBy*` variant of the query (like `queryAllByText`, `getAllByText`, or `findAllByText`)).
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"css-dev-only-do-not-override-mncuj7 ant-app"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-head"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-card-head-wrapper"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-head-title"[39m
+                [36m>[39m
+                  [0mDepartment Management[0m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-extra"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-primary ant-btn-color-primary ant-btn-variant-solid"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span>[39m
+                          [0mTable View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-default ant-btn-color-default ant-btn-variant-outlined"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-btn-icon"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33maria-label[39m=[32m"apartment"[39m
+                            [33mclass[39m=[32m"anticon anticon-apartment"[39m
+                            [33mrole[39m=[32m"img"[39m
+                          [36m>[39m
+                            [36m<svg[39m
+                              [33maria-hidden[39m=[32m"true"[39m
+                              [33mdata-icon[39m=[32m"apartment"[39m
+                              [33mfill[39m=[32m"currentColor"[39m
+                              [33mfocusable[39m=[32m"false"[39m
+                              [33mheight[39m=[32m"1em"[39m
+                              [33mviewBox[39m=[32m"64 64 896 896"[39m
+                              [33mwidth[39m=[32m"1em"[39m
+                            [36m>[39m
+                              [36m<path[39m
+                                [33md[39m=[32m"M908 640H804V488c0-4.4-3.6-8-8-8H548v-96h108c8.8 0 16-7.2 16-16V80c0-8.8-7.2-16-16-16H368c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h108v96H228c-4.4 0-8 3.6-8 8v152H116c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16H292v-88h440v88H620c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16zm-564 76v168H176V716h168zm84-408V140h168v168H428zm420 576H680V716h168v168z"[39m
+                              [36m/>[39m
+                            [36m</svg>[39m
+                          [36m</span>[39m
+                        [36m</span>[39m
+                        [36m<span>[39m
+                          [0mTree View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-body"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-space-item"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+                    [33mstyle[39m=[32m"width: 200px;"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-select-selector"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-search"[39m
+                        [36m>[39m
+                          [36m<input[39m
+                            [33maria-autocomplete[39m=[32m"list"[39m
+                            [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33maria-expanded[39m=[32m"false"[39m
+                            [33maria-haspopup[39m=[32m"listbox"[39m
+                            [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33mautocomplete[39m=[32m"off"[39m
+                            [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                            [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                            [33mreadonly[39m=[32m""[39m
+                            [33mrole[39m=[32m"combobox"[39m
+                            [33mstyle[39m=[32m"opacity: 0;"[39m
+                            [33mtype[39m=[32m"search"[39m
+                            [33munselectable[39m=[32m"on"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</span>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                        [36m>[39m
+                          [0mFilter by company[0m
+                        [36m</span>[39m
+                      [36m</span>[39m
+                    [36m</div>[39m
+                    [36m<span[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ant-select-arrow"[39m
+                      [33mstyle[39m=[32m"user-select: none;"[39m
+                      [33munselectable[39m=[32m"on"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33maria-label[39m=[32m"down"[39m
+                        [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                        [33mrole[39m=[32m...
+
+    [0m [90m 217 |[39m
+     [90m 218 |[39m     fireEvent[33m.[39mclick([36mawait[39m screen[33m.[39mfindByTitle([32m'Delete Department'[39m))[33m;[39m
+    [31m[1m>[22m[39m[90m 219 |[39m     expect([36mawait[39m screen[33m.[39mfindByText([32m'Delete Department'[39m))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m     |[39m                         [31m[1m^[22m[39m
+     [90m 220 |[39m     expect(screen[33m.[39mgetByText([35m/This action cannot be undone/[39m))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m 221 |[39m
+     [90m 222 |[39m     fireEvent[33m.[39mclick(screen[33m.[39mgetByRole([32m'button'[39m[33m,[39m { name[33m:[39m [32m'Delete'[39m }))[33m;[39m[0m
+
+      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+      at findByText (node_modules/@testing-library/dom/dist/query-helpers.js:86:33)
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:219:25)
+
+  ● DepartmentManagement (ORG-FIX-01) › calls deactivate endpoint after confirmation
+
+    thrown: "Exceeded timeout of 60000 ms for a test.
+    Use jest.setTimeout(newTimeout) to increase the timeout value, if this is a long-running test."
+
+    [0m [90m 226 |[39m   })[33m;[39m
+     [90m 227 |[39m
+    [31m[1m>[22m[39m[90m 228 |[39m   it([32m'calls deactivate endpoint after confirmation'[39m[33m,[39m [36masync[39m () [33m=>[39m {
+     [90m     |[39m   [31m[1m^[22m[39m
+     [90m 229 |[39m     setupApiMocks()[33m;[39m
+     [90m 230 |[39m     apiMock[33m.[39mpatch[33m.[39mmockResolvedValue({ success[33m:[39m [36mtrue[39m[33m,[39m message[33m:[39m [32m'Department deactivated successfully'[39m } [36mas[39m any)[33m;[39m
+     [90m 231 |[39m[0m
+
+      at src/pages/organization/DepartmentManagement.test.tsx:228:3
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:91:1)
+      at TestScheduler.scheduleTests (node_modules/@jest/core/build/TestScheduler.js:333:13)
+      at runJest (node_modules/@jest/core/build/runJest.js:404:19)
+      at _run10000 (node_modules/@jest/core/build/cli/index.js:320:7)
+      at runCLI (node_modules/@jest/core/build/cli/index.js:173:3)
+
+  ● DepartmentManagement (ORG-FIX-01) › calls activate endpoint when the department is inactive
+
+    thrown: "Exceeded timeout of 60000 ms for a test.
+    Use jest.setTimeout(newTimeout) to increase the timeout value, if this is a long-running test."
+
+    [0m [90m 241 |[39m   })[33m;[39m
+     [90m 242 |[39m
+    [31m[1m>[22m[39m[90m 243 |[39m   it([32m'calls activate endpoint when the department is inactive'[39m[33m,[39m [36masync[39m () [33m=>[39m {
+     [90m     |[39m   [31m[1m^[22m[39m
+     [90m 244 |[39m     [36mconst[39m inactive [33m=[39m { [33m...[39mdepartmentRecord[33m,[39m status[33m:[39m [32m'INACTIVE'[39m[33m,[39m section[33m:[39m [36mnull[39m[33m,[39m sectionId[33m:[39m [36mnull[39m }[33m;[39m
+     [90m 245 |[39m     setupApiMocks({ departments[33m:[39m [inactive] })[33m;[39m
+     [90m 246 |[39m     apiMock[33m.[39mpatch[33m.[39mmockResolvedValue({ success[33m:[39m [36mtrue[39m[33m,[39m message[33m:[39m [32m'Department activated successfully'[39m } [36mas[39m any)[33m;[39m[0m
+
+      at src/pages/organization/DepartmentManagement.test.tsx:243:3
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:91:1)
+      at TestScheduler.scheduleTests (node_modules/@jest/core/build/TestScheduler.js:333:13)
+      at runJest (node_modules/@jest/core/build/runJest.js:404:19)
+      at _run10000 (node_modules/@jest/core/build/cli/index.js:320:7)
+      at runCLI (node_modules/@jest/core/build/cli/index.js:173:3)
+
+  ● DepartmentManagement (ORG-FIX-01) › creates a department with the selected company, division and section
+
+    Unable to find role="heading" and name `/Create Department/i`
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"css-dev-only-do-not-override-mncuj7 ant-app"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-head"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-card-head-wrapper"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-head-title"[39m
+                [36m>[39m
+                  [0mDepartment Management[0m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-extra"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-primary ant-btn-color-primary ant-btn-variant-solid"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span>[39m
+                          [0mTable View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-default ant-btn-color-default ant-btn-variant-outlined"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-btn-icon"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33maria-label[39m=[32m"apartment"[39m
+                            [33mclass[39m=[32m"anticon anticon-apartment"[39m
+                            [33mrole[39m=[32m"img"[39m
+                          [36m>[39m
+                            [36m<svg[39m
+                              [33maria-hidden[39m=[32m"true"[39m
+                              [33mdata-icon[39m=[32m"apartment"[39m
+                              [33mfill[39m=[32m"currentColor"[39m
+                              [33mfocusable[39m=[32m"false"[39m
+                              [33mheight[39m=[32m"1em"[39m
+                              [33mviewBox[39m=[32m"64 64 896 896"[39m
+                              [33mwidth[39m=[32m"1em"[39m
+                            [36m>[39m
+                              [36m<path[39m
+                                [33md[39m=[32m"M908 640H804V488c0-4.4-3.6-8-8-8H548v-96h108c8.8 0 16-7.2 16-16V80c0-8.8-7.2-16-16-16H368c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h108v96H228c-4.4 0-8 3.6-8 8v152H116c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16H292v-88h440v88H620c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16zm-564 76v168H176V716h168zm84-408V140h168v168H428zm420 576H680V716h168v168z"[39m
+                              [36m/>[39m
+                            [36m</svg>[39m
+                          [36m</span>[39m
+                        [36m</span>[39m
+                        [36m<span>[39m
+                          [0mTree View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-body"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-space-item"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+                    [33mstyle[39m=[32m"width: 200px;"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-select-selector"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-search"[39m
+                        [36m>[39m
+                          [36m<input[39m
+                            [33maria-autocomplete[39m=[32m"list"[39m
+                            [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33maria-expanded[39m=[32m"false"[39m
+                            [33maria-haspopup[39m=[32m"listbox"[39m
+                            [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33mautocomplete[39m=[32m"off"[39m
+                            [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                            [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                            [33mreadonly[39m=[32m""[39m
+                            [33mrole[39m=[32m"combobox"[39m
+                            [33mstyle[39m=[32m"opacity: 0;"[39m
+                            [33mtype[39m=[32m"search"[39m
+                            [33munselectable[39m=[32m"on"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</span>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                        [36m>[39m
+                          [0mFilter by company[0m
+                        [36m</span>[39m
+                      [36m</span>[39m
+                    [36m</div>[39m
+                    [36m<span[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ant-select-arrow"[39m
+                      [33mstyle[39m=[32m"user-select: none;"[39m
+                      [33munselectable[39m=[32m"on"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33maria-label[39m=[32m"down"[39m
+                        [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                        [33mrole[39m=[32m...
+
+    [0m [90m 264 |[39m
+     [90m 265 |[39m     fireEvent[33m.[39mclick([36mawait[39m screen[33m.[39mfindByRole([32m'button'[39m[33m,[39m { name[33m:[39m [35m/Add Department/i[39m }))[33m;[39m
+    [31m[1m>[22m[39m[90m 266 |[39m     expect([36mawait[39m screen[33m.[39mfindByRole([32m'heading'[39m[33m,[39m { name[33m:[39m [35m/Create Department/i[39m }))[33m.[39mtoBeInTheDocument()[33m;[39m
+     [90m     |[39m                         [31m[1m^[22m[39m
+     [90m 267 |[39m
+     [90m 268 |[39m     fireEvent[33m.[39mchange([36mawait[39m screen[33m.[39mfindByLabelText([32m'Department Code'[39m)[33m,[39m {
+     [90m 269 |[39m       target[33m:[39m { value[33m:[39m [32m'STR'[39m }[33m,[39m[0m
+
+      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+      at findByRole (node_modules/@testing-library/dom/dist/query-helpers.js:86:33)
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:266:25)
+
+Test Suites: 1 failed, 1 total
+Tests:       9 failed, 9 total
+Snapshots:   0 total
+Time:        189.077 s
+Ran all test suites matching /src\\pages\\organization\\DepartmentManagement.test.tsx/i.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

@@ -7,6 +7,7 @@ import {
 } from '@ant-design/icons';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
+import { prefetchAllLookups } from '../../services/lookupsCache';
 import AuthBrand from '../../components/auth/AuthBrand';
 import AuthBrandPane from '../../components/auth/AuthBrandPane';
 import AuthError from '../../components/auth/AuthError';
@@ -69,6 +70,9 @@ const Login: React.FC = () => {
       if (response.user) {
         localStorage.setItem('erp_user', JSON.stringify(response.user));
       }
+
+      // Warm up and prefetch all master lookup caches immediately so pages open instantly
+      void prefetchAllLookups(true);
 
       const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
       const destination =

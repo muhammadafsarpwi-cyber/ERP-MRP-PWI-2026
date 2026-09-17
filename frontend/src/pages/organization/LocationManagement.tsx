@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card, Tree } from 'antd';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Card, Tree } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
+import { getAuditColumns } from './orgUtils';
 
 interface Warehouse {
   id: string;
@@ -22,10 +23,15 @@ interface WarehouseLocation {
   children?: WarehouseLocation[];
   status: string;
   createdAt: string;
+  updatedAt?: string | null;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
 }
 
 const LocationManagement: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [locations, setLocations] = useState<WarehouseLocation[]>([]);
   const [hierarchy, setHierarchy] = useState<WarehouseLocation[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -49,31 +55,40 @@ const LocationManagement: React.FC = () => {
       const response = await apiService.get<{ data: WarehouseLocation[]; total: number }>('/warehouse-locations', params);
       setLocations(response.data);
       setTotal(response.total);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch locations'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch locations'),
+      });
     } finally {
       setLoading(false);
     }
-  }, [selectedWarehouse, message]);
+  }, [selectedWarehouse, modal]);
 
   const fetchHierarchy = useCallback(async () => {
     if (!selectedWarehouse) return;
     try {
       const response = await apiService.get<{ data: WarehouseLocation[] }>(`/warehouse-locations/hierarchy/${selectedWarehouse}`);
       setHierarchy(response.data);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch location hierarchy'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch location hierarchy'),
+      });
     }
-  }, [selectedWarehouse, message]);
+  }, [selectedWarehouse, modal]);
 
   const fetchWarehouses = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Warehouse[] }>('/warehouses', { limit: 100 });
       setWarehouses(response.data);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch warehouses'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch warehouses'),
+      });
     }
-  }, [message]);
+  }, [modal]);
 
   useEffect(() => {
     fetchWarehouses();
@@ -101,63 +116,124 @@ const LocationManagement: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await apiService.delete(`/warehouse-locations/${id}`);
-      message.success('Location deleted successfully');
-      fetchLocations(page);
-      fetchHierarchy();
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to delete location'));
-    }
+  const handleDelete = (record: WarehouseLocation) => {
+    modal.confirm({
+      title: 'Delete Location',
+      content: `Are you sure you want to delete location "${record.locationCode}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.delete(`/warehouse-locations/${record.id}`);
+          message.success('Location deleted successfully');
+          fetchLocations(page);
+          fetchHierarchy();
+        } catch (error: any) {
+          modal.error({
+            title: 'Delete Failed',
+            content: formatApiError(error, 'Failed to delete location'),
+          });
+        }
+      },
+    });
   };
 
-  const handleActivate = async (id: string) => {
-    try {
-      await apiService.patch(`/warehouse-locations/${id}/activate`);
-      message.success('Location activated successfully');
-      fetchLocations(page);
-      fetchHierarchy();
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to activate location'));
-    }
+  const handleActivate = (record: WarehouseLocation) => {
+    modal.confirm({
+      title: 'Activate Location',
+      content: `Are you sure you want to activate location "${record.locationCode}"?`,
+      okText: 'Activate',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/warehouse-locations/${record.id}/activate`);
+          message.success('Location activated successfully');
+          fetchLocations(page);
+          fetchHierarchy();
+        } catch (error: any) {
+          modal.error({
+            title: 'Activation Failed',
+            content: formatApiError(error, 'Failed to activate location'),
+          });
+        }
+      },
+    });
   };
 
-  const handleDeactivate = async (id: string) => {
-    try {
-      await apiService.patch(`/warehouse-locations/${id}/deactivate`);
-      message.success('Location deactivated successfully');
-      fetchLocations(page);
-      fetchHierarchy();
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to deactivate location'));
-    }
+  const handleDeactivate = (record: WarehouseLocation) => {
+    modal.confirm({
+      title: 'Deactivate Location',
+      content: `Are you sure you want to deactivate location "${record.locationCode}"?`,
+      okText: 'Deactivate',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/warehouse-locations/${record.id}/deactivate`);
+          message.success('Location deactivated successfully');
+          fetchLocations(page);
+          fetchHierarchy();
+        } catch (error: any) {
+          modal.error({
+            title: 'Deactivation Failed',
+            content: formatApiError(error, 'Failed to deactivate location'),
+          });
+        }
+      },
+    });
   };
 
   const handleSubmit = async () => {
-    if (submitting) return;
-    setSubmitting(true);
+    let values: any;
     try {
-      const values = await form.validateFields();
-      if (editingLocation) {
-        await apiService.patch(`/warehouse-locations/${editingLocation.id}`, values);
-        message.success('Location updated successfully');
-      } else {
-        await apiService.post('/warehouse-locations', values);
-        message.success('Location created successfully');
-      }
-      setModalVisible(false);
-      fetchLocations(page);
-      fetchHierarchy();
+      values = await form.validateFields();
     } catch (error: any) {
-      if (error?.errorFields) {
-        message.error('Please complete all required fields.');
-      } else {
-        message.error(formatApiError(error, 'Operation failed'));
-      }
-    } finally {
-      setSubmitting(false);
+      const errorList = error?.errorFields?.flatMap((f: any) => f.errors) || ['Please check required fields'];
+      modal.error({
+        title: 'Validation Failed',
+        content: (
+          <div>
+            <p style={{ marginBottom: 8, fontWeight: 500 }}>Please correct the following errors:</p>
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {errorList.map((msg: string, idx: number) => (
+                <li key={idx} style={{ color: '#ff4d4f' }}>{msg}</li>
+              ))}
+            </ul>
+          </div>
+        ),
+      });
+      return;
     }
+
+    modal.confirm({
+      title: 'Save Confirmation',
+      content: 'Are you sure you want to save these changes?',
+      okText: 'Save',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setSubmitting(true);
+        try {
+          if (editingLocation) {
+            await apiService.patch(`/warehouse-locations/${editingLocation.id}`, values);
+            message.success('Location updated successfully');
+          } else {
+            await apiService.post('/warehouse-locations', values);
+            message.success('Location created successfully');
+          }
+          setModalVisible(false);
+          fetchLocations(page);
+          fetchHierarchy();
+        } catch (error: any) {
+          modal.error({
+            title: 'Save Failed',
+            content: formatApiError(error, 'Operation failed'),
+          });
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
   };
 
   const convertToTreeData = (locations: WarehouseLocation[]): any[] => {
@@ -168,7 +244,7 @@ const LocationManagement: React.FC = () => {
     }));
   };
 
-  const columns: ColumnsType<WarehouseLocation> = [
+  const baseColumns: ColumnsType<WarehouseLocation> = [
     {
       title: 'Code',
       dataIndex: 'locationCode',
@@ -198,24 +274,23 @@ const LocationManagement: React.FC = () => {
         <Tag color={status === 'ACTIVE' ? 'green' : 'red'}>{status}</Tag>
       ),
     },
+  ];
+
+  const columns: ColumnsType<WarehouseLocation> = [
+    ...baseColumns,
+    ...getAuditColumns<WarehouseLocation>(),
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} title="Edit Location" />
           {record.status === 'ACTIVE' ? (
-            <Popconfirm title="Deactivate this location?" onConfirm={() => handleDeactivate(record.id)}>
-              <Button type="link" danger icon={<CloseCircleOutlined />} />
-            </Popconfirm>
+            <Button type="link" danger icon={<CloseCircleOutlined />} onClick={() => handleDeactivate(record)} title="Deactivate Location" />
           ) : (
-            <Popconfirm title="Activate this location?" onConfirm={() => handleActivate(record.id)}>
-              <Button type="link" icon={<CheckCircleOutlined />} />
-            </Popconfirm>
+            <Button type="link" icon={<CheckCircleOutlined />} onClick={() => handleActivate(record)} title="Activate Location" />
           )}
-          <Popconfirm title="Delete this location?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} title="Delete Location" />
         </Space>
       ),
     },

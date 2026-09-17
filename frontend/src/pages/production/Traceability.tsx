@@ -354,7 +354,7 @@ const Traceability: React.FC = () => {
           <Select
             showSearch allowClear placeholder="Select an item…" style={{ minWidth: 340 }}
             value={selected?.id} onChange={selectItem}
-            filterOption={(input, option) => (option?.label || '').toLowerCase().includes(input.toLowerCase())}
+            filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes((input || '').toLowerCase())}
             options={filteredItems.map((i) => ({
               value: i.id,
               label: `${i.itemCode} - ${i.name} (${itemTypeLabel(i.itemType)})`,

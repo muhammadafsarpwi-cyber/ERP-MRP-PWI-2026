@@ -4,6 +4,7 @@ import { ProductionRouting } from './entities/production-routing.entity';
 import { RoutingOperation } from './entities/routing-operation.entity';
 import { RoutingOperationInput } from './entities/routing-operation-input.entity';
 import { RoutingOperationOutput } from './entities/routing-operation-output.entity';
+import { RoutingOperationConnection } from './entities/routing-operation-connection.entity';
 import { ProductionRoutingService } from './services/production-routing.service';
 import { ProductionRoutingController } from './controllers/production-routing.controller';
 import { AuthModule } from '../auth/auth.module';
@@ -27,6 +28,7 @@ import { Operation } from '../operation/entities/operation.entity';
       RoutingOperation,
       RoutingOperationInput,
       RoutingOperationOutput,
+      RoutingOperationConnection,
       Item,
       ItemRouteType,
       Uom,

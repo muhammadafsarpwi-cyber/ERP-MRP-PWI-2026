@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { App, Button, Modal, Form, Input, Select, Popconfirm } from 'antd';
+import { App, Button, Modal, Form, Input, Select } from 'antd';
 import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, ShopOutlined, PrinterOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
 import { PageHeader, ERPTable, TableToolbar, TableActions, StatusBadge } from '../../components/shared';
 import BarcodePrint from '../../components/shared/BarcodePrint';
+import { getAuditColumns } from './orgUtils';
 
 interface Company {
   id: string;
@@ -24,10 +25,20 @@ interface Warehouse {
   country: string;
   status: string;
   createdAt: string;
+  updatedAt?: string | null;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
+}
+
+interface PrintModalState {
+  visible: boolean;
+  warehouse: Warehouse | null;
 }
 
 const WarehouseManagement: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
@@ -37,8 +48,9 @@ const WarehouseManagement: React.FC = () => {
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
-  const [printModal, setPrintModal] = useState<{ visible: boolean; warehouse: Warehouse | null }>({
-    visible: false, warehouse: null,
+  const [printModal, setPrintModal] = useState<PrintModalState>({
+    visible: false,
+    warehouse: null,
   });
 
   const warehouseTypes = [
@@ -59,21 +71,27 @@ const WarehouseManagement: React.FC = () => {
       });
       setWarehouses(response.data);
       setTotal(response.total);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch warehouses'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch warehouses'),
+      });
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [modal]);
 
   const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch companies'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch companies'),
+      });
     }
-  }, [message]);
+  }, [modal]);
 
   useEffect(() => {
     fetchWarehouses(page);
@@ -92,63 +110,124 @@ const WarehouseManagement: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await apiService.delete(`/warehouses/${id}`);
-      message.success('Warehouse deleted successfully');
-      fetchWarehouses(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to delete warehouse'));
-    }
+  const handleDelete = (record: Warehouse) => {
+    modal.confirm({
+      title: 'Delete Warehouse',
+      content: `Are you sure you want to delete warehouse "${record.warehouseCode}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.delete(`/warehouses/${record.id}`);
+          message.success('Warehouse deleted successfully');
+          fetchWarehouses(page);
+        } catch (error: any) {
+          modal.error({
+            title: 'Delete Failed',
+            content: formatApiError(error, 'Failed to delete warehouse'),
+          });
+        }
+      },
+    });
   };
 
-  const handleActivate = async (id: string) => {
-    try {
-      await apiService.patch(`/warehouses/${id}/activate`);
-      message.success('Warehouse activated successfully');
-      fetchWarehouses(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to activate warehouse'));
-    }
+  const handleActivate = (record: Warehouse) => {
+    modal.confirm({
+      title: 'Activate Warehouse',
+      content: `Are you sure you want to activate warehouse "${record.warehouseCode}"?`,
+      okText: 'Activate',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/warehouses/${record.id}/activate`);
+          message.success('Warehouse activated successfully');
+          fetchWarehouses(page);
+        } catch (error: any) {
+          modal.error({
+            title: 'Activation Failed',
+            content: formatApiError(error, 'Failed to activate warehouse'),
+          });
+        }
+      },
+    });
   };
 
-  const handleDeactivate = async (id: string) => {
-    try {
-      await apiService.patch(`/warehouses/${id}/deactivate`);
-      message.success('Warehouse deactivated successfully');
-      fetchWarehouses(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to deactivate warehouse'));
-    }
+  const handleDeactivate = (record: Warehouse) => {
+    modal.confirm({
+      title: 'Deactivate Warehouse',
+      content: `Are you sure you want to deactivate warehouse "${record.warehouseCode}"?`,
+      okText: 'Deactivate',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/warehouses/${record.id}/deactivate`);
+          message.success('Warehouse deactivated successfully');
+          fetchWarehouses(page);
+        } catch (error: any) {
+          modal.error({
+            title: 'Deactivation Failed',
+            content: formatApiError(error, 'Failed to deactivate warehouse'),
+          });
+        }
+      },
+    });
   };
 
   const handleSubmit = async () => {
-    if (submitting) return;
-    setSubmitting(true);
+    let values: any;
     try {
-      const values = await form.validateFields();
-      if (editingWarehouse) {
-        const { companyId: _co, ...editable } = values;
-        await apiService.patch(`/warehouses/${editingWarehouse.id}`, editable);
-        message.success('Warehouse updated successfully');
-      } else {
-        await apiService.post('/warehouses', values);
-        message.success('Warehouse created successfully');
-      }
-      setModalVisible(false);
-      fetchWarehouses(page);
+      values = await form.validateFields();
     } catch (error: any) {
-      if (error?.errorFields) {
-        message.error('Please complete all required fields.');
-      } else {
-        message.error(formatApiError(error, 'Operation failed'));
-      }
-    } finally {
-      setSubmitting(false);
+      const errorList = error?.errorFields?.flatMap((f: any) => f.errors) || ['Please check required fields'];
+      modal.error({
+        title: 'Validation Failed',
+        content: (
+          <div>
+            <p style={{ marginBottom: 8, fontWeight: 500 }}>Please correct the following errors:</p>
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {errorList.map((msg: string, idx: number) => (
+                <li key={idx} style={{ color: '#ff4d4f' }}>{msg}</li>
+              ))}
+            </ul>
+          </div>
+        ),
+      });
+      return;
     }
+
+    modal.confirm({
+      title: 'Save Confirmation',
+      content: 'Are you sure you want to save these changes?',
+      okText: 'Save',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setSubmitting(true);
+        try {
+          if (editingWarehouse) {
+            const { companyId: _co, ...editable } = values;
+            await apiService.patch(`/warehouses/${editingWarehouse.id}`, editable);
+            message.success('Warehouse updated successfully');
+          } else {
+            await apiService.post('/warehouses', values);
+            message.success('Warehouse created successfully');
+          }
+          setModalVisible(false);
+          fetchWarehouses(page);
+        } catch (error: any) {
+          modal.error({
+            title: 'Save Failed',
+            content: formatApiError(error, 'Operation failed'),
+          });
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
   };
 
-  const columns: ColumnsType<Warehouse> = [
+  const baseColumns: ColumnsType<Warehouse> = [
     {
       title: 'Code',
       dataIndex: 'warehouseCode',
@@ -199,25 +278,26 @@ const WarehouseManagement: React.FC = () => {
       width: 110,
       render: (status: string) => <StatusBadge status={status} />,
     },
+  ];
+
+  const columns: ColumnsType<Warehouse> = [
+    ...baseColumns,
+    ...getAuditColumns<Warehouse>(),
     {
       title: 'Actions',
       key: 'actions',
-      width: 130,
+      width: 170,
       align: 'center',
       render: (_, record) => (
         <TableActions
           onEdit={() => handleEdit(record)}
-          onDelete={() => handleDelete(record.id)}
+          onDelete={() => handleDelete(record)}
           extraActions={[
             <Button key="print" type="text" size="small" icon={<PrinterOutlined />} onClick={() => setPrintModal({ visible: true, warehouse: record })} title="Print Barcode" />,
             record.status === 'ACTIVE' ? (
-              <Popconfirm key="deact" title="Deactivate this warehouse?" onConfirm={() => handleDeactivate(record.id)}>
-                <Button type="text" size="small" danger icon={<CloseCircleOutlined />} title="Deactivate" />
-              </Popconfirm>
+              <Button key="deact" type="text" size="small" danger icon={<CloseCircleOutlined />} onClick={() => handleDeactivate(record)} title="Deactivate" />
             ) : (
-              <Popconfirm key="act" title="Activate this warehouse?" onConfirm={() => handleActivate(record.id)}>
-                <Button type="text" size="small" style={{ color: 'var(--theme-success, #22c55e)' }} icon={<CheckCircleOutlined />} title="Activate" />
-              </Popconfirm>
+              <Button key="act" type="text" size="small" style={{ color: 'var(--theme-success, #22c55e)' }} icon={<CheckCircleOutlined />} onClick={() => handleActivate(record)} title="Activate" />
             )
           ]}
         />
@@ -295,7 +375,11 @@ const WarehouseManagement: React.FC = () => {
           >
             <Input />
           </Form.Item>
-          <Form.Item name="warehouseType" label="Warehouse Type">
+          <Form.Item
+            name="warehouseType"
+            label="Warehouse Type"
+            rules={[{ required: true, message: 'Please select warehouse type' }]}
+          >
             <Select placeholder="Select warehouse type">
               {warehouseTypes.map((type) => (
                 <Select.Option key={type.value} value={type.value}>

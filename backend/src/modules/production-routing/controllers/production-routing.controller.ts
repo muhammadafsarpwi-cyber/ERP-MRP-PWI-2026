@@ -18,7 +18,15 @@ import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { ProductionRoutingService } from '../services/production-routing.service';
-import { CreateRoutingDto, UpdateRoutingDto, UpdateRoutingStatusDto, CreateRoutingOperationDto, UpdateRoutingOperationDto, ReorderRoutingOperationDto } from '../dto';
+import {
+  CreateRoutingDto,
+  UpdateRoutingDto,
+  UpdateRoutingStatusDto,
+  CreateRoutingOperationDto,
+  UpdateRoutingOperationDto,
+  ReorderRoutingOperationDto,
+  CreateRoutingConnectionDto,
+} from '../dto';
 
 @ApiTags('Production Routing')
 @Controller('production/routings')
@@ -97,8 +105,10 @@ export class ProductionRoutingController {
   @ApiOperation({ summary: 'Create a new production routing' })
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() dto: CreateRoutingDto, @Req() req: any) {
-    dto.companyId = this.getCompanyId(req);
-    const routing = await this.routingService.create(dto, req.user?.id);
+    const companyId = this.getCompanyId(req);
+    dto.companyId = companyId;
+    const userId = req.erpUser?.id || req.user?.id;
+    const routing = await this.routingService.create(dto, userId);
     return { data: routing, message: 'Routing created successfully' };
   }
 
@@ -109,7 +119,8 @@ export class ProductionRoutingController {
   @ApiOperation({ summary: 'Update a production routing' })
   async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateRoutingDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const routing = await this.routingService.update(id, dto, companyId, req.user?.id);
+    const userId = req.erpUser?.id || req.user?.id;
+    const routing = await this.routingService.update(id, dto, companyId, userId);
     return { data: routing, message: 'Routing updated successfully' };
   }
 
@@ -120,7 +131,8 @@ export class ProductionRoutingController {
   @ApiOperation({ summary: 'Change routing status' })
   async changeStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateRoutingStatusDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const routing = await this.routingService.changeStatus(id, dto, companyId, req.user?.id);
+    const userId = req.erpUser?.id || req.user?.id;
+    const routing = await this.routingService.changeStatus(id, dto, companyId, userId);
     return { data: routing, message: `Routing status changed to ${dto.status}` };
   }
 
@@ -132,7 +144,8 @@ export class ProductionRoutingController {
   @ApiOperation({ summary: 'Soft-delete a production routing' })
   async remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    await this.routingService.remove(id, companyId, req.user?.id);
+    const userId = req.erpUser?.id || req.user?.id;
+    await this.routingService.remove(id, companyId, userId);
     return { message: 'Routing deleted successfully' };
   }
 
@@ -202,5 +215,61 @@ export class ProductionRoutingController {
     const companyId = this.getCompanyId(req);
     const routing = await this.routingService.duplicateOperation(id, operationId, companyId, req.user?.id);
     return { data: routing, message: 'Operation duplicated successfully' };
+  }
+
+  /* ── Production Routing Graph & Operation Connections (PROMPT #5) ──────── */
+
+  @Get(':id/graph')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing.view')
+  @ApiOperation({ summary: 'Get full production routing process flow graph' })
+  async getRoutingGraph(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const graph = await this.routingService.getRoutingGraph(id, companyId);
+    return { data: graph };
+  }
+
+  @Get(':id/connections')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing.view')
+  @ApiOperation({ summary: 'List explicit operation-to-operation graph connections for a routing' })
+  async getConnections(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const connections = await this.routingService.getConnections(id, companyId);
+    return { data: connections, total: connections.length };
+  }
+
+  @Post(':id/connections')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing.edit')
+  @ApiOperation({ summary: 'Create an explicit operation-to-operation connection (branch, merge, sequential)' })
+  @HttpCode(HttpStatus.CREATED)
+  async createConnection(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateRoutingConnectionDto,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const conn = await this.routingService.createConnection(id, dto, companyId, req.user?.id);
+    return { data: conn, message: 'Routing connection created successfully' };
+  }
+
+  @Delete(':id/connections/:connectionId')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing.edit')
+  @ApiOperation({ summary: 'Delete an explicit routing connection' })
+  @HttpCode(HttpStatus.OK)
+  async deleteConnection(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('connectionId', ParseUUIDPipe) connectionId: string,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    await this.routingService.deleteConnection(id, connectionId, companyId);
+    return { message: 'Routing connection deleted successfully' };
   }
 }

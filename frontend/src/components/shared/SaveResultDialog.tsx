@@ -94,8 +94,23 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
     {phase === 'loading' ? (
       <div className="erp-save-result-loading" data-testid="save-result-loading">
         <Title level={4} className="erp-save-result-title">{loadingTitle}</Title>
-        <div className="erp-save-result-spinner" role="status" aria-live="polite" data-testid="save-result-spinner">
-          <Spin indicator={<LoadingOutlined className="erp-save-result-spinner-icon" />} />
+        <div className="erp-save-result-orbital-wrap" role="status" aria-live="polite" data-testid="save-result-spinner">
+          <svg className="erp-save-result-orbital-svg" viewBox="0 0 120 120">
+            <defs>
+              <linearGradient id="erpOrbitalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#4f46e5" />
+                <stop offset="50%" stopColor="#818cf8" />
+                <stop offset="100%" stopColor="#c7d2fe" stopOpacity="0.2" />
+              </linearGradient>
+            </defs>
+            {/* Inner resting circle and glowing core */}
+            <circle className="erp-orbital-inner-disc" cx="60" cy="60" r="42" />
+            <circle className="erp-orbital-inner-core" cx="60" cy="60" r="16" />
+            {/* Outer perimeter track */}
+            <circle className="erp-orbital-outer-track" cx="60" cy="60" r="52" fill="none" />
+            {/* Rotating orbital arc around the outer circumference */}
+            <circle className="erp-orbital-spinning-arc" cx="60" cy="60" r="52" fill="none" />
+          </svg>
         </div>
         <Text type="secondary" className="erp-save-result-hint">{loadingHint}</Text>
       </div>

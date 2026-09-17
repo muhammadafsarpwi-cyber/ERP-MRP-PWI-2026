@@ -1,0 +1,117 @@
+/* =====================================================================
+   Enterprise 2027 Model — Daily Production Entry Showcase
+   Image 2 Design System: Crystal KPI Cards, Chevron Ribbon & Table Styles
+   ===================================================================== */
+
+/* Enterprise 2027 Model System Badge in Header */
+.entry-model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  color: #6366f1;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+[data-theme='dark'] .entry-model-badge {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #a5b4fc;
+}
+
+/* =====================================================================
+   Crystal KPI Cards (Frosted Glassmorphism with Luminous Sheen)
+   ===================================================================== */
+
+.entry-crystal-kpi-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.72) 100%) !important;
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(226, 232, 240, 0.85) !important;
+  border-radius: 12px !important;
+  box-shadow:
+    0 4px 14px -2px rgba(15, 23, 42, 0.05),
+    0 2px 6px -2px rgba(15, 23, 42, 0.03),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9) !important;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+[data-theme='dark'] .entry-crystal-kpi-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.7) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 8px 24px -4px rgba(0, 0, 0, 0.35),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+.entry-crystal-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 12px 24px -4px rgba(59, 130, 246, 0.12),
+    0 4px 8px -2px rgba(15, 23, 42, 0.05),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 1) !important;
+  border-color: rgba(147, 197, 253, 0.8) !important;
+}
+
+/* =====================================================================
+   Status Filter Ribbon Container
+   ===================================================================== */
+.entry-ribbon-container {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  overflow-x: auto;
+  padding: 2px 2px 10px 2px;
+  margin-bottom: 12px;
+  scrollbar-width: thin;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.08));
+}
+
+.entry-ribbon-container::-webkit-scrollbar {
+  height: 4px;
+}
+
+.entry-ribbon-container::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
+
+/* =====================================================================
+   Unified Filter Strip Toolbar (Image 2 style)
+   ===================================================================== */
+.entry-filter-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid var(--theme-border, #e2e8f0);
+}
+
+.entry-filter-toolbar__right {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--theme-text-muted, #64748b);
+  white-space: nowrap;
+}
+
+.entry-more-filters-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--theme-bg-subtle, #f8fafc);
+  border: 1px dashed var(--theme-border, #cbd5e1);
+  border-radius: 10px;
+}
+
+[data-theme='dark'] .entry-more-filters-panel {
+  background: rgba(15, 23, 42, 0.5);
+  border-color: rgba(255, 255, 255, 0.12);
+}

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card } from 'antd';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
+import { getAuditColumns } from './orgUtils';
 
 interface Company {
   id: string;
@@ -29,10 +30,15 @@ interface Section {
   status: string;
   departments?: any[];
   createdAt: string;
+  updatedAt?: string | null;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
 }
 
 const SectionManagement: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [sections, setSections] = useState<Section[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [divisions, setDivisions] = useState<Division[]>([]);
@@ -53,21 +59,27 @@ const SectionManagement: React.FC = () => {
       const response = await apiService.get<{ data: Section[]; total: number }>('/sections', params);
       setSections(response.data);
       setTotal(response.total);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch sections'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch sections'),
+      });
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId, message]);
+  }, [selectedCompanyId, modal]);
 
   const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch companies'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch companies'),
+      });
     }
-  }, [message]);
+  }, [modal]);
 
   const fetchDivisions = useCallback(async (companyId?: string) => {
     try {
@@ -75,10 +87,13 @@ const SectionManagement: React.FC = () => {
       if (companyId) params.companyId = companyId;
       const response = await apiService.get<{ data: Division[] }>('/divisions', params);
       setDivisions(response.data);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to fetch divisions'));
+    } catch (error: any) {
+      modal.error({
+        title: 'Load Failed',
+        content: formatApiError(error, 'Failed to fetch divisions'),
+      });
     }
-  }, [message]);
+  }, [modal]);
 
   useEffect(() => {
     fetchSections(page);
@@ -105,43 +120,104 @@ const SectionManagement: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await apiService.delete(`/sections/${id}`);
-      message.success('Section deleted successfully');
-      fetchSections(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to delete section'));
-    }
+  const handleDelete = (record: Section) => {
+    modal.confirm({
+      centered: true,
+      title: 'Delete Section',
+      content: `Are you sure you want to delete section "${record.sectionCode}"? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.delete(`/sections/${record.id}`);
+          message.success('Section deleted successfully');
+          fetchSections(page);
+        } catch (error: any) {
+          modal.error({
+            centered: true,
+            title: 'Delete Failed',
+            content: formatApiError(error, 'Failed to delete section'),
+          });
+        }
+      },
+    });
   };
 
-  const handleActivate = async (id: string) => {
-    try {
-      await apiService.patch(`/sections/${id}/activate`);
-      message.success('Section activated successfully');
-      fetchSections(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to activate section'));
-    }
+  const handleActivate = (record: Section) => {
+    modal.confirm({
+      centered: true,
+      title: 'Activate Section',
+      content: `Are you sure you want to activate section "${record.sectionCode}"?`,
+      okText: 'Activate',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/sections/${record.id}/activate`);
+          message.success('Section activated successfully');
+          fetchSections(page);
+        } catch (error: any) {
+          modal.error({
+            centered: true,
+            title: 'Activation Failed',
+            content: formatApiError(error, 'Failed to activate section'),
+          });
+        }
+      },
+    });
   };
 
-  const handleDeactivate = async (id: string) => {
-    try {
-      await apiService.patch(`/sections/${id}/deactivate`);
-      message.success('Section deactivated successfully');
-      fetchSections(page);
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to deactivate section'));
-    }
+  const handleDeactivate = (record: Section) => {
+    modal.confirm({
+      centered: true,
+      title: 'Deactivate Section',
+      content: `Are you sure you want to deactivate section "${record.sectionCode}"?`,
+      okText: 'Deactivate',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/sections/${record.id}/deactivate`);
+          message.success('Section deactivated successfully');
+          fetchSections(page);
+        } catch (error: any) {
+          modal.error({
+            centered: true,
+            title: 'Deactivation Failed',
+            content: formatApiError(error, 'Failed to deactivate section'),
+          });
+        }
+      },
+    });
   };
 
   const handleSubmit = async () => {
-    if (submitting) return;
+    let values: any;
+    try {
+      values = await form.validateFields();
+    } catch (error: any) {
+      const errorList = error?.errorFields?.flatMap((f: any) => f.errors) || ['Please check required fields'];
+      modal.error({
+        centered: true,
+        title: 'Validation Failed',
+        content: (
+          <div>
+            <p style={{ marginBottom: 8, fontWeight: 500 }}>Please correct the following errors:</p>
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {errorList.map((msg: string, idx: number) => (
+                <li key={idx} style={{ color: '#ff4d4f' }}>{msg}</li>
+              ))}
+            </ul>
+          </div>
+        ),
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const values = await form.validateFields();
       if (editingSection) {
-        const { sectionCode: _sc, companyId: _co, ...editable } = values;
+        const { sectionCode: _sc, ...editable } = values;
         await apiService.patch(`/sections/${editingSection.id}`, editable);
         message.success('Section updated successfully');
       } else {
@@ -151,17 +227,17 @@ const SectionManagement: React.FC = () => {
       setModalVisible(false);
       fetchSections(page);
     } catch (error: any) {
-      if (error?.errorFields) {
-        message.error('Please complete all required fields.');
-      } else {
-        message.error(formatApiError(error, 'Operation failed'));
-      }
+      modal.error({
+        centered: true,
+        title: 'Save Failed',
+        content: formatApiError(error, 'Operation failed'),
+      });
     } finally {
       setSubmitting(false);
     }
   };
 
-  const columns: ColumnsType<Section> = [
+  const baseColumns: ColumnsType<Section> = [
     {
       title: 'Code',
       dataIndex: 'sectionCode',
@@ -202,24 +278,23 @@ const SectionManagement: React.FC = () => {
         <Tag color={status === 'ACTIVE' ? 'green' : 'red'}>{status}</Tag>
       ),
     },
+  ];
+
+  const columns: ColumnsType<Section> = [
+    ...baseColumns,
+    ...getAuditColumns<Section>(),
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} title="Edit Section" />
           {record.status === 'ACTIVE' ? (
-            <Popconfirm title="Deactivate this section?" onConfirm={() => handleDeactivate(record.id)}>
-              <Button type="link" danger icon={<CloseCircleOutlined />} />
-            </Popconfirm>
+            <Button type="link" danger icon={<CloseCircleOutlined />} onClick={() => handleDeactivate(record)} title="Deactivate Section" />
           ) : (
-            <Popconfirm title="Activate this section?" onConfirm={() => handleActivate(record.id)}>
-              <Button type="link" icon={<CheckCircleOutlined />} />
-            </Popconfirm>
+            <Button type="link" icon={<CheckCircleOutlined />} onClick={() => handleActivate(record)} title="Activate Section" />
           )}
-          <Popconfirm title="Delete this section?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} title="Delete Section" />
         </Space>
       ),
     },

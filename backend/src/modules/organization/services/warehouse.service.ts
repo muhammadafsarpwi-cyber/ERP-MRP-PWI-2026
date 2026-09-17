@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, DataSource } from 'typeorm';
 import { Warehouse, WarehouseStatus } from '../entities';
 import { CreateWarehouseDto, UpdateWarehouseDto } from '../dto';
 import { BarcodeService } from '../../barcode/services/barcode.service';
 import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
+import { populateAuditNames } from '../helpers/audit-names';
 
 @Injectable()
 export class WarehouseService {
@@ -12,6 +13,8 @@ export class WarehouseService {
     @InjectRepository(Warehouse)
     private readonly warehouseRepository: Repository<Warehouse>,
     private readonly barcodeService: BarcodeService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
   private readonly logger = new Logger(WarehouseService.name);
 
@@ -102,6 +105,7 @@ export class WarehouseService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await populateAuditNames(this.dataSource, data);
 
     return { data, total };
   }
@@ -116,6 +120,7 @@ export class WarehouseService {
       throw new NotFoundException(`Warehouse with ID '${id}' not found`);
     }
 
+    await populateAuditNames(this.dataSource, [warehouse]);
     return warehouse;
   }
 
@@ -181,6 +186,15 @@ export class WarehouseService {
       throw new BadRequestException('Cannot delete warehouse with existing locations');
     }
 
-    await this.warehouseRepository.remove(warehouse);
+    try {
+      await this.warehouseRepository.remove(warehouse);
+    } catch (error: any) {
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete warehouse because it is referenced by existing locations, store requests, or inventory. Please deactivate it instead.',
+        );
+      }
+      throw error;
+    }
   }
 }

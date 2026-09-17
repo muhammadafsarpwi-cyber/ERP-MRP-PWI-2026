@@ -5,8 +5,8 @@ import {
 } from 'antd';
 import {
   CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
-  InboxOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, SendOutlined,
-  WarningOutlined, WhatsAppOutlined,
+  EyeInvisibleOutlined, ArrowRightOutlined, InboxOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined,
+  SaveOutlined, SendOutlined, WarningOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -240,6 +240,9 @@ const RawMaterialReceiving: React.FC = () => {
   const [saveDialogSuccessTitle, setSaveDialogSuccessTitle] = useState<string>('Receipt Confirmed Successfully');
   const [saveDialogRetry, setSaveDialogRetry] = useState<(() => void) | undefined>(undefined);
 
+  // Toggle state to hide/show the Live Verification Panel on the right
+  const [showLivePreview, setShowLivePreview] = useState<boolean>(true);
+
   // Queued restore: the draft is only applied once the reference data is present.
   const [queuedRestore, setQueuedRestore] = useState<ReceiptDraft | null>(null);
 
@@ -293,14 +296,14 @@ const RawMaterialReceiving: React.FC = () => {
 
   const sectionOptions = useMemo(
     () => (refData?.sections || [])
-      .filter((s) => !s.divisionId || s.divisionId === watchDivision)
+      .filter((s) => !watchDivision || !s.divisionId || s.divisionId === watchDivision)
       .map((s) => ({ value: s.id, label: s.sectionCode ? `${s.sectionCode} — ${s.name}` : s.name })),
     [refData?.sections, watchDivision],
   );
 
   const departmentOptions = useMemo(
-    () => (watchDivision && watchSection ? (refData?.departments || [])
-      .filter((d) => (!d.divisionId || d.divisionId === watchDivision) && (!d.sectionId || d.sectionId === watchSection))
+    () => (watchSection ? (refData?.departments || [])
+      .filter((d) => d.sectionId === watchSection && (!watchDivision || !d.divisionId || d.divisionId === watchDivision))
       .map((d) => ({ value: d.id, label: d.departmentCode ? `${d.departmentCode} — ${d.name}` : d.name }))
       : []),
     [refData?.departments, watchDivision, watchSection],
@@ -398,7 +401,7 @@ const RawMaterialReceiving: React.FC = () => {
     }
 
     const deptOptions = (refData.departments || []).filter(
-      (d) => (!d.divisionId || d.divisionId === watchDivision) && (!d.sectionId || d.sectionId === secId),
+      (d) => d.sectionId === secId && (!d.divisionId || d.divisionId === watchDivision),
     );
     const curDept = form.getFieldValue('departmentId');
     let nextDept = curDept && deptOptions.some((d) => d.id === curDept) ? curDept : undefined;
@@ -734,15 +737,44 @@ const RawMaterialReceiving: React.FC = () => {
   }, [commitDraft, editingId]);
 
   const handleDivisionChange = useCallback((value: string | undefined) => {
+    form.setFieldValue('divisionId', value);
     form.setFieldValue('sectionId', undefined);
     form.setFieldValue('departmentId', undefined);
+    if (value && refData?.sections) {
+      const matchingSecs = refData.sections.filter((s) => !s.divisionId || s.divisionId === value);
+      if (matchingSecs.length === 1) {
+        const singleSecId = matchingSecs[0].id;
+        form.setFieldValue('sectionId', singleSecId);
+        if (refData?.departments) {
+          const matchingDepts = refData.departments.filter(
+            (d) => d.sectionId === singleSecId && (!d.divisionId || d.divisionId === value),
+          );
+          if (matchingDepts.length === 1) {
+            form.setFieldValue('departmentId', matchingDepts[0].id);
+          }
+        }
+      }
+    }
     commitDraft(editingId);
-  }, [form, commitDraft, editingId]);
+  }, [form, commitDraft, editingId, refData?.sections, refData?.departments]);
 
   const handleSectionChange = useCallback((value: string | undefined) => {
-    form.setFieldValue('departmentId', undefined);
+    form.setFieldValue('sectionId', value);
+    if (value && refData?.departments) {
+      const curDiv = form.getFieldValue('divisionId');
+      const matchingDepts = refData.departments.filter(
+        (d) => d.sectionId === value && (!curDiv || !d.divisionId || d.divisionId === curDiv),
+      );
+      if (matchingDepts.length === 1) {
+        form.setFieldValue('departmentId', matchingDepts[0].id);
+      } else {
+        form.setFieldValue('departmentId', undefined);
+      }
+    } else {
+      form.setFieldValue('departmentId', undefined);
+    }
     commitDraft(editingId);
-  }, [form, commitDraft, editingId]);
+  }, [form, commitDraft, editingId, refData?.departments]);
 
   const onItemSelect = useCallback((rowKey: string, itemId: string | undefined) => {
     const item = refData?.items.find((i) => i.id === itemId);
@@ -1414,18 +1446,40 @@ const RawMaterialReceiving: React.FC = () => {
         open={modalOpen}
         onCancel={closeModalWithoutSave}
         onMinimize={minimizeModal}
-        width={1180}
-        height={760}
-        minWidth={640}
-        minHeight={520}
+        width={1240}
+        height={780}
+        minWidth={680}
+        minHeight={540}
         footer={null}
         destroyOnHidden
         maskClosable={false}
         keyboard={false}
+        wrapClassName="raw-material-modal-wrap"
+        extra={
+          <Tooltip title={showLivePreview ? 'Hide Live Verification (Preview)' : 'Show Live Verification (Preview)'}>
+            <Button
+              type={showLivePreview ? 'default' : 'dashed'}
+              size="small"
+              icon={showLivePreview ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+              onClick={() => setShowLivePreview((prev) => !prev)}
+              data-testid="toggle-live-preview-btn"
+              style={{
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                borderColor: showLivePreview ? 'var(--theme-primary, #4f46e5)' : undefined,
+                color: showLivePreview ? 'var(--theme-primary, #4f46e5)' : undefined,
+                background: showLivePreview ? 'rgba(79, 70, 229, 0.08)' : undefined,
+              }}
+            >
+              {showLivePreview ? 'Live Preview' : 'Preview Off'}
+            </Button>
+          </Tooltip>
+        }
       >
         <div className="raw-material-modal-split-container">
-          {/* Left Column: Form Controls */}
-          <div className="raw-material-modal-form-col">
+          {/* Left Column: Form Controls (Dedicated independent scrollbar) */}
+          <div className={`raw-material-modal-form-col ${!showLivePreview ? 'raw-material-modal-form-col--full' : ''}`}>
             <Form form={form} layout="vertical" onFinish={onFinish} onValuesChange={() => commitDraft(editingId)}>
               <Card size="small" title="SECTION 1 · Organization & Warehouse" className="erp-section-card-inner" style={{ marginBottom: 12 }}>
                 <Row gutter={12}>
@@ -1452,7 +1506,7 @@ const RawMaterialReceiving: React.FC = () => {
                       <Select showSearch optionFilterProp="label" placeholder={watchSection ? 'Select Department' : 'Select Section first'} disabled={!watchSection}
                         loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
                         options={departmentOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
-                        notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No departments'} />
+                        notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No departments in this section'} />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={8}>
@@ -1507,7 +1561,15 @@ const RawMaterialReceiving: React.FC = () => {
                     <Text strong>Received Total:</Text> <Text style={{ color: 'var(--theme-success, #52c41a)' }}>{formatNumber(totals.receivedTotal, 2)}</Text>
                   </Col>
                   <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
-                    <Text strong>Difference:</Text> <Text style={{ color: totals.differenceTotal !== 0 ? 'var(--theme-warning, #d48806)' : undefined }}>{formatNumber(totals.differenceTotal, 2)}</Text>
+                    <Text strong>Difference:</Text>{' '}
+                    <Text
+                      style={{
+                        fontWeight: totals.differenceTotal !== 0 ? 700 : undefined,
+                        color: totals.differenceTotal < 0 ? '#dc2626' : totals.differenceTotal > 0 ? 'var(--theme-warning, #d48806)' : undefined,
+                      }}
+                    >
+                      {formatNumber(totals.differenceTotal, 2)}
+                    </Text>
                   </Col>
                 </Row>
               </Card>
@@ -1673,142 +1735,199 @@ const RawMaterialReceiving: React.FC = () => {
             </Form>
           </div>
 
-          {/* Right Column: Live Verification Card */}
-          <div className="raw-material-modal-preview-col">
-            <div className="raw-material-live-preview-card">
-              <div className="rm-preview-header-badge">
-                <span className="rm-minimized-window-pulse" style={{ width: 6, height: 6 }} />
-                LIVE VERIFICATION (2027)
-              </div>
-              <div className="rm-preview-doc-title">
-                {isEditing ? 'Updating Receipt' : 'New Raw Material Receipt'}
-              </div>
-              <div className="rm-preview-doc-subtitle">
-                Receipt Code: <Text strong style={{ color: 'var(--theme-primary, #4f46e5)' }}>{isEditing ? (list.find((x) => x.id === editingId)?.receiptCode || 'Editing') : 'Auto-Assigned on Confirm'}</Text>
-              </div>
+          {/* Right Column: Live Verification Card (Pinned & Always Visible, Toggleable via Eye Icon) */}
+          {showLivePreview && (
+            <div className="raw-material-modal-preview-col">
+              <div className="raw-material-live-preview-card">
+                <div className="rm-preview-header-badge">
+                  <span className="rm-minimized-window-pulse" style={{ width: 6, height: 6 }} />
+                  LIVE VERIFICATION (2027)
+                </div>
+                <div className="rm-preview-doc-title">
+                  {isEditing ? 'Updating Receipt' : 'New Raw Material Receipt'}
+                </div>
+                <div className="rm-preview-doc-subtitle">
+                  Receipt Code: <Text strong style={{ color: 'var(--theme-primary, #4f46e5)' }}>{isEditing ? (list.find((x) => x.id === editingId)?.receiptCode || 'Editing') : 'Auto-Assigned on Confirm'}</Text>
+                </div>
 
-              <div className="rm-preview-meta-grid">
-                <div className="rm-preview-meta-row">
-                  <span className="rm-preview-meta-label">Division</span>
-                  <span className="rm-preview-meta-value" title={refData?.divisions.find((d) => d.id === watchDivision)?.name}>
-                    {refData?.divisions.find((d) => d.id === watchDivision)?.name || <Text type="secondary">Not Selected</Text>}
-                  </span>
-                </div>
-                <div className="rm-preview-meta-row">
-                  <span className="rm-preview-meta-label">Section</span>
-                  <span className="rm-preview-meta-value" title={(refData?.sections || []).find((s) => s.id === watchSection)?.name}>
-                    {(refData?.sections || []).find((s) => s.id === watchSection)?.name || <Text type="secondary">Not Selected</Text>}
-                  </span>
-                </div>
-                <div className="rm-preview-meta-row">
-                  <span className="rm-preview-meta-label">Department</span>
-                  <span className="rm-preview-meta-value" title={(refData?.departments || []).find((dp) => dp.id === watchDepartment)?.name}>
-                    {(refData?.departments || []).find((dp) => dp.id === watchDepartment)?.name || <Text type="secondary">Not Selected</Text>}
-                  </span>
-                </div>
-                <div className="rm-preview-meta-row">
-                  <span className="rm-preview-meta-label">Warehouse</span>
-                  <span className="rm-preview-meta-value" title={refData?.warehouses.find((w) => w.id === watchWarehouse)?.name}>
-                    {refData?.warehouses.find((w) => w.id === watchWarehouse)?.name || <Text type="secondary">Not Selected</Text>}
-                  </span>
-                </div>
-                <div className="rm-preview-meta-row">
-                  <span className="rm-preview-meta-label">Gate Pass No</span>
-                  <span className="rm-preview-meta-value">{watchGatePassNo || <Text type="secondary">-</Text>}</span>
-                </div>
-                <div className="rm-preview-meta-row">
-                  <span className="rm-preview-meta-label">Receipt Date</span>
-                  <span className="rm-preview-meta-value">{watchReceiptDate ? watchReceiptDate.format('DD-MMM-YYYY') : dayjs().format('DD-MMM-YYYY')}</span>
-                </div>
-                {watchSourceNo && (
+                <div className="rm-preview-meta-grid">
                   <div className="rm-preview-meta-row">
-                    <span className="rm-preview-meta-label">Source / DC No</span>
-                    <span className="rm-preview-meta-value">{watchSourceNo}</span>
+                    <span className="rm-preview-meta-label">Division</span>
+                    <span className="rm-preview-meta-value" title={refData?.divisions.find((d) => d.id === watchDivision)?.name}>
+                      {refData?.divisions.find((d) => d.id === watchDivision)?.name || <Text type="secondary">Not Selected</Text>}
+                    </span>
                   </div>
-                )}
-              </div>
+                  <div className="rm-preview-meta-row">
+                    <span className="rm-preview-meta-label">Section</span>
+                    <span className="rm-preview-meta-value" title={(refData?.sections || []).find((s) => s.id === watchSection)?.name}>
+                      {(refData?.sections || []).find((s) => s.id === watchSection)?.name || <Text type="secondary">Not Selected</Text>}
+                    </span>
+                  </div>
+                  <div className="rm-preview-meta-row">
+                    <span className="rm-preview-meta-label">Department</span>
+                    <span className="rm-preview-meta-value" title={(refData?.departments || []).find((dp) => dp.id === watchDepartment)?.name}>
+                      {(refData?.departments || []).find((dp) => dp.id === watchDepartment)?.name || <Text type="secondary">Not Selected</Text>}
+                    </span>
+                  </div>
+                  <div className="rm-preview-meta-row">
+                    <span className="rm-preview-meta-label">Warehouse</span>
+                    <span className="rm-preview-meta-value" title={refData?.warehouses.find((w) => w.id === watchWarehouse)?.name}>
+                      {refData?.warehouses.find((w) => w.id === watchWarehouse)?.name || <Text type="secondary">Not Selected</Text>}
+                    </span>
+                  </div>
+                  <div className="rm-preview-meta-row">
+                    <span className="rm-preview-meta-label">Gate Pass No</span>
+                    <span className="rm-preview-meta-value">{watchGatePassNo || <Text type="secondary">-</Text>}</span>
+                  </div>
+                  <div className="rm-preview-meta-row">
+                    <span className="rm-preview-meta-label">Receipt Date</span>
+                    <span className="rm-preview-meta-value">{watchReceiptDate ? watchReceiptDate.format('DD-MMM-YYYY') : dayjs().format('DD-MMM-YYYY')}</span>
+                  </div>
+                  {watchSourceNo && (
+                    <div className="rm-preview-meta-row">
+                      <span className="rm-preview-meta-label">Source / DC No</span>
+                      <span className="rm-preview-meta-value">{watchSourceNo}</span>
+                    </div>
+                  )}
+                </div>
 
-              <div className="rm-preview-kpi-grid">
-                <div className="rm-preview-kpi-card">
-                  <div className="rm-preview-kpi-num">{rows.filter((r) => r.itemId).length}</div>
-                  <div className="rm-preview-kpi-label">Active Lines</div>
-                </div>
-                <div className="rm-preview-kpi-card">
-                  <div className="rm-preview-kpi-num" style={{ color: '#0284c7' }}>{formatNumber(totals.gatePassTotal, 2)}</div>
-                  <div className="rm-preview-kpi-label">Gate Pass Total</div>
-                </div>
-                <div className="rm-preview-kpi-card" style={{ borderColor: 'rgba(34, 197, 94, 0.4)' }}>
-                  <div className="rm-preview-kpi-num" style={{ color: '#16a34a' }}>{formatNumber(totals.receivedTotal, 2)}</div>
-                  <div className="rm-preview-kpi-label">Received Total</div>
-                </div>
-                <div className="rm-preview-kpi-card" style={{ borderColor: totals.differenceTotal !== 0 ? 'rgba(234, 88, 12, 0.4)' : undefined }}>
-                  <div className="rm-preview-kpi-num" style={{ color: totals.differenceTotal !== 0 ? '#ea580c' : '#64748b' }}>
-                    {formatNumber(totals.differenceTotal, 2)}
+                {/* 4 KPI Summary Cards in 1 sleek compact horizontal line */}
+                <div className="rm-preview-kpi-grid">
+                  <div className="rm-preview-kpi-card">
+                    <div className="rm-preview-kpi-val">{rows.filter((r) => r.itemId).length}</div>
+                    <div className="rm-preview-kpi-label">Lines</div>
                   </div>
-                  <div className="rm-preview-kpi-label">
-                    Net Diff {totals.differenceTotal === 0 ? (
-                      <Tag color="success" style={{ margin: 0, fontSize: 10, lineHeight: '14px', padding: '0 4px' }}>MATCH</Tag>
-                    ) : totals.differenceTotal > 0 ? (
-                      <Tag color="warning" style={{ margin: 0, fontSize: 10, lineHeight: '14px', padding: '0 4px' }}>SHORT</Tag>
-                    ) : (
-                      <Tag color="error" style={{ margin: 0, fontSize: 10, lineHeight: '14px', padding: '0 4px' }}>SURPLUS</Tag>
-                    )}
+                  <div className="rm-preview-kpi-card">
+                    <div className="rm-preview-kpi-val" style={{ color: '#0284c7' }}>{formatNumber(totals.gatePassTotal, 2)}</div>
+                    <div className="rm-preview-kpi-label">GP Total</div>
+                  </div>
+                  <div className="rm-preview-kpi-card" style={{ borderColor: 'rgba(34, 197, 94, 0.4)' }}>
+                    <div className="rm-preview-kpi-val" style={{ color: '#16a34a' }}>{formatNumber(totals.receivedTotal, 2)}</div>
+                    <div className="rm-preview-kpi-label">Recv Total</div>
+                  </div>
+                  <div
+                    className={`rm-preview-kpi-card ${
+                      totals.differenceTotal < 0
+                        ? 'rm-preview-kpi-card--negative'
+                        : totals.differenceTotal > 0
+                        ? 'rm-preview-kpi-card--short'
+                        : 'rm-preview-kpi-card--match'
+                    }`}
+                    style={{
+                      borderColor: totals.differenceTotal < 0 ? '#ef4444' : totals.differenceTotal > 0 ? '#f59e0b' : 'rgba(34, 197, 94, 0.4)',
+                      background: totals.differenceTotal < 0 ? 'rgba(239, 68, 68, 0.08)' : totals.differenceTotal > 0 ? 'rgba(245, 158, 11, 0.08)' : undefined,
+                    }}
+                  >
+                    <div
+                      className="rm-preview-kpi-val"
+                      style={{
+                        color: totals.differenceTotal < 0 ? '#dc2626' : totals.differenceTotal > 0 ? '#d97706' : '#16a34a',
+                        fontWeight: 800,
+                      }}
+                    >
+                      {formatNumber(totals.differenceTotal, 2)}
+                    </div>
+                    <div className="rm-preview-kpi-label">
+                      Net Diff{' '}
+                      {totals.differenceTotal === 0 ? (
+                        <Tag color="success" style={{ margin: 0, fontSize: 9, lineHeight: '14px', padding: '0 3px', fontWeight: 700 }}>MATCH</Tag>
+                      ) : totals.differenceTotal > 0 ? (
+                        <Tag color="warning" style={{ margin: 0, fontSize: 9, lineHeight: '14px', padding: '0 3px', fontWeight: 700 }}>SHORT</Tag>
+                      ) : (
+                        <Tag color="error" style={{ margin: 0, fontSize: 9, lineHeight: '14px', padding: '0 3px', fontWeight: 800, background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}>
+                          SURPLUS
+                        </Tag>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div style={{ fontWeight: 600, fontSize: 12, color: '#475569', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
-                <span>Material Lines Verification</span>
-                <span style={{ fontSize: 11, color: '#64748b' }}>{filteredItems.length} items in division</span>
-              </div>
+                <div style={{ fontWeight: 600, fontSize: 12, color: '#475569', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Material Lines Verification</span>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>{filteredItems.length} items in division</span>
+                </div>
 
-              <div className="rm-preview-lines-container">
-                {rows.filter((r) => r.itemId).length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#94a3b8', fontSize: 12 }}>
-                    Select raw materials on the left to verify lines in real-time.
-                  </div>
-                ) : (
-                  rows.filter((r) => r.itemId).map((r, idx) => {
-                    const item = refData?.items.find((i) => i.id === r.itemId);
-                    const uom = refData?.uoms.find((u) => u.id === r.uomId);
-                    const diff = Number(r.gatePassQuantity || 0) - Number(r.receivedQuantity || 0);
-                    return (
-                      <div key={r.key || idx} className="rm-preview-line-row">
-                        <div className="rm-preview-line-header">
-                          <span className="rm-preview-line-title">
-                            #{idx + 1} {item?.itemCode || ''} — {item?.name || 'Unknown Item'}
-                          </span>
-                          <span className="rm-preview-line-badge">
-                            {diff === 0 ? (
-                              <Tag color="green" style={{ margin: 0, fontSize: 11 }}>Matched</Tag>
-                            ) : diff > 0 ? (
-                              <Tag color="orange" style={{ margin: 0, fontSize: 11 }}>Diff: {formatNumber(diff, 2)}</Tag>
-                            ) : (
-                              <Tag color="volcano" style={{ margin: 0, fontSize: 11 }}>Excess: {formatNumber(Math.abs(diff), 2)}</Tag>
-                            )}
-                          </span>
+                {/* 2027 Professional Material Line Cards */}
+                <div className="rm-preview-lines-container">
+                  {rows.filter((r) => r.itemId).length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '24px 0', color: '#94a3b8', fontSize: 12 }}>
+                      Select raw materials on the left to verify lines in real-time.
+                    </div>
+                  ) : (
+                    rows.filter((r) => r.itemId).map((r, idx) => {
+                      const item = refData?.items.find((i) => i.id === r.itemId);
+                      const uom = refData?.uoms.find((u) => u.id === r.uomId);
+                      const diff = Number(r.gatePassQuantity || 0) - Number(r.receivedQuantity || 0);
+                      const isExcess = diff < 0;
+                      const isShort = diff > 0;
+                      const isMatched = diff === 0;
+
+                      const loading = !!invPreviewLoading[(r.itemId as string) || ''];
+                      const err = invPreviewError[(r.itemId as string) || ''];
+                      const cur = invCurrentOnHand(r.itemId);
+                      const after = invAfterReceipt(r);
+                      const uomLabel = uom?.code || uom?.symbol || '';
+
+                      return (
+                        <div
+                          key={r.key || idx}
+                          className={`rm-preview-line-card ${isExcess ? 'rm-preview-line-card--excess' : isShort ? 'rm-preview-line-card--short' : ''}`}
+                        >
+                          <div className="rm-preview-line-top">
+                            <div className="rm-preview-line-title-wrap">
+                              <span className="rm-preview-line-idx">#{String(idx + 1).padStart(2, '0')}</span>
+                              <span className="rm-preview-line-code">{item?.itemCode || 'RM'}</span>
+                              <span className="rm-preview-line-name" title={item?.name}>{item?.name || 'Unknown Item'}</span>
+                            </div>
+                            <div className="rm-preview-line-badge-wrap">
+                              {isMatched && (
+                                <Tag color="success" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>Matched</Tag>
+                              )}
+                              {isShort && (
+                                <Tag color="warning" style={{ margin: 0, fontSize: 11, fontWeight: 600 }}>Short: -{formatNumber(diff, 2)}</Tag>
+                              )}
+                              {isExcess && (
+                                <Tag color="error" style={{ margin: 0, fontSize: 11, fontWeight: 700, background: '#ef4444', color: '#ffffff', borderColor: '#dc2626' }}>
+                                  Excess: +{formatNumber(Math.abs(diff), 2)}
+                                </Tag>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="rm-preview-line-metrics">
+                            <div className="rm-preview-metric-pill">
+                              <span className="rm-preview-metric-label">GP:</span>
+                              <span className="rm-preview-metric-val">{formatNumber(r.gatePassQuantity, 2)}</span>
+                            </div>
+                            <div className="rm-preview-metric-pill">
+                              <span className="rm-preview-metric-label">Recv:</span>
+                              <span className="rm-preview-metric-val" style={{ color: '#16a34a', fontWeight: 700 }}>
+                                {formatNumber(r.receivedQuantity, 2)} {uomLabel}
+                              </span>
+                            </div>
+                            <div className="rm-preview-metric-pill rm-preview-metric-pill--proj">
+                              <span className="rm-preview-metric-label">Inv:</span>
+                              {loading ? (
+                                <span className="rm-preview-metric-val" style={{ color: '#64748b' }}>loading…</span>
+                              ) : err ? (
+                                <span className="rm-preview-metric-val" style={{ color: '#dc2626' }}>error</span>
+                              ) : cur !== null ? (
+                                <span className="rm-preview-metric-val">
+                                  {formatNumber(cur, 2)} <ArrowRightOutlined style={{ fontSize: 10, color: '#10b981', margin: '0 2px' }} /> {after !== null ? formatNumber(after, 2) : '—'} {uomLabel}
+                                </span>
+                              ) : (
+                                <span className="rm-preview-metric-val">—</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="rm-preview-line-meta">
-                          <span>GP: <strong style={{ color: '#0f172a' }}>{formatNumber(r.gatePassQuantity, 2)}</strong></span>
-                          <span>Recv: <strong style={{ color: '#16a34a' }}>{formatNumber(r.receivedQuantity, 2)}</strong> {uom?.code || uom?.symbol || ''}</span>
-                          {(() => {
-                            const loading = !!invPreviewLoading[(r.itemId as string) || ''];
-                            const err = invPreviewError[(r.itemId as string) || ''];
-                            if (loading) return <span className="rm-preview-inv-line">Inv: loading…</span>;
-                            if (err) return <span className="rm-preview-inv-line" style={{ color: '#dc2626' }}>Inv: unavailable</span>;
-                            const cur = invCurrentOnHand(r.itemId);
-                            if (cur === null) return null;
-                            const after = invAfterReceipt(r);
-                            return <span className="rm-preview-inv-line">Inv: {formatNumber(cur, 2)} → {after !== null ? formatNumber(after, 2) : '—'} {uom?.code || uom?.symbol || ''}</span>;
-                          })()}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </DraggableResizableModal>
 

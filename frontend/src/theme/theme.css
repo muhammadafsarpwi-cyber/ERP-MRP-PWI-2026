@@ -564,8 +564,13 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
   transition: color 0.25s ease;
 }
 
-[data-theme='dark'] .pwi-marquee-item {
-  color: var(--theme-accent, #818cf8);
+.pwi-marquee-item img {
+  filter: brightness(0);
+  transition: filter 0.2s ease;
+}
+
+[data-theme='dark'] .pwi-marquee-item img {
+  filter: brightness(0);
 }
 
 .pwi-marquee-dot {

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CompanyService } from './company.service';
 import { Company, CompanyStatus } from '../entities';
 import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -61,6 +61,12 @@ describe('CompanyService', () => {
         {
           provide: getRepositoryToken(Company),
           useValue: mockRepository,
+        },
+        {
+          provide: DataSource,
+          useValue: {
+            query: jest.fn().mockResolvedValue([]),
+          },
         },
       ],
     }).compile();

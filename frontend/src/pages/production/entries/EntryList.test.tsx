@@ -4,11 +4,24 @@ import '@testing-library/jest-dom';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from 'antd';
 import EntryList, { getEntryStatus, ProductionEntryRow } from './EntryList';
+import { useHeaderActions } from '../../../components/layout/headerActionsStore';
+
+const TestLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const extra = useHeaderActions((s) => s.extra);
+  const title = useHeaderActions((s) => s.title);
+  return (
+    <div>
+      <h1 data-testid="page-title">{title}</h1>
+      <div data-testid="header-actions">{extra}</div>
+      {children}
+    </div>
+  );
+};
 
 beforeAll(() => {
   window.matchMedia = (query: string) =>
     ({
-      matches: false,
+      matches: true,
       media: query,
       onchange: null,
       addListener: () => {},
@@ -163,7 +176,9 @@ describe('Daily Production Entry — EntryList Component', () => {
       render(
         <App>
           <BrowserRouter>
-            <EntryList />
+            <TestLayout>
+              <EntryList />
+            </TestLayout>
           </BrowserRouter>
         </App>,
       );

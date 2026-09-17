@@ -1,0 +1,169 @@
+FAIL src/pages/organization/DepartmentManagement.test.tsx (12.603 s)
+  DepartmentManagement (ORG-FIX-01)
+    × sends the selected sectionId on edit and strips companyId from the PATCH payload (9030 ms)
+    ○ skipped renders the department list with audit columns
+    ○ skipped shows the Save Confirmation popup before saving and can be cancelled
+    ○ skipped does not show false success when the saved sectionId does not match the selected one
+    ○ skipped shows a validation popup when a Section is selected without a Division
+    ○ skipped calls DELETE after delete confirmation
+    ○ skipped calls deactivate endpoint after confirmation
+    ○ skipped calls activate endpoint when the department is inactive
+    ○ skipped creates a department with the selected company, division and section
+
+  ● DepartmentManagement (ORG-FIX-01) › sends the selected sectionId on edit and strips companyId from the PATCH payload
+
+    Unable to find an element with the title: SB - Stranding Section.
+
+    Ignored nodes: comments, script, style
+    [36m<body>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"css-dev-only-do-not-override-mncuj7 ant-app"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-head"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-card-head-wrapper"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-head-title"[39m
+                [36m>[39m
+                  [0mDepartment Management[0m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-card-extra"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-primary ant-btn-color-primary ant-btn-variant-solid"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span>[39m
+                          [0mTable View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-space-item"[39m
+                    [36m>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"ant-btn css-dev-only-do-not-override-mncuj7 ant-btn-default ant-btn-color-default ant-btn-variant-outlined"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-btn-icon"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33maria-label[39m=[32m"apartment"[39m
+                            [33mclass[39m=[32m"anticon anticon-apartment"[39m
+                            [33mrole[39m=[32m"img"[39m
+                          [36m>[39m
+                            [36m<svg[39m
+                              [33maria-hidden[39m=[32m"true"[39m
+                              [33mdata-icon[39m=[32m"apartment"[39m
+                              [33mfill[39m=[32m"currentColor"[39m
+                              [33mfocusable[39m=[32m"false"[39m
+                              [33mheight[39m=[32m"1em"[39m
+                              [33mviewBox[39m=[32m"64 64 896 896"[39m
+                              [33mwidth[39m=[32m"1em"[39m
+                            [36m>[39m
+                              [36m<path[39m
+                                [33md[39m=[32m"M908 640H804V488c0-4.4-3.6-8-8-8H548v-96h108c8.8 0 16-7.2 16-16V80c0-8.8-7.2-16-16-16H368c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h108v96H228c-4.4 0-8 3.6-8 8v152H116c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16H292v-88h440v88H620c-8.8 0-16 7.2-16 16v288c0 8.8 7.2 16 16 16h288c8.8 0 16-7.2 16-16V656c0-8.8-7.2-16-16-16zm-564 76v168H176V716h168zm84-408V140h168v168H428zm420 576H680V716h168v168z"[39m
+                              [36m/>[39m
+                            [36m</svg>[39m
+                          [36m</span>[39m
+                        [36m</span>[39m
+                        [36m<span>[39m
+                          [0mTree View[0m
+                        [36m</span>[39m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"ant-card-body"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-space css-dev-only-do-not-override-mncuj7 ant-space-horizontal ant-space-align-center ant-space-gap-row-small ant-space-gap-col-small"[39m
+                [33mstyle[39m=[32m"flex-wrap: wrap; margin-bottom: 16px;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-space-item"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-select ant-select-outlined css-dev-only-do-not-override-mncuj7 ant-select-single ant-select-allow-clear ant-select-show-arrow"[39m
+                    [33mstyle[39m=[32m"width: 200px;"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-select-selector"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33mclass[39m=[32m"ant-select-selection-wrap"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-search"[39m
+                        [36m>[39m
+                          [36m<input[39m
+                            [33maria-autocomplete[39m=[32m"list"[39m
+                            [33maria-controls[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33maria-expanded[39m=[32m"false"[39m
+                            [33maria-haspopup[39m=[32m"listbox"[39m
+                            [33maria-owns[39m=[32m"rc_select_TEST_OR_SSR_list"[39m
+                            [33mautocomplete[39m=[32m"off"[39m
+                            [33mclass[39m=[32m"ant-select-selection-search-input"[39m
+                            [33mid[39m=[32m"rc_select_TEST_OR_SSR"[39m
+                            [33mreadonly[39m=[32m""[39m
+                            [33mrole[39m=[32m"combobox"[39m
+                            [33mstyle[39m=[32m"opacity: 0;"[39m
+                            [33mtype[39m=[32m"search"[39m
+                            [33munselectable[39m=[32m"on"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</span>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-select-selection-placeholder"[39m
+                        [36m>[39m
+                          [0mFilter by company[0m
+                        [36m</span>[39m
+                      [36m</span>[39m
+                    [36m</div>[39m
+                    [36m<span[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"ant-select-arrow"[39m
+                      [33mstyle[39m=[32m"user-select: none;"[39m
+                      [33munselectable[39m=[32m"on"[39m
+                    [36m>[39m
+                      [36m<span[39m
+                        [33maria-label[39m=[32m"down"[39m
+                        [33mclass[39m=[32m"anticon anticon-down ant-select-suffix"[39m
+                        [33mrole[39m=[32m...
+
+    [0m [90m 127 |[39m     [36mconst[39m sectionSelect [33m=[39m screen[33m.[39mgetByLabelText([32m'Section'[39m)[33m;[39m
+     [90m 128 |[39m     fireEvent[33m.[39mmouseDown(sectionSelect)[33m;[39m
+    [31m[1m>[22m[39m[90m 129 |[39m     fireEvent[33m.[39mclick([36mawait[39m screen[33m.[39mfindByTitle([32m'SB - Stranding Section'[39m))[33m;[39m
+     [90m     |[39m                                  [31m[1m^[22m[39m
+     [90m 130 |[39m
+     [90m 131 |[39m     fireEvent[33m.[39mclick(screen[33m.[39mgetByRole([32m'button'[39m[33m,[39m { name[33m:[39m [35m/Save$/i[39m }))[33m;[39m
+     [90m 132 |[39m     fireEvent[33m.[39mclick([36mawait[39m screen[33m.[39mfindByRole([32m'button'[39m[33m,[39m { name[33m:[39m [32m'Save'[39m }))[33m;[39m[0m
+
+      at waitForWrapper (node_modules/@testing-library/dom/dist/wait-for.js:163:27)
+      at findByTitle (node_modules/@testing-library/dom/dist/query-helpers.js:86:33)
+      at Object.<anonymous> (src/pages/organization/DepartmentManagement.test.tsx:129:34)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 8 skipped, 9 total
+Snapshots:   0 total
+Time:        13.205 s
+Ran all test suites matching /src\\pages\\organization\\DepartmentManagement.test.tsx|the|selected|sectionId/i with tests matching "sends".
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

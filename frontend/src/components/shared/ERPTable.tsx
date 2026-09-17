@@ -1,5 +1,5 @@
 import React from 'react';
-import { Table, Tooltip, Button, Popconfirm, Input, Select } from 'antd';
+import { Table, Tooltip, Button, Modal, App, Input, Select } from 'antd';
 import type { TableProps, TablePaginationConfig } from 'antd/es/table';
 import {
   ArrowUpOutlined,
@@ -189,10 +189,40 @@ export const TableActions: React.FC<TableActionsProps> = ({
     });
   }
 
+  let appModal: any = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const app = App.useApp();
+    appModal = app?.modal;
+  } catch {
+    // outside App provider
+  }
+
   if (resolvedActions.length > 0 || (extraActions && extraActions.length > 0)) {
     return (
       <div className={`erp-table-actions ${className}`.trim()} style={style}>
         {resolvedActions.map((act) => {
+          const handleClick = () => {
+            if (act.confirm) {
+              const confirmFn = appModal?.confirm || Modal.confirm;
+              confirmFn({
+                centered: true,
+                title: act.confirm.title,
+                content: act.confirm.description || (act.danger ? 'Are you sure you want to proceed with this deletion? This action cannot be undone.' : undefined),
+                okText: act.confirm.okText || (act.danger ? 'Yes, Delete' : 'Confirm'),
+                cancelText: act.confirm.cancelText || 'Cancel',
+                okButtonProps: act.danger ? { danger: true } : undefined,
+                onOk: async () => {
+                  await act.confirm?.onConfirm();
+                },
+              });
+              return;
+            }
+            if (act.onClick) {
+              act.onClick();
+            }
+          };
+
           const btn = (
             <Button
               key={act.key}
@@ -201,7 +231,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
               danger={act.danger}
               disabled={act.disabled}
               icon={act.icon}
-              onClick={act.confirm ? undefined : act.onClick}
+              onClick={handleClick}
               aria-label={act.label}
               className={act.className}
               style={{
@@ -210,25 +240,6 @@ export const TableActions: React.FC<TableActionsProps> = ({
               }}
             />
           );
-
-          if (act.confirm) {
-            return (
-              <Tooltip key={act.key} title={act.label}>
-                <Popconfirm
-                  title={act.confirm.title}
-                  description={act.confirm.description}
-                  onConfirm={act.confirm.onConfirm}
-                  okText={act.confirm.okText}
-                  cancelText={act.confirm.cancelText}
-                  okButtonProps={act.danger ? { danger: true } : undefined}
-                >
-                  <span style={{ display: 'inline-flex' }}>
-                    {btn}
-                  </span>
-                </Popconfirm>
-              </Tooltip>
-            );
-          }
 
           return (
             <Tooltip key={act.key} title={act.label}>

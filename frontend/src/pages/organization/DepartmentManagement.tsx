@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm, Card, Tree } from 'antd';
+import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Card, Tree } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, CheckCircleOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
 
@@ -9,6 +10,7 @@ interface Department {
   id: string;
   departmentCode: string;
   name: string;
+  description?: string;
   companyId: string;
   branchId?: string;
   businessUnitId?: string;
@@ -25,6 +27,11 @@ interface Department {
   divisionScopes?: DivisionScope[];
   status: string;
   createdAt: string;
+  updatedAt?: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
 }
 
 interface DivisionScope {
@@ -52,8 +59,14 @@ interface Section {
   name: string;
 }
 
+const formatDateTime = (dateStr?: string | null): string => {
+  if (!dateStr) return '-';
+  const d = dayjs(dateStr);
+  return d.isValid() ? d.format('DD-MMM-YYYY HH:mm') : '-';
+};
+
 const DepartmentManagement: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [hierarchy, setHierarchy] = useState<Department[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -191,7 +204,7 @@ const DepartmentManagement: React.FC = () => {
     setEditingDepartment(null);
     form.resetFields();
     setFormSections([]);
-    const defaultCompany = filterCompanyId || undefined;
+    const defaultCompany = filterCompanyId || (companies.length > 0 ? companies[0].id : undefined);
     if (defaultCompany) {
       form.setFieldValue('companyId', defaultCompany);
       loadFormDivisions(defaultCompany);
@@ -205,7 +218,15 @@ const DepartmentManagement: React.FC = () => {
 
   const handleEdit = (record: Department) => {
     setEditingDepartment(record);
-    form.setFieldsValue(record);
+    form.setFieldsValue({
+      companyId: record.companyId,
+      divisionId: record.divisionId || undefined,
+      sectionId: record.sectionId || undefined,
+      departmentCode: record.departmentCode,
+      name: record.name,
+      description: record.description,
+      parentDepartmentId: record.parentDepartmentId || undefined,
+    });
     loadFormDivisions(record.companyId);
     if (record.divisionId) {
       loadFormSections(record.divisionId);
@@ -215,64 +236,153 @@ const DepartmentManagement: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await apiService.delete(`/departments/${id}`);
-      message.success('Department deleted successfully');
-      fetchDepartments(page);
-      fetchHierarchy();
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to delete department'));
-    }
+  const handleDelete = (record: Department) => {
+    modal.confirm({
+      title: 'Delete Department',
+      content: `Are you sure you want to delete department "${record.name}" (${record.departmentCode})? This action cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await apiService.delete(`/departments/${record.id}`);
+          message.success('Department deleted successfully');
+          fetchDepartments(page);
+          fetchHierarchy();
+        } catch (error: any) {
+          modal.error({
+            title: 'Delete Failed',
+            content: formatApiError(error, 'Failed to delete department'),
+          });
+        }
+      },
+    });
   };
 
-  const handleActivate = async (id: string) => {
-    try {
-      await apiService.patch(`/departments/${id}/activate`);
-      message.success('Department activated successfully');
-      fetchDepartments(page);
-      fetchHierarchy();
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to activate department'));
-    }
+  const handleActivate = (record: Department) => {
+    modal.confirm({
+      title: 'Activate Department',
+      content: `Are you sure you want to activate department "${record.name}"?`,
+      okText: 'Activate',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/departments/${record.id}/activate`);
+          message.success('Department activated successfully');
+          fetchDepartments(page);
+          fetchHierarchy();
+        } catch (error: any) {
+          modal.error({
+            title: 'Activation Failed',
+            content: formatApiError(error, 'Failed to activate department'),
+          });
+        }
+      },
+    });
   };
 
-  const handleDeactivate = async (id: string) => {
-    try {
-      await apiService.patch(`/departments/${id}/deactivate`);
-      message.success('Department deactivated successfully');
-      fetchDepartments(page);
-      fetchHierarchy();
-    } catch (error) {
-      message.error(formatApiError(error, 'Failed to deactivate department'));
-    }
+  const handleDeactivate = (record: Department) => {
+    modal.confirm({
+      title: 'Deactivate Department',
+      content: `Are you sure you want to deactivate department "${record.name}"?`,
+      okText: 'Deactivate',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          await apiService.patch(`/departments/${record.id}/deactivate`);
+          message.success('Department deactivated successfully');
+          fetchDepartments(page);
+          fetchHierarchy();
+        } catch (error: any) {
+          modal.error({
+            title: 'Deactivation Failed',
+            content: formatApiError(error, 'Failed to deactivate department'),
+          });
+        }
+      },
+    });
   };
 
   const handleSubmit = async () => {
-    if (submitting) return;
-    setSubmitting(true);
+    let values: any;
     try {
-      const values = await form.validateFields();
-      if (editingDepartment) {
-        const { companyId: _co, ...editable } = values;
-        await apiService.patch(`/departments/${editingDepartment.id}`, editable);
-        message.success('Department updated successfully');
-      } else {
-        await apiService.post('/departments', values);
-        message.success('Department created successfully');
-      }
-      setModalVisible(false);
-      fetchDepartments(page);
-      fetchHierarchy();
+      values = await form.validateFields();
     } catch (error: any) {
-      if (error?.errorFields) {
-        message.error('Please complete all required fields.');
-      } else {
-        message.error(formatApiError(error, 'Operation failed'));
-      }
-    } finally {
-      setSubmitting(false);
+      const errorList = error?.errorFields?.flatMap((f: any) => f.errors) || ['Please check required fields'];
+      modal.error({
+        title: 'Validation Failed',
+        content: (
+          <div>
+            <p style={{ marginBottom: 8, fontWeight: 500 }}>Please correct the following errors:</p>
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {errorList.map((msg: string, idx: number) => (
+                <li key={idx} style={{ color: '#ff4d4f' }}>{msg}</li>
+              ))}
+            </ul>
+          </div>
+        ),
+      });
+      return;
     }
+
+    // Business Hierarchy Validation
+    if (values.sectionId && !values.divisionId) {
+      modal.error({
+        title: 'Validation Failed',
+        content: 'Cannot assign a Section without selecting a Division.',
+      });
+      return;
+    }
+
+    if (editingDepartment && values.parentDepartmentId === editingDepartment.id) {
+      modal.error({
+        title: 'Validation Failed',
+        content: 'Department cannot be its own parent.',
+      });
+      return;
+    }
+
+    // Confirmation Popup before saving
+    modal.confirm({
+      title: 'Save Confirmation',
+      content: 'Are you sure you want to save these changes?',
+      okText: 'Save',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setSubmitting(true);
+        try {
+          let response: any;
+          if (editingDepartment) {
+            const { companyId: _co, ...editable } = values;
+            response = await apiService.patch(`/departments/${editingDepartment.id}`, editable);
+
+            // Verify returned record matches updated section
+            const savedSectionId = response.data?.sectionId || null;
+            const expectedSectionId = values.sectionId || null;
+            if (expectedSectionId && savedSectionId !== expectedSectionId) {
+              modal.error({
+                title: 'Save Verification Failed',
+                content: 'The database update did not reflect the selected section.',
+              });
+              return;
+            }
+            message.success('Department updated successfully');
+          } else {
+            response = await apiService.post('/departments', values);
+            message.success('Department created successfully');
+          }
+          setModalVisible(false);
+          fetchDepartments(page);
+          fetchHierarchy();
+        } catch (error: any) {
+          modal.error({
+            title: 'Save Failed',
+            content: formatApiError(error, 'Operation failed'),
+          });
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
   };
 
   const convertToTreeData = (departments: Department[]): any[] => {
@@ -285,19 +395,22 @@ const DepartmentManagement: React.FC = () => {
 
   const columns: ColumnsType<Department> = [
     {
-      title: 'Code',
+      title: 'Department Code',
       dataIndex: 'departmentCode',
       key: 'departmentCode',
-      sorter: true,
+      sorter: (a, b) => a.departmentCode.localeCompare(b.departmentCode),
+      width: 140,
     },
     {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
+      width: 180,
     },
     {
       title: 'Type',
       key: 'type',
+      width: 110,
       render: (_, record) => (
         <Tag color={record.divisionId ? 'blue' : 'purple'}>
           {record.divisionId ? 'Production' : 'Centralized'}
@@ -305,8 +418,15 @@ const DepartmentManagement: React.FC = () => {
       ),
     },
     {
+      title: 'Company',
+      key: 'company',
+      width: 160,
+      render: (_, record) => record.company?.legalName || record.company?.companyCode || '-',
+    },
+    {
       title: 'Division',
       key: 'division',
+      width: 160,
       render: (_, record) => {
         if (record.division?.name) return record.division.name;
         if (record.divisionScopes && record.divisionScopes.length > 0) {
@@ -320,39 +440,78 @@ const DepartmentManagement: React.FC = () => {
     {
       title: 'Section',
       key: 'section',
+      width: 150,
       render: (_, record) => record.section?.name || '-',
-    },
-    {
-      title: 'Parent Department',
-      key: 'parentDepartment',
-      render: (_, record) => record.parentDepartment?.name || '-',
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
+      width: 90,
       render: (status: string) => (
         <Tag color={status === 'ACTIVE' ? 'green' : 'red'}>{status}</Tag>
       ),
     },
     {
+      title: 'Created By',
+      key: 'createdByName',
+      width: 140,
+      render: (_, record) => record.createdByName || (record.createdBy ? 'Admin' : '-'),
+    },
+    {
+      title: 'Created Date',
+      key: 'createdAt',
+      width: 150,
+      render: (_, record) => formatDateTime(record.createdAt),
+    },
+    {
+      title: 'Updated By',
+      key: 'updatedByName',
+      width: 140,
+      render: (_, record) => record.updatedByName || (record.updatedBy ? 'Admin' : '-'),
+    },
+    {
+      title: 'Updated Date',
+      key: 'updatedAt',
+      width: 150,
+      render: (_, record) => formatDateTime(record.updatedAt),
+    },
+    {
       title: 'Actions',
       key: 'actions',
+      fixed: 'right',
+      width: 120,
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+            title="Edit Department"
+          />
           {record.status === 'ACTIVE' ? (
-            <Popconfirm title="Deactivate this department?" onConfirm={() => handleDeactivate(record.id)}>
-              <Button type="link" danger icon={<CloseCircleOutlined />} />
-            </Popconfirm>
+            <Button
+              type="link"
+              danger
+              icon={<CloseCircleOutlined />}
+              onClick={() => handleDeactivate(record)}
+              title="Deactivate Department"
+            />
           ) : (
-            <Popconfirm title="Activate this department?" onConfirm={() => handleActivate(record.id)}>
-              <Button type="link" icon={<CheckCircleOutlined />} />
-            </Popconfirm>
+            <Button
+              type="link"
+              icon={<CheckCircleOutlined />}
+              onClick={() => handleActivate(record)}
+              title="Activate Department"
+            />
           )}
-          <Popconfirm title="Delete this department?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <Button
+            type="link"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDelete(record)}
+            title="Delete Department"
+          />
         </Space>
       ),
     },
@@ -443,11 +602,13 @@ const DepartmentManagement: React.FC = () => {
           dataSource={departments}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 1600 }}
           pagination={{
             current: page,
             total,
             pageSize: 20,
             onChange: setPage,
+            showTotal: (totalCount) => `Total ${totalCount} departments`,
           }}
         />
       ) : (
@@ -538,15 +699,17 @@ const DepartmentManagement: React.FC = () => {
             <Input />
           </Form.Item>
           <Form.Item name="description" label="Description">
-            <Input.TextArea />
+            <Input.TextArea rows={3} />
           </Form.Item>
           <Form.Item name="parentDepartmentId" label="Parent Department">
             <Select placeholder="Select parent department (optional)" allowClear>
-              {departments.map((dept) => (
-                <Select.Option key={dept.id} value={dept.id}>
-                  {dept.departmentCode} - {dept.name}
-                </Select.Option>
-              ))}
+              {departments
+                .filter((dept) => !editingDepartment || dept.id !== editingDepartment.id)
+                .map((dept) => (
+                  <Select.Option key={dept.id} value={dept.id}>
+                    {dept.departmentCode} - {dept.name}
+                  </Select.Option>
+                ))}
             </Select>
           </Form.Item>
         </Form>

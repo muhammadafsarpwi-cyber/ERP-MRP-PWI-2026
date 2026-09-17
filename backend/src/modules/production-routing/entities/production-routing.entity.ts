@@ -5,6 +5,7 @@ import { Item } from '../../item/entities/item.entity';
 import { ItemRouteType } from '../../item/entities/route-type.entity';
 import { BillOfMaterials } from '../../bom/entities/bill-of-materials.entity';
 import { RoutingOperation } from './routing-operation.entity';
+import { RoutingOperationConnection } from './routing-operation-connection.entity';
 
 export enum RoutingStatus {
   DRAFT = 'DRAFT',
@@ -72,4 +73,7 @@ export class ProductionRouting extends BaseEntity {
 
   @OneToMany(() => RoutingOperation, (op) => op.routing, { cascade: true })
   operations: RoutingOperation[];
+
+  @OneToMany(() => RoutingOperationConnection, (conn) => conn.routing, { cascade: true })
+  connections: RoutingOperationConnection[];
 }

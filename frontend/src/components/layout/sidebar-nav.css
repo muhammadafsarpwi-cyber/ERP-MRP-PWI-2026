@@ -1,3 +1,64 @@
+/* ── Sidebar fixed brand header and scrollable menu layout ────────────────── */
+.erp-desktop-sider {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.erp-desktop-sider .ant-layout-sider-children {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.erp-sidebar-brand-fixed {
+  flex-shrink: 0 !important;
+  z-index: 20 !important;
+  position: relative !important;
+}
+
+.erp-sidebar-menu-scrollable {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: calc(100vh - 68px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+.erp-sidebar-menu-scrollable::-webkit-scrollbar {
+  width: 5px;
+}
+.erp-sidebar-menu-scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+.erp-sidebar-menu-scrollable::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+.erp-sidebar-menu-scrollable::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
+}
+
+/* ── Operation Editor and Workspace Modals (Constrained to Content Area) ── */
+.erp-operation-editor-wrap {
+  left: var(--erp-sidebar-width, 260px) !important;
+  width: calc(100vw - var(--erp-sidebar-width, 260px)) !important;
+  overflow-x: hidden !important;
+}
+
+@media (max-width: 991px) {
+  .erp-operation-editor-wrap {
+    left: 0 !important;
+    width: 100vw !important;
+  }
+}
+
 /* ── Sidebar navigation icon system ───────────────────────────────────────
    Sizing + visual treatment for every sidebar icon. Icon glyph size is
    driven by font-size on the wrapper (antd icons inherit currentColor and

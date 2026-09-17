@@ -12,7 +12,8 @@ import {
   CloseCircleOutlined, FileExcelOutlined, AppstoreOutlined, SettingOutlined,
   ToolOutlined, BuildOutlined, DatabaseOutlined, ProjectOutlined, TagOutlined,
   MinusOutlined, WarningOutlined, SyncOutlined, IdcardOutlined, CalendarOutlined,
-  HomeOutlined, InboxOutlined, FileTextOutlined, ImportOutlined
+  HomeOutlined, InboxOutlined, FileTextOutlined, ImportOutlined, ThunderboltOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -489,7 +490,7 @@ const EmployeesPage: React.FC = () => {
   const filteredDepartments = useMemo(() => {
     let list = departments;
     if (fDivision) list = list.filter((d) => !d.divisionId || d.divisionId === fDivision);
-    if (fSection) list = list.filter((d) => !d.sectionId || d.sectionId === fSection);
+    if (fSection) list = list.filter((d) => d.sectionId === fSection);
     return list;
   }, [departments, fDivision, fSection]);
 
@@ -2640,7 +2641,7 @@ const EmployeesPage: React.FC = () => {
             {/* Metrics Row: Time Remaining, Speed, Success, Failed */}
             <div className="import-progress-metrics-row">
               <div className="import-metric-chip">
-                <span className="metric-icon">⏱️</span>
+                <span className="metric-icon"><ClockCircleOutlined style={{ color: '#4f46e5' }} /></span>
                 <div>
                   <div className="metric-label">Estimated Time</div>
                   <div className="metric-val" style={{ color: '#4f46e5' }}>
@@ -2650,7 +2651,7 @@ const EmployeesPage: React.FC = () => {
               </div>
 
               <div className="import-metric-chip">
-                <span className="metric-icon">⚡</span>
+                <span className="metric-icon"><ThunderboltOutlined style={{ color: '#0284c7' }} /></span>
                 <div>
                   <div className="metric-label">Import Speed</div>
                   <div className="metric-val" style={{ color: '#0284c7' }}>
@@ -2660,7 +2661,7 @@ const EmployeesPage: React.FC = () => {
               </div>
 
               <div className="import-metric-chip">
-                <span className="metric-icon">✅</span>
+                <span className="metric-icon"><CheckCircleOutlined style={{ color: '#16a34a' }} /></span>
                 <div>
                   <div className="metric-label">Imported</div>
                   <div className="metric-val" style={{ color: '#16a34a' }}>
@@ -2670,7 +2671,7 @@ const EmployeesPage: React.FC = () => {
               </div>
 
               <div className="import-metric-chip">
-                <span className="metric-icon">❌</span>
+                <span className="metric-icon"><CloseCircleOutlined style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }} /></span>
                 <div>
                   <div className="metric-label">Failed</div>
                   <div className="metric-val" style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }}>

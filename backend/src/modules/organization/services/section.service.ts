@@ -1,14 +1,17 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, DataSource } from 'typeorm';
 import { Section, SectionStatus } from '../entities';
 import { CreateSectionDto, UpdateSectionDto } from '../dto';
+import { populateAuditNames } from '../helpers/audit-names';
 
 @Injectable()
 export class SectionService {
   constructor(
     @InjectRepository(Section)
     private readonly sectionRepository: Repository<Section>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createSectionDto: CreateSectionDto, userId?: string): Promise<Section> {
@@ -71,6 +74,7 @@ export class SectionService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await populateAuditNames(this.dataSource, data);
 
     return { data, total };
   }
@@ -85,6 +89,7 @@ export class SectionService {
       throw new NotFoundException(`Section with ID '${id}' not found`);
     }
 
+    await populateAuditNames(this.dataSource, [section]);
     return section;
   }
 
@@ -136,6 +141,15 @@ export class SectionService {
       throw new BadRequestException('Cannot delete section with existing departments');
     }
 
-    await this.sectionRepository.remove(section);
+    try {
+      await this.sectionRepository.remove(section);
+    } catch (error: any) {
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete section because it is referenced by existing departments, operations, or users. Please deactivate it instead.',
+        );
+      }
+      throw error;
+    }
   }
 }

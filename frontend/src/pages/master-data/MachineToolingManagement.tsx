@@ -8,7 +8,7 @@ import {
   PlusOutlined, EditOutlined, EyeOutlined, DeleteOutlined, ReloadOutlined,
   SwapRightOutlined, ToolOutlined, HistoryOutlined, BarChartOutlined,
   CheckCircleOutlined, UnorderedListOutlined, SwapOutlined, PlusCircleOutlined, DesktopOutlined,
-  AppstoreOutlined,
+  AppstoreOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -2200,8 +2200,8 @@ const MachineToolingManagement: React.FC = () => {
                           label={
                             <Space size={6}>
                               <span style={{ fontWeight: 600 }}>Store Item / Product Master</span>
-                              <Tag color="success" style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
-                                ⚡ Auto-fills Code, Name & UOM
+                              <Tag color="success" style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0, display: 'inline-flex', alignItems: 'center' }}>
+                                <ThunderboltOutlined style={{ marginRight: 4 }} />Auto-fills Code, Name & UOM
                               </Tag>
                             </Space>
                           }

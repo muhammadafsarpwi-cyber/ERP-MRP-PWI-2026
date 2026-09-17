@@ -11,6 +11,7 @@ import { Operation } from '../../operation/entities/operation.entity';
 import { ProductionRouting } from './production-routing.entity';
 import { RoutingOperationInput } from './routing-operation-input.entity';
 import { RoutingOperationOutput } from './routing-operation-output.entity';
+import { RoutingOperationConnection } from './routing-operation-connection.entity';
 
 @Entity('routing_operations')
 export class RoutingOperation extends BaseEntity {
@@ -145,4 +146,12 @@ export class RoutingOperation extends BaseEntity {
     cascade: ['insert', 'update'],
   })
   outputs: RoutingOperationOutput[];
+
+  /** Outgoing graph connections from this operation to successor operations. */
+  @OneToMany(() => RoutingOperationConnection, (conn) => conn.fromOperation, { cascade: true })
+  outgoingConnections: RoutingOperationConnection[];
+
+  /** Incoming graph connections into this operation from predecessor operations. */
+  @OneToMany(() => RoutingOperationConnection, (conn) => conn.toOperation, { cascade: true })
+  incomingConnections: RoutingOperationConnection[];
 }

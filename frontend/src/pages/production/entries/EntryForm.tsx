@@ -10,6 +10,7 @@ import {
   WarningOutlined, GoldOutlined, CloseCircleOutlined, TrophyOutlined,
   CheckOutlined, UndoOutlined, DatabaseOutlined, CalendarOutlined,
   ToolOutlined, TeamOutlined, ApartmentOutlined, CheckCircleFilled,
+  ArrowDownOutlined, ArrowUpOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -96,7 +97,7 @@ const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; r
               {isBalanced ? 'Shift Balanced' : 'Unaccounted'}
             </span>
             <span style={{ fontSize: 15, fontWeight: 700, color: isBalanced ? '#15803d' : '#b91c1c' }}>
-              {isBalanced ? '✓ OK (0.00h)' : `${formatNumber(remaining, 2)}h`}
+              {isBalanced ? <><CheckOutlined style={{ marginRight: 4 }} />OK (0.00h)</> : `${formatNumber(remaining, 2)}h`}
             </span>
           </div>
         )}
@@ -187,14 +188,19 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Machine pre-selected on the availability screen (Step 1): context is locked
-  // so the operator cannot drift into a duplicate date/shift/machine combination.
   const qMachineId = mode === 'create' ? searchParams.get('machineId') : null;
+  const qMachineCode = searchParams.get('machineCode');
+  const qMachineName = searchParams.get('machineName');
   const qDate = searchParams.get('entryDate');
   const qShiftId = searchParams.get('shiftId');
   const qDivisionId = searchParams.get('divisionId');
   const qSectionId = searchParams.get('sectionId');
   const qDepartmentId = searchParams.get('departmentId');
-  const lockedContext = !!(qMachineId && qDate && qShiftId && qDivisionId && qSectionId && qDepartmentId);
+  const qShiftName = searchParams.get('shiftName');
+  const qDivisionName = searchParams.get('divisionName');
+  const qSectionName = searchParams.get('sectionName');
+  const qDepartmentName = searchParams.get('departmentName');
+  const lockedContext = !!(qMachineId && qDate && qShiftId);
 
   // Edit-mode identity facts (loaded entry) drive the same read-only treatment.
   const [entry, setEntry] = useState<EntryDetailData | null>(null);
@@ -252,6 +258,27 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       }
     }
   }, [mode, currentUserName, form]);
+
+  // Pre-fill form fields from query parameters when navigated from machine select
+  useEffect(() => {
+    if (mode === 'create') {
+      const updates: any = {};
+      if (qDivisionId && !form.getFieldValue('divisionId')) updates.divisionId = qDivisionId;
+      if (qSectionId && !form.getFieldValue('sectionId')) updates.sectionId = qSectionId;
+      if (qDepartmentId && !form.getFieldValue('departmentId')) updates.departmentId = qDepartmentId;
+      if (qShiftId && !form.getFieldValue('shiftId')) updates.shiftId = qShiftId;
+      if (qDate && !form.getFieldValue('entryDate')) updates.entryDate = dayjs(qDate);
+      if (qMachineCode && !form.getFieldValue('machineNo')) {
+        updates.machineNo = qMachineCode;
+      } else if (qMachineId && !form.getFieldValue('machineNo')) {
+        const m = lookups.machines.find((x) => x.id === qMachineId);
+        if (m) updates.machineNo = m.machineCode;
+      }
+      if (Object.keys(updates).length > 0) {
+        form.setFieldsValue(updates);
+      }
+    }
+  }, [mode, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, qMachineId, qMachineCode, lookups.machines, form]);
 
   // TASK #32: Raw material data resolved by RawMaterialAvailability, keyed by production itemId.
   // Used by ItemDetailsStrip to show raw material info inline.
@@ -801,10 +828,15 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
 
   const operatorOptions = useMemo(() => {
     const list = lookups.employeesForDepartment(effectiveDeptId);
-    const opts = list.map((e) => ({
-      value: lookups.employeeFullName(e),
-      label: `${e.employeeCode} — ${lookups.employeeFullName(e)}${e.jobTitle ? ` (${e.jobTitle})` : ''}`,
-    }));
+    const opts = list.map((e) => {
+      const name = lookups.employeeFullName(e);
+      const codePart = e.employeeCode ? ` (${e.employeeCode})` : '';
+      const titlePart = e.jobTitle ? ` · ${e.jobTitle}` : '';
+      return {
+        value: name,
+        label: `${name}${codePart}${titlePart}`,
+      };
+    });
     if (operatorWatch && !opts.some((o) => o.value.toLowerCase() === String(operatorWatch).toLowerCase())) {
       opts.unshift({
         value: String(operatorWatch),
@@ -1305,25 +1337,30 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       const sec = lookups.sections.find((s) => s.id === qSectionId);
       const dep = lookups.departments.find((d) => d.id === qDepartmentId);
       const shf = lookups.shifts.find((s) => s.id === qShiftId);
+      const mch = lookups.machines.find((m) => m.id === qMachineId || m.machineCode === ctxMachineCode);
+      const mName = mch?.name || qMachineName || ctxMachineCode;
+      const mCode = mch?.machineCode || qMachineCode || ctxMachineCode;
       return {
         date: qDate ? dayjs(qDate) : null,
-        shiftLabel: shf ? `${shf.name} · ${toNum(shf.plannedHours)}h planned` : undefined,
-        machineLabel: ctxMachineCode,
-        depLabel: dep?.name,
-        secLabel: sec?.name,
-        divLabel: div ? `${div.divisionCode} — ${div.name}` : undefined,
+        shiftLabel: shf ? `${shf.name} · ${toNum(shf.plannedHours)}h planned` : (qShiftName || undefined),
+        machineLabel: mName && mName !== mCode ? `${mName} (${mCode})` : (mName || mCode),
+        depLabel: dep ? `${dep.name}${dep.departmentCode && dep.departmentCode !== dep.name ? ` (${dep.departmentCode})` : ''}` : (qDepartmentName || undefined),
+        secLabel: sec?.name || qSectionName || undefined,
+        divLabel: div ? `${div.name} (${div.divisionCode})` : (qDivisionName || undefined),
       };
     }
     const e = entry;
+    const mch = lookups.machines.find((m) => m.id === e?.machineId || m.machineCode === e?.machineNo);
+    const mName = mch?.name || (e as any)?.machine?.name || e?.machineNo;
     return {
       date: e?.entryDate ? dayjs(e.entryDate) : null,
       shiftLabel: e?.shift ? `${e.shift.name} · ${toNum(e.shift.plannedHours)}h planned` : undefined,
-      machineLabel: e?.machineNo,
-      depLabel: e?.department ? `${e.department.departmentCode} — ${e.department.name}` : e?.departmentId,
+      machineLabel: mName && mName !== e?.machineNo ? `${mName} (${e?.machineNo})` : e?.machineNo,
+      depLabel: e?.department ? `${e.department.name}${e.department.departmentCode && e.department.departmentCode !== e.department.name ? ` (${e.department.departmentCode})` : ''}` : e?.departmentId,
       secLabel: e?.section?.name,
-      divLabel: e?.division ? `${e.division.divisionCode} — ${e.division.name}` : undefined,
+      divLabel: e?.division ? `${e.division.name} (${e.division.divisionCode})` : undefined,
     };
-  }, [showSummary, mode, lookups.divisions, lookups.sections, lookups.departments, lookups.shifts, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, ctxMachineCode, entry]);
+  }, [showSummary, mode, lookups.divisions, lookups.sections, lookups.departments, lookups.shifts, lookups.machines, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, ctxMachineCode, entry]);
 
   const submitBlocked = mode === 'create' && (resolvingMt || (machineLinked && (!!mtError || displayTarget === null)));
 
@@ -1420,9 +1457,9 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         <Col xs={12} sm={8} md={4}>
           <div style={{ background: 'rgba(255, 255, 255, 0.95)', border: '1px solid #ea580c', borderRadius: 6, padding: '6px 10px', boxShadow: '0 1px 2px rgba(234, 88, 12, 0.1)' }}>
             <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, color: '#ea580c', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <ToolOutlined /> Machine No.
+              <ToolOutlined /> Machine
             </Text>
-            <Text strong style={{ fontSize: 14, color: '#ea580c' }}>
+            <Text strong style={{ fontSize: 13, color: '#ea580c', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={summaryCtx?.machineLabel}>
               {summaryCtx?.machineLabel ?? '—'}
             </Text>
           </div>
@@ -1432,7 +1469,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, color: '#c2410c', display: 'flex', alignItems: 'center', gap: 4 }}>
               <ApartmentOutlined /> Department
             </Text>
-            <Text strong style={{ fontSize: 13, color: '#1e293b' }}>
+            <Text strong style={{ fontSize: 13, color: '#1e293b', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={summaryCtx?.depLabel}>
               {summaryCtx?.depLabel ?? '—'}
             </Text>
           </div>
@@ -1473,7 +1510,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           <Form.Item name="divisionId" label="Division" rules={[{ required: true, message: 'Division is required' }]}>
             <Select
               showSearch optionFilterProp="label" placeholder="Select Division"
-              options={lookups.divisions.map((d) => ({ value: d.id, label: `${d.divisionCode} — ${d.name}` }))}
+              options={lookups.divisions.map((d) => ({ value: d.id, label: `${d.name} (${d.divisionCode})` }))}
               onChange={() => { form.setFieldsValue({ sectionId: undefined, departmentId: undefined }); }}
             />
           </Form.Item>
@@ -1493,7 +1530,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             <Select
               showSearch optionFilterProp="label" placeholder="Select Department"
               disabled={!sectionId}
-              options={departmentsFiltered.map((d) => ({ value: d.id, label: d.name }))}
+              options={departmentsFiltered.map((d) => ({ value: d.id, label: `${d.name}${d.departmentCode && d.departmentCode !== d.name ? ` (${d.departmentCode})` : ''}` }))}
             />
           </Form.Item>
         </Col>
@@ -1518,18 +1555,26 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
         <Col xs={24} md={12} lg={8}>
           <Form.Item
             name="machineNo"
-            label="Machine No."
-            rules={[{ required: true, message: 'Machine No. is required' }]}
+            label="Machine"
+            rules={[{ required: true, message: 'Machine is required' }]}
             extra={
               machinesForDept.length > 0
                 ? `${machinesForDept.length} registered machine(s) in this department`
-                : 'No registered machines for this department — you may type any machine identifier'
+                : 'No registered machines for this department — you may type any machine name/number'
             }
           >
             <AutoComplete
-              options={machinesForDept.map((m) => ({ value: m.machineCode, label: `${m.machineCode}${m.machineCode !== m.name ? ` — ${m.name}` : ''}` }))}
-              placeholder="Select or type machine no."
-              filterOption={(input, option) => (option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+              options={machinesForDept.map((m) => ({
+                value: m.machineCode,
+                label: `${m.name}${m.machineCode && m.machineCode !== m.name ? ` (${m.machineCode})` : ''}`,
+              }))}
+              placeholder="Select or type machine name / no."
+              filterOption={(input, option) => {
+                const search = (input || '').toLowerCase();
+                const optVal = String(option?.value ?? '').toLowerCase();
+                const optLabel = String(option?.label ?? '').toLowerCase();
+                return optVal.includes(search) || optLabel.includes(search);
+              }}
             />
           </Form.Item>
         </Col>
@@ -1706,7 +1751,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                     fontSize: 10,
                   }}
                 >
-                  {s.done ? '✓' : s.step}
+                  {s.done ? <CheckOutlined /> : s.step}
                 </span>
                 <span>{s.label}</span>
                 {idx < arr.length - 1 && <span style={{ color: '#cbd5e1', marginLeft: 2 }}>›</span>}
@@ -1721,7 +1766,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
             <Card
               title="Operator"
               size="small"
-              extra={<Tag color={isStep1Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep1Done ? '✓ STEP 1 OK' : 'STEP 1'}</Tag>}
+              extra={<Tag color={isStep1Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep1Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 1 OK</> : 'STEP 1'}</Tag>}
             >
               <Row gutter={12}>
                 <Col xs={24} md={12}>
@@ -1808,7 +1853,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               style={{ marginTop: 16 }}
               extra={
                 <Space>
-                  <Tag color={isStep2Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep2Done ? '✓ STEP 2 OK' : 'STEP 2'}</Tag>
+                  <Tag color={isStep2Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep2Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 2 OK</> : 'STEP 2'}</Tag>
                   {maxItemsReached ? (
                     <Tooltip title="Maximum 2 production items are allowed.">
                       <span>
@@ -1978,7 +2023,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                   return (
                     <div key={item.id} data-testid={`item-details-item-${idx + 1}`} style={{ marginBottom: idx < selectedProductionItems.length - 1 ? 8 : 0 }}>
                       <Text type="secondary" strong style={{ fontSize: 11, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 }}>
-                        Item {idx + 1} — {item.itemCode}{item.name && item.name !== item.itemCode ? ` · ${item.name}` : ''}
+                        Item {idx + 1} — {item.name || item.itemCode}{item.itemCode && item.name !== item.itemCode ? ` (${item.itemCode})` : ''}
                       </Text>
                       <ItemDetailsStrip item={item} rawMaterial={rmData} productionInItemId={rmData?.productionInItemId} productionOutItemId={rmData?.productionOutItemId} chainWarning={rmData?.chainWarning} allItems={lookups.items} />
                       {rowUomId && item.baseUomId && rowUomId !== item.baseUomId && (
@@ -2009,7 +2054,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               title="Production Figures"
               size="small"
               style={{ marginTop: 16 }}
-              extra={<Tag color={isStep4Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep4Done ? '✓ STEP 4 OK' : 'STEP 4'}</Tag>}
+              extra={<Tag color={isStep4Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep4Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 4 OK</> : 'STEP 4'}</Tag>}
             >
               <Row gutter={8}>
                 <Col span={12}>
@@ -2159,7 +2204,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               extra={
                 <Space>
                   <Tag color={isStep5Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>
-                    {isStep5Done ? '✓ STEP 5 OK' : 'STEP 5'}
+                    {isStep5Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 5 OK</> : 'STEP 5'}
                   </Tag>
                   <Button
                     type="primary" size="small" icon={<PlusOutlined />}
@@ -2419,7 +2464,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               title="Production Order Linkage (optional)"
               size="small"
               style={{ marginTop: 16 }}
-              extra={<Tag color={isStep6Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep6Done ? '✓ STEP 6 OK' : 'STEP 6'}</Tag>}
+              extra={<Tag color={isStep6Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep6Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 6 OK</> : 'STEP 6'}</Tag>}
             >
               <Alert
                 type="info" showIcon style={{ marginBottom: 12 }}
@@ -2428,7 +2473,13 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               <Form.Item name="productionOrderId" label="Production Order No.">
                 <Select
                   allowClear showSearch optionFilterProp="label" placeholder="None"
-                  options={lookups.productionOrders.map((o) => ({ value: o.id, label: `${o.orderNumber}` }))}
+                  options={lookups.productionOrders.map((o) => {
+                    const prodName = o.item?.name || o.product?.name;
+                    return {
+                      value: o.id,
+                      label: prodName ? `${prodName} (${o.orderNumber})` : o.orderNumber,
+                    };
+                  })}
                   onChange={(v) => { setOrderDetail(null); form.setFieldValue('productionOrderOperationId', undefined); void loadOrderOperations(v); }}
                 />
               </Form.Item>
@@ -2461,7 +2512,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               title="Production Route"
               size="small"
               style={{ marginTop: 16 }}
-              extra={<Tag color={isStep7Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep7Done ? '✓ STEP 7 OK' : 'STEP 7'}</Tag>}
+              extra={<Tag color={isStep7Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep7Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 7 OK</> : 'STEP 7'}</Tag>}
             >
               {machineLinked && mtResolution?.route ? (
                 <RouteChain route={mtResolution.route} />
@@ -2486,7 +2537,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               title="Post Directly to Inventory (make-to-stock)"
               size="small"
               style={{ marginTop: 16 }}
-              extra={<Tag color={isStep8Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep8Done ? '✓ STEP 8 OK' : 'STEP 8'}</Tag>}
+              extra={<Tag color={isStep8Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep8Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 8 OK</> : 'STEP 8'}</Tag>}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div>
@@ -2521,7 +2572,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                           allowClear showSearch optionFilterProp="label" placeholder="Select Warehouse"
                           disabled={mode === 'edit' && Boolean(getFieldValue('warehouseId'))}
                           className={warehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                          options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
+                          options={warehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})` }))}
                         />
                       </Form.Item>
 
@@ -2536,7 +2587,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                           disabled={mode === 'edit'}
                           data-testid="raw-source-store-select"
                           className={rawMatWarehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                          options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
+                          options={warehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
                         />
                       </Form.Item>
                     </div>
@@ -2598,7 +2649,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
           }}
         >
           {isStep7Done
-            ? (mode === 'create' ? '✓ Save Production Entry (7 Steps OK · 100%)' : '✓ Update Production Entry (7 Steps OK · 100%)')
+            ? (mode === 'create' ? 'Save Production Entry (7 Steps OK · 100%)' : 'Update Production Entry (7 Steps OK · 100%)')
             : (mode === 'create' ? 'Save Production Entry' : 'Update Production Entry')}
         </Button>
         {submitBlocked && !resolvingMt && (
@@ -2760,14 +2811,14 @@ const ItemDetailsStrip: React.FC<{
     <div
       style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8 }}
     >
+      {item.name && (
+        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+          <ItemMetadatum label="Item Name" value={<strong style={{ color: 'var(--theme-primary, #2563eb)' }}>{item.name}</strong>} />
+        </div>
+      )}
       {item.itemCode && (
         <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
           <ItemMetadatum label="Item Code" value={item.itemCode} />
-        </div>
-      )}
-      {item.name && item.name !== item.itemCode && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Item Name" value={item.name} />
         </div>
       )}
       {item.wireSizeMm != null && (
@@ -2841,7 +2892,7 @@ const ItemDetailsStrip: React.FC<{
         <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
           <ItemMetadatum label="Raw Material" value={
             <span style={{ color: 'var(--theme-primary)' }}>
-              {rawMaterial.itemCode}{rawMaterial.itemName ? ` — ${rawMaterial.itemName}` : ''}
+              {rawMaterial.itemName || rawMaterial.itemCode}{rawMaterial.itemName && rawMaterial.itemName !== rawMaterial.itemCode ? ` (${rawMaterial.itemCode})` : ''}
             </span>
           } />
         </div>
@@ -2875,7 +2926,10 @@ const ItemDetailsStrip: React.FC<{
           <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
             <ItemMetadatum label="Input Material" value={
               <span style={{ color: 'var(--theme-primary)' }}>
-                {allItems?.find((i) => i.id === productionInItemId)?.itemCode ?? productionInItemId}
+                {(() => {
+                  const inItm = allItems?.find((i) => i.id === productionInItemId);
+                  return inItm ? `${inItm.name} (${inItm.itemCode})` : productionInItemId;
+                })()}
               </span>
             } />
           </div>
@@ -2895,8 +2949,8 @@ const ItemDetailsStrip: React.FC<{
             <ItemMetadatum label="Output Product" value={
               <span style={{ color: 'var(--theme-success, #52c41a)' }}>
                 {productionOutItemId === item.id
-                  ? `${item.itemCode} (self)`
-                  : `${allItems?.find((i) => i.id === productionOutItemId)?.itemCode ?? productionOutItemId} (unexpected)`}
+                  ? `${item.name} (${item.itemCode})`
+                  : `${allItems?.find((i) => i.id === productionOutItemId)?.name || productionOutItemId}`}
               </span>
             } />
           </div>
@@ -3684,7 +3738,9 @@ const RawMaterialAvailability: React.FC<{
             {/* PREVIOUS STAGE */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <Text type="secondary" style={{ fontSize: 11, minWidth: 90 }}>Previous Stage</Text>
-              <Text style={{ fontSize: 12 }} data-testid={`material-flow-prevstage-${index + 1}`}>{info.prevStageName || 'Previous stage'} → {info.prevStageItemCode ?? '—'}</Text>
+              <Text style={{ fontSize: 12 }} data-testid={`material-flow-prevstage-${index + 1}`}>
+                {info.prevStageName || 'Previous stage'} → {info.prevStageItemName ? `${info.prevStageItemName}${info.prevStageItemCode ? ` (${info.prevStageItemCode})` : ''}` : (info.prevStageItemCode ?? '—')}
+              </Text>
             </div>
             {/* TASK #34B: complete backward input chain (e.g. 4.75 ← 3.75 ← Flat Wire ← 1.20 mm-B4) */}
             {info.inputChain && info.inputChain.length > 1 && (
@@ -3702,14 +3758,16 @@ const RawMaterialAvailability: React.FC<{
                   display: 'flex', flexDirection: 'column', gap: 4,
                   borderTop: '1px dashed var(--theme-border, #d9d9d9)', paddingTop: 6,
                 }}>
-                  {/* Input Material: Item Code + Name */}
+                  {/* Input Material: Item Name + Code */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Text type="secondary" style={{ fontSize: 11, minWidth: 90 }}>Input Material</Text>
                     <Text strong style={{ fontSize: 12, color: 'var(--theme-primary)' }} data-testid={`material-flow-rawitem-${index + 1}`}>
-                      {line.itemCode}
+                      {line.itemName || line.itemCode}
                     </Text>
-                    {line.itemName && (
-                      <Text style={{ fontSize: 12 }} data-testid={`material-flow-rawname-${index + 1}`}>{line.itemName}</Text>
+                    {line.itemCode && line.itemName && line.itemName !== line.itemCode && (
+                      <Text type="secondary" style={{ fontSize: 11 }} data-testid={`material-flow-rawname-${index + 1}`}>
+                        ({line.itemCode})
+                      </Text>
                     )}
                     {line.rawSource === 'item-master' && (
                       <Text type="secondary" style={{ fontSize: 10 }}>[item master]</Text>
@@ -3811,8 +3869,9 @@ const RawMaterialAvailability: React.FC<{
                           <span style={{
                             background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
                             fontWeight: 700, fontSize: 10, borderRadius: 3, padding: '1px 6px',
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
                           }}>
-                            📥 INPUT (RAW MATERIAL)
+                            <ArrowDownOutlined style={{ fontSize: 10 }} /> INPUT (RAW MATERIAL)
                           </span>
                           <Text strong style={{ fontSize: 11 }}>{rawLine.itemCode}</Text>
                           {rawLine.itemName && <Text type="secondary" style={{ fontSize: 11 }}>— {rawLine.itemName}</Text>}
@@ -3861,8 +3920,9 @@ const RawMaterialAvailability: React.FC<{
                           <span style={{
                             background: '#dcfce7', color: '#166534', border: '1px solid #86efac',
                             fontWeight: 700, fontSize: 10, borderRadius: 3, padding: '1px 6px',
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
                           }}>
-                            📤 OUTPUT (GOOD PRODUCTION)
+                            <ArrowUpOutlined style={{ fontSize: 10 }} /> OUTPUT (GOOD PRODUCTION)
                           </span>
                           <Text strong style={{ fontSize: 11 }}>{info.itemCode}</Text>
                           {info.itemName && <Text type="secondary" style={{ fontSize: 11 }}>— {info.itemName}</Text>}
@@ -3954,7 +4014,7 @@ const RawMaterialAvailability: React.FC<{
       data-testid="raw-material-card"
       style={{ marginTop: 16, borderLeft: '3px solid var(--theme-primary)' }}
       title={<span style={{ fontSize: 13 }}><DatabaseOutlined style={{ marginRight: 6, color: 'var(--theme-primary)' }} />RAW MATERIAL REQUIREMENT</span>}
-      extra={<Tag color={isDone ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isDone ? '✓ STEP 3 OK' : 'STEP 3'}</Tag>}
+      extra={<Tag color={isDone ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isDone ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 3 OK</> : 'STEP 3'}</Tag>}
     >
       {order.length === 0 ? (
         <Text type="secondary" style={{ fontSize: 12 }}>
@@ -4067,8 +4127,8 @@ const ProductionItemLine: React.FC<{
               }}
               options={departmentItems.map((i: ItemLk) => ({
                 value: i.id,
-                label: `${i.itemCode} — ${i.name}`,
-                title: `${i.itemCode} — ${i.name}`,
+                label: `${i.name} (${i.itemCode})`,
+                title: `${i.name} (${i.itemCode})`,
               }))}
             />
           </Form.Item>

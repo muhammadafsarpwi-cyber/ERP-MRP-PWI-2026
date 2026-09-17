@@ -14,26 +14,91 @@
   color: var(--theme-text, rgba(15, 23, 42, 0.88)) !important;
 }
 
-/* Large centered circular processing state — never a tiny inline spinner. */
+/* 300% Enlarged Orbital Processing Spinner:
+   Outer rotating arc spins around the outer circumference of the circle,
+   while the inner circle rests calmly inside with a subtle pulsing glow. */
+.erp-save-result-orbital-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 120px;
+  margin: 16px auto 20px;
+  position: relative;
+}
+
+.erp-save-result-orbital-svg {
+  width: 120px;
+  height: 120px;
+  display: block;
+  overflow: visible;
+}
+
+.erp-orbital-inner-disc {
+  fill: var(--theme-accent-soft, #eef2ff);
+  stroke: var(--theme-border, #e2e8f0);
+  stroke-width: 1.5;
+  transition: fill 0.3s;
+}
+
+.erp-orbital-inner-core {
+  fill: var(--theme-accent, #4f46e5);
+  animation: erpOrbitalCorePulse 2s ease-in-out infinite alternate;
+  transform-origin: 60px 60px;
+}
+
+.erp-orbital-outer-track {
+  stroke: var(--theme-border, #e2e8f0);
+  stroke-width: 3.5;
+  opacity: 0.7;
+}
+
+.erp-orbital-spinning-arc {
+  stroke: url(#erpOrbitalGrad);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-dasharray: 100 230;
+  transform-origin: 60px 60px;
+  animation: erpOrbitalSpin 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  filter: drop-shadow(0 2px 6px rgba(79, 70, 229, 0.35));
+}
+
+@keyframes erpOrbitalSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes erpOrbitalCorePulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.65;
+  }
+  100% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+/* Fallback for legacy class */
 .erp-save-result-spinner {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 92px;
-  height: 92px;
+  width: 110px;
+  height: 110px;
   margin: 14px auto 16px;
   border-radius: 50%;
   background: var(--theme-accent-soft, #eef2ff);
-  border: 1px solid var(--theme-border, #e4e7f1);
+  border: 2px solid var(--theme-border, #e4e7f1);
 }
 
-/* 48px ERP primary-blue spinner with a thicker stroke (not a tiny icon). */
 .erp-save-result-spinner-icon {
-  font-size: 48px;
+  font-size: 56px;
   color: var(--theme-accent, #4f46e5);
-}
-.erp-save-result-spinner-icon svg path {
-  stroke-width: 2.6;
 }
 
 .erp-save-result-hint {

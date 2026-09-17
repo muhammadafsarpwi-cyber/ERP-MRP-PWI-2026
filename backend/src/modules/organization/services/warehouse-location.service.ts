@@ -1,14 +1,17 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, TreeRepository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, TreeRepository, DataSource } from 'typeorm';
 import { WarehouseLocation, WarehouseLocationStatus } from '../entities';
 import { CreateWarehouseLocationDto, UpdateWarehouseLocationDto } from '../dto';
+import { populateAuditNames } from '../helpers/audit-names';
 
 @Injectable()
 export class WarehouseLocationService {
   constructor(
     @InjectRepository(WarehouseLocation)
     private readonly locationRepository: TreeRepository<WarehouseLocation>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createLocationDto: CreateWarehouseLocationDto, userId?: string): Promise<WarehouseLocation> {
@@ -87,6 +90,7 @@ export class WarehouseLocationService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await populateAuditNames(this.dataSource, data);
 
     return { data, total };
   }
@@ -101,6 +105,7 @@ export class WarehouseLocationService {
       throw new NotFoundException(`Location with ID '${id}' not found`);
     }
 
+    await populateAuditNames(this.dataSource, [location]);
     return location;
   }
 
@@ -238,6 +243,15 @@ export class WarehouseLocationService {
       throw new BadRequestException('Cannot delete location with child locations');
     }
 
-    await this.locationRepository.remove(location);
+    try {
+      await this.locationRepository.remove(location);
+    } catch (error: any) {
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete location because it is referenced by existing inventory or store transactions. Please deactivate it instead.',
+        );
+      }
+      throw error;
+    }
   }
 }

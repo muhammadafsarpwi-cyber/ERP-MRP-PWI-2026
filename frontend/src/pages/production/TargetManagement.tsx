@@ -16,7 +16,7 @@ import {
   CalendarOutlined, UserOutlined, SafetyOutlined,
   ShopOutlined, SubnodeOutlined,
   MinusOutlined, CloseCircleOutlined, SyncOutlined, UploadOutlined,
-  AppstoreOutlined, WarningOutlined, FileTextOutlined,
+  AppstoreOutlined, WarningOutlined, FileTextOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -31,6 +31,7 @@ import {
 import { getMachineColor } from '../../utils/colorMapping';
 import TargetView, { TargetRecord } from './TargetView';
 import TargetSaveSuccessModal from './TargetSaveSuccessModal';
+import { useRegisterUnsavedChanges } from '../../store/unsavedChangesRegistry';
 
 const { Text } = Typography;
 
@@ -339,6 +340,7 @@ const TargetManagement: React.FC = () => {
     mode: 'create' | 'edit';
   } | null>(null);
   const [form] = Form.useForm();
+  useRegisterUnsavedChanges('/production/targets', () => modalVisible && form.isFieldsTouched());
   const formMachineId = Form.useWatch('machineId', form);
   const formItemId = Form.useWatch('itemId', form);
   const formShiftId = Form.useWatch('shiftId', form);
@@ -2548,7 +2550,7 @@ const TargetManagement: React.FC = () => {
               {/* Metrics Row: Time Remaining, Speed, Success, Failed */}
               <div className="import-progress-metrics-row">
                 <div className="import-metric-chip">
-                  <span className="metric-icon">⏱️</span>
+                  <span className="metric-icon"><ClockCircleOutlined style={{ color: '#4f46e5' }} /></span>
                   <div>
                     <div className="metric-label">Estimated Time</div>
                     <div className="metric-val" style={{ color: '#4f46e5' }}>
@@ -2558,7 +2560,7 @@ const TargetManagement: React.FC = () => {
                 </div>
 
                 <div className="import-metric-chip">
-                  <span className="metric-icon">⚡</span>
+                  <span className="metric-icon"><ThunderboltOutlined style={{ color: '#0284c7' }} /></span>
                   <div>
                     <div className="metric-label">Import Speed</div>
                     <div className="metric-val" style={{ color: '#0284c7' }}>
@@ -2568,7 +2570,7 @@ const TargetManagement: React.FC = () => {
                 </div>
 
                 <div className="import-metric-chip">
-                  <span className="metric-icon">✅</span>
+                  <span className="metric-icon"><CheckCircleOutlined style={{ color: '#16a34a' }} /></span>
                   <div>
                     <div className="metric-label">Imported</div>
                     <div className="metric-val" style={{ color: '#16a34a' }}>
@@ -2578,7 +2580,7 @@ const TargetManagement: React.FC = () => {
                 </div>
 
                 <div className="import-metric-chip">
-                  <span className="metric-icon">❌</span>
+                  <span className="metric-icon"><CloseCircleOutlined style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }} /></span>
                   <div>
                     <div className="metric-label">Failed</div>
                     <div className="metric-val" style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }}>

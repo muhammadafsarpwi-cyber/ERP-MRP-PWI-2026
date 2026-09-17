@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Drawer, Grid, Button } from 'antd';
-import { MenuOutlined } from '@ant-design/icons';
+import { Layout, Menu, Drawer, Grid, Button, Tooltip } from 'antd';
+import { MenuOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
+import { triggerTabRefresh } from '../../services/tabSessionCache';
 import ThemeSettingsButton from './ThemeCustomizer';
 import HeaderSearch from './HeaderSearch';
 import NotificationBell from './NotificationBell';
@@ -10,6 +11,8 @@ import EmailCommunicationIcon from './EmailCommunicationIcon';
 import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
 import ProfileMenu from './ProfileMenu';
 import RawReceiptMinimizedDock from './RawReceiptMinimizedDock';
+import WorkspaceTabStrip from './WorkspaceTabStrip';
+import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import './sidebar-nav.css';
 import './gradientLoadingBar.css';
 import GradientLoadingBar from './GradientLoadingBar';
@@ -30,6 +33,8 @@ import {
   navPathForKey,
 } from './navigationConfig';
 import type { NavColorToken } from './navigationConfig';
+
+import { prefetchAllLookups } from '../../services/lookupsCache';
 
 const { Header, Sider, Content } = Layout;
 
@@ -298,7 +303,27 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   React.useEffect(() => {
     useThemeStore.getState().initializeForUser();
+    void prefetchAllLookups();
   }, []);
+
+  // Sync active route with the Workspace Tab Store
+  React.useEffect(() => {
+    if (!location.pathname || location.pathname === '/' || location.pathname === '/login') return;
+
+    const title = typeof headerTitleText === 'string'
+      ? headerTitleText
+      : typeof pageTitle === 'string'
+      ? pageTitle
+      : 'Page';
+
+    useWorkspaceTabStore.getState().openTab({
+      id: location.pathname,
+      route: `${location.pathname}${location.search}`,
+      pathname: location.pathname,
+      title,
+      closable: location.pathname !== '/dashboard',
+    });
+  }, [location.pathname, location.search, headerTitleText, pageTitle]);
 
   const handleMenuClick = (info: { key: string }) => {
     setMobileOpen(false);
@@ -314,6 +339,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const latestOpenKey = nextOpenKeys.find((key) => !openKeys.includes(key));
     setOpenKeys(latestOpenKey ? [latestOpenKey] : []);
   };
+
+  React.useEffect(() => {
+    const width = isMobile ? '0px' : (effectivelyCollapsed ? '80px' : `${SIDER_WIDTH}px`);
+    document.documentElement.style.setProperty('--erp-sidebar-width', width);
+  }, [isMobile, effectivelyCollapsed]);
 
   const themeMode = useThemeStore((state) => state.draft.mode);
   const isLight = themeMode === 'light';
@@ -333,78 +363,105 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           theme={isLight ? 'light' : 'dark'}
           className={`erp-desktop-sider ${isLight ? 'theme-light-sider' : 'theme-dark-sider'}`}
           style={{
-            overflow: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
             height: '100vh',
             position: 'fixed',
             left: 0,
             top: 0,
             bottom: 0,
+            overflow: 'hidden',
             background: isLight ? '#ffffff' : '#0b1120',
             borderRight: isLight ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
             zIndex: 1001,
           }}
         >
-        <div
-          style={{
-            minHeight: 38,
-            margin: '14px 12px 14px',
-            padding: '6px 12px',
-            background: '#0f172a',
-            border: '1px solid #1e293b',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-            borderRadius: 8,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',
-            flexWrap: 'nowrap',
-            gap: 12,
-            overflow: 'hidden',
-          }}
-        >
-          <img
-            src={`${process.env.PUBLIC_URL}/logo.png`}
-            alt="Company logo"
+          {/* FIXED SIDEBAR BRAND HEADER — Pinned at top, never scrolls */}
+          <div
+            className="erp-sidebar-brand-fixed"
             style={{
-              display: 'block',
-              flex: 'none',
-              height: effectivelyCollapsed ? 26 : 30,
-              width: effectivelyCollapsed ? 26 : 30,
-              objectFit: 'contain',
+              flexShrink: 0,
+              padding: effectivelyCollapsed ? '14px 8px' : '14px 14px',
+              background: isLight ? '#f1f5f9' : '#070b14',
+              borderBottom: isLight ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',
+              gap: 10,
+              overflow: 'hidden',
+              userSelect: 'none',
             }}
-          />
-          {!effectivelyCollapsed && (
-            <span
+          >
+            <img
+              src={`${process.env.PUBLIC_URL}/logo.png`}
+              alt="PWI Logo"
               style={{
-                color: '#ffffff',
-                fontSize: 15,
-                fontWeight: 700,
-                letterSpacing: '-0.01em',
-                whiteSpace: 'nowrap',
-                marginLeft: 2,
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                display: 'block',
+                flexShrink: 0,
+                height: effectivelyCollapsed ? 28 : 32,
+                width: effectivelyCollapsed ? 28 : 32,
+                objectFit: 'contain',
               }}
-            >
-              ERP System
-            </span>
-          )}
-        </div>
-        <Menu
-          theme={isLight ? 'light' : 'dark'}
-          mode="inline"
-          inlineIndent={16}
-          selectedKeys={[activeKeys.selectedKey]}
-          {...(effectivelyCollapsed ? {} : { openKeys })}
-          items={menuItems}
-          onClick={handleMenuClick}
-          onOpenChange={handleOpenChange}
-          style={{
-            background: 'transparent',
-            borderRight: 0,
-            paddingBottom: 96,
-          }}
-        />
+            />
+            {!effectivelyCollapsed && (
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+                <span
+                  style={{
+                    color: isLight ? '#0f172a' : '#ffffff',
+                    fontSize: 14,
+                    fontWeight: 700,
+                    letterSpacing: '0.02em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  PWI ERP SYSTEM
+                </span>
+                <span
+                  style={{
+                    color: isLight ? '#475569' : '#94a3b8',
+                    fontSize: 10,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    lineHeight: 1.3,
+                    marginTop: 2,
+                  }}
+                >
+                  Pakistan Wire Industries (Pvt) Ltd
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* SCROLLABLE MENU — Scrollbar stays strictly contained beneath fixed brand header */}
+          <div
+            className="erp-sidebar-menu-scrollable"
+            style={{
+              flex: '1 1 auto',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+            }}
+          >
+            <Menu
+              theme={isLight ? 'light' : 'dark'}
+              mode="inline"
+              inlineIndent={16}
+              selectedKeys={[activeKeys.selectedKey]}
+              {...(effectivelyCollapsed ? {} : { openKeys })}
+              items={menuItems}
+              onClick={handleMenuClick}
+              onOpenChange={handleOpenChange}
+              style={{
+                background: 'transparent',
+                borderRight: 0,
+                paddingBottom: 96,
+              }}
+            />
+          </div>
         </Sider>
       )}
       {isMobile && (
@@ -423,9 +480,14 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 alt="Company logo"
                 style={{ height: 26, width: 26, objectFit: 'contain' }}
               />
-              <span style={{ fontWeight: 600, fontSize: 16 }}>
-                ERP System
-              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.2, color: 'var(--theme-text, #0f172a)' }}>
+                  PWI ERP System
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--theme-text-secondary, #64748b)', lineHeight: 1.2, marginTop: 2 }}>
+                  Pakistan Wire Industries
+                </span>
+              </div>
             </div>
           }
         >
@@ -475,19 +537,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           <div className="pwi-company-marquee-banner" role="marquee" aria-label="Company Announcement">
             <div className="pwi-marquee-track">
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6, filter: 'brightness(0)' }} />
                 <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6, filter: 'brightness(0)' }} />
                 <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6, filter: 'brightness(0)' }} />
                 <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6, filter: 'brightness(0)' }} />
                 <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
             </div>
@@ -538,6 +600,24 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               }}
             >
               <HeaderSearch />
+              <Tooltip title="Refresh active page data (Direct DB Sync)">
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={() => triggerTabRefresh(location.pathname)}
+                  style={{
+                    borderRadius: 6,
+                    fontWeight: 600,
+                    fontSize: 12,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                  size="middle"
+                  className="erp-top-header-refresh-btn"
+                >
+                  Refresh
+                </Button>
+              </Tooltip>
               {headerActions.map((a) => (
                 <div key={a.key} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                   {a.node}
@@ -625,6 +705,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           </div>
           <GradientLoadingBar />
         </Header>
+        <WorkspaceTabStrip />
         <Content
           className="erp-app-content"
           style={{

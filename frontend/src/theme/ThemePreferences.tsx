@@ -25,6 +25,8 @@ import {
   SearchOutlined,
   SunOutlined,
   ThunderboltOutlined,
+  StarFilled,
+  SettingOutlined,
 } from '@ant-design/icons';
 import {
   PALETTES,
@@ -341,11 +343,13 @@ export const ThemePreferences: React.FC<ThemePreferencesProps> = ({
             }}
           >
             <div className="erp-theme-preview-sider-icon" style={{ background: 'rgba(255,255,255,0.2)' }}>
-              ★
+              <StarFilled style={{ fontSize: 11 }} />
             </div>
             <div className="erp-theme-preview-sider-icon">●</div>
             <div className="erp-theme-preview-sider-icon">■</div>
-            <div className="erp-theme-preview-sider-icon">⚙</div>
+            <div className="erp-theme-preview-sider-icon">
+              <SettingOutlined style={{ fontSize: 11 }} />
+            </div>
           </div>
 
           {/* Mini Main Content Area with KPI metric cards & action elements */}

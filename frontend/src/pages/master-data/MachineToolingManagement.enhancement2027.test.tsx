@@ -146,7 +146,7 @@ describe('Machine Tooling Management — Store Item Auto-Fill & Enhanced Modal T
 
     await waitFor(() => {
       expect(screen.getByText('Store Item / Product Master')).toBeInTheDocument();
-      expect(screen.getByText('⚡ Auto-fills Code, Name & UOM')).toBeInTheDocument();
+      expect(screen.getByText(/Auto-fills Code, Name & UOM/)).toBeInTheDocument();
     });
   });
 

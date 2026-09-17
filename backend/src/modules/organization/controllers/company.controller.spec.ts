@@ -4,6 +4,8 @@ import { CompanyService } from '../services';
 import { CompanyStatus } from '../entities';
 import { PermissionService } from '../../permission/services/permission.service';
 import { ErpUserService } from '../../user/services/erp-user.service';
+import { SupabaseAuthService } from '../../auth/services/supabase-auth.service';
+import { ConfigService } from '@nestjs/config';
 
 describe('CompanyController', () => {
   let controller: CompanyController;
@@ -43,6 +45,14 @@ describe('CompanyController', () => {
         {
           provide: ErpUserService,
           useValue: { findByAuthUserId: jest.fn().mockResolvedValue({ id: 'erp-user', status: 'ACTIVE' }) },
+        },
+        {
+          provide: SupabaseAuthService,
+          useValue: { verifyToken: jest.fn().mockResolvedValue({ sub: 'auth-user' }) },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue('test-secret') },
         },
       ],
     }).compile();

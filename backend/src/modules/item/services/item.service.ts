@@ -524,20 +524,98 @@ export class ItemService implements OnModuleInit {
     return saved;
   }
 
+  private lookupMemoryCache: { data: any[]; timestamp: number } | null = null;
+  private readonly LOOKUP_CACHE_TTL = 5 * 60 * 1000;
+
+  invalidateLookupCache(): void {
+    this.lookupMemoryCache = null;
+  }
+
+  /**
+   * Fast, lightweight item lookup for frontend dropdowns and prefetch caches.
+   * Caches active items in memory for 5 minutes (invalidated on item write)
+   * so frontend requests resolve in < 5ms.
+   */
+  async getLookupItems(departmentId?: string): Promise<any[]> {
+    try {
+      const now = Date.now();
+      if (!departmentId && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
+        return this.lookupMemoryCache.data;
+      }
+
+      let sql = `
+        SELECT 
+          i.id,
+          i.item_code AS "itemCode",
+          i.name,
+          i.base_uom_id AS "baseUomId",
+          u.code AS "baseUomCode",
+          u.symbol AS "baseUomSymbol",
+          i.item_type AS "itemType",
+          i.material_role_usage AS "materialRoleUsage",
+          i.status,
+          i.is_manufacturable AS "isManufacturable",
+          i.department_id AS "departmentId",
+          i.section_id AS "sectionId",
+          i.division_id AS "divisionId",
+          i.category_id AS "categoryId",
+          i.wire_size_mm AS "wireSizeMm",
+          i.weight_per_piece AS "weightPerPiece",
+          i.pieces_per_kg AS "piecesPerKg",
+          i.weight_per_meter AS "weightPerMeter",
+          i.length_per_piece AS "lengthPerPiece",
+          i.production_in_item_id AS "productionInItemId",
+          i.production_out_item_id AS "productionOutItemId"
+        FROM items i
+        LEFT JOIN uoms u ON u.id = i.base_uom_id
+        WHERE i.status = 'ACTIVE'
+      `;
+      const params: any[] = [];
+      if (departmentId) {
+        params.push(departmentId);
+        sql += ` AND i.department_id = $1`;
+      }
+      sql += ` ORDER BY i.name ASC`;
+
+      const rows = await this.itemRepository.query(sql, params);
+      const result = (rows || []).map((r: any) => ({
+        ...r,
+        baseUom: r.baseUomCode ? { code: r.baseUomCode, symbol: r.baseUomSymbol } : undefined,
+      }));
+
+      if (!departmentId) {
+        this.lookupMemoryCache = { data: result, timestamp: now };
+      }
+
+      return result;
+    } catch (err: any) {
+      this.logger.error(`getLookupItems failed: ${err.message}`, err.stack);
+      throw err;
+    }
+  }
+
   async findAll(filter: ItemFilterDto): Promise<{ data: Item[]; total: number }> {
     const { page = 1, limit = 20, search, status, itemType, itemTypeId, materialRoleUsage, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, thicknessMm, widthMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
 
-    const qb = this.itemRepository.createQueryBuilder('item')
-      .leftJoinAndSelect('item.category', 'category')
-      .leftJoinAndSelect('item.baseUom', 'baseUom')
-      .leftJoinAndSelect('item.company', 'company')
-      .leftJoinAndSelect('item.division', 'division')
-      .leftJoinAndSelect('item.section', 'section')
-      .leftJoinAndSelect('item.department', 'department')
-      .leftJoinAndSelect('item.routeTypeRef', 'routeTypeRef')
-      .leftJoinAndSelect('item.itemTypeRef', 'itemTypeRef')
-      .leftJoinAndSelect('item.productionInItem', 'productionInItem')
-      .leftJoinAndSelect('item.productionOutItem', 'productionOutItem');
+    const qb = this.itemRepository.createQueryBuilder('item');
+
+    // If fetching large datasets (e.g. caches/lookups limit > 200), only join essential relations to prevent query timeouts
+    if (limit > 200) {
+      qb.leftJoinAndSelect('item.category', 'category')
+        .leftJoinAndSelect('item.baseUom', 'baseUom')
+        .leftJoinAndSelect('item.department', 'department');
+    } else {
+      qb.leftJoinAndSelect('item.category', 'category')
+        .leftJoinAndSelect('item.baseUom', 'baseUom')
+        .leftJoinAndSelect('item.company', 'company')
+        .leftJoinAndSelect('item.division', 'division')
+        .leftJoinAndSelect('item.section', 'section')
+        .leftJoinAndSelect('item.department', 'department')
+        .leftJoinAndSelect('item.routeTypeRef', 'routeTypeRef')
+        .leftJoinAndSelect('item.itemTypeRef', 'itemTypeRef')
+        .leftJoinAndSelect('item.productionInItem', 'productionInItem')
+        .leftJoinAndSelect('item.productionOutItem', 'productionOutItem');
+    }
 
     if (search) {
       qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.barcode ILIKE :search OR item.materialRoleUsage ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search OR CAST(item.diameterMm AS TEXT) ILIKE :search)', { search: `%${search}%` });

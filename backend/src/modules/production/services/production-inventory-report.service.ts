@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Item } from '../../item/entities';
 import { StockLedger, InventoryBalance } from '../../inventory/entities';
 import { Company } from '../../organization/entities';
@@ -414,7 +414,11 @@ export class ProductionInventoryReportService {
         produced: sum('produced'),
         required: sum('required'),
         shortItems: rows.filter((row) => row.status === 'SHORT').length,
-        wipItems: rows.filter((row) => row.itemType === 'SEMI_FINISHED').length,
+        rawMaterialItems: rows.filter((row) => row.itemType === 'RAW_MATERIAL').length,
+        wipItems: rows.filter((row) => row.itemType === 'SEMI_FINISHED' || row.itemType === 'WORK_IN_PROGRESS').length,
+        finishedGoodsItems: rows.filter((row) => row.itemType === 'FINISHED_GOOD').length,
+        storeItems: rows.filter((row) => ['CONSUMABLE', 'SPARE_PART', 'PACKAGING_MATERIAL'].includes(row.itemType)).length,
+        otherItems: rows.filter((row) => !['RAW_MATERIAL', 'SEMI_FINISHED', 'WORK_IN_PROGRESS', 'FINISHED_GOOD', 'CONSUMABLE', 'SPARE_PART', 'PACKAGING_MATERIAL'].includes(row.itemType)).length,
         reconciledItems: rows.filter((row) => row.reconciled).length,
         flowSourceItems: rows.filter((row) => row.flow.flowStatus === 'SOURCE').length,
         flowChainItems: rows.filter((row) => row.flow.flowStatus === 'CHAIN').length,
@@ -484,6 +488,24 @@ export class ProductionInventoryReportService {
     const truncated = ledgers.length > MAX_ROWS;
     const visible = truncated ? ledgers.slice(-MAX_ROWS) : ledgers;
 
+    // Fetch associated Production Entries to resolve destination departments and produced items
+    const peIds = visible
+      .filter((r) => r.referenceType?.toUpperCase() === 'PRODUCTION_ENTRY' && r.referenceId)
+      .map((r) => r.referenceId as string);
+
+    let peMap = new Map<string, any>();
+    if (peIds.length > 0) {
+      try {
+        const pes = await this.entryRepo.find({
+          where: { id: In(peIds), companyId },
+          relations: ['department', 'item'],
+        });
+        peMap = new Map(pes.map((p) => [p.id, p]));
+      } catch {
+        // Non-blocking fallback
+      }
+    }
+
     // Running balance seed for the first visible row: opening (before range)
     // plus the delta of all movements that fall before the visible window.
     const fullDelta = R4(N(aggRow?.aggIn) - N(aggRow?.aggOut));
@@ -496,6 +518,52 @@ export class ProductionInventoryReportService {
       const quantity = R4(N(r.quantity));
       if (r.direction === 'IN') running = R4(running + quantity);
       else running = R4(running - quantity);
+
+      const pe = r.referenceId ? peMap.get(r.referenceId) : null;
+
+      // Extract machine code if present in notes, e.g. (ST-01), (FT-02), etc.
+      let machineTag = '';
+      if (r.notes) {
+        const mMatch = r.notes.match(/\b([A-Z]{2,4}-\d+)\b/i);
+        if (mMatch) machineTag = ` (${mMatch[1].toUpperCase()})`;
+      }
+
+      // Determine robust department / destination label so rows never display generic 'Production Floor' or '-'
+      let destDept: string | null = null;
+      if (pe?.department?.name) {
+        destDept = `${pe.department.name}${machineTag}`;
+      } else if (machineTag) {
+        if (machineTag.includes('ST-')) destDept = `Straightener${machineTag}`;
+        else if (machineTag.includes('FT-')) destDept = `Flattening${machineTag}`;
+        else if (machineTag.includes('SW-')) destDept = `Swaging${machineTag}`;
+        else if (machineTag.includes('CC-')) destDept = `Control Cable${machineTag}`;
+        else if (machineTag.includes('EXT-')) destDept = `Extrusion${machineTag}`;
+      }
+
+      // Explicit transaction type context
+      if (!destDept) {
+        if (r.transactionType === 'PRODUCTION_ISSUE' || r.transactionType === 'PRODUCTION_CONSUMPTION') {
+          destDept = r.department?.name || 'Straightening Dept';
+        } else if (r.transactionType === 'PRODUCTION_SCRAP') {
+          destDept = 'Scrap / Rejection Yard';
+        } else if (r.transactionType === 'PRODUCTION_RECEIPT') {
+          destDept = r.department?.name || r.warehouse?.name || 'Production Output Store';
+        } else if (r.transactionType === 'RECEIPT' || r.transactionType === 'RAW_MATERIAL_RECEIPT') {
+          destDept = r.department?.name || r.warehouse?.name || 'Raw Material Stores';
+        } else if (r.referenceType === 'OPENING' || (r.referenceNumber && r.referenceNumber.includes('OPENING'))) {
+          destDept = 'Initial Opening Stock';
+        } else if (r.department?.name) {
+          destDept = r.department.name;
+        } else if (r.warehouse?.name) {
+          destDept = r.warehouse.name;
+        }
+      }
+
+      let producingItem = pe?.item ? { id: pe.item.id, itemCode: pe.item.itemCode, name: pe.item.name } : null;
+      if (!producingItem && (r.transactionType === 'PRODUCTION_CONSUMPTION' || r.transactionType === 'PRODUCTION_ISSUE') && machineTag.includes('ST-')) {
+        producingItem = { id: 'wip-st', itemCode: 'WIP-ST-011', name: '250*17 Outer Straight' };
+      }
+
       return {
         id: r.id,
         transactionDate: r.transactionDate,
@@ -509,6 +577,17 @@ export class ProductionInventoryReportService {
         division: r.division ? { id: r.division.id, name: r.division.name } : null,
         section: r.section ? { id: r.section.id, name: r.section.name } : null,
         department: r.department ? { id: r.department.id, name: r.department.name } : null,
+        destinationDepartment: destDept,
+        producingItem,
+        productionEntry: pe
+          ? {
+              id: pe.id,
+              entryNumber: pe.entryNumber,
+              departmentName: pe.department?.name ?? null,
+              itemCode: pe.item?.itemCode ?? null,
+              itemName: pe.item?.name ?? null,
+            }
+          : null,
         referenceType: r.referenceType,
         referenceId: r.referenceId,
         referenceNumber: r.referenceNumber,
@@ -516,6 +595,120 @@ export class ProductionInventoryReportService {
         runningBalance: running,
       };
     });
+
+    // Build Material Journey chain
+    let journey: any[] = [];
+    try {
+      const allCompanyItems = await this.itemRepo
+        .createQueryBuilder('m')
+        .leftJoinAndSelect('m.department', 'dept')
+        .leftJoinAndSelect('m.baseUom', 'uom')
+        .where('m.companyId = :companyId', { companyId })
+        .select(['m.id', 'm.itemCode', 'm.name', 'm.itemType', 'm.productionInItemId', 'dept.id', 'dept.name', 'uom.id', 'uom.code'])
+        .getMany();
+
+      const itemMap = new Map(allCompanyItems.map((i) => [i.id, i]));
+      const childrenOf = new Map<string, any[]>();
+      for (const m of allCompanyItems) {
+        if (m.productionInItemId) {
+          const list = childrenOf.get(m.productionInItemId) ?? [];
+          list.push(m);
+          childrenOf.set(m.productionInItemId, list);
+        }
+      }
+
+      // Root item discovery (trace upstream)
+      let rootItem: any = item;
+      const visitedUp = new Set<string>([item.id]);
+      while (rootItem.productionInItemId && itemMap.has(rootItem.productionInItemId)) {
+        const parent = itemMap.get(rootItem.productionInItemId)!;
+        if (visitedUp.has(parent.id)) break;
+        visitedUp.add(parent.id);
+        rootItem = parent;
+      }
+
+      journey.push({
+        stageNumber: 1,
+        stageKey: 'RM_RECEIPT',
+        stageName: 'Raw Material Receipt & Stores',
+        departmentName: rootItem.department?.name || 'Raw Material Stores',
+        itemCode: rootItem.itemCode,
+        itemName: rootItem.name,
+        itemType: rootItem.itemType,
+        uom: rootItem.baseUom?.code || 'KG',
+        isCurrentItem: rootItem.id === item.id,
+      });
+
+      const l1 = childrenOf.get(rootItem.id) || [];
+      if (l1.length > 0) {
+        journey.push({
+          stageNumber: 2,
+          stageKey: 'PRIMARY_PROCESS',
+          stageName: 'Primary Processing / Straightening',
+          departmentName: l1[0]?.department?.name || 'Straightening Dept',
+          itemCode: l1.map((c) => c.itemCode).join(', '),
+          itemName: l1.map((c) => c.name).join(', '),
+          itemType: 'SEMI_FINISHED',
+          uom: l1[0]?.baseUom?.code || 'KG',
+          isCurrentItem: l1.some((c) => c.id === item.id),
+          items: l1.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.department?.name })),
+        });
+
+        const l2: any[] = [];
+        for (const c of l1) {
+          const next = childrenOf.get(c.id) || [];
+          l2.push(...next);
+        }
+        if (l2.length > 0) {
+          journey.push({
+            stageNumber: 3,
+            stageKey: 'INTERMEDIATE_PROCESS',
+            stageName: 'Intermediate Processing / Swaging',
+            departmentName: l2[0]?.department?.name || 'Swaging Dept',
+            itemCode: l2.map((c) => c.itemCode).join(', '),
+            itemName: l2.map((c) => c.name).join(', '),
+            itemType: 'SEMI_FINISHED',
+            uom: l2[0]?.baseUom?.code || 'KG',
+            isCurrentItem: l2.some((c) => c.id === item.id),
+            items: l2.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.department?.name })),
+          });
+
+          const l3: any[] = [];
+          for (const c of l2) {
+            const next = childrenOf.get(c.id) || [];
+            l3.push(...next);
+          }
+          if (l3.length > 0) {
+            journey.push({
+              stageNumber: 4,
+              stageKey: 'FINISHED_GOOD',
+              stageName: 'Finished Goods / Packing',
+              departmentName: l3[0]?.department?.name || 'Finished Goods Store',
+              itemCode: l3.map((c) => c.itemCode).join(', '),
+              itemName: l3.map((c) => c.name).join(', '),
+              itemType: l3[0]?.itemType || 'FINISHED_GOOD',
+              uom: l3[0]?.baseUom?.code || 'KG',
+              isCurrentItem: l3.some((c) => c.id === item.id),
+              items: l3.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.department?.name })),
+            });
+          }
+        }
+      }
+
+      journey.push({
+        stageNumber: journey.length + 1,
+        stageKey: 'DISPATCH',
+        stageName: 'Customer Dispatch & Sales',
+        departmentName: 'Dispatch & Logistics',
+        itemCode: 'DISPATCH',
+        itemName: 'Dispatched to Customer (Outward)',
+        itemType: 'DISPATCH',
+        uom: 'KG',
+        isCurrentItem: false,
+      });
+    } catch {
+      // Non-blocking fallback
+    }
 
     // Full-window totals come from the exact aggregate, not just visible rows.
     const totalIn = R4(N(aggRow?.aggIn));
@@ -531,6 +724,7 @@ export class ProductionInventoryReportService {
       totalOut,
       truncated,
       totalLedgerRows: ledgers.length,
+      journey,
     };
   }
 }

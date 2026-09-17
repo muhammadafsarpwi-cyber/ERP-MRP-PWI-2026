@@ -144,6 +144,8 @@ describe('Production Inventory Report', () => {
         <ProductionInventoryReport />
       </MemoryRouter>
     );
+    const filterBtn = await screen.findByRole('button', { name: /Filters/i });
+    fireEvent.click(filterBtn);
     const movementSelect = await screen.findByText('All Movements');
     fireEvent.mouseDown(movementSelect);
     await waitFor(() => expect(screen.getAllByText('Issue to Production').length).toBeGreaterThan(0));
@@ -197,5 +199,82 @@ describe('Production Inventory Report', () => {
       </MemoryRouter>
     );
     expect(await screen.findByText(/No inventory data for this selection/i)).toBeInTheDocument();
+  });
+
+  it('supports instant quick search and filters displayed items', async () => {
+    render(
+      <MemoryRouter>
+        <ProductionInventoryReport />
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('RM-WIRE-120')).toBeInTheDocument();
+
+    const searchInput = screen.getByPlaceholderText(/Search by code, name, department, type/i);
+    fireEvent.change(searchInput, { target: { value: 'NON_EXISTENT_QUERY' } });
+
+    await waitFor(() => {
+      expect(screen.queryByText('RM-WIRE-120')).not.toBeInTheDocument();
+    });
+
+    // Clearing restores the item
+    fireEvent.change(searchInput, { target: { value: '' } });
+    await waitFor(() => {
+      expect(screen.getByText('RM-WIRE-120')).toBeInTheDocument();
+    });
+  });
+
+  it('opens multi-department report modal with selectable checkboxes and export actions', async () => {
+    render(
+      <MemoryRouter>
+        <ProductionInventoryReport />
+      </MemoryRouter>
+    );
+    const multiDeptBtn = await screen.findByRole('button', { name: /Multi-Dept Report/i });
+    fireEvent.click(multiDeptBtn);
+
+    expect(await screen.findByText(/Multi-Department Production & Inventory Report/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tick the departments you want to compare/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /WhatsApp/i }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: /Email/i })).toBeInTheDocument();
+  });
+
+  it('renders category quick-filter cards and allows filtering by category', async () => {
+    render(
+      <MemoryRouter>
+        <ProductionInventoryReport />
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('RM-WIRE-120')).toBeInTheDocument();
+    expect(screen.getByText('All Items')).toBeInTheDocument();
+    expect(screen.getByText('Raw Material')).toBeInTheDocument();
+    expect(screen.getByText('WIP / Semi-Fin')).toBeInTheDocument();
+
+    // Clicking WIP filters out the Raw Material
+    fireEvent.click(screen.getByText('WIP / Semi-Fin'));
+    await waitFor(() => {
+      expect(screen.queryByText('RM-WIRE-120')).not.toBeInTheDocument();
+    });
+
+    // Clicking All Items restores it
+    fireEvent.click(screen.getByText('All Items'));
+    await waitFor(() => {
+      expect(screen.getByText('RM-WIRE-120')).toBeInTheDocument();
+    });
+  });
+
+  it('opens End-to-End Material Flow & Journey modal', async () => {
+    render(
+      <MemoryRouter>
+        <ProductionInventoryReport />
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('RM-WIRE-120')).toBeInTheDocument();
+
+    const journeyBtns = screen.getAllByRole('button', { name: /Journey/i });
+    expect(journeyBtns.length).toBeGreaterThan(0);
+    fireEvent.click(journeyBtns[0]);
+
+    expect(await screen.findByText(/End-to-End Material Flow & Traceability Journey/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Share Journey on WhatsApp/i })).toBeInTheDocument();
   });
 });

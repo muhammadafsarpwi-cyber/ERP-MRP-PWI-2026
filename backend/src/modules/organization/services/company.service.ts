@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, DataSource } from 'typeorm';
 import { Company, CompanyStatus } from '../entities';
 import { CreateCompanyDto, UpdateCompanyDto } from '../dto';
+import { populateAuditNames } from '../helpers/audit-names';
 
 /** Standard item type seeds applied to every new company (canonical + legacy). */
 const STANDARD_ITEM_TYPES: Array<{ code: string; name: string; description: string | null; sortOrder: number }> = [
@@ -39,6 +40,8 @@ export class CompanyService {
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createCompanyDto: CreateCompanyDto, userId?: string): Promise<Company> {
@@ -111,6 +114,7 @@ export class CompanyService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await populateAuditNames(this.dataSource, data);
 
     return { data, total };
   }
@@ -118,13 +122,14 @@ export class CompanyService {
   async findOne(id: string): Promise<Company> {
     const company = await this.companyRepository.findOne({
       where: { id },
-      relations: ['branches', 'businessUnits', 'departments', 'warehouses'],
+      relations: ['branches', 'businessUnits', 'departments', 'warehouses', 'divisions', 'sections'],
     });
 
     if (!company) {
       throw new NotFoundException(`Company with ID '${id}' not found`);
     }
 
+    await populateAuditNames(this.dataSource, [company]);
     return company;
   }
 
@@ -182,10 +187,19 @@ export class CompanyService {
     const company = await this.findOne(id);
 
     // Check if company has dependencies
-    if (company.branches?.length > 0 || company.businessUnits?.length > 0 || company.departments?.length > 0 || company.warehouses?.length > 0) {
+    if (company.branches?.length > 0 || company.businessUnits?.length > 0 || company.departments?.length > 0 || company.warehouses?.length > 0 || company.divisions?.length > 0 || company.sections?.length > 0) {
       throw new BadRequestException('Cannot delete company with existing dependencies');
     }
 
-    await this.companyRepository.remove(company);
+    try {
+      await this.companyRepository.remove(company);
+    } catch (error: any) {
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete company because it is referenced by existing operations, divisions, sections, or users. Please deactivate it instead.',
+        );
+      }
+      throw error;
+    }
   }
 }

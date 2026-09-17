@@ -58,10 +58,12 @@ class ApiService {
     let activeRequests = 0;
 
     this.api.interceptors.request.use(
-      (config) => {
-        activeRequests += 1;
-        loading().begin();
-        const token = localStorage.getItem('token');
+      (config: any) => {
+        if (!config?.silent) {
+          activeRequests += 1;
+          loading().begin();
+        }
+        const token = localStorage.getItem('token') || localStorage.getItem('access_token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -86,8 +88,8 @@ class ApiService {
       failedQueue = [];
     };
 
-    const completeRequest = () => {
-      if (activeRequests > 0) {
+    const completeRequest = (config?: any) => {
+      if (!config?.silent && activeRequests > 0) {
         activeRequests -= 1;
         loading().end();
       }
@@ -95,11 +97,11 @@ class ApiService {
 
     this.api.interceptors.response.use(
       (response: AxiosResponse) => {
-        completeRequest();
+        completeRequest(response.config);
         return response;
       },
       async (error: AxiosError) => {
-        completeRequest();
+        completeRequest(error.config);
         const originalRequest = error.config as any;
         const status = error.response?.status;
         const currentPath = window.location.pathname;
@@ -166,8 +168,8 @@ class ApiService {
     );
   }
 
-  async get<T>(url: string, params?: any): Promise<T> {
-    const response = await this.api.get<T>(url, { params });
+  async get<T>(url: string, params?: any, config?: any): Promise<T> {
+    const response = await this.api.get<T>(url, { params, ...config });
     return response.data;
   }
 

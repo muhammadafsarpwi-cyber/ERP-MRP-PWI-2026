@@ -1,5 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import apiService from '../../../services/api';
+import {
+  getLookupsSnapshot,
+  prefetchAllLookups,
+  subscribeLookups,
+  cacheDepartmentItems,
+  getCachedDepartmentItems,
+} from '../../../services/lookupsCache';
 
 export interface LookupItem { id: string; name: string; }
 export interface Division extends LookupItem { divisionCode: string; }
@@ -38,7 +45,15 @@ export interface UomConversionLk { id: string; fromUomId: string; toUomId: strin
 export interface ShiftLk extends LookupItem { shiftCode: string; startTime: string | null; endTime: string | null; plannedHours: number; }
 export interface MachineLk extends LookupItem { machineCode: string; departmentId: string | null; department?: { name: string } | null; }
 export interface DowntimeReasonLk extends LookupItem { code: string; }
-export interface ProductionOrderLk { id: string; orderNumber: string; productId: string; uomId: string; status: string; }
+export interface ProductionOrderLk {
+  id: string;
+  orderNumber: string;
+  productId: string;
+  uomId: string;
+  status: string;
+  item?: { name?: string; itemCode?: string } | null;
+  product?: { name?: string; itemCode?: string } | null;
+}
 export interface HrEmployeeLk {
   id: string;
   employeeCode: string;
@@ -63,98 +78,53 @@ async function fetchList<T>(url: string, params?: Record<string, unknown>): Prom
 }
 
 export function useLookups() {
-  const [divisions, setDivisions] = useState<Division[]>([]);
-  const [sections, setSections] = useState<Section[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [items, setItems] = useState<ItemLk[]>([]);
-  const [deptItemsMap, setDeptItemsMap] = useState<Record<string, ItemLk[]>>({});
+  const initialSnap = getLookupsSnapshot();
+
+  const [divisions, setDivisions] = useState<Division[]>(() => initialSnap.divisions as Division[]);
+  const [sections, setSections] = useState<Section[]>(() => initialSnap.sections as Section[]);
+  const [departments, setDepartments] = useState<Department[]>(() => initialSnap.departments as Department[]);
+  const [items, setItems] = useState<ItemLk[]>(() => initialSnap.items as ItemLk[]);
+  const [deptItemsMap, setDeptItemsMap] = useState<Record<string, ItemLk[]>>(() => initialSnap.deptItemsMap as Record<string, ItemLk[]>);
   const [deptItemsLoading, setDeptItemsLoading] = useState<Record<string, boolean>>({});
-  const [uoms, setUoms] = useState<UomLk[]>([]);
-  const [uomConversions, setUomConversions] = useState<UomConversionLk[]>([]);
-  const [shifts, setShifts] = useState<ShiftLk[]>([]);
-  const [machines, setMachines] = useState<MachineLk[]>([]);
-  const [downtimeReasons, setDowntimeReasons] = useState<DowntimeReasonLk[]>([]);
-  const [downtimeReasonsLoading, setDowntimeReasonsLoading] = useState(true);
+  const [uoms, setUoms] = useState<UomLk[]>(() => initialSnap.uoms as UomLk[]);
+  const [uomConversions, setUomConversions] = useState<UomConversionLk[]>(() => initialSnap.uomConversions as UomConversionLk[]);
+  const [shifts, setShifts] = useState<ShiftLk[]>(() => initialSnap.shifts as ShiftLk[]);
+  const [machines, setMachines] = useState<MachineLk[]>(() => initialSnap.machines as MachineLk[]);
+  const [downtimeReasons, setDowntimeReasons] = useState<DowntimeReasonLk[]>(() => initialSnap.downtimeReasons as DowntimeReasonLk[]);
+  const [downtimeReasonsLoading, setDowntimeReasonsLoading] = useState(initialSnap.downtimeReasons.length === 0);
   const [downtimeReasonsFailed, setDowntimeReasonsFailed] = useState(false);
-  const [productionOrders, setProductionOrders] = useState<ProductionOrderLk[]>([]);
-  const [hrEmployees, setHrEmployees] = useState<HrEmployeeLk[]>([]);
-  const [hrEmployeesLoading, setHrEmployeesLoading] = useState(true);
+  const [productionOrders, setProductionOrders] = useState<ProductionOrderLk[]>(() => initialSnap.productionOrders as ProductionOrderLk[]);
+  const [hrEmployees, setHrEmployees] = useState<HrEmployeeLk[]>(() => initialSnap.employees as HrEmployeeLk[]);
+  const [hrEmployeesLoading, setHrEmployeesLoading] = useState(initialSnap.employees.length === 0);
 
   useEffect(() => {
-    void fetchList<Division>('/divisions', { limit: 200 }).then(setDivisions);
-    void fetchList<Section>('/sections', { limit: 500 }).then(setSections);
-    void fetchList<Department>('/departments', { limit: 500 }).then((dep) => setDepartments(dep.filter((d) => d.divisionId && d.sectionId)));
-    void fetchList<ItemLk>('/master-data/items', { limit: 2000, status: 'ACTIVE' }).then(setItems);
-    void fetchList<UomLk>('/master-data/uom', { limit: 200 }).then(setUoms);
-    void fetchList<UomConversionLk>('/master-data/uom-conversions', { limit: 500 }).then((conv) => setUomConversions(conv.filter((c) => c.status === 'ACTIVE')));
-    void fetchList<ShiftLk>('/production/shifts').then(setShifts);
-    void fetchList<ProductionOrderLk>('/production/orders', { limit: 200 }).then(setProductionOrders);
-    void fetchList<MachineLk>('/production/machines', { limit: 500 }).then(setMachines);
-    void (async () => {
-      setHrEmployeesLoading(true);
-      try {
-        let finalEmployees: HrEmployeeLk[] = [];
-        // 1. Primary: dedicated lookup endpoint
-        try {
-          finalEmployees = await fetchList<HrEmployeeLk>('/hr/employees/lookup');
-        } catch {}
-
-        // 2. Secondary: list endpoint with companyId
-        if (!finalEmployees || finalEmployees.length === 0) {
-          let companyId: string | undefined;
-          try {
-            const raw = localStorage.getItem('erp_user');
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              companyId = parsed?.defaultCompanyId;
-            }
-          } catch {}
-          const effectiveCompanyId = companyId || '7725aa04-a270-4314-9e82-90949cbe7791';
-
-          try {
-            const res = await apiService.get<any>('/hr/employees', {
-              companyId: effectiveCompanyId,
-              limit: 500,
-              status: 'ACTIVE',
-            });
-            const list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
-            if (list.length > 0) {
-              finalEmployees = list.map((e: any) => ({
-                id: e.id,
-                employeeCode: e.employeeCode,
-                firstName: e.firstName,
-                lastName: e.lastName ?? null,
-                departmentId: e.departmentId ?? null,
-                departmentName: e.department?.name ?? null,
-                jobTitle: e.jobTitle || e.designation?.designationName || null,
-                status: e.status,
-              }));
-            }
-          } catch {}
-        }
-
-        // 3. Cache & set state
-        if (finalEmployees && finalEmployees.length > 0) {
-          try {
-            localStorage.setItem('erp_cached_operators', JSON.stringify(finalEmployees));
-          } catch {}
-          setHrEmployees(finalEmployees);
-        } else {
-          // 4. Offline / cold fallback from cache
-          try {
-            const cached = localStorage.getItem('erp_cached_operators');
-            if (cached) {
-              const parsed = JSON.parse(cached);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setHrEmployees(parsed);
-              }
-            }
-          } catch {}
-        }
-      } finally {
+    // 1. Subscribe to any background cache updates
+    const unsubscribe = subscribeLookups((snap) => {
+      if (snap.divisions.length > 0) setDivisions(snap.divisions as Division[]);
+      if (snap.sections.length > 0) setSections(snap.sections as Section[]);
+      if (snap.departments.length > 0) setDepartments(snap.departments as Department[]);
+      if (snap.items.length > 0) setItems(snap.items as ItemLk[]);
+      if (snap.uoms.length > 0) setUoms(snap.uoms as UomLk[]);
+      if (snap.uomConversions.length > 0) setUomConversions(snap.uomConversions as UomConversionLk[]);
+      if (snap.shifts.length > 0) setShifts(snap.shifts as ShiftLk[]);
+      if (snap.machines.length > 0) setMachines(snap.machines as MachineLk[]);
+      if (snap.productionOrders.length > 0) setProductionOrders(snap.productionOrders as ProductionOrderLk[]);
+      if (snap.employees.length > 0) {
+        setHrEmployees(snap.employees as HrEmployeeLk[]);
         setHrEmployeesLoading(false);
       }
-    })();
+      if (snap.downtimeReasons.length > 0) {
+        setDowntimeReasons(snap.downtimeReasons as DowntimeReasonLk[]);
+        setDowntimeReasonsLoading(false);
+      }
+    });
+
+    // 2. Parallel prefetch (asynchronous, non-blocking)
+    prefetchAllLookups().catch(() => {});
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   /** Dynamically loads employees for a specific department to ensure department-level operators are available */
@@ -205,7 +175,8 @@ export function useLookups() {
   /** Dynamically loads items for a specific department and caches them */
   const loadDepartmentItems = useCallback(async (departmentId: string): Promise<ItemLk[]> => {
     if (!departmentId) return [];
-    if (deptItemsMap[departmentId]?.length) return deptItemsMap[departmentId];
+    const cached = getCachedDepartmentItems(departmentId) || deptItemsMap[departmentId];
+    if (cached && cached.length > 0) return cached as ItemLk[];
     setDeptItemsLoading((prev) => ({ ...prev, [departmentId]: true }));
     try {
       const fetched = await fetchList<ItemLk>('/master-data/items', {
@@ -214,6 +185,7 @@ export function useLookups() {
         status: 'ACTIVE',
       });
       if (fetched && fetched.length > 0) {
+        cacheDepartmentItems(departmentId, fetched);
         setDeptItemsMap((prev) => ({ ...prev, [departmentId]: fetched }));
         setItems((prevItems) => {
           const existingIds = new Set(prevItems.map((i) => i.id));

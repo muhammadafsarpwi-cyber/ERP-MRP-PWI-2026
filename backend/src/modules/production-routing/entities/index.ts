@@ -8,3 +8,7 @@ export {
   RoutingOperationOutput,
   RoutingOutputType,
 } from './routing-operation-output.entity';
+export {
+  RoutingOperationConnection,
+  RoutingConnectionType,
+} from './routing-operation-connection.entity';

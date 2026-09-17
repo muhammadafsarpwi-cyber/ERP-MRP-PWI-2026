@@ -1,14 +1,17 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, DataSource } from 'typeorm';
 import { Division, DivisionStatus } from '../entities';
 import { CreateDivisionDto, UpdateDivisionDto } from '../dto';
+import { populateAuditNames } from '../helpers/audit-names';
 
 @Injectable()
 export class DivisionService {
   constructor(
     @InjectRepository(Division)
     private readonly divisionRepository: Repository<Division>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createDivisionDto: CreateDivisionDto, userId?: string): Promise<Division> {
@@ -65,6 +68,7 @@ export class DivisionService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await populateAuditNames(this.dataSource, data);
 
     return { data, total };
   }
@@ -72,13 +76,14 @@ export class DivisionService {
   async findOne(id: string): Promise<Division> {
     const division = await this.divisionRepository.findOne({
       where: { id },
-      relations: ['company', 'sections', 'sections.departments'],
+      relations: ['company', 'sections', 'sections.departments', 'departments'],
     });
 
     if (!division) {
       throw new NotFoundException(`Division with ID '${id}' not found`);
     }
 
+    await populateAuditNames(this.dataSource, [division]);
     return division;
   }
 
@@ -130,6 +135,19 @@ export class DivisionService {
       throw new BadRequestException('Cannot delete division with existing sections');
     }
 
-    await this.divisionRepository.remove(division);
+    if (division.departments && division.departments.length > 0) {
+      throw new BadRequestException('Cannot delete division with existing departments');
+    }
+
+    try {
+      await this.divisionRepository.remove(division);
+    } catch (error: any) {
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete division because it is referenced by existing operations, sections, or departments. Please deactivate it instead.',
+        );
+      }
+      throw error;
+    }
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { ProductionRouting, RoutingStatus, RoutingOperation } from '../entities';
+import { ProductionRouting, RoutingStatus, RoutingOperation, RoutingOperationConnection, RoutingConnectionType } from '../entities';
 import { RoutingOperationInput, RoutingInputScrapBasis } from '../entities/routing-operation-input.entity';
 import { RoutingOperationOutput, RoutingOutputType } from '../entities/routing-operation-output.entity';
 import {
@@ -12,6 +12,8 @@ import {
   UpdateRoutingOperationDto,
   RoutingOperationInputDto,
   RoutingOperationOutputDto,
+  CreateRoutingConnectionDto,
+  UpdateRoutingConnectionDto,
 } from '../dto';
 import { Item } from '../../item/entities/item.entity';
 import { ItemRouteType, RouteTypeStatus } from '../../item/entities/route-type.entity';
@@ -25,9 +27,9 @@ import { Machine } from '../../production/entities/machine.entity';
 import { Operation } from '../../operation/entities/operation.entity';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  [RoutingStatus.DRAFT]: [RoutingStatus.ACTIVE],
-  [RoutingStatus.ACTIVE]: [RoutingStatus.OBSOLETE],
-  [RoutingStatus.OBSOLETE]: [],
+  [RoutingStatus.DRAFT]: [RoutingStatus.ACTIVE, RoutingStatus.OBSOLETE],
+  [RoutingStatus.ACTIVE]: [RoutingStatus.DRAFT, RoutingStatus.OBSOLETE],
+  [RoutingStatus.OBSOLETE]: [RoutingStatus.DRAFT, RoutingStatus.ACTIVE],
 };
 
 const RELATIONS = [
@@ -50,6 +52,9 @@ const RELATIONS = [
   'operations.outputs',
   'operations.outputs.item',
   'operations.outputs.uom',
+  'connections',
+  'connections.fromOperation',
+  'connections.toOperation',
 ];
 
 @Injectable()
@@ -65,6 +70,8 @@ export class ProductionRoutingService {
     private readonly inputRepo: Repository<RoutingOperationInput>,
     @InjectRepository(RoutingOperationOutput)
     private readonly outputRepo: Repository<RoutingOperationOutput>,
+    @InjectRepository(RoutingOperationConnection)
+    private readonly connectionRepo: Repository<RoutingOperationConnection>,
     @InjectRepository(Item)
     private readonly itemRepo: Repository<Item>,
     @InjectRepository(ItemRouteType)
@@ -87,13 +94,53 @@ export class ProductionRoutingService {
     private readonly operationMasterRepo: Repository<Operation>,
   ) {}
 
+  private async populateAuditNames(routings: ProductionRouting[]): Promise<ProductionRouting[]> {
+    if (!routings || routings.length === 0) return routings;
+
+    const userIds = new Set<string>();
+    for (const r of routings) {
+      if (r.createdBy) userIds.add(r.createdBy);
+      if (r.updatedBy) userIds.add(r.updatedBy);
+    }
+
+    if (userIds.size === 0) return routings;
+
+    try {
+      const idsArray = Array.from(userIds);
+      const users = await this.routingRepo.manager.query(
+        `SELECT id, auth_user_id, display_name, email FROM erp_users WHERE id = ANY($1::uuid[]) OR auth_user_id = ANY($1::uuid[])`,
+        [idsArray],
+      );
+
+      const nameMap = new Map<string, string>();
+      for (const u of users) {
+        const name = u.display_name || u.email || 'User';
+        if (u.id) nameMap.set(u.id, name);
+        if (u.auth_user_id) nameMap.set(u.auth_user_id, name);
+      }
+
+      for (const r of routings) {
+        (r as any).createdByName = r.createdBy ? (nameMap.get(r.createdBy) || null) : null;
+        (r as any).updatedByName = r.updatedBy ? (nameMap.get(r.updatedBy) || null) : null;
+      }
+    } catch {
+      for (const r of routings) {
+        (r as any).createdByName = (r as any).createdByName || null;
+        (r as any).updatedByName = (r as any).updatedByName || null;
+      }
+    }
+
+    return routings;
+  }
+
   async findAll(companyId: string): Promise<ProductionRouting[]> {
     const routings = await this.routingRepo.find({
       where: { companyId, isActive: true },
-      relations: RELATIONS,
+      relations: ['routeType', 'product', 'bom', 'operations'],
       order: { routingCode: 'ASC' },
     });
     routings.forEach((r) => this.sortOperations(r));
+    await this.populateAuditNames(routings);
     return routings;
   }
 
@@ -106,6 +153,7 @@ export class ProductionRoutingService {
       throw new NotFoundException(`Production Routing not found with id ${id}`);
     }
     this.sortOperations(routing);
+    await this.populateAuditNames([routing]);
     return routing;
   }
 
@@ -258,8 +306,8 @@ export class ProductionRoutingService {
   async update(id: string, dto: UpdateRoutingDto, companyId: string, userId?: string): Promise<ProductionRouting> {
     const routing = await this.findOne(id, companyId);
 
-    if (routing.status !== RoutingStatus.DRAFT) {
-      throw new BadRequestException('Only DRAFT routings can be edited');
+    if (routing.status !== RoutingStatus.DRAFT && dto.operations) {
+      throw new BadRequestException('Only DRAFT routings can have operations replaced. Please change status to DRAFT first.');
     }
 
     if (dto.productId && dto.productId !== routing.productId) {
@@ -356,6 +404,12 @@ export class ProductionRoutingService {
     routing.isActive = false;
     routing.updatedBy = userId || null;
     await this.routingRepo.save(routing);
+
+    // Also soft-delete active operations
+    await this.operationRepo.update(
+      { routingId: id, isActive: true },
+      { isActive: false, updatedBy: userId || null },
+    );
   }
 
   async addOperation(
@@ -682,19 +736,30 @@ export class ProductionRoutingService {
   }
 
   private async generateRoutingCode(companyId: string): Promise<string> {
-    const last = await this.routingRepo.findOne({
+    const routings = await this.routingRepo.find({
       where: { companyId },
-      order: { routingCode: 'DESC' },
+      select: ['routingCode'],
     });
 
-    if (last && last.routingCode) {
-      const match = last.routingCode.match(/RTG-(\d+)/);
-      if (match) {
-        const next = parseInt(match[1], 10) + 1;
-        return `RTG-${String(next).padStart(3, '0')}`;
+    let maxNum = 0;
+    for (const r of routings) {
+      if (!r.routingCode) continue;
+      const m = r.routingCode.match(/^RTG-(\d+)$/i);
+      if (m) {
+        const num = parseInt(m[1], 10);
+        if (num > maxNum) maxNum = num;
       }
     }
-    return 'RTG-001';
+
+    let candidateNum = maxNum + 1;
+    let candidate = `RTG-${String(candidateNum).padStart(3, '0')}`;
+    const existingSet = new Set(routings.map((r) => r.routingCode?.toUpperCase()));
+    while (existingSet.has(candidate.toUpperCase())) {
+      candidateNum++;
+      candidate = `RTG-${String(candidateNum).padStart(3, '0')}`;
+    }
+
+    return candidate;
   }
 
   /**
@@ -1317,5 +1382,301 @@ export class ProductionRoutingService {
       .filter((id): id is string => !!id);
 
     return { routing, stages, sourceNodeIds, branchNodeIds, convergenceNodeIds };
+  }
+
+  /* ── Production Routing Graph & Operation Connections (PROMPT #5) ──────── */
+
+  /**
+   * Retrieves all active operation-to-operation graph connections for a routing.
+   */
+  async getConnections(routingId: string, companyId: string): Promise<RoutingOperationConnection[]> {
+    return this.connectionRepo.find({
+      where: { routingId, companyId, isActive: true },
+      relations: ['fromOperation', 'toOperation'],
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Explicitly establishes a directed graph connection from one operation to another.
+   * Validates company scoping, prevents self-connections, prevents duplicates, and prevents cycles.
+   */
+  async createConnection(
+    routingId: string,
+    dto: CreateRoutingConnectionDto,
+    companyId: string,
+    userId?: string,
+  ): Promise<RoutingOperationConnection> {
+    if (dto.fromOperationId === dto.toOperationId) {
+      throw new BadRequestException('Cannot connect an operation to itself');
+    }
+
+    const [routing, fromOp, toOp] = await Promise.all([
+      this.routingRepo.findOne({ where: { id: routingId, companyId, isActive: true } }),
+      this.operationRepo.findOne({ where: { id: dto.fromOperationId, routingId, companyId, isActive: true } }),
+      this.operationRepo.findOne({ where: { id: dto.toOperationId, routingId, companyId, isActive: true } }),
+    ]);
+
+    if (!routing) {
+      throw new NotFoundException(`Production routing with id ${routingId} not found`);
+    }
+    if (!fromOp) {
+      throw new BadRequestException(`Source operation '${dto.fromOperationId}' does not belong to this routing`);
+    }
+    if (!toOp) {
+      throw new BadRequestException(`Target operation '${dto.toOperationId}' does not belong to this routing`);
+    }
+
+    // Check duplicate
+    const existing = await this.connectionRepo.findOne({
+      where: {
+        routingId,
+        fromOperationId: dto.fromOperationId,
+        toOperationId: dto.toOperationId,
+        isActive: true,
+      },
+    });
+    if (existing) {
+      throw new BadRequestException('A connection between these two operations already exists');
+    }
+
+    // Cycle detection: check if fromOperation is reachable from toOperation in the existing graph
+    const allConnections = await this.connectionRepo.find({
+      where: { routingId, companyId, isActive: true },
+      select: ['fromOperationId', 'toOperationId'],
+    });
+
+    const adj = new Map<string, string[]>();
+    for (const c of allConnections) {
+      const list = adj.get(c.fromOperationId) || [];
+      list.push(c.toOperationId);
+      adj.set(c.fromOperationId, list);
+    }
+
+    const queue = [dto.toOperationId];
+    const visited = new Set<string>([dto.toOperationId]);
+    let hasCycle = false;
+
+    while (queue.length > 0) {
+      const curr = queue.shift()!;
+      if (curr === dto.fromOperationId) {
+        hasCycle = true;
+        break;
+      }
+      const neighbors = adj.get(curr) || [];
+      for (const next of neighbors) {
+        if (!visited.has(next)) {
+          visited.add(next);
+          queue.push(next);
+        }
+      }
+    }
+
+    if (hasCycle) {
+      throw new BadRequestException(
+        'Circular dependency detected: adding this connection creates a cycle in the routing process graph',
+      );
+    }
+
+    const conn = this.connectionRepo.create({
+      companyId,
+      routingId,
+      fromOperationId: dto.fromOperationId,
+      toOperationId: dto.toOperationId,
+      connectionType: dto.connectionType || RoutingConnectionType.SEQUENTIAL,
+      branchLabel: dto.branchLabel ? dto.branchLabel.trim() : null,
+      orderIndex: dto.orderIndex ?? 1,
+      status: 'ACTIVE',
+      notes: dto.notes ?? null,
+      createdBy: userId ?? null,
+    });
+
+    return this.connectionRepo.save(conn);
+  }
+
+  /**
+   * Deletes a routing connection safely.
+   */
+  async deleteConnection(routingId: string, connectionId: string, companyId: string): Promise<void> {
+    const conn = await this.connectionRepo.findOne({
+      where: { id: connectionId, routingId, companyId },
+    });
+    if (!conn) {
+      throw new NotFoundException(`Connection '${connectionId}' not found for this routing`);
+    }
+    await this.connectionRepo.remove(conn);
+  }
+
+  /**
+   * Returns a complete, structured process graph representing the manufacturing routing.
+   * Operations with real input and output quantities, yield rates, branch nodes, and merge nodes.
+   * Backward compatibility: If no explicit connections exist, synthesizes linear sequence connections on-the-fly.
+   */
+  async getRoutingGraph(routingId: string, companyId: string): Promise<any> {
+    const routing = await this.routingRepo.findOne({
+      where: { id: routingId, companyId, isActive: true },
+      relations: [
+        'product',
+        'product.baseUom',
+        'bom',
+        'routeType',
+        'operations',
+        'operations.division',
+        'operations.section',
+        'operations.department',
+        'operations.machine',
+        'operations.uom',
+        'operations.inputs',
+        'operations.inputs.item',
+        'operations.inputs.item.baseUom',
+        'operations.inputs.uom',
+        'operations.outputs',
+        'operations.outputs.item',
+        'operations.outputs.item.baseUom',
+        'operations.outputs.uom',
+        'connections',
+        'connections.fromOperation',
+        'connections.toOperation',
+      ],
+    });
+
+    if (!routing) {
+      throw new NotFoundException(`Production routing not found with id ${routingId}`);
+    }
+
+    this.sortOperations(routing);
+    const ops = routing.operations || [];
+    const rawConns = routing.connections || [];
+
+    const hasExplicitConnections = rawConns.length > 0;
+    let edges: any[] = [];
+
+    if (hasExplicitConnections) {
+      edges = rawConns.map((c) => ({
+        id: c.id,
+        fromOperationId: c.fromOperationId,
+        toOperationId: c.toOperationId,
+        connectionType: c.connectionType,
+        branchLabel: c.branchLabel,
+        orderIndex: c.orderIndex,
+        isSynthetic: false,
+        status: c.status,
+        notes: c.notes,
+      }));
+    } else if (ops.length > 1) {
+      for (let i = 0; i < ops.length - 1; i++) {
+        edges.push({
+          id: `syn-${ops[i].id}-${ops[i + 1].id}`,
+          fromOperationId: ops[i].id,
+          toOperationId: ops[i + 1].id,
+          connectionType: RoutingConnectionType.SEQUENTIAL,
+          branchLabel: null,
+          orderIndex: i + 1,
+          isSynthetic: true,
+          status: 'ACTIVE',
+          notes: 'Default sequential connection derived from sequence_no',
+        });
+      }
+    }
+
+    const inDegreeMap = new Map<string, number>();
+    const outDegreeMap = new Map<string, number>();
+    for (const op of ops) {
+      inDegreeMap.set(op.id, 0);
+      outDegreeMap.set(op.id, 0);
+    }
+    for (const e of edges) {
+      outDegreeMap.set(e.fromOperationId, (outDegreeMap.get(e.fromOperationId) || 0) + 1);
+      inDegreeMap.set(e.toOperationId, (inDegreeMap.get(e.toOperationId) || 0) + 1);
+    }
+
+    const nodes = ops.map((op) => {
+      const inDegree = inDegreeMap.get(op.id) || 0;
+      const outDegree = outDegreeMap.get(op.id) || 0;
+
+      const inputs = (op.inputs || []).map((i) => ({
+        id: i.id,
+        itemId: i.itemId,
+        itemCode: i.item?.itemCode || '',
+        itemName: i.item?.name || '',
+        quantity: Number(i.quantity ?? 0),
+        uomCode: i.uom?.code || i.item?.baseUom?.code || 'KG',
+        isPrimary: i.isPrimary,
+        scrapBasis: i.scrapBasis,
+      }));
+
+      const outputs = (op.outputs || []).map((o) => ({
+        id: o.id,
+        itemId: o.itemId,
+        itemCode: o.item?.itemCode || '',
+        itemName: o.item?.name || '',
+        quantity: Number(o.quantity ?? 0),
+        uomCode: o.uom?.code || o.item?.baseUom?.code || 'KG',
+        outputType: o.outputType,
+        yieldPercentage: Number(o.yieldPercentage ?? 100),
+        isPrimary: o.isPrimary,
+      }));
+
+      return {
+        id: op.id,
+        sequenceNo: op.sequenceNo,
+        operationCode: op.operationCode,
+        operationName: op.operationName,
+        description: op.description,
+        division: op.division ? { id: op.division.id, name: op.division.name } : null,
+        section: op.section ? { id: op.section.id, name: op.section.name } : null,
+        department: op.department ? { id: op.department.id, name: op.department.name } : null,
+        machine: op.machine ? { id: op.machine.id, machineCode: op.machine.machineCode, name: op.machine.name } : null,
+        inputs,
+        outputs,
+        setupTimeMinutes: Number(op.setupTimeMinutes || 0),
+        runTimeMinutes: Number(op.runTimeMinutes || 0),
+        scrapPercentage: Number(op.scrapPercentage || 0),
+        inDegree,
+        outDegree,
+        isRoot: inDegree === 0,
+        isTerminal: outDegree === 0,
+        isBranch: outDegree > 1,
+        isMerge: inDegree > 1,
+        status: op.status,
+      };
+    });
+
+    const hasBranching = nodes.some((n) => n.isBranch);
+    const hasMerging = nodes.some((n) => n.isMerge);
+
+    return {
+      routing: {
+        id: routing.id,
+        routingCode: routing.routingCode,
+        name: routing.name,
+        description: routing.description,
+        productId: routing.productId,
+        product: routing.product
+          ? {
+              id: routing.product.id,
+              itemCode: routing.product.itemCode,
+              name: routing.product.name,
+              baseUomCode: routing.product.baseUom?.code || 'KG',
+            }
+          : null,
+        bomId: routing.bomId,
+        bomCode: routing.bom?.bomCode || null,
+        baseQuantity: Number(routing.baseQuantity || 1),
+        status: routing.status,
+        hasExplicitConnections,
+      },
+      nodes,
+      edges,
+      summary: {
+        totalOperations: nodes.length,
+        totalConnections: edges.length,
+        hasExplicitConnections,
+        hasBranching,
+        hasMerging,
+        rootOperationIds: nodes.filter((n) => n.isRoot).map((n) => n.id),
+        terminalOperationIds: nodes.filter((n) => n.isTerminal).map((n) => n.id),
+      },
+    };
   }
 }
