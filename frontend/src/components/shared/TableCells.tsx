@@ -42,13 +42,13 @@ export const HeaderCell: React.FC<{
   first: React.ReactNode;
   second?: React.ReactNode;
 }> = ({ icon, first, second }) => (
-  <span className="erp-th" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.45, gap: 1 }}>
-    <span className="erp-th__line" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.01, whiteSpace: 'nowrap' }}>
-      {icon && <span className="erp-th__icon" style={{ fontSize: 11, lineHeight: 1 }}>{icon}</span>}
+  <span className="erp-th" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', lineHeight: 1.45, gap: 1, color: '#ffffff' }}>
+    <span className="erp-th__line" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 700, fontSize: 12.5, letterSpacing: 0.01, whiteSpace: 'nowrap', color: '#ffffff' }}>
+      {icon && <span className="erp-th__icon" style={{ fontSize: 11, lineHeight: 1, color: '#ffffff' }}>{icon}</span>}
       {first}
     </span>
     {second != null && (
-      <span className="erp-th__line" style={{ fontWeight: 600, fontSize: 12.5, letterSpacing: 0.01, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+      <span className="erp-th__line" style={{ fontWeight: 700, fontSize: 12.5, letterSpacing: 0.01, whiteSpace: 'nowrap', lineHeight: 1.3, color: '#ffffff' }}>
         {typeof second === 'string' ? ` ${second}` : second}
       </span>
     )}

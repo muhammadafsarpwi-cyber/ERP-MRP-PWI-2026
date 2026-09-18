@@ -1456,17 +1456,17 @@ const RawMaterialReceiving: React.FC = () => {
     },
     { title: 'Status', dataIndex: 'status', key: 'status', width: 105, render: (v: string) => <Tag color={v === 'CONFIRMED' ? 'green' : v === 'DRAFT' ? 'gold' : 'red'}>{v}</Tag> },
     {
-      title: 'Actions', key: 'actions', width: 150,
+      title: 'Actions', key: 'actions', width: 160,
       render: (_, r) => (
-        <Space size={0}>
+        <Space size={6} className="erp-table-actions">
           <Tooltip title="View">
-            <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openDetail(r)} style={{ color: 'var(--theme-primary)' }} />
+            <Button type="text" size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} onClick={() => openDetail(r)} />
           </Tooltip>
           <Tooltip title="Edit">
-            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} style={{ color: 'var(--theme-warning, #d48806)' }} />
+            <Button type="text" size="small" className="erp-action-btn act-edit" icon={<EditOutlined />} onClick={() => openEdit(r)} />
           </Tooltip>
           <Tooltip title="Share on WhatsApp">
-            <Button type="text" size="small" icon={<WhatsAppOutlined />} data-testid="rm-action-wa" onClick={() => handleRowWaShare(r)} style={{ color: '#25D366' }} />
+            <Button type="text" size="small" className="erp-action-btn act-whatsapp" icon={<WhatsAppOutlined />} data-testid="rm-action-wa" onClick={() => handleRowWaShare(r)} />
           </Tooltip>
           <Popconfirm
             title="Delete this receipt?"
@@ -1477,7 +1477,7 @@ const RawMaterialReceiving: React.FC = () => {
             cancelText="Cancel"
           >
             <Tooltip title="Delete">
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+              <Button type="text" size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} />
             </Tooltip>
           </Popconfirm>
         </Space>
@@ -1774,15 +1774,16 @@ const RawMaterialReceiving: React.FC = () => {
 
               {/* SECTION 2: Gate Pass Items */}
               <div className="rm-form-section-card">
-                <div className="rm-form-section-header" style={{ justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="rm-form-section-header" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                     <span className="rm-form-section-number">02</span>
-                    <div className="rm-form-section-title-wrap">
-                      <div className="rm-form-section-title">Gate Pass Materials & Quantities</div>
-                      <div className="rm-form-section-subtitle">Raw material lines received against gate pass with live variance calculation</div>
+                    <div className="rm-form-section-title-wrap" style={{ minWidth: 0 }}>
+                      <div className="rm-form-section-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 14 }}>
+                        Gate Pass Materials &amp; Quantities
+                      </div>
                     </div>
                   </div>
-                  <Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={addLine}>
+                  <Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={addLine} style={{ flexShrink: 0 }}>
                     Add Material
                   </Button>
                 </div>
@@ -1793,25 +1794,44 @@ const RawMaterialReceiving: React.FC = () => {
                     <Table columns={lineColumns} dataSource={rows} rowKey="key" pagination={false} size="small" scroll={{ x: 1120 }}
                       locale={{ emptyText: 'No lines added yet.' }} />
                   )}
-                  <Row gutter={12} style={{ marginTop: 12 }}>
-                    <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
-                      <Text strong>Gate Pass Total:</Text> <Text>{formatNumber(totals.gatePassTotal, 2)}</Text>
-                    </Col>
-                    <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
-                      <Text strong>Received Total:</Text> <Text style={{ color: 'var(--theme-success, #52c41a)' }}>{formatNumber(totals.receivedTotal, 2)}</Text>
-                    </Col>
-                    <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
-                      <Text strong>Difference:</Text>{' '}
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '8px 14px',
+                      background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))',
+                      border: '1px solid var(--theme-border, rgba(15,23,42,0.08))',
+                      borderRadius: 6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      flexWrap: 'wrap',
+                      gap: '8px 18px',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Text type="secondary">Gate Pass Total:</Text>
+                      <Text strong style={{ fontSize: 13 }}>{formatNumber(totals.gatePassTotal, 2)}</Text>
+                    </span>
+                    <span style={{ color: 'var(--theme-border)', userSelect: 'none' }}>|</span>
+                    <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Text type="secondary">Received Total:</Text>
+                      <Text strong style={{ fontSize: 13, color: 'var(--theme-success, #52c41a)' }}>{formatNumber(totals.receivedTotal, 2)}</Text>
+                    </span>
+                    <span style={{ color: 'var(--theme-border)', userSelect: 'none' }}>|</span>
+                    <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Text type="secondary">Difference:</Text>{' '}
                       <Text
+                        strong
                         style={{
+                          fontSize: 13,
                           fontWeight: totals.differenceTotal !== 0 ? 700 : undefined,
                           color: totals.differenceTotal < 0 ? '#dc2626' : totals.differenceTotal > 0 ? 'var(--theme-warning, #d48806)' : undefined,
                         }}
                       >
                         {formatNumber(totals.differenceTotal, 2)}
                       </Text>
-                    </Col>
-                  </Row>
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -1989,14 +2009,67 @@ const RawMaterialReceiving: React.FC = () => {
                 </div>
               </div>
 
-              <Space style={{ marginTop: 12 }} wrap>
-                <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={submitting}>
-                  {isEditing ? 'Save Changes' : 'Confirm Receipt'}
-                </Button>
+              <div
+                className="rm-form-actions-footer-sticky"
+                style={{
+                  marginTop: 'auto',
+                  position: 'sticky',
+                  bottom: 0,
+                  zIndex: 30,
+                  padding: '12px 16px',
+                  background: 'var(--theme-surface, #ffffff)',
+                  borderTop: '1px solid var(--theme-border, rgba(15, 23, 42, 0.1))',
+                  boxShadow: '0 -4px 14px rgba(0, 0, 0, 0.08)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                {/* Row 1: Confirm and Cancel side-by-side on the SAME line */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+                  <Button
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    htmlType="submit"
+                    loading={submitting}
+                    style={{
+                      flex: 1,
+                      height: 38,
+                      fontWeight: 700,
+                      fontSize: 13,
+                    }}
+                  >
+                    {isEditing ? 'Save Changes' : 'Confirm Receipt'}
+                  </Button>
+                  <Button
+                    onClick={closeModalWithoutSave}
+                    disabled={submitting}
+                    style={{
+                      minWidth: 100,
+                      height: 38,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+
+                {/* Row 2: WhatsApp Preview & Share directly below */}
                 <Button
                   type="default"
-                  style={{ borderColor: '#25D366', color: '#15803d', fontWeight: 600 }}
-                  icon={<WhatsAppOutlined style={{ color: '#25D366' }} />}
+                  style={{
+                    width: '100%',
+                    height: 36,
+                    borderColor: '#25D366',
+                    color: '#15803d',
+                    fontWeight: 600,
+                    background: 'rgba(37, 211, 102, 0.06)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                  icon={<WhatsAppOutlined style={{ color: '#25D366', fontSize: 16 }} />}
                   onClick={() => {
                     const rawValues = form.getFieldsValue();
                     const shareInfo = buildShareInfoFromValues(isEditing ? (list.find((x) => x.id === editingId)?.receiptCode || 'DRAFT') : 'NEW-DRAFT', rawValues);
@@ -2005,8 +2078,7 @@ const RawMaterialReceiving: React.FC = () => {
                 >
                   WhatsApp Preview &amp; Share
                 </Button>
-                <Button onClick={closeModalWithoutSave} disabled={submitting}>Cancel</Button>
-              </Space>
+              </div>
             </Form>
           </div>
 

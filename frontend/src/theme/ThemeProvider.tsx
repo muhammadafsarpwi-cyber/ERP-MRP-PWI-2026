@@ -24,6 +24,7 @@ const buildCssVars = (
       '--theme-primary': accent,
       '--theme-primary-deep': darkenHex(accent, 0.28),
       '--theme-sider-bg': primary,
+      '--theme-sider-trigger-bg': darkenHex(primary, 0.24),
       '--theme-link': accent,
       '--theme-on-primary': '#ffffff',
       '--theme-surface': surface,
@@ -53,14 +54,31 @@ const buildCssVars = (
       '--theme-chart-grid': 'rgba(226, 232, 255, 0.09)',
       '--theme-chart-axis': 'rgba(199, 204, 235, 0.5)',
       '--theme-table-sticky-bg': surface,
-      '--theme-table-sticky-hover': mixHex(surface, accent, 0.12),
-      '--theme-table-sticky-selected': mixHex(surface, accent, 0.22),
-      '--theme-table-sticky-selected-hover': mixHex(surface, accent, 0.28),
+      '--theme-table-sticky-hover': mixHex(surface, accent, 0.18),
+      '--theme-table-sticky-selected': mixHex(surface, accent, 0.26),
+      '--theme-table-sticky-selected-hover': mixHex(surface, accent, 0.32),
+      // 2027 Dynamic Enterprise Table tokens (adapts directly to current palette)
+      '--theme-table-header-bg': darkenHex(primary, 0.18),
+      '--theme-table-header-color': '#ffffff',
+      '--theme-table-header-border': darkenHex(primary, 0.32),
+      '--theme-table-row-odd': surface,
+      '--theme-table-row-even': lightenHex(surface, 0.04),
+      '--theme-table-row-hover': mixHex(surface, accent, 0.18),
+      '--theme-table-row-selected': mixHex(surface, accent, 0.26),
+      '--theme-table-text': 'rgba(241, 245, 249, 0.95)',
+      '--theme-table-text-secondary': 'rgba(203, 213, 225, 0.65)',
+      '--theme-table-border': mixHex(surface, '#ffffff', 0.10),
+      '--theme-table-border-strong': mixHex(surface, '#ffffff', 0.18),
+      '--theme-table-scrollbar-thumb': mixHex(surface, accent, 0.38),
+      '--theme-table-scrollbar-track': darkenHex(surface, 0.12),
     };
   }
   return {
     '--theme-primary': primary,
     '--theme-primary-deep': darkenHex(primary, 0.22),
+    '--theme-sider-bg': '#ffffff',
+    '--theme-sider-trigger-bg': '#ffffff',
+    '--theme-link': accent,
     '--theme-on-primary': '#ffffff',
     '--theme-surface': surface,
     '--theme-surface-alt': mixHex(surface, primary, 0.03),
@@ -92,6 +110,20 @@ const buildCssVars = (
     '--theme-table-sticky-hover': mixHex(surface, primary, 0.05),
     '--theme-table-sticky-selected': mixHex(surface, primary, 0.10),
     '--theme-table-sticky-selected-hover': mixHex(surface, primary, 0.14),
+    // 2027 Dynamic Enterprise Table tokens (adapts directly to current palette)
+    '--theme-table-header-bg': darkenHex(primary, 0.18),
+    '--theme-table-header-color': '#ffffff',
+    '--theme-table-header-border': darkenHex(primary, 0.32),
+    '--theme-table-row-odd': '#ffffff',
+    '--theme-table-row-even': mixHex(surface, primary, 0.035),
+    '--theme-table-row-hover': mixHex('#ffffff', accent, 0.08),
+    '--theme-table-row-selected': mixHex('#ffffff', accent, 0.16),
+    '--theme-table-text': 'rgba(15, 23, 42, 0.92)',
+    '--theme-table-text-secondary': 'rgba(100, 116, 139, 0.85)',
+    '--theme-table-border': mixHex(surface, '#0f172a', 0.10),
+    '--theme-table-border-strong': mixHex(surface, '#0f172a', 0.18),
+    '--theme-table-scrollbar-thumb': mixHex(surface, '#0f172a', 0.25),
+    '--theme-table-scrollbar-track': mixHex(surface, '#0f172a', 0.04),
   };
 };
 
@@ -120,6 +152,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
 
   const themeConfig = React.useMemo(() => {
     const dark = draft.mode === 'dark';
+    const computedHeaderBg = dark ? darkenHex(roles.primary, 0.22) : darkenHex(roles.primary, 0.18);
     return {
       algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       token: {
@@ -153,17 +186,20 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
           darkItemSelectedBg: 'rgba(255, 255, 255, 0.18)',
         },
         Table: {
-          headerBg: dark ? lightenHex(roles.surface, 0.04) : mixHex(roles.surface, roles.primary, 0.04),
-          headerColor: dark ? 'rgba(241, 245, 249, 0.92)' : 'rgba(15, 23, 42, 0.88)',
-          headerSplitColor: dark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(15, 23, 42, 0.06)',
-          borderColor: dark ? mixHex(roles.surface, '#ffffff', 0.09) : mixHex(roles.surface, '#0f172a', 0.1),
-          rowHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.12) : mixHex(roles.surface, roles.primary, 0.05),
-          rowSelectedBg: dark ? mixHex(roles.surface, roles.accent, 0.22) : mixHex(roles.surface, roles.primary, 0.10),
-          rowSelectedHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.28) : mixHex(roles.surface, roles.primary, 0.14),
+          headerBg: computedHeaderBg,
+          headerColor: '#ffffff',
+          headerSplitColor: 'rgba(255, 255, 255, 0.15)',
+          headerSortActiveBg: dark ? darkenHex(roles.primary, 0.30) : darkenHex(roles.primary, 0.26),
+          headerSortHoverBg: dark ? darkenHex(roles.primary, 0.14) : darkenHex(roles.primary, 0.12),
+          fixedHeaderSortActiveBg: dark ? darkenHex(roles.primary, 0.30) : darkenHex(roles.primary, 0.26),
+          borderColor: dark ? mixHex(roles.surface, '#ffffff', 0.10) : mixHex(roles.surface, '#0f172a', 0.10),
+          rowHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.18) : mixHex('#ffffff', roles.accent, 0.08),
+          rowSelectedBg: dark ? mixHex(roles.surface, roles.accent, 0.26) : mixHex('#ffffff', roles.accent, 0.16),
+          rowSelectedHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.32) : mixHex('#ffffff', roles.accent, 0.20),
           cellPaddingBlock: 10,
           cellPaddingInline: 12,
           fontSize: 13,
-          fontWeightStrong: 600,
+          fontWeightStrong: 700,
         },
         Card: {
           headerBg: 'transparent',

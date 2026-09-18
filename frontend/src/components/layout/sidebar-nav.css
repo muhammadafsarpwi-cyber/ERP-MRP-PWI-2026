@@ -320,20 +320,20 @@
 
 /* Parent Category Heading when a child item inside it is selected (e.g. Master Data active tint) */
 .theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
-  background: rgba(79, 70, 229, 0.09) !important;
-  color: #4338ca !important;
+  background: var(--theme-accent-soft, rgba(79, 70, 229, 0.09)) !important;
+  color: var(--theme-primary, #4338ca) !important;
   font-weight: 750 !important;
-  border-left: 3.5px solid #4f46e5 !important;
+  border-left: 3.5px solid var(--theme-accent, #4f46e5) !important;
   border-radius: 0 8px 8px 0 !important;
 }
 
 .theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .erp-nav-label-text {
-  color: #4338ca !important;
+  color: var(--theme-primary, #4338ca) !important;
   font-weight: 750 !important;
 }
 
 .theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
-  color: #4f46e5 !important;
+  color: var(--theme-accent, #4f46e5) !important;
 }
 
 .theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title > .erp-nav-icon {
@@ -365,22 +365,22 @@
 
 /* Selected state in light mode - bold, unmistakable 2027 enterprise active styling */
 .theme-light-sider .ant-menu-light .ant-menu-item-selected {
-  background: linear-gradient(90deg, #eef2ff 0%, #e0e7ff 100%) !important;
-  color: #4338ca !important;
+  background: linear-gradient(90deg, var(--theme-accent-soft, #eef2ff) 0%, rgba(255, 255, 255, 0.7) 100%) !important;
+  color: var(--theme-primary, #4338ca) !important;
   font-weight: 700 !important;
-  border-left: 4px solid #4f46e5 !important;
+  border-left: 4px solid var(--theme-accent, #4f46e5) !important;
   border-radius: 0 8px 8px 0 !important;
-  box-shadow: 0 1px 4px rgba(79, 70, 229, 0.12);
+  box-shadow: 0 1px 4px var(--theme-accent-soft, rgba(79, 70, 229, 0.12));
 }
 
 .theme-light-sider .ant-menu-light .ant-menu-item-selected .erp-nav-label-text {
-  color: #4338ca !important;
+  color: var(--theme-primary, #4338ca) !important;
   font-weight: 700 !important;
 }
 
 .theme-light-sider .ant-menu-light .ant-menu-item-selected > .erp-nav-icon {
   transform: scale(1.06);
-  filter: drop-shadow(0 1px 2px rgba(79, 70, 229, 0.25));
+  filter: drop-shadow(0 1px 2px var(--theme-accent-soft, rgba(79, 70, 229, 0.25)));
 }
 
 /* Submenu background in light mode */
@@ -399,8 +399,8 @@
 
 .theme-light-sider .ant-menu-item-selected .erp-nav-chip--hot {
   color: #ffffff;
-  border-color: #4338ca;
-  background: #4f46e5;
+  border-color: var(--theme-accent, #4338ca);
+  background: var(--theme-accent, #4f46e5);
 }
 
 /* Light mode collapse trigger bar at bottom */
@@ -419,45 +419,45 @@
 
 /* ── Dark Mode Desktop Sidebar Enhancements ────────────────────── */
 .theme-dark-sider {
-  background: #0b1120 !important;
-  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: var(--theme-sider-bg, #0b1120) !important;
+  border-right: 1px solid var(--theme-border, rgba(255, 255, 255, 0.08)) !important;
 }
 
 .theme-dark-sider .ant-layout-sider-trigger {
-  background: #0b1120 !important;
-  color: rgba(255, 255, 255, 0.65) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: var(--theme-sider-trigger-bg, var(--theme-sider-bg, #0b1120)) !important;
+  color: rgba(255, 255, 255, 0.75) !important;
+  border-top: 1px solid var(--theme-border, rgba(255, 255, 255, 0.08)) !important;
   transition: all 0.2s ease;
 }
 
 .theme-dark-sider .ant-layout-sider-trigger:hover {
-  background: #111827 !important;
+  background: var(--theme-hover, rgba(255, 255, 255, 0.1)) !important;
   color: #ffffff !important;
 }
 
 .theme-dark-sider .ant-menu-item-selected {
-  background: linear-gradient(90deg, rgba(99, 102, 241, 0.24) 0%, rgba(99, 102, 241, 0.08) 100%) !important;
+  background: linear-gradient(90deg, var(--theme-accent-soft, rgba(99, 102, 241, 0.24)) 0%, rgba(255, 255, 255, 0.03) 100%) !important;
   color: #ffffff !important;
   font-weight: 700 !important;
-  border-left: 4px solid #818cf8 !important;
+  border-left: 4px solid var(--theme-accent, #818cf8) !important;
   border-radius: 0 8px 8px 0 !important;
 }
 
 .theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
-  background: rgba(99, 102, 241, 0.16) !important;
-  color: #a5b4fc !important;
+  background: var(--theme-accent-soft, rgba(99, 102, 241, 0.16)) !important;
+  color: var(--theme-accent-hover, #a5b4fc) !important;
   font-weight: 750 !important;
-  border-left: 3.5px solid #818cf8 !important;
+  border-left: 3.5px solid var(--theme-accent, #818cf8) !important;
   border-radius: 0 8px 8px 0 !important;
 }
 
 .theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .erp-nav-label-text {
-  color: #e0e7ff !important;
+  color: #ffffff !important;
   font-weight: 750 !important;
 }
 
 .theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
-  color: #a5b4fc !important;
+  color: var(--theme-accent, #a5b4fc) !important;
 }
 
 /* ── Mobile Sidebar Navigation Drawer ────────────────────────────────────────

@@ -701,6 +701,77 @@ export class ItemService implements OnModuleInit {
     return rows.map((r) => r.itemType).filter(Boolean);
   }
 
+  async getPipelineStats(filter: { companyId?: string; divisionId?: string; sectionId?: string; departmentId?: string }): Promise<{
+    total: number;
+    active: number;
+    inactive: number;
+    types: Array<{ key: string; label: string; count: number }>;
+  }> {
+    const baseQb = () => {
+      const qb = this.itemRepository.createQueryBuilder('item');
+      if (filter.companyId) {
+        qb.andWhere('item.companyId = :companyId', { companyId: filter.companyId });
+      }
+      if (filter.departmentId) {
+        qb.andWhere('item.departmentId = :departmentId', { departmentId: filter.departmentId });
+      } else if (filter.sectionId) {
+        qb.andWhere('item.sectionId = :sectionId', { sectionId: filter.sectionId });
+      } else if (filter.divisionId) {
+        qb.andWhere('item.divisionId = :divisionId', { divisionId: filter.divisionId });
+      }
+      return qb;
+    };
+
+    const totalPromise = baseQb().getCount();
+    const activePromise = baseQb().andWhere("item.status = 'ACTIVE'").getCount();
+    const inactivePromise = baseQb().andWhere("item.status = 'INACTIVE'").getCount();
+
+    const typesPromise = baseQb()
+      .select('item.itemType', 'itemType')
+      .addSelect('COUNT(item.id)', 'count')
+      .andWhere('item.itemType IS NOT NULL')
+      .groupBy('item.itemType')
+      .orderBy('COUNT(item.id)', 'DESC')
+      .getRawMany();
+
+    const [total, active, inactive, rawTypes] = await Promise.all([
+      totalPromise,
+      activePromise,
+      inactivePromise,
+      typesPromise,
+    ]);
+
+    const formatTypeLabel = (code: string) => {
+      if (!code) return 'Other';
+      if (code === 'RAW_MATERIAL') return 'Raw Material';
+      if (code === 'WORK_IN_PROGRESS') return 'Work In Progress';
+      if (code === 'FINISHED_GOOD' || code === 'FINISHED_GOODS') return 'Finished Goods';
+      if (code === 'SEMI_FINISHED') return 'Semi-Finished';
+      if (code === 'CONSUMABLE' || code === 'CONSUMABLES') return 'Consumables';
+      if (code === 'SPARE_PART' || code === 'SPARE_PARTS') return 'Spare Parts';
+      if (code === 'PACKAGING_MATERIAL') return 'Packaging';
+      return code
+        .replace(/_/g, ' ')
+        .toLowerCase()
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+    };
+
+    const types = (rawTypes || [])
+      .map((r: any) => ({
+        key: r.itemType,
+        label: formatTypeLabel(r.itemType),
+        count: parseInt(r.count, 10) || 0,
+      }))
+      .filter((t: any) => t.count > 0);
+
+    return {
+      total,
+      active,
+      inactive,
+      types,
+    };
+  }
+
   async findBySku(companyId: string, sku: string): Promise<Item> {
     const item = await this.itemRepository.findOne({ where: { companyId, sku }, relations: ['category', 'baseUom'] });
     if (!item) throw new NotFoundException(`Item with SKU '${sku}' not found in this company`);
@@ -871,7 +942,7 @@ export class ItemService implements OnModuleInit {
       { label: 'production entry', sql: 'SELECT COUNT(*)::int AS c FROM production_entries WHERE item_id = $1' },
       { label: 'machine target', sql: 'SELECT COUNT(*)::int AS c FROM machine_targets WHERE item_id = $1' },
       { label: 'stock ledger entry', sql: 'SELECT COUNT(*)::int AS c FROM stock_ledger WHERE item_id = $1' },
-      { label: 'inventory balance', sql: 'SELECT COUNT(*)::int AS c FROM inventory_balances WHERE item_id = $1' },
+      { label: 'inventory balance with stock', sql: 'SELECT COUNT(*)::int AS c FROM inventory_balances WHERE item_id = $1 AND (on_hand > 0 OR reserved > 0)' },
     ];
 
     const refs: string[] = [];
@@ -889,6 +960,20 @@ export class ItemService implements OnModuleInit {
       throw new ConflictException(
         `Item '${item.itemCode}' is referenced by ${refs.join(', ')} and cannot be deleted. Deactivate or discontinue it instead.`,
       );
+    }
+
+    // Clean up empty zero-balance records and child records if any before deleting item
+    try {
+      await this.itemRepository.query(
+        'DELETE FROM inventory_balances WHERE item_id = $1 AND (on_hand = 0 OR on_hand IS NULL) AND (reserved = 0 OR reserved IS NULL)',
+        [id],
+      );
+      await this.itemRepository.query('DELETE FROM item_barcodes WHERE item_id = $1', [id]);
+      await this.itemRepository.query('DELETE FROM item_attribute_values WHERE item_id = $1', [id]);
+      await this.itemRepository.query('DELETE FROM item_specifications WHERE item_id = $1', [id]);
+      await this.itemRepository.query('DELETE FROM item_documents WHERE item_id = $1', [id]);
+    } catch {
+      // Ignore if table not present
     }
 
     await this.itemRepository.remove(item);

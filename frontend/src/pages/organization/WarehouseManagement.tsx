@@ -48,6 +48,9 @@ const WarehouseManagement: React.FC = () => {
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const [searchText, setSearchText] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [printModal, setPrintModal] = useState<PrintModalState>({
     visible: false,
     warehouse: null,
@@ -290,6 +293,7 @@ const WarehouseManagement: React.FC = () => {
       align: 'center',
       render: (_, record) => (
         <TableActions
+          onView={() => handleEdit(record)}
           onEdit={() => handleEdit(record)}
           onDelete={() => handleDelete(record)}
           extraActions={[
@@ -305,6 +309,19 @@ const WarehouseManagement: React.FC = () => {
     },
   ];
 
+  const filteredWarehouses = warehouses.filter((w) => {
+    if (searchText && !`${w.warehouseCode || ''} ${w.name || ''}`.toLowerCase().includes(searchText.toLowerCase())) {
+      return false;
+    }
+    if (typeFilter && w.warehouseType !== typeFilter) {
+      return false;
+    }
+    if (statusFilter && w.status !== statusFilter) {
+      return false;
+    }
+    return true;
+  });
+
   return (
     <div>
       <PageHeader
@@ -315,8 +332,37 @@ const WarehouseManagement: React.FC = () => {
       />
 
       <TableToolbar
+        searchPlaceholder="Search warehouses..."
+        searchValue={searchText}
+        onSearchChange={setSearchText}
+        filters={[
+          {
+            key: 'type',
+            label: 'WAREHOUSE TYPE',
+            placeholder: 'All Types',
+            value: typeFilter,
+            onChange: setTypeFilter,
+            options: warehouseTypes,
+          },
+          {
+            key: 'status',
+            label: 'STATUS',
+            placeholder: 'All Status',
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: 'ACTIVE', label: 'Active' },
+              { value: 'INACTIVE', label: 'Inactive' },
+            ],
+          },
+        ]}
+        onClearFilters={() => {
+          setTypeFilter(undefined);
+          setStatusFilter(undefined);
+          setSearchText('');
+        }}
         primaryAction={{
-          label: 'Add Warehouse',
+          label: '+ Add Warehouse',
           icon: <PlusOutlined />,
           onClick: handleCreate,
         }}
@@ -325,12 +371,12 @@ const WarehouseManagement: React.FC = () => {
 
       <ERPTable
         columns={columns}
-        dataSource={warehouses}
+        dataSource={filteredWarehouses}
         rowKey="id"
         loading={loading}
         pagination={{
           current: page,
-          total,
+          total: filteredWarehouses.length,
           pageSize: 20,
           onChange: setPage,
         }}

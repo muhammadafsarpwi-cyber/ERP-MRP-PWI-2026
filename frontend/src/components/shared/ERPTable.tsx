@@ -21,6 +21,11 @@ export interface ERPTableProps<T extends object = any> extends TableProps<T> {
   emptyDescription?: string;
   emptyActionLabel?: string;
   onEmptyAction?: () => void;
+  /**
+   * Vertical scroll height for sticky header and table body scrolling.
+   * Defaults to 'calc(100vh - 350px)'. Pass `false` to disable.
+   */
+  scrollY?: number | string | false;
 }
 
 /**
@@ -36,6 +41,8 @@ export function ERPTable<T extends object = any>({
   pagination,
   locale,
   scroll,
+  scrollY,
+  sticky = true,
   emptyTitle = 'No records found',
   emptyText,
   emptyDescription = 'No data matches your current criteria.',
@@ -71,6 +78,44 @@ export function ERPTable<T extends object = any>({
     ...locale,
   };
 
+  // Standardized enterprise scrolling with sticky header & internal mouse wheel scroll
+  const resolvedScroll = React.useMemo(() => {
+    const x = scroll?.x ?? 'max-content';
+    let y: string | number | undefined = scroll?.y;
+
+    if (y === undefined && scrollY !== false) {
+      y = typeof scrollY === 'string' || typeof scrollY === 'number'
+        ? scrollY
+        : 'calc(100vh - 350px)';
+    }
+
+    return {
+      x,
+      ...(y !== undefined ? { y } : {}),
+      ...(scroll ? { ...scroll, x, ...(y !== undefined ? { y } : {}) } : {}),
+    };
+  }, [scroll, scrollY]);
+
+  // Enhance columns to guarantee header background and text color on all columns (especially fixed ones)
+  const resolvedColumns = React.useMemo(() => {
+    if (!restProps.columns) return restProps.columns;
+    return restProps.columns.map((col: any) => ({
+      ...col,
+      onHeaderCell: (column: any) => {
+        const existing = col.onHeaderCell ? col.onHeaderCell(column) : {};
+        return {
+          ...existing,
+          style: {
+            backgroundColor: 'var(--theme-table-header-bg, #0b1e36)',
+            color: 'var(--theme-table-header-color, #ffffff)',
+            ...(existing?.style || {}),
+          },
+          className: `${existing?.className || ''} erp-th-navy`.trim(),
+        };
+      },
+    }));
+  }, [restProps.columns]);
+
   return (
     <div
       className={`erp-table-container ${dense ? 'erp-table-container--dense' : ''} ${containerClassName}`.trim()}
@@ -78,10 +123,12 @@ export function ERPTable<T extends object = any>({
     >
       <Table<T>
         className={`erp-table ${className}`.trim()}
-        scroll={scroll ?? { x: 'max-content' }}
+        scroll={resolvedScroll}
+        sticky={sticky}
         pagination={resolvedPagination}
         locale={resolvedLocale}
         {...restProps}
+        columns={resolvedColumns}
       />
     </div>
   );
@@ -142,8 +189,7 @@ export interface TableActionsProps {
 
 /**
  * Action buttons container for the Actions column.
- * Supports structured actions array, shorthand onView/onEdit/onDelete,
- * extraActions array, or custom children.
+ * Standardizes View (blue), Edit (gold), and Delete (red) icon buttons.
  */
 export const TableActions: React.FC<TableActionsProps> = ({
   actions,
@@ -166,6 +212,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
       label: onViewLabel,
       icon: <EyeOutlined />,
       onClick: onView,
+      className: 'act-view',
     });
   }
   if (onEdit) {
@@ -174,6 +221,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
       label: onEditLabel,
       icon: <EditOutlined />,
       onClick: onEdit,
+      className: 'act-edit',
     });
   }
   if (onDelete) {
@@ -182,6 +230,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
       label: onDeleteLabel,
       icon: <DeleteOutlined />,
       danger: true,
+      className: 'act-delete',
       confirm: {
         title: deleteConfirmTitle,
         onConfirm: onDelete,
@@ -223,6 +272,12 @@ export const TableActions: React.FC<TableActionsProps> = ({
             }
           };
 
+          const actionClass = act.className || (
+            act.key === 'view' || act.label?.toLowerCase().includes('view') ? 'act-view' :
+            act.key === 'edit' || act.label?.toLowerCase().includes('edit') ? 'act-edit' :
+            (act.key === 'delete' || act.danger || act.label?.toLowerCase().includes('delete')) ? 'act-delete' : ''
+          );
+
           const btn = (
             <Button
               key={act.key}
@@ -233,11 +288,8 @@ export const TableActions: React.FC<TableActionsProps> = ({
               icon={act.icon}
               onClick={handleClick}
               aria-label={act.label}
-              className={act.className}
-              style={{
-                ...(act.danger ? { color: 'var(--theme-danger)' } : {}),
-                ...act.style,
-              }}
+              className={actionClass}
+              style={act.style}
             />
           );
 
@@ -267,6 +319,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
 
 export interface TableFilterConfig {
   key: string;
+  label?: string;
   placeholder?: string;
   value?: any;
   options?: Array<{ value: any; label: string }>;
@@ -280,6 +333,16 @@ export interface TableToolbarProps {
   searchValue?: string;
   onSearchChange?: (val: string) => void;
   filters?: TableFilterConfig[];
+  onClearFilters?: () => void;
+  filterCollapsible?: boolean;
+  defaultFilterOpen?: boolean;
+  pageSize?: number;
+  onPageSizeChange?: (size: number) => void;
+  pageSizeOptions?: number[];
+  showExportButtons?: boolean;
+  onExportCSV?: () => void;
+  onExportPDF?: () => void;
+  onPrint?: () => void;
   onRefresh?: () => void;
   primaryAction?: {
     label: string;
@@ -296,15 +359,25 @@ export interface TableToolbarProps {
 }
 
 /**
- * Standardized table toolbar container.
- * Supports structured filter bar with search, dropdowns, refresh, primary action,
- * and custom left/right slots.
+ * Standardized table toolbar container matching enterprise layout (Image 1 standard):
+ * - Search input and Collapsible Filters toggle (▼ Filters) grouped together on the left
+ * - Utility actions (CSV, PDF, Print, Page Size, Refresh, Primary Action) on the right
+ * - Collapsible filter panel with clean grid of selects below the toolbar
  */
 export const TableToolbar: React.FC<TableToolbarProps> = ({
   searchPlaceholder,
   searchValue,
   onSearchChange,
   filters,
+  onClearFilters,
+  defaultFilterOpen = false,
+  pageSize,
+  onPageSizeChange,
+  pageSizeOptions,
+  showExportButtons = true,
+  onExportCSV,
+  onExportPDF,
+  onPrint,
   onRefresh,
   primaryAction,
   actions,
@@ -314,6 +387,8 @@ export const TableToolbar: React.FC<TableToolbarProps> = ({
   className = '',
   style,
 }) => {
+  const [filterOpen, setFilterOpen] = React.useState<boolean>(defaultFilterOpen);
+
   if (children) {
     return (
       <div className={`erp-table-toolbar ${className}`.trim()} style={style}>
@@ -322,54 +397,184 @@ export const TableToolbar: React.FC<TableToolbarProps> = ({
     );
   }
 
-  const hasStructuredRight = onRefresh !== undefined || primaryAction !== undefined || actions !== undefined || right;
+  const hasFilters = filters && filters.length > 0;
+  const activeFiltersCount = filters ? filters.filter(f => f.value !== undefined && f.value !== null && f.value !== '').length : 0;
+
+  const handlePrint = () => {
+    if (onPrint) {
+      onPrint();
+    } else {
+      window.print();
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (onExportCSV) {
+      onExportCSV();
+    } else {
+      const tables = document.querySelectorAll('.erp-table-container table, .ant-table table');
+      if (tables.length > 0) {
+        let csvContent = "data:text/csv;charset=utf-8,";
+        const rows = tables[0].querySelectorAll('tr');
+        rows.forEach(row => {
+          const cols = row.querySelectorAll('th, td');
+          const rowData: string[] = [];
+          cols.forEach(col => rowData.push(`"${(col.textContent || '').replace(/"/g, '""').trim()}"`));
+          csvContent += rowData.join(",") + "\r\n";
+        });
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `export_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    }
+  };
 
   return (
-    <div className={`erp-table-toolbar ${className}`.trim()} style={style}>
-      <div className="erp-table-toolbar__left">
-        {left}
-        {searchPlaceholder !== undefined && (
-          <Input
-            placeholder={searchPlaceholder}
-            prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
-            value={searchValue}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearchChange?.(e.target.value)}
-            style={{ width: 240 }}
-            allowClear
-          />
-        )}
-        {filters?.map((f) => (
-          <Select
-            key={f.key}
-            placeholder={f.placeholder}
-            value={f.value}
-            onChange={f.onChange}
-            style={{ width: f.width || 140 }}
-            allowClear
-            loading={f.loading}
-            options={f.options}
-          />
-        ))}
-      </div>
-      {hasStructuredRight && (
-        <div className="erp-table-toolbar__right">
-          {right}
+    <div className={`erp-toolbar-card ${className}`.trim()} style={style}>
+      {/* ── Top Single-Line Toolbar: Search & Filters on Left, Actions on Right ── */}
+      <div className="erp-toolbar-main-row">
+        <div className="erp-toolbar-left-group">
+          {searchPlaceholder !== undefined && (
+            <Input
+              className="erp-toolbar-search-input"
+              placeholder={searchPlaceholder}
+              prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+              value={searchValue}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearchChange?.(e.target.value)}
+              style={{ width: 280 }}
+              allowClear
+            />
+          )}
+
+          {hasFilters && (
+            <Button
+              type={filterOpen ? 'primary' : 'default'}
+              icon={<SearchOutlined />}
+              onClick={() => setFilterOpen((prev) => !prev)}
+              className="erp-toolbar-filter-btn"
+            >
+              <span>{filterOpen ? '▼ Filters' : '▶ Filters'}</span>
+              {activeFiltersCount > 0 && (
+                <span className="erp-toolbar-badge">{activeFiltersCount}</span>
+              )}
+            </Button>
+          )}
+
+          {onClearFilters && activeFiltersCount > 0 && (
+            <Button type="text" size="small" onClick={onClearFilters} style={{ color: 'var(--theme-text-muted, #64748b)' }}>
+              Clear
+            </Button>
+          )}
+
+          {left}
+        </div>
+
+        <div className="erp-toolbar-right-group">
+          {showExportButtons && (
+            <div className="erp-export-btn-group">
+              <button
+                type="button"
+                className="erp-export-btn"
+                onClick={handleExportCSV}
+                title="Export CSV"
+              >
+                CSV
+              </button>
+              <button
+                type="button"
+                className="erp-export-btn"
+                onClick={onExportPDF || handlePrint}
+                title="Export PDF"
+              >
+                PDF
+              </button>
+              <button
+                type="button"
+                className="erp-export-btn"
+                onClick={handlePrint}
+                title="Print Table"
+              >
+                Print
+              </button>
+            </div>
+          )}
+
+          {onPageSizeChange && (
+            <div className="erp-entries-selector">
+              <span>Show</span>
+              <Select
+                size="small"
+                value={pageSize || 10}
+                onChange={onPageSizeChange}
+                style={{ width: 70 }}
+                options={(pageSizeOptions || [10, 20, 50, 100]).map((opt) => ({
+                  value: opt,
+                  label: `${opt}`,
+                }))}
+              />
+              <span>entries</span>
+            </div>
+          )}
+
           {onRefresh && (
             <Tooltip title="Refresh">
               <Button icon={<ReloadOutlined />} onClick={onRefresh} />
             </Tooltip>
           )}
+
           {primaryAction && (
             <Button
               type="primary"
               icon={primaryAction.icon}
               onClick={primaryAction.onClick}
               disabled={primaryAction.disabled}
+              style={{
+                background: '#16a34a',
+                borderColor: '#15803d',
+                fontWeight: 600,
+              }}
             >
               {primaryAction.label}
             </Button>
           )}
+
           {actions}
+          {right}
+        </div>
+      </div>
+
+      {/* ── Sliding Collapsible Filter Panel (opens directly below search & filters) ── */}
+      {hasFilters && filterOpen && (
+        <div className="erp-toolbar-filter-grid-panel">
+          <div className="erp-toolbar-filter-grid">
+            {filters.map((f) => (
+              <div key={f.key} className="erp-filter-field" style={f.width ? { width: f.width, maxWidth: f.width } : undefined}>
+                <span className="erp-filter-field-label">
+                  {f.label || f.placeholder || f.key}
+                </span>
+                <Select
+                  placeholder={f.placeholder || `Select ${f.label || f.key}`}
+                  value={f.value}
+                  onChange={f.onChange}
+                  allowClear
+                  loading={f.loading}
+                  options={f.options}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            ))}
+          </div>
+          {onClearFilters && (
+            <div className="erp-toolbar-filter-grid-footer">
+              <Button size="small" type="text" onClick={onClearFilters}>
+                Clear All Filters
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -377,3 +582,4 @@ export const TableToolbar: React.FC<TableToolbarProps> = ({
 };
 
 export default ERPTable;
+

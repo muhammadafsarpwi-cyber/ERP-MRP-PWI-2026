@@ -351,29 +351,47 @@ const ITEM_COLUMN_LABELS: Record<string, string> = {
 };
 
 /* ─── 2027 Item Status & Type Chevron Pipeline Ribbon ─────────────────────── */
-interface ItemChevronOption {
+export interface ItemChevronItem {
   key: string;
   label: string;
+  count: number;
   color: string;
   activeBg: string;
   icon: React.ReactNode;
 }
 
-const ITEM_CHEVRONS: ItemChevronOption[] = [
-  { key: 'all', label: 'ALL ITEMS', color: '#334155', activeBg: '#1e293b', icon: <AppstoreOutlined /> },
-  { key: 'ACTIVE', label: 'ACTIVE', color: '#16a34a', activeBg: '#15803d', icon: <CheckCircleOutlined /> },
-  { key: 'INACTIVE', label: 'INACTIVE', color: '#64748b', activeBg: '#475569', icon: <MinusOutlined /> },
-  { key: 'RAW_MATERIAL', label: 'RAW MATERIAL', color: '#d97706', activeBg: '#b45309', icon: <ToolOutlined /> },
-  { key: 'WIP', label: 'WORK IN PROGRESS', color: '#0891b2', activeBg: '#0e7490', icon: <ProjectOutlined /> },
-  { key: 'FINISHED_GOODS', label: 'FINISHED GOODS', color: '#4f46e5', activeBg: '#3730a3', icon: <DatabaseOutlined /> },
-  { key: 'CONSUMABLE', label: 'CONSUMABLES', color: '#0284c7', activeBg: '#0369a1', icon: <TagOutlined /> },
+const CHEVRON_PALETTE = [
+  { color: '#d97706', activeBg: '#b45309', icon: <ToolOutlined /> },
+  { color: '#0891b2', activeBg: '#0e7490', icon: <ProjectOutlined /> },
+  { color: '#4f46e5', activeBg: '#3730a3', icon: <DatabaseOutlined /> },
+  { color: '#0284c7', activeBg: '#0369a1', icon: <TagOutlined /> },
+  { color: '#059669', activeBg: '#047857', icon: <BuildOutlined /> },
+  { color: '#ea580c', activeBg: '#c2410c', icon: <SettingOutlined /> },
+  { color: '#7c3aed', activeBg: '#6d28d9', icon: <ApartmentOutlined /> },
+  { color: '#db2777', activeBg: '#be185d', icon: <InboxOutlined /> },
+  { color: '#475569', activeBg: '#334155', icon: <AppstoreOutlined /> },
 ];
 
+const KNOWN_TYPE_STYLES: Record<string, { color: string; activeBg: string; icon: React.ReactNode }> = {
+  RAW_MATERIAL: { color: '#d97706', activeBg: '#b45309', icon: <ToolOutlined /> },
+  SEMI_FINISHED: { color: '#7c3aed', activeBg: '#6d28d9', icon: <ApartmentOutlined /> },
+  WORK_IN_PROGRESS: { color: '#0891b2', activeBg: '#0e7490', icon: <ProjectOutlined /> },
+  FINISHED_GOOD: { color: '#4f46e5', activeBg: '#3730a3', icon: <DatabaseOutlined /> },
+  FINISHED_GOODS: { color: '#4f46e5', activeBg: '#3730a3', icon: <DatabaseOutlined /> },
+  TOOLS: { color: '#059669', activeBg: '#047857', icon: <BuildOutlined /> },
+  SPARE_PART: { color: '#ea580c', activeBg: '#c2410c', icon: <SettingOutlined /> },
+  SPARE_PARTS: { color: '#ea580c', activeBg: '#c2410c', icon: <SettingOutlined /> },
+  CONSUMABLE: { color: '#0284c7', activeBg: '#0369a1', icon: <TagOutlined /> },
+  CONSUMABLES: { color: '#0284c7', activeBg: '#0369a1', icon: <TagOutlined /> },
+  PACKAGING_MATERIAL: { color: '#db2777', activeBg: '#be185d', icon: <InboxOutlined /> },
+  OTHER: { color: '#475569', activeBg: '#334155', icon: <AppstoreOutlined /> },
+};
+
 const ItemStatusChevronRibbon: React.FC<{
-  counts: Record<string, number>;
+  chevrons: ItemChevronItem[];
   activeKey: string;
   onSelect: (key: string) => void;
-}> = ({ counts, activeKey, onSelect }) => {
+}> = ({ chevrons, activeKey, onSelect }) => {
   return (
     <div
       style={{
@@ -387,11 +405,11 @@ const ItemStatusChevronRibbon: React.FC<{
         filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.08))',
       }}
     >
-      {ITEM_CHEVRONS.map((ch, idx) => {
+      {chevrons.map((ch, idx) => {
         const isSelected = activeKey === ch.key;
         const isFirst = idx === 0;
-        const isLast = idx === ITEM_CHEVRONS.length - 1;
-        const count = counts[ch.key] ?? 0;
+        const isLast = idx === chevrons.length - 1;
+        const count = ch.count ?? 0;
 
         const clipPath = isFirst
           ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
@@ -416,7 +434,7 @@ const ItemStatusChevronRibbon: React.FC<{
                 ? '10px 18px 10px 24px'
                 : '10px 20px 10px 24px',
               marginLeft: isFirst ? 0 : -6,
-              zIndex: isSelected ? 12 : ITEM_CHEVRONS.length - idx,
+              zIndex: isSelected ? 12 : chevrons.length - idx,
               fontSize: 12.5,
               fontWeight: 700,
               letterSpacing: '0.4px',
@@ -1103,38 +1121,103 @@ const ItemManagement: React.FC = () => {
     setPage(1);
   };
 
+  const [pipelineStats, setPipelineStats] = useState<{
+    total: number;
+    active: number;
+    inactive: number;
+    types: Array<{ key: string; label: string; count: number }>;
+  }>({ total: 0, active: 0, inactive: 0, types: [] });
+
+  const fetchPipelineStats = useCallback(async () => {
+    try {
+      const params: Record<string, string> = {};
+      if (fDivision) params.divisionId = fDivision;
+      if (fSection) params.sectionId = fSection;
+      if (fDepartment) params.departmentId = fDepartment;
+      const res = await apiService.get<{ data: any }>('/master-data/items/pipeline-stats', params, { silent: true });
+      if (res?.data) {
+        setPipelineStats(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to load pipeline stats', err);
+    }
+  }, [fDivision, fSection, fDepartment]);
+
+  useEffect(() => {
+    fetchPipelineStats();
+  }, [fetchPipelineStats]);
+
+  const dynamicChevrons = useMemo(() => {
+    const list: ItemChevronItem[] = [
+      {
+        key: 'all',
+        label: 'ALL ITEMS',
+        count: pipelineStats.total || total,
+        color: '#1e293b',
+        activeBg: '#0f172a',
+        icon: <AppstoreOutlined />,
+      },
+      {
+        key: 'ACTIVE',
+        label: 'ACTIVE',
+        count: pipelineStats.active,
+        color: '#16a34a',
+        activeBg: '#15803d',
+        icon: <CheckCircleOutlined />,
+      },
+      {
+        key: 'INACTIVE',
+        label: 'INACTIVE',
+        count: pipelineStats.inactive,
+        color: '#64748b',
+        activeBg: '#475569',
+        icon: <MinusOutlined />,
+      },
+    ];
+
+    (pipelineStats.types || []).forEach((t, idx) => {
+      if (t.count <= 0) return; // ZERO figures will NEVER appear!
+      const preset = KNOWN_TYPE_STYLES[t.key] || CHEVRON_PALETTE[idx % CHEVRON_PALETTE.length];
+      list.push({
+        key: t.key,
+        label: t.label.toUpperCase(),
+        count: t.count,
+        color: preset.color,
+        activeBg: preset.activeBg,
+        icon: preset.icon,
+      });
+    });
+
+    return list;
+  }, [pipelineStats, total]);
+
   const activeChevronKey = useMemo(() => {
     if (fStatus === 'ACTIVE') return 'ACTIVE';
     if (fStatus === 'INACTIVE') return 'INACTIVE';
+    if (fItemType) return fItemType;
     if (activeTab && activeTab !== 'all') return activeTab;
     return 'all';
-  }, [fStatus, activeTab]);
+  }, [fStatus, fItemType, activeTab]);
 
   const handleItemChevronSelect = (key: string) => {
     if (key === 'all') {
       setFStatus(undefined);
+      setFItemType(undefined);
       handleTabChange('all');
     } else if (key === 'ACTIVE') {
       setFStatus('ACTIVE');
+      setFItemType(undefined);
       handleTabChange('all');
     } else if (key === 'INACTIVE') {
       setFStatus('INACTIVE');
+      setFItemType(undefined);
       handleTabChange('all');
     } else {
       setFStatus(undefined);
+      setFItemType(key);
       handleTabChange(key);
     }
   };
-
-  const ribbonCounts = useMemo(() => ({
-    all: total,
-    ACTIVE: stats.active ?? 0,
-    INACTIVE: stats.inactive ?? 0,
-    RAW_MATERIAL: typeCounts['RAW_MATERIAL'] ?? 0,
-    WIP: typeCounts['WIP'] ?? 0,
-    FINISHED_GOODS: typeCounts['FINISHED_GOODS'] ?? 0,
-    CONSUMABLE: typeCounts['CONSUMABLE'] ?? 0,
-  }), [total, stats.active, stats.inactive, typeCounts]);
 
   const resetFilters = () => {
     setSearchInput('');
@@ -2907,9 +2990,9 @@ const ItemManagement: React.FC = () => {
       </div>
 
       <Card style={{ marginBottom: 12, borderRadius: 8 }} styles={{ body: { padding: '10px 12px 12px' } }}>
-        {/* 2027 Status & Type Chevron Pipeline Ribbon (Machine Master style) */}
+        {/* 2027 Status & Type Chevron Pipeline Ribbon (Dynamic per Division/Department) */}
         <ItemStatusChevronRibbon
-          counts={ribbonCounts}
+          chevrons={dynamicChevrons}
           activeKey={activeChevronKey}
           onSelect={handleItemChevronSelect}
         />
@@ -3110,7 +3193,7 @@ const ItemManagement: React.FC = () => {
         columns={filteredColumns}
         dataSource={items}
         loading={loading}
-        scroll={{ x: 1045 }}
+        scroll={{ x: 1045, y: 'calc(100vh - 350px)' }}
         sticky
         size="small"
         pagination={pagination}

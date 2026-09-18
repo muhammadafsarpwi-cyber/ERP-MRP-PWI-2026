@@ -1774,14 +1774,31 @@ const RawMaterialReturn: React.FC = () => {
                 </div>
               </div>
 
-              <Space style={{ marginTop: 12 }}>
+              <div
+                className="rm-form-actions-footer-sticky"
+                style={{
+                  position: 'sticky',
+                  bottom: 0,
+                  zIndex: 30,
+                  marginTop: 16,
+                  padding: '12px 14px',
+                  background: 'var(--theme-surface, #ffffff)',
+                  borderTop: '1px solid var(--theme-border, rgba(15, 23, 42, 0.1))',
+                  boxShadow: '0 -4px 14px rgba(0, 0, 0, 0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                  borderRadius: '0 0 6px 6px',
+                }}
+              >
                 <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={submitting}>
                   {editingId ? 'Save Changes' : 'Submit Return'}
                 </Button>
                 <Button onClick={() => setModalOpen(false)} disabled={submitting}>
                   Cancel
                 </Button>
-              </Space>
+              </div>
             </Form>
           </div>
 

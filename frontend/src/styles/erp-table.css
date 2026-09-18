@@ -57,44 +57,316 @@
   border: none !important;
 }
 
-/* ── 2. Table Header Typography & Styling ── */
+/* ── 2. Table Header Typography & Styling (Dark Navy #0b1e36 + White Text) ── */
 .erp-table-container .ant-table-thead > tr > th,
-.ant-table-wrapper .erp-table-header th {
-  background: var(--theme-surface-alt, rgba(15, 23, 42, 0.03)) !important;
-  color: var(--theme-text, rgba(15, 23, 42, 0.88)) !important;
-  font-weight: 600 !important;
-  font-size: 12.5px !important;
-  letter-spacing: 0.01em;
-  padding: 6px 6px !important;
-  border-bottom: 1px solid var(--theme-border, rgba(15, 23, 42, 0.12)) !important;
+.ant-table-wrapper .ant-table-thead > tr > th,
+.ant-table-thead > tr > th,
+.ant-table-wrapper .erp-table-header th,
+.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-left,
+.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
+.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-right,
+.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
+.ant-table-thead > tr > th.ant-table-cell-fix-left,
+.ant-table-thead > tr > th.ant-table-cell-fix-left-last,
+.ant-table-thead > tr > th.ant-table-cell-fix-right,
+.ant-table-thead > tr > th.ant-table-cell-fix-right-first,
+.erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-left,
+.erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
+.erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-right,
+.erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
+.ant-table-thead th[class*="ant-table-cell-fix-"],
+th.erp-th-navy {
+  background: var(--theme-table-header-bg, #0b1e36) !important;
+  background-color: var(--theme-table-header-bg, #0b1e36) !important;
+  color: var(--theme-table-header-color, #ffffff) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 9px 12px !important;
+  border-bottom: 2px solid var(--theme-table-header-border, #071324) !important;
   white-space: nowrap !important;
   word-break: keep-all !important;
 }
 
-/* Header split divider (very subtle, no thick vertical lines) */
-.erp-table-container .ant-table-thead > tr > th::before {
-  background-color: var(--theme-border, rgba(15, 23, 42, 0.08)) !important;
+.erp-table-container .ant-table-thead > tr > th .ant-table-column-title,
+.ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-title,
+.ant-table-thead > tr > th .ant-table-column-title,
+.ant-table-thead > tr > th.ant-table-cell-fix-left .ant-table-column-title,
+.ant-table-thead > tr > th.ant-table-cell-fix-right .ant-table-column-title {
+  color: var(--theme-table-header-color, #ffffff) !important;
+  font-weight: 700 !important;
+}
+
+.erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter,
+.ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter,
+.ant-table-thead > tr > th .ant-table-column-sorter {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
+.erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-down.active,
+.ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
+.ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-down.active {
+  color: var(--theme-accent, #38bdf8) !important;
+}
+
+/* Header split divider (subtle contrast against header background) */
+.erp-table-container .ant-table-thead > tr > th::before,
+.ant-table-wrapper .ant-table-thead > tr > th::before,
+.ant-table-thead > tr > th::before {
+  background-color: rgba(255, 255, 255, 0.18) !important;
   height: 50% !important;
 }
 
-/* ── 3. Table Body Rows & Cells ── */
-.erp-table-container .ant-table-tbody > tr > td {
-  padding: 5px 6px !important;
-  font-size: 12.5px;
-  color: var(--theme-text, rgba(15, 23, 42, 0.88));
-  border-bottom: 1px solid var(--theme-border, rgba(15, 23, 42, 0.06)) !important;
+/* Header scrollbar gutter cell (matches header styling above vertical scrollbar) */
+.erp-table-container .ant-table-thead > tr > th.ant-table-cell-scrollbar,
+.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-scrollbar,
+.ant-table-thead > tr > th.ant-table-cell-scrollbar {
+  background: var(--theme-table-header-bg, #0b1e36) !important;
+  border-bottom: 2px solid var(--theme-table-header-border, #071324) !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+/* Fixed/sticky table header container */
+.erp-table-container .ant-table-header,
+.ant-table-wrapper .ant-table-header,
+.ant-table-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 15 !important;
+  background: var(--theme-table-header-bg, #0b1e36) !important;
+  overflow: hidden !important;
+}
+
+/* ── 2.5. Custom Enterprise Scrollbars (Vertical & Horizontal on Table Body) ── */
+.erp-table-container .ant-table-body,
+.ant-table-wrapper .ant-table-body,
+.ant-table-body {
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+  scroll-behavior: smooth;
+}
+
+.erp-table-container .ant-table-body::-webkit-scrollbar,
+.ant-table-wrapper .ant-table-body::-webkit-scrollbar,
+.ant-table-body::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.erp-table-container .ant-table-body::-webkit-scrollbar-track,
+.ant-table-wrapper .ant-table-body::-webkit-scrollbar-track,
+.ant-table-body::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 6px;
+}
+
+.erp-table-container .ant-table-body::-webkit-scrollbar-thumb,
+.ant-table-wrapper .ant-table-body::-webkit-scrollbar-thumb,
+.ant-table-body::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 6px;
+  border: 2px solid #f1f5f9;
+  transition: background 0.2s ease;
+}
+
+.erp-table-container .ant-table-body::-webkit-scrollbar-thumb:hover,
+.ant-table-wrapper .ant-table-body::-webkit-scrollbar-thumb:hover,
+.ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+.erp-table-container .ant-table-body::-webkit-scrollbar-corner,
+.ant-table-wrapper .ant-table-body::-webkit-scrollbar-corner,
+.ant-table-body::-webkit-scrollbar-corner {
+  background: #f1f5f9;
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-body,
+[data-theme="dark"] .ant-table-wrapper .ant-table-body,
+[data-theme="dark"] .ant-table-body {
+  scrollbar-color: var(--theme-table-scrollbar-thumb, #475569) var(--theme-table-scrollbar-track, #0f172a);
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-body::-webkit-scrollbar-track,
+[data-theme="dark"] .ant-table-wrapper .ant-table-body::-webkit-scrollbar-track,
+[data-theme="dark"] .ant-table-body::-webkit-scrollbar-track {
+  background: var(--theme-table-scrollbar-track, #0f172a);
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-body::-webkit-scrollbar-thumb,
+[data-theme="dark"] .ant-table-wrapper .ant-table-body::-webkit-scrollbar-thumb,
+[data-theme="dark"] .ant-table-body::-webkit-scrollbar-thumb {
+  background: var(--theme-table-scrollbar-thumb, #475569);
+  border: 2px solid var(--theme-table-scrollbar-track, #0f172a);
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-body::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"] .ant-table-wrapper .ant-table-body::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"] .ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-accent, #94a3b8);
+}
+
+/* ── 3. Table Body Rows & Cells (Alternating Zebra Striping) ── */
+
+/* ── Light Mode Zebra Striping (Default) ── */
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-left,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-right,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-left,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-right {
+  background: var(--theme-table-row-even, #f8fafc) !important;
+}
+
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-left,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-right,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-left,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-right {
+  background: var(--theme-table-row-odd, #ffffff) !important;
+}
+
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr > td,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr > td {
+  padding: 8px 12px !important;
+  font-size: 13px;
+  color: var(--theme-text, #1e293b);
+  border-bottom: 1px solid var(--theme-table-border, rgba(226, 232, 240, 0.85)) !important;
   transition: background 0.15s ease;
 }
 
-/* Body row hover state */
-.erp-table-container .ant-table-tbody > tr:hover > td,
-.erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td {
-  background: var(--theme-table-sticky-hover, #f0f4ff) !important;
+/* Light Mode Hover State */
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:hover > td,
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr:hover > td,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-hover > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:hover > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr.ant-table-row-hover > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-left,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-right {
+  background: var(--theme-table-row-hover, #eff6ff) !important;
 }
 
-/* Selected row state */
-.erp-table-container .ant-table-tbody > tr.ant-table-row-selected > td {
-  background: var(--theme-table-sticky-selected, #e6f4ff) !important;
+/* Light Mode Selected State */
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr.ant-table-row-selected > td,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-selected > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: var(--theme-table-row-selected, #dbeafe) !important;
+}
+
+/* ── 3b. Dark Mode Zebra Striping & Body Rows ([data-theme="dark"]) ── */
+[data-theme="dark"] .erp-table-container,
+[data-theme="dark"] .erp-table-container .ant-table,
+[data-theme="dark"] .ant-table-wrapper .ant-table,
+[data-theme="dark"] .ant-table,
+[data-theme="dark"] .ant-table-container,
+[data-theme="dark"] .ant-card.erp-table-card,
+[data-theme="dark"] .erp-table-container-card {
+  background: var(--theme-surface, #0f172a) !important;
+  color: var(--theme-table-text, #f1f5f9) !important;
+  border-color: var(--theme-table-border, #1e293b) !important;
+}
+
+/* Dark Mode Even Rows */
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
+[data-theme="dark"] .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
+[data-theme="dark"] .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-left,
+[data-theme="dark"] .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-right,
+[data-theme="dark"] tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-left,
+[data-theme="dark"] tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-right {
+  background: var(--theme-table-row-even, #152238) !important;
+  color: var(--theme-table-text, #f1f5f9) !important;
+}
+
+/* Dark Mode Odd Rows */
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
+[data-theme="dark"] .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
+[data-theme="dark"] .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-left,
+[data-theme="dark"] .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-right,
+[data-theme="dark"] tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-left,
+[data-theme="dark"] tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-right {
+  background: var(--theme-table-row-odd, #0f172a) !important;
+  color: var(--theme-table-text, #f1f5f9) !important;
+}
+
+/* Dark Mode Cell Typography and Borders */
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr > td,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr > td,
+[data-theme="dark"] .ant-table-tbody > tr > td {
+  padding: 8px 12px !important;
+  font-size: 13px;
+  color: var(--theme-table-text, #f1f5f9) !important;
+  border-bottom: 1px solid var(--theme-table-border, rgba(51, 65, 85, 0.55)) !important;
+  transition: background 0.15s ease;
+}
+
+/* Dark Mode Row Hover */
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr:hover > td,
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:hover > td,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-hover > td,
+[data-theme="dark"] .ant-table-tbody > tr:hover > td,
+[data-theme="dark"] .ant-table-tbody > tr.ant-table-row-hover > td,
+[data-theme="dark"] .ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
+[data-theme="dark"] .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right,
+[data-theme="dark"] .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-left,
+[data-theme="dark"] .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-right,
+[data-theme="dark"] tr:hover > td.ant-table-cell-fix-left,
+[data-theme="dark"] tr:hover > td.ant-table-cell-fix-right {
+  background: var(--theme-table-row-hover, #1e3a5f) !important;
+  color: #ffffff !important;
+}
+
+/* Dark Mode Selected Row */
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr.ant-table-row-selected > td,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-selected > td,
+[data-theme="dark"] .ant-table-tbody > tr.ant-table-row-selected > td,
+[data-theme="dark"] .ant-table-tbody > tr.ant-table-row-selected > td.ant-table-cell-fix-left,
+[data-theme="dark"] .ant-table-tbody > tr.ant-table-row-selected > td.ant-table-cell-fix-right {
+  background: var(--theme-table-row-selected, #1e3a5f) !important;
+  color: #ffffff !important;
+}
+
+/* Dark Mode Secondary Text & Links inside Cells */
+[data-theme="dark"] .ant-table-tbody .ant-typography,
+[data-theme="dark"] .ant-table-tbody .ant-typography-secondary {
+  color: var(--theme-table-text-secondary, #94a3b8) !important;
+}
+
+[data-theme="dark"] .ant-table-tbody a,
+[data-theme="dark"] .ant-table-tbody .ant-btn-link {
+  color: var(--theme-accent, #38bdf8) !important;
+}
+
+[data-theme="dark"] .ant-table-tbody a:hover,
+[data-theme="dark"] .ant-table-tbody .ant-btn-link:hover {
+  color: #7dd3fc !important;
+}
+
+[data-theme="dark"] .erp-action-btn,
+[data-theme="dark"] .ant-table-tbody .ant-btn-text {
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .erp-action-btn:hover,
+[data-theme="dark"] .ant-table-tbody .ant-btn-text:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
 }
 
 /* ── 4. Dense / Compact Mode Variant ── */
@@ -163,115 +435,492 @@
   max-width: 100%;
 }
 
-/* ── 7. Compact Action Column Buttons ── */
-.erp-table-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.erp-table-actions .ant-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 4px;
-  font-size: 13px;
-  border-radius: 5px;
-}
-
-.erp-table-actions .ant-btn:not(.ant-btn-icon-only) {
-  width: auto !important;
-  min-width: fit-content;
-  padding: 0 10px !important;
+/* ── 7. Unified Action Column Buttons (View: Blue, Edit: Gold/Amber, Delete: Red) ── */
+/* ── 7. Unified Action Column Buttons (View: Blue, Edit: Gold/Amber, WhatsApp: Green, Delete: Red) ── */
+.erp-table-actions,
+.erp-table-actions--bordered,
+.ant-table-cell:last-child .ant-space,
+.ant-table-cell .ant-space,
+.ant-table-cell-actions .ant-space {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
   white-space: nowrap !important;
 }
 
-.erp-table-actions .ant-btn:hover {
-  background: var(--theme-hover, rgba(15, 23, 42, 0.08));
+.ant-table-cell:last-child .ant-space > .ant-space-item,
+.ant-table-cell .ant-space > .ant-space-item {
+  display: inline-flex !important;
+  align-items: center !important;
+  margin-inline-end: 0 !important;
 }
 
-/* ── 7b. Professional Bordered Action Buttons ── */
-.erp-table-actions--bordered {
-  gap: 4px;
+/* Fallback margin separation even when size={0} is supplied in React */
+.ant-table-cell:last-child .ant-space > .ant-space-item + .ant-space-item,
+.ant-table-cell .ant-space > .ant-space-item + .ant-space-item {
+  margin-inline-start: 4px !important;
 }
 
-.erp-table-actions--bordered .ant-btn {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  padding: 0;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--act, var(--theme-text-secondary, #64748b)) 38%, transparent);
-  background: color-mix(in srgb, var(--act, var(--theme-text-secondary, #64748b)) 9%, transparent);
-  color: var(--act, var(--theme-text-secondary, #64748b));
-  box-shadow: none;
-  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+.erp-table-actions .ant-btn-icon-only,
+.erp-table-actions--bordered .ant-btn-icon-only,
+.erp-action-btn,
+.ant-table-cell:last-child .ant-space > .ant-space-item > .ant-btn-icon-only,
+.ant-table-cell:last-child .ant-space > .ant-space-item > .ant-btn.erp-action-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+  border-radius: 6px !important;
+  margin: 0 1px !important;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: none !important;
 }
 
+/* Explicit exemption: Text buttons and link buttons in table cells must NEVER be squished */
+.ant-table-cell .ant-btn-link,
+.ant-table-cell .ant-btn:not(.ant-btn-icon-only):not(.erp-action-btn) {
+  width: auto !important;
+  min-width: unset !important;
+  height: auto !important;
+  padding: 2px 8px !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  white-space: nowrap !important;
+}
+
+.erp-table-actions .ant-btn .anticon,
 .erp-table-actions--bordered .ant-btn .anticon {
-  font-size: 15px;
-  line-height: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
 }
 
-.erp-table-actions--bordered .ant-btn:hover:not(:disabled) {
-  background: var(--act-hover, var(--act, var(--theme-accent, #4f46e5))) !important;
-  border-color: var(--act-hover, var(--act, var(--theme-accent, #4f46e5))) !important;
-  color: #fff !important;
+/* 1. View / Details action (Royal Blue Badge) */
+.erp-table-actions .act-view,
+.erp-table-actions--bordered .act-view,
+.erp-table-actions .ant-btn[aria-label*="View" i],
+.erp-table-actions .ant-btn[aria-label*="Detail" i],
+.ant-table-cell .ant-btn-icon-only:has(.anticon-eye) {
+  background: #eff6ff !important;
+  border: 1px solid #bfdbfe !important;
+  color: #1d4ed8 !important;
+}
+.erp-table-actions .act-view:hover,
+.erp-table-actions--bordered .act-view:hover,
+.erp-table-actions .ant-btn[aria-label*="View" i]:hover,
+.erp-table-actions .ant-btn[aria-label*="Detail" i]:hover,
+.ant-table-cell .ant-btn-icon-only:has(.anticon-eye):hover {
+  background: #1d4ed8 !important;
+  border-color: #1d4ed8 !important;
+  color: #ffffff !important;
   transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(29, 78, 216, 0.3) !important;
 }
 
-.erp-table-actions--bordered .ant-btn:active:not(:disabled) {
-  transform: translateY(0);
+/* 2. Edit action (Gold / Amber Badge) */
+.erp-table-actions .act-edit,
+.erp-table-actions--bordered .act-edit,
+.erp-table-actions .ant-btn[aria-label*="Edit" i],
+.ant-table-cell .ant-btn-icon-only:has(.anticon-edit),
+.ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
+  background: #fffbeb !important;
+  border: 1px solid #fde68a !important;
+  color: #d97706 !important;
+}
+.erp-table-actions .act-edit:hover,
+.erp-table-actions--bordered .act-edit:hover,
+.erp-table-actions .ant-btn[aria-label*="Edit" i]:hover,
+.ant-table-cell .ant-btn-icon-only:has(.anticon-edit):hover,
+.ant-table-cell .ant-btn-icon-only:has(.anticon-form):hover {
+  background: #d97706 !important;
+  border-color: #d97706 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(217, 119, 6, 0.3) !important;
 }
 
-.erp-table-actions--bordered .ant-btn:disabled {
-  border-color: color-mix(in srgb, var(--theme-text-secondary, #64748b) 25%, transparent);
-  background: transparent;
-  color: var(--theme-text-secondary, #64748b);
+/* 3. WhatsApp / Share action (Emerald Green Badge) */
+.erp-table-actions .act-whatsapp,
+.erp-table-actions--bordered .act-whatsapp,
+.erp-table-actions .ant-btn[aria-label*="WhatsApp" i],
+.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app) {
+  background: #f0fdf4 !important;
+  border: 1px solid #bbf7d0 !important;
+  color: #16a34a !important;
+}
+.erp-table-actions .act-whatsapp:hover,
+.erp-table-actions--bordered .act-whatsapp:hover,
+.erp-table-actions .ant-btn[aria-label*="WhatsApp" i]:hover,
+.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):hover {
+  background: #16a34a !important;
+  border-color: #16a34a !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(22, 163, 74, 0.3) !important;
 }
 
-.erp-table-actions--bordered .ant-btn:focus-visible {
-  outline: 2px solid var(--theme-focus, rgba(79, 70, 229, 0.5));
-  outline-offset: 1px;
+/* 4. Delete action (Crimson Red Badge) */
+.erp-table-actions .act-delete,
+.erp-table-actions--bordered .act-delete,
+.erp-table-actions .act-delete.ant-btn-dangerous,
+.erp-table-actions .ant-btn-icon-only.ant-btn-dangerous,
+.erp-table-actions .ant-btn[aria-label*="Delete" i],
+.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous,
+.ant-table-cell .ant-btn-icon-only:has(.anticon-delete) {
+  background: #fef2f2 !important;
+  border: 1px solid #fecaca !important;
+  color: #dc2626 !important;
+}
+.erp-table-actions .act-delete:hover,
+.erp-table-actions--bordered .act-delete:hover,
+.erp-table-actions .act-delete.ant-btn-dangerous:hover,
+.erp-table-actions .ant-btn-icon-only.ant-btn-dangerous:hover,
+.erp-table-actions .ant-btn[aria-label*="Delete" i]:hover,
+.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous:hover,
+.ant-table-cell .ant-btn-icon-only:has(.anticon-delete):hover {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(220, 38, 38, 0.3) !important;
 }
 
-/* Semantic action tones (theme tokens only) */
-.erp-table-actions--bordered .act-view { --act: var(--theme-info, #4f46e5); }
-.erp-table-actions--bordered .act-edit { --act: var(--theme-warning, #faad14); --act-hover: color-mix(in srgb, var(--theme-warning, #faad14) 84%, #000); }
-.erp-table-actions--bordered .act-activate { --act: var(--theme-success, #52c41a); --act-hover: color-mix(in srgb, var(--theme-success, #52c41a) 84%, #000); }
-.erp-table-actions--bordered .act-deactivate { --act: color-mix(in srgb, var(--theme-danger, #ff4d4f) 60%, var(--theme-warning, #faad14)); --act-hover: color-mix(in srgb, var(--theme-danger, #ff4d4f) 78%, #000); }
-.erp-table-actions--bordered .act-delete.ant-btn-dangerous { --act: var(--theme-danger, #ff4d4f); --act-hover: color-mix(in srgb, var(--theme-danger, #ff4d4f) 84%, #000); }
-.erp-table-actions--bordered .act-neutral { --act: var(--theme-text-secondary, #64748b); --act-hover: color-mix(in srgb, var(--theme-text-secondary, #64748b) 84%, #000); }
+/* ── Dark Mode Action Button Badges (Clean, sophisticated, translucent, no glaring white pills) ── */
+[data-theme="dark"] .erp-table-actions .act-view,
+[data-theme="dark"] .erp-table-actions--bordered .act-view,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-eye) {
+  background: rgba(59, 130, 246, 0.16) !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+  color: #60a5fa !important;
+}
+[data-theme="dark"] .erp-table-actions .act-view:hover,
+[data-theme="dark"] .erp-table-actions--bordered .act-view:hover,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-eye):hover {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+}
 
-/* ── 8. Standardized Table Toolbar ── */
-.erp-table-toolbar {
+[data-theme="dark"] .erp-table-actions .act-edit,
+[data-theme="dark"] .erp-table-actions--bordered .act-edit,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-edit),
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
+  background: rgba(245, 158, 11, 0.16) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+  color: #fbbf24 !important;
+}
+[data-theme="dark"] .erp-table-actions .act-edit:hover,
+[data-theme="dark"] .erp-table-actions--bordered .act-edit:hover,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-edit):hover,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-form):hover {
+  background: #d97706 !important;
+  border-color: #d97706 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .erp-table-actions .act-whatsapp,
+[data-theme="dark"] .erp-table-actions--bordered .act-whatsapp,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app) {
+  background: rgba(34, 197, 94, 0.16) !important;
+  border: 1px solid rgba(34, 197, 94, 0.35) !important;
+  color: #4ade80 !important;
+}
+[data-theme="dark"] .erp-table-actions .act-whatsapp:hover,
+[data-theme="dark"] .erp-table-actions--bordered .act-whatsapp:hover,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):hover {
+  background: #16a34a !important;
+  border-color: #16a34a !important;
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .erp-table-actions .act-delete,
+[data-theme="dark"] .erp-table-actions--bordered .act-delete,
+[data-theme="dark"] .erp-table-actions .ant-btn-icon-only.ant-btn-dangerous,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only.ant-btn-dangerous,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-delete) {
+  background: rgba(239, 68, 68, 0.16) !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+  color: #f87171 !important;
+}
+[data-theme="dark"] .erp-table-actions .act-delete:hover,
+[data-theme="dark"] .erp-table-actions--bordered .act-delete:hover,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only.ant-btn-dangerous:hover,
+[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-delete):hover {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
+}
+
+/* ── 8. Unified Toolbar Card (Search + Filters on Left, Actions on Right) ── */
+.erp-toolbar-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s ease;
+}
+
+[data-theme='dark'] .erp-toolbar-card {
+  background: #0f172a;
+  border-color: #1e293b;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.erp-toolbar-main-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.erp-toolbar-left-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+
+.erp-toolbar-search-input {
+  width: 280px;
+  border-radius: 6px;
+}
+
+.erp-toolbar-filter-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+}
+
+.erp-toolbar-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  margin-left: 2px;
+}
+
+.erp-toolbar-right-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.erp-toolbar-filter-grid-panel {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid #edf2f7;
+  animation: erpSlideDown 0.2s ease-out;
+}
+
+[data-theme='dark'] .erp-toolbar-filter-grid-panel {
+  border-top-color: #1e293b;
+}
+
+@keyframes erpSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.erp-toolbar-filter-grid {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.erp-toolbar-filter-grid-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* ── 8a. Backward-compatible Legacy Filter Classes ── */
+.erp-filter-panel-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.erp-filter-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.erp-filter-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #1e293b;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+.erp-filter-toggle-btn:hover {
+  background: #e2e8f0;
+}
+
+.erp-filter-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.erp-filter-clear-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.erp-filter-panel-body {
+  padding: 12px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: #ffffff;
+}
+
+.erp-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 170px;
+  flex: 1 1 180px;
+  max-width: 280px;
+}
+
+.erp-filter-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+/* ── 8b. Utility Action Row (CSV, PDF, Print, Page Size, Search) ── */
+.erp-table-utility-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.erp-table-utility-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.erp-export-btn-group {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.erp-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #0f2744 !important;
+  color: #ffffff !important;
+  border: 1px solid #0a1b2f !important;
+  border-radius: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.erp-export-btn:first-child {
+  border-top-left-radius: 5px;
+  border-bottom-left-radius: 5px;
+}
+.erp-export-btn:last-child {
+  border-top-right-radius: 5px;
+  border-bottom-right-radius: 5px;
+}
+.erp-export-btn:hover {
+  background: #1e3a5f !important;
+  color: #ffffff !important;
+}
+
+.erp-entries-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #475569;
+  margin-left: 6px;
+}
+
+.erp-table-utility-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.erp-search-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.erp-table-toolbar {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-
-.erp-table-toolbar__left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex: 1;
-}
-
-.erp-table-toolbar__right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  margin-bottom: 12px;
 }
 
 /* ── 9. Standardized Table Pagination ── */

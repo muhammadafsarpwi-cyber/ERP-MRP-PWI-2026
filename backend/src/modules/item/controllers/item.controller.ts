@@ -164,6 +164,21 @@ export class ItemController {
     return { success: true, data: types };
   }
 
+  @Get('pipeline-stats')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.view')
+  @ApiOperation({ summary: 'Get item pipeline statistics scoped by division/section/department' })
+  async getPipelineStats(
+    @Query('companyId') companyId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const stats = await this.itemService.getPipelineStats({ companyId, divisionId, sectionId, departmentId });
+    return { success: true, data: stats };
+  }
+
+
   @Post('backfill-identity')
   @UseGuards(PermissionGuard)
   @RequirePermission('item.update')

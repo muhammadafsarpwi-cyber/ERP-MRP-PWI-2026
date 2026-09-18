@@ -313,10 +313,17 @@ const ItemTypeManagement: React.FC = () => {
       render: (v: string) => <StatusBadge status={v} colorMap={{ ACTIVE: 'green', INACTIVE: 'red' }} />,
     },
     {
-      title: 'Actions', key: 'actions', width: 150,
+      title: 'Actions', key: 'actions', width: 160,
       render: (_, r) => (
-        <Space size={0}>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+        <Space size={8} align="center">
+          <Button
+            type="text"
+            size="small"
+            className="erp-action-btn act-edit"
+            icon={<EditOutlined />}
+            title="Edit"
+            onClick={() => openEdit(r)}
+          />
           <Popconfirm
             title={
               r.status === 'ACTIVE'
@@ -327,7 +334,18 @@ const ItemTypeManagement: React.FC = () => {
             onConfirm={() => toggleStatus(r)}
             okText="Yes"
           >
-            <Button type="link" size="small" danger={r.status === 'ACTIVE'}>
+            <Button
+              type="link"
+              size="small"
+              danger={r.status === 'ACTIVE'}
+              style={{
+                fontWeight: 600,
+                fontSize: 12,
+                padding: '2px 8px',
+                borderRadius: 4,
+                color: r.status === 'ACTIVE' ? 'var(--theme-danger, #ff4d4f)' : 'var(--theme-success, #52c41a)',
+              }}
+            >
               {r.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
             </Button>
           </Popconfirm>

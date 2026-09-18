@@ -371,8 +371,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             top: 0,
             bottom: 0,
             overflow: 'hidden',
-            background: isLight ? '#ffffff' : '#0b1120',
-            borderRight: isLight ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+            background: isLight ? '#ffffff' : 'var(--theme-sider-bg, #0b1120)',
+            borderRight: isLight ? '1px solid #e2e8f0' : '1px solid var(--theme-border, rgba(255, 255, 255, 0.08))',
             zIndex: 1001,
           }}
         >
@@ -382,8 +382,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             style={{
               flexShrink: 0,
               padding: effectivelyCollapsed ? '14px 8px' : '14px 14px',
-              background: isLight ? '#f1f5f9' : '#070b14',
-              borderBottom: isLight ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
+              background: isLight ? 'var(--theme-surface-alt, #f1f5f9)' : 'var(--theme-primary-deep, #070b14)',
+              borderBottom: isLight ? '1px solid #cbd5e1' : '1px solid var(--theme-border, rgba(255, 255, 255, 0.08))',
               display: 'flex',
               alignItems: 'center',
               justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',

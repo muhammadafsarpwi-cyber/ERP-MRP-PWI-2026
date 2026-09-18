@@ -514,16 +514,10 @@ const MaintenanceDashboard: React.FC = () => {
 
   return (
     <div>
-      {/* COLLAPSIBLE FILTERS TOOLBAR (matches Job Card List interaction) */}
-      <Card styles={{ body: { padding: '16px 24px' } }} style={{ marginBottom: 12 }}>
-        <Row gutter={[8, 12]} align="middle">
-          <Col>
-            <Button icon={<FilterOutlined />} onClick={() => setShowFilters(v => !v)} type={showFilters ? 'primary' : 'default'}>
-              <Text style={{ color: showFilters ? '#fff' : undefined }}>Filters</Text>
-            </Button>
-          </Col>
-          <Col flex="auto" />
-          <Col style={{ minWidth: 220, flex: '1 1 260px' }}>
+      {/* COLLAPSIBLE FILTERS TOOLBAR (matches unified layout with Search next to Filters) */}
+      <Card styles={{ body: { padding: '14px 20px' } }} style={{ marginBottom: 12, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+        <Row gutter={[10, 12]} align="middle">
+          <Col style={{ minWidth: 280, maxWidth: 360, flex: '1 1 320px' }}>
             <Input
               allowClear
               prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
@@ -533,11 +527,23 @@ const MaintenanceDashboard: React.FC = () => {
               style={{ width: '100%' }}
             />
           </Col>
-          {hasActiveFilters && <Col><Button type="text" icon={<ClearOutlined />} onClick={() => { clearAllFilters(); setSearchInput(''); setSearch(''); }}>Clear</Button></Col>}
+          <Col>
+            <Button icon={<FilterOutlined />} onClick={() => setShowFilters(v => !v)} type={showFilters ? 'primary' : 'default'}>
+              <Text style={{ color: showFilters ? '#fff' : undefined }}>Filters</Text>
+            </Button>
+          </Col>
+          {hasActiveFilters && (
+            <Col>
+              <Button type="text" icon={<ClearOutlined />} onClick={() => { clearAllFilters(); setSearchInput(''); setSearch(''); }}>
+                Clear
+              </Button>
+            </Col>
+          )}
+          <Col flex="auto" />
         </Row>
 
         {showFilters && (
-          <div style={{ marginTop: 12, borderTop: '1px solid var(--theme-border)', paddingTop: 16 }}>
+          <div style={{ marginTop: 12, borderTop: '1px solid var(--theme-border, #e2e8f0)', paddingTop: 16 }}>
             <Row gutter={[12, 12]}>
               <Col xs={24} sm={12} md={8} lg={6}>
                 <Select
@@ -608,7 +614,15 @@ const MaintenanceDashboard: React.FC = () => {
         <Alert type="warning" showIcon message="No default company" description="No default company is assigned to your account. The dashboard cannot be loaded." style={{ marginTop: 12 }} />
       )}
 
-      {loading && <div style={{ marginTop: 12 }}><LoadingState tip="Loading maintenance dashboard…" /></div>}
+      {loading && (
+        <div style={{ marginTop: 12 }}>
+          <LoadingState
+            title="Loading Maintenance Dashboard..."
+            subtitle="Aggregating live equipment statuses, open job cards & downtime metrics..."
+            badgeText="Live Equipment Stream"
+          />
+        </div>
+      )}
 
       {!loading && error && (
         <Alert
