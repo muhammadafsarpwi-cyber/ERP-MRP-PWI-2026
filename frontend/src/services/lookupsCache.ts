@@ -237,22 +237,13 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
         fetchList<CachedMachine>('/production/machines', { limit: 500 }),
         fetchList<CachedUom>('/master-data/uom', { limit: 200 }),
         fetchList<CachedUomConversion>('/master-data/uom-conversions', { limit: 500 }),
-        fetchList<CachedItem>('/master-data/items/lookup').then((res) => {
-          if (res && res.length > 0) return res;
-          return fetchList<CachedItem>('/master-data/items', { limit: 1000, status: 'ACTIVE' });
-        }),
+        fetchList<CachedItem>('/master-data/items', { limit: 1000, status: 'ACTIVE' }),
         fetchList<CachedProductionOrder>('/production/orders', { limit: 200 }),
         fetchList<any>('/production/downtime-reasons', { limit: 100 }).catch(() => []),
       ]);
 
-      // Employee lookup
-      let employees: CachedEmployee[] = [];
-      try {
-        employees = await fetchList<CachedEmployee>('/hr/employees/lookup');
-      } catch {}
-      if (!employees || employees.length === 0) {
-        employees = await fetchList<CachedEmployee>('/hr/employees', { limit: 500, status: 'ACTIVE' });
-      }
+      // Employee lookup (directly query active employees)
+      const employees = await fetchList<CachedEmployee>('/hr/employees', { limit: 500, status: 'ACTIVE' }).catch(() => []);
 
       const validDepartments = departments.filter((d) => d.divisionId && d.sectionId);
       const activeConversions = conversions.filter((c) => c.status === 'ACTIVE');

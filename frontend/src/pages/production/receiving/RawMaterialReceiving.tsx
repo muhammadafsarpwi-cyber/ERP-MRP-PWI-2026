@@ -5,12 +5,13 @@ import {
 } from 'antd';
 import {
   CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
-  EyeInvisibleOutlined, ArrowRightOutlined, InboxOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined,
+  EyeInvisibleOutlined, ArrowRightOutlined, InboxOutlined, PaperClipOutlined, PictureOutlined, PlusOutlined, ReloadOutlined,
   SaveOutlined, SendOutlined, WarningOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
+import { compressImageFile } from '../../../utils/imageCompressor';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
 import { buildReceiptWhatsAppMessage, normalizeWaPhone, waLink, waDirectShareUrl } from '../../../utils/receiptShare';
@@ -233,6 +234,7 @@ const RawMaterialReceiving: React.FC = () => {
   const [existingDocs, setExistingDocs] = useState<ReceiptDocument[]>([]);
 
   // Hidden file inputs for photo capture / attachment picker.
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<Record<string, string>>({});
@@ -974,15 +976,17 @@ const RawMaterialReceiving: React.FC = () => {
   // selects them, uploaded ONLY after the receipt header save succeeds (upload
   // after-save). Cancel/failure therefore never leaves orphan bytes on disk.
   // ─────────────────────────────────────────────────────────────────────────
-  const addPendingFiles = useCallback((files: File[], kind: 'PHOTO' | 'ATTACHMENT') => {
+  const addPendingFiles = useCallback(async (files: File[], kind: 'PHOTO' | 'ATTACHMENT') => {
     const rejected: string[] = [];
     const accepted: PendingUpload[] = [];
-    for (const f of files) {
+    for (const rawFile of files) {
+      // Auto compress photos to ensure smartphone camera photos (often 10MB+) are converted to fast <1MB JPEGs
+      const f = kind === 'PHOTO' ? await compressImageFile(rawFile) : rawFile;
       const name = f.name || 'file';
       const ext = name.split('.').pop()?.toLowerCase() || '';
       if (kind === 'PHOTO') {
-        if (!PHOTO_MIME_ALLOW.includes(f.type) || !PHOTO_EXT_RE.test(name)) {
-          rejected.push(`${name} (photos must be JPEG/PNG/WebP)`);
+        if (!PHOTO_MIME_ALLOW.includes(f.type) && !f.type.startsWith('image/')) {
+          rejected.push(`${name} (photos must be an image)`);
           continue;
         }
         if (f.size > PHOTO_FILE_MAX) {
@@ -1369,7 +1373,46 @@ const RawMaterialReceiving: React.FC = () => {
       const res = await apiService.get<{ data: ReceiptInventoryData }>(`/inventory/receipts/gate-pass/${rec.id}/inventory`);
       setInventoryData(res.data);
     } catch (err: any) {
-      setInventoryError(formatApiError(err, 'Failed to load inventory status.'));
+      // Cloud fallback: if remote backend doesn't have /inventory sub-route deployed yet,
+      // dynamically fetch the receipt detail and current warehouse balances to display the exact status!
+      try {
+        const detailRes = await apiService.get<{ data: ReceiptHeader }>(`/inventory/receipts/gate-pass/${rec.id}`);
+        const detailRec = detailRes.data || rec;
+        const warehouseId = detailRec.warehouse?.id;
+        const balancesMap: Record<string, any> = {};
+        if (warehouseId) {
+          const balRes = await apiService.get<any>('/inventory/balances', { warehouseId, limit: 200 });
+          const list = Array.isArray(balRes?.data) ? balRes.data : Array.isArray(balRes?.balances) ? balRes.balances : [];
+          list.forEach((b: any) => { if (b?.itemId) balancesMap[b.itemId] = b; });
+        }
+        const rawLines = detailRec.lines || (detailRec as any).items || [];
+        const fallbackItems = rawLines.map((it: any) => {
+          const itemId = it.item?.id || it.itemId || '';
+          const b = balancesMap[itemId];
+          return {
+            id: it.id || itemId,
+            itemId,
+            itemCode: it.item?.itemCode || it.itemCode || '',
+            itemName: it.item?.name || it.itemName || '',
+            uomCode: it.uom?.code || it.uomCode || 'KG',
+            receivedQuantity: Number(it.receivedQuantity || 0),
+            onHand: b ? Number(b.onHand) : 0,
+            reserved: b ? Number(b.reserved) : 0,
+            available: b ? Number(b.available) : 0,
+            lastUpdatedAt: b?.updatedAt || null,
+          };
+        });
+        setInventoryData({
+          receiptCode: detailRec.receiptCode,
+          receiptDate: detailRec.receiptDate,
+          status: detailRec.status,
+          warehouse: detailRec.warehouse ? { id: detailRec.warehouse.id, name: detailRec.warehouse.name, warehouseCode: detailRec.warehouse.warehouseCode } : undefined,
+          items: fallbackItems,
+        });
+        setInventoryError(null);
+      } catch {
+        setInventoryError(formatApiError(err, 'Failed to load inventory status.'));
+      }
     } finally {
       setInventoryLoading(false);
     }
@@ -1853,14 +1896,16 @@ const RawMaterialReceiving: React.FC = () => {
                 <div className="rm-form-section-body">
                   <div className="rmr-upload-group">
                     <Space wrap>
-                      <Button icon={<CameraOutlined />} onClick={() => photoInputRef.current?.click()} data-testid="rm-photo-btn">Take / Add Photo</Button>
+                      <Button icon={<CameraOutlined />} onClick={() => cameraInputRef.current?.click()} data-testid="rm-camera-btn">Take Photo</Button>
+                      <Button icon={<PictureOutlined />} onClick={() => photoInputRef.current?.click()} data-testid="rm-photo-btn">Add Photo</Button>
                       <Button icon={<PaperClipOutlined />} onClick={() => attachInputRef.current?.click()} data-testid="rm-attach-btn">Add Attachment</Button>
                     </Space>
                     <span className="rmr-upload-hint">
-                      Photos: JPEG / PNG / WebP (≤ 5 MB). Attachments: PDF, Office, txt, csv (≤ 10 MB).
-                      Files upload after the receipt is saved — nothing is sent to the server before then.
+                      Photos: Camera or JPEG/PNG/WebP. Large smartphone photos are automatically compressed for high-speed upload.
+                      Attachments: PDF, Office, txt, csv (≤ 10 MB).
                     </span>
-                    <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple style={{ display: 'none' }} onChange={handlePhotoSelect} data-testid="rm-photo-input" />
+                    <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhotoSelect} data-testid="rm-camera-input" />
+                    <input ref={photoInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handlePhotoSelect} data-testid="rm-photo-input" />
                     <input ref={attachInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" multiple style={{ display: 'none' }} onChange={handleAttachSelect} data-testid="rm-attach-input" />
                   </div>
 

@@ -6,12 +6,13 @@ import {
 import {
   ArrowRightOutlined, CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined,
   DeleteOutlined, EditOutlined, EyeInvisibleOutlined, EyeOutlined, PaperClipOutlined,
-  PlusOutlined, ReloadOutlined, RollbackOutlined, SaveOutlined, SendOutlined,
+  PictureOutlined, PlusOutlined, ReloadOutlined, RollbackOutlined, SaveOutlined, SendOutlined,
   WarningOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
+import { compressImageFile } from '../../../utils/imageCompressor';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
 import {
@@ -231,6 +232,7 @@ const RawMaterialReturn: React.FC = () => {
   const pendingFilesRef = useRef<PendingUpload[]>(pendingFiles);
   pendingFilesRef.current = pendingFiles;
   const [existingDocs, setExistingDocs] = useState<ReturnDocument[]>([]);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<Record<string, string>>({});
@@ -652,15 +654,18 @@ const RawMaterialReturn: React.FC = () => {
   }, []);
 
   // Photos & attachments management
-  const addPendingFiles = useCallback((files: File[], kind: 'PHOTO' | 'ATTACHMENT') => {
+  const addPendingFiles = useCallback(async (files: File[], kind: 'PHOTO' | 'ATTACHMENT') => {
     const rejected: string[] = [];
     const accepted: PendingUpload[] = [];
-    for (const f of files) {
+
+    for (const rawFile of files) {
+      // Auto compress photos to ensure smartphone camera photos (often 10MB+) are converted to fast <1MB JPEGs
+      const f = kind === 'PHOTO' ? await compressImageFile(rawFile) : rawFile;
       const name = f.name || 'file';
       const ext = name.split('.').pop()?.toLowerCase() || '';
       if (kind === 'PHOTO') {
-        if (!PHOTO_MIME_ALLOW.includes(f.type) || !PHOTO_EXT_RE.test(name)) {
-          rejected.push(`${name} (photos must be JPEG/PNG/WebP)`);
+        if (!PHOTO_MIME_ALLOW.includes(f.type) && !f.type.startsWith('image/')) {
+          rejected.push(`${name} (photos must be an image)`);
           continue;
         }
         if (f.size > PHOTO_FILE_MAX) {
@@ -1642,22 +1647,32 @@ const RawMaterialReturn: React.FC = () => {
                 <div className="rm-form-section-body">
                   <div className="rmr-upload-group">
                     <Space wrap>
-                      <Button icon={<CameraOutlined />} onClick={() => photoInputRef.current?.click()}>
-                        Take / Add Photo
+                      <Button icon={<CameraOutlined />} onClick={() => cameraInputRef.current?.click()}>
+                        Take Photo
+                      </Button>
+                      <Button icon={<PictureOutlined />} onClick={() => photoInputRef.current?.click()}>
+                        Add Photo
                       </Button>
                       <Button icon={<PaperClipOutlined />} onClick={() => attachInputRef.current?.click()}>
                         Add Attachment
                       </Button>
                     </Space>
                     <span className="rmr-upload-hint">
-                      Photos: JPEG / PNG / WebP (≤ 5 MB). Attachments: PDF, Office, txt, csv (≤ 10 MB).
-                      Files upload after the return is saved.
+                      Photos: Camera or JPEG/PNG/WebP. Large smartphone photos are automatically compressed for high-speed upload.
+                      Attachments: PDF, Office, txt, csv (≤ 10 MB).
                     </span>
+                    <input
+                      ref={cameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      style={{ display: 'none' }}
+                      onChange={handlePhotoSelect}
+                    />
                     <input
                       ref={photoInputRef}
                       type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      capture="environment"
+                      accept="image/*"
                       multiple
                       style={{ display: 'none' }}
                       onChange={handlePhotoSelect}
