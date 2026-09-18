@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Input, Button, Space, Alert, Result, Tag, Divider } from 'antd';
-import { ScanOutlined, SearchOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { Card, Typography, Input, Button, Space, Alert, Result, Tag, Divider, QRCode, Row, Col } from 'antd';
+import {
+  ScanOutlined,
+  SearchOutlined,
+  ArrowRightOutlined,
+  ToolOutlined,
+  PrinterOutlined,
+  QrcodeOutlined,
+} from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import BarcodeScanner from '../../components/shared/BarcodeScanner';
+import BarcodePrint from '../../components/shared/BarcodePrint';
+import ScannedMachineHistoryModal from './ScannedMachineHistoryModal';
 import { apiService } from '../../services/api';
 import { BarcodeRecord, ENTITY_TYPE_LABELS, ENTITY_TYPE_ROUTES, BarcodeEntityType } from './types';
 
@@ -16,6 +25,8 @@ const ScanBarcode: React.FC = () => {
   const [result, setResult] = useState<BarcodeRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [machineModalOpen, setMachineModalOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
 
   useEffect(() => {
     const state = location.state as any;
@@ -42,7 +53,7 @@ const ScanBarcode: React.FC = () => {
   }, [location.state]);
 
   const lookupBarcode = async (barcodeValue: string) => {
-    if (!barcodeValue.trim()) return;
+    if (!barcodeValue || !barcodeValue.trim()) return;
     try {
       setLoading(true);
       setError(null);
@@ -50,8 +61,8 @@ const ScanBarcode: React.FC = () => {
       const res = await apiService.get<{ success: boolean; data: BarcodeRecord }>(
         `/barcode-management/lookup/${encodeURIComponent(barcodeValue.trim())}`
       );
-      if (res.success && res.data) {
-        setResult(res.data);
+      if (res && (res.success || res.data)) {
+        setResult(res.data || (res as any));
       } else {
         setError(`Barcode "${barcodeValue}" not found`);
       }
@@ -91,14 +102,16 @@ const ScanBarcode: React.FC = () => {
     }
   };
 
+  const isMachine = result?.entityType === BarcodeEntityType.MACHINE || (result?.entityType as any) === 'MACHINE';
+
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>
           <ScanOutlined style={{ marginRight: 8 }} />
-          Scan Barcode
+          Scan Barcode & QR Code
         </Title>
-        <Text type="secondary">Scan or enter a barcode to look up any ERP entity</Text>
+        <Text type="secondary">Scan or enter any Barcode / QR Code to look up ERP records and full machine history</Text>
       </div>
 
       <Card style={{ marginBottom: 16 }}>
@@ -106,7 +119,7 @@ const ScanBarcode: React.FC = () => {
           <div style={{ display: 'flex', gap: 8 }}>
             <Input
               size="large"
-              placeholder="Enter or paste barcode value..."
+              placeholder="Enter or paste Barcode / QR code value..."
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
               onPressEnter={handleSearch}
@@ -127,7 +140,7 @@ const ScanBarcode: React.FC = () => {
               onClick={() => setScannerOpen(true)}
               icon={<ScanOutlined />}
             >
-              Scan
+              Scan with Camera
             </Button>
           </div>
         </Space>
@@ -137,7 +150,7 @@ const ScanBarcode: React.FC = () => {
         <Alert
           type="warning"
           showIcon
-          message="Barcode Not Found"
+          message="Code Not Found"
           description={error}
           style={{ marginBottom: 16 }}
           closable
@@ -149,33 +162,85 @@ const ScanBarcode: React.FC = () => {
         <Card>
           <Result
             status="success"
-            title="Barcode Resolved"
-            subTitle={`Found ${ENTITY_TYPE_LABELS[result.entityType]}: ${result.entityCode || result.entityLabel || result.barcodeValue}`}
+            title="Barcode / QR Code Resolved"
+            subTitle={`Found ${ENTITY_TYPE_LABELS[result.entityType] || result.entityType}: ${result.entityCode || result.entityLabel || result.barcodeValue}`}
             extra={[
+              isMachine && (
+                <Button
+                  type="primary"
+                  key="machine-history"
+                  icon={<ToolOutlined />}
+                  style={{ background: '#722ed1', borderColor: '#722ed1' }}
+                  onClick={() => setMachineModalOpen(true)}
+                >
+                  View Machine Lifecycle History
+                </Button>
+              ),
+              <Button type="default" key="print" icon={<PrinterOutlined />} onClick={() => setPrintOpen(true)}>
+                Print Label
+              </Button>,
               <Button type="primary" key="navigate" onClick={handleNavigateToEntity}>
-                Open {ENTITY_TYPE_LABELS[result.entityType]} <ArrowRightOutlined />
+                Open {ENTITY_TYPE_LABELS[result.entityType] || result.entityType} <ArrowRightOutlined />
               </Button>,
               <Button key="scan-another" onClick={() => { setResult(null); setSearchValue(''); }}>
                 Scan Another
               </Button>,
-            ]}
+            ].filter(Boolean)}
           >
-            <div
-              style={{
-                textAlign: 'left',
-                background: 'var(--theme-bg-secondary, #fafafa)',
-                padding: 16,
-                borderRadius: 8,
-              }}
-            >
-              <Space direction="vertical" size="small">
-                <div><Text strong>Barcode:</Text> <Text code>{result.barcodeValue}</Text></div>
-                <div><Text strong>Type:</Text> <Tag color="blue">{ENTITY_TYPE_LABELS[result.entityType]}</Tag></div>
-                {result.entityCode && <div><Text strong>Code:</Text> <Text>{result.entityCode}</Text></div>}
-                {result.entityLabel && <div><Text strong>Name:</Text> <Text>{result.entityLabel}</Text></div>}
-                <div><Text strong>Status:</Text> <Tag color={result.status === 'ACTIVE' ? 'green' : 'red'}>{result.status}</Tag></div>
-              </Space>
-            </div>
+            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+              <Col xs={24} md={16}>
+                <div
+                  style={{
+                    textAlign: 'left',
+                    background: 'var(--theme-bg-secondary, #fafafa)',
+                    padding: 16,
+                    borderRadius: 8,
+                    height: '100%',
+                  }}
+                >
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <div><Text strong>Scanned Code:</Text> <Text code style={{ fontSize: 13 }}>{result.barcodeValue}</Text></div>
+                    <div><Text strong>Entity Type:</Text> <Tag color="blue">{ENTITY_TYPE_LABELS[result.entityType] || result.entityType}</Tag></div>
+                    {result.entityCode && <div><Text strong>Entity Code:</Text> <Text strong>{result.entityCode}</Text></div>}
+                    {result.entityLabel && <div><Text strong>Name / Label:</Text> <Text>{result.entityLabel}</Text></div>}
+                    <div><Text strong>Status:</Text> <Tag color={result.status === 'ACTIVE' ? 'green' : 'red'}>{result.status}</Tag></div>
+                    {isMachine && (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="Machine History Available"
+                        description="Click 'View Machine Lifecycle History' to inspect all maintenance job cards, replaced parts/tooling, and daily production entries."
+                        style={{ marginTop: 12 }}
+                      />
+                    )}
+                  </Space>
+                </div>
+              </Col>
+
+              <Col xs={24} md={8}>
+                <div
+                  style={{
+                    textAlign: 'center',
+                    background: 'var(--theme-bg-secondary, #fafafa)',
+                    padding: 16,
+                    borderRadius: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    height: '100%',
+                  }}
+                >
+                  <Text strong style={{ fontSize: 12 }}>
+                    <QrcodeOutlined style={{ marginRight: 6 }} />
+                    QR Code Preview
+                  </Text>
+                  <QRCode value={result.barcodeValue} size={110} />
+                  <Text code style={{ fontSize: 11 }}>{result.barcodeValue}</Text>
+                </div>
+              </Col>
+            </Row>
           </Result>
         </Card>
       )}
@@ -186,11 +251,11 @@ const ScanBarcode: React.FC = () => {
             <ScanOutlined style={{ fontSize: 48, color: 'var(--theme-text-tertiary, #d9d9d9)', marginBottom: 16 }} />
             <div>
               <Text type="secondary">
-                Scan a barcode with your camera or enter a barcode value to look up any entity in the ERP system.
+                Scan a barcode or QR code with your camera (or upload an image) to look up any entity and complete machine history.
               </Text>
             </div>
             <Divider />
-            <div style={{ textAlign: 'left', maxWidth: 400, margin: '0 auto' }}>
+            <div style={{ textAlign: 'left', maxWidth: 450, margin: '0 auto' }}>
               <Text strong style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>Supported Entities:</Text>
               <Space wrap size={[8, 4]}>
                 {Object.values(BarcodeEntityType).map((type) => (
@@ -202,14 +267,39 @@ const ScanBarcode: React.FC = () => {
         </Card>
       )}
 
+      {/* Camera / Photo Scanner */}
       <BarcodeScanner
         open={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onScan={handleScan}
-        title="Scan ERP Barcode"
+        title="Scan ERP Barcode / QR Code"
       />
+
+      {/* Machine Lifecycle History Modal */}
+      {isMachine && result && (
+        <ScannedMachineHistoryModal
+          open={machineModalOpen}
+          onClose={() => setMachineModalOpen(false)}
+          machineId={result.entityId}
+          machineCode={result.entityCode || undefined}
+          barcodeValue={result.barcodeValue}
+        />
+      )}
+
+      {/* Print Modal */}
+      {result && (
+        <BarcodePrint
+          open={printOpen}
+          onClose={() => setPrintOpen(false)}
+          itemCode={result.entityCode || result.entityId}
+          itemName={result.entityLabel || ENTITY_TYPE_LABELS[result.entityType]}
+          barcode={result.barcodeValue}
+          initialFormat="BOTH"
+        />
+      )}
     </div>
   );
 };
 
 export default ScanBarcode;
+

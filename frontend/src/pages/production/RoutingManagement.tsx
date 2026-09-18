@@ -16,6 +16,7 @@ import dayjs from 'dayjs';
 import apiService, { describeRequestError } from '../../services/api';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { formatDecimal, toNum } from '../../utils/numberFormat';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 
 import { getLookupsSnapshot, subscribeLookups } from '../../services/lookupsCache';
 
@@ -69,6 +70,8 @@ const RoutingManagement: React.FC = () => {
   const [routingResultPhase, setRoutingResultPhase] = useState<SaveResultPhase>('loading');
   const [routingResult, setRoutingResult] = useState<SaveResultData | null>(null);
   const [routingResultError, setRoutingResultError] = useState<string>('');
+  const [routingResultErrorTitle, setRoutingResultErrorTitle] = useState<string | undefined>(undefined);
+  const [routingResultErrorLead, setRoutingResultErrorLead] = useState<string | undefined>(undefined);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<'table' | 'flow'>('table');
@@ -208,7 +211,15 @@ const RoutingManagement: React.FC = () => {
     try {
       raw = await form.validateFields();
     } catch (err: any) {
-      if (err?.errorFields) return;
+      const val = handleValidationErrors(err, form);
+      if (val) {
+        setRoutingResultErrorTitle('Required Information Missing');
+        setRoutingResultErrorLead('Please complete all required fields before saving:');
+        setRoutingResultError(val.bulletList);
+        setRoutingResultPhase('error');
+        setRoutingResultOpen(true);
+        return;
+      }
       message.error(describeRequestError(err));
       return;
     }
@@ -217,6 +228,8 @@ const RoutingManagement: React.FC = () => {
       if (raw[key] !== undefined) payload[key] = raw[key];
     }
 
+    setRoutingResultErrorTitle(undefined);
+    setRoutingResultErrorLead(undefined);
     setRoutingSaving(true);
     setRoutingResultPhase('loading');
     setRoutingResultOpen(true);
@@ -690,6 +703,8 @@ const RoutingManagement: React.FC = () => {
         open={routingResultOpen}
         phase={routingResultPhase}
         result={routingResult}
+        errorTitle={routingResultErrorTitle}
+        errorLead={routingResultErrorLead}
         errorMessage={routingResultError}
         onRetry={handleSave}
         onClose={() => setRoutingResultOpen(false)}

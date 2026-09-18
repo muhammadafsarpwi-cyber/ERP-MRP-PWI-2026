@@ -10,6 +10,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService, { describeRequestError } from '../../services/api';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { PageHeader, StatusBadge, EmptyState, DraggableResizableModal } from '../../components/shared';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 
 interface RouteType {
   id: string;
@@ -152,6 +153,8 @@ const RouteTypeManagement: React.FC = () => {
   const [resultPhase, setResultPhase] = useState<SaveResultPhase>('loading');
   const [result, setResult] = useState<SaveResultData | null>(null);
   const [resultError, setResultError] = useState<string>('');
+  const [resultErrorTitle, setResultErrorTitle] = useState<string | undefined>(undefined);
+  const [resultErrorLead, setResultErrorLead] = useState<string | undefined>(undefined);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [form] = Form.useForm();
   const [search, setSearch] = useState('');
@@ -238,12 +241,22 @@ const RouteTypeManagement: React.FC = () => {
     try {
       raw = await form.validateFields();
     } catch (err: any) {
-      if (err?.errorFields) return;
+      const val = handleValidationErrors(err, form);
+      if (val) {
+        setResultErrorTitle('Required Information Missing');
+        setResultErrorLead('Please complete all required fields before saving:');
+        setResultError(val.bulletList);
+        setResultPhase('error');
+        setResultOpen(true);
+        return;
+      }
       message.error(describeRequestError(err));
       return;
     }
     const payload: Record<string, unknown> = { ...raw };
     if (!editing && companyId) payload.companyId = companyId;
+    setResultErrorTitle(undefined);
+    setResultErrorLead(undefined);
     setSaving(true);
     setResultPhase('loading');
     setResultOpen(true);
@@ -514,6 +527,8 @@ const RouteTypeManagement: React.FC = () => {
         open={resultOpen}
         phase={resultPhase}
         result={result}
+        errorTitle={resultErrorTitle}
+        errorLead={resultErrorLead}
         errorMessage={resultError}
         onRetry={handleSubmit}
         onClose={() => setResultOpen(false)}

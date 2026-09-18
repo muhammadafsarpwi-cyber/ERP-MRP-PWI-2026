@@ -28,6 +28,7 @@ import {
   PageHeader, ERPTable, TableActions, PageToolbar,
   StatusBadge, DraggableResizableModal, HeaderCell, HighlightedCell,
 } from '../../components/shared';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { getMachineColor } from '../../utils/colorMapping';
 import TargetView, { TargetRecord } from './TargetView';
 import TargetSaveSuccessModal from './TargetSaveSuccessModal';
@@ -655,7 +656,10 @@ const TargetManagement: React.FC = () => {
       fetchTargets(editing ? page : 1);
       if (!editing) setPage(1);
     } catch (error: any) {
-      if (error?.errorFields) return;
+      if (error?.errorFields) {
+        handleValidationErrors(error, form);
+        return;
+      }
       message.error(error?.response?.data?.message || 'Failed to save machine target');
     } finally {
       setSaving(false);

@@ -18,6 +18,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatNumber } from '../../utils/numberFormat';
 import { ERPTable, TableToolbar, TableActions, DraggableResizableModal } from '../../components/shared';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 
 const TRACKING_TYPES = [
   { value: 'NONE', label: 'None' },
@@ -536,8 +537,11 @@ const InventoryPolicyManagement: React.FC = () => {
       fetchPolicies(page);
       fetchSummary();
     } catch (error: unknown) {
-      // Form validation errors have `errorFields` — don't show as API error
-      if (error && typeof error === 'object' && 'errorFields' in error) return;
+      // Form validation errors have `errorFields` — notify user and scroll to missing field
+      if (error && typeof error === 'object' && 'errorFields' in error) {
+        handleValidationErrors(error, form);
+        return;
+      }
       const err = error as { response?: { data?: { message?: string | string[] } }; message?: string };
       const backendMsg = err?.response?.data?.message;
       const displayMsg = Array.isArray(backendMsg) ? backendMsg[0] : (backendMsg || err?.message || 'Operation failed');

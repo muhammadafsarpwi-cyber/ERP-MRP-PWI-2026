@@ -1,3 +1,5 @@
+import { formatNameWithCode } from './formatEntityLabel';
+
 export interface ShareLine {
   itemCode?: string;
   itemName?: string;
@@ -13,38 +15,97 @@ export interface ShareReceiptInfo {
   sourceNo?: string;
   receiptDate: string;
   divisionName?: string;
+  divisionCode?: string;
   sectionName?: string;
+  sectionCode?: string;
   departmentName?: string;
+  departmentCode?: string;
   warehouseName?: string;
+  warehouseCode?: string;
   lines: ShareLine[];
   gatePassTotal: number;
   receivedTotal: number;
   differenceTotal: number;
 }
 
-/** Plain-text WhatsApp share message built from the real receipt data. */
+/** Formats a number with commas and up to 2 decimal places */
+function fmt(val: number): string {
+  return Number(val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Rich, professional WhatsApp share message built from real receipt data.
+ * Adheres strictly to the user requirement:
+ * Item Name FIRST, with Code in brackets: "Packed Spoke 14G (FGR-SPP-001)"
+ */
 export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
   const date = info.receiptDate || '';
-  const org = [info.warehouseName, info.divisionName, info.sectionName, info.departmentName]
-    .filter(Boolean)
-    .join(' / ');
-  let msg = 'RAW MATERIAL RECEIVING\n';
-  msg += `Receipt: ${info.receiptCode}\n`;
-  if (info.gatePassNo) msg += `Gate Pass: ${info.gatePassNo}\n`;
-  if (info.sourceNo) msg += `Source No: ${info.sourceNo}\n`;
-  if (date) msg += `Date: ${date}\n`;
-  if (org) msg += `Org: ${org}\n`;
+  const lines: string[] = [];
+
+  lines.push('📦 *PAKISTAN WIRE INDUSTRIES (PVT) LTD*');
+  lines.push('*RAW MATERIAL RECEIPT (GATE PASS)*');
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push(`📋 *Receipt Code:* ${info.receiptCode}`);
+  if (info.gatePassNo) lines.push(`🎫 *Gate Pass No:* ${info.gatePassNo}`);
+  if (info.sourceNo) lines.push(`📄 *Source / DC No:* ${info.sourceNo}`);
+  if (date) lines.push(`📅 *Receipt Date:* ${date}`);
+
+  const warehouseStr = formatNameWithCode(info.warehouseName, info.warehouseCode);
+  const divisionStr = formatNameWithCode(info.divisionName, info.divisionCode);
+  const sectionStr = formatNameWithCode(info.sectionName, info.sectionCode);
+  const deptStr = formatNameWithCode(info.departmentName, info.departmentCode);
+
+  if (warehouseStr !== '—') lines.push(`🏪 *Warehouse:* ${warehouseStr}`);
+  if (divisionStr !== '—') lines.push(`🏢 *Division:* ${divisionStr}`);
+  if (sectionStr !== '—') lines.push(`🏬 *Section:* ${sectionStr}`);
+  if (deptStr !== '—') lines.push(`🏷️ *Department:* ${deptStr}`);
 
   if (info.lines.length > 0) {
-    msg += '\n';
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
+    lines.push(`📋 *MATERIAL ITEMS (${info.lines.length} Line${info.lines.length > 1 ? 's' : ''}):*`);
+
     info.lines.forEach((line, idx) => {
-      const item = [line.itemCode, line.itemName].filter(Boolean).join(' - ') || `Item ${idx + 1}`;
-      msg += `${idx + 1}. ${item}${line.uomCode ? ` (${line.uomCode})` : ''}\n`;
-      msg += `   Gate Pass: ${line.gatePassQuantity} | Received: ${line.receivedQuantity} | Diff: ${line.difference}\n`;
+      // Name FIRST, Code in brackets
+      const itemTitle = formatNameWithCode(line.itemName, line.itemCode);
+      const uom = line.uomCode ? ` ${line.uomCode}` : '';
+      const gpQty = fmt(line.gatePassQuantity);
+      const rcvQty = fmt(line.receivedQuantity);
+      const diffVal = Number(line.difference || 0);
+
+      let statusEmoji = '✅ Balanced';
+      if (diffVal < 0) {
+        statusEmoji = `⚠️ Excess (+${fmt(Math.abs(diffVal))}${uom})`;
+      } else if (diffVal > 0) {
+        statusEmoji = `❌ Shortage (-${fmt(diffVal)}${uom})`;
+      }
+
+      lines.push(`\n*${idx + 1}. ${itemTitle}*`);
+      lines.push(`   • Gate Pass Qty: ${gpQty}${uom}`);
+      lines.push(`   • Received Qty: ${rcvQty}${uom}`);
+      lines.push(`   • Status: ${statusEmoji}`);
     });
-    msg += `\nTotals — Gate Pass: ${info.gatePassTotal} | Received: ${info.receivedTotal} | Diff: ${info.differenceTotal}`;
+
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
+    lines.push('📊 *RECEIPT SUMMARY TOTALS:*');
+    lines.push(`• Total Gate Pass Qty: ${fmt(info.gatePassTotal)}`);
+    lines.push(`• Total Received Qty: ${fmt(info.receivedTotal)}`);
+    const netDiff = Number(info.differenceTotal || 0);
+    const netStatus = netDiff === 0 ? '✅ Matched' : netDiff > 0 ? `❌ Short (-${fmt(netDiff)})` : `⚠️ Excess (+${fmt(Math.abs(netDiff))})`;
+    lines.push(`• Net Variance: ${fmt(netDiff)} (${netStatus})`);
   }
-  return msg;
+
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push('🌐 _Generated via PWI ERP System (2026-2027)_');
+
+  return lines.join('\n');
+}
+
+/**
+ * Returns a universal WhatsApp web/app share URL without needing a recipient phone.
+ * Allows user to pick ANY contact or group in WhatsApp.
+ */
+export function waDirectShareUrl(message: string): string {
+  return `https://api.whatsapp.com/send?text=${encodeURIComponent(message.trim())}`;
 }
 
 /** Returns wa.me link with phone + message pre-filled, or '' if the phone is unusable. */

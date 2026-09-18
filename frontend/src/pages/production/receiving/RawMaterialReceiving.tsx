@@ -13,8 +13,9 @@ import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
-import { buildReceiptWhatsAppMessage, normalizeWaPhone, waLink } from '../../../utils/receiptShare';
+import { buildReceiptWhatsAppMessage, normalizeWaPhone, waLink, waDirectShareUrl } from '../../../utils/receiptShare';
 import type { ShareReceiptInfo } from '../../../utils/receiptShare';
+import { formatNameWithCode } from '../../../utils/formatEntityLabel';
 import { DraggableResizableModal, SaveResultDialog, PageHeader } from '../../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
 import { useRawReceiptDraftStore } from '../../../store/rawReceiptDraftStore';
@@ -285,32 +286,32 @@ const RawMaterialReceiving: React.FC = () => {
   // with ZERO extra API calls, so cascades are instant.
   // ─────────────────────────────────────────────────────────────────────────
   const divisionOptions = useMemo(
-    () => (refData?.divisions || []).map((d) => ({ value: d.id, label: d.divisionCode ? `${d.divisionCode} — ${d.name}` : d.name })),
+    () => (refData?.divisions || []).map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.divisionCode) })),
     [refData?.divisions],
   );
 
   const warehouseOptions = useMemo(
-    () => (refData?.warehouses || []).map((w) => ({ value: w.id, label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name })),
+    () => (refData?.warehouses || []).map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) })),
     [refData?.warehouses],
   );
 
   const sectionOptions = useMemo(
     () => (refData?.sections || [])
       .filter((s) => !watchDivision || !s.divisionId || s.divisionId === watchDivision)
-      .map((s) => ({ value: s.id, label: s.sectionCode ? `${s.sectionCode} — ${s.name}` : s.name })),
+      .map((s) => ({ value: s.id, label: formatNameWithCode(s.name, s.sectionCode) })),
     [refData?.sections, watchDivision],
   );
 
   const departmentOptions = useMemo(
     () => (watchSection ? (refData?.departments || [])
       .filter((d) => d.sectionId === watchSection && (!watchDivision || !d.divisionId || d.divisionId === watchDivision))
-      .map((d) => ({ value: d.id, label: d.departmentCode ? `${d.departmentCode} — ${d.name}` : d.name }))
+      .map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.departmentCode) }))
       : []),
     [refData?.departments, watchDivision, watchSection],
   );
 
   const itemOptions = useMemo(
-    () => filteredItems.map((i) => ({ value: i.id, label: i.itemCode ? `${i.itemCode} — ${i.name}` : i.name })),
+    () => filteredItems.map((i) => ({ value: i.id, label: formatNameWithCode(i.name, i.itemCode) })),
     [filteredItems],
   );
 
@@ -936,9 +937,13 @@ const RawMaterialReceiving: React.FC = () => {
     sourceNo: values.sourceNo || undefined,
     receiptDate: values.receiptDate ? values.receiptDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
     divisionName: refData?.divisions.find((d) => d.id === values.divisionId)?.name,
+    divisionCode: refData?.divisions.find((d) => d.id === values.divisionId)?.divisionCode,
     sectionName: refData?.sections.find((s) => s.id === values.sectionId)?.name,
+    sectionCode: refData?.sections.find((s) => s.id === values.sectionId)?.sectionCode,
     departmentName: refData?.departments.find((d) => d.id === values.departmentId)?.name,
+    departmentCode: refData?.departments.find((d) => d.id === values.departmentId)?.departmentCode,
     warehouseName: refData?.warehouses.find((w) => w.id === values.warehouseId)?.name,
+    warehouseCode: refData?.warehouses.find((w) => w.id === values.warehouseId)?.warehouseCode,
     lines: rows.filter((r) => r.itemId).map((r) => {
       const item = refData?.items.find((i) => i.id === r.itemId);
       const uom = refData?.uoms.find((u) => u.id === r.uomId);
@@ -962,9 +967,13 @@ const RawMaterialReceiving: React.FC = () => {
     sourceNo: d.sourceNo || undefined,
     receiptDate: d.receiptDate,
     divisionName: d.division?.name,
+    divisionCode: d.division?.divisionCode,
     sectionName: d.section?.name,
+    sectionCode: d.section?.sectionCode,
     departmentName: d.department?.name,
+    departmentCode: d.department?.departmentCode,
     warehouseName: d.warehouse?.name,
+    warehouseCode: d.warehouse?.warehouseCode,
     lines: (d.lines || []).map((l) => ({
       itemCode: l.item?.itemCode,
       itemName: l.item?.name,
@@ -1086,6 +1095,8 @@ const RawMaterialReceiving: React.FC = () => {
       return false;
     }
 
+    const shareInfo = buildShareInfoFromValues(resultCode, values);
+    const waText = buildReceiptWhatsAppMessage(shareInfo);
     setSaveDialogResult({
       title: editingId ? 'Receipt Updated' : 'Receipt Confirmed',
       recordType: 'Receipt Code',
@@ -1093,9 +1104,19 @@ const RawMaterialReceiving: React.FC = () => {
       recordName: values.gatePassNo ? `Gate Pass #${values.gatePassNo}` : undefined,
       message: `${rows.filter((r) => r.itemId).length} raw material line(s) processed. Received Qty: ${formatNumber(totals.receivedTotal, 2)}`,
       extra: (
-        <Button type="primary" ghost icon={<WhatsAppOutlined />} onClick={() => openWaShare(buildShareInfoFromValues(resultCode, values), receiptId)}>
-          Share on WhatsApp
-        </Button>
+        <Space wrap>
+          <Button
+            type="primary"
+            style={{ background: '#25D366', borderColor: '#25D366', fontWeight: 600 }}
+            icon={<WhatsAppOutlined />}
+            onClick={() => window.open(waDirectShareUrl(waText), '_blank', 'noopener,noreferrer')}
+          >
+            Direct WhatsApp
+          </Button>
+          <Button type="default" icon={<WhatsAppOutlined style={{ color: '#25D366' }} />} onClick={() => openWaShare(shareInfo, receiptId)}>
+            WhatsApp Details
+          </Button>
+        </Space>
       ),
     });
     setSaveDialogSuccessTitle(editingId ? 'Receipt Updated Successfully' : 'Receipt Confirmed Successfully');
@@ -1281,6 +1302,8 @@ const RawMaterialReceiving: React.FC = () => {
       render: (_, r) => (
         <Select showSearch optionFilterProp="label" placeholder="Select raw material" value={r.itemId}
           onChange={(v) => onItemSelect(r.key, v)} style={{ width: '100%' }}
+          popupMatchSelectWidth={false}
+          dropdownStyle={{ minWidth: 320 }}
           options={itemOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
           notFoundContent={refState === 'loading' ? <Text type="secondary">Loading items…</Text> : 'No raw materials in this division'}
           disabled={refState === 'error'} />
@@ -1481,98 +1504,127 @@ const RawMaterialReceiving: React.FC = () => {
           {/* Left Column: Form Controls (Dedicated independent scrollbar) */}
           <div className={`raw-material-modal-form-col ${!showLivePreview ? 'raw-material-modal-form-col--full' : ''}`}>
             <Form form={form} layout="vertical" onFinish={onFinish} onValuesChange={() => commitDraft(editingId)}>
-              <Card size="small" title="SECTION 1 · Organization & Warehouse" className="erp-section-card-inner" style={{ marginBottom: 12 }}>
-                <Row gutter={12}>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="divisionId" label={<span>Division <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Division' }]}>
-                      <Select showSearch optionFilterProp="label" placeholder="Select Division"
-                        onChange={handleDivisionChange}
-                        loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
-                        options={divisionOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
-                        notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No divisions'} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="sectionId" label={<span>Section <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Section' }]}>
-                      <Select showSearch optionFilterProp="label" placeholder={watchDivision ? 'Select Section' : 'Select Division first'} disabled={!watchDivision}
-                        onChange={handleSectionChange}
-                        loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
-                        options={sectionOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
-                        notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No sections'} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="departmentId" label={<span>Department <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Department' }]}>
-                      <Select showSearch optionFilterProp="label" placeholder={watchSection ? 'Select Department' : 'Select Section first'} disabled={!watchSection}
-                        loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
-                        options={departmentOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
-                        notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No departments in this section'} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="warehouseId" label={<span>Receiving Warehouse <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select warehouse' }]}>
-                      <Select showSearch optionFilterProp="label" placeholder="Select warehouse"
-                        status={refState === 'error' ? 'error' : undefined}
-                        options={warehouseOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="receiptDate" label={<>Receipt Date</>}>
-                      <DatePicker style={{ width: '100%' }} placeholder="Defaults to today" />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="gatePassNo" label="Gate Pass No">
-                      <Input placeholder="e.g. GP-10250" maxLength={50} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="sourceNo" label="Source / DC No">
-                      <Input placeholder="Optional" maxLength={50} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="productionOrderId" label="Production Order">
-                      <Select allowClear showSearch optionFilterProp="label" placeholder="Optional"
-                        options={productionOrderOptions} virtual listHeight={160} />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </Card>
+              {/* SECTION 1: Organization & Warehouse */}
+              <div className="rm-form-section-card">
+                <div className="rm-form-section-header">
+                  <span className="rm-form-section-number">01</span>
+                  <div className="rm-form-section-title-wrap">
+                    <div className="rm-form-section-title">Organization & Destination Warehouse</div>
+                    <div className="rm-form-section-subtitle">Select facility hierarchy and gate pass receipt reference</div>
+                  </div>
+                </div>
+                <div className="rm-form-section-body">
+                  <Row gutter={12}>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="divisionId" label={<span>Division <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Division' }]}>
+                        <Select showSearch optionFilterProp="label" placeholder="Select Division"
+                          onChange={handleDivisionChange}
+                          popupMatchSelectWidth={false}
+                          dropdownStyle={{ minWidth: 280 }}
+                          loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
+                          options={divisionOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
+                          notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No divisions'} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="sectionId" label={<span>Section <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Section' }]}>
+                        <Select showSearch optionFilterProp="label" placeholder={watchDivision ? 'Select Section' : 'Select Division first'} disabled={!watchDivision}
+                          onChange={handleSectionChange}
+                          popupMatchSelectWidth={false}
+                          dropdownStyle={{ minWidth: 280 }}
+                          loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
+                          options={sectionOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
+                          notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No sections'} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="departmentId" label={<span>Department <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Department' }]}>
+                        <Select showSearch optionFilterProp="label" placeholder={watchSection ? 'Select Department' : 'Select Section first'} disabled={!watchSection}
+                          popupMatchSelectWidth={false}
+                          dropdownStyle={{ minWidth: 280 }}
+                          loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
+                          options={departmentOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
+                          notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No departments in this section'} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="warehouseId" label={<span>Receiving Warehouse <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select warehouse' }]}>
+                        <Select showSearch optionFilterProp="label" placeholder="Select warehouse"
+                          popupMatchSelectWidth={false}
+                          dropdownStyle={{ minWidth: 280 }}
+                          status={refState === 'error' ? 'error' : undefined}
+                          options={warehouseOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="receiptDate" label={<>Receipt Date</>}>
+                        <DatePicker style={{ width: '100%' }} placeholder="Defaults to today" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="gatePassNo" label="Gate Pass No">
+                        <Input placeholder="e.g. GP-10250" maxLength={50} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="sourceNo" label="Source / DC No">
+                        <Input placeholder="Optional" maxLength={50} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="productionOrderId" label="Production Order">
+                        <Select allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                          popupMatchSelectWidth={false}
+                          dropdownStyle={{ minWidth: 260 }}
+                          options={productionOrderOptions} virtual listHeight={160} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </div>
+              </div>
 
-              <Card
-                size="small"
-                title="SECTION 2 · Gate Pass Items"
-                className="erp-section-card-inner"
-                style={{ marginBottom: 12 }}
-                extra={<Button size="small" type="dashed" icon={<PlusOutlined />} onClick={addLine}>Add Item</Button>}
-              >
-                {refState === 'error' ? (
-                  <Alert type="error" showIcon message="Reference data could not be loaded. Please refresh the page." />
-                ) : (
-                  <Table columns={lineColumns} dataSource={rows} rowKey="key" pagination={false} size="small" scroll={{ x: 1120 }}
-                    locale={{ emptyText: 'No lines added yet.' }} />
-                )}
-                <Row gutter={12} style={{ marginTop: 12 }}>
-                  <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
-                    <Text strong>Gate Pass Total:</Text> <Text>{formatNumber(totals.gatePassTotal, 2)}</Text>
-                  </Col>
-                  <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
-                    <Text strong>Received Total:</Text> <Text style={{ color: 'var(--theme-success, #52c41a)' }}>{formatNumber(totals.receivedTotal, 2)}</Text>
-                  </Col>
-                  <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
-                    <Text strong>Difference:</Text>{' '}
-                    <Text
-                      style={{
-                        fontWeight: totals.differenceTotal !== 0 ? 700 : undefined,
-                        color: totals.differenceTotal < 0 ? '#dc2626' : totals.differenceTotal > 0 ? 'var(--theme-warning, #d48806)' : undefined,
-                      }}
-                    >
-                      {formatNumber(totals.differenceTotal, 2)}
-                    </Text>
-                  </Col>
-                </Row>
-              </Card>
+              {/* SECTION 2: Gate Pass Items */}
+              <div className="rm-form-section-card">
+                <div className="rm-form-section-header" style={{ justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span className="rm-form-section-number">02</span>
+                    <div className="rm-form-section-title-wrap">
+                      <div className="rm-form-section-title">Gate Pass Materials & Quantities</div>
+                      <div className="rm-form-section-subtitle">Raw material lines received against gate pass with live variance calculation</div>
+                    </div>
+                  </div>
+                  <Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={addLine}>
+                    Add Material
+                  </Button>
+                </div>
+                <div className="rm-form-section-body">
+                  {refState === 'error' ? (
+                    <Alert type="error" showIcon message="Reference data could not be loaded. Please refresh the page." />
+                  ) : (
+                    <Table columns={lineColumns} dataSource={rows} rowKey="key" pagination={false} size="small" scroll={{ x: 1120 }}
+                      locale={{ emptyText: 'No lines added yet.' }} />
+                  )}
+                  <Row gutter={12} style={{ marginTop: 12 }}>
+                    <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
+                      <Text strong>Gate Pass Total:</Text> <Text>{formatNumber(totals.gatePassTotal, 2)}</Text>
+                    </Col>
+                    <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
+                      <Text strong>Received Total:</Text> <Text style={{ color: 'var(--theme-success, #52c41a)' }}>{formatNumber(totals.receivedTotal, 2)}</Text>
+                    </Col>
+                    <Col xs={24} sm={8} style={{ textAlign: 'right' }}>
+                      <Text strong>Difference:</Text>{' '}
+                      <Text
+                        style={{
+                          fontWeight: totals.differenceTotal !== 0 ? 700 : undefined,
+                          color: totals.differenceTotal < 0 ? '#dc2626' : totals.differenceTotal > 0 ? 'var(--theme-warning, #d48806)' : undefined,
+                        }}
+                      >
+                        {formatNumber(totals.differenceTotal, 2)}
+                      </Text>
+                    </Col>
+                  </Row>
+                </div>
+              </div>
 
               {/* ── RMR-01-C-C: dedicated bottom summary — inventory impact preview (read-only) ── */}
               <Card
@@ -1641,95 +1693,127 @@ const RawMaterialReceiving: React.FC = () => {
                 </div>
               </Card>
 
-              <Card
-                size="small"
-                title={<Space><PaperClipOutlined /> SECTION 3 · Documents &amp; Photos {pendingFiles.length > 0 ? <Tag color="blue">{pendingFiles.length} pending</Tag> : null}</Space>}
-                className="erp-section-card-inner"
-                style={{ marginBottom: 12 }}
-              >
-                <div className="rmr-upload-group">
-                  <Space wrap>
-                    <Button icon={<CameraOutlined />} onClick={() => photoInputRef.current?.click()} data-testid="rm-photo-btn">Take / Add Photo</Button>
-                    <Button icon={<PaperClipOutlined />} onClick={() => attachInputRef.current?.click()} data-testid="rm-attach-btn">Add Attachment</Button>
-                  </Space>
-                  <span className="rmr-upload-hint">
-                    Photos: JPEG / PNG / WebP (≤ 5 MB). Attachments: PDF, Office, txt, csv (≤ 10 MB).
-                    Files upload after the receipt is saved — nothing is sent to the server before then.
-                  </span>
-                  <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple style={{ display: 'none' }} onChange={handlePhotoSelect} data-testid="rm-photo-input" />
-                  <input ref={attachInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" multiple style={{ display: 'none' }} onChange={handleAttachSelect} data-testid="rm-attach-input" />
+              {/* SECTION 3: Documents & Photos */}
+              <div className="rm-form-section-card">
+                <div className="rm-form-section-header">
+                  <span className="rm-form-section-number">03</span>
+                  <div className="rm-form-section-title-wrap">
+                    <div className="rm-form-section-title">
+                      Evidence, Photos &amp; Documents {pendingFiles.length > 0 ? <Tag color="blue">{pendingFiles.length} pending</Tag> : null}
+                    </div>
+                    <div className="rm-form-section-subtitle">Attach delivery notes, gate passes, or physical receipt photos</div>
+                  </div>
                 </div>
+                <div className="rm-form-section-body">
+                  <div className="rmr-upload-group">
+                    <Space wrap>
+                      <Button icon={<CameraOutlined />} onClick={() => photoInputRef.current?.click()} data-testid="rm-photo-btn">Take / Add Photo</Button>
+                      <Button icon={<PaperClipOutlined />} onClick={() => attachInputRef.current?.click()} data-testid="rm-attach-btn">Add Attachment</Button>
+                    </Space>
+                    <span className="rmr-upload-hint">
+                      Photos: JPEG / PNG / WebP (≤ 5 MB). Attachments: PDF, Office, txt, csv (≤ 10 MB).
+                      Files upload after the receipt is saved — nothing is sent to the server before then.
+                    </span>
+                    <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple style={{ display: 'none' }} onChange={handlePhotoSelect} data-testid="rm-photo-input" />
+                    <input ref={attachInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" multiple style={{ display: 'none' }} onChange={handleAttachSelect} data-testid="rm-attach-input" />
+                  </div>
 
-                {isEditing && existingDocs.length > 0 && (
-                  <div className="rmr-existing-docs">
-                    <div className="rmr-doc-block-label">Current documents on file</div>
-                    <div className="rmr-pending-list">
-                      {existingDocs.map((doc) => (
-                        doc.kind === 'PHOTO' ? (
-                          <div key={doc.id} className="rmr-pending-photo">
-                            <img src={doc.fileUrl} alt={doc.fileName} className="rmr-preview-thumb" />
-                            <div className="rmr-pending-meta">
-                              <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                  {isEditing && existingDocs.length > 0 && (
+                    <div className="rmr-existing-docs">
+                      <div className="rmr-doc-block-label">Current documents on file</div>
+                      <div className="rmr-pending-list">
+                        {existingDocs.map((doc) => (
+                          doc.kind === 'PHOTO' ? (
+                            <div key={doc.id} className="rmr-pending-photo">
+                              <img src={doc.fileUrl} alt={doc.fileName} className="rmr-preview-thumb" />
+                              <div className="rmr-pending-meta">
+                                <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                              </div>
+                              <Popconfirm title="Remove this document?" onConfirm={() => handleRemoveExistingDoc(doc)} okText="Remove" okButtonProps={{ danger: true }}>
+                                <Button size="small" danger icon={<DeleteOutlined />} data-testid={`rm-remove-existing-${doc.id}`} aria-label={`Remove ${doc.fileName}`} />
+                              </Popconfirm>
                             </div>
-                            <Popconfirm title="Remove this document?" onConfirm={() => handleRemoveExistingDoc(doc)} okText="Remove" okButtonProps={{ danger: true }}>
-                              <Button size="small" danger icon={<DeleteOutlined />} data-testid={`rm-remove-existing-${doc.id}`} aria-label={`Remove ${doc.fileName}`} />
-                            </Popconfirm>
+                          ) : (
+                            <div key={doc.id} className="rmr-pending-attach">
+                              <PaperClipOutlined />
+                              <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                              <span className="rmr-pending-size">{doc.fileSize ? formatBytes(doc.fileSize) : ''}</span>
+                              <Popconfirm title="Remove this document?" onConfirm={() => handleRemoveExistingDoc(doc)} okText="Remove" okButtonProps={{ danger: true }}>
+                                <Button size="small" danger icon={<DeleteOutlined />} data-testid={`rm-remove-existing-${doc.id}`} aria-label={`Remove ${doc.fileName}`} />
+                              </Popconfirm>
+                            </div>
+                          )
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {pendingFiles.length === 0 ? (
+                    <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+                      {isEditing ? 'No new documents pending — add photos of the received stock or supporting gate-pass files above.' : 'No documents pending.'}
+                    </Text>
+                  ) : (
+                    <div className="rmr-pending-list">
+                      {pendingFiles.map((p) => (
+                        p.kind === 'PHOTO' ? (
+                          <div key={p.key} className="rmr-pending-photo">
+                            <img src={photoPreview(p)} alt={p.name} className="rmr-preview-thumb" />
+                            <div className="rmr-pending-meta">
+                              <span className="rmr-pending-name" title={p.name}>{p.name}</span>
+                              <span className="rmr-pending-size">{formatBytes(p.size)}</span>
+                            </div>
+                            <Tooltip title="Remove">
+                              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => removePendingFile(p.key)} aria-label={`Remove ${p.name}`} />
+                            </Tooltip>
                           </div>
                         ) : (
-                          <div key={doc.id} className="rmr-pending-attach">
+                          <div key={p.key} className="rmr-pending-attach">
                             <PaperClipOutlined />
-                            <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
-                            <span className="rmr-pending-size">{doc.fileSize ? formatBytes(doc.fileSize) : ''}</span>
-                            <Popconfirm title="Remove this document?" onConfirm={() => handleRemoveExistingDoc(doc)} okText="Remove" okButtonProps={{ danger: true }}>
-                              <Button size="small" danger icon={<DeleteOutlined />} data-testid={`rm-remove-existing-${doc.id}`} aria-label={`Remove ${doc.fileName}`} />
-                            </Popconfirm>
+                            <span className="rmr-pending-name" title={p.name}>{p.name}</span>
+                            <span className="rmr-pending-size">{formatBytes(p.size)}</span>
+                            <Tooltip title="Remove">
+                              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => removePendingFile(p.key)} aria-label={`Remove ${p.name}`} />
+                            </Tooltip>
                           </div>
                         )
                       ))}
                     </div>
+                  )}
+                </div>
+              </div>
+
+              {/* SECTION 4: Remarks */}
+              <div className="rm-form-section-card">
+                <div className="rm-form-section-header">
+                  <span className="rm-form-section-number">04</span>
+                  <div className="rm-form-section-title-wrap">
+                    <div className="rm-form-section-title">Operational Remarks</div>
+                    <div className="rm-form-section-subtitle">Optional operational remarks or receiving notes</div>
                   </div>
-                )}
+                </div>
+                <div className="rm-form-section-body">
+                  <Form.Item name="remarks" noStyle>
+                    <Input.TextArea rows={2} maxLength={1000} placeholder="Optional operational remarks or receiving notes..." />
+                  </Form.Item>
+                </div>
+              </div>
 
-                {pendingFiles.length === 0 ? (
-                  <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-                    {isEditing ? 'No new documents pending — add photos of the received stock or supporting gate-pass files above.' : 'No documents pending.'}
-                  </Text>
-                ) : (
-                  <div className="rmr-pending-list">
-                    {pendingFiles.map((p) => (
-                      p.kind === 'PHOTO' ? (
-                        <div key={p.key} className="rmr-pending-photo">
-                          <img src={photoPreview(p)} alt={p.name} className="rmr-preview-thumb" />
-                          <div className="rmr-pending-meta">
-                            <span className="rmr-pending-name" title={p.name}>{p.name}</span>
-                            <span className="rmr-pending-size">{formatBytes(p.size)}</span>
-                          </div>
-                          <Tooltip title="Remove">
-                            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => removePendingFile(p.key)} aria-label={`Remove ${p.name}`} />
-                          </Tooltip>
-                        </div>
-                      ) : (
-                        <div key={p.key} className="rmr-pending-attach">
-                          <PaperClipOutlined />
-                          <span className="rmr-pending-name" title={p.name}>{p.name}</span>
-                          <span className="rmr-pending-size">{formatBytes(p.size)}</span>
-                          <Tooltip title="Remove">
-                            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => removePendingFile(p.key)} aria-label={`Remove ${p.name}`} />
-                          </Tooltip>
-                        </div>
-                      )
-                    ))}
-                  </div>
-                )}
-              </Card>
-
-              <Divider style={{ margin: '4px 0 12px' }} />
-              <Form.Item name="remarks" label="SECTION 4 · Remarks">
-                <Input.TextArea rows={2} maxLength={1000} placeholder="Optional note for this receipt" />
-              </Form.Item>
-
-              <Space style={{ marginTop: 8 }} wrap>
-                <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={submitting}>{isEditing ? 'Save Changes' : 'Confirm Receipt'}</Button>
+              <Space style={{ marginTop: 12 }} wrap>
+                <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={submitting}>
+                  {isEditing ? 'Save Changes' : 'Confirm Receipt'}
+                </Button>
+                <Button
+                  type="default"
+                  style={{ borderColor: '#25D366', color: '#15803d', fontWeight: 600 }}
+                  icon={<WhatsAppOutlined style={{ color: '#25D366' }} />}
+                  onClick={() => {
+                    const rawValues = form.getFieldsValue();
+                    const shareInfo = buildShareInfoFromValues(isEditing ? (list.find((x) => x.id === editingId)?.receiptCode || 'DRAFT') : 'NEW-DRAFT', rawValues);
+                    openWaShare(shareInfo, editingId);
+                  }}
+                >
+                  WhatsApp Preview &amp; Share
+                </Button>
                 <Button onClick={closeModalWithoutSave} disabled={submitting}>Cancel</Button>
               </Space>
             </Form>
@@ -1947,39 +2031,51 @@ const RawMaterialReceiving: React.FC = () => {
       {/* WhatsApp share dialog — an honest dual-mode: configured provider enqueues a
           delivery; otherwise it hands off to wa.me with the message pre-filled. */}
       <Modal
-        title={<Space><WhatsAppOutlined /> Share Receipt on WhatsApp</Space>}
+        title={
+          <Space>
+            <span style={{ display: 'inline-flex', padding: '4px 6px', borderRadius: 6, background: '#25D366', color: '#fff' }}>
+              <WhatsAppOutlined />
+            </span>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>Share Receipt on WhatsApp</span>
+          </Space>
+        }
         open={waOpen}
         onCancel={() => setWaOpen(false)}
         footer={null}
-        width={520}
+        width={560}
         destroyOnHidden
       >
         {waShareInfo ? (
           <Space direction="vertical" style={{ width: '100%' }} size={12}>
-            <Alert type="info" showIcon message={`Sharing receipt ${waShareInfo.receiptCode}`} />
+            <Alert
+              type="info"
+              showIcon
+              message={<span style={{ fontWeight: 600 }}>Receipt #{waShareInfo.receiptCode} {waShareInfo.gatePassNo ? `· Gate Pass #${waShareInfo.gatePassNo}` : ''}</span>}
+              description="Message is pre-formatted with Item Name first, codes in brackets, Gate Pass and Received quantities, and total variances."
+            />
             <div>
-              <Text strong>Phone (with country code)</Text> <Text type="secondary" style={{ fontSize: 12 }}>&nbsp;e.g. 92 300 1234567</Text>
+              <Text strong>Optional Phone Number (with Country Code)</Text> <Text type="secondary" style={{ fontSize: 12 }}>&nbsp;e.g. 92 300 1234567</Text>
               <Input
-                prefix={<WhatsAppOutlined />}
+                prefix={<WhatsAppOutlined style={{ color: '#25D366' }} />}
                 value={waPhone}
                 onChange={(e) => setWaPhone(e.target.value)}
-                placeholder="923001234567"
+                placeholder="923001234567 (leave blank to choose contact inside WhatsApp)"
                 maxLength={20}
                 data-testid="wa-phone"
                 style={{ marginTop: 4 }}
               />
             </div>
             <div>
-              <Text strong>Message</Text>
+              <Text strong>Formatted WhatsApp Message</Text>
               <Input.TextArea
                 value={waMessage}
                 onChange={(e) => setWaMessage(e.target.value)}
-                rows={8}
+                rows={9}
                 data-testid="wa-message"
-                style={{ marginTop: 4 }}
+                style={{ marginTop: 4, fontFamily: 'monospace', fontSize: 12 }}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                <Text type="secondary" style={{ fontSize: 11 }}>Built from the saved receipt data — edit freely before sending.</Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>Pre-formatted with Name (Code) and Gate Pass lines — edit freely.</Text>
                 <Button type="link" size="small" onClick={() => waShareInfo && setWaMessage(buildReceiptWhatsAppMessage(waShareInfo))}>Reset message</Button>
               </div>
             </div>
@@ -1991,13 +2087,23 @@ const RawMaterialReceiving: React.FC = () => {
                 style={{ fontSize: 13 }}
               />
             ) : null}
-            <Space wrap>
-              <Button type="primary" icon={<WhatsAppOutlined />} loading={waSending} onClick={handleWaSend} data-testid="wa-send">
-                Send via WhatsApp
+            <Space wrap style={{ marginTop: 6 }}>
+              <Button
+                type="primary"
+                style={{ background: '#25D366', borderColor: '#25D366', fontWeight: 600 }}
+                icon={<WhatsAppOutlined />}
+                onClick={() => window.open(waDirectShareUrl(waMessage), '_blank', 'noopener,noreferrer')}
+                data-testid="wa-direct-share-btn"
+              >
+                Share to WhatsApp (Pick Any Contact / Group)
               </Button>
-              <Button icon={<CopyOutlined />} onClick={handleWaCopy} data-testid="wa-copy">Copy Message</Button>
-              <Button icon={<SendOutlined />} href={waHref} target="_blank" rel="noopener noreferrer" disabled={!waHref} data-testid="wa-open">
-                Open WhatsApp
+              {waHref && (
+                <Button icon={<SendOutlined />} href={waHref} target="_blank" rel="noopener noreferrer" data-testid="wa-open">
+                  Send to Entered Phone
+                </Button>
+              )}
+              <Button icon={<CopyOutlined />} onClick={handleWaCopy} data-testid="wa-copy">
+                Copy Message
               </Button>
             </Space>
           </Space>

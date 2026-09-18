@@ -8,6 +8,7 @@ import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
+import { formatNameWithCode } from '../../../utils/formatEntityLabel';
 
 const { Text, Title } = Typography;
 
@@ -226,7 +227,7 @@ const ReceivingReport: React.FC = () => {
 
   const receiptLineColumns: ColumnsType<ReceiptGroup['lines'][number]> = [
     { title: '#', dataIndex: 'lineNumber', key: 'lineNumber', width: 40 },
-    { title: 'Item', key: 'item', render: (_, l) => (l.itemName ? `${l.itemCode ?? ''} — ${l.itemName}` : '-') },
+    { title: 'Item', key: 'item', render: (_, l) => (l.itemName ? formatNameWithCode(l.itemName, l.itemCode) : '-') },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70, render: (v?: string | null) => v || '-' },
     { title: 'Gate Pass Qty', dataIndex: 'gatePassQuantity', key: 'gp', width: 120, align: 'right' as const, render: (v: number) => formatNumber(v, 4) },
     { title: 'Received Qty', dataIndex: 'receivedQuantity', key: 'rc', width: 120, align: 'right' as const, render: (v: number) => <Text strong style={{ color: 'var(--theme-success, #52c41a)' }}>{formatNumber(v, 4)}</Text> },
@@ -248,7 +249,7 @@ const ReceivingReport: React.FC = () => {
 
   const returnLineColumns: ColumnsType<ReturnGroup['lines'][number]> = [
     { title: '#', dataIndex: 'lineNumber', key: 'lineNumber', width: 40 },
-    { title: 'Item', key: 'item', render: (_, l) => (l.itemName ? `${l.itemCode ?? ''} — ${l.itemName}` : '-') },
+    { title: 'Item', key: 'item', render: (_, l) => (l.itemName ? formatNameWithCode(l.itemName, l.itemCode) : '-') },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70, render: (v?: string | null) => v || '-' },
     { title: 'Quantity', dataIndex: 'quantity', key: 'q', width: 120, align: 'right' as const, render: (v: number) => formatNumber(v, 4) },
     { title: 'Remarks', dataIndex: 'remarks', key: 'remarks', render: (v?: string | null) => v || '-' },
@@ -287,24 +288,34 @@ const ReceivingReport: React.FC = () => {
           <Form.Item name="dateFrom"><DatePicker placeholder="From" /></Form.Item>
           <Form.Item name="dateTo"><DatePicker placeholder="To" /></Form.Item>
           <Form.Item name="divisionId">
-            <Select placeholder="Division" allowClear showSearch optionFilterProp="label" style={{ minWidth: 170 }} disabled={refState === 'error'}
-              options={(refData?.divisions || []).map((d) => ({ value: d.id, label: d.divisionCode ? `${d.divisionCode} — ${d.name}` : d.name }))} />
+            <Select placeholder="Division" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={refState === 'error'}
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 280 }}
+              options={(refData?.divisions || []).map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.divisionCode) }))} />
           </Form.Item>
           <Form.Item name="sectionId">
-            <Select placeholder="Section" allowClear showSearch optionFilterProp="label" style={{ minWidth: 170 }} disabled={!watchDivision}
-              options={sections.map((s) => ({ value: s.id, label: s.sectionCode ? `${s.sectionCode} — ${s.name}` : s.name }))} />
+            <Select placeholder="Section" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={!watchDivision}
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 280 }}
+              options={sections.map((s) => ({ value: s.id, label: formatNameWithCode(s.name, s.sectionCode) }))} />
           </Form.Item>
           <Form.Item name="departmentId">
-            <Select placeholder="Department" allowClear showSearch optionFilterProp="label" style={{ minWidth: 170 }} disabled={!watchSection} status={departmentsState === 'error' ? 'error' : undefined}
-              options={departments.map((d) => ({ value: d.id, label: d.departmentCode ? `${d.departmentCode} — ${d.name}` : d.name }))} />
+            <Select placeholder="Department" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={!watchSection} status={departmentsState === 'error' ? 'error' : undefined}
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 280 }}
+              options={departments.map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.departmentCode) }))} />
           </Form.Item>
           <Form.Item name="warehouseId">
-            <Select placeholder="Warehouse" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={refState === 'error'}
-              options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name }))} />
+            <Select placeholder="Warehouse" allowClear showSearch optionFilterProp="label" style={{ minWidth: 200 }} disabled={refState === 'error'}
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 280 }}
+              options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) }))} />
           </Form.Item>
           <Form.Item name="itemId">
-            <Select placeholder="Raw Material" allowClear showSearch optionFilterProp="label" style={{ minWidth: 220 }} disabled={refState === 'error'}
-              options={(refData?.items || []).map((i) => ({ value: i.id, label: i.itemCode ? `${i.itemCode} — ${i.name}` : i.name }))} />
+            <Select placeholder="Raw Material" allowClear showSearch optionFilterProp="label" style={{ minWidth: 240 }} disabled={refState === 'error'}
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 320 }}
+              options={(refData?.items || []).map((i) => ({ value: i.id, label: formatNameWithCode(i.name, i.itemCode) }))} />
           </Form.Item>
           <Form.Item name="gatePassNo"><Input placeholder="Gate Pass No" style={{ width: 150 }} /></Form.Item>
           <Form.Item name="sourceNo"><Input placeholder="Source / DC No" style={{ width: 150 }} /></Form.Item>

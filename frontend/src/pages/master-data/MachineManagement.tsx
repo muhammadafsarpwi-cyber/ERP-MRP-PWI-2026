@@ -25,6 +25,7 @@ import {
 } from '../../components/shared';
 import { label } from '../maintenance/jobCards.types';
 import { getMachineColor } from '../../utils/colorMapping';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 import BarcodePrint from '../../components/shared/BarcodePrint';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -1763,7 +1764,14 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       const values = await form.validateFields();
       await submitMachine(buildPayload(values));
     } catch (err: any) {
-      if (err?.errorFields) return;
+      const valSummary = handleValidationErrors(err, form);
+      if (valSummary) {
+        setResultData(null);
+        setResultError(`Please fill the following required field(s):\n\n${valSummary.bulletList}\n\nScroll to the highlighted field to complete the details.`);
+        setResultPhase('error');
+        setResultOpen(true);
+        return;
+      }
       message.error(extractApiError(err, 'Failed to save machine'));
     }
   };
@@ -2961,7 +2969,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         phase={resultPhase}
         result={resultData}
         errorMessage={resultError}
-        onRetry={handleResultRetry}
+        errorTitle={resultError?.includes('required field(s)') ? 'Required Information Missing' : 'Save Failed'}
+        errorLead={resultError?.includes('required field(s)') ? 'Please complete all required fields.' : 'The request was not persisted.'}
+        onRetry={resultError?.includes('required field(s)') ? undefined : handleResultRetry}
         onClose={handleResultClose}
         successTitle="Successful Save"
         okLabel="OK"

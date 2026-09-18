@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService, { describeRequestError } from '../../services/api';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { PageHeader, StatusBadge, EmptyState, DraggableResizableModal } from '../../components/shared';
 
@@ -242,7 +243,13 @@ const ItemTypeManagement: React.FC = () => {
     try {
       raw = await form.validateFields();
     } catch (err: any) {
-      if (err?.errorFields) return;
+      const val = handleValidationErrors(err, form);
+      if (val) {
+        setResultError(`Please fill the required field(s):\n\n${val.bulletList}`);
+        setResultPhase('error');
+        setResultOpen(true);
+        return;
+      }
       message.error(describeRequestError(err));
       return;
     }

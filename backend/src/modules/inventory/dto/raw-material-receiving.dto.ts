@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize, IsArray, IsDateString, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested,
+  ArrayMinSize, IsArray, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength, ValidateNested,
 } from 'class-validator';
 
 export class RawMaterialReceiptLineDto {
@@ -301,12 +301,12 @@ export class RawMaterialReceivingReportQuery {
 
 export class WhatsAppReceiptShareDto {
   @IsString()
-  @Min(8)
+  @MinLength(7)
   @MaxLength(20)
   phone!: string;
 
   @IsString()
-  @Min(1)
+  @IsNotEmpty()
   @MaxLength(4096)
   message!: string;
 }

@@ -20,6 +20,7 @@ import {
   type SaveResultPhase, type SaveResultData,
 } from '../../components/shared';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 
 const COMPONENT_TYPES = ['DIE', 'MOULD', 'CHAIN', 'TOOL', 'FIXTURE', 'COMPONENT', 'OTHER'];
 const CONDITION_STATUSES = ['NEW', 'USED', 'DAMAGED', 'REWORKED', 'OTHER'];
@@ -223,11 +224,15 @@ const MachineToolingManagement: React.FC = () => {
   const [resultPhase, setResultPhase] = useState<SaveResultPhase>('loading');
   const [resultData, setResultData] = useState<SaveResultData | null>(null);
   const [resultError, setResultError] = useState('');
+  const [resultErrorTitle, setResultErrorTitle] = useState<string | undefined>(undefined);
+  const [resultErrorLead, setResultErrorLead] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const lastSubmit = useRef<{ kind: 'component' | 'change'; payload: any } | null>(null);
 
   const runSave = async (kind: 'component' | 'change', payload: any) => {
     lastSubmit.current = { kind, payload };
+    setResultErrorTitle(undefined);
+    setResultErrorLead(undefined);
     setSaving(true);
     setResultOpen(true);
     setResultPhase('loading');
@@ -395,7 +400,15 @@ const MachineToolingManagement: React.FC = () => {
       const values = await compForm.validateFields();
       await runSave('component', buildComponentPayload(values));
     } catch (err: any) {
-      if (err?.errorFields) return;
+      const val = handleValidationErrors(err, compForm);
+      if (val) {
+        setResultErrorTitle('Required Information Missing');
+        setResultErrorLead('Please complete all required fields before saving:');
+        setResultError(val.bulletList);
+        setResultPhase('error');
+        setResultOpen(true);
+        return;
+      }
       message.error(extractApiError(err, 'Failed to save component'));
     }
   };
@@ -714,7 +727,15 @@ const MachineToolingManagement: React.FC = () => {
       const values = await changeForm.validateFields();
       await runSave('change', buildChangePayload(values));
     } catch (err: any) {
-      if (err?.errorFields) return;
+      const val = handleValidationErrors(err, changeForm);
+      if (val) {
+        setResultErrorTitle('Required Information Missing');
+        setResultErrorLead('Please complete all required fields before saving:');
+        setResultError(val.bulletList);
+        setResultPhase('error');
+        setResultOpen(true);
+        return;
+      }
       message.error(extractApiError(err, 'Failed to record change'));
     }
   };
@@ -1004,7 +1025,10 @@ const MachineToolingManagement: React.FC = () => {
       fetchActiveTools(atPage);
       await fetchLifeReport(lifePage);
     } catch (err: any) {
-      if (err?.errorFields) return;
+      if (err?.errorFields) {
+        handleValidationErrors(err, installForm);
+        return;
+      }
       message.error(extractApiError(err, 'Failed to install tool'));
     } finally {
       setInstallSaving(false);
@@ -1052,7 +1076,10 @@ const MachineToolingManagement: React.FC = () => {
       fetchChanges(chgPage);
       await fetchLifeReport(lifePage);
     } catch (err: any) {
-      if (err?.errorFields) return;
+      if (err?.errorFields) {
+        handleValidationErrors(err, removeForm);
+        return;
+      }
       message.error(extractApiError(err, 'Failed to remove tool'));
     } finally {
       setRemoveSaving(false);
@@ -1141,7 +1168,10 @@ const MachineToolingManagement: React.FC = () => {
       disposeForm.resetFields();
       await fetchLifeReport(lifePage);
     } catch (err: any) {
-      if (err?.errorFields) return;
+      if (err?.errorFields) {
+        handleValidationErrors(err, disposeForm);
+        return;
+      }
       message.error(extractApiError(err, 'Failed to record disposition'));
     } finally {
       setDisposeSaving(false);
@@ -1212,7 +1242,10 @@ const MachineToolingManagement: React.FC = () => {
       itemForm.resetFields();
       await loadItems(itemsTarget.id);
     } catch (err: any) {
-      if (err?.errorFields) return;
+      if (err?.errorFields) {
+        handleValidationErrors(err, itemForm);
+        return;
+      }
       message.error(extractApiError(err, 'Failed to save breakdown line'));
     } finally {
       setItemsSaving(false);
@@ -3040,6 +3073,8 @@ const MachineToolingManagement: React.FC = () => {
         open={resultOpen}
         phase={resultPhase}
         result={resultData}
+        errorTitle={resultErrorTitle}
+        errorLead={resultErrorLead}
         errorMessage={resultError}
         onRetry={handleResultRetry}
         onClose={handleResultClose}

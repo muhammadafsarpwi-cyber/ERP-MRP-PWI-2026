@@ -53,6 +53,8 @@ interface SaveResultDialogProps {
   okLabel?: string;
   /** Failure message line under "Save Failed". Defaults to "The request was not persisted." */
   errorLead?: string;
+  /** Title headline for error state. Defaults to "Save Failed". */
+  errorTitle?: string;
   /** Loading title headline. Defaults to "Saving...". */
   loadingTitle?: string;
   /** Loading sub-text. Defaults to "Processing request...". */
@@ -77,6 +79,7 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
   successTitle = 'Successful',
   okLabel = 'Close',
   errorLead = 'The request was not persisted.',
+  errorTitle = 'Save Failed',
   loadingTitle = 'Saving...',
   loadingHint = 'Processing request...',
 }) => (
@@ -89,6 +92,8 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
     width={460}
     footer={null}
     destroyOnHidden
+    zIndex={3500}
+    wrapClassName="erp-save-result-modal-wrap"
     style={{ borderRadius: 16, overflow: 'hidden' }}
   >
     {phase === 'loading' ? (
@@ -173,7 +178,7 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
         <div className="erp-save-result-error-icon" aria-hidden="true">
           <CloseCircleFilled />
         </div>
-        <Title level={4} className="erp-save-result-title erp-save-result-title-error">Save Failed</Title>
+        <Title level={4} className="erp-save-result-title erp-save-result-title-error">{errorTitle}</Title>
         <Text strong className="erp-save-result-message">{errorLead}</Text>
         {errorMessage ? <div className="erp-save-result-error-detail">{errorMessage}</div> : null}
         <Space className="erp-save-result-error-actions">

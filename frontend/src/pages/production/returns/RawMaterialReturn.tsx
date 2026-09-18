@@ -14,6 +14,7 @@ import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
 import { DraggableResizableModal, SaveResultDialog } from '../../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
+import { formatNameWithCode } from '../../../utils/formatEntityLabel';
 import '../receiving/rawMaterialForms.css';
 
 const { Text, Title } = Typography;
@@ -423,7 +424,9 @@ const RawMaterialReturn: React.FC = () => {
       render: (_, r) => (
         <Select showSearch optionFilterProp="label" placeholder="Select raw material" value={r.itemId}
           onChange={(v) => onItemSelect(r.key, v)} style={{ width: '100%' }}
-          options={filteredItems.map((i) => ({ value: i.id, label: i.itemCode ? `${i.itemCode} — ${i.name}` : i.name }))}
+          popupMatchSelectWidth={false}
+          dropdownStyle={{ minWidth: 320 }}
+          options={filteredItems.map((i) => ({ value: i.id, label: formatNameWithCode(i.name, i.itemCode) }))}
           disabled={refState === 'error'} />
       ),
     },
@@ -479,9 +482,11 @@ const RawMaterialReturn: React.FC = () => {
           <Select placeholder="Status" allowClear style={{ width: 140 }} value={filters.status}
             onChange={(v) => applyFilter({ status: v })}
             options={[{ value: 'CONFIRMED', label: 'Confirmed' }, { value: 'DRAFT', label: 'Draft' }, { value: 'CANCELLED', label: 'Cancelled' }]} />
-          <Select placeholder="Warehouse" allowClear showSearch optionFilterProp="label" style={{ width: 200 }} value={filters.warehouseId}
+          <Select placeholder="Warehouse" allowClear showSearch optionFilterProp="label" style={{ width: 220 }} value={filters.warehouseId}
+            popupMatchSelectWidth={false}
+            dropdownStyle={{ minWidth: 280 }}
             onChange={(v) => applyFilter({ warehouseId: v })}
-            options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name }))} />
+            options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) }))} />
           <Input placeholder="Source / DC No" allowClear style={{ width: 160 }} value={filters.sourceNo}
             onChange={(e) => applyFilter({ sourceNo: e.target.value || undefined })} />
           <DatePicker.RangePicker
@@ -525,27 +530,36 @@ const RawMaterialReturn: React.FC = () => {
                   <Col xs={24} md={8}>
                     <Form.Item name="divisionId" label={<span>Division <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Division' }]}>
                       <Select showSearch optionFilterProp="label" placeholder="Select Division"
+                        popupMatchSelectWidth={false}
+                        dropdownStyle={{ minWidth: 280 }}
                         loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
-                        options={(refData?.divisions || []).map((d) => ({ value: d.id, label: d.divisionCode ? `${d.divisionCode} — ${d.name}` : d.name }))} />
+                        options={(refData?.divisions || []).map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.divisionCode) }))} />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={8}>
                     <Form.Item name="sectionId" label={<span>Section <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Section' }]}>
-                      <Select showSearch optionFilterProp="label" placeholder={watchDivision ? 'Select Section' : 'Select Division first'} disabled={!watchDivision} options={sections.map((s) => ({ value: s.id, label: s.sectionCode ? `${s.sectionCode} — ${s.name}` : s.name }))} />
+                      <Select showSearch optionFilterProp="label" placeholder={watchDivision ? 'Select Section' : 'Select Division first'} disabled={!watchDivision}
+                        popupMatchSelectWidth={false}
+                        dropdownStyle={{ minWidth: 280 }}
+                        options={sections.map((s) => ({ value: s.id, label: formatNameWithCode(s.name, s.sectionCode) }))} />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={8}>
                     <Form.Item name="departmentId" label={<span>Department <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Department' }]}>
                       <Select showSearch optionFilterProp="label" placeholder={watchSection ? 'Select Department' : 'Select Section first'} disabled={!watchSection}
+                        popupMatchSelectWidth={false}
+                        dropdownStyle={{ minWidth: 280 }}
                         loading={departmentsState === 'loading'} status={departmentsState === 'error' ? 'error' : undefined}
-                        options={departments.map((d) => ({ value: d.id, label: d.departmentCode ? `${d.departmentCode} — ${d.name}` : d.name }))} />
+                        options={departments.map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.departmentCode) }))} />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={8}>
                     <Form.Item name="warehouseId" label={<span>Return From Warehouse <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select warehouse' }]}>
                       <Select showSearch optionFilterProp="label" placeholder="Select warehouse"
+                        popupMatchSelectWidth={false}
+                        dropdownStyle={{ minWidth: 280 }}
                         status={refState === 'error' ? 'error' : undefined}
-                        options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: w.warehouseCode ? `${w.warehouseCode} — ${w.name}` : w.name }))} />
+                        options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) }))} />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={8}>

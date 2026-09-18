@@ -144,9 +144,12 @@ export class SectionService {
     try {
       await this.sectionRepository.remove(section);
     } catch (error: any) {
-      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+      const code = error?.code || error?.driverError?.code;
+      const msg = (error?.message || '').toLowerCase();
+      if (code === '23503' || msg.includes('foreign key') || msg.includes('violates foreign key constraint')) {
+        const secLabel = section.sectionCode ? `${section.sectionCode} (${section.name})` : section.name;
         throw new BadRequestException(
-          'Cannot delete section because it is referenced by existing departments, operations, or users. Please deactivate it instead.',
+          `Cannot delete section "${secLabel}" because it is referenced by existing departments, machines, operations, or inventory. Please deactivate it instead.`,
         );
       }
       throw error;

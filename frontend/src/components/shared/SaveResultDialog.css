@@ -2,6 +2,17 @@
    Routing, Routing Operation and Route Type forms. Pure theme-token styling so
    it follows the ERP light/dark palettes and stays responsive. */
 
+.erp-save-result-modal-wrap,
+.erp-save-result-modal-wrap .ant-modal-wrap,
+div.ant-modal-wrap.erp-save-result-modal-wrap {
+  z-index: 3500 !important;
+}
+
+.erp-save-result-modal-wrap .ant-modal-mask,
+div.ant-modal-mask.erp-save-result-modal-wrap {
+  z-index: 3499 !important;
+}
+
 .erp-save-result-loading,
 .erp-save-result-success,
 .erp-save-result-error {
@@ -306,8 +317,11 @@
   background: var(--theme-error-soft, #fff1f0);
   color: var(--theme-error-text, #a8071a);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   text-align: left;
+  white-space: pre-line;
+  max-height: 240px;
+  overflow-y: auto;
   overflow-wrap: anywhere;
 }
 

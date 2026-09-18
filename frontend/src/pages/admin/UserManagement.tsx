@@ -19,6 +19,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { PageHeader, SaveResultDialog, DraggableResizableModal } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import UserAvatar, { resolveSrc } from '../../components/layout/UserAvatar';
@@ -147,6 +148,8 @@ const UserManagement: React.FC = () => {
   const [saveDialogPhase, setSaveDialogPhase] = useState<SaveResultPhase>('loading');
   const [saveDialogResult, setSaveDialogResult] = useState<SaveResultData | null>(null);
   const [saveDialogError, setSaveDialogError] = useState<string | undefined>(undefined);
+  const [saveDialogErrorTitle, setSaveDialogErrorTitle] = useState<string | undefined>(undefined);
+  const [saveDialogErrorLead, setSaveDialogErrorLead] = useState<string | undefined>(undefined);
   const [saveDialogSuccessTitle, setSaveDialogSuccessTitle] = useState<string>('Saved Successfully');
   const [saveDialogLoadingTitle, setSaveDialogLoadingTitle] = useState<string>('Saving...');
   const [saveDialogLoadingHint, setSaveDialogLoadingHint] = useState<string>('Processing request...');
@@ -426,9 +429,18 @@ const UserManagement: React.FC = () => {
 
       fetchUsers(page, search || undefined, statusFilter);
     } catch (error: any) {
-      if (error.errorFields) return;
+      const val = handleValidationErrors(error, createForm);
+      if (val) {
+        setSaveDialogErrorTitle('Required Information Missing');
+        setSaveDialogErrorLead('Please complete all required fields before saving:');
+        setSaveDialogError(val.bulletList);
+        setSaveDialogPhase('error');
+        setSaveDialogVisible(true);
+        return;
+      }
       setSaveDialogError(formatApiError(error, 'Failed to create user'));
       setSaveDialogPhase('error');
+      setSaveDialogVisible(true);
     } finally {
       setCreateLoading(false);
     }
@@ -466,9 +478,18 @@ const UserManagement: React.FC = () => {
         fetchUsers(page, search || undefined, statusFilter);
       }
     } catch (error: any) {
-      if (error.errorFields) return;
+      const val = handleValidationErrors(error, editForm);
+      if (val) {
+        setSaveDialogErrorTitle('Required Information Missing');
+        setSaveDialogErrorLead('Please complete all required fields before saving:');
+        setSaveDialogError(val.bulletList);
+        setSaveDialogPhase('error');
+        setSaveDialogVisible(true);
+        return;
+      }
       setSaveDialogError(formatApiError(error, 'Failed to update user'));
       setSaveDialogPhase('error');
+      setSaveDialogVisible(true);
     } finally {
       setEditLoading(false);
     }
@@ -519,7 +540,14 @@ const UserManagement: React.FC = () => {
         fetchUsers(page, search || undefined, statusFilter);
       }
     } catch (error: any) {
-      if (error.errorFields) return;
+      const val = handleValidationErrors(error, roleForm);
+      if (val) {
+        setSaveDialogErrorTitle('Required Information Missing');
+        setSaveDialogError(val.bulletList);
+        setSaveDialogPhase('error');
+        setSaveDialogVisible(true);
+        return;
+      }
       setSaveDialogError(formatApiError(error, 'Failed to update roles'));
       setSaveDialogPhase('error');
     } finally {
@@ -556,7 +584,14 @@ const UserManagement: React.FC = () => {
         setSaveDialogPhase('success');
       }
     } catch (error: any) {
-      if (error.errorFields) return;
+      const val = handleValidationErrors(error, resetForm);
+      if (val) {
+        setSaveDialogErrorTitle('Required Information Missing');
+        setSaveDialogError(val.bulletList);
+        setSaveDialogPhase('error');
+        setSaveDialogVisible(true);
+        return;
+      }
       setSaveDialogError(formatApiError(error, 'Failed to reset password'));
       setSaveDialogPhase('error');
     } finally {
@@ -1944,6 +1979,8 @@ const UserManagement: React.FC = () => {
         open={saveDialogVisible}
         phase={saveDialogPhase}
         result={saveDialogResult}
+        errorTitle={saveDialogErrorTitle}
+        errorLead={saveDialogErrorLead}
         errorMessage={saveDialogError}
         successTitle={saveDialogSuccessTitle}
         loadingTitle={saveDialogLoadingTitle}

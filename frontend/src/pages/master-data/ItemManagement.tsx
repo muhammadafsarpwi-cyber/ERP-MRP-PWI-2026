@@ -19,6 +19,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import { formatDimension } from '../../utils/numberFormat';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { usePermission } from '../../hooks/usePermission';
 import {
   PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable,
@@ -1565,8 +1566,12 @@ const ItemManagement: React.FC = () => {
       });
       setResultPhase('success');
     } catch (err: any) {
-      if (err?.errorFields) {
-        setResultOpen(false);
+      const valSummary = handleValidationErrors(err, form);
+      if (valSummary) {
+        setResultData(null);
+        setResultError(`Please fill the following required field(s):\n\n${valSummary.bulletList}\n\nScroll to the highlighted section to complete the details.`);
+        setResultPhase('error');
+        setResultOpen(true);
         return;
       }
       const msg = err?.response?.data?.message;
@@ -5905,7 +5910,9 @@ const ItemManagement: React.FC = () => {
         phase={resultPhase}
         result={resultData}
         errorMessage={resultError}
-        onRetry={handleResultRetry}
+        errorTitle={resultError?.includes('required field(s)') ? 'Required Information Missing' : 'Save Failed'}
+        errorLead={resultError?.includes('required field(s)') ? 'Form submission cannot proceed with empty required fields.' : 'The request was not persisted.'}
+        onRetry={resultError?.includes('required field(s)') ? undefined : handleResultRetry}
         onClose={handleResultClose}
         successTitle="Successful Save"
         okLabel="OK"

@@ -16,6 +16,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
+import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { PageHeader, SaveResultDialog, DraggableResizableModal } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { jsPDF } from 'jspdf';
@@ -139,6 +140,8 @@ const RoleManagement: React.FC = () => {
   const [saveDialogPhase, setSaveDialogPhase] = useState<SaveResultPhase>('loading');
   const [saveDialogResult, setSaveDialogResult] = useState<SaveResultData | null>(null);
   const [saveDialogError, setSaveDialogError] = useState<string | undefined>(undefined);
+  const [saveDialogErrorTitle, setSaveDialogErrorTitle] = useState<string | undefined>(undefined);
+  const [saveDialogErrorLead, setSaveDialogErrorLead] = useState<string | undefined>(undefined);
   const [saveDialogSuccessTitle, setSaveDialogSuccessTitle] = useState<string>('Saved Successfully');
   const [saveDialogLoadingTitle, setSaveDialogLoadingTitle] = useState<string>('Saving Role...');
   const [saveDialogLoadingHint, setSaveDialogLoadingHint] = useState<string>('Processing security permissions...');
@@ -232,9 +235,16 @@ const RoleManagement: React.FC = () => {
 
       fetchRoles(page);
     } catch (error: any) {
-      if (error.errorFields) return;
+      const val = handleValidationErrors(error, form);
+      if (val) {
+        setSaveDialogError(`Please fill the required field(s):\n\n${val.bulletList}`);
+        setSaveDialogPhase('error');
+        setSaveDialogVisible(true);
+        return;
+      }
       setSaveDialogError(formatApiError(error, 'Failed to create role'));
       setSaveDialogPhase('error');
+      setSaveDialogVisible(true);
     } finally {
       setModalLoading(false);
     }
@@ -273,9 +283,16 @@ const RoleManagement: React.FC = () => {
 
       fetchRoles(page);
     } catch (error: any) {
-      if (error.errorFields) return;
+      const val = handleValidationErrors(error, editForm);
+      if (val) {
+        setSaveDialogError(`Please fill the required field(s):\n\n${val.bulletList}`);
+        setSaveDialogPhase('error');
+        setSaveDialogVisible(true);
+        return;
+      }
       setSaveDialogError(formatApiError(error, 'Failed to update role'));
       setSaveDialogPhase('error');
+      setSaveDialogVisible(true);
     } finally {
       setModalLoading(false);
     }
@@ -322,7 +339,14 @@ const RoleManagement: React.FC = () => {
 
       fetchRoles(page);
     } catch (error: any) {
-      if (error.errorFields) return;
+      const val = handleValidationErrors(error, permForm);
+      if (val) {
+        setSaveDialogErrorTitle('Required Information Missing');
+        setSaveDialogError(val.bulletList);
+        setSaveDialogPhase('error');
+        setSaveDialogVisible(true);
+        return;
+      }
       setSaveDialogError(formatApiError(error, 'Failed to assign permissions'));
       setSaveDialogPhase('error');
     } finally {
@@ -1356,6 +1380,8 @@ const RoleManagement: React.FC = () => {
         open={saveDialogVisible}
         phase={saveDialogPhase}
         result={saveDialogResult}
+        errorTitle={saveDialogErrorTitle}
+        errorLead={saveDialogErrorLead}
         errorMessage={saveDialogError}
         successTitle={saveDialogSuccessTitle}
         loadingTitle={saveDialogLoadingTitle}

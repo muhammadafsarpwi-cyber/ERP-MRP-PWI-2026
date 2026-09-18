@@ -1,5 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Card, Button, Space, Tag, Input, Typography, Modal, Descriptions, message, Tooltip, Alert, Spin } from 'antd';
+import {
+  Table,
+  Card,
+  Button,
+  Space,
+  Tag,
+  Input,
+  Typography,
+  Modal,
+  Descriptions,
+  message,
+  Tooltip,
+  Alert,
+  Spin,
+  QRCode,
+  Popover,
+} from 'antd';
 import {
   SearchOutlined,
   ReloadOutlined,
@@ -8,10 +24,13 @@ import {
   EyeOutlined,
   BarcodeOutlined,
   ExportOutlined,
+  QrcodeOutlined,
+  ToolOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../../services/api';
 import BarcodePrint from '../../components/shared/BarcodePrint';
 import BarcodeScanner from '../../components/shared/BarcodeScanner';
+import ScannedMachineHistoryModal from './ScannedMachineHistoryModal';
 import { BarcodeRecord, BarcodeEntityType, ENTITY_TYPE_LABELS } from './types';
 
 const { Text } = Typography;
@@ -42,6 +61,12 @@ const EntityBarcodeList: React.FC<EntityBarcodeListProps> = ({
   const [detailModal, setDetailModal] = useState<{ open: boolean; data: any }>({ open: false, data: null });
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [machineHistoryModal, setMachineHistoryModal] = useState<{
+    open: boolean;
+    machineId: string;
+    machineCode?: string;
+    barcodeValue?: string;
+  }>({ open: false, machineId: '' });
 
   const loadBarcodes = useCallback(async () => {
     try {
@@ -140,11 +165,40 @@ const EntityBarcodeList: React.FC<EntityBarcodeListProps> = ({
 
   const columns = [
     {
+      title: 'QR Code',
+      dataIndex: 'barcodeValue',
+      key: 'qrCode',
+      width: 90,
+      render: (val: string) => (
+        <Popover
+          content={
+            <div style={{ textAlign: 'center', padding: 8 }}>
+              <QRCode value={val} size={150} />
+              <div style={{ marginTop: 8 }}>
+                <Text code style={{ fontSize: 11 }}>{val}</Text>
+              </div>
+            </div>
+          }
+          title="QR Code (Hover / Click)"
+          trigger="hover"
+        >
+          <div style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+            <QRCode value={val} size={36} bordered={false} />
+          </div>
+        </Popover>
+      ),
+    },
+    {
       title: 'Barcode',
       dataIndex: 'barcodeValue',
       key: 'barcodeValue',
-      width: 180,
-      render: (val: string) => <Text code style={{ fontSize: 12 }}>{val}</Text>,
+      width: 170,
+      render: (val: string) => (
+        <Space size={4}>
+          <BarcodeOutlined style={{ color: '#888' }} />
+          <Text code style={{ fontSize: 12 }}>{val}</Text>
+        </Space>
+      ),
     },
     {
       title: 'Entity Code',
@@ -179,10 +233,27 @@ const EntityBarcodeList: React.FC<EntityBarcodeListProps> = ({
     {
       title: 'Actions',
       key: 'actions',
-      width: 120,
+      width: 130,
       fixed: 'right' as const,
       render: (_: any, record: BarcodeRecord) => (
         <Space size={4}>
+          {entityType === BarcodeEntityType.MACHINE && (
+            <Tooltip title="View Machine Lifecycle History (Maintenance, Parts & Production)">
+              <Button
+                type="text"
+                size="small"
+                icon={<ToolOutlined style={{ color: '#722ed1', fontSize: 15 }} />}
+                onClick={() =>
+                  setMachineHistoryModal({
+                    open: true,
+                    machineId: record.entityId,
+                    machineCode: record.entityCode || undefined,
+                    barcodeValue: record.barcodeValue,
+                  })
+                }
+              />
+            </Tooltip>
+          )}
           {loadEntityDetail && (
             <Tooltip title="View Details">
               <Button
@@ -193,7 +264,7 @@ const EntityBarcodeList: React.FC<EntityBarcodeListProps> = ({
               />
             </Tooltip>
           )}
-          <Tooltip title="Print Barcode">
+          <Tooltip title="Print Label (QR & Barcode)">
             <Button
               type="text"
               size="small"
@@ -301,6 +372,17 @@ const EntityBarcodeList: React.FC<EntityBarcodeListProps> = ({
           itemName={printData.name}
           sku={printData.sku}
           barcode={printData.barcode}
+          initialFormat="BOTH"
+        />
+      )}
+
+      {entityType === BarcodeEntityType.MACHINE && (
+        <ScannedMachineHistoryModal
+          open={machineHistoryModal.open}
+          onClose={() => setMachineHistoryModal({ open: false, machineId: '' })}
+          machineId={machineHistoryModal.machineId}
+          machineCode={machineHistoryModal.machineCode}
+          barcodeValue={machineHistoryModal.barcodeValue}
         />
       )}
 

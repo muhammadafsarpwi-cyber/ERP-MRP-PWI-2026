@@ -8,6 +8,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatNumber } from '../../utils/numberFormat';
 import { calcActualKg, perUnitWeightLabel } from '../../utils/productionWeight';
+import { formatNameWithCode } from '../../utils/formatEntityLabel';
 import { PageHeader, ERPTable, TableToolbar, TableActions } from '../../components/shared';
 
 interface ProductionOrder {
@@ -400,16 +401,20 @@ const ProductionOrders: React.FC = () => {
             <Col span={12}>
               <Form.Item name="productId" label="Product" rules={[{ required: true, message: 'Select the product to manufacture' }]}>
                 <Select showSearch optionFilterProp="label"
-                  options={items.map((i) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
+                  popupMatchSelectWidth={false}
+                  dropdownStyle={{ minWidth: 320 }}
+                  options={items.map((i) => ({ value: i.id, label: formatNameWithCode(i.name, i.itemCode) }))}
                   placeholder="Select product" />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item name="routingId" label="Routing" rules={[{ required: true, message: 'Select a routing for this product' }]}>
                 <Select showSearch optionFilterProp="label"
+                  popupMatchSelectWidth={false}
+                  dropdownStyle={{ minWidth: 280 }}
                   options={routingsForProduct(selectedProductId).map((r) => ({
                     value: r.id,
-                    label: `${r.routingCode} — ${r.name}${r.status === 'ACTIVE' ? '' : ` (${r.status})`}`,
+                    label: `${formatNameWithCode(r.name, r.routingCode)}${r.status === 'ACTIVE' ? '' : ` (${r.status})`}`,
                   }))}
                   placeholder="Select routing" notFoundContent="No routing defined for this product" />
               </Form.Item>
@@ -419,9 +424,11 @@ const ProductionOrders: React.FC = () => {
             <Col span={12}>
               <Form.Item name="bomId" label="BOM (optional)">
                 <Select showSearch optionFilterProp="label" allowClear
+                  popupMatchSelectWidth={false}
+                  dropdownStyle={{ minWidth: 280 }}
                   options={bomsForProduct(selectedProductId).map((bm) => ({
                     value: bm.id,
-                    label: `${bm.bomCode} — ${bm.name}`,
+                    label: formatNameWithCode(bm.name, bm.bomCode),
                   }))}
                   placeholder="Select BOM" notFoundContent="No BOM defined for this product" />
               </Form.Item>

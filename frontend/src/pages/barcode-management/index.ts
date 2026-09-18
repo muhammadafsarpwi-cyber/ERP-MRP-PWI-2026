@@ -7,4 +7,5 @@ export { default as WarehouseBarcodes } from './WarehouseBarcodes';
 export { default as EmployeeBarcodes } from './EmployeeBarcodes';
 export { default as ProductionBarcodes } from './ProductionBarcodes';
 export { default as JobCardBarcodes } from './JobCardBarcodes';
+export { default as ScannedMachineHistoryModal } from './ScannedMachineHistoryModal';
 export * from './types';
