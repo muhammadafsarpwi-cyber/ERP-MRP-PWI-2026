@@ -11,6 +11,7 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import EmptyState from './EmptyState';
+import { OrbitalDualRingLoader } from './LoadingState';
 
 export interface ERPTableProps<T extends object = any> extends TableProps<T> {
   dense?: boolean;
@@ -116,6 +117,21 @@ export function ERPTable<T extends object = any>({
     }));
   }, [restProps.columns]);
 
+  // Guarantee signature orbital dual-ring spinner on table loading state
+  const resolvedLoading = React.useMemo(() => {
+    if (!restProps.loading) return false;
+    if (typeof restProps.loading === 'object') {
+      return {
+        indicator: <OrbitalDualRingLoader size="default" />,
+        ...restProps.loading,
+      };
+    }
+    return {
+      spinning: !!restProps.loading,
+      indicator: <OrbitalDualRingLoader size="default" />,
+    };
+  }, [restProps.loading]);
+
   return (
     <div
       className={`erp-table-container ${dense ? 'erp-table-container--dense' : ''} ${containerClassName}`.trim()}
@@ -128,6 +144,7 @@ export function ERPTable<T extends object = any>({
         pagination={resolvedPagination}
         locale={resolvedLocale}
         {...restProps}
+        loading={resolvedLoading}
         columns={resolvedColumns}
       />
     </div>

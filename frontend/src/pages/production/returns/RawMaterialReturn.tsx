@@ -20,7 +20,7 @@ import {
   ShareReturnInfo,
 } from '../../../utils/receiptShare';
 import { formatNameWithCode } from '../../../utils/formatEntityLabel';
-import { DraggableResizableModal, SaveResultDialog, PageHeader } from '../../../components/shared';
+import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar } from '../../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
 import '../receiving/rawMaterialForms.css';
 
@@ -1288,42 +1288,56 @@ const RawMaterialReturn: React.FC = () => {
       />
 
       <Card className="erp-section-card" title={<Space><RollbackOutlined /> Return History</Space>}>
-        <Space wrap style={{ marginBottom: 12 }}>
-          <Select
-            placeholder="Status"
-            allowClear
-            style={{ width: 140 }}
-            value={filters.status}
-            onChange={(v) => applyFilter({ status: v })}
-            options={[{ value: 'CONFIRMED', label: 'Confirmed' }, { value: 'CANCELLED', label: 'Cancelled' }]}
-          />
-          <Select
-            placeholder="Warehouse"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 200 }}
-            value={filters.warehouseId}
-            onChange={(v) => applyFilter({ warehouseId: v })}
-            options={warehouseOptions}
-            virtual
-            listHeight={160}
-          />
-          <Input
-            placeholder="Source / DC No"
-            allowClear
-            style={{ width: 160 }}
-            value={filters.sourceNo}
-            onChange={(e) => applyFilter({ sourceNo: e.target.value || undefined })}
-          />
-          <DatePicker.RangePicker
-            value={filters.dateFrom && filters.dateTo ? [dayjs(filters.dateFrom), dayjs(filters.dateTo)] : undefined}
-            onChange={(v) => applyFilter({
-              dateFrom: v?.[0] ? v[0].format('YYYY-MM-DD') : undefined,
-              dateTo: v?.[1] ? v[1].format('YYYY-MM-DD') : undefined,
-            })}
-          />
-        </Space>
+        <FilterBar
+          searchPlaceholder="Search Return Code, Source / DC No..."
+          searchValue={filters.sourceNo}
+          onSearchChange={(v) => applyFilter({ sourceNo: v || undefined })}
+          primaryFilters={
+            <>
+              <Select
+                placeholder="Status"
+                allowClear
+                style={{ width: 140 }}
+                value={filters.status}
+                onChange={(v) => applyFilter({ status: v })}
+                options={[
+                  { value: 'CONFIRMED', label: 'Confirmed' },
+                  { value: 'CANCELLED', label: 'Cancelled' },
+                ]}
+              />
+              <Select
+                placeholder="Warehouse"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 180 }}
+                value={filters.warehouseId}
+                onChange={(v) => applyFilter({ warehouseId: v })}
+                options={warehouseOptions}
+                virtual
+                listHeight={160}
+              />
+            </>
+          }
+          onReset={() => {
+            setFilters({});
+            loadList(1);
+          }}
+          totalCount={total}
+          itemLabel="returns"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Date Range</Text>
+            <DatePicker.RangePicker
+              style={{ width: '100%' }}
+              value={filters.dateFrom && filters.dateTo ? [dayjs(filters.dateFrom), dayjs(filters.dateTo)] : undefined}
+              onChange={(v) => applyFilter({
+                dateFrom: v?.[0] ? v[0].format('YYYY-MM-DD') : undefined,
+                dateTo: v?.[1] ? v[1].format('YYYY-MM-DD') : undefined,
+              })}
+            />
+          </div>
+        </FilterBar>
 
         {listState === 'error' ? (
           <Alert
