@@ -1780,7 +1780,7 @@ const RawMaterialReturn: React.FC = () => {
                   position: 'sticky',
                   bottom: 0,
                   zIndex: 30,
-                  marginTop: 16,
+                  marginTop: 'auto',
                   padding: '12px 14px',
                   background: 'var(--theme-surface, #ffffff)',
                   borderTop: '1px solid var(--theme-border, rgba(15, 23, 42, 0.1))',
@@ -1792,10 +1792,28 @@ const RawMaterialReturn: React.FC = () => {
                   borderRadius: '0 0 6px 6px',
                 }}
               >
-                <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={submitting}>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  htmlType="submit"
+                  loading={submitting}
+                  style={{
+                    background: 'var(--theme-primary)',
+                    borderColor: 'var(--theme-primary)',
+                    color: 'var(--theme-on-primary, #ffffff)',
+                  }}
+                >
                   {editingId ? 'Save Changes' : 'Submit Return'}
                 </Button>
-                <Button onClick={() => setModalOpen(false)} disabled={submitting}>
+                <Button
+                  onClick={() => setModalOpen(false)}
+                  disabled={submitting}
+                  style={{
+                    background: 'var(--theme-surface-alt)',
+                    borderColor: 'var(--theme-border)',
+                    color: 'var(--theme-text)',
+                  }}
+                >
                   Cancel
                 </Button>
               </div>

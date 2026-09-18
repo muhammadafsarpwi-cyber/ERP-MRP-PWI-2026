@@ -205,6 +205,31 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
           headerBg: 'transparent',
           colorBorderSecondary: dark ? mixHex(roles.surface, '#ffffff', 0.09) : mixHex(roles.surface, '#0f172a', 0.08),
         },
+        Modal: {
+          contentBg: dark ? roles.surface : '#ffffff',
+          headerBg: dark ? roles.surface : '#ffffff',
+          footerBg: 'transparent',
+          titleColor: dark ? 'rgba(226, 232, 255, 0.95)' : 'rgba(15, 23, 42, 0.95)',
+        },
+        Input: {
+          colorBgContainer: dark ? lightenHex(roles.surface, 0.04) : '#ffffff',
+          colorBorder: dark ? mixHex(roles.surface, '#ffffff', 0.14) : mixHex(roles.surface, '#0f172a', 0.15),
+          activeBorderColor: roles.accent,
+          hoverBorderColor: lightenHex(roles.accent, 0.1),
+        },
+        Select: {
+          colorBgContainer: dark ? lightenHex(roles.surface, 0.04) : '#ffffff',
+          colorBorder: dark ? mixHex(roles.surface, '#ffffff', 0.14) : mixHex(roles.surface, '#0f172a', 0.15),
+          optionSelectedBg: dark ? rgbaFromHex(roles.accent, 0.22) : rgbaFromHex(roles.accent, 0.12),
+        },
+        InputNumber: {
+          colorBgContainer: dark ? lightenHex(roles.surface, 0.04) : '#ffffff',
+          colorBorder: dark ? mixHex(roles.surface, '#ffffff', 0.14) : mixHex(roles.surface, '#0f172a', 0.15),
+        },
+        DatePicker: {
+          colorBgContainer: dark ? lightenHex(roles.surface, 0.04) : '#ffffff',
+          colorBorder: dark ? mixHex(roles.surface, '#ffffff', 0.14) : mixHex(roles.surface, '#0f172a', 0.15),
+        },
       },
     };
   }, [draft.mode, roles]);

@@ -2037,6 +2037,9 @@ const RawMaterialReceiving: React.FC = () => {
                       height: 38,
                       fontWeight: 700,
                       fontSize: 13,
+                      background: 'var(--theme-primary)',
+                      borderColor: 'var(--theme-primary)',
+                      color: 'var(--theme-on-primary, #ffffff)',
                     }}
                   >
                     {isEditing ? 'Save Changes' : 'Confirm Receipt'}
@@ -2048,6 +2051,9 @@ const RawMaterialReceiving: React.FC = () => {
                       minWidth: 100,
                       height: 38,
                       fontWeight: 600,
+                      background: 'var(--theme-surface-alt)',
+                      borderColor: 'var(--theme-border)',
+                      color: 'var(--theme-text)',
                     }}
                   >
                     Cancel
