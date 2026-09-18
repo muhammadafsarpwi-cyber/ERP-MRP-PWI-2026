@@ -557,13 +557,71 @@ const RawMaterialReceiving: React.FC = () => {
           return next;
         });
       })
-      .catch(() => {
+      .catch(async () => {
         if (reqId !== invPreviewReqRef.current) return;
-        setInvPreviewError((prev) => {
-          const next = { ...prev };
-          itemIds.forEach((id) => { next[id] = 'Unable to load current inventory.'; });
-          return next;
-        });
+        // Resilient cloud fallback: query standard /inventory/balances for this warehouse
+        try {
+          const fallbackRes = await apiService.get<any>('/inventory/balances', {
+            warehouseId,
+            limit: 200,
+          });
+          if (reqId !== invPreviewReqRef.current) return;
+          const balancesList: any[] = Array.isArray(fallbackRes?.data)
+            ? fallbackRes.data
+            : Array.isArray(fallbackRes?.balances)
+            ? fallbackRes.balances
+            : [];
+          const byItem = new Map<string, any>();
+          balancesList.forEach((b) => {
+            if (b?.itemId) byItem.set(b.itemId, b);
+          });
+          const map: Record<string, BalancePreviewItem> = {};
+          itemIds.forEach((id) => {
+            const b = byItem.get(id);
+            const refItem = refData?.items?.find((i) => i.id === id);
+            const refUom = refData?.uoms?.find((u) => u.id === refItem?.baseUomId || u.id === (refItem as any)?.uomId);
+            const fallbackUom = refUom?.code || refUom?.symbol || 'KG';
+
+            if (b) {
+              map[id] = {
+                itemId: id,
+                itemCode: b.item?.itemCode || b.item?.code || refItem?.itemCode || null,
+                itemName: b.item?.name || refItem?.name || null,
+                uomCode: b.uom?.code || b.item?.uom?.code || fallbackUom,
+                exists: true,
+                onHand: Number(b.onHand ?? 0),
+                reserved: Number(b.reserved ?? 0),
+                available: Number(b.available ?? 0),
+                lastUpdatedAt: b.updatedAt || null,
+              };
+            } else {
+              map[id] = {
+                itemId: id,
+                itemCode: refItem?.itemCode || null,
+                itemName: refItem?.name || null,
+                uomCode: fallbackUom,
+                exists: false,
+                onHand: 0,
+                reserved: 0,
+                available: 0,
+                lastUpdatedAt: null,
+              };
+            }
+          });
+          setInvPreview(map);
+          setInvPreviewError((prev) => {
+            const next = { ...prev };
+            itemIds.forEach((id) => { delete next[id]; });
+            return next;
+          });
+        } catch {
+          if (reqId !== invPreviewReqRef.current) return;
+          setInvPreviewError((prev) => {
+            const next = { ...prev };
+            itemIds.forEach((id) => { next[id] = 'Unable to load current inventory.'; });
+            return next;
+          });
+        }
       })
       .finally(() => {
         if (reqId !== invPreviewReqRef.current) return;

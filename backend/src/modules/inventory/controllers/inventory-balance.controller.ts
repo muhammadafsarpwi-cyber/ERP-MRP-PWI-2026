@@ -78,8 +78,8 @@ export class InventoryBalanceController {
   @Get('preview')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.material_receiving.create')
-  @ApiOperation({ summary: 'Bulk, read-only inventory balance preview for the Raw Material Receiving form (company + items + receiving warehouse)' })
+  @RequirePermission('inventory.view')
+  @ApiOperation({ summary: 'Bulk, read-only inventory balance preview for Raw Material Receiving & Return forms (company + items + receiving warehouse)' })
   @ApiQuery({ name: 'warehouseId', required: true })
   @ApiQuery({ name: 'itemIds', required: true, description: 'Comma-separated item ids' })
   async previewBalances(
