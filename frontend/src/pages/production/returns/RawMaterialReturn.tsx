@@ -1197,7 +1197,7 @@ const RawMaterialReturn: React.FC = () => {
           placeholder="Select raw material"
           style={{ width: '100%' }}
           popupMatchSelectWidth={false}
-          dropdownStyle={{ minWidth: 320 }}
+          styles={{ popup: { root: { minWidth: 320 } } }}
           value={r.itemId}
           onChange={(v) => onItemSelect(r.key, v)}
           options={itemOptions}
@@ -1420,7 +1420,7 @@ const RawMaterialReturn: React.FC = () => {
                           optionFilterProp="label"
                           placeholder="Select Division"
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 280 }}
+                          styles={{ popup: { root: { minWidth: 280 } } }}
                           loading={refState === 'loading'}
                           status={refState === 'error' ? 'error' : undefined}
                           options={divisionOptions}
@@ -1438,7 +1438,7 @@ const RawMaterialReturn: React.FC = () => {
                           placeholder={watchDivision ? 'Select Section' : 'Select Division first'}
                           disabled={!watchDivision}
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 280 }}
+                          styles={{ popup: { root: { minWidth: 280 } } }}
                           loading={refState === 'loading' || sectionsLoading}
                           status={refState === 'error' ? 'error' : undefined}
                           options={sectionOptions}
@@ -1456,7 +1456,7 @@ const RawMaterialReturn: React.FC = () => {
                           placeholder={watchSection ? 'Select Department' : 'Select Section first'}
                           disabled={!watchSection}
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 280 }}
+                          styles={{ popup: { root: { minWidth: 280 } } }}
                           loading={refState === 'loading' || departmentsLoading}
                           status={refState === 'error' ? 'error' : undefined}
                           options={departmentOptions}
@@ -1473,7 +1473,7 @@ const RawMaterialReturn: React.FC = () => {
                           optionFilterProp="label"
                           placeholder="Select warehouse"
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 280 }}
+                          styles={{ popup: { root: { minWidth: 280 } } }}
                           status={refState === 'error' ? 'error' : undefined}
                           options={warehouseOptions}
                           virtual
@@ -1499,7 +1499,7 @@ const RawMaterialReturn: React.FC = () => {
                           optionFilterProp="label"
                           placeholder="Optional (e.g. RMR-00042)"
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 260 }}
+                          styles={{ popup: { root: { minWidth: 260 } } }}
                           options={receiptRefOptions}
                           virtual
                           listHeight={160}

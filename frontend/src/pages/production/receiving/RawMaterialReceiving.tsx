@@ -1433,7 +1433,7 @@ const RawMaterialReceiving: React.FC = () => {
         <Select showSearch optionFilterProp="label" placeholder="Select raw material" value={r.itemId}
           onChange={(v) => onItemSelect(r.key, v)} style={{ width: '100%' }}
           popupMatchSelectWidth={false}
-          dropdownStyle={{ minWidth: 320 }}
+          styles={{ popup: { root: { minWidth: 320 } } }}
           options={itemOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
           notFoundContent={refState === 'loading' ? <Text type="secondary">Loading items…</Text> : 'No raw materials in this division'}
           disabled={refState === 'error'} />
@@ -1650,7 +1650,7 @@ const RawMaterialReceiving: React.FC = () => {
                         <Select showSearch optionFilterProp="label" placeholder="Select Division"
                           onChange={handleDivisionChange}
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 280 }}
+                          styles={{ popup: { root: { minWidth: 280 } } }}
                           loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
                           options={divisionOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
                           notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No divisions'} />
@@ -1661,7 +1661,7 @@ const RawMaterialReceiving: React.FC = () => {
                         <Select showSearch optionFilterProp="label" placeholder={watchDivision ? 'Select Section' : 'Select Division first'} disabled={!watchDivision}
                           onChange={handleSectionChange}
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 280 }}
+                          styles={{ popup: { root: { minWidth: 280 } } }}
                           loading={refState === 'loading' || sectionsLoading} status={refState === 'error' ? 'error' : undefined}
                           options={sectionOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
                           notFoundContent={refState === 'loading' || sectionsLoading ? <Text type="secondary">Loading…</Text> : 'No sections'} />
@@ -1671,7 +1671,7 @@ const RawMaterialReceiving: React.FC = () => {
                       <Form.Item name="departmentId" label={<span>Department <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select Department' }]}>
                         <Select showSearch optionFilterProp="label" placeholder={watchSection ? 'Select Department' : 'Select Section first'} disabled={!watchSection}
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 280 }}
+                          styles={{ popup: { root: { minWidth: 280 } } }}
                           loading={refState === 'loading' || departmentsLoading} status={refState === 'error' ? 'error' : undefined}
                           options={departmentOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
                           notFoundContent={refState === 'loading' || departmentsLoading ? <Text type="secondary">Loading…</Text> : 'No departments in this section'} />
@@ -1681,7 +1681,7 @@ const RawMaterialReceiving: React.FC = () => {
                       <Form.Item name="warehouseId" label={<span>Receiving Warehouse <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select warehouse' }]}>
                         <Select showSearch optionFilterProp="label" placeholder="Select warehouse"
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 280 }}
+                          styles={{ popup: { root: { minWidth: 280 } } }}
                           status={refState === 'error' ? 'error' : undefined}
                           options={warehouseOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT} />
                       </Form.Item>
@@ -1705,7 +1705,7 @@ const RawMaterialReceiving: React.FC = () => {
                       <Form.Item name="productionOrderId" label="Production Order">
                         <Select allowClear showSearch optionFilterProp="label" placeholder="Optional"
                           popupMatchSelectWidth={false}
-                          dropdownStyle={{ minWidth: 260 }}
+                          styles={{ popup: { root: { minWidth: 260 } } }}
                           options={productionOrderOptions} virtual listHeight={160} />
                       </Form.Item>
                     </Col>

@@ -402,7 +402,7 @@ const ProductionOrders: React.FC = () => {
               <Form.Item name="productId" label="Product" rules={[{ required: true, message: 'Select the product to manufacture' }]}>
                 <Select showSearch optionFilterProp="label"
                   popupMatchSelectWidth={false}
-                  dropdownStyle={{ minWidth: 320 }}
+                  styles={{ popup: { root: { minWidth: 320 } } }}
                   options={items.map((i) => ({ value: i.id, label: formatNameWithCode(i.name, i.itemCode) }))}
                   placeholder="Select product" />
               </Form.Item>
@@ -411,7 +411,7 @@ const ProductionOrders: React.FC = () => {
               <Form.Item name="routingId" label="Routing" rules={[{ required: true, message: 'Select a routing for this product' }]}>
                 <Select showSearch optionFilterProp="label"
                   popupMatchSelectWidth={false}
-                  dropdownStyle={{ minWidth: 280 }}
+                  styles={{ popup: { root: { minWidth: 280 } } }}
                   options={routingsForProduct(selectedProductId).map((r) => ({
                     value: r.id,
                     label: `${formatNameWithCode(r.name, r.routingCode)}${r.status === 'ACTIVE' ? '' : ` (${r.status})`}`,
@@ -425,7 +425,7 @@ const ProductionOrders: React.FC = () => {
               <Form.Item name="bomId" label="BOM (optional)">
                 <Select showSearch optionFilterProp="label" allowClear
                   popupMatchSelectWidth={false}
-                  dropdownStyle={{ minWidth: 280 }}
+                  styles={{ popup: { root: { minWidth: 280 } } }}
                   options={bomsForProduct(selectedProductId).map((bm) => ({
                     value: bm.id,
                     label: formatNameWithCode(bm.name, bm.bomCode),

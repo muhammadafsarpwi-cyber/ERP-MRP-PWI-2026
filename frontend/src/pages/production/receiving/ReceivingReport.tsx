@@ -290,31 +290,31 @@ const ReceivingReport: React.FC = () => {
           <Form.Item name="divisionId">
             <Select placeholder="Division" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={refState === 'error'}
               popupMatchSelectWidth={false}
-              dropdownStyle={{ minWidth: 280 }}
+              styles={{ popup: { root: { minWidth: 280 } } }}
               options={(refData?.divisions || []).map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.divisionCode) }))} />
           </Form.Item>
           <Form.Item name="sectionId">
             <Select placeholder="Section" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={!watchDivision}
               popupMatchSelectWidth={false}
-              dropdownStyle={{ minWidth: 280 }}
+              styles={{ popup: { root: { minWidth: 280 } } }}
               options={sections.map((s) => ({ value: s.id, label: formatNameWithCode(s.name, s.sectionCode) }))} />
           </Form.Item>
           <Form.Item name="departmentId">
             <Select placeholder="Department" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={!watchSection} status={departmentsState === 'error' ? 'error' : undefined}
               popupMatchSelectWidth={false}
-              dropdownStyle={{ minWidth: 280 }}
+              styles={{ popup: { root: { minWidth: 280 } } }}
               options={departments.map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.departmentCode) }))} />
           </Form.Item>
           <Form.Item name="warehouseId">
             <Select placeholder="Warehouse" allowClear showSearch optionFilterProp="label" style={{ minWidth: 200 }} disabled={refState === 'error'}
               popupMatchSelectWidth={false}
-              dropdownStyle={{ minWidth: 280 }}
+              styles={{ popup: { root: { minWidth: 280 } } }}
               options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) }))} />
           </Form.Item>
           <Form.Item name="itemId">
             <Select placeholder="Raw Material" allowClear showSearch optionFilterProp="label" style={{ minWidth: 240 }} disabled={refState === 'error'}
               popupMatchSelectWidth={false}
-              dropdownStyle={{ minWidth: 320 }}
+              styles={{ popup: { root: { minWidth: 320 } } }}
               options={(refData?.items || []).map((i) => ({ value: i.id, label: formatNameWithCode(i.name, i.itemCode) }))} />
           </Form.Item>
           <Form.Item name="gatePassNo"><Input placeholder="Gate Pass No" style={{ width: 150 }} /></Form.Item>
