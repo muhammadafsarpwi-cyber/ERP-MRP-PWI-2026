@@ -181,6 +181,10 @@ const RawMaterialReceiving: React.FC = () => {
   const [form] = Form.useForm();
   const [refData, setRefData] = useState<FormRefData | null>(null);
   const [refState, setRefState] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [sections, setSections] = useState<OrgOption[]>([]);
+  const [departments, setDepartments] = useState<OrgOption[]>([]);
+  const [sectionsLoading, setSectionsLoading] = useState(false);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
 
   const [rows, setRows] = useState<LineRow[]>([emptyLine()]);
   const rowsRef = useRef<LineRow[]>(rows);
@@ -295,19 +299,21 @@ const RawMaterialReceiving: React.FC = () => {
     [refData?.warehouses],
   );
 
+  const availableSections = sections.length > 0 ? sections : (refData?.sections || []);
   const sectionOptions = useMemo(
-    () => (refData?.sections || [])
+    () => availableSections
       .filter((s) => !watchDivision || !s.divisionId || s.divisionId === watchDivision)
       .map((s) => ({ value: s.id, label: formatNameWithCode(s.name, s.sectionCode) })),
-    [refData?.sections, watchDivision],
+    [availableSections, watchDivision],
   );
 
+  const availableDepartments = departments.length > 0 ? departments : (refData?.departments || []);
   const departmentOptions = useMemo(
-    () => (watchSection ? (refData?.departments || [])
+    () => (watchSection ? availableDepartments
       .filter((d) => d.sectionId === watchSection && (!watchDivision || !d.divisionId || d.divisionId === watchDivision))
       .map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.departmentCode) }))
       : []),
-    [refData?.departments, watchDivision, watchSection],
+    [availableDepartments, watchDivision, watchSection],
   );
 
   const itemOptions = useMemo(
@@ -382,13 +388,72 @@ const RawMaterialReceiving: React.FC = () => {
   useEffect(() => { void loadRef(); }, [loadRef]);
   useEffect(() => { void loadList(1); }, [loadList]);
 
+  const loadSections = useCallback(async (divisionId: string) => {
+    const bundled = (refData?.sections || []).filter((s) => !s.divisionId || s.divisionId === divisionId);
+    if (bundled.length > 0) {
+      setSections(bundled);
+      return bundled;
+    }
+    setSectionsLoading(true);
+    try {
+      const res = await apiService.get<{ data: OrgOption[] }>('/inventory/receipts/organization/sections', { divisionId });
+      const list = res.data || [];
+      setSections(list);
+      return list;
+    } catch {
+      setSections([]);
+      return [];
+    } finally {
+      setSectionsLoading(false);
+    }
+  }, [refData?.sections]);
+
+  const loadDepartments = useCallback(async (divisionId: string, sectionId: string) => {
+    const bundled = (refData?.departments || []).filter(
+      (d) => d.sectionId === sectionId && (!d.divisionId || d.divisionId === divisionId),
+    );
+    if (bundled.length > 0) {
+      setDepartments(bundled);
+      return bundled;
+    }
+    setDepartmentsLoading(true);
+    try {
+      const res = await apiService.get<{ data: OrgOption[] }>('/inventory/receipts/organization/departments', { divisionId, sectionId });
+      const list = res.data || [];
+      setDepartments(list);
+      return list;
+    } catch {
+      setDepartments([]);
+      return [];
+    } finally {
+      setDepartmentsLoading(false);
+    }
+  }, [refData?.departments]);
+
+  useEffect(() => {
+    if (watchDivision) {
+      void loadSections(watchDivision);
+    } else {
+      setSections([]);
+    }
+  }, [watchDivision, loadSections]);
+
+  useEffect(() => {
+    if (watchDivision && watchSection) {
+      void loadDepartments(watchDivision, watchSection);
+    } else {
+      setDepartments([]);
+    }
+  }, [watchDivision, watchSection, loadDepartments]);
+
   // Division → Section → Department cascade validation + single-option auto
   // selection. Runs on every relevant change (user pick, draft restore, late
   // reference data) and is purely derived from real master data — no hardcoding.
   useEffect(() => {
-    if (!watchDivision || !refData) return;
+    if (!watchDivision) return;
 
-    const secOptions = (refData.sections || []).filter((s) => !s.divisionId || s.divisionId === watchDivision);
+    const availableSecs = sections.length > 0 ? sections : (refData?.sections || []);
+    const secOptions = availableSecs.filter((s) => !s.divisionId || s.divisionId === watchDivision);
     const curSec = form.getFieldValue('sectionId');
     let nextSec = curSec && secOptions.some((s) => s.id === curSec) ? curSec : undefined;
     if (secOptions.length === 1) nextSec = secOptions[0].id;
@@ -401,7 +466,8 @@ const RawMaterialReceiving: React.FC = () => {
       return;
     }
 
-    const deptOptions = (refData.departments || []).filter(
+    const availableDepts = departments.length > 0 ? departments : (refData?.departments || []);
+    const deptOptions = availableDepts.filter(
       (d) => d.sectionId === secId && (!d.divisionId || d.divisionId === watchDivision),
     );
     const curDept = form.getFieldValue('departmentId');
@@ -411,7 +477,7 @@ const RawMaterialReceiving: React.FC = () => {
 
     commitDraft(editingId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchDivision, watchSection, refData]);
+  }, [watchDivision, watchSection, refData, sections, departments]);
 
   // Single-warehouse flow: auto select when exactly one ACTIVE warehouse exists.
   useEffect(() => {
@@ -615,6 +681,10 @@ const RawMaterialReceiving: React.FC = () => {
       productionOrderId: v.productionOrderId,
       remarks: v.remarks,
     });
+    if (typeof v.divisionId === 'string' && v.divisionId) void loadSections(v.divisionId);
+    if (typeof v.divisionId === 'string' && v.divisionId && typeof v.sectionId === 'string' && v.sectionId) {
+      void loadDepartments(v.divisionId, v.sectionId);
+    }
     const restoredRows = draft.rows && draft.rows.length ? draft.rows : [emptyLine()];
     rowsRef.current = restoredRows;
     setRows(restoredRows);
@@ -666,6 +736,8 @@ const RawMaterialReceiving: React.FC = () => {
     const next = [emptyLine()];
     rowsRef.current = next;
     setRows(next);
+    setSections([]);
+    setDepartments([]);
     pendingFilesRef.current = [];
     setPendingFiles([]);
     setExistingDocs([]);
@@ -696,6 +768,8 @@ const RawMaterialReceiving: React.FC = () => {
         reference: d.reference || undefined,
         remarks: d.remarks || undefined,
       });
+      if (d.division?.id) void loadSections(d.division.id);
+      if (d.division?.id && d.section?.id) void loadDepartments(d.division.id, d.section.id);
       const editRows = (d.lines || []).map((l) => ({
         key: l.id || `${Date.now()}-${l.lineNumber}`,
         itemId: l.item?.id,
@@ -737,45 +811,43 @@ const RawMaterialReceiving: React.FC = () => {
     setModalOpen(false);
   }, [commitDraft, editingId]);
 
-  const handleDivisionChange = useCallback((value: string | undefined) => {
+  const handleDivisionChange = useCallback(async (value: string | undefined) => {
     form.setFieldValue('divisionId', value);
     form.setFieldValue('sectionId', undefined);
     form.setFieldValue('departmentId', undefined);
-    if (value && refData?.sections) {
-      const matchingSecs = refData.sections.filter((s) => !s.divisionId || s.divisionId === value);
-      if (matchingSecs.length === 1) {
-        const singleSecId = matchingSecs[0].id;
+    setDepartments([]);
+    if (value) {
+      const secList = await loadSections(value);
+      if (secList.length === 1) {
+        const singleSecId = secList[0].id;
         form.setFieldValue('sectionId', singleSecId);
-        if (refData?.departments) {
-          const matchingDepts = refData.departments.filter(
-            (d) => d.sectionId === singleSecId && (!d.divisionId || d.divisionId === value),
-          );
-          if (matchingDepts.length === 1) {
-            form.setFieldValue('departmentId', matchingDepts[0].id);
-          }
+        const deptList = await loadDepartments(value, singleSecId);
+        if (deptList.length === 1) {
+          form.setFieldValue('departmentId', deptList[0].id);
         }
       }
+    } else {
+      setSections([]);
     }
     commitDraft(editingId);
-  }, [form, commitDraft, editingId, refData?.sections, refData?.departments]);
+  }, [form, commitDraft, editingId, loadSections, loadDepartments]);
 
-  const handleSectionChange = useCallback((value: string | undefined) => {
+  const handleSectionChange = useCallback(async (value: string | undefined) => {
     form.setFieldValue('sectionId', value);
-    if (value && refData?.departments) {
+    form.setFieldValue('departmentId', undefined);
+    if (value) {
       const curDiv = form.getFieldValue('divisionId');
-      const matchingDepts = refData.departments.filter(
-        (d) => d.sectionId === value && (!curDiv || !d.divisionId || d.divisionId === curDiv),
-      );
-      if (matchingDepts.length === 1) {
-        form.setFieldValue('departmentId', matchingDepts[0].id);
-      } else {
-        form.setFieldValue('departmentId', undefined);
+      if (curDiv) {
+        const deptList = await loadDepartments(curDiv, value);
+        if (deptList.length === 1) {
+          form.setFieldValue('departmentId', deptList[0].id);
+        }
       }
     } else {
-      form.setFieldValue('departmentId', undefined);
+      setDepartments([]);
     }
     commitDraft(editingId);
-  }, [form, commitDraft, editingId, refData?.departments]);
+  }, [form, commitDraft, editingId, loadDepartments]);
 
   const onItemSelect = useCallback((rowKey: string, itemId: string | undefined) => {
     const item = refData?.items.find((i) => i.id === itemId);
@@ -1532,9 +1604,9 @@ const RawMaterialReceiving: React.FC = () => {
                           onChange={handleSectionChange}
                           popupMatchSelectWidth={false}
                           dropdownStyle={{ minWidth: 280 }}
-                          loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
+                          loading={refState === 'loading' || sectionsLoading} status={refState === 'error' ? 'error' : undefined}
                           options={sectionOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
-                          notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No sections'} />
+                          notFoundContent={refState === 'loading' || sectionsLoading ? <Text type="secondary">Loading…</Text> : 'No sections'} />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
@@ -1542,9 +1614,9 @@ const RawMaterialReceiving: React.FC = () => {
                         <Select showSearch optionFilterProp="label" placeholder={watchSection ? 'Select Department' : 'Select Section first'} disabled={!watchSection}
                           popupMatchSelectWidth={false}
                           dropdownStyle={{ minWidth: 280 }}
-                          loading={refState === 'loading'} status={refState === 'error' ? 'error' : undefined}
+                          loading={refState === 'loading' || departmentsLoading} status={refState === 'error' ? 'error' : undefined}
                           options={departmentOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT}
-                          notFoundContent={refState === 'loading' ? <Text type="secondary">Loading…</Text> : 'No departments in this section'} />
+                          notFoundContent={refState === 'loading' || departmentsLoading ? <Text type="secondary">Loading…</Text> : 'No departments in this section'} />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
