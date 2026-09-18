@@ -1,6 +1,9 @@
 import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import * as bcrypt from 'bcrypt';
 import * as jwt from 'jsonwebtoken';
 import { SupabaseUser, SupabaseJwtPayload } from '../interfaces/supabase-user.interface';
 
@@ -11,7 +14,11 @@ export class SupabaseAuthService {
   private jwtSecretValidated = false;
   private jwtSecretValid = false;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+  ) {
     const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
     const supabaseServiceKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -336,13 +343,45 @@ export class SupabaseAuthService {
   }
 
   async adminResetUserPassword(authUserId: string, newPassword: string): Promise<void> {
+    // Primary strategy: update the bcrypt-hashed password directly in auth.users
+    // This is the same approach used for user creation and works reliably even
+    // when the Supabase Admin REST API is unavailable or misconfigured.
+    try {
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      const now = new Date().toISOString();
+      const result = await this.dataSource.query(
+        `UPDATE auth.users
+         SET encrypted_password = $1,
+             updated_at = $2,
+             recovery_token = '',
+             recovery_sent_at = NULL,
+             email_change_token_new = '',
+             email_change_token_current = '',
+             email_change_confirm_status = 0
+         WHERE id = $3`,
+        [hashedPassword, now, authUserId],
+      );
+      const rowsAffected = Array.isArray(result) ? result[1] : (result?.rowCount ?? 0);
+      if (!rowsAffected || rowsAffected === 0) {
+        throw new Error(`No auth user found with id ${authUserId}`);
+      }
+      this.logger.log(`Password reset (direct DB) succeeded for auth user ${authUserId}`);
+      return;
+    } catch (dbError) {
+      this.logger.warn(
+        `Direct DB password reset failed for ${authUserId}: ${dbError.message}. Falling back to Supabase Admin API.`,
+      );
+    }
+
+    // Fallback: Supabase Admin API
     const { error } = await this.supabase.auth.admin.updateUserById(authUserId, {
       password: newPassword,
     });
 
     if (error) {
-      this.logger.error(`Admin password reset failed for ${authUserId}: ${error.message}`);
+      this.logger.error(`Admin password reset (API fallback) failed for ${authUserId}: ${error.message}`);
       throw new Error(`Failed to reset user password: ${error.message}`);
     }
+    this.logger.log(`Password reset (Supabase API fallback) succeeded for auth user ${authUserId}`);
   }
 }
