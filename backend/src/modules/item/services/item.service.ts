@@ -622,7 +622,19 @@ export class ItemService implements OnModuleInit {
     }
     if (status) qb.andWhere('item.status = :status', { status });
     if (active !== undefined) qb.andWhere(active ? 'item.status = :activeStatus' : 'item.status != :activeStatus', { activeStatus: 'ACTIVE' });
-    if (itemType) qb.andWhere('item.itemType = :itemType', { itemType });
+    if (itemType) {
+      const isTooling = /tool/i.test(itemType);
+      if (isTooling) {
+        qb.andWhere('(item.itemType IN (\'TOOLS\', \'TOOLING\', \'Tooling\', \'Tools\') OR item.itemType ILIKE :itemType)', { itemType: `%${itemType}%` });
+      } else {
+        const normalized = itemType.trim().toUpperCase().replace(/[-\s]+/g, '_');
+        qb.andWhere('(item.itemType = :itemType OR item.itemType = :normalized OR item.itemType ILIKE :rawOrNorm)', {
+          itemType,
+          normalized,
+          rawOrNorm: `%${normalized}%`,
+        });
+      }
+    }
     if (itemTypeId) qb.andWhere('item.itemTypeId = :itemTypeId', { itemTypeId });
     if (materialRoleUsage) qb.andWhere('item.materialRoleUsage ILIKE :materialRoleUsage', { materialRoleUsage: `%${materialRoleUsage}%` });
     if (categoryId) qb.andWhere('item.categoryId = :categoryId', { categoryId });
@@ -668,6 +680,25 @@ export class ItemService implements OnModuleInit {
     if (!item) throw new NotFoundException(`Item '${itemCode}' not found in this company`);
     this.ensureProcessesArray(item);
     return item;
+  }
+
+  async getDistinctItemTypes(filter: { divisionId?: string; sectionId?: string; departmentId?: string }): Promise<string[]> {
+    const qb = this.itemRepository
+      .createQueryBuilder('item')
+      .select('DISTINCT item.itemType', 'itemType')
+      .where('item.isActive = true')
+      .andWhere('item.itemType IS NOT NULL');
+
+    if (filter.departmentId) {
+      qb.andWhere('item.departmentId = :departmentId', { departmentId: filter.departmentId });
+    } else if (filter.sectionId) {
+      qb.andWhere('item.sectionId = :sectionId', { sectionId: filter.sectionId });
+    } else if (filter.divisionId) {
+      qb.andWhere('item.divisionId = :divisionId', { divisionId: filter.divisionId });
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map((r) => r.itemType).filter(Boolean);
   }
 
   async findBySku(companyId: string, sku: string): Promise<Item> {

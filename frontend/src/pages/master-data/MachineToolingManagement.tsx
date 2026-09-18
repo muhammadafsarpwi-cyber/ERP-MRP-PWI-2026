@@ -8,7 +8,8 @@ import {
   PlusOutlined, EditOutlined, EyeOutlined, DeleteOutlined, ReloadOutlined,
   SwapRightOutlined, ToolOutlined, HistoryOutlined, BarChartOutlined,
   CheckCircleOutlined, UnorderedListOutlined, SwapOutlined, PlusCircleOutlined, DesktopOutlined,
-  AppstoreOutlined, ThunderboltOutlined,
+  AppstoreOutlined, ThunderboltOutlined, EyeInvisibleOutlined, CloseOutlined,
+  ClusterOutlined, LinkOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -66,9 +67,26 @@ const fmtNum = (v: unknown): string => {
   return Number(n.toFixed(4)).toLocaleString('en-US', { maximumFractionDigits: 4 });
 };
 
-interface MachineLk { id: string; machineCode?: string | null; machineNumber?: string | null; name?: string | null; }
-interface ItemLk { id: string; itemCode: string; name?: string | null; baseUomId?: string | null; baseUom?: { id: string; code: string } | null; }
+interface MachineLk { id: string; machineCode?: string | null; machineNumber?: string | null; name?: string | null; divisionId?: string | null; sectionId?: string | null; departmentId?: string | null; }
+interface ItemLk {
+  id: string;
+  itemCode: string;
+  name?: string | null;
+  baseUomId?: string | null;
+  baseUom?: { id: string; code: string; name?: string } | null;
+  itemType?: string | null;
+  divisionId?: string | null;
+  sectionId?: string | null;
+  departmentId?: string | null;
+  division?: { id: string; name: string; divisionCode?: string } | null;
+  section?: { id: string; name: string; sectionCode?: string } | null;
+  department?: { id: string; name: string; departmentCode?: string } | null;
+}
 interface UomLk { id: string; code: string; name?: string | null; }
+interface DivisionLk { id: string; divisionCode?: string; name: string; }
+interface SectionLk { id: string; sectionCode?: string; name: string; divisionId?: string | null; }
+interface DepartmentLk { id: string; departmentCode?: string; name: string; divisionId?: string | null; sectionId?: string | null; }
+interface MasterItemTypeLk { id: string; code: string; name: string; status?: string; }
 interface JobCardLk { id: string; jobCardNo?: string | null; code?: string | null; }
 
 interface ComponentRec {
@@ -178,24 +196,51 @@ const MachineToolingManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
 
-  const [activeTab, setActiveTab] = useState('setup');
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      return sessionStorage.getItem('pwi_tooling_active_tab') || 'setup';
+    } catch {
+      return 'setup';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('pwi_tooling_active_tab', activeTab);
+    } catch {}
+  }, [activeTab]);
 
   /* ── Shared lookups ───────────────────────────────────────────────────────── */
   const [machines, setMachines] = useState<MachineLk[]>([]);
   const [items, setItems] = useState<ItemLk[]>([]);
   const [uoms, setUoms] = useState<UomLk[]>([]);
+  const [divisions, setDivisions] = useState<DivisionLk[]>([]);
+  const [sections, setSections] = useState<SectionLk[]>([]);
+  const [departments, setDepartments] = useState<DepartmentLk[]>([]);
+  const [masterItemTypes, setMasterItemTypes] = useState<MasterItemTypeLk[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [mRes, iRes, uRes] = await Promise.allSettled([
+        const [mRes, iRes, uRes, divRes, secRes, depRes, itRes] = await Promise.allSettled([
           apiService.get<{ data: MachineLk[] }>('/machines', { limit: 500, sortBy: 'machineCode' }),
-          apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 500, sortBy: 'itemCode' }),
+          apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 200, sortBy: 'itemCode' }),
           apiService.get<{ data: UomLk[] }>('/master-data/uom', { limit: 500, sortBy: 'code' }),
+          apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200 }),
+          apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500 }),
+          apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500 }),
+          apiService.get<{ data: MasterItemTypeLk[] }>('/master-data/item-types', { limit: 500 }),
         ]);
-        if (mRes.status === 'fulfilled') setMachines((mRes.value as any)?.data || (Array.isArray(mRes.value) ? mRes.value : []));
-        if (iRes.status === 'fulfilled') setItems((iRes.value as any)?.data || (Array.isArray(iRes.value) ? iRes.value : []));
-        if (uRes.status === 'fulfilled') setUoms((uRes.value as any)?.data || (Array.isArray(uRes.value) ? uRes.value : []));
+        const unpack = (res: PromiseSettledResult<any>) =>
+          res.status === 'fulfilled' ? (res.value?.data || (Array.isArray(res.value) ? res.value : [])) : [];
+
+        setMachines(unpack(mRes));
+        setItems(unpack(iRes));
+        setUoms(unpack(uRes));
+        setDivisions(unpack(divRes));
+        setSections(unpack(secRes));
+        setDepartments(unpack(depRes));
+        setMasterItemTypes(unpack(itRes));
       } catch {
         message.warning('Could not load machine / item / UOM lookups');
       }
@@ -211,7 +256,13 @@ const MachineToolingManagement: React.FC = () => {
     [machines],
   );
   const itemOptions = useMemo(
-    () => items.map((i) => ({ value: i.id, label: i.name ? `${i.itemCode} — ${i.name}` : i.itemCode })),
+    () =>
+      items.map((i) => ({
+        value: i.id,
+        label: i.name ? `${i.itemCode} — ${i.name}` : i.itemCode,
+        // searchText is used by filterOption to search both code and name
+        searchText: `${i.itemCode} ${i.name || ''}`.toLowerCase(),
+      })),
     [items],
   );
   const uomOptions = useMemo(
@@ -293,15 +344,257 @@ const MachineToolingManagement: React.FC = () => {
   const [components, setComponents] = useState<ComponentRec[]>([]);
   const [componentsTotal, setComponentsTotal] = useState(0);
   const [componentsLoading, setComponentsLoading] = useState(false);
-  const [compPage, setCompPage] = useState(1);
+  const [compPage, setCompPage] = useState<number>(() => {
+    try {
+      const p = sessionStorage.getItem('pwi_tooling_comp_page');
+      return p ? parseInt(p, 10) : 1;
+    } catch { return 1; }
+  });
   const [compPageSize, setCompPageSize] = useState(20);
-  const [compSearch, setCompSearch] = useState('');
-  const [fCompMachine, setFCompMachine] = useState<string | undefined>(undefined);
-  const [fCompType, setFCompType] = useState<string | undefined>(undefined);
+  const [compSearch, setCompSearch] = useState<string>(() => {
+    try { return sessionStorage.getItem('pwi_tooling_comp_search') || ''; } catch { return ''; }
+  });
+  const [fCompMachine, setFCompMachine] = useState<string | undefined>(() => {
+    try { return sessionStorage.getItem('pwi_tooling_comp_machine') || undefined; } catch { return undefined; }
+  });
+  const [fCompType, setFCompType] = useState<string | undefined>(() => {
+    try { return sessionStorage.getItem('pwi_tooling_comp_type') || undefined; } catch { return undefined; }
+  });
   const [compModalOpen, setCompModalOpen] = useState(false);
   const [editingComponent, setEditingComponent] = useState<ComponentRec | null>(null);
   const [compForm] = Form.useForm();
-  const [, setCompFormTick] = useState(0);
+  const [liveCompValues, setLiveCompValues] = useState<Record<string, any>>({ componentType: 'COMPONENT' });
+
+  useEffect(() => {
+    try {
+      if (compSearch) sessionStorage.setItem('pwi_tooling_comp_search', compSearch);
+      else sessionStorage.removeItem('pwi_tooling_comp_search');
+      if (fCompMachine) sessionStorage.setItem('pwi_tooling_comp_machine', fCompMachine);
+      else sessionStorage.removeItem('pwi_tooling_comp_machine');
+      if (fCompType) sessionStorage.setItem('pwi_tooling_comp_type', fCompType);
+      else sessionStorage.removeItem('pwi_tooling_comp_type');
+      sessionStorage.setItem('pwi_tooling_comp_page', String(compPage));
+    } catch {}
+  }, [compSearch, fCompMachine, fCompType, compPage]);
+
+  // Modal store item search & filters (1. Division, 2. Section, 3. Department, 4. Item Type)
+  const [itemFilterDivision, setItemFilterDivision] = useState<string | undefined>(undefined);
+  const [itemFilterSection, setItemFilterSection] = useState<string | undefined>(undefined);
+  const [itemFilterDepartment, setItemFilterDepartment] = useState<string | undefined>(undefined);
+  const [itemFilterType, setItemFilterType] = useState<string | undefined>('Tooling');
+  const [itemSearchText, setItemSearchText] = useState<string>('');
+  const [modalItems, setModalItems] = useState<ItemLk[]>([]);
+  const [modalItemsLoading, setModalItemsLoading] = useState(false);
+  const [showLiveSheet, setShowLiveSheet] = useState(true);
+
+  const searchStoreItems = useCallback(async (
+    query?: string,
+    divId?: string,
+    secId?: string,
+    depId?: string,
+    typeVal?: string,
+  ) => {
+    setModalItemsLoading(true);
+    try {
+      const params: any = {
+        limit: 300,
+        sortBy: 'itemCode',
+        sortOrder: 'ASC',
+      };
+      if (query && query.trim()) params.search = query.trim();
+      if (divId) params.divisionId = divId;
+      if (secId) params.sectionId = secId;
+      if (depId) params.departmentId = depId;
+      if (typeVal) params.itemType = typeVal;
+
+      const res = await apiService.get<{ data: ItemLk[] }>('/master-data/items', params, { silent: true });
+      const data = (res as any)?.data || (Array.isArray(res) ? res : []);
+      setModalItems(data);
+    } catch (err) {
+      console.error('Failed to query store items', err);
+    } finally {
+      setModalItemsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!compModalOpen) return;
+    const timer = setTimeout(() => {
+      searchStoreItems(
+        itemSearchText,
+        itemFilterDivision,
+        itemFilterSection,
+        itemFilterDepartment,
+        itemFilterType,
+      );
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [compModalOpen, itemSearchText, itemFilterDivision, itemFilterSection, itemFilterDepartment, itemFilterType, searchStoreItems]);
+
+  const availableSections = useMemo(() => {
+    if (!itemFilterDivision) return sections;
+    return sections.filter((s) => s.divisionId === itemFilterDivision);
+  }, [sections, itemFilterDivision]);
+
+  const availableDepartments = useMemo(() => {
+    if (itemFilterSection) {
+      const secObj = sections.find((s) => s.id === itemFilterSection);
+      const secDeptIds = new Set<string>();
+      if (secObj && (secObj as any).departments && Array.isArray((secObj as any).departments)) {
+        (secObj as any).departments.forEach((sd: any) => secDeptIds.add(sd.id));
+      }
+      return departments.filter((d) => {
+        const sid = d.sectionId || (d as any).section?.id || (d as any).section_id;
+        return (sid && sid === itemFilterSection) || secDeptIds.has(d.id);
+      });
+    }
+    if (itemFilterDivision) {
+      return departments.filter((d) => {
+        const did = d.divisionId || (d as any).division?.id || (d as any).division_id;
+        return did && did === itemFilterDivision;
+      });
+    }
+    return departments;
+  }, [departments, sections, itemFilterDivision, itemFilterSection]);
+
+  const [scopeItemTypes, setScopeItemTypes] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const params: any = {};
+        if (itemFilterDepartment) params.departmentId = itemFilterDepartment;
+        else if (itemFilterSection) params.sectionId = itemFilterSection;
+        else if (itemFilterDivision) params.divisionId = itemFilterDivision;
+
+        const res: any = await apiService.get('/master-data/items/distinct-types', params, { silent: true });
+        const types: string[] = res?.data || (Array.isArray(res) ? res : []);
+        if (!cancelled) {
+          setScopeItemTypes(types);
+        }
+      } catch (err) {
+        console.error('Failed to load distinct item types', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [itemFilterDivision, itemFilterSection, itemFilterDepartment]);
+
+  const itemTypeOptions = useMemo(() => {
+    const formatType = (raw: string) => {
+      const upper = raw.toUpperCase().replace(/[-\s]/g, '_');
+      if (upper === 'TOOLS' || upper === 'TOOLING') return 'Tooling';
+      if (upper === 'SPARE_PART') return 'Spare Part';
+      if (upper === 'SEMI_FINISHED') return 'Semi-Finished';
+      if (upper === 'FINISHED_GOOD') return 'Finished Good';
+      if (upper === 'RAW_MATERIAL') return 'Raw Material';
+      if (upper === 'CONSUMABLE') return 'Consumable';
+      if (upper === 'PACKAGING_MATERIAL') return 'Packaging Material';
+      if (upper === 'WORK_IN_PROGRESS') return 'Work In Progress';
+      if (upper === 'ASSET') return 'Asset';
+      if (upper === 'OTHER') return 'Other';
+      return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase().replace(/_/g, ' ');
+    };
+
+    if (itemFilterDepartment || itemFilterSection || itemFilterDivision) {
+      if (scopeItemTypes.length > 0) {
+        const unique = new Map<string, string>();
+        scopeItemTypes.forEach((t) => {
+          const label = formatType(t);
+          if (!unique.has(label.toLowerCase())) {
+            unique.set(label.toLowerCase(), label);
+          }
+        });
+        return Array.from(unique.values()).map((val) => ({ value: val, label: val }));
+      }
+      return [];
+    }
+
+    const standard = ['Tooling', 'Spare Part', 'Consumable', 'Raw Material', 'Semi-Finished', 'Finished Good', 'Asset', 'Other'];
+    return standard.map((s) => ({ value: s, label: s }));
+  }, [scopeItemTypes, itemFilterDivision, itemFilterSection, itemFilterDepartment]);
+
+  useEffect(() => {
+    if (itemTypeOptions.length > 0 && itemFilterType) {
+      const exists = itemTypeOptions.some((o) => o.value.toLowerCase() === itemFilterType.toLowerCase());
+      if (!exists) {
+        const hasTooling = itemTypeOptions.some((o) => o.value.toLowerCase() === 'tooling');
+        setItemFilterType(hasTooling ? 'Tooling' : undefined);
+      }
+    }
+  }, [itemTypeOptions, itemFilterType]);
+
+  const displayedItems = useMemo(() => {
+    const list = [...modalItems];
+    const currentId = liveCompValues.itemId;
+    if (currentId && !list.some((i) => i.id === currentId)) {
+      const foundInMain = items.find((i) => i.id === currentId);
+      if (foundInMain) {
+        list.unshift(foundInMain);
+      } else if (editingComponent?.item && editingComponent.item.id === currentId) {
+        list.unshift(editingComponent.item);
+      }
+    }
+    return list;
+  }, [modalItems, items, liveCompValues.itemId, editingComponent]);
+
+  const modalItemOptions = useMemo(() => {
+    return displayedItems.map((i) => {
+      const divName = i.division?.name || divisions.find((d) => d.id === i.divisionId)?.name;
+      const secName = i.section?.name || sections.find((s) => s.id === i.sectionId)?.name;
+      const depName = i.department?.name || departments.find((d) => d.id === i.departmentId)?.name;
+      const locStr = [divName, secName, depName].filter(Boolean).join(' › ');
+      const typeStr = i.itemType ? ` [${i.itemType}]` : '';
+      const locSuffix = locStr ? ` (${locStr})` : '';
+
+      return {
+        value: i.id,
+        label: `${i.itemCode} — ${i.name || i.itemCode}${typeStr}${locSuffix}`,
+        searchText: `${i.itemCode} ${i.name || ''} ${i.itemType || ''} ${locStr}`.toLowerCase(),
+      };
+    });
+  }, [displayedItems, divisions, sections, departments]);
+
+  const modalMachineOptions = useMemo(() => {
+    let list = machines;
+    if (itemFilterDepartment) {
+      list = list.filter((m) => m.departmentId === itemFilterDepartment);
+    } else if (itemFilterSection) {
+      list = list.filter((m) => m.sectionId === itemFilterSection);
+    } else if (itemFilterDivision) {
+      list = list.filter((m) => m.divisionId === itemFilterDivision);
+    }
+
+    const currentMachineId = liveCompValues.machineId;
+    if (currentMachineId && !list.some((m) => m.id === currentMachineId)) {
+      const activeMach = machines.find((m) => m.id === currentMachineId);
+      if (activeMach) list = [activeMach, ...list];
+    }
+
+    return list.map((m) => {
+      const depName = departments.find((d) => d.id === m.departmentId)?.name;
+      const secName = sections.find((s) => s.id === m.sectionId)?.name;
+      const deptTag = depName || secName ? ` [${depName || secName}]` : '';
+      return {
+        value: m.id,
+        label: `${m.machineCode ?? m.id}${m.machineNumber ? ` (${m.machineNumber})` : ''} — ${m.name || 'Machine'}${deptTag}`,
+        searchText: `${m.machineCode || ''} ${m.machineNumber || ''} ${m.name || ''} ${depName || ''}`.toLowerCase(),
+      };
+    });
+  }, [machines, departments, sections, itemFilterDepartment, itemFilterSection, itemFilterDivision, liveCompValues.machineId]);
+
+  const liveCompMachine = useMemo(
+    () => machines.find((m) => m.id === liveCompValues.machineId),
+    [machines, liveCompValues.machineId],
+  );
+  const liveCompStoreItem = useMemo(
+    () => displayedItems.find((i) => i.id === liveCompValues.itemId) || items.find((i) => i.id === liveCompValues.itemId),
+    [displayedItems, items, liveCompValues.itemId],
+  );
+  const liveCompUom = useMemo(
+    () => uoms.find((u) => u.id === liveCompValues.uomId),
+    [uoms, liveCompValues.uomId],
+  );
 
   // Minimized Window Tabs State
   const [isCompMinimized, setIsCompMinimized] = useState(false);
@@ -344,12 +637,33 @@ const MachineToolingManagement: React.FC = () => {
     setEditingComponent(null);
     compForm.resetFields();
     compForm.setFieldsValue({ componentType: 'COMPONENT' });
+    setLiveCompValues({ componentType: 'COMPONENT' });
+    setItemFilterDivision(undefined);
+    setItemFilterDepartment(undefined);
+    setItemFilterSection(undefined);
+    setItemFilterType('Tooling');
+    setItemSearchText('');
     setCompModalOpen(true);
   };
 
   const handleItemSelectChange = (selectedItemId?: string) => {
-    if (!selectedItemId) return;
-    const item = items.find((i) => i.id === selectedItemId);
+    if (!selectedItemId) {
+      // Clear auto-filled fields when item is cleared
+      compForm.setFieldsValue({
+        componentName: undefined,
+        componentCode: undefined,
+        uomId: undefined,
+      });
+      setLiveCompValues((prev) => ({
+        ...prev,
+        itemId: undefined,
+        componentName: undefined,
+        componentCode: undefined,
+        uomId: undefined,
+      }));
+      return;
+    }
+    const item = displayedItems.find((i) => i.id === selectedItemId) || items.find((i) => i.id === selectedItemId);
     if (item) {
       const uomId = item.baseUomId || item.baseUom?.id;
       const upperName = ((item.name || '') + ' ' + (item.itemCode || '')).toUpperCase();
@@ -360,19 +674,26 @@ const MachineToolingManagement: React.FC = () => {
       else if (upperName.includes('FIXTURE')) inferredType = 'FIXTURE';
       else if (upperName.includes('TOOL') || upperName.includes('BLADE') || upperName.includes('PUNCH') || upperName.includes('ROLLER')) inferredType = 'TOOL';
 
-      compForm.setFieldsValue({
+      const updates: any = {
+        itemId: selectedItemId,
         componentName: item.name || item.itemCode,
         componentCode: item.itemCode,
         ...(uomId ? { uomId } : {}),
         ...(inferredType ? { componentType: inferredType } : {}),
-      });
+      };
+
+      compForm.setFieldsValue(updates);
+      setLiveCompValues((prev) => ({
+        ...prev,
+        ...updates,
+      }));
     }
   };
 
   const handleEditComponent = (record: ComponentRec) => {
     setIsCompMinimized(false);
     setEditingComponent(record);
-    compForm.setFieldsValue({
+    const initialVals = {
       machineId: record.machineId,
       componentType: record.componentType,
       componentName: record.componentName,
@@ -383,7 +704,24 @@ const MachineToolingManagement: React.FC = () => {
       minThreshold: num(record.minThreshold) ?? undefined,
       maxThreshold: num(record.maxThreshold) ?? undefined,
       description: record.description || undefined,
-    });
+    };
+    compForm.setFieldsValue(initialVals);
+    setLiveCompValues(initialVals);
+
+    const itemRec = record.item || items.find((i) => i.id === record.itemId);
+    if (itemRec) {
+      if (itemRec.divisionId) setItemFilterDivision(itemRec.divisionId);
+      if (itemRec.sectionId) setItemFilterSection(itemRec.sectionId);
+      if (itemRec.departmentId) setItemFilterDepartment(itemRec.departmentId);
+      if (itemRec.itemType) setItemFilterType(/tool/i.test(itemRec.itemType) ? 'Tooling' : itemRec.itemType);
+      setModalItems((prev) => (prev.some((x) => x.id === itemRec.id) ? prev : [itemRec, ...prev]));
+    } else {
+      setItemFilterDivision(undefined);
+      setItemFilterSection(undefined);
+      setItemFilterDepartment(undefined);
+      setItemFilterType('Tooling');
+    }
+    setItemSearchText('');
     setCompModalOpen(true);
   };
 
@@ -430,7 +768,19 @@ const MachineToolingManagement: React.FC = () => {
       message.success(`Component ${record.componentCode} deleted`);
       fetchComponents(compPage);
     } catch (error: any) {
-      message.error(extractApiError(error, 'Failed to delete component'));
+      const errMsg = extractApiError(error, 'Failed to delete component');
+      if (errMsg.toLowerCase().includes('deactivate it instead')) {
+        try {
+          await apiService.patch(`/machine-tooling/components/${record.id}/status`, { status: 'INACTIVE' });
+          message.warning(`Component '${record.componentCode}' has change history, so it was deactivated instead of deleted.`);
+          fetchComponents(compPage);
+          return;
+        } catch (deactErr: any) {
+          message.error(extractApiError(deactErr, 'Failed to deactivate component'));
+          return;
+        }
+      }
+      message.error(errMsg);
     }
   };
 
@@ -485,96 +835,308 @@ const MachineToolingManagement: React.FC = () => {
 
   const componentColumns: ColumnsType<ComponentRec> = [
     {
-      title: 'Component', key: 'component', width: 240,
+      title: 'Component', key: 'component', width: 280,
       sorter: (a, b) => a.componentName.localeCompare(b.componentName),
       render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{r.componentName}</span>
-          <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.componentCode}</code>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(16, 185, 129, 0.15) 100%)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#4f46e5',
+              fontSize: 16,
+              flexShrink: 0,
+            }}
+          >
+            <ToolOutlined />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #0f172a)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {r.componentName}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              <Tag color="geekblue" style={{ fontSize: 11, padding: '0 6px', borderRadius: 4, fontWeight: 600, margin: 0 }}>
+                {r.componentCode}
+              </Tag>
+              {r.item && (
+                <Tag color="cyan" style={{ fontSize: 10, padding: '0 4px', borderRadius: 4, margin: 0 }}>
+                  <LinkOutlined style={{ marginRight: 2 }} />
+                  {r.item.itemCode}
+                </Tag>
+              )}
+            </div>
+          </div>
         </div>
       ),
     },
     {
-      title: 'Machine', key: 'machine', width: 200, sorter: true,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 500, color: 'var(--theme-text)' }}>{r.machine?.machineCode ?? r.machine?.name ?? '—'}</span>
-          {r.machine?.machineNumber && (
-            <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.machine.machineNumber}</span>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: 'Type', dataIndex: 'componentType', key: 'componentType', width: 120,
-      render: (t: string) => <Tag color={COMPONENT_TYPE_COLORS[t] ?? 'default'}>{t}</Tag>,
-    },
-    {
-      title: 'Expected Life', key: 'expectedLife', width: 120,
-      render: (_, r) => (
-        <span>
-          {fmtNum(r.expectedLifeQuantity)}
-          {r.uom?.code ? ` ${r.uom.code}` : ''}
-        </span>
-      ),
-    },
-    {
-      title: 'Life Window', key: 'thresholds', width: 130,
+      title: 'Machine', key: 'machine', width: 220, sorter: true,
       render: (_, r) => {
-        const lo = num(r.minThreshold);
-        const hi = num(r.maxThreshold);
-        if (lo === null && hi === null) return EMPTY;
-        return <span>{lo !== null ? fmtNum(lo) : '—'} – {hi !== null ? fmtNum(hi) : '—'}</span>;
+        const m = r.machine;
+        if (!m) {
+          return <Tag color="default" style={{ borderRadius: 6, color: '#94a3b8' }}>Unassigned</Tag>;
+        }
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 8,
+                background: 'rgba(14, 165, 233, 0.1)',
+                border: '1px solid rgba(14, 165, 233, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#0284c7',
+                fontSize: 14,
+                flexShrink: 0,
+              }}
+            >
+              <ClusterOutlined />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+              <span style={{ fontWeight: 600, color: '#0369a1', fontSize: 13 }}>
+                {m.machineCode ?? m.name ?? '—'}
+              </span>
+              <span style={{ fontSize: 11, color: '#64748b' }}>
+                {m.name && m.name !== m.machineCode ? m.name : (m.machineNumber ? `#${m.machineNumber}` : '')}
+              </span>
+            </div>
+          </div>
+        );
       },
     },
     {
-      title: 'Item', key: 'item', width: 180,
+      title: 'Type', dataIndex: 'componentType', key: 'componentType', width: 120,
+      render: (t: string) => {
+        const typeStyles: Record<string, { bg: string; color: string; border: string }> = {
+          DIE: { bg: 'rgba(99, 102, 241, 0.1)', color: '#4f46e5', border: 'rgba(99, 102, 241, 0.3)' },
+          MOULD: { bg: 'rgba(14, 165, 233, 0.1)', color: '#0284c7', border: 'rgba(14, 165, 233, 0.3)' },
+          TOOL: { bg: 'rgba(16, 185, 129, 0.1)', color: '#059669', border: 'rgba(16, 185, 129, 0.3)' },
+          BLADE: { bg: 'rgba(245, 158, 11, 0.1)', color: '#d97706', border: 'rgba(245, 158, 11, 0.3)' },
+          PUNCH: { bg: 'rgba(236, 72, 153, 0.1)', color: '#db2777', border: 'rgba(236, 72, 153, 0.3)' },
+          ROLLER: { bg: 'rgba(168, 85, 247, 0.1)', color: '#9333ea', border: 'rgba(168, 85, 247, 0.3)' },
+          CHAIN: { bg: 'rgba(20, 184, 166, 0.1)', color: '#0d9488', border: 'rgba(20, 184, 166, 0.3)' },
+        };
+        const s = typeStyles[t?.toUpperCase()] || { bg: 'rgba(100, 116, 139, 0.1)', color: '#475569', border: 'rgba(100, 116, 139, 0.25)' };
+        return (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '3px 10px',
+              borderRadius: 20,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.3,
+              background: s.bg,
+              color: s.color,
+              border: `1px solid ${s.border}`,
+            }}
+          >
+            {t}
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Expected Life', key: 'expectedLife', width: 140,
+      render: (_, r) => {
+        const val = r.expectedLifeQuantity;
+        if (val == null) return <span style={{ color: '#94a3b8' }}>—</span>;
+        return (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(99, 102, 241, 0.06)', padding: '3px 10px', borderRadius: 8, border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#4338ca' }}>
+              {fmtNum(val)}
+            </span>
+            <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0, borderRadius: 4, fontWeight: 700 }}>
+              {r.uom?.code || 'PCS'}
+            </Tag>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Life Window', key: 'thresholds', width: 140,
+      render: (_, r) => {
+        const lo = num(r.minThreshold);
+        const hi = num(r.maxThreshold);
+        if (lo === null && hi === null) return <span style={{ color: '#94a3b8' }}>—</span>;
+        return (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f8fafc', padding: '3px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 11 }}>
+            <span style={{ color: '#059669', fontWeight: 600 }}>{lo !== null ? fmtNum(lo) : '0'}</span>
+            <span style={{ color: '#94a3b8' }}>→</span>
+            <span style={{ color: '#dc2626', fontWeight: 600 }}>{hi !== null ? fmtNum(hi) : '∞'}</span>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Store Item', key: 'item', width: 220,
       render: (_, r) =>
         r.item ? (
-          <span>
-            <code style={{ color: 'var(--theme-accent)' }}>{r.item.itemCode}</code>
-            {r.item.name ? <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.item.name}</div> : null}
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Tag color="cyan" style={{ fontSize: 11, fontWeight: 700, borderRadius: 4, margin: 0 }}>
+                {r.item.itemCode}
+              </Tag>
+              {r.item.itemType && (
+                <span style={{ fontSize: 10, color: '#64748b', background: '#f1f5f9', padding: '1px 5px', borderRadius: 4 }}>
+                  {r.item.itemType}
+                </span>
+              )}
+            </div>
+            {r.item.name && (
+              <span style={{ fontSize: 11, color: '#475569', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 190 }}>
+                {r.item.name}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: 12 }}>Not linked</span>
+        ),
+    },
+    {
+      title: 'Status', dataIndex: 'isActive', key: 'status', width: 120,
+      render: (v: boolean) =>
+        v ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '3px 10px',
+              borderRadius: 20,
+              fontSize: 11.5,
+              fontWeight: 700,
+              background: 'rgba(16, 185, 129, 0.12)',
+              color: '#059669',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+            Active
           </span>
-        ) : EMPTY,
+        ) : (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '3px 10px',
+              borderRadius: 20,
+              fontSize: 11.5,
+              fontWeight: 700,
+              background: 'rgba(239, 68, 68, 0.1)',
+              color: '#dc2626',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+            Inactive
+          </span>
+        ),
     },
     {
-      title: 'Status', dataIndex: 'isActive', key: 'status', width: 110,
-      render: (v: boolean) => <StatusBadge status={v ? 'ACTIVE' : 'INACTIVE'} />,
-    },
-    {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 240,
+      title: 'Actions', key: 'actions', fixed: 'right', width: 250,
       render: (_, r) => (
-        <Space size={4}>
-          <Tooltip title={`View component — ${r.componentCode}`}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Tooltip title={`View Life History — ${r.componentCode}`}>
             <Button
-              type="text" size="small" icon={<EyeOutlined />}
+              type="text"
+              size="middle"
+              icon={<EyeOutlined />}
               onClick={() => handleViewHistory(r)}
+              style={{
+                width: 32,
+                height: 32,
+                padding: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 8,
+                background: 'rgba(99, 102, 241, 0.08)',
+                color: '#6366f1',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                transition: 'all 0.2s',
+              }}
               aria-label={`View component — ${r.componentCode}`}
             />
           </Tooltip>
-          <Tooltip title={`Breakdown items — ${r.componentCode}`}>
+          <Tooltip title={`Breakdown Items — ${r.componentCode}`}>
             <Button
-              type="text" size="small" icon={<UnorderedListOutlined />}
+              type="text"
+              size="middle"
+              icon={<UnorderedListOutlined />}
               onClick={() => openItems(r)}
+              style={{
+                width: 32,
+                height: 32,
+                padding: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 8,
+                background: 'rgba(14, 165, 233, 0.08)',
+                color: '#0284c7',
+                border: '1px solid rgba(14, 165, 233, 0.25)',
+                transition: 'all 0.2s',
+              }}
               aria-label={`Breakdown items — ${r.componentCode}`}
             />
           </Tooltip>
-          <Tooltip title={`Edit component — ${r.componentCode}`}>
+          <Tooltip title={`Edit Component — ${r.componentCode}`}>
             <Button
-              type="text" size="small" icon={<EditOutlined />}
+              type="text"
+              size="middle"
+              icon={<EditOutlined />}
               onClick={() => handleEditComponent(r)}
+              style={{
+                width: 32,
+                height: 32,
+                padding: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 8,
+                background: 'rgba(16, 185, 129, 0.08)',
+                color: '#059669',
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+                transition: 'all 0.2s',
+              }}
               aria-label={`Edit component — ${r.componentCode}`}
             />
           </Tooltip>
           <Popconfirm
             title={r.isActive ? `Deactivate ${r.componentCode}?` : `Activate ${r.componentCode}?`}
+            okText={r.isActive ? 'Deactivate' : 'Activate'}
+            okButtonProps={{ danger: r.isActive }}
             onConfirm={() => handleToggleComponentStatus(r)}
           >
-            <Tooltip title={r.isActive ? 'Deactivate' : 'Activate'}>
-              <Button type="text" size="small" danger={r.isActive} style={{ color: r.isActive ? undefined : 'var(--theme-success)' }}>
-                {r.isActive ? 'Deactivate' : 'Activate'}
-              </Button>
-            </Tooltip>
+            <Button
+              size="small"
+              style={{
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '0 8px',
+                height: 30,
+                display: 'inline-flex',
+                alignItems: 'center',
+                background: r.isActive ? 'rgba(239, 68, 68, 0.06)' : 'rgba(16, 185, 129, 0.06)',
+                color: r.isActive ? '#e11d48' : '#059669',
+                border: r.isActive ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)',
+              }}
+            >
+              {r.isActive ? 'Deactivate' : 'Activate'}
+            </Button>
           </Popconfirm>
           <Popconfirm
             title="Delete this component?"
@@ -582,11 +1144,29 @@ const MachineToolingManagement: React.FC = () => {
             onConfirm={() => handleDeleteComponent(r)}
             okButtonProps={{ danger: true }}
           >
-            <Tooltip title={`Delete component — ${r.componentCode}`}>
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Delete component — ${r.componentCode}`} />
+            <Tooltip title={`Delete — ${r.componentCode}`}>
+              <Button
+                type="text"
+                size="middle"
+                danger
+                icon={<DeleteOutlined />}
+                style={{
+                  width: 32,
+                  height: 32,
+                  padding: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 8,
+                  background: 'rgba(239, 68, 68, 0.08)',
+                  color: '#dc2626',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                }}
+                aria-label={`Delete component — ${r.componentCode}`}
+              />
             </Tooltip>
           </Popconfirm>
-        </Space>
+        </div>
       ),
     },
   ];
@@ -1501,7 +2081,24 @@ const MachineToolingManagement: React.FC = () => {
               onClick: openInstall,
               show: can('manufacturing.component_change.create'),
             }
-          : null;
+          : activeTab === 'life'
+            ? {
+                label: 'Record Disposition',
+                icon: <EditOutlined />,
+                onClick: () => {
+                  const target =
+                    lifeRows.find((r) => r.status === 'CLOSED' && !r.dispositionType) ||
+                    lifeRows.find((r) => r.status === 'CLOSED');
+                  if (target) {
+                    openDispose(target);
+                  } else {
+                    setActiveTab('active');
+                    message.info('Select a tool from Active Tools to remove and record disposition');
+                  }
+                },
+                show: can('manufacturing.component_change.create'),
+              }
+            : null;
 
   useEffect(() => {
     const { setHeaderMeta, clearHeaderMeta } = useHeaderActions.getState();
@@ -1767,12 +2364,6 @@ const MachineToolingManagement: React.FC = () => {
                     </Button>
                   </Dropdown>
                 }
-                onRefresh={() => fetchComponents(compPage)}
-                primaryAction={
-                  can('manufacturing.tool_component.create')
-                    ? { label: 'Add Tool / Component', icon: <PlusOutlined />, onClick: handleCreateComponent }
-                    : undefined
-                }
               />
             </div>
             <div style={{ width: '100%', overflowX: 'auto' }}>
@@ -1781,7 +2372,7 @@ const MachineToolingManagement: React.FC = () => {
                 dataSource={components}
                 rowKey="id"
                 loading={componentsLoading}
-                scroll={{ x: 1300 }}
+                scroll={{ x: 1450 }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No components found"
                 emptyDescription="Add a tool, die, mould or component to start tracking its life."
@@ -1909,11 +2500,6 @@ const MachineToolingManagement: React.FC = () => {
                   </>
                 }
                 onRefresh={() => fetchChanges(chgPage)}
-                primaryAction={
-                  can('manufacturing.component_change.create')
-                    ? { label: 'Record Change', icon: <PlusOutlined />, onClick: () => openRecordChange(null) }
-                    : undefined
-                }
               />
             </div>
             <div style={{ width: '100%', overflowX: 'auto' }}>
@@ -2012,11 +2598,6 @@ const MachineToolingManagement: React.FC = () => {
                   },
                 ]}
                 onRefresh={() => fetchActiveTools(atPage)}
-                primaryAction={
-                  can('manufacturing.component_change.create')
-                    ? { label: 'Install Tool', icon: <PlusOutlined />, onClick: openInstall }
-                    : undefined
-                }
               />
             </div>
             <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24 }}>
@@ -2128,11 +2709,6 @@ const MachineToolingManagement: React.FC = () => {
                   </>
                 }
                 onRefresh={() => fetchLifeReport(lifePage)}
-                primaryAction={
-                  can('manufacturing.component_change.create')
-                    ? { label: 'Record Disposition', icon: <EditOutlined />, onClick: () => setActiveTab('active') }
-                    : undefined
-                }
               />
             </div>
             <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24 }}>
@@ -2175,15 +2751,8 @@ const MachineToolingManagement: React.FC = () => {
       </div>
 
       {/* Component create / edit modal */}
-      {(() => {
-        const liveCompValues = compForm.getFieldsValue();
-        const liveCompMachine = machines.find((m) => m.id === liveCompValues.machineId);
-        const liveCompStoreItem = items.find((i) => i.id === liveCompValues.itemId);
-        const liveCompUom = uoms.find((u) => u.id === liveCompValues.uomId);
-
-        return (
-          <DraggableResizableModal
-            open={compModalOpen}
+      <DraggableResizableModal
+        open={compModalOpen}
             onCancel={() => setCompModalOpen(false)}
             onMinimize={() => {
               setCompModalOpen(false);
@@ -2200,97 +2769,366 @@ const MachineToolingManagement: React.FC = () => {
               </Button>,
             ]}
             title={
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <ToolOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
-                {editingComponent ? `Edit Component — ${editingComponent.componentCode}` : 'Add Tool / Component'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingRight: 36 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <ToolOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+                  {editingComponent ? `Edit Component — ${editingComponent.componentCode}` : 'Add Tool / Component'}
+                </span>
+                <Button
+                  size="small"
+                  icon={showLiveSheet ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                  onClick={() => setShowLiveSheet((v) => !v)}
+                  style={{
+                    borderRadius: 6,
+                    fontSize: 12,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    border: '1px solid #cbd5e1',
+                    background: showLiveSheet ? '#f1f5f9' : '#ffffff',
+                    fontWeight: 600,
+                  }}
+                >
+                  {showLiveSheet ? 'Hide Detail Sheet' : 'Show Detail Sheet'}
+                </Button>
+              </div>
             }
             subtitle="Track a tool, die, mould or component on a machine with its expected life"
             styles={{ body: { overflow: 'hidden', padding: '16px' } }}
           >
             <div style={{ display: 'flex', gap: 20, height: '100%', alignItems: 'stretch' }}>
               {/* Left Column: Form Inputs */}
-              <div style={{ flex: '1 1 58%', minWidth: 0, overflowY: 'auto', paddingRight: 16, borderRight: '1px solid var(--theme-border, #e2e8f0)' }}>
+              <div
+                style={{
+                  flex: showLiveSheet ? '1 1 58%' : '1 1 100%',
+                  minWidth: 0,
+                  overflowY: 'auto',
+                  paddingRight: showLiveSheet ? 16 : 0,
+                  borderRight: showLiveSheet ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
+                  transition: 'all 0.25s ease',
+                }}
+              >
                 <Form
                   form={compForm}
                   layout="vertical"
                   style={{ paddingTop: 4 }}
-                  onValuesChange={() => setCompFormTick((t) => t + 1)}
+                  onValuesChange={(_, allValues) => setLiveCompValues(allValues)}
                 >
                   <Row gutter={16}>
                     <Col span={24}>
                       <div
                         style={{
-                          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%)',
-                          padding: '12px 14px',
-                          borderRadius: 8,
+                          background: liveCompValues.itemId
+                            ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.06) 100%)'
+                            : 'linear-gradient(135deg, rgba(239, 68, 68, 0.04) 0%, rgba(248, 250, 252, 0.95) 100%)',
+                          padding: '14px',
+                          borderRadius: 12,
                           marginBottom: 16,
-                          border: '1px solid rgba(16, 185, 129, 0.25)',
+                          border: liveCompValues.itemId
+                            ? '1.5px solid #10b981'
+                            : '1.5px solid rgba(239, 68, 68, 0.45)',
+                          boxShadow: liveCompValues.itemId
+                            ? '0 0 0 1px rgba(16, 185, 129, 0.15)'
+                            : '0 0 0 1px rgba(239, 68, 68, 0.08)',
+                          transition: 'all 0.25s ease',
                         }}
                       >
+                        {/* Header & Quick Filter Chips (100% English) */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+                          <Space size={6}>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>
+                              Store Item / Product Master
+                            </span>
+                            <Tag color="success" style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0, display: 'inline-flex', alignItems: 'center' }}>
+                              <ThunderboltOutlined style={{ marginRight: 4 }} />Auto-fills Code, Name & UOM
+                            </Tag>
+                          </Space>
+                          <Space size={4}>
+                            <Tag.CheckableTag
+                              checked={itemFilterType === 'Tooling'}
+                              onChange={(checked) => setItemFilterType(checked ? 'Tooling' : undefined)}
+                              style={{
+                                border: itemFilterType === 'Tooling' ? '1px solid #10b981' : '1px solid rgba(79, 70, 229, 0.3)',
+                                borderRadius: 12,
+                                fontSize: 11,
+                                padding: '2px 10px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <ToolOutlined style={{ marginRight: 4 }} /> Tooling Only
+                            </Tag.CheckableTag>
+                            <Tag.CheckableTag
+                              checked={!itemFilterType}
+                              onChange={() => setItemFilterType(undefined)}
+                              style={{
+                                border: !itemFilterType ? '1px solid #10b981' : '1px solid rgba(100, 116, 139, 0.3)',
+                                borderRadius: 12,
+                                fontSize: 11,
+                                padding: '2px 10px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              All Types
+                            </Tag.CheckableTag>
+                            {(itemFilterDivision || itemFilterDepartment || itemFilterSection || (itemFilterType && itemFilterType !== 'Tooling')) && (
+                              <Button
+                                type="link"
+                                size="small"
+                                style={{ fontSize: 11, padding: '0 4px', height: 'auto', color: '#ef4444' }}
+                                onClick={() => {
+                                  setItemFilterDivision(undefined);
+                                  setItemFilterDepartment(undefined);
+                                  setItemFilterSection(undefined);
+                                  setItemFilterType('Tooling');
+                                }}
+                              >
+                                Reset Filters
+                              </Button>
+                            )}
+                          </Space>
+                        </div>
+
+                        {/* 4 Filters Grid: 1. Division, 2. Section, 3. Department, 4. Item Type */}
+                        <div
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.85)',
+                            padding: '12px',
+                            borderRadius: 10,
+                            marginBottom: 12,
+                            border: '1px solid rgba(226, 232, 240, 0.9)',
+                          }}
+                        >
+                          <Row gutter={[10, 10]}>
+                            <Col xs={24} sm={12}>
+                              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>
+                                1. Division
+                              </div>
+                              <Select
+                                size="middle"
+                                style={{ width: '100%' }}
+                                placeholder="All Divisions"
+                                allowClear
+                                value={itemFilterDivision}
+                                onChange={(val) => {
+                                  setItemFilterDivision(val);
+                                  setItemFilterSection(undefined);
+                                  setItemFilterDepartment(undefined);
+                                }}
+                                options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            </Col>
+                            <Col xs={24} sm={12}>
+                              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>
+                                2. Section
+                              </div>
+                              <Select
+                                size="middle"
+                                style={{ width: '100%' }}
+                                placeholder="All Sections"
+                                allowClear
+                                value={itemFilterSection}
+                                onChange={(val) => {
+                                  setItemFilterSection(val);
+                                  setItemFilterDepartment(undefined);
+                                  if (val) {
+                                    const sec = sections.find((s) => s.id === val);
+                                    if (sec?.divisionId && !itemFilterDivision) {
+                                      setItemFilterDivision(sec.divisionId);
+                                    }
+                                  }
+                                }}
+                                options={availableSections.map((s) => ({ value: s.id, label: s.name }))}
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            </Col>
+                            <Col xs={24} sm={12}>
+                              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>
+                                3. Department
+                              </div>
+                              <Select
+                                size="middle"
+                                style={{ width: '100%' }}
+                                placeholder="All Departments"
+                                allowClear
+                                value={itemFilterDepartment}
+                                onChange={(val) => {
+                                  setItemFilterDepartment(val);
+                                  if (val) {
+                                    const dept = departments.find((d) => d.id === val);
+                                    if (dept?.sectionId && !itemFilterSection) {
+                                      setItemFilterSection(dept.sectionId);
+                                    }
+                                    if (dept?.divisionId && !itemFilterDivision) {
+                                      setItemFilterDivision(dept.divisionId);
+                                    }
+                                    // If a machine is selected that does not belong to this newly selected department, clear it
+                                    if (liveCompValues.machineId) {
+                                      const curMach = machines.find((m) => m.id === liveCompValues.machineId);
+                                      if (curMach && curMach.departmentId && curMach.departmentId !== val) {
+                                        compForm.setFieldValue('machineId', undefined);
+                                        setLiveCompValues((prev) => ({ ...prev, machineId: undefined }));
+                                      }
+                                    }
+                                  }
+                                }}
+                                options={availableDepartments.map((d) => ({ value: d.id, label: d.name }))}
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            </Col>
+                            <Col xs={24} sm={12}>
+                              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>
+                                4. Item Type
+                              </div>
+                              <Select
+                                size="middle"
+                                style={{ width: '100%' }}
+                                placeholder="All Types"
+                                allowClear
+                                value={itemFilterType}
+                                onChange={(val) => setItemFilterType(val)}
+                                options={itemTypeOptions}
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            </Col>
+                          </Row>
+                        </div>
+
+                        {/* Store Item Select with Search & Autocomplete */}
                         <Form.Item
                           name="itemId"
-                          label={
-                            <Space size={6}>
-                              <span style={{ fontWeight: 600 }}>Store Item / Product Master</span>
-                              <Tag color="success" style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0, display: 'inline-flex', alignItems: 'center' }}>
-                                <ThunderboltOutlined style={{ marginRight: 4 }} />Auto-fills Code, Name & UOM
-                              </Tag>
-                            </Space>
-                          }
                           style={{ marginBottom: 0 }}
-                          tooltip="Select an item from Store / Item Master to automatically populate the tooling code, name, and production unit"
+                          tooltip="Select an item from Store / Item Master to automatically populate tooling code, name, and production unit"
                         >
                           <Select
                             showSearch
-                            optionFilterProp="label"
                             allowClear
-                            placeholder="Search & Select Store Item (e.g. Die, Mould, Punch, Spare Part)"
-                            options={itemOptions}
-                            onChange={handleItemSelectChange}
                             size="large"
+                            loading={modalItemsLoading}
+                            placeholder="🔍 Search item code or tool name (e.g. SP-216021, ROLLING DIE)..."
+                            searchValue={itemSearchText}
+                            onSearch={(v) => setItemSearchText(v)}
+                            filterOption={(input, option: any) => {
+                              if (!input) return true;
+                              const search = input.toLowerCase();
+                              const searchText = option?.searchText || '';
+                              const label = String(option?.label || '').toLowerCase();
+                              return searchText.includes(search) || label.includes(search);
+                            }}
+                            options={modalItemOptions}
+                            onChange={(val) => {
+                              handleItemSelectChange(val);
+                              setItemSearchText('');
+                            }}
+                            onClear={() => {
+                              handleItemSelectChange(undefined);
+                              setItemSearchText('');
+                            }}
+                            notFoundContent={
+                              modalItemsLoading ? (
+                                <div style={{ padding: '10px 14px', textAlign: 'center' }}>
+                                  <Spin size="small" /> <span style={{ marginLeft: 8, color: '#64748b' }}>Searching database items...</span>
+                                </div>
+                              ) : (
+                                <div style={{ padding: '10px 14px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                                  {displayedItems.length === 0 ? 'No items found matching the selected filters. Try changing Division, Section, Department or clear filters.' : 'No matching item found.'}
+                                </div>
+                              )
+                            }
                           />
                         </Form.Item>
                       </div>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item name="machineId" label="Machine" rules={[{ required: true, message: 'Machine is required' }]}>
-                        <Select showSearch optionFilterProp="label" placeholder="Select machine" options={machineOptions} />
+                        <Select
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder={
+                            itemFilterDepartment
+                              ? `Select machine in ${departments.find((d) => d.id === itemFilterDepartment)?.name || 'department'}...`
+                              : 'Select machine'
+                          }
+                          options={modalMachineOptions}
+                          size="middle"
+                          style={{
+                            width: '100%',
+                            border: liveCompValues.machineId ? '1.5px solid #10b981' : '1.5px solid rgba(239, 68, 68, 0.45)',
+                            borderRadius: 6,
+                          }}
+                          onChange={(val) => {
+                            compForm.setFieldValue('machineId', val);
+                            setLiveCompValues((prev) => ({ ...prev, machineId: val }));
+                            if (val) {
+                              const selMach = machines.find((m) => m.id === val);
+                              if (selMach) {
+                                if (selMach.divisionId && !itemFilterDivision) setItemFilterDivision(selMach.divisionId);
+                                if (selMach.sectionId && !itemFilterSection) setItemFilterSection(selMach.sectionId);
+                                if (selMach.departmentId && !itemFilterDepartment) setItemFilterDepartment(selMach.departmentId);
+                              }
+                            }
+                          }}
+                          notFoundContent={
+                            <div style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+                              {itemFilterDepartment
+                                ? `No machines registered under ${departments.find((d) => d.id === itemFilterDepartment)?.name || 'this department'}`
+                                : 'No machines found'}
+                            </div>
+                          }
+                        />
                       </Form.Item>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item name="componentType" label="Component Type" rules={[{ required: true }]}>
-                        <Select options={COMPONENT_TYPES.map((t) => ({ value: t, label: t }))} />
+                        <Select options={COMPONENT_TYPES.map((t) => ({ value: t, label: t }))} size="middle" />
                       </Form.Item>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item name="componentName" label="Component Name" rules={[{ required: true, message: 'Name is required' }]}>
-                        <Input placeholder="e.g. Thread Die 12 mm" />
+                        <Input
+                          placeholder="e.g. Thread Die 12 mm"
+                          size="middle"
+                          style={{
+                            borderColor: liveCompValues.componentName ? '#10b981' : 'rgba(239, 68, 68, 0.45)',
+                            borderWidth: 1.5,
+                          }}
+                        />
                       </Form.Item>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item name="componentCode" label="Component Code" rules={[{ required: true, message: 'Code is required' }]}>
-                        <Input placeholder="e.g. TD-012" />
+                        <Input
+                          placeholder="e.g. TD-012"
+                          size="middle"
+                          style={{
+                            borderColor: liveCompValues.componentCode ? '#10b981' : 'rgba(239, 68, 68, 0.45)',
+                            borderWidth: 1.5,
+                          }}
+                        />
                       </Form.Item>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item name="uomId" label="Production UOM (optional)">
-                        <Select showSearch optionFilterProp="label" allowClear placeholder="Select UOM" options={uomOptions} />
+                        <Select showSearch optionFilterProp="label" allowClear placeholder="Select UOM" options={uomOptions} size="middle" />
                       </Form.Item>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item name="expectedLifeQuantity" label="Expected Life (PCS / Output)" tooltip="Expected productive life in produced quantity">
-                        <InputNumber min={0.0001} step={0.0001} style={{ width: '100%' }} placeholder="e.g. 50000" />
+                        <InputNumber min={0.0001} step={0.0001} style={{ width: '100%' }} placeholder="e.g. 50000" size="middle" />
                       </Form.Item>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item name="minThreshold" label="Min. Threshold">
-                        <InputNumber min={0} style={{ width: '100%' }} placeholder="Replacement window lower bound" />
+                        <InputNumber min={0} style={{ width: '100%' }} placeholder="Replacement window lower bound" size="middle" />
                       </Form.Item>
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} sm={12}>
                       <Form.Item name="maxThreshold" label="Max. Threshold">
-                        <InputNumber min={0} style={{ width: '100%' }} placeholder="Replacement window upper bound" />
+                        <InputNumber min={0} style={{ width: '100%' }} placeholder="Replacement window upper bound" size="middle" />
                       </Form.Item>
                     </Col>
                     <Col span={24}>
@@ -2303,86 +3141,95 @@ const MachineToolingManagement: React.FC = () => {
               </div>
 
               {/* Right Column: Live Detail Sheet */}
-              <div style={{ flex: '1 1 42%', minWidth: 280, display: 'flex', flexDirection: 'column' }}>
-                <div
-                  style={{
-                    background: 'linear-gradient(145deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.85) 100%)',
-                    border: '1px solid rgba(226, 232, 240, 0.9)',
-                    borderRadius: 14,
-                    padding: '18px 16px',
-                    boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.05)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    height: '100%',
-                    overflowY: 'auto',
-                  }}
-                  data-testid="comp-live-detail-sheet"
-                >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.25)', borderRadius: 20, color: '#6366f1', fontSize: 11, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 14, alignSelf: 'flex-start' }}>
-                    <EyeOutlined /> Live Detail Sheet
-                  </div>
+              {showLiveSheet && (
+                <div style={{ flex: '1 1 42%', minWidth: 280, display: 'flex', flexDirection: 'column' }}>
+                  <div
+                    style={{
+                      background: 'linear-gradient(145deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.85) 100%)',
+                      border: '1px solid rgba(226, 232, 240, 0.9)',
+                      borderRadius: 14,
+                      padding: '18px 16px',
+                      boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.05)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      height: '100%',
+                      overflowY: 'auto',
+                    }}
+                    data-testid="comp-live-detail-sheet"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.25)', borderRadius: 20, color: '#6366f1', fontSize: 11, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                        <EyeOutlined /> Live Detail Sheet
+                      </div>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<CloseOutlined />}
+                        onClick={() => setShowLiveSheet(false)}
+                        title="Close detail sheet"
+                      />
+                    </div>
 
-                  <div style={{ marginBottom: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Tag color="geekblue" style={{ fontSize: 13, padding: '3px 10px', borderRadius: 16, fontWeight: 700 }}>
-                      {liveCompValues.componentCode || (editingComponent ? editingComponent.componentCode : 'TOOL-CODE')}
-                    </Tag>
-                    <Tag color={COMPONENT_TYPE_COLORS[liveCompValues.componentType || 'COMPONENT'] || 'default'} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12 }}>
-                      {liveCompValues.componentType || 'COMPONENT'}
-                    </Tag>
-                  </div>
+                    <div style={{ marginBottom: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <Tag color="geekblue" style={{ fontSize: 13, padding: '3px 10px', borderRadius: 16, fontWeight: 700 }}>
+                        {liveCompValues.componentCode || (editingComponent ? editingComponent.componentCode : 'TOOL-CODE')}
+                      </Tag>
+                      <Tag color={COMPONENT_TYPE_COLORS[liveCompValues.componentType || 'COMPONENT'] || 'default'} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12 }}>
+                        {liveCompValues.componentType || 'COMPONENT'}
+                      </Tag>
+                    </div>
 
-                  <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--theme-text, #1e293b)', marginBottom: 4 }}>
-                    {liveCompValues.componentName || 'New Tool / Component Name'}
-                  </div>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--theme-text, #1e293b)', marginBottom: 4 }}>
+                      {liveCompValues.componentName || 'New Tool / Component Name'}
+                    </div>
 
-                  <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', marginBottom: 14 }}>
-                    Machine: <strong>{liveCompMachine ? `${liveCompMachine.machineCode} — ${liveCompMachine.name}` : 'No Machine Assigned'}</strong>
-                  </div>
+                    <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', marginBottom: 14 }}>
+                      Machine: <strong>{liveCompMachine ? `${liveCompMachine.machineCode} — ${liveCompMachine.name}` : 'No Machine Assigned'}</strong>
+                    </div>
 
-                  {liveCompStoreItem && (
-                    <Alert
-                      type="success"
-                      showIcon
-                      message="Linked Store Item"
-                      description={`${liveCompStoreItem.itemCode} · ${liveCompStoreItem.name}`}
-                      style={{ marginBottom: 14, fontSize: 12, borderRadius: 8 }}
-                    />
-                  )}
+                    {liveCompStoreItem && (
+                      <Alert
+                        type="success"
+                        showIcon
+                        message="Linked Store Item"
+                        description={`${liveCompStoreItem.itemCode} · ${liveCompStoreItem.name}`}
+                        style={{ marginBottom: 14, fontSize: 12, borderRadius: 8 }}
+                      />
+                    )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-                    <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)' }}>
-                      <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Expected Life</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: '#4f46e5', marginTop: 2 }}>
-                        {liveCompValues.expectedLifeQuantity != null ? `${Number(liveCompValues.expectedLifeQuantity).toLocaleString()} ${liveCompUom?.code || 'PCS'}` : '—'}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)' }}>
+                        <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Expected Life</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#4f46e5', marginTop: 2 }}>
+                          {liveCompValues.expectedLifeQuantity != null ? `${Number(liveCompValues.expectedLifeQuantity).toLocaleString()} ${liveCompUom?.code || 'PCS'}` : '—'}
+                        </div>
+                      </div>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)' }}>
+                        <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Production UOM</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#0ea5e9', marginTop: 2 }}>
+                          {liveCompUom ? `${liveCompUom.code} (${liveCompUom.name})` : 'PCS'}
+                        </div>
                       </div>
                     </div>
-                    <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)' }}>
-                      <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Production UOM</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#0ea5e9', marginTop: 2 }}>
-                        {liveCompUom ? `${liveCompUom.code} (${liveCompUom.name})` : 'PCS'}
+
+                    <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)', marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>Replacement Window Thresholds</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                        <span>Min: <strong>{liveCompValues.minThreshold != null ? Number(liveCompValues.minThreshold).toLocaleString() : '0'}</strong></span>
+                        <span>Max: <strong>{liveCompValues.maxThreshold != null ? Number(liveCompValues.maxThreshold).toLocaleString() : 'Unlimited'}</strong></span>
                       </div>
                     </div>
-                  </div>
 
-                  <div style={{ background: 'rgba(255, 255, 255, 0.8)', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(226, 232, 240, 0.8)', marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>Replacement Window Thresholds</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span>Min: <strong>{liveCompValues.minThreshold != null ? Number(liveCompValues.minThreshold).toLocaleString() : '0'}</strong></span>
-                      <span>Max: <strong>{liveCompValues.maxThreshold != null ? Number(liveCompValues.maxThreshold).toLocaleString() : 'Unlimited'}</strong></span>
-                    </div>
+                    {liveCompValues.description && (
+                      <div style={{ marginTop: 'auto', background: 'rgba(241, 245, 249, 0.7)', padding: '8px 10px', borderRadius: 6, fontSize: 12, color: '#475569' }}>
+                        <strong>Notes:</strong> {liveCompValues.description}
+                      </div>
+                    )}
                   </div>
-
-                  {liveCompValues.description && (
-                    <div style={{ marginTop: 'auto', background: 'rgba(241, 245, 249, 0.7)', padding: '8px 10px', borderRadius: 6, fontSize: 12, color: '#475569' }}>
-                      <strong>Notes:</strong> {liveCompValues.description}
-                    </div>
-                  )}
                 </div>
-              </div>
+              )}
             </div>
           </DraggableResizableModal>
-        );
-      })()}
 
       {/* Component history / stats modal */}
       <DraggableResizableModal

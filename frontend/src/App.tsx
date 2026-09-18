@@ -130,6 +130,7 @@ import {
   StoreOpeningStock,
   StoreItemLifecycle,
 } from './pages/store';
+import AiAssistantPage from './pages/ai-assistant/AiAssistantPage';
 import './App.css';
 
 const App: React.FC = () => {
@@ -146,6 +147,7 @@ const App: React.FC = () => {
             <MainLayout>
               <Routes>
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/ai-assistant" element={<AiAssistantPage />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/change-password" element={<ChangePassword />} />

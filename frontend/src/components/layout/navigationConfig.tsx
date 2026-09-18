@@ -32,6 +32,7 @@ import {
   MessageOutlined,
   PlayCircleOutlined,
   PlusOutlined,
+  RobotOutlined,
   RollbackOutlined,
   SafetyCertificateOutlined,
   SafetyOutlined,
@@ -147,6 +148,7 @@ export type MaintenanceQueueNavKey = (typeof MAINTENANCE_QUEUE_NAV_KEYS)[keyof t
 
 export const NAV_ENTRIES: NavEntry[] = [
   { key: '/dashboard', label: 'Dashboard', icon: DashboardOutlined, color: 'primary' },
+  { key: '/ai-assistant', label: 'AI Assistant', icon: RobotOutlined, color: 'cyan' },
 
   {
     key: 'organization',

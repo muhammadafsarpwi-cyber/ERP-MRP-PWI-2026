@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="gearGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <linearGradient id="blueRing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Outer precision industrial gear with 16 teeth -->
+  <g fill="url(#gearGrad)" stroke="#0284c7" stroke-width="0.75">
+    <path d="
+      M 28 3 L 36 3 L 37 8 A 24 24 0 0 1 42 10 L 46 6 L 52 12 L 48 16 A 24 24 0 0 1 50 21 L 55 22 L 55 30 L 50 31 A 24 24 0 0 1 48 36 L 52 40 L 46 46 L 42 42 A 24 24 0 0 1 37 44 L 36 49 L 28 49 L 27 44 A 24 24 0 0 1 22 42 L 18 46 L 12 40 L 16 36 A 24 24 0 0 1 14 31 L 9 30 L 9 22 L 14 21 A 24 24 0 0 1 16 16 L 12 12 L 18 6 L 22 10 A 24 24 0 0 1 27 8 Z
+    " transform="translate(0, 6) scale(1)"/>
+  </g>
+
+  <!-- Blue accent ring inside gear -->
+  <circle cx="32" cy="32" r="16.5" fill="none" stroke="url(#blueRing)" stroke-width="1.8"/>
+
+  <!-- Inner white circular plate -->
+  <circle cx="32" cy="32" r="14.5" fill="#ffffff" stroke="#e2e8f0" stroke-width="0.5"/>
+
+  <!-- Bold PWI Branding in center -->
+  <text x="32" y="36.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="11.5" letter-spacing="-0.3px" fill="#0f172a">PWI</text>
+</svg>

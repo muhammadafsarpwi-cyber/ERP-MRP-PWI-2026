@@ -151,6 +151,19 @@ export class ItemController {
     return { success: true, data: item };
   }
 
+  @Get('distinct-types')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.view')
+  @ApiOperation({ summary: 'Get distinct item types filtered by organization scope' })
+  async getDistinctTypes(
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const types = await this.itemService.getDistinctItemTypes({ divisionId, sectionId, departmentId });
+    return { success: true, data: types };
+  }
+
   @Post('backfill-identity')
   @UseGuards(PermissionGuard)
   @RequirePermission('item.update')

@@ -109,7 +109,7 @@ export class MachineComponentService {
       where: { id, companyId },
       relations: ['machine', 'item', 'uom'],
     });
-    if (!component || !component.isActive) {
+    if (!component) {
       throw new NotFoundException(`Tool / component '${id}' not found`);
     }
     return component;
