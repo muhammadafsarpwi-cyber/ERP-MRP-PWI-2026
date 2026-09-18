@@ -592,6 +592,68 @@ export class InventoryReceiptController {
     return { success: true, message: 'Return deleted and inventory balance reversed.' };
   }
 
+  @Post('returns/:id/documents')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.update')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a photo (PHOTO) or supporting document (ATTACHMENT) for a return' })
+  async uploadReturnDocument(
+    @Param('id') id: string,
+    @UploadedFile() file: any,
+    @Req() req: any,
+    @Body('kind') kind?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.addReturnDocument(
+      companyId, id, kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT', file, req.erpUser?.id,
+    );
+    return { success: true, data };
+  }
+
+  @Get('returns/:id/documents')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.view')
+  @ApiOperation({ summary: 'List photos/attachments for a return' })
+  async listReturnDocuments(@Param('id') id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.listReturnDocuments(companyId, id);
+    return { success: true, data };
+  }
+
+  @Delete('returns/:id/documents/:docId')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.update')
+  @ApiOperation({ summary: 'Remove a return document and delete its stored file' })
+  async removeReturnDocument(
+    @Param('id') id: string,
+    @Param('docId') docId: string,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    await this.rawMaterialService.removeReturnDocument(companyId, id, docId);
+    return { success: true, message: 'Document removed.' };
+  }
+
+  @Post('returns/:id/whatsapp-share')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_return.view')
+  @ApiOperation({ summary: 'Share return details via WhatsApp' })
+  async shareReturnWhatsApp(
+    @Param('id') id: string,
+    @Body() dto: WhatsAppReceiptShareDto,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.shareReturnWhatsApp(companyId, id, dto, req.erpUser?.id);
+    return { success: true, data };
+  }
+
   @Get('report')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

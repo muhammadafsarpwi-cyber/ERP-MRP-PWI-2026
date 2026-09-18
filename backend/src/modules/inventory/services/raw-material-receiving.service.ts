@@ -10,7 +10,7 @@ import * as crypto from 'crypto';
 import {
   RawMaterialReceipt, RawMaterialReceiptLine,
   RawMaterialReturn, RawMaterialReturnLine,
-  RawMaterialReceiptDocument,
+  RawMaterialReceiptDocument, RawMaterialReturnDocument,
 } from '../entities';
 import { StockLedger } from '../entities';
 import { Item, ItemType } from '../../item/entities/item.entity';
@@ -70,6 +70,8 @@ export class RawMaterialReceivingService {
     private readonly returnRepo: Repository<RawMaterialReturn>,
     @InjectRepository(RawMaterialReturnLine)
     private readonly returnLineRepo: Repository<RawMaterialReturnLine>,
+    @InjectRepository(RawMaterialReturnDocument)
+    private readonly returnDocRepo: Repository<RawMaterialReturnDocument>,
     @InjectRepository(StockLedger)
     private readonly ledgerRepo: Repository<StockLedger>,
     @InjectRepository(Item)
@@ -359,6 +361,108 @@ export class RawMaterialReceivingService {
       renderedSubject: null,
       renderedBody: dto.message,
       templateCode: 'RMR_RECEIPT_SHARE',
+      status: 'QUEUED',
+      maxRetries: 3,
+      createdBy: userId ?? null,
+    }));
+    return { enqueued: true, deliveryId: delivery.id };
+  }
+
+  private deleteReturnFile(fileUrl: string): void {
+    if (!fileUrl || !fileUrl.startsWith('/uploads/returns/')) return;
+    const relativePath = fileUrl.replace('/uploads/', '');
+    const filePath = path.join(this.storagePath, relativePath);
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch {
+      // non-fatal: file may have been deleted already
+    }
+  }
+
+  async addReturnDocument(
+    companyId: string,
+    returnId: string,
+    kind: 'PHOTO' | 'ATTACHMENT',
+    file: any,
+    userId?: string,
+  ) {
+    const returnHeader = await this.returnRepo.findOne({ where: { id: returnId, companyId } });
+    if (!returnHeader) throw new NotFoundException(`Return '${returnId}' not found in this company.`);
+
+    const normKind = kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT';
+    const { buffer, mime, ext } = this.validateReceiptFile(file, normKind);
+
+    const dir = path.join(this.storagePath, 'returns', companyId, returnId);
+    const fileName = `${crypto.randomUUID()}.${ext}`;
+    const filePath = path.join(dir, fileName);
+    let written = false;
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(filePath, buffer);
+      written = true;
+      const doc = await this.returnDocRepo.save(this.returnDocRepo.create({
+        companyId,
+        returnId,
+        kind: normKind,
+        fileName: String(file.originalname).slice(0, 255),
+        fileUrl: `/uploads/returns/${companyId}/${returnId}/${fileName}`,
+        mimeType: mime,
+        fileSize: Buffer.byteLength(buffer),
+        createdBy: userId ?? null,
+      }));
+      return doc;
+    } catch (error) {
+      if (written && fs.existsSync(filePath)) {
+        try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+      }
+      throw error;
+    }
+  }
+
+  async listReturnDocuments(companyId: string, returnId: string) {
+    const returnHeader = await this.returnRepo.findOne({ where: { id: returnId, companyId } });
+    if (!returnHeader) throw new NotFoundException(`Return '${returnId}' not found in this company.`);
+    const docs = await this.returnDocRepo.find({
+      where: { returnId, companyId },
+      order: { uploadedAt: 'ASC' },
+    });
+    return docs.map((d) => ({
+      id: d.id,
+      kind: d.kind,
+      fileName: d.fileName,
+      fileUrl: d.fileUrl,
+      mimeType: d.mimeType,
+      fileSize: d.fileSize,
+      uploadedAt: d.uploadedAt,
+    }));
+  }
+
+  async removeReturnDocument(companyId: string, returnId: string, docId: string): Promise<void> {
+    const doc = await this.returnDocRepo.findOne({ where: { id: docId, returnId, companyId } });
+    if (!doc) throw new NotFoundException(`Document '${docId}' not found in this company.`);
+    await this.returnDocRepo.delete({ id: docId });
+    this.deleteReturnFile(doc.fileUrl);
+  }
+
+  async shareReturnWhatsApp(companyId: string, returnId: string, dto: WhatsAppReceiptShareDto, userId?: string) {
+    const returnHeader = await this.returnRepo.findOne({ where: { id: returnId, companyId } });
+    if (!returnHeader) throw new NotFoundException(`Return '${returnId}' not found in this company.`);
+
+    const setting = await this.settingRepo.findOne({
+      where: { settingType: 'WHATSAPP', enabled: true, isActive: true, companyId },
+    } as any);
+    if (!setting) {
+      return { enqueued: false, reason: 'WA_NOT_CONFIGURED' };
+    }
+
+    const delivery = await this.deliveryRepo.save(this.deliveryRepo.create({
+      companyId,
+      channel: 'WHATSAPP',
+      recipientType: 'PHONE',
+      recipientAddress: dto.phone,
+      renderedSubject: null,
+      renderedBody: dto.message,
+      templateCode: 'RMR_RETURN_SHARE',
       status: 'QUEUED',
       maxRetries: 3,
       createdBy: userId ?? null,
@@ -1101,7 +1205,7 @@ export class RawMaterialReceivingService {
   async findReturnById(companyId: string, id: string) {
     const header = await this.returnRepo.findOne({
       where: { id, companyId },
-      relations: ['division', 'section', 'department', 'warehouse', 'referenceReceipt', 'lines', 'lines.item', 'lines.uom'],
+      relations: ['division', 'section', 'department', 'warehouse', 'referenceReceipt', 'lines', 'lines.item', 'lines.uom', 'documents'],
     });
     if (!header) throw new NotFoundException(`Return '${id}' not found in this company.`);
 

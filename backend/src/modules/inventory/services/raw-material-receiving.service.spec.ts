@@ -32,7 +32,7 @@ const buildService = () => {
   receiptRepo.findOne.mockImplementation(async ({ where }: any) => (where?.id === RECEIPT_ID && where?.companyId === COMPANY ? { id: RECEIPT_ID, companyId: COMPANY, receiptCode: 'RMR-00001' } : null));
 
   const service = new RawMaterialReceivingService(
-    receiptRepo, makeRepo(), docRepo, makeRepo(), makeRepo(),
+    receiptRepo, makeRepo(), docRepo, makeRepo(), makeRepo(), makeRepo(),
     makeRepo(), makeRepo(), makeRepo(), makeRepo(), makeRepo(), makeRepo(), makeRepo(),
     settingRepo, deliveryRepo,
     {} as any, {} as any,
@@ -213,7 +213,7 @@ describe('RawMaterialReceivingService — getReceiptInventory (RMR-01-C)', () =>
     const balanceService: any = { findBalancesForItemWarehousePairs: jest.fn() };
     const configService = { get: jest.fn((_key: string, def: string) => tmpRoot) } as unknown as ConfigService;
     const service = new RawMaterialReceivingService(
-      receiptRepo, receiptLineRepo, makeRepo(), makeRepo(), makeRepo(),
+      receiptRepo, receiptLineRepo, makeRepo(), makeRepo(), makeRepo(), makeRepo(),
       ledgerRepo, makeRepo(), makeRepo(), makeRepo(), makeRepo(), makeRepo(), makeRepo(),
       makeRepo(), makeRepo(),
       {} as any, balanceService,

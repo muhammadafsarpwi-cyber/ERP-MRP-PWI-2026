@@ -100,6 +100,79 @@ export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
   return lines.join('\n');
 }
 
+export interface ShareReturnLine {
+  itemCode?: string;
+  itemName?: string;
+  uomCode?: string;
+  quantity: number;
+}
+
+export interface ShareReturnInfo {
+  returnCode: string;
+  sourceNo?: string;
+  referenceReceiptCode?: string;
+  returnDate: string;
+  divisionName?: string;
+  divisionCode?: string;
+  sectionName?: string;
+  sectionCode?: string;
+  departmentName?: string;
+  departmentCode?: string;
+  warehouseName?: string;
+  warehouseCode?: string;
+  reason?: string;
+  reference?: string;
+  lines: ShareReturnLine[];
+  quantityTotal: number;
+}
+
+export function buildReturnWhatsAppMessage(info: ShareReturnInfo): string {
+  const date = info.returnDate || '';
+  const lines: string[] = [];
+
+  lines.push('🔄 *PAKISTAN WIRE INDUSTRIES (PVT) LTD*');
+  lines.push('*RAW MATERIAL RETURN*');
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push(`📋 *Return Code:* ${info.returnCode}`);
+  if (info.sourceNo) lines.push(`📄 *Source / DC No:* ${info.sourceNo}`);
+  if (info.referenceReceiptCode) lines.push(`🎫 *Ref Gate Pass:* ${info.referenceReceiptCode}`);
+  if (date) lines.push(`📅 *Return Date:* ${date}`);
+
+  const warehouseStr = formatNameWithCode(info.warehouseName, info.warehouseCode);
+  const divisionStr = formatNameWithCode(info.divisionName, info.divisionCode);
+  const sectionStr = formatNameWithCode(info.sectionName, info.sectionCode);
+  const deptStr = formatNameWithCode(info.departmentName, info.departmentCode);
+
+  if (warehouseStr !== '—') lines.push(`🏪 *Return Warehouse:* ${warehouseStr}`);
+  if (divisionStr !== '—') lines.push(`🏢 *Division:* ${divisionStr}`);
+  if (sectionStr !== '—') lines.push(`🏬 *Section:* ${sectionStr}`);
+  if (deptStr !== '—') lines.push(`🏷️ *Department:* ${deptStr}`);
+  if (info.reason) lines.push(`❓ *Reason:* ${info.reason}`);
+
+  if (info.lines.length > 0) {
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
+    lines.push(`📋 *RETURNED ITEMS (${info.lines.length} Line${info.lines.length > 1 ? 's' : ''}):*`);
+
+    info.lines.forEach((line, idx) => {
+      const itemTitle = formatNameWithCode(line.itemName, line.itemCode);
+      const uom = line.uomCode ? ` ${line.uomCode}` : '';
+      const qty = fmt(line.quantity);
+
+      lines.push(`\n*${idx + 1}. ${itemTitle}*`);
+      lines.push(`   • Returned Qty: ${qty}${uom}`);
+    });
+
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
+    lines.push('📊 *RETURN SUMMARY TOTAL:*');
+    lines.push(`• Total Returned Qty: ${fmt(info.quantityTotal)}`);
+  }
+
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push('🌐 _Generated via PWI ERP System (2026-2027)_');
+
+  return lines.join('\n');
+}
+
 /**
  * Returns a universal WhatsApp web/app share URL without needing a recipient phone.
  * Allows user to pick ANY contact or group in WhatsApp.

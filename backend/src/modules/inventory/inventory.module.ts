@@ -1,6 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, StockTransferHistory, InventoryReservation, SerialNumber, RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine, RawMaterialReceiptDocument } from './entities';
+import { InventoryPolicy, Batch, InventoryBalance, StockLedger, StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, StockTransferHistory, InventoryReservation, SerialNumber, RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine, RawMaterialReceiptDocument, RawMaterialReturnDocument } from './entities';
 import { Division, Section, Department } from '../organization/entities';
 import { Warehouse } from '../organization/entities/warehouse.entity';
 import { Item } from '../item/entities/item.entity';
@@ -37,7 +37,7 @@ import { UserModule } from '../user/user.module';
       InventoryPolicy, Batch, InventoryBalance, StockLedger,
       StockAdjustment, StockAdjustmentLine, StockAdjustmentHistory, StockTransfer, StockTransferLine, StockTransferHistory,
       InventoryReservation, SerialNumber,
-      RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine, RawMaterialReceiptDocument,
+      RawMaterialReceipt, RawMaterialReceiptLine, RawMaterialReturn, RawMaterialReturnLine, RawMaterialReceiptDocument, RawMaterialReturnDocument,
       Division, Section, Department, Warehouse, Item, Uom,
       NotificationDelivery, CommunicationSetting,
     ]),
