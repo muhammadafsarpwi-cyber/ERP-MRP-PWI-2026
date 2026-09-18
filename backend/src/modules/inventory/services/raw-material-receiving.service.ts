@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository, EntityManager } from 'typeorm';
+import { In, Not, Repository, EntityManager } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -577,13 +577,29 @@ export class RawMaterialReceivingService {
     });
     this.dedupeItems(dto.items);
 
+    const gatePassNo = dto.gatePassNo && String(dto.gatePassNo).trim() ? String(dto.gatePassNo).trim() : null;
+
+    let duplicate = false;
     const header = await this.receiptRepo.manager.transaction(async (manager) => {
+      if (gatePassNo) {
+        const lockKey = `${companyId}|${gatePassNo}`;
+        await manager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey]);
+        const prior = await manager.getRepository(RawMaterialReceipt).findOne({
+          where: { companyId, gatePassNo, status: Not('CANCELLED') },
+          order: { createdAt: 'ASC' },
+        });
+        if (prior) {
+          duplicate = true;
+          return { header: prior, lines: [] };
+        }
+      }
+
       const receiptCode = await this.nextCode('receipt', manager);
       const savedHeader = await manager.getRepository(RawMaterialReceipt).save(
         manager.getRepository(RawMaterialReceipt).create({
           companyId,
           receiptCode,
-          gatePassNo: dto.gatePassNo ?? null,
+          gatePassNo,
           sourceNo: dto.sourceNo ?? null,
           receiptDate: dto.receiptDate ? dto.receiptDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
           divisionId: dto.divisionId,
@@ -621,7 +637,8 @@ export class RawMaterialReceivingService {
       return { header: savedHeader, lines };
     });
 
-    return this.findReceiptById(companyId, header.header.id);
+    const receipt = await this.findReceiptById(companyId, header.header.id);
+    return duplicate ? { ...receipt, alreadyProcessed: true } : receipt;
   }
 
   async createReturn(companyId: string, dto: CreateRawMaterialReturnDto, userId?: string) {
@@ -711,6 +728,21 @@ export class RawMaterialReceivingService {
       this.dedupeItems(dto.items);
     }
 
+    const targetGatePassNo =
+      dto.gatePassNo !== undefined && dto.gatePassNo !== null && String(dto.gatePassNo).trim()
+        ? String(dto.gatePassNo).trim()
+        : null;
+    if (targetGatePassNo) {
+      const clash = await this.receiptRepo.findOne({
+        where: { companyId, gatePassNo: targetGatePassNo, id: Not(id), status: Not('CANCELLED') },
+      });
+      if (clash) {
+        throw new BadRequestException(
+          `Gate pass '${targetGatePassNo}' is already processed by receipt '${clash.receiptCode}'. A gate pass can be processed only once.`,
+        );
+      }
+    }
+
     await this.receiptRepo.manager.transaction(async (manager) => {
       const lineRepo = manager.getRepository(RawMaterialReceiptLine);
 
@@ -734,7 +766,7 @@ export class RawMaterialReceivingService {
       const { lines: _removedLines, ...existingScalar } = existing;
       const updated = await manager.getRepository(RawMaterialReceipt).save({
         ...existingScalar,
-        gatePassNo: dto.gatePassNo !== undefined ? dto.gatePassNo ?? null : existing.gatePassNo,
+        gatePassNo: dto.gatePassNo !== undefined ? targetGatePassNo : existing.gatePassNo,
         sourceNo: dto.sourceNo !== undefined ? dto.sourceNo ?? null : existing.sourceNo,
         receiptDate: dto.receiptDate ? dto.receiptDate.slice(0, 10) : existing.receiptDate,
         divisionId,

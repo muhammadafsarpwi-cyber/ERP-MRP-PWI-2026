@@ -1195,7 +1195,8 @@ const RawMaterialReceiving: React.FC = () => {
   // After the header save succeeds: upload each pending file to THAT receipt.
   // A partial failure is surfaced honestly with an upload-only retry — the
   // receipt itself is never duplicated and previously-saved files are skipped.
-  const finishSaveFlow = useCallback(async (receiptId: string, resultCode: string, values: any): Promise<boolean> => {
+  const finishSaveFlow = useCallback(async (receiptId: string, resultCode: string, values: any, opts?: { alreadyProcessed?: boolean }): Promise<boolean> => {
+    const alreadyProcessed = opts?.alreadyProcessed === true;
     const todo = pendingFilesRef.current;
     pendingFilesRef.current = [];
     setPendingFiles([]);
@@ -1219,37 +1220,48 @@ const RawMaterialReceiving: React.FC = () => {
         `Receipt ${resultCode} was saved, but ${failed.length} of ${todo.length} file upload(s) failed (${failed.join(', ')}). ` +
         'Use Retry to upload only the remaining file(s) — the receipt was not duplicated.',
       );
-      setSaveDialogRetry(() => () => { setSaveDialogPhase('loading'); setSaveDialogError(undefined); void finishSaveFlow(receiptId, resultCode, values); });
+      setSaveDialogRetry(() => () => { setSaveDialogPhase('loading'); setSaveDialogError(undefined); void finishSaveFlow(receiptId, resultCode, values, { alreadyProcessed }); });
       setSaveDialogSuccessTitle(editingId ? 'Receipt Updated, Some Files Pending' : 'Receipt Confirmed, Some Files Pending');
       setSaveDialogPhase('error');
       return false;
     }
 
-    const shareInfo = buildShareInfoFromValues(resultCode, values);
-    const waText = buildReceiptWhatsAppMessage(shareInfo);
-    setSaveDialogResult({
-      title: editingId ? 'Receipt Updated' : 'Receipt Confirmed',
-      recordType: 'Receipt Code',
-      recordCode: resultCode,
-      recordName: values.gatePassNo ? `Gate Pass #${values.gatePassNo}` : undefined,
-      message: `${rows.filter((r) => r.itemId).length} raw material line(s) processed. Received Qty: ${formatNumber(totals.receivedTotal, 2)}`,
-      extra: (
-        <Space wrap>
-          <Button
-            type="primary"
-            style={{ background: '#25D366', borderColor: '#25D366', fontWeight: 600 }}
-            icon={<WhatsAppOutlined />}
-            onClick={() => window.open(waDirectShareUrl(waText), '_blank', 'noopener,noreferrer')}
-          >
-            Direct WhatsApp
-          </Button>
-          <Button type="default" icon={<WhatsAppOutlined style={{ color: '#25D366' }} />} onClick={() => openWaShare(shareInfo, receiptId)}>
-            WhatsApp Details
-          </Button>
-        </Space>
-      ),
-    });
-    setSaveDialogSuccessTitle(editingId ? 'Receipt Updated Successfully' : 'Receipt Confirmed Successfully');
+    if (alreadyProcessed) {
+      setSaveDialogResult({
+        title: 'No Duplicate Posting Created',
+        recordType: 'Original Receipt Code',
+        recordCode: resultCode,
+        recordName: values.gatePassNo ? `Gate Pass #${values.gatePassNo}` : undefined,
+        message: `Gate Pass #${values.gatePassNo} was already processed in inventory. No duplicate posting was created — receipt ${resultCode} remains the original record.`,
+      });
+      setSaveDialogSuccessTitle(editingId ? 'Receipt Updated Successfully' : 'Gate Pass Already Processed');
+    } else {
+      const shareInfo = buildShareInfoFromValues(resultCode, values);
+      const waText = buildReceiptWhatsAppMessage(shareInfo);
+      setSaveDialogResult({
+        title: editingId ? 'Receipt Updated' : 'Receipt Confirmed',
+        recordType: 'Receipt Code',
+        recordCode: resultCode,
+        recordName: values.gatePassNo ? `Gate Pass #${values.gatePassNo}` : undefined,
+        message: `${rows.filter((r) => r.itemId).length} raw material line(s) processed. Received Qty: ${formatNumber(totals.receivedTotal, 2)}`,
+        extra: (
+          <Space wrap>
+            <Button
+              type="primary"
+              style={{ background: '#25D366', borderColor: '#25D366', fontWeight: 600 }}
+              icon={<WhatsAppOutlined />}
+              onClick={() => window.open(waDirectShareUrl(waText), '_blank', 'noopener,noreferrer')}
+            >
+              Direct WhatsApp
+            </Button>
+            <Button type="default" icon={<WhatsAppOutlined style={{ color: '#25D366' }} />} onClick={() => openWaShare(shareInfo, receiptId)}>
+              WhatsApp Details
+            </Button>
+          </Space>
+        ),
+      });
+      setSaveDialogSuccessTitle(editingId ? 'Receipt Updated Successfully' : 'Receipt Confirmed Successfully');
+    }
     setSaveDialogPhase('success');
 
     useRawReceiptDraftStore.getState().closeDraft();
@@ -1316,11 +1328,15 @@ const RawMaterialReceiving: React.FC = () => {
       if (editingId) {
         await apiService.patch<{ success: boolean }>(`/inventory/receipts/gate-pass/${editingId}`, payload);
       } else {
-        const res = await apiService.post<{ success: boolean; data?: any }>('/inventory/receipts/gate-pass', payload);
+        const res = await apiService.post<{ success: boolean; data?: any; alreadyProcessed?: boolean }>('/inventory/receipts/gate-pass', payload);
         resultId = res.data?.id || resultId;
         resultReceiptCode = res.data?.receiptCode || 'Confirmed';
+        const alreadyProcessed = res.data?.alreadyProcessed === true || res.alreadyProcessed === true;
+        if (alreadyProcessed) {
+          message.info('Gate Pass already processed in inventory. No duplicate posting was created.');
+        }
+        await finishSaveFlow(resultId, resultReceiptCode, values, { alreadyProcessed });
       }
-      await finishSaveFlow(resultId, resultReceiptCode, values);
     } catch (err: any) {
       const errMsg = formatApiError(err, 'Failed to save the receipt.');
       setSaveDialogError(errMsg);

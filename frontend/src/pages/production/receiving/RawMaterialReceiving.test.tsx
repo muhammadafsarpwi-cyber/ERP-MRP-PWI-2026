@@ -464,6 +464,39 @@ describe('RawMaterialReceiving RMR-01-B — photos, attachments, WhatsApp', () =
     expect(useRawReceiptDraftStore.getState().draft?.pendingFiles?.length).toBe(1);
   });
 
+  it('an already-processed gate pass resolves to an informational success, never re-posts, never uploads', async () => {
+    seedOpenDraft({ values: { gatePassNo: 'GP-3199' } });
+    renderHarness();
+    await screen.findByText('LIVE VERIFICATION (2027)');
+
+    apiMock.post.mockResolvedValue({
+      success: true,
+      alreadyProcessed: true,
+      message: 'Gate Pass already processed in inventory. No duplicate posting was created.',
+      data: { id: 'rec-1', receiptCode: 'RMR-00001', alreadyProcessed: true },
+    } as any);
+
+    confirmReceipt();
+
+    // Informational success dialog (NOT a confirmation) and NO fake WhatsApp action.
+    await screen.findByText('Gate Pass Already Processed');
+    expect(screen.getByText('No Duplicate Posting Created')).toBeInTheDocument();
+    expect(screen.queryByText('Share on WhatsApp')).not.toBeInTheDocument();
+
+    // Exactly one POST attempt that resolves to the ORIGINAL record, zero uploads.
+    expect(apiMock.post).toHaveBeenCalledTimes(1);
+    expect(apiMock.upload).not.toHaveBeenCalled();
+    expect(apiMock.post).toHaveBeenCalledWith(
+      '/inventory/receipts/gate-pass',
+      expect.objectContaining({ gatePassNo: 'GP-3199' }),
+    );
+
+    // Draft + modal are closed and the original record is listed again.
+    await waitFor(() => expect(useRawReceiptDraftStore.getState().draft).toBeNull());
+    expect(screen.queryByText('LIVE VERIFICATION (2027)')).not.toBeInTheDocument();
+    expect(screen.getAllByText('RMR-00001').length).toBeGreaterThan(0);
+  });
+
   it('uploads pending files AFTER the header save succeeds, then shows success + WhatsApp action', async () => {
     seedOpenDraft();
     renderHarness();

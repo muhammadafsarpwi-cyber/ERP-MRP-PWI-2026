@@ -242,7 +242,7 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
           return fetchList<CachedItem>('/master-data/items', { limit: 1000, status: 'ACTIVE' });
         }),
         fetchList<CachedProductionOrder>('/production/orders', { limit: 200 }),
-        fetchList<any>('/master-data/downtime-reasons', { limit: 100 }).catch(() => []),
+        fetchList<any>('/production/downtime-reasons', { limit: 100 }).catch(() => []),
       ]);
 
       // Employee lookup

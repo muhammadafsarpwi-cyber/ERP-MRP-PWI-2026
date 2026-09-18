@@ -564,13 +564,24 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
   transition: color 0.25s ease;
 }
 
-.pwi-marquee-item img {
+.pwi-marquee-item img,
+.pwi-marquee-logo {
   filter: brightness(0);
   transition: filter 0.2s ease;
 }
 
-[data-theme='dark'] .pwi-marquee-item img {
-  filter: brightness(0);
+[data-theme='dark'] .pwi-marquee-item img,
+[data-theme='dark'] .pwi-marquee-logo {
+  filter: brightness(0) invert(1);
+}
+
+.pwi-app-logo {
+  filter: none;
+  transition: filter 0.2s ease;
+}
+
+[data-theme='dark'] .pwi-app-logo {
+  filter: invert(1);
 }
 
 .pwi-marquee-dot {

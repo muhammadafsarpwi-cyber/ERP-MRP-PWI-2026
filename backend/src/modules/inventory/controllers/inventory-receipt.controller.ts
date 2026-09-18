@@ -349,7 +349,14 @@ export class InventoryReceiptController {
   async createMultiReceipt(@Body() dto: CreateRawMaterialReceiptDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
     const data = await this.rawMaterialService.createReceipt(companyId, dto, req.erpUser?.id);
-    return { success: true, data };
+    const alreadyProcessed = (data as any)?.alreadyProcessed === true;
+    return {
+      success: true,
+      data,
+      ...(alreadyProcessed
+        ? { alreadyProcessed: true, message: 'Gate Pass already processed in inventory. No duplicate posting was created.' }
+        : {}),
+    };
   }
 
   @Get('gate-pass')

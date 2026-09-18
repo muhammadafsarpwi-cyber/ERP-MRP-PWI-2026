@@ -4,6 +4,7 @@ import * as path from 'path';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RawMaterialReceivingService } from './raw-material-receiving.service';
+import { RawMaterialReceipt, RawMaterialReceiptLine } from '../entities';
 
 const COMPANY = '7725aa04-a270-4314-9e82-90949cbe7791';
 const RECEIPT_ID = 'rec-1';
@@ -350,5 +351,281 @@ describe('RawMaterialReceivingService — getReceiptInventory (RMR-01-C)', () =>
     expect(ledgerRepo.delete).not.toHaveBeenCalled();
     expect(receiptRepo.save).not.toHaveBeenCalled();
     expect(receiptLineRepo.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('RawMaterialReceivingService — createReceipt Gate Pass single-processing (RMR-01-D)', () => {
+  const WH = 'wh-spi';
+  const DIV = 'div-1';
+  const SEC = 'sec-1';
+  const DEP = 'dept-1';
+  const ITEM = 'item-a';
+  const UOM = 'uom-kg';
+
+  const makeManager = (opts: { stored?: any[]; priorReceipt?: any | null } = {}) => {
+    const stored = opts.stored ?? [];
+    const headerRepo = {
+      findOne: jest.fn(async () => opts.priorReceipt ?? stored[0] ?? null),
+      save: jest.fn(async (x: any) => {
+        const saved = { id: `rec-${stored.length + 1}`, createdAt: new Date(), ...x };
+        stored.push(saved);
+        return saved;
+      }),
+      create: jest.fn((x: any) => x),
+    };
+    const lineRepo = {
+      save: jest.fn(async (x: any) => ({ id: `line-${Math.random()}`, createdAt: new Date(), ...x })),
+      create: jest.fn((x: any) => x),
+    };
+    const query = jest.fn(async (sql: string) => {
+      const lower = String(sql).toLowerCase();
+      if (lower.includes('advisory')) return [];
+      if (lower.includes('nextval')) return [{ n: 1 }];
+      return [];
+    });
+    const getRepository = jest.fn((cls: any) => {
+      if (cls === RawMaterialReceipt) return headerRepo;
+      if (cls === RawMaterialReceiptLine) return lineRepo;
+      throw new Error('unexpected repository class in transaction manager');
+    });
+    return { query, getRepository, headerRepo, lineRepo, stored };
+  };
+
+  const finalHeader = (id: string, code: string) => ({
+    id,
+    companyId: COMPANY,
+    receiptCode: code,
+    status: 'CONFIRMED',
+    gatePassNo: 'GP-1',
+    warehouse: { id: WH, name: 'SPI Warehouse' },
+    lines: [
+      {
+        id: 'l-1', lineNumber: 1, itemId: ITEM, uomId: UOM,
+        item: { id: ITEM, itemCode: 'RM-WIRE-010', name: 'Wire A' },
+        uom: { id: UOM, code: 'KG' },
+        gatePassQuantity: 100, receivedQuantity: 80, difference: 20, remarks: null,
+      },
+    ],
+    documents: [],
+  });
+
+  const build = (opts: { priorReceipt?: any; stored?: any[] } = {}) => {
+    const receiptRepo = makeRepo();
+    const receiptLineRepo = makeRepo();
+    const ledgerRepo = makeRepo();
+    const itemRepo = makeRepo();
+    const uomRepo = makeRepo();
+    const warehouseRepo = makeRepo();
+    const divisionRepo = makeRepo();
+    const sectionRepo = makeRepo();
+    const departmentRepo = makeRepo();
+    const ledgerService = { create: jest.fn().mockResolvedValue(undefined) };
+    const balanceService = { updateBalance: jest.fn().mockResolvedValue(undefined) };
+    const configService = { get: jest.fn((_k: string, d: string) => tmpRoot) } as unknown as ConfigService;
+
+    const manager = makeManager(opts);
+
+    divisionRepo.findOne.mockResolvedValue({ id: DIV, companyId: COMPANY, status: 'ACTIVE' });
+    sectionRepo.findOne.mockResolvedValue({ id: SEC, divisionId: DIV });
+    departmentRepo.findOne.mockResolvedValue({ id: DEP, sectionId: SEC, divisionId: DIV });
+    warehouseRepo.findOne.mockResolvedValue({ id: WH, companyId: COMPANY, status: 'ACTIVE' });
+    itemRepo.findOne.mockResolvedValue({
+      id: ITEM, companyId: COMPANY, status: 'ACTIVE', itemType: 'RAW_MATERIAL',
+      itemCode: 'RM-WIRE-010', divisionId: DIV,
+    });
+    uomRepo.findOne.mockResolvedValue({ id: UOM, code: 'KG', name: 'Kilogram', symbol: 'kg' });
+
+    ledgerRepo.find.mockResolvedValue([]);
+    receiptRepo.findOne.mockImplementation(async (arg: any) => {
+      const id = arg?.where?.id;
+      if (id === 'rec-exist') return finalHeader('rec-exist', 'RMR-09999');
+      if (typeof id === 'string' && id.startsWith('rec-')) return finalHeader(id, 'RMR-00001');
+      return null;
+    });
+    receiptRepo.manager = { transaction: jest.fn(async (cb: any) => cb(manager)) };
+
+    const service = new RawMaterialReceivingService(
+      receiptRepo, receiptLineRepo, makeRepo(), makeRepo(), makeRepo(), makeRepo(),
+      ledgerRepo, itemRepo, uomRepo, warehouseRepo, divisionRepo, sectionRepo, departmentRepo,
+      makeRepo(), makeRepo(),
+      ledgerService as any, balanceService as any,
+      configService,
+    );
+    return { service, receiptRepo, manager, ledgerService, balanceService, ledgerRepo, stored: manager.stored };
+  };
+
+  const dto = (over: Record<string, any> = {}) => ({
+    divisionId: DIV,
+    sectionId: SEC,
+    departmentId: DEP,
+    warehouseId: WH,
+    gatePassNo: 'GP-1',
+    items: [{ itemId: ITEM, uomId: UOM, gatePassQuantity: 100, receivedQuantity: 80 }],
+    ...over,
+  });
+
+  it('first submit acquires the advisory lock, finds no prior receipt, creates and posts ONE receipt', async () => {
+    const { service, manager, ledgerService, balanceService } = build({});
+
+    const result = await service.createReceipt(COMPANY, dto(), 'user-1');
+
+    expect(manager.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${COMPANY}|GP-1`]);
+    expect(manager.headerRepo.findOne).toHaveBeenCalledWith({
+      where: { companyId: COMPANY, gatePassNo: 'GP-1', status: expect.anything() },
+      order: { createdAt: 'ASC' },
+    });
+    expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(manager.headerRepo.findOne.mock.invocationCallOrder[0]);
+
+    expect(ledgerService.create).toHaveBeenCalledTimes(1);
+    expect(balanceService.updateBalance).toHaveBeenCalledTimes(1);
+    expect(balanceService.updateBalance).toHaveBeenCalledWith(
+      expect.anything(), ITEM, WH, null, null, UOM, 80, 'IN', manager,
+    );
+    expect(result.receiptCode).toBe('RMR-00001');
+    expect((result as any).alreadyProcessed).toBeUndefined();
+  });
+
+  it('a second identical submit returns the existing receipt with alreadyProcessed and never posts again', async () => {
+    const { service, manager, ledgerService, balanceService } = build({ priorReceipt: finalHeader('rec-exist', 'RMR-09999') });
+
+    const result: any = await service.createReceipt(COMPANY, dto(), 'user-1');
+
+    expect(result.alreadyProcessed).toBe(true);
+    expect(result.receiptCode).toBe('RMR-09999');
+    expect(ledgerService.create).not.toHaveBeenCalled();
+    expect(balanceService.updateBalance).not.toHaveBeenCalled();
+    expect(manager.headerRepo.save).not.toHaveBeenCalled();
+    expect(manager.lineRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('repeated identical submits post exactly once (the second is only returned as alreadyProcessed)', async () => {
+    const { service, ledgerService, balanceService } = build({ stored: [] });
+
+    const first = await service.createReceipt(COMPANY, dto(), 'user-1');
+    const second: any = await service.createReceipt(COMPANY, dto(), 'user-1');
+
+    expect((first as any).alreadyProcessed).toBeUndefined();
+    expect(second.alreadyProcessed).toBe(true);
+    expect(ledgerService.create).toHaveBeenCalledTimes(1);
+    expect(balanceService.updateBalance).toHaveBeenCalledTimes(1);
+  });
+
+  it('trims the gate pass number so a padded re-submission maps to the same business key', async () => {
+    const { service, manager } = build({});
+
+    await service.createReceipt(COMPANY, dto({ gatePassNo: '  GP-1  ' }), 'user-1');
+
+    expect(manager.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${COMPANY}|GP-1`]);
+    expect(manager.headerRepo.save).toHaveBeenCalledWith(expect.objectContaining({ gatePassNo: 'GP-1' }));
+  });
+
+  it('without a gate pass number no advisory lock is taken and the receipt posts normally', async () => {
+    const { service, manager, ledgerService } = build({});
+    const rest: any = dto();
+    delete rest.gatePassNo;
+
+    const result = await service.createReceipt(COMPANY, rest, 'user-1');
+
+    const advisoryCalls = (manager.query as jest.Mock).mock.calls.filter(([sql]) =>
+      String(sql).toLowerCase().includes('advisory'),
+    );
+    expect(advisoryCalls).toHaveLength(0);
+    expect(ledgerService.create).toHaveBeenCalledTimes(1);
+    expect(result.receiptCode).toBe('RMR-00001');
+  });
+});
+
+describe('RawMaterialReceivingService — updateReceipt gate pass collision guard (RMR-01-E)', () => {
+  const WH = 'wh-spi';
+  const DIV = 'div-1';
+  const SEC = 'sec-1';
+  const DEP = 'dept-1';
+
+  it('rejects an update that reuses a gate pass number already processed by another receipt', async () => {
+    const receiptRepo = makeRepo();
+    const ledgerRepo = makeRepo();
+    const configService = { get: jest.fn((_k: string, d: string) => tmpRoot) } as unknown as ConfigService;
+
+    ledgerRepo.find.mockResolvedValue([]);
+    receiptRepo.manager = { transaction: jest.fn() };
+    receiptRepo.findOne.mockImplementation(async (arg: any) => {
+      const where = arg?.where ?? {};
+      if (where.gatePassNo) {
+        return { id: 'rec-other', companyId: COMPANY, receiptCode: 'RMR-00002', gatePassNo: where.gatePassNo, status: 'CONFIRMED' };
+      }
+      if (where.id === RECEIPT_ID && where.companyId === COMPANY) {
+        return {
+          id: RECEIPT_ID, companyId: COMPANY, receiptCode: 'RMR-00001', status: 'CONFIRMED',
+          warehouseId: WH, divisionId: DIV, sectionId: SEC, departmentId: DEP, lines: [],
+        };
+      }
+      return null;
+    });
+
+    const divisionRepo = makeRepo();
+    const sectionRepo = makeRepo();
+    const departmentRepo = makeRepo();
+    const warehouseRepo = makeRepo();
+    divisionRepo.findOne.mockResolvedValue({ id: DIV, companyId: COMPANY, status: 'ACTIVE' });
+    sectionRepo.findOne.mockResolvedValue({ id: SEC, divisionId: DIV });
+    departmentRepo.findOne.mockResolvedValue({ id: DEP, sectionId: SEC, divisionId: DIV });
+    warehouseRepo.findOne.mockResolvedValue({ id: WH, companyId: COMPANY, status: 'ACTIVE' });
+
+    const service = new RawMaterialReceivingService(
+      receiptRepo, makeRepo(), makeRepo(), makeRepo(), makeRepo(), makeRepo(),
+      ledgerRepo, makeRepo(), makeRepo(), warehouseRepo, divisionRepo, sectionRepo, departmentRepo,
+      makeRepo(), makeRepo(),
+      {} as any, {} as any,
+      configService,
+    );
+
+    await expect(service.updateReceipt(RECEIPT_ID, COMPANY, { gatePassNo: 'GP-3199' }))
+      .rejects.toThrow(BadRequestException);
+    expect(receiptRepo.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ companyId: COMPANY, gatePassNo: 'GP-3199', id: expect.anything(), status: expect.anything() }),
+    }));
+    expect(receiptRepo.manager.transaction).not.toHaveBeenCalled();
+    expect(ledgerRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('a receipt may keep its own gate pass number unchanged', async () => {
+    const receiptRepo = makeRepo();
+    const ledgerRepo = makeRepo();
+    const configService = { get: jest.fn((_k: string, d: string) => tmpRoot) } as unknown as ConfigService;
+
+    ledgerRepo.find.mockResolvedValue([]);
+    const manager = { query: jest.fn(async () => []), getRepository: jest.fn(() => makeRepo()) };
+    receiptRepo.manager = { transaction: jest.fn(async (cb: any) => cb(manager)) };
+    receiptRepo.findOne.mockImplementation(async (arg: any) => {
+      const where = arg?.where ?? {};
+      if (where.gatePassNo) return null;
+      if (where.id === RECEIPT_ID && where.companyId === COMPANY) {
+        return {
+          id: RECEIPT_ID, companyId: COMPANY, receiptCode: 'RMR-00001', status: 'CONFIRMED',
+          warehouseId: WH, divisionId: DIV, sectionId: SEC, departmentId: DEP, lines: [],
+        };
+      }
+      return null;
+    });
+
+    const divisionRepo = makeRepo();
+    const sectionRepo = makeRepo();
+    const departmentRepo = makeRepo();
+    const warehouseRepo = makeRepo();
+    divisionRepo.findOne.mockResolvedValue({ id: DIV, companyId: COMPANY, status: 'ACTIVE' });
+    sectionRepo.findOne.mockResolvedValue({ id: SEC, divisionId: DIV });
+    departmentRepo.findOne.mockResolvedValue({ id: DEP, sectionId: SEC, divisionId: DIV });
+    warehouseRepo.findOne.mockResolvedValue({ id: WH, companyId: COMPANY, status: 'ACTIVE' });
+
+    const service = new RawMaterialReceivingService(
+      receiptRepo, makeRepo(), makeRepo(), makeRepo(), makeRepo(), makeRepo(),
+      ledgerRepo, makeRepo(), makeRepo(), warehouseRepo, divisionRepo, sectionRepo, departmentRepo,
+      makeRepo(), makeRepo(),
+      {} as any, {} as any,
+      configService,
+    );
+
+    const result = await service.updateReceipt(RECEIPT_ID, COMPANY, { gatePassNo: 'GP-1' });
+    expect(result).toBeDefined();
   });
 });
