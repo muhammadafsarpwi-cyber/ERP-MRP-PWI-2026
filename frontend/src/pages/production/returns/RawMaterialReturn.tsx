@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import apiService from '../../../services/api';
+import apiService, { resolveFileUrl } from '../../../services/api';
 import { compressImageFile } from '../../../utils/imageCompressor';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
@@ -1705,12 +1705,22 @@ const RawMaterialReturn: React.FC = () => {
                     <div className="rmr-existing-docs">
                       <div className="rmr-doc-block-label">Current documents on file</div>
                       <div className="rmr-pending-list">
-                        {existingDocs.map((doc) => (
-                          doc.kind === 'PHOTO' ? (
+                        {existingDocs.map((doc) => {
+                          const resolvedUrl = resolveFileUrl(doc.fileUrl);
+                          return doc.kind === 'PHOTO' ? (
                             <div key={doc.id} className="rmr-pending-photo">
-                              <img src={doc.fileUrl} alt={doc.fileName} className="rmr-preview-thumb" />
+                              <img
+                                src={resolvedUrl}
+                                alt={doc.fileName}
+                                className="rmr-preview-thumb"
+                                onError={(e) => {
+                                  const target = e.currentTarget;
+                                  target.onerror = null;
+                                  target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="84" height="64" viewBox="0 0 84 64" fill="%23f1f5f9"><rect width="84" height="64" rx="8" fill="%23f1f5f9"/><path d="M30 38l6-7 4 5 7-9 9 11H30z" fill="%2394a3b8"/><circle cx="36" cy="24" r="3" fill="%2394a3b8"/><text x="42" y="54" font-size="8" fill="%2364748b" text-anchor="middle" font-family="sans-serif">Preview n/a</text></svg>';
+                                }}
+                              />
                               <div className="rmr-pending-meta">
-                                <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                                <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link" title={doc.fileName}>{doc.fileName}</a>
                               </div>
                               <Popconfirm title="Remove this document?" onConfirm={() => handleRemoveExistingDoc(doc)} okText="Remove" okButtonProps={{ danger: true }}>
                                 <Button size="small" danger icon={<DeleteOutlined />} />
@@ -1719,14 +1729,14 @@ const RawMaterialReturn: React.FC = () => {
                           ) : (
                             <div key={doc.id} className="rmr-pending-attach">
                               <PaperClipOutlined />
-                              <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                              <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link" title={doc.fileName}>{doc.fileName}</a>
                               <span className="rmr-pending-size">{doc.fileSize ? formatBytes(doc.fileSize) : ''}</span>
                               <Popconfirm title="Remove this document?" onConfirm={() => handleRemoveExistingDoc(doc)} okText="Remove" okButtonProps={{ danger: true }}>
                                 <Button size="small" danger icon={<DeleteOutlined />} />
                               </Popconfirm>
                             </div>
-                          )
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -2167,23 +2177,33 @@ const RawMaterialReturn: React.FC = () => {
                 <Divider style={{ margin: '16px 0' }} />
                 <Title level={5}>Documents &amp; Photos ({detail.documents.length})</Title>
                 <div className="rmr-pending-list">
-                  {detail.documents.map((doc) => (
-                    doc.kind === 'PHOTO' ? (
+                  {detail.documents.map((doc) => {
+                    const resolvedUrl = resolveFileUrl(doc.fileUrl);
+                    return doc.kind === 'PHOTO' ? (
                       <div key={doc.id} className="rmr-pending-photo">
-                        <img src={doc.fileUrl} alt={doc.fileName} className="rmr-preview-thumb" />
+                        <img
+                          src={resolvedUrl}
+                          alt={doc.fileName}
+                          className="rmr-preview-thumb"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            target.onerror = null;
+                            target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="84" height="64" viewBox="0 0 84 64" fill="%23f1f5f9"><rect width="84" height="64" rx="8" fill="%23f1f5f9"/><path d="M30 38l6-7 4 5 7-9 9 11H30z" fill="%2394a3b8"/><circle cx="36" cy="24" r="3" fill="%2394a3b8"/><text x="42" y="54" font-size="8" fill="%2364748b" text-anchor="middle" font-family="sans-serif">Preview n/a</text></svg>';
+                          }}
+                        />
                         <div className="rmr-pending-meta">
-                          <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                          <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link" title={doc.fileName}>{doc.fileName}</a>
                           <span className="rmr-pending-size">{doc.fileSize ? formatBytes(doc.fileSize) : ''}</span>
                         </div>
                       </div>
                     ) : (
                       <div key={doc.id} className="rmr-pending-attach">
                         <PaperClipOutlined />
-                        <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                        <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link" title={doc.fileName}>{doc.fileName}</a>
                         <span className="rmr-pending-size">{doc.fileSize ? formatBytes(doc.fileSize) : ''}</span>
                       </div>
-                    )
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             )}

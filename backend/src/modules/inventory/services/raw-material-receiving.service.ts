@@ -11,6 +11,7 @@ import {
   RawMaterialReceipt, RawMaterialReceiptLine,
   RawMaterialReturn, RawMaterialReturnLine,
   RawMaterialReceiptDocument, RawMaterialReturnDocument,
+  InventoryBalance,
 } from '../entities';
 import { StockLedger } from '../entities';
 import { Item, ItemType } from '../../item/entities/item.entity';
@@ -1154,22 +1155,26 @@ export class RawMaterialReceivingService {
       items: lines.map((l, idx) => {
         const pair = l.itemId && warehouseId ? `${l.itemId}|${warehouseId}` : null;
         const balance = pair ? byPair.get(pair) : null;
+        const onHand = balance ? Number(balance.onHand) : 0;
+        const received = Number(l.receivedQuantity || 0);
+        const previousOnHand = header.status === 'CONFIRMED' ? Math.max(0, onHand - received) : onHand;
         return {
           lineNumber: l.lineNumber ?? idx + 1,
           item: l.item ? { id: l.item.id, itemCode: l.item.itemCode, name: l.item.name, uomCode: l.uom?.code || null } : null,
           uom: l.uom ? { id: l.uom.id, code: l.uom.code, name: l.uom.name, symbol: l.uom.symbol } : null,
-          receivedQuantity: Number(l.receivedQuantity || 0),
+          receivedQuantity: received,
           gatePassQuantity: Number(l.gatePassQuantity || 0),
           balance: balance
             ? {
                 exists: true,
-                onHand: Number(balance.onHand),
+                previousOnHand,
+                onHand,
                 reserved: Number(balance.reserved),
                 available: Number(balance.available),
                 uom: balance.uom ? { code: balance.uom.code, symbol: balance.uom.symbol } : null,
                 lastUpdatedAt: balance.updatedAt || null,
               }
-            : { exists: false, onHand: null, reserved: null, available: null, uom: null, lastUpdatedAt: null },
+            : { exists: false, previousOnHand: 0, onHand: null, reserved: null, available: null, uom: null, lastUpdatedAt: null },
         };
       }),
     };
@@ -1347,10 +1352,83 @@ export class RawMaterialReceivingService {
       legacy = await legacyQb.getMany();
     }
 
+    let itemStockSummary: any = null;
+    if (filter.itemId) {
+      const itemRecord = await this.itemRepo.findOne({
+        where: { id: filter.itemId, companyId },
+        relations: ['baseUom'],
+      });
+      if (itemRecord) {
+        const balanceQb = this.ledgerRepo.manager.getRepository(InventoryBalance).createQueryBuilder('b')
+          .leftJoinAndSelect('b.warehouse', 'w')
+          .where('b.companyId = :companyId', { companyId })
+          .andWhere('b.itemId = :itemId', { itemId: filter.itemId })
+          .andWhere('b.status = :status', { status: 'ACTIVE' });
+        if (filter.warehouseId) {
+          balanceQb.andWhere('b.warehouseId = :warehouseId', { warehouseId: filter.warehouseId });
+        }
+        const balances = await balanceQb.getMany();
+        const totalOnHand = balances.reduce((sum, b) => sum + Number(b.onHand || 0), 0);
+        const totalAvailable = balances.reduce((sum, b) => sum + Number(b.available || 0), 0);
+        const totalReserved = balances.reduce((sum, b) => sum + Number(b.reserved || 0), 0);
+
+        const prodConsumptionQb = this.ledgerRepo.createQueryBuilder('l')
+          .where('l.companyId = :companyId', { companyId })
+          .andWhere('l.itemId = :itemId', { itemId: filter.itemId })
+          .andWhere('l.transactionType = :txType', { txType: 'PRODUCTION_CONSUMPTION' });
+        if (filter.warehouseId) {
+          prodConsumptionQb.andWhere('l.warehouseId = :warehouseId', { warehouseId: filter.warehouseId });
+        }
+        if (dateFrom) prodConsumptionQb.andWhere('l.transactionDate >= :dateFrom', { dateFrom: `${dateFrom} 00:00:00` });
+        if (dateTo) prodConsumptionQb.andWhere('l.transactionDate <= :dateTo', { dateTo: `${dateTo} 23:59:59` });
+        const prodEntries = await prodConsumptionQb.getMany();
+        const totalProductionConsumption = prodEntries.reduce((sum, l) => sum + Number(l.quantity || 0), 0);
+
+        const lastTxQb = this.ledgerRepo.createQueryBuilder('l')
+          .leftJoinAndSelect('l.warehouse', 'w')
+          .where('l.companyId = :companyId', { companyId })
+          .andWhere('l.itemId = :itemId', { itemId: filter.itemId });
+        if (filter.warehouseId) {
+          lastTxQb.andWhere('l.warehouseId = :warehouseId', { warehouseId: filter.warehouseId });
+        }
+        const lastTx = await lastTxQb.orderBy('l.transactionDate', 'DESC')
+          .addOrderBy('l.createdAt', 'DESC')
+          .getOne();
+
+        itemStockSummary = {
+          itemId: itemRecord.id,
+          itemCode: itemRecord.itemCode,
+          itemName: itemRecord.name,
+          uomCode: itemRecord.baseUom?.code || 'KG',
+          totalOnHand,
+          totalAvailable,
+          totalReserved,
+          totalProductionConsumption,
+          warehouseBreakdown: balances.map((b) => ({
+            warehouseCode: b.warehouse?.warehouseCode,
+            warehouseName: b.warehouse?.name,
+            quantityOnHand: Number(b.onHand || 0),
+            quantityAvailable: Number(b.available || 0),
+          })),
+          lastTransaction: lastTx ? {
+            transactionType: lastTx.transactionType,
+            direction: lastTx.direction,
+            quantity: Number(lastTx.quantity),
+            transactionDate: lastTx.transactionDate,
+            referenceNumber: lastTx.referenceNumber,
+            notes: lastTx.notes,
+            warehouseName: lastTx.warehouse?.name,
+            warehouseCode: lastTx.warehouse?.warehouseCode,
+          } : null,
+        };
+      }
+    }
+
     return {
       receipts,
       returns,
       legacyLedger: legacy,
+      itemStockSummary,
       summary: {
         gatePassTotal: receipts.reduce((s, r) => s + Number(r.gatePassTotal || 0), 0),
         receivedTotal: receipts.reduce((s, r) => s + Number(r.receivedTotal || 0), 0),
@@ -1451,5 +1529,81 @@ export class RawMaterialReceivingService {
       });
     }
     return Array.from(grouped.values());
+  }
+
+  async getItemLedgerHistory(companyId: string, itemId: string, warehouseId?: string) {
+    const item = await this.itemRepo.findOne({
+      where: { id: itemId, companyId },
+      relations: ['baseUom'],
+    });
+    if (!item) throw new NotFoundException(`Item '${itemId}' not found in this company.`);
+
+    const qb = this.ledgerRepo
+      .createQueryBuilder('sl')
+      .leftJoinAndSelect('sl.warehouse', 'warehouse')
+      .leftJoinAndSelect('sl.uom', 'uom')
+      .leftJoinAndSelect('sl.division', 'division')
+      .leftJoinAndSelect('sl.section', 'section')
+      .leftJoinAndSelect('sl.department', 'department')
+      .where('sl.companyId = :companyId', { companyId })
+      .andWhere('sl.itemId = :itemId', { itemId });
+
+    if (warehouseId) {
+      qb.andWhere('sl.warehouseId = :warehouseId', { warehouseId });
+    }
+
+    qb.orderBy('sl.transactionDate', 'ASC').addOrderBy('sl.createdAt', 'ASC');
+
+    const records = await qb.getMany();
+
+    let runningBalance = 0;
+    let totalIn = 0;
+    let totalOut = 0;
+
+    const movements = records.map((r) => {
+      const qty = Number(r.quantity || 0);
+      const isIncoming = r.direction === 'IN';
+      if (isIncoming) {
+        runningBalance += qty;
+        totalIn += qty;
+      } else {
+        runningBalance -= qty;
+        totalOut += qty;
+      }
+
+      return {
+        id: r.id,
+        date: r.transactionDate,
+        transactionType: r.transactionType,
+        direction: r.direction,
+        quantity: qty,
+        inQuantity: isIncoming ? qty : 0,
+        outQuantity: isIncoming ? 0 : qty,
+        runningBalance: Math.round(runningBalance * 10000) / 10000,
+        referenceType: r.referenceType,
+        referenceNumber: r.referenceNumber || '-',
+        notes: r.notes || '',
+        warehouse: r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, code: r.warehouse.warehouseCode } : null,
+        division: r.division ? { id: r.division.id, name: r.division.name } : null,
+        section: r.section ? { id: r.section.id, name: r.section.name } : null,
+        department: r.department ? { id: r.department.id, name: r.department.name } : null,
+      };
+    });
+
+    return {
+      item: {
+        id: item.id,
+        itemCode: item.itemCode,
+        name: item.name,
+        uomCode: item.baseUom?.code || item.baseUom?.symbol || 'KG',
+      },
+      summary: {
+        totalIn: Math.round(totalIn * 10000) / 10000,
+        totalOut: Math.round(totalOut * 10000) / 10000,
+        currentBalance: Math.round(runningBalance * 10000) / 10000,
+        totalMovements: movements.length,
+      },
+      movements: movements.reverse(),
+    };
   }
 }

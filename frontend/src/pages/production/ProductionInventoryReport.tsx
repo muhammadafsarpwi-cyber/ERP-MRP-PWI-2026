@@ -22,6 +22,7 @@ import {
   ClusterOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  EyeOutlined,
   FileExcelOutlined,
   FilterOutlined,
   FolderOpenOutlined,
@@ -40,6 +41,7 @@ import {
   TeamOutlined,
   ThunderboltOutlined,
   ToolOutlined,
+  UnorderedListOutlined,
   WarningOutlined,
   WhatsAppOutlined,
 } from '@ant-design/icons';
@@ -331,6 +333,49 @@ const ProductionInventoryReport: React.FC = () => {
   const [selectedDeptIds, setSelectedDeptIds] = useState<string[]>([]);
   const [isDeptModalMaximized, setIsDeptModalMaximized] = useState(false);
 
+  // Department Items Detail Breakdown Modal
+  const [deptItemsModalVisible, setDeptItemsModalVisible] = useState(false);
+  const [selectedDeptForItems, setSelectedDeptForItems] = useState<{
+    departmentId: string;
+    departmentName: string;
+    itemCount: number;
+    opening: number;
+    totalIn: number;
+    totalOut: number;
+    closing: number;
+    onHand: number;
+    available: number;
+    produced: number;
+    required: number;
+    consumed: number;
+    scrap: number;
+    shortItems: number;
+    items: ReportRow[];
+  } | null>(null);
+  const [deptItemsSearchText, setDeptItemsSearchText] = useState('');
+
+  const handleViewDeptItems = (dept: {
+    departmentId: string;
+    departmentName: string;
+    itemCount: number;
+    opening: number;
+    totalIn: number;
+    totalOut: number;
+    closing: number;
+    onHand: number;
+    available: number;
+    produced: number;
+    required: number;
+    consumed: number;
+    scrap: number;
+    shortItems: number;
+    items: ReportRow[];
+  }) => {
+    setSelectedDeptForItems(dept);
+    setDeptItemsSearchText('');
+    setDeptItemsModalVisible(true);
+  };
+
   // Draggable Modal Offset refs
   const [ledgerModalPos, setLedgerModalPos] = useState({ x: 0, y: 0 });
   const [deptModalPos, setDeptModalPos] = useState({ x: 0, y: 0 });
@@ -353,26 +398,60 @@ const ProductionInventoryReport: React.FC = () => {
 
   const [report, setReport] = useState<ReportResponse | null>(() => cachedTab?.report ?? null);
 
-  useEffect(() => {
-    if (tabSessionCache.has(tabKey)) {
-      return;
-    }
-    Promise.allSettled([
-      dashboardService.getFilterDivisions(),
-      apiService.get<{ data: MovementTypeDef[] }>('/production/inventory-report/movement-types'),
-      apiService.get<{ data: Array<{ id: string; code: string; name: string; status: string }> }>('/master-data/item-types', { limit: 500 }),
-    ]).then(([divRes, movRes, itRes]) => {
-      if (divRes.status === 'fulfilled' && divRes.value?.success && Array.isArray(divRes.value.data)) {
-        setDivisions(divRes.value.data);
-      }
-      if (movRes.status === 'fulfilled' && Array.isArray(movRes.value?.data)) {
-        setMovementTypes(movRes.value.data);
-      }
-      if (itRes.status === 'fulfilled' && Array.isArray(itRes.value?.data)) {
-        setMasterItemTypes(itRes.value.data as Array<{ id: string; code: string; name: string; status: string }>);
+  // Compute effective divisions merging API data with any unique divisions from report items
+  const effectiveDivisions = useMemo(() => {
+    const list = [...(divisions || [])];
+    const seenIds = new Set(list.map((d) => d.id));
+    (report?.items || []).forEach((it) => {
+      if (it.divisionId && !seenIds.has(it.divisionId)) {
+        seenIds.add(it.divisionId);
+        list.push({ id: it.divisionId, name: it.divisionName || it.divisionId });
       }
     });
+    return list;
+  }, [divisions, report?.items]);
+
+  // Always fetch filter metadata on mount so dropdowns are never left empty
+  useEffect(() => {
+    dashboardService.getFilterDivisions().then((res) => {
+      if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
+        setDivisions(res.data);
+      }
+    }).catch(() => {});
+
+    apiService.get<{ data: MovementTypeDef[] }>('/production/inventory-report/movement-types').then((res) => {
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        setMovementTypes(res.data);
+      }
+    }).catch(() => {});
+
+    apiService.get<{ data: Array<{ id: string; code: string; name: string; status: string }> }>('/master-data/item-types', { limit: 500 }).then((res) => {
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        setMasterItemTypes(res.data);
+      }
+    }).catch(() => {});
   }, []);
+
+  // Sync loaded divisions into tabSessionCache
+  useEffect(() => {
+    if (divisions.length > 0) {
+      const cached = tabSessionCache.get<InventoryReportTabCache>(tabKey);
+      if (cached) {
+        tabSessionCache.set<InventoryReportTabCache>(tabKey, {
+          ...cached,
+          divisions,
+        });
+      }
+    }
+  }, [divisions]);
+
+  // Automatically select a division for multi-department modal if none selected
+  useEffect(() => {
+    if (!selectedDivisionForDept && effectiveDivisions.length > 0) {
+      const target = applied.divisionId || effectiveDivisions[0]?.id;
+      if (target) setSelectedDivisionForDept(target);
+    }
+  }, [selectedDivisionForDept, effectiveDivisions, applied.divisionId]);
 
   // Department cascade for filters
   useEffect(() => {
@@ -383,7 +462,7 @@ const ProductionInventoryReport: React.FC = () => {
     }).catch(() => {});
   }, [filter.divisionId]);
 
-  // Department cascade for multi-department modal
+  // Department cascade for multi-department modal with automatic report-items fallback
   useEffect(() => {
     if (!selectedDivisionForDept) {
       setAvailableDeptsForDivision([]);
@@ -391,12 +470,32 @@ const ProductionInventoryReport: React.FC = () => {
       return;
     }
     dashboardService.getFilterDepartments(selectedDivisionForDept).then((res) => {
-      if (res?.success && Array.isArray(res.data)) {
+      if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
         setAvailableDeptsForDivision(res.data);
         setSelectedDeptIds(res.data.map((d) => d.id));
+      } else {
+        const deptMap = new Map<string, string>();
+        (report?.items || []).forEach((it) => {
+          if (it.divisionId === selectedDivisionForDept && it.departmentId && it.departmentName) {
+            deptMap.set(it.departmentId, it.departmentName);
+          }
+        });
+        const fallback = Array.from(deptMap.entries()).map(([id, name]) => ({ id, name }));
+        setAvailableDeptsForDivision(fallback);
+        setSelectedDeptIds(fallback.map((d) => d.id));
       }
-    }).catch(() => {});
-  }, [selectedDivisionForDept]);
+    }).catch(() => {
+      const deptMap = new Map<string, string>();
+      (report?.items || []).forEach((it) => {
+        if (it.divisionId === selectedDivisionForDept && it.departmentId && it.departmentName) {
+          deptMap.set(it.departmentId, it.departmentName);
+        }
+      });
+      const fallback = Array.from(deptMap.entries()).map(([id, name]) => ({ id, name }));
+      setAvailableDeptsForDivision(fallback);
+      setSelectedDeptIds(fallback.map((d) => d.id));
+    });
+  }, [selectedDivisionForDept, report?.items]);
 
   const loadReport = useCallback(async (f: ReportFilters) => {
     setLoading(true);
@@ -410,9 +509,9 @@ const ProductionInventoryReport: React.FC = () => {
       setReport(res.data);
       tabSessionCache.set<InventoryReportTabCache>(tabKey, {
         report: res.data,
-        divisions,
-        movementTypes,
-        masterItemTypes,
+        divisions: divisions.length > 0 ? divisions : cachedTab?.divisions,
+        movementTypes: movementTypes.length > 0 ? movementTypes : cachedTab?.movementTypes,
+        masterItemTypes: masterItemTypes.length > 0 ? masterItemTypes : cachedTab?.masterItemTypes,
       });
       if (!params.itemId) setFilter((prev) => ({ ...prev, itemId: undefined }));
     } catch (e: any) {
@@ -420,7 +519,7 @@ const ProductionInventoryReport: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [divisions, movementTypes, masterItemTypes]);
+  }, [divisions, movementTypes, masterItemTypes, cachedTab]);
 
   useEffect(() => {
     if (tabSessionCache.has(tabKey)) {
@@ -749,7 +848,7 @@ const ProductionInventoryReport: React.FC = () => {
 
   // Formatted report header description for exports / print
   const dynamicReportTitle = useMemo(() => {
-    const divName = applied.divisionId ? divisions.find((d) => d.id === applied.divisionId)?.name : 'All Divisions';
+    const divName = applied.divisionId ? (effectiveDivisions.find((d) => d.id === applied.divisionId)?.name || applied.divisionId) : 'All Divisions';
     const deptName = applied.departmentId ? departments.find((d) => d.id === applied.departmentId)?.name : 'All Departments';
     const dateStr = applied.dateFrom || applied.dateTo ? `${applied.dateFrom || 'Start'} to ${applied.dateTo || 'Present'}` : 'All Time';
     return {
@@ -760,7 +859,7 @@ const ProductionInventoryReport: React.FC = () => {
       deptName,
       dateStr,
     };
-  }, [applied, divisions, departments]);
+  }, [applied, effectiveDivisions, departments]);
 
   /* ── Export CSV / Excel ─────────────────────────────────────────────── */
   const handleExportCSV = () => {
@@ -1271,6 +1370,134 @@ const ProductionInventoryReport: React.FC = () => {
     },
   ];
 
+  /* ── Multi-Department Item Detail Columns ────────────────────────────── */
+  const deptItemDetailColumns: ColumnsType<ReportRow> = [
+    {
+      title: 'Item Code',
+      dataIndex: 'itemCode',
+      key: 'itemCode',
+      width: 140,
+      render: (code: string, row: ReportRow) => (
+        <Tooltip title="Click to view full stock ledger history">
+          <Button
+            type="link"
+            size="small"
+            style={{ padding: 0, fontWeight: 700, color: '#2563eb' }}
+            onClick={() => openLedger(row)}
+          >
+            <BarcodeOutlined style={{ marginRight: 4 }} />
+            {code}
+          </Button>
+        </Tooltip>
+      ),
+    },
+    {
+      title: 'Item Name / Description',
+      dataIndex: 'itemName',
+      key: 'itemName',
+      render: (name: string, row: ReportRow) => (
+        <div>
+          <div style={{ fontWeight: 600, color: '#1e293b' }}>{name}</div>
+          {(row.wireSizeMm != null || row.thicknessMm != null || row.widthMm != null) && (
+            <div style={{ fontSize: 11, color: '#64748b' }}>
+              {row.wireSizeMm != null ? `Wire: ${formatDimension(row.wireSizeMm)} mm ` : ''}
+              {row.thicknessMm != null ? `Thick: ${formatDimension(row.thicknessMm)} mm ` : ''}
+              {row.widthMm != null ? `Width: ${formatDimension(row.widthMm)} mm` : ''}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'Type',
+      dataIndex: 'itemType',
+      key: 'itemType',
+      width: 110,
+      render: (type: string) => {
+        const color = type === 'RAW_MATERIAL' ? 'blue' : type === 'WIP' ? 'orange' : type === 'FINISHED_GOODS' ? 'green' : 'default';
+        return <Tag color={color} style={{ fontSize: 11 }}>{itemTypeLabel(type)}</Tag>;
+      },
+    },
+    {
+      title: 'UOM',
+      dataIndex: 'uomCode',
+      key: 'uomCode',
+      width: 70,
+      align: 'center',
+      render: (uom: string) => <Tag style={{ margin: 0, fontSize: 11 }}>{uom || '—'}</Tag>,
+    },
+    {
+      title: 'Opening',
+      dataIndex: 'openingBalance',
+      key: 'openingBalance',
+      align: 'right',
+      render: (v: number) => formatInt(v),
+    },
+    {
+      title: 'IN',
+      dataIndex: 'totalIn',
+      key: 'in',
+      align: 'right',
+      render: (v: number) => <span className="erp-num--success">{formatInt(v)}</span>,
+    },
+    {
+      title: 'OUT',
+      dataIndex: 'totalOut',
+      key: 'out',
+      align: 'right',
+      render: (v: number) => <span className="erp-num--danger">{formatInt(v)}</span>,
+    },
+    {
+      title: 'Closing',
+      dataIndex: 'closingBalance',
+      key: 'closing',
+      align: 'right',
+      render: (v: number) => <span className="erp-num--bold">{formatInt(v)}</span>,
+    },
+    {
+      title: 'On Hand',
+      dataIndex: 'onHand',
+      key: 'onHand',
+      align: 'right',
+      render: (v: number) => <span className="erp-num--bold">{formatInt(v)}</span>,
+    },
+    {
+      title: 'Available',
+      dataIndex: 'available',
+      key: 'available',
+      align: 'right',
+      render: (v: number) => (
+        <span className={`erp-cell-num ${v < 0 ? 'erp-num--danger' : 'erp-num--bold'}`}>{formatInt(v)}</span>
+      ),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      align: 'center',
+      width: 80,
+      render: (st: string) => (
+        st === 'SHORT' ? <Tag color="red">SHORT</Tag> : <Tag color="green">OK</Tag>
+      ),
+    },
+    {
+      title: 'Ledger',
+      key: 'ledgerAction',
+      align: 'center',
+      width: 85,
+      render: (_, r: ReportRow) => (
+        <Button
+          size="small"
+          icon={<HistoryOutlined />}
+          onClick={() => openLedger(r)}
+          style={{ fontSize: 11, padding: '0 8px', height: 24 }}
+        >
+          Ledger
+        </Button>
+      ),
+    },
+  ];
+
   /* ── Multi-Department Table Columns ───────────────────────────────────── */
   const deptColumns: ColumnsType<typeof departmentBreakdown[0]> = [
     {
@@ -1279,7 +1506,43 @@ const ProductionInventoryReport: React.FC = () => {
       key: 'dept',
       render: (v) => <Text strong>{v}</Text>,
     },
-    { title: 'Items', dataIndex: 'itemCount', key: 'items', align: 'right', render: (v) => formatInt(v) },
+    {
+      title: 'ITEMS',
+      dataIndex: 'itemCount',
+      key: 'items',
+      align: 'center',
+      render: (v, record) => {
+        if (!v || v === 0) {
+          return <Tag color="default" style={{ borderRadius: 10 }}>0 Items</Tag>;
+        }
+        return (
+          <Tooltip title={`Click to view all ${v} items in ${record.departmentName}`}>
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => handleViewDeptItems(record)}
+              style={{
+                backgroundColor: '#2563eb',
+                borderColor: '#1d4ed8',
+                fontWeight: 700,
+                fontSize: 13,
+                borderRadius: 14,
+                padding: '1px 12px',
+                height: 28,
+                boxShadow: '0 2px 5px rgba(37,99,235,0.25)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+              }}
+            >
+              <span>{v} Items</span>
+              <EyeOutlined style={{ fontSize: 12 }} />
+            </Button>
+          </Tooltip>
+        );
+      },
+    },
     { title: 'Opening', dataIndex: 'opening', key: 'opening', align: 'right', render: (v) => formatInt(v) },
     { title: 'IN', dataIndex: 'totalIn', key: 'in', align: 'right', render: (v) => <span className="erp-num--success">{formatInt(v)}</span> },
     { title: 'OUT', dataIndex: 'totalOut', key: 'out', align: 'right', render: (v) => <span className="erp-num--danger">{formatInt(v)}</span> },
@@ -1296,6 +1559,21 @@ const ProductionInventoryReport: React.FC = () => {
       key: 'short',
       align: 'right',
       render: (v) => (v > 0 ? <Tag color="red">{formatInt(v)}</Tag> : <Text type="secondary">0</Text>),
+    },
+    {
+      title: 'Action',
+      key: 'action',
+      align: 'center',
+      render: (_, record) => (
+        <Button
+          size="small"
+          icon={<UnorderedListOutlined />}
+          onClick={() => handleViewDeptItems(record)}
+          disabled={!record.itemCount || record.itemCount === 0}
+        >
+          View Items
+        </Button>
+      ),
     },
   ];
 
@@ -1377,7 +1655,18 @@ const ProductionInventoryReport: React.FC = () => {
             <Button
               icon={<ApartmentOutlined />}
               onClick={() => {
-                setSelectedDivisionForDept(applied.divisionId || (divisions[0]?.id));
+                const targetDiv = applied.divisionId || selectedDivisionForDept || effectiveDivisions[0]?.id;
+                if (targetDiv) setSelectedDivisionForDept(targetDiv);
+                if (divisions.length === 0) {
+                  dashboardService.getFilterDivisions().then((res) => {
+                    if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
+                      setDivisions(res.data);
+                      if (!targetDiv && res.data[0]?.id) {
+                        setSelectedDivisionForDept(res.data[0].id);
+                      }
+                    }
+                  }).catch(() => {});
+                }
                 setDeptModalVisible(true);
               }}
             >
@@ -1418,7 +1707,7 @@ const ProductionInventoryReport: React.FC = () => {
                   placeholder="All Divisions"
                   value={filter.divisionId}
                   onChange={(v) => setFilter((prev) => ({ ...prev, divisionId: v }))}
-                  options={(divisions || []).map((d) => ({ value: d.id, label: d.name }))}
+                  options={(effectiveDivisions || []).map((d) => ({ value: d.id, label: d.name }))}
                 />
               </Col>
               <Col xs={24} sm={12} md={6} lg={4}>
@@ -1768,6 +2057,7 @@ const ProductionInventoryReport: React.FC = () => {
         }}
         footer={null}
         width={isLedgerMaximized ? 'calc(100vw - var(--erp-sidebar-width, 0px) - 32px)' : 1020}
+        zIndex={1100}
         style={
           isLedgerMaximized
             ? { top: 16, maxWidth: 'calc(100vw - var(--erp-sidebar-width, 0px) - 32px)', padding: 0 }
@@ -2007,7 +2297,7 @@ const ProductionInventoryReport: React.FC = () => {
                 placeholder="Select a Division"
                 value={selectedDivisionForDept}
                 onChange={(v) => setSelectedDivisionForDept(v)}
-                options={(divisions || []).map((d) => ({ value: d.id, label: d.name }))}
+                options={(effectiveDivisions || []).map((d) => ({ value: d.id, label: d.name }))}
               />
             </Col>
             <Col xs={24} md={16} style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -2064,7 +2354,7 @@ const ProductionInventoryReport: React.FC = () => {
               size="small"
               icon={<WhatsAppOutlined style={{ color: '#16a34a' }} />}
               onClick={() => {
-                const divName = (divisions || []).find((d) => d.id === selectedDivisionForDept)?.name || 'Division';
+                const divName = (effectiveDivisions || []).find((d) => d.id === selectedDivisionForDept)?.name || 'Division';
                 const lines = [
                   `*${dynamicReportTitle.company}*`,
                   `*Multi-Department Production Report*`,
@@ -2089,7 +2379,7 @@ const ProductionInventoryReport: React.FC = () => {
               size="small"
               icon={<MailOutlined />}
               onClick={() => {
-                const divName = (divisions || []).find((d) => d.id === selectedDivisionForDept)?.name || 'Division';
+                const divName = (effectiveDivisions || []).find((d) => d.id === selectedDivisionForDept)?.name || 'Division';
                 const subject = `PWI Department Production Report - ${divName}`;
                 const body = departmentBreakdown.map((d) =>
                   `${d.departmentName}: On Hand = ${formatInt(d.onHand)}, Produced = ${formatInt(d.produced)}, Shortage = ${d.shortItems}`
@@ -2137,7 +2427,7 @@ const ProductionInventoryReport: React.FC = () => {
           </Space>
         </div>
 
-        {/* Aggregated Department Table */}
+        {/* Aggregated Department Table with Inline Expansion & Highlighting */}
         <Table
           rowKey="departmentId"
           size="small"
@@ -2146,7 +2436,172 @@ const ProductionInventoryReport: React.FC = () => {
           pagination={false}
           bordered
           scroll={{ x: 1000 }}
+          expandable={{
+            expandedRowRender: (record) => (
+              <div style={{ margin: '8px 0', background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text strong style={{ fontSize: 13, color: '#1e293b' }}>
+                    <ClusterOutlined style={{ color: '#2563eb', marginRight: 6 }} />
+                    {record.departmentName} — Detailed Item Breakdown ({record.items.length} {record.items.length === 1 ? 'Item' : 'Items'})
+                  </Text>
+                  <Button
+                    size="small"
+                    type="link"
+                    icon={<FullscreenOutlined />}
+                    onClick={() => handleViewDeptItems(record)}
+                  >
+                    Open Full Modal
+                  </Button>
+                </div>
+                <Table
+                  size="small"
+                  rowKey="itemId"
+                  columns={deptItemDetailColumns}
+                  dataSource={record.items}
+                  pagination={record.items.length > 5 ? { pageSize: 5, size: 'small' } : false}
+                  bordered
+                  scroll={{ x: 900 }}
+                />
+              </div>
+            ),
+            rowExpandable: (record) => Boolean(record.items && record.items.length > 0),
+          }}
         />
+      </Modal>
+
+      {/* ── Department Items Detail Breakdown Modal ──────────────────────── */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ClusterOutlined style={{ color: '#2563eb', fontSize: 18 }} />
+            <span style={{ fontWeight: 700, fontSize: 16 }}>
+              {selectedDeptForItems?.departmentName} — Items Detail Breakdown
+            </span>
+            <Tag color="blue" style={{ fontSize: 13, padding: '2px 8px', borderRadius: 12 }}>
+              {selectedDeptForItems?.itemCount || 0} Items
+            </Tag>
+          </div>
+        }
+        open={deptItemsModalVisible}
+        onCancel={() => setDeptItemsModalVisible(false)}
+        width={1100}
+        zIndex={1050}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setDeptItemsModalVisible(false)}>
+            Close
+          </Button>,
+        ]}
+        style={{ top: 20 }}
+      >
+        {selectedDeptForItems && (
+          <div>
+            {/* Department Summary KPI Cards */}
+            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+              <Col xs={12} sm={6} md={4}>
+                <Card size="small" style={{ background: '#f8fafc', borderColor: '#e2e8f0', textAlign: 'center' }}>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>TOTAL ITEMS</Text>
+                  <Text strong style={{ fontSize: 18, color: '#1e293b' }}>{selectedDeptForItems.itemCount}</Text>
+                </Card>
+              </Col>
+              <Col xs={12} sm={6} md={5}>
+                <Card size="small" style={{ background: '#f8fafc', borderColor: '#e2e8f0', textAlign: 'center' }}>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>TOTAL ON HAND</Text>
+                  <Text strong style={{ fontSize: 18, color: '#0f172a' }}>{formatInt(selectedDeptForItems.onHand)}</Text>
+                </Card>
+              </Col>
+              <Col xs={12} sm={6} md={5}>
+                <Card size="small" style={{ background: '#f8fafc', borderColor: '#e2e8f0', textAlign: 'center' }}>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>TOTAL AVAILABLE</Text>
+                  <Text strong style={{ fontSize: 18, color: selectedDeptForItems.available < 0 ? '#ef4444' : '#16a34a' }}>
+                    {formatInt(selectedDeptForItems.available)}
+                  </Text>
+                </Card>
+              </Col>
+              <Col xs={12} sm={6} md={5}>
+                <Card size="small" style={{ background: '#f0fdf4', borderColor: '#bbf7d0', textAlign: 'center' }}>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', color: '#166534' }}>TOTAL IN (+)</Text>
+                  <Text strong style={{ fontSize: 18, color: '#16a34a' }}>+{formatInt(selectedDeptForItems.totalIn)}</Text>
+                </Card>
+              </Col>
+              <Col xs={12} sm={6} md={5}>
+                <Card size="small" style={{ background: '#fef2f2', borderColor: '#fecaca', textAlign: 'center' }}>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', color: '#991b1b' }}>TOTAL OUT (-)</Text>
+                  <Text strong style={{ fontSize: 18, color: '#dc2626' }}>-{formatInt(selectedDeptForItems.totalOut)}</Text>
+                </Card>
+              </Col>
+            </Row>
+
+            {/* Search Filter & Export Toolbar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+              <Input
+                placeholder="Search by item code or description..."
+                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                value={deptItemsSearchText}
+                onChange={(e) => setDeptItemsSearchText(e.target.value)}
+                style={{ width: 280 }}
+                allowClear
+              />
+              <Space>
+                <Button
+                  size="small"
+                  icon={<FileExcelOutlined />}
+                  onClick={() => {
+                    const csvRows = [
+                      'Department,Item Code,Item Name,Type,UOM,Opening,IN,OUT,Closing,On Hand,Available,Required,Consumed,Scrap,Status',
+                    ];
+                    (selectedDeptForItems.items || []).forEach((it: ReportRow) => {
+                      csvRows.push([
+                        `"${selectedDeptForItems.departmentName}"`,
+                        `"${it.itemCode}"`,
+                        `"${(it.itemName || '').replace(/"/g, '""')}"`,
+                        `"${it.itemType}"`,
+                        `"${it.uomCode || ''}"`,
+                        Math.round(it.openingBalance),
+                        Math.round(it.totalIn),
+                        Math.round(it.totalOut),
+                        Math.round(it.closingBalance),
+                        Math.round(it.onHand),
+                        Math.round(it.available),
+                        Math.round(it.required),
+                        Math.round(it.consumed),
+                        Math.round(it.scrapOut),
+                        `"${it.status}"`,
+                      ].join(','));
+                    });
+                    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${selectedDeptForItems.departmentName.toLowerCase().replace(/\s+/g, '-')}-items-${dayjs().format('YYYY-MM-DD')}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  Export CSV
+                </Button>
+              </Space>
+            </div>
+
+            {/* Department Items Table */}
+            <Table
+              size="small"
+              rowKey="itemId"
+              columns={deptItemDetailColumns}
+              dataSource={
+                deptItemsSearchText
+                  ? (selectedDeptForItems.items || []).filter(
+                      (it: ReportRow) =>
+                        it.itemCode.toLowerCase().includes(deptItemsSearchText.toLowerCase()) ||
+                        it.itemName.toLowerCase().includes(deptItemsSearchText.toLowerCase()),
+                    )
+                  : selectedDeptForItems.items || []
+              }
+              pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }}
+              bordered
+              scroll={{ x: 1000 }}
+            />
+          </div>
+        )}
       </Modal>
 
       {/* ── End-to-End Material Flow & Journey Modal ────────────────────── */}

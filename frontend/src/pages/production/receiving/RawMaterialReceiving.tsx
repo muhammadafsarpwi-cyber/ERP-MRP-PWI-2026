@@ -5,19 +5,19 @@ import {
 } from 'antd';
 import {
   CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
-  EyeInvisibleOutlined, ArrowRightOutlined, InboxOutlined, PaperClipOutlined, PictureOutlined, PlusOutlined, ReloadOutlined,
+  EyeInvisibleOutlined, ArrowRightOutlined, HistoryOutlined, InboxOutlined, PaperClipOutlined, PictureOutlined, PlusOutlined, ReloadOutlined,
   SaveOutlined, SendOutlined, WarningOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import apiService from '../../../services/api';
+import apiService, { resolveFileUrl } from '../../../services/api';
 import { compressImageFile } from '../../../utils/imageCompressor';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
 import { buildReceiptWhatsAppMessage, normalizeWaPhone, waLink, waDirectShareUrl } from '../../../utils/receiptShare';
 import type { ShareReceiptInfo } from '../../../utils/receiptShare';
 import { formatNameWithCode } from '../../../utils/formatEntityLabel';
-import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar } from '../../../components/shared';
+import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar, ItemStockLedgerModal } from '../../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
 import { useRawReceiptDraftStore } from '../../../store/rawReceiptDraftStore';
 import type { ReceiptDraft, OrgBundle } from '../../../store/rawReceiptDraftStore';
@@ -106,6 +106,7 @@ interface ReceiptDocument {
 
 interface ReceiptInventoryBalance {
   exists: boolean;
+  previousOnHand?: number | null;
   onHand: number | null;
   reserved: number | null;
   available: number | null;
@@ -249,6 +250,17 @@ const RawMaterialReceiving: React.FC = () => {
 
   // Toggle state to hide/show the Live Verification Panel on the right
   const [showLivePreview, setShowLivePreview] = useState<boolean>(true);
+
+  // Item Stock Movement History (Ledger) drill-down modal state
+  const [ledgerModalOpen, setLedgerModalOpen] = useState(false);
+  const [ledgerItem, setLedgerItem] = useState<{ id: string; itemCode: string; name: string } | null>(null);
+  const [ledgerWarehouse, setLedgerWarehouse] = useState<{ id?: string; name?: string } | null>(null);
+
+  const handleOpenLedger = (itemId: string, itemCode?: string, name?: string, warehouseId?: string, warehouseName?: string) => {
+    setLedgerItem({ id: itemId, itemCode: itemCode || '', name: name || '' });
+    setLedgerWarehouse(warehouseId ? { id: warehouseId, name: warehouseName } : null);
+    setLedgerModalOpen(true);
+  };
 
   // Queued restore: the draft is only applied once the reference data is present.
   const [queuedRestore, setQueuedRestore] = useState<ReceiptDraft | null>(null);
@@ -1329,18 +1341,19 @@ const RawMaterialReceiving: React.FC = () => {
     try {
       let resultReceiptCode = editingId ? (list.find((x) => x.id === editingId)?.receiptCode || editingId) : '';
       let resultId = editingId || '';
+      let alreadyProcessed = false;
       if (editingId) {
         await apiService.patch<{ success: boolean }>(`/inventory/receipts/gate-pass/${editingId}`, payload);
       } else {
         const res = await apiService.post<{ success: boolean; data?: any; alreadyProcessed?: boolean }>('/inventory/receipts/gate-pass', payload);
         resultId = res.data?.id || resultId;
         resultReceiptCode = res.data?.receiptCode || 'Confirmed';
-        const alreadyProcessed = res.data?.alreadyProcessed === true || res.alreadyProcessed === true;
+        alreadyProcessed = res.data?.alreadyProcessed === true || res.alreadyProcessed === true;
         if (alreadyProcessed) {
           message.info('Gate Pass already processed in inventory. No duplicate posting was created.');
         }
-        await finishSaveFlow(resultId, resultReceiptCode, values, { alreadyProcessed });
       }
+      await finishSaveFlow(resultId, resultReceiptCode, values, { alreadyProcessed });
     } catch (err: any) {
       const errMsg = formatApiError(err, 'Failed to save the receipt.');
       setSaveDialogError(errMsg);
@@ -1389,17 +1402,25 @@ const RawMaterialReceiving: React.FC = () => {
         const fallbackItems = rawLines.map((it: any) => {
           const itemId = it.item?.id || it.itemId || '';
           const b = balancesMap[itemId];
+          const onHand = b ? Number(b.onHand) : 0;
+          const received = Number(it.receivedQuantity || 0);
+          const previousOnHand = detailRec.status === 'CONFIRMED' ? Math.max(0, onHand - received) : onHand;
           return {
             id: it.id || itemId,
             itemId,
             itemCode: it.item?.itemCode || it.itemCode || '',
             itemName: it.item?.name || it.itemName || '',
             uomCode: it.uom?.code || it.uomCode || 'KG',
-            receivedQuantity: Number(it.receivedQuantity || 0),
-            onHand: b ? Number(b.onHand) : 0,
-            reserved: b ? Number(b.reserved) : 0,
-            available: b ? Number(b.available) : 0,
-            lastUpdatedAt: b?.updatedAt || null,
+            receivedQuantity: received,
+            gatePassQuantity: Number(it.gatePassQuantity || 0),
+            balance: {
+              exists: !!b,
+              previousOnHand,
+              onHand,
+              reserved: b ? Number(b.reserved) : 0,
+              available: b ? Number(b.available) : 0,
+              lastUpdatedAt: b?.updatedAt || null,
+            },
           };
         });
         setInventoryData({
@@ -1967,12 +1988,22 @@ const RawMaterialReceiving: React.FC = () => {
                     <div className="rmr-existing-docs">
                       <div className="rmr-doc-block-label">Current documents on file</div>
                       <div className="rmr-pending-list">
-                        {existingDocs.map((doc) => (
-                          doc.kind === 'PHOTO' ? (
+                        {existingDocs.map((doc) => {
+                          const resolvedUrl = resolveFileUrl(doc.fileUrl);
+                          return doc.kind === 'PHOTO' ? (
                             <div key={doc.id} className="rmr-pending-photo">
-                              <img src={doc.fileUrl} alt={doc.fileName} className="rmr-preview-thumb" />
+                              <img
+                                src={resolvedUrl}
+                                alt={doc.fileName}
+                                className="rmr-preview-thumb"
+                                onError={(e) => {
+                                  const target = e.currentTarget;
+                                  target.onerror = null;
+                                  target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="84" height="64" viewBox="0 0 84 64" fill="%23f1f5f9"><rect width="84" height="64" rx="8" fill="%23f1f5f9"/><path d="M30 38l6-7 4 5 7-9 9 11H30z" fill="%2394a3b8"/><circle cx="36" cy="24" r="3" fill="%2394a3b8"/><text x="42" y="54" font-size="8" fill="%2364748b" text-anchor="middle" font-family="sans-serif">Preview n/a</text></svg>';
+                                }}
+                              />
                               <div className="rmr-pending-meta">
-                                <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                                <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link" title={doc.fileName}>{doc.fileName}</a>
                               </div>
                               <Popconfirm title="Remove this document?" onConfirm={() => handleRemoveExistingDoc(doc)} okText="Remove" okButtonProps={{ danger: true }}>
                                 <Button size="small" danger icon={<DeleteOutlined />} data-testid={`rm-remove-existing-${doc.id}`} aria-label={`Remove ${doc.fileName}`} />
@@ -1981,14 +2012,14 @@ const RawMaterialReceiving: React.FC = () => {
                           ) : (
                             <div key={doc.id} className="rmr-pending-attach">
                               <PaperClipOutlined />
-                              <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                              <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link" title={doc.fileName}>{doc.fileName}</a>
                               <span className="rmr-pending-size">{doc.fileSize ? formatBytes(doc.fileSize) : ''}</span>
                               <Popconfirm title="Remove this document?" onConfirm={() => handleRemoveExistingDoc(doc)} okText="Remove" okButtonProps={{ danger: true }}>
                                 <Button size="small" danger icon={<DeleteOutlined />} data-testid={`rm-remove-existing-${doc.id}`} aria-label={`Remove ${doc.fileName}`} />
                               </Popconfirm>
                             </div>
-                          )
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -2325,8 +2356,8 @@ const RawMaterialReceiving: React.FC = () => {
         result={saveDialogResult}
         errorMessage={saveDialogError}
         successTitle={saveDialogSuccessTitle}
-        loadingTitle="Posting Raw Material Receipt..."
-        loadingHint="Validating division scopes and posting real-time inventory ledger movements..."
+        loadingTitle={editingId ? 'Updating Raw Material Receipt...' : 'Posting Raw Material Receipt...'}
+        loadingHint={editingId ? 'Recalculating inventory ledger movements and uploading documents...' : 'Validating division scopes and posting real-time inventory ledger movements...'}
         onRetry={saveDialogRetry}
         onClose={() => setSaveDialogVisible(false)}
       />
@@ -2515,9 +2546,17 @@ const RawMaterialReceiving: React.FC = () => {
                   {
                     title: 'Item', key: 'item', ellipsis: true,
                     render: (_, l) => (l.item ? (
-                      <Tooltip title={`${l.item.itemCode} — ${l.item.name}`}>
-                        <span>{l.item.itemCode} — {l.item.name}</span>
-                      </Tooltip>
+                      <div
+                        onClick={() => handleOpenLedger(l.item!.id, l.item!.itemCode, l.item!.name, detail?.warehouse?.id, detail?.warehouse?.name)}
+                        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                        title="Click to view complete stock movement history (Ledger)"
+                      >
+                        <span style={{ color: 'var(--theme-accent, #2563eb)', textDecoration: 'underline', fontWeight: 600 }}>
+                          {l.item.itemCode}
+                        </span>
+                        <HistoryOutlined style={{ color: 'var(--theme-accent, #2563eb)', fontSize: 12 }} />
+                        <span style={{ color: 'var(--theme-text, inherit)' }}>— {l.item.name}</span>
+                      </div>
                     ) : '-'),
                   },
                   { title: 'UOM', key: 'uom', width: 72, render: (_, l) => l.uom?.code || '-' },
@@ -2545,23 +2584,34 @@ const RawMaterialReceiving: React.FC = () => {
               {(detail.documents || []).length > 0 ? (
                 <div className="rmr-detail-docs">
                   <div className="rmr-pending-list">
-                    {detail.documents!.map((doc) => (
-                      doc.kind === 'PHOTO' ? (
+                    {detail.documents!.map((doc) => {
+                      const resolvedUrl = resolveFileUrl(doc.fileUrl);
+                      return doc.kind === 'PHOTO' ? (
                         <div key={doc.id} className="rmr-pending-photo" data-testid="rm-detail-photo">
-                          <img src={doc.fileUrl} alt={doc.fileName} className="rmr-preview-thumb-lg" onClick={() => window.open(doc.fileUrl, '_blank', 'noopener,noreferrer')} />
+                          <img
+                            src={resolvedUrl}
+                            alt={doc.fileName}
+                            className="rmr-preview-thumb-lg"
+                            onClick={() => window.open(resolvedUrl, '_blank', 'noopener,noreferrer')}
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              target.onerror = null;
+                              target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="92" viewBox="0 0 120 92" fill="%23f1f5f9"><rect width="120" height="92" rx="8" fill="%23f1f5f9"/><path d="M40 55l9-11 6 7 11-14 14 18H40z" fill="%2394a3b8"/><circle cx="49" cy="33" r="4" fill="%2394a3b8"/><text x="60" y="78" font-size="10" fill="%2364748b" text-anchor="middle" font-family="sans-serif">Preview unavailable</text></svg>';
+                            }}
+                          />
                           <div className="rmr-pending-meta">
-                            <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                            <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link" title={doc.fileName}>{doc.fileName}</a>
                             <span className="rmr-pending-size">{doc.fileSize ? formatBytes(doc.fileSize) : ''}</span>
                           </div>
                         </div>
                       ) : (
                         <div key={doc.id} className="rmr-pending-attach" data-testid="rm-detail-attachment">
                           <PaperClipOutlined />
-                          <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link">{doc.fileName}</a>
+                          <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className="rmr-pending-link" title={doc.fileName}>{doc.fileName}</a>
                           <span className="rmr-pending-size">{doc.fileSize ? formatBytes(doc.fileSize) : ''}</span>
                         </div>
-                      )
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ) : (
@@ -2632,7 +2682,30 @@ const RawMaterialReceiving: React.FC = () => {
             ) : null}
           </div>
 
-          <div className="rmr-inventory-caption">Inventory for items received in {inventoryData?.receiptCode ?? ''}</div>
+          <div className="rmr-inventory-caption" style={{ marginBottom: 8 }}>
+            Inventory movement and live balance verification for items received in <strong>{inventoryData?.receiptCode ?? ''}</strong>
+          </div>
+
+          {/* STOCK FLOW AUDIT BANNER */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.07) 0%, rgba(59, 130, 246, 0.05) 100%)',
+            border: '1px solid rgba(16, 185, 129, 0.28)',
+            borderRadius: 8,
+            padding: '8px 14px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}>
+            <div style={{ fontSize: 12, color: 'var(--theme-text, #1e293b)' }}>
+              <strong>Stock Ledger Flow:</strong> Stock Before Receipt ➔ Received (+) ➔ Balance After Receipt (= Current On Hand)
+            </div>
+            <Tag color="cyan" style={{ margin: 0, fontWeight: 700 }}>
+              Warehouse: {inventoryData?.warehouse?.name || 'All'}
+            </Tag>
+          </div>
 
           {inventoryLoading ? (
             <Alert type="info" showIcon message="Loading inventory status..." data-testid="rm-inventory-loading" />
@@ -2648,46 +2721,121 @@ const RawMaterialReceiving: React.FC = () => {
               rowKey={(r) => `${r.lineNumber}-${r.item?.id ?? 'x'}`}
               size="small"
               pagination={false}
-              scroll={{ x: 1080 }}
+              scroll={{ x: 1180 }}
               className="rmr-detail-items-table"
               dataSource={inventoryData.items}
               columns={[
                 { title: '#', dataIndex: 'lineNumber', key: 'lineNumber', width: 44 },
-                { title: 'Item', key: 'item', width: 240, render: (_: unknown, r: ReceiptInventoryRow) => (
-                    <div className="rmr-inventory-item">
-                      {r.item ? (
-                        <>
-                          <span className="rmr-inventory-item-code">{r.item.itemCode}</span>
-                          <span className="rmr-inventory-item-name">{r.item.name}</span>
-                        </>
-                      ) : <Text type="secondary">—</Text>}
-                    </div>
-                  ),
-                },
-                { title: 'UOM', key: 'uom', width: 80, render: (_: unknown, r: ReceiptInventoryRow) => r.uom?.code || '-' },
-                { title: 'Received in This Receipt', key: 'receivedQty', align: 'right' as const, width: 150, render: (_: unknown, r: ReceiptInventoryRow) => <span className="rmr-inventory-received">{formatNumber(r.receivedQuantity, 2)}</span> },
-                { title: 'Current On Hand', key: 'onHand', align: 'right' as const, width: 140, render: (_: unknown, r: ReceiptInventoryRow) => {
-                    if (!r.balance) return <Text type="secondary">—</Text>;
-                    if (!r.balance.exists) return <Tag color="default" data-testid="rm-inventory-missing">No inventory balance record found.</Tag>;
-                    return formatNumber(r.balance.onHand, 2);
+                { title: 'Item', key: 'item', width: 230, render: (_: unknown, r: ReceiptInventoryRow) => {
+                    const it = r.item;
+                    return (
+                      <div className="rmr-inventory-item">
+                        {it ? (
+                          <div
+                            onClick={() => handleOpenLedger(
+                              it.id,
+                              it.itemCode,
+                              it.name,
+                              inventoryData?.warehouse?.id,
+                              inventoryData?.warehouse?.name,
+                            )}
+                            style={{ cursor: 'pointer' }}
+                            title="Click to view complete stock movement history (Ledger)"
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span className="rmr-inventory-item-code" style={{ color: 'var(--theme-accent, #2563eb)', textDecoration: 'underline', fontWeight: 700 }}>
+                                {it.itemCode}
+                              </span>
+                              <HistoryOutlined style={{ color: 'var(--theme-accent, #2563eb)', fontSize: 13 }} />
+                            </div>
+                            <span className="rmr-inventory-item-name">{it.name}</span>
+                          </div>
+                        ) : <Text type="secondary">—</Text>}
+                      </div>
+                    );
                   },
                 },
-                { title: 'Reserved', key: 'reserved', align: 'right' as const, width: 120, render: (_: unknown, r: ReceiptInventoryRow) => {
+                { title: 'UOM', key: 'uom', width: 70, render: (_: unknown, r: ReceiptInventoryRow) => r.uom?.code || '-' },
+                {
+                  title: 'Stock Before Receipt',
+                  key: 'prevStock',
+                  align: 'right' as const,
+                  width: 155,
+                  render: (_: unknown, r: ReceiptInventoryRow) => {
+                    if (!r.balance || !r.balance.exists) return <Text type="secondary">—</Text>;
+                    const prev = r.balance.previousOnHand != null
+                      ? r.balance.previousOnHand
+                      : Math.max(0, Number(r.balance.onHand || 0) - Number(r.receivedQuantity || 0));
+                    return (
+                      <span style={{ fontFamily: 'JetBrains Mono, Consolas, monospace', color: 'var(--theme-text-secondary, #64748b)', fontWeight: 600 }}>
+                        {formatNumber(prev, 2)}
+                      </span>
+                    );
+                  },
+                },
+                {
+                  title: 'Received in This Receipt',
+                  key: 'receivedQty',
+                  align: 'right' as const,
+                  width: 165,
+                  render: (_: unknown, r: ReceiptInventoryRow) => (
+                    <span className="rmr-inventory-received" style={{ color: 'var(--theme-success, #059669)', fontWeight: 700, fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                      +{formatNumber(r.receivedQuantity, 2)}
+                    </span>
+                  ),
+                },
+                {
+                  title: 'Current On Hand',
+                  key: 'onHand',
+                  align: 'right' as const,
+                  width: 150,
+                  render: (_: unknown, r: ReceiptInventoryRow) => {
+                    if (!r.balance) return <Text type="secondary">—</Text>;
+                    if (!r.balance.exists) return <Tag color="default" data-testid="rm-inventory-missing">No balance record found.</Tag>;
+                    return (
+                      <strong style={{ color: '#059669', fontSize: 13, fontFamily: 'JetBrains Mono, Consolas, monospace' }}>
+                        ={formatNumber(r.balance.onHand, 2)}
+                      </strong>
+                    );
+                  },
+                },
+                {
+                  title: 'Reserved',
+                  key: 'reserved',
+                  align: 'right' as const,
+                  width: 100,
+                  render: (_: unknown, r: ReceiptInventoryRow) => {
                     if (!r.balance?.exists) return <Text type="secondary">—</Text>;
                     return formatNumber(r.balance.reserved, 2);
                   },
                 },
-                { title: 'Available', key: 'available', align: 'right' as const, width: 120, render: (_: unknown, r: ReceiptInventoryRow) => {
+                {
+                  title: 'Available',
+                  key: 'available',
+                  align: 'right' as const,
+                  width: 120,
+                  render: (_: unknown, r: ReceiptInventoryRow) => {
                     if (!r.balance?.exists) return <Text type="secondary">—</Text>;
-                    return <strong>{formatNumber(r.balance.available, 2)}</strong>;
+                    return <strong style={{ color: '#2563eb' }}>{formatNumber(r.balance.available, 2)}</strong>;
                   },
                 },
-                { title: 'Last Updated', key: 'lastUpdated', width: 120, render: (_: unknown, r: ReceiptInventoryRow) => r.balance?.lastUpdatedAt ? dayjs(r.balance.lastUpdatedAt).format('DD-MMM-YYYY') : '-' },
+                { title: 'Last Updated', key: 'lastUpdated', width: 110, render: (_: unknown, r: ReceiptInventoryRow) => r.balance?.lastUpdatedAt ? dayjs(r.balance.lastUpdatedAt).format('DD-MMM-YYYY') : '-' },
               ]}
             />
           ) : null}
         </div>
       </Modal>
+
+      {/* Item Stock Movement History / Ledger Drill-down Modal */}
+      <ItemStockLedgerModal
+        open={ledgerModalOpen}
+        itemId={ledgerItem?.id || null}
+        itemCode={ledgerItem?.itemCode}
+        itemName={ledgerItem?.name}
+        warehouseId={ledgerWarehouse?.id}
+        warehouseName={ledgerWarehouse?.name}
+        onClose={() => setLedgerModalOpen(false)}
+      />
 
     </div>
   );

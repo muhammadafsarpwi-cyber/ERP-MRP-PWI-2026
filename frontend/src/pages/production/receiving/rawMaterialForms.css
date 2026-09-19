@@ -1292,3 +1292,283 @@
   border-color: var(--theme-border, #475569) !important;
 }
 
+/* =====================================================================
+   Executive KPI Metrics Cards & Live Item Stock Tracking System
+   ===================================================================== */
+.erp-report-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+  margin-top: 10px;
+  margin-bottom: 16px;
+}
+
+.erp-report-kpi-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 108px;
+}
+
+.erp-report-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.07);
+}
+
+[data-theme='dark'] .erp-report-kpi-card {
+  background: var(--theme-surface, #1e293b);
+  border-color: var(--theme-border, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.erp-report-kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3.5px;
+  background: var(--kpi-accent, #3b82f6);
+}
+
+.erp-kpi-watermark-icon {
+  position: absolute;
+  right: -6px;
+  bottom: -10px;
+  font-size: 78px;
+  opacity: 0.06;
+  color: var(--kpi-accent, #3b82f6);
+  pointer-events: none;
+  line-height: 1;
+  user-select: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.erp-report-kpi-card:hover .erp-kpi-watermark-icon {
+  opacity: 0.11;
+  transform: scale(1.05);
+}
+
+[data-theme='dark'] .erp-kpi-watermark-icon {
+  opacity: 0.08;
+}
+
+[data-theme='dark'] .erp-report-kpi-card:hover .erp-kpi-watermark-icon {
+  opacity: 0.15;
+}
+
+.erp-kpi-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  z-index: 1;
+}
+
+.erp-kpi-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--theme-text-secondary, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.erp-kpi-value {
+  font-size: 26px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', 'Roboto Mono', Consolas, monospace;
+  color: var(--kpi-val-color, var(--theme-text, #0f172a));
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+  z-index: 1;
+}
+
+.erp-kpi-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  margin-top: 6px;
+  z-index: 1;
+}
+
+/* Specific KPI Theme Variants */
+.erp-kpi--gatepass {
+  --kpi-accent: #2563eb;
+  --kpi-val-color: #1d4ed8;
+}
+[data-theme='dark'] .erp-kpi--gatepass {
+  --kpi-val-color: #60a5fa;
+}
+
+.erp-kpi--received {
+  --kpi-accent: #10b981;
+  --kpi-val-color: #059669;
+}
+[data-theme='dark'] .erp-kpi--received {
+  --kpi-val-color: #34d399;
+}
+
+.erp-kpi--difference {
+  --kpi-accent: #f59e0b;
+  --kpi-val-color: #d97706;
+}
+[data-theme='dark'] .erp-kpi--difference {
+  --kpi-val-color: #fbbf24;
+}
+.erp-kpi--difference.has-variance {
+  --kpi-accent: #ef4444;
+  --kpi-val-color: #dc2626;
+}
+[data-theme='dark'] .erp-kpi--difference.has-variance {
+  --kpi-val-color: #f87171;
+}
+
+.erp-kpi--returns {
+  --kpi-accent: #ea580c;
+  --kpi-val-color: #c2410c;
+}
+[data-theme='dark'] .erp-kpi--returns {
+  --kpi-val-color: #fb923c;
+}
+
+.erp-kpi--legacy {
+  --kpi-accent: #8b5cf6;
+  --kpi-val-color: #7c3aed;
+}
+[data-theme='dark'] .erp-kpi--legacy {
+  --kpi-val-color: #a78bfa;
+}
+
+/* Live Item Stock & Movement Master Banner */
+.erp-item-live-banner {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.04) 0%, rgba(99, 102, 241, 0.06) 100%);
+  border: 1.5px solid rgba(99, 102, 241, 0.25);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-top: 14px;
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 3px 12px rgba(99, 102, 241, 0.04);
+}
+
+[data-theme='dark'] .erp-item-live-banner {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.erp-item-live-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--theme-border, #cbd5e1);
+  margin-bottom: 14px;
+}
+
+[data-theme='dark'] .erp-item-live-header {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+.erp-item-live-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.erp-item-live-badge {
+  background: linear-gradient(135deg, #4f46e5, #3b82f6);
+  color: #ffffff;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.erp-item-live-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--theme-text, #0f172a);
+}
+
+.erp-item-live-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--theme-text-muted, #64748b);
+  background: var(--theme-surface, #ffffff);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--theme-border, #cbd5e1);
+}
+
+[data-theme='dark'] .erp-item-live-code {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+}
+
+.erp-item-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.erp-item-metric-box {
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-theme='dark'] .erp-item-metric-box {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.erp-item-metric-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--theme-text-secondary, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.erp-item-metric-val {
+  font-size: 22px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+}
+
+.erp-item-metric-sub {
+  font-size: 11px;
+  color: var(--theme-text-muted, #94a3b8);
+}
+
+

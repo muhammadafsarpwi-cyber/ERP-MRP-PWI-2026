@@ -2710,7 +2710,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
             {sortInfo && <Text type="secondary" style={{ fontSize: 12 }}>{sortInfo}</Text>}
           </div>
 
-          {/* Row 2: Division & Department side-by-side (امنے سامنے) */}
+          {/* Row 2: Division & Department side-by-side */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <Select
               allowClear

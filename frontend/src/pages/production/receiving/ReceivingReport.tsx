@@ -1,16 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Button, Card, Col, DatePicker, Divider, Form, Input, Row, Select, Space, Spin, Statistic, Table, Tag, Typography, App,
+  Alert, Badge, Button, Card, Col, DatePicker, Divider, Form, Input, Row, Select, Space, Spin, Table, Tag, Typography, App,
 } from 'antd';
-import { BarChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  BarChartOutlined, ReloadOutlined, SearchOutlined,
+  InboxOutlined, CheckCircleOutlined, DiffOutlined, RollbackOutlined,
+  DatabaseOutlined, HistoryOutlined, FilterOutlined, DownOutlined, UpOutlined, ClearOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
 import { formatNameWithCode } from '../../../utils/formatEntityLabel';
+import './rawMaterialForms.css';
 
 const { Text, Title } = Typography;
+
+/** Formats numbers with thousand separators and trims redundant trailing zeros */
+const formatQty = (v: unknown): string => formatNumber(v, 2);
 
 interface OrgOption { id: string; name: string; divisionCode?: string; sectionCode?: string; departmentCode?: string; }
 interface WarehouseOption { id: string; name: string; warehouseCode?: string; }
@@ -88,10 +96,38 @@ interface LegacyEntry {
   uom?: { code?: string } | null;
 }
 
+interface ItemStockSummary {
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  uomCode: string;
+  totalOnHand: number;
+  totalAvailable: number;
+  totalReserved: number;
+  totalProductionConsumption: number;
+  warehouseBreakdown: Array<{
+    warehouseCode?: string;
+    warehouseName?: string;
+    quantityOnHand: number;
+    quantityAvailable: number;
+  }>;
+  lastTransaction?: {
+    transactionType: string;
+    direction: string;
+    quantity: number;
+    transactionDate: string;
+    referenceNumber?: string | null;
+    notes?: string | null;
+    warehouseName?: string;
+    warehouseCode?: string;
+  } | null;
+}
+
 interface ReportResult {
   receipts: ReceiptGroup[];
   returns: ReturnGroup[];
   legacyLedger: LegacyEntry[];
+  itemStockSummary?: ItemStockSummary | null;
   summary: {
     gatePassTotal: number;
     receivedTotal: number;
@@ -119,6 +155,28 @@ const ReceivingReport: React.FC = () => {
 
   const watchDivision = Form.useWatch('divisionId', form);
   const watchSection = Form.useWatch('sectionId', form);
+  const watchDepartmentId = Form.useWatch('departmentId', form);
+  const watchWarehouseId = Form.useWatch('warehouseId', form);
+  const watchGatePassNo = Form.useWatch('gatePassNo', form);
+  const watchSourceNo = Form.useWatch('sourceNo', form);
+  const watchStatus = Form.useWatch('status', form);
+
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+
+  const secondaryActiveCount = useMemo(() => {
+    let count = 0;
+    if (watchDivision) count++;
+    if (watchSection) count++;
+    if (watchDepartmentId) count++;
+    if (watchWarehouseId) count++;
+    if (watchGatePassNo) count++;
+    if (watchSourceNo) count++;
+    if (watchStatus) count++;
+    return count;
+  }, [
+    watchDivision, watchSection, watchDepartmentId,
+    watchWarehouseId, watchGatePassNo, watchSourceNo, watchStatus,
+  ]);
 
   const loadRef = useCallback(async () => {
     setRefState('loading');
@@ -219,9 +277,9 @@ const ReceivingReport: React.FC = () => {
     { title: 'Section', dataIndex: 'sectionName', key: 'sectionName', width: 130, ellipsis: true, render: (v?: string | null) => v || '-' },
     { title: 'Department', dataIndex: 'departmentName', key: 'departmentName', width: 150, ellipsis: true, render: (v?: string | null) => v || '-' },
     { title: 'Warehouse', key: 'warehouse', width: 150, ellipsis: true, render: (_, r) => (r.warehouseCode || r.warehouseName || '-') },
-    { title: 'Gate Pass (+)', dataIndex: 'gatePassTotal', key: 'gatePassTotal', width: 120, align: 'right' as const, render: (v: number) => formatNumber(v, 4) },
-    { title: 'Received (+)', dataIndex: 'receivedTotal', key: 'receivedTotal', width: 120, align: 'right' as const, render: (v: number) => <Text strong style={{ color: 'var(--theme-success, #52c41a)' }}>{formatNumber(v, 4)}</Text> },
-    { title: 'Difference', dataIndex: 'differenceTotal', key: 'differenceTotal', width: 120, align: 'right' as const, render: (v: number) => <Text style={{ color: v !== 0 ? 'var(--theme-danger, #ff4d4f)' : undefined }}>{formatNumber(v, 4)}</Text> },
+    { title: 'Gate Pass (+)', dataIndex: 'gatePassTotal', key: 'gatePassTotal', width: 120, align: 'right' as const, render: (v: number) => formatQty(v) },
+    { title: 'Received (+)', dataIndex: 'receivedTotal', key: 'receivedTotal', width: 120, align: 'right' as const, render: (v: number) => <Text strong style={{ color: 'var(--theme-success, #52c41a)' }}>{formatQty(v)}</Text> },
+    { title: 'Difference', dataIndex: 'differenceTotal', key: 'differenceTotal', width: 120, align: 'right' as const, render: (v: number) => <Text style={{ color: v !== 0 ? 'var(--theme-danger, #ff4d4f)' : undefined }}>{formatQty(v)}</Text> },
     { title: 'Status', dataIndex: 'status', key: 'status', width: 105, render: (v: string) => <Tag color={v === 'CONFIRMED' ? 'green' : v === 'DRAFT' ? 'gold' : 'red'}>{v}</Tag> },
   ];
 
@@ -229,9 +287,9 @@ const ReceivingReport: React.FC = () => {
     { title: '#', dataIndex: 'lineNumber', key: 'lineNumber', width: 40 },
     { title: 'Item', key: 'item', render: (_, l) => (l.itemName ? formatNameWithCode(l.itemName, l.itemCode) : '-') },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70, render: (v?: string | null) => v || '-' },
-    { title: 'Gate Pass Qty', dataIndex: 'gatePassQuantity', key: 'gp', width: 120, align: 'right' as const, render: (v: number) => formatNumber(v, 4) },
-    { title: 'Received Qty', dataIndex: 'receivedQuantity', key: 'rc', width: 120, align: 'right' as const, render: (v: number) => <Text strong style={{ color: 'var(--theme-success, #52c41a)' }}>{formatNumber(v, 4)}</Text> },
-    { title: 'Difference', dataIndex: 'difference', key: 'diff', width: 120, align: 'right' as const, render: (v: number) => <Text style={{ color: v !== 0 ? 'var(--theme-danger, #ff4d4f)' : undefined }}>{formatNumber(v, 4)}</Text> },
+    { title: 'Gate Pass Qty', dataIndex: 'gatePassQuantity', key: 'gp', width: 120, align: 'right' as const, render: (v: number) => formatQty(v) },
+    { title: 'Received Qty', dataIndex: 'receivedQuantity', key: 'rc', width: 120, align: 'right' as const, render: (v: number) => <Text strong style={{ color: 'var(--theme-success, #52c41a)' }}>{formatQty(v)}</Text> },
+    { title: 'Difference', dataIndex: 'difference', key: 'diff', width: 120, align: 'right' as const, render: (v: number) => <Text style={{ color: v !== 0 ? 'var(--theme-danger, #ff4d4f)' : undefined }}>{formatQty(v)}</Text> },
     { title: 'Remarks', dataIndex: 'remarks', key: 'remarks', render: (v?: string | null) => v || '-' },
   ];
 
@@ -243,7 +301,7 @@ const ReceivingReport: React.FC = () => {
     { title: 'Section', dataIndex: 'sectionName', key: 'sectionName', width: 130, ellipsis: true, render: (v?: string | null) => v || '-' },
     { title: 'Department', dataIndex: 'departmentName', key: 'departmentName', width: 150, ellipsis: true, render: (v?: string | null) => v || '-' },
     { title: 'Warehouse', key: 'warehouse', width: 150, ellipsis: true, render: (_, r) => (r.warehouseCode || r.warehouseName || '-') },
-    { title: 'Quantity (−)', dataIndex: 'quantityTotal', key: 'quantityTotal', width: 120, align: 'right' as const, render: (v: number) => <Text strong style={{ color: 'var(--theme-danger, #ff4d4f)' }}>{formatNumber(v, 4)}</Text> },
+    { title: 'Quantity (−)', dataIndex: 'quantityTotal', key: 'quantityTotal', width: 120, align: 'right' as const, render: (v: number) => <Text strong style={{ color: 'var(--theme-danger, #ff4d4f)' }}>{formatQty(v)}</Text> },
     { title: 'Status', dataIndex: 'status', key: 'status', width: 105, render: (v: string) => <Tag color={v === 'CONFIRMED' ? 'green' : v === 'DRAFT' ? 'gold' : 'red'}>{v}</Tag> },
   ];
 
@@ -251,7 +309,7 @@ const ReceivingReport: React.FC = () => {
     { title: '#', dataIndex: 'lineNumber', key: 'lineNumber', width: 40 },
     { title: 'Item', key: 'item', render: (_, l) => (l.itemName ? formatNameWithCode(l.itemName, l.itemCode) : '-') },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70, render: (v?: string | null) => v || '-' },
-    { title: 'Quantity', dataIndex: 'quantity', key: 'q', width: 120, align: 'right' as const, render: (v: number) => formatNumber(v, 4) },
+    { title: 'Quantity', dataIndex: 'quantity', key: 'q', width: 120, align: 'right' as const, render: (v: number) => formatQty(v) },
     { title: 'Remarks', dataIndex: 'remarks', key: 'remarks', render: (v?: string | null) => v || '-' },
   ];
 
@@ -262,7 +320,7 @@ const ReceivingReport: React.FC = () => {
     { title: 'Item', key: 'item', width: 260, ellipsis: true, render: (_, l) => (l.item ? `${l.item.itemCode ?? ''} — ${l.item.name}` : '-') },
     { title: 'Warehouse', key: 'warehouse', width: 180, ellipsis: true, render: (_, l) => (l.warehouse ? `${l.warehouse.warehouseCode ?? ''} ${l.warehouse.name}`.trim() : '-') },
     { title: 'UOM', key: 'uom', width: 70, render: (_, l) => l.uom?.code || '-' },
-    { title: 'Qty', dataIndex: 'quantity', key: 'qty', width: 100, align: 'right' as const, render: (v: number) => formatNumber(v, 4) },
+    { title: 'Qty', dataIndex: 'quantity', key: 'qty', width: 100, align: 'right' as const, render: (v: number) => formatQty(v) },
     { title: 'Reference No', dataIndex: 'referenceNumber', key: 'ref', width: 130, render: (v?: string | null) => v || '-' },
   ];
 
@@ -283,49 +341,167 @@ const ReceivingReport: React.FC = () => {
         </Row>
       </Card>
 
-      <Card className="erp-section-card" title="Filters">
-        <Form form={form} layout="inline" onFinish={runReport} initialValues={{ dateFrom: currentMonth.start, dateTo: currentMonth.end }} style={{ rowGap: 12 }}>
-          <Form.Item name="dateFrom"><DatePicker placeholder="From" /></Form.Item>
-          <Form.Item name="dateTo"><DatePicker placeholder="To" /></Form.Item>
-          <Form.Item name="divisionId">
-            <Select placeholder="Division" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={refState === 'error'}
-              popupMatchSelectWidth={false}
-              styles={{ popup: { root: { minWidth: 280 } } }}
-              options={(refData?.divisions || []).map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.divisionCode) }))} />
-          </Form.Item>
-          <Form.Item name="sectionId">
-            <Select placeholder="Section" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={!watchDivision}
-              popupMatchSelectWidth={false}
-              styles={{ popup: { root: { minWidth: 280 } } }}
-              options={sections.map((s) => ({ value: s.id, label: formatNameWithCode(s.name, s.sectionCode) }))} />
-          </Form.Item>
-          <Form.Item name="departmentId">
-            <Select placeholder="Department" allowClear showSearch optionFilterProp="label" style={{ minWidth: 190 }} disabled={!watchSection} status={departmentsState === 'error' ? 'error' : undefined}
-              popupMatchSelectWidth={false}
-              styles={{ popup: { root: { minWidth: 280 } } }}
-              options={departments.map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.departmentCode) }))} />
-          </Form.Item>
-          <Form.Item name="warehouseId">
-            <Select placeholder="Warehouse" allowClear showSearch optionFilterProp="label" style={{ minWidth: 200 }} disabled={refState === 'error'}
-              popupMatchSelectWidth={false}
-              styles={{ popup: { root: { minWidth: 280 } } }}
-              options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) }))} />
-          </Form.Item>
-          <Form.Item name="itemId">
-            <Select placeholder="Raw Material" allowClear showSearch optionFilterProp="label" style={{ minWidth: 240 }} disabled={refState === 'error'}
-              popupMatchSelectWidth={false}
-              styles={{ popup: { root: { minWidth: 320 } } }}
-              options={(refData?.items || []).map((i) => ({ value: i.id, label: formatNameWithCode(i.name, i.itemCode) }))} />
-          </Form.Item>
-          <Form.Item name="gatePassNo"><Input placeholder="Gate Pass No" style={{ width: 150 }} /></Form.Item>
-          <Form.Item name="sourceNo"><Input placeholder="Source / DC No" style={{ width: 150 }} /></Form.Item>
-          <Form.Item name="status">
-            <Select placeholder="Status" allowClear style={{ minWidth: 140 }}
-              options={[{ value: 'CONFIRMED', label: 'Confirmed' }, { value: 'DRAFT', label: 'Draft' }, { value: 'CANCELLED', label: 'Cancelled' }]} />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" icon={<SearchOutlined />} htmlType="submit" loading={loading}>Run Report</Button>
-          </Form.Item>
+      {/* Sleek 1-Line Collapsible Filter Toolbar */}
+      <Card
+        className="erp-section-card"
+        style={{ marginBottom: 14 }}
+        styles={{ body: { padding: '10px 14px' } }}
+      >
+        <Form
+          form={form}
+          onFinish={runReport}
+          initialValues={{ dateFrom: currentMonth.start, dateTo: currentMonth.end }}
+        >
+          {/* Top Single-Line Toolbar */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+              width: '100%',
+            }}
+          >
+            <Form.Item name="dateFrom" noStyle>
+              <DatePicker placeholder="From Date" style={{ width: 130 }} />
+            </Form.Item>
+            <Form.Item name="dateTo" noStyle>
+              <DatePicker placeholder="To Date" style={{ width: 130 }} />
+            </Form.Item>
+            <Form.Item name="itemId" noStyle>
+              <Select
+                placeholder="Raw Material (Select to Filter)"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ minWidth: 260, flex: '1 1 260px', maxWidth: 440 }}
+                disabled={refState === 'error'}
+                popupMatchSelectWidth={false}
+                styles={{ popup: { root: { minWidth: 320 } } }}
+                options={(refData?.items || []).map((i) => ({ value: i.id, label: formatNameWithCode(i.name, i.itemCode) }))}
+              />
+            </Form.Item>
+
+            {/* Filter Toggle Button */}
+            <Badge count={secondaryActiveCount} size="small">
+              <Button
+                icon={<FilterOutlined />}
+                onClick={() => setFiltersExpanded((prev) => !prev)}
+                style={{
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: filtersExpanded || secondaryActiveCount > 0 ? 'var(--theme-hover, rgba(59, 130, 246, 0.08))' : undefined,
+                  borderColor: filtersExpanded || secondaryActiveCount > 0 ? 'var(--theme-primary, #3b82f6)' : undefined,
+                  color: filtersExpanded || secondaryActiveCount > 0 ? 'var(--theme-primary, #1d4ed8)' : undefined,
+                }}
+              >
+                <span>More Filters</span>
+                {filtersExpanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
+              </Button>
+            </Badge>
+
+            {/* Run Report Button */}
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              htmlType="submit"
+              loading={loading}
+              style={{ borderRadius: 6, fontWeight: 600 }}
+            >
+              Run Report
+            </Button>
+
+            {/* Reset Button */}
+            <Button
+              icon={<ClearOutlined />}
+              onClick={() => {
+                form.resetFields();
+                runDefault();
+              }}
+              style={{ borderRadius: 6 }}
+            >
+              Reset
+            </Button>
+          </div>
+
+          {/* Expandable Collapsible Secondary Filters Panel */}
+          {filtersExpanded && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                gap: 10,
+                marginTop: 10,
+                paddingTop: 10,
+                borderTop: '1px solid var(--theme-border, #f1f5f9)',
+              }}
+            >
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 3 }}>Division</Text>
+                <Form.Item name="divisionId" noStyle>
+                  <Select placeholder="All Divisions" allowClear showSearch optionFilterProp="label" style={{ width: '100%' }} disabled={refState === 'error'}
+                    popupMatchSelectWidth={false}
+                    styles={{ popup: { root: { minWidth: 280 } } }}
+                    options={(refData?.divisions || []).map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.divisionCode) }))} />
+                </Form.Item>
+              </div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 3 }}>Section</Text>
+                <Form.Item name="sectionId" noStyle>
+                  <Select placeholder="All Sections" allowClear showSearch optionFilterProp="label" style={{ width: '100%' }} disabled={!watchDivision}
+                    popupMatchSelectWidth={false}
+                    styles={{ popup: { root: { minWidth: 280 } } }}
+                    options={sections.map((s) => ({ value: s.id, label: formatNameWithCode(s.name, s.sectionCode) }))} />
+                </Form.Item>
+              </div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 3 }}>Department</Text>
+                <Form.Item name="departmentId" noStyle>
+                  <Select placeholder="All Departments" allowClear showSearch optionFilterProp="label" style={{ width: '100%' }} disabled={!watchSection} status={departmentsState === 'error' ? 'error' : undefined}
+                    popupMatchSelectWidth={false}
+                    styles={{ popup: { root: { minWidth: 280 } } }}
+                    options={departments.map((d) => ({ value: d.id, label: formatNameWithCode(d.name, d.departmentCode) }))} />
+                </Form.Item>
+              </div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 3 }}>Warehouse</Text>
+                <Form.Item name="warehouseId" noStyle>
+                  <Select placeholder="All Warehouses" allowClear showSearch optionFilterProp="label" style={{ width: '100%' }} disabled={refState === 'error'}
+                    popupMatchSelectWidth={false}
+                    styles={{ popup: { root: { minWidth: 280 } } }}
+                    options={(refData?.warehouses || []).map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) }))} />
+                </Form.Item>
+              </div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 3 }}>Gate Pass No</Text>
+                <Form.Item name="gatePassNo" noStyle>
+                  <Input placeholder="Search GP No..." style={{ width: '100%' }} />
+                </Form.Item>
+              </div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 3 }}>Source / DC No</Text>
+                <Form.Item name="sourceNo" noStyle>
+                  <Input placeholder="Search DC No..." style={{ width: '100%' }} />
+                </Form.Item>
+              </div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 3 }}>Status</Text>
+                <Form.Item name="status" noStyle>
+                  <Select placeholder="All Statuses" allowClear style={{ width: '100%' }}
+                    options={[{ value: 'CONFIRMED', label: 'Confirmed' }, { value: 'DRAFT', label: 'Draft' }, { value: 'CANCELLED', label: 'Cancelled' }]} />
+                </Form.Item>
+              </div>
+            </div>
+          )}
         </Form>
       </Card>
 
@@ -349,18 +525,157 @@ const ReceivingReport: React.FC = () => {
 
       {reportState === 'ready' && report && hasData && (
         <>
-          <Row gutter={[12, 12]} style={{ marginTop: 4 }}>
-            <Col xs={12} md={6}><Card className="erp-section-card"><Statistic title="Gate Pass Total" value={s?.gatePassTotal ?? 0} precision={4} /></Card></Col>
-            <Col xs={12} md={6}><Card className="erp-section-card"><Statistic title="Received Total" value={s?.receivedTotal ?? 0} precision={4} valueStyle={{ color: 'var(--theme-success, #52c41a)' }} /></Card></Col>
-            <Col xs={12} md={6}><Card className="erp-section-card"><Statistic title="Difference" value={s?.differenceTotal ?? 0} precision={4} valueStyle={{ color: (s?.differenceTotal ?? 0) !== 0 ? 'var(--theme-danger, #ff4d4f)' : undefined }} /></Card></Col>
-            <Col xs={12} md={6}><Card className="erp-section-card"><Statistic title="Returns (−)" value={s?.returnTotal ?? 0} precision={4} valueStyle={{ color: 'var(--theme-danger, #ff4d4f)' }} /></Card></Col>
-          </Row>
+          {/* EXECUTIVE KPI SUMMARY CARDS */}
+          <div className="erp-report-kpi-grid">
+            <div className="erp-report-kpi-card erp-kpi--gatepass">
+              <InboxOutlined className="erp-kpi-watermark-icon" />
+              <div className="erp-kpi-header">
+                <span className="erp-kpi-label"><InboxOutlined /> Gate Pass Total</span>
+                <Tag color="blue" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>DISPATCHED</Tag>
+              </div>
+              <div className="erp-kpi-value">{formatQty(s?.gatePassTotal ?? 0)}</div>
+              <div className="erp-kpi-badge" style={{ background: 'rgba(37, 99, 235, 0.08)', color: '#2563eb' }}>
+                Gate Pass Weight / Qty
+              </div>
+            </div>
 
+            <div className="erp-report-kpi-card erp-kpi--received">
+              <CheckCircleOutlined className="erp-kpi-watermark-icon" />
+              <div className="erp-kpi-header">
+                <span className="erp-kpi-label"><CheckCircleOutlined /> Received Total</span>
+                <Tag color="green" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>VERIFIED IN</Tag>
+              </div>
+              <div className="erp-kpi-value">{formatQty(s?.receivedTotal ?? 0)}</div>
+              <div className="erp-kpi-badge" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#059669' }}>
+                Physical Inward Confirmed
+              </div>
+            </div>
+
+            <div className={`erp-report-kpi-card erp-kpi--difference ${(s?.differenceTotal ?? 0) !== 0 ? 'has-variance' : ''}`}>
+              <DiffOutlined className="erp-kpi-watermark-icon" />
+              <div className="erp-kpi-header">
+                <span className="erp-kpi-label"><DiffOutlined /> Difference</span>
+                <Tag color={(s?.differenceTotal ?? 0) !== 0 ? 'error' : 'default'} style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                  {(s?.differenceTotal ?? 0) !== 0 ? 'VARIANCE' : 'EXACT MATCH'}
+                </Tag>
+              </div>
+              <div className="erp-kpi-value">{formatQty(s?.differenceTotal ?? 0)}</div>
+              <div className="erp-kpi-badge" style={{ background: (s?.differenceTotal ?? 0) !== 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(100, 116, 139, 0.1)', color: (s?.differenceTotal ?? 0) !== 0 ? '#dc2626' : '#64748b' }}>
+                {(s?.differenceTotal ?? 0) !== 0 ? 'Discrepancy vs Dispatch' : 'Zero Discrepancy'}
+              </div>
+            </div>
+
+            <div className="erp-report-kpi-card erp-kpi--returns">
+              <RollbackOutlined className="erp-kpi-watermark-icon" />
+              <div className="erp-kpi-header">
+                <span className="erp-kpi-label"><RollbackOutlined /> Returns (−)</span>
+                <Tag color={(s?.returnTotal ?? 0) > 0 ? 'volcano' : 'default'} style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>RETURN OUT</Tag>
+              </div>
+              <div className="erp-kpi-value">{formatQty(s?.returnTotal ?? 0)}</div>
+              <div className="erp-kpi-badge" style={{ background: 'rgba(234, 88, 12, 0.1)', color: '#c2410c' }}>
+                Returned to Supplier
+              </div>
+            </div>
+          </div>
+
+          {/* LIVE ITEM STOCK & MOVEMENT MASTER BANNER (Visible when Raw Material is Filtered) */}
+          {report.itemStockSummary && (
+            <div className="erp-item-live-banner">
+              <div className="erp-item-live-header">
+                <div className="erp-item-live-title-row">
+                  <span className="erp-item-live-badge"><DatabaseOutlined /> Live Item Stock</span>
+                  <span className="erp-item-live-name">{report.itemStockSummary.itemName}</span>
+                  <span className="erp-item-live-code">{report.itemStockSummary.itemCode}</span>
+                  <Tag color="cyan" style={{ margin: 0, fontWeight: 600 }}>UOM: {report.itemStockSummary.uomCode}</Tag>
+                </div>
+                {report.itemStockSummary.warehouseBreakdown && report.itemStockSummary.warehouseBreakdown.length > 0 && (
+                  <Space size={6} wrap>
+                    {report.itemStockSummary.warehouseBreakdown.map((wb, idx) => (
+                      <Tag key={idx} color="blue" style={{ margin: 0 }}>
+                        {wb.warehouseCode || wb.warehouseName}: <strong>{formatQty(wb.quantityOnHand)}</strong> {report.itemStockSummary?.uomCode}
+                      </Tag>
+                    ))}
+                  </Space>
+                )}
+              </div>
+
+              <div className="erp-item-metrics-grid">
+                <div className="erp-item-metric-box" style={{ borderLeft: '3.5px solid #10b981' }}>
+                  <span className="erp-item-metric-label"><DatabaseOutlined style={{ color: '#10b981' }} /> Current On-Hand Stock</span>
+                  <span className="erp-item-metric-val" style={{ color: '#059669' }}>
+                    {formatQty(report.itemStockSummary.totalOnHand)} <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>{report.itemStockSummary.uomCode}</span>
+                  </span>
+                  <span className="erp-item-metric-sub">Physical live warehouse balance</span>
+                </div>
+
+                <div className="erp-item-metric-box" style={{ borderLeft: '3.5px solid #3b82f6' }}>
+                  <span className="erp-item-metric-label"><CheckCircleOutlined style={{ color: '#3b82f6' }} /> Available for Production</span>
+                  <span className="erp-item-metric-val" style={{ color: '#2563eb' }}>
+                    {formatQty(report.itemStockSummary.totalAvailable)} <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>{report.itemStockSummary.uomCode}</span>
+                  </span>
+                  <span className="erp-item-metric-sub">Unreserved usable balance</span>
+                </div>
+
+                <div className="erp-item-metric-box" style={{ borderLeft: '3.5px solid #8b5cf6' }}>
+                  <span className="erp-item-metric-label"><HistoryOutlined style={{ color: '#8b5cf6' }} /> Production Consumed</span>
+                  <span className="erp-item-metric-val" style={{ color: '#7c3aed' }}>
+                    {formatQty(report.itemStockSummary.totalProductionConsumption)} <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>{report.itemStockSummary.uomCode}</span>
+                  </span>
+                  <span className="erp-item-metric-sub">Issued to shopfloor in period</span>
+                </div>
+
+                <div className="erp-item-metric-box" style={{ borderLeft: '3.5px solid #f59e0b' }}>
+                  <span className="erp-item-metric-label"><HistoryOutlined style={{ color: '#f59e0b' }} /> Last Movement</span>
+                  {report.itemStockSummary.lastTransaction ? (
+                    <>
+                      <span className="erp-item-metric-val" style={{ fontSize: 14, fontWeight: 700, color: '#b45309' }}>
+                        {dayjs(report.itemStockSummary.lastTransaction.transactionDate).format('DD-MMM-YYYY')}
+                        <Tag color={report.itemStockSummary.lastTransaction.direction === 'IN' ? 'green' : 'red'} style={{ marginLeft: 6, fontSize: 10 }}>
+                          {report.itemStockSummary.lastTransaction.direction === 'IN' ? '+' : '-'}{formatQty(report.itemStockSummary.lastTransaction.quantity)} {report.itemStockSummary.uomCode}
+                        </Tag>
+                      </span>
+                      <span className="erp-item-metric-sub" style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {report.itemStockSummary.lastTransaction.transactionType} {report.itemStockSummary.lastTransaction.referenceNumber ? `(${report.itemStockSummary.lastTransaction.referenceNumber})` : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="erp-item-metric-sub" style={{ marginTop: 6 }}>No prior movement recorded</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STREAMLINED LEGACY DATA BAR (Distinct from live operations) */}
           {report.legacyLedger.length > 0 && (
-            <Row gutter={[12, 12]} style={{ marginTop: 8 }}>
-              <Col xs={12} md={6}><Card className="erp-section-card" size="small"><Statistic title="Legacy Receipts" value={s?.legacyReceiptTotal ?? 0} precision={4} /></Card></Col>
-              <Col xs={12} md={6}><Card className="erp-section-card" size="small"><Statistic title="Legacy Returns" value={s?.legacyReturnTotal ?? 0} precision={4} valueStyle={{ color: 'var(--theme-danger, #ff4d4f)' }} /></Card></Col>
-            </Row>
+            <div style={{
+              background: 'rgba(139, 92, 246, 0.05)',
+              border: '1px dashed rgba(139, 92, 246, 0.35)',
+              borderRadius: 8,
+              padding: '8px 14px',
+              marginTop: 4,
+              marginBottom: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 8,
+            }}>
+              <Space size={8}>
+                <Tag color="purple" style={{ margin: 0, fontWeight: 700 }}>LEGACY MIGRATION DATA</Tag>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Historical single-item entries recorded before multi-line Gate Pass workflow.
+                </Text>
+              </Space>
+              <Space size={16}>
+                <Text style={{ fontSize: 12 }}>
+                  Legacy Receipts: <strong style={{ color: 'var(--theme-success, #059669)' }}>{formatQty(s?.legacyReceiptTotal ?? 0)}</strong>
+                </Text>
+                <Text style={{ fontSize: 12 }}>
+                  Legacy Returns: <strong style={{ color: 'var(--theme-danger, #dc2626)' }}>{formatQty(s?.legacyReturnTotal ?? 0)}</strong>
+                </Text>
+              </Space>
+            </div>
           )}
 
           <Card className="erp-section-card" title={<>Raw Material Receipts <Text type="secondary">({report.receipts.length})</Text></>} style={{ marginTop: 12 }}>

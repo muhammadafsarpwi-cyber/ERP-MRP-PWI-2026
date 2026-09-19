@@ -29,3 +29,4 @@ export {
 } from './SaveResultDialog';
 export { default as LargeLoadingBuffer, type LargeLoadingBufferProps } from './LargeLoadingBuffer';
 export { default as DeleteConfirmModal, type DeleteConfirmModalProps } from './DeleteConfirmModal';
+export { default as ItemStockLedgerModal, type ItemStockLedgerData, type StockLedgerMovement } from './ItemStockLedgerModal';

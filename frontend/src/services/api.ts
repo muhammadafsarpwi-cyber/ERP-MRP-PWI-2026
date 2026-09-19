@@ -7,6 +7,23 @@ const API_BASE_URL =
 export { API_BASE_URL };
 
 /**
+ * Resolves a stored file/asset URL (e.g. /uploads/receipts/...) to a full URL
+ * pointing to the backend host, preventing broken images on frontend origins.
+ */
+export function resolveFileUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
+    return url;
+  }
+  try {
+    const origin = new URL(API_BASE_URL).origin;
+    return `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Renders a user-readable description for a failed API request. Preserves the
  * backend status/message when one is available and explains pure network
  * failures (which axios surfaces as a bare "Network Error") so callers can

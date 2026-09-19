@@ -510,6 +510,21 @@ export class InventoryReceiptController {
     return { success: true, data };
   }
 
+  @Get('items/:itemId/ledger')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.view')
+  @ApiOperation({ summary: 'Get stock movement ledger history for an item' })
+  async getItemLedgerHistory(
+    @Param('itemId') itemId: string,
+    @Query('warehouseId') warehouseId: string | undefined,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.getItemLedgerHistory(companyId, itemId, warehouseId);
+    return { success: true, data };
+  }
+
   @Post('return-multi')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
