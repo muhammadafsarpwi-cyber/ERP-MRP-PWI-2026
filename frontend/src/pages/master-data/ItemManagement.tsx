@@ -24,7 +24,7 @@ import { usePermission } from '../../hooks/usePermission';
 import {
   PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable,
   BarcodeScanner, BarcodePrint, DraggableResizableModal, HeaderCell,
-  SaveResultDialog, type SaveResultPhase, type SaveResultData,
+  SaveResultDialog, DeleteConfirmModal, type SaveResultPhase, type SaveResultData,
 } from '../../components/shared';
 import JsBarcode from 'jsbarcode';
 import {
@@ -604,6 +604,8 @@ const ItemManagement: React.FC = () => {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [deleteTargetItem, setDeleteTargetItem] = useState<Item | null>(null);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
 
   const [fDivision, setFDivision] = useState<string | undefined>();
   const [fSection, setFSection] = useState<string | undefined>();
@@ -2758,14 +2760,8 @@ const ItemManagement: React.FC = () => {
               danger: true,
               label: 'Delete Item',
               onClick: () => {
-                Modal.confirm({
-                  title: `Delete '${record.itemCode}'?`,
-                  content: 'Permanent. Blocked automatically if referenced by BOM, production, stock, routing or targets.',
-                  okText: 'Delete',
-                  okType: 'danger',
-                  cancelText: 'Cancel',
-                  onOk: () => handleDelete(record),
-                });
+                setDeleteTargetItem(record);
+                setDeleteModalVisible(true);
               },
             }
           ] : []),
@@ -5999,6 +5995,38 @@ const ItemManagement: React.FC = () => {
         onClose={handleResultClose}
         successTitle="Successful Save"
         okLabel="OK"
+      />
+
+      <DeleteConfirmModal
+        open={deleteModalVisible}
+        itemType="Item"
+        itemCode={deleteTargetItem?.itemCode}
+        itemName={deleteTargetItem?.name}
+        description="Permanent deletion is blocked automatically if this item is referenced by BOM, production transactions, stock balances, routing, or inspection logs."
+        onConfirm={async () => {
+          if (!deleteTargetItem) return;
+          await apiService.delete(`/master-data/items/${deleteTargetItem.id}`);
+          message.success(`Item '${deleteTargetItem.itemCode}' deleted successfully`);
+          setDeleteModalVisible(false);
+          setDeleteTargetItem(null);
+          fetchItems();
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false);
+          setDeleteTargetItem(null);
+        }}
+        onDeactivateInstead={
+          deleteTargetItem && deleteTargetItem.status === 'ACTIVE'
+            ? async () => {
+                await apiService.patch(`/master-data/items/${deleteTargetItem.id}/deactivate`);
+                message.success(`Item '${deleteTargetItem.itemCode}' deactivated`);
+                setDeleteModalVisible(false);
+                setDeleteTargetItem(null);
+                fetchItems();
+              }
+            : undefined
+        }
+        deactivateLabel="Deactivate Instead"
       />
     </div>
   );

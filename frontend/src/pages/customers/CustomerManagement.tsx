@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
-  InputNumber, Row, Col, Descriptions, DatePicker, Tabs, List, Badge,
+  Button, Tag, Form, Input, Select, App, Card,
+  InputNumber, Row, Col, Descriptions, DatePicker, Tabs, List, Badge, Tooltip,
+  Modal, Space,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined, EyeOutlined,
@@ -11,6 +12,12 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import BarcodePrint from '../../components/shared/BarcodePrint';
+import {
+  ERPTable,
+  FilterBar,
+  DeleteConfirmModal,
+  DraggableResizableModal,
+} from '../../components/shared';
 import dayjs from 'dayjs';
 
 const { TabPane } = Tabs;
@@ -114,6 +121,10 @@ const CustomerManagement: React.FC = () => {
   });
   const [pageSize] = useState(20);
 
+  // Unified Delete Confirmation State
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
+
   const fetchCustomers = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
     try {
@@ -190,20 +201,9 @@ const CustomerManagement: React.FC = () => {
     }
   };
 
-  const handleDelete = async (record: Customer) => {
-    Modal.confirm({
-      title: 'Confirm Delete',
-      content: `Are you sure you want to delete customer "${record.name}"?`,
-      onOk: async () => {
-        try {
-          await apiService.delete(`/customer/customers/${record.id}`);
-          message.success('Customer deleted successfully');
-          fetchCustomers(page);
-        } catch (error) {
-          message.error('Failed to delete customer');
-        }
-      },
-    });
+  const openDeleteConfirm = (record: Customer) => {
+    setCustomerToDelete(record);
+    setDeleteModalVisible(true);
   };
 
   const handleAddContact = async () => {
@@ -257,7 +257,7 @@ const CustomerManagement: React.FC = () => {
   };
 
   const columns: ColumnsType<Customer> = [
-    { title: 'Code', dataIndex: 'customerCode', key: 'customerCode', width: 110 },
+    { title: 'Code', dataIndex: 'customerCode', key: 'customerCode', width: 110, fixed: 'left' },
     { title: 'Name', dataIndex: 'name', key: 'name', width: 200 },
     { title: 'Type', dataIndex: 'customerType', key: 'customerType', width: 110 },
     { title: 'Contact', dataIndex: 'contactPerson', key: 'contactPerson', width: 130 },
@@ -277,58 +277,148 @@ const CustomerManagement: React.FC = () => {
       render: (status: string) => <Tag color={statusColorMap[status]}>{status}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions', width: 150,
+      title: 'Actions', key: 'actions', width: 160, fixed: 'right',
       render: (_, record) => (
-        <Space>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => handleView(record)} />
-          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          <Button size="small" icon={<PrinterOutlined />} onClick={() => setPrintModal({ visible: true, customer: record })} title="Print Barcode" />
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
-        </Space>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Tooltip title="View Customer">
+            <Button
+              type="text"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleView(record)}
+              className="erp-action-btn erp-action-btn--view"
+            />
+          </Tooltip>
+          <Tooltip title="Edit Customer">
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+              className="erp-action-btn erp-action-btn--edit"
+            />
+          </Tooltip>
+          <Tooltip title="Print Barcode">
+            <Button
+              type="text"
+              size="small"
+              icon={<PrinterOutlined />}
+              onClick={() => setPrintModal({ visible: true, customer: record })}
+              className="erp-action-btn erp-action-btn--print"
+            />
+          </Tooltip>
+          <Tooltip title="Delete Customer">
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => openDeleteConfirm(record)}
+              className="erp-action-btn erp-action-btn--delete"
+            />
+          </Tooltip>
+        </div>
       ),
     },
   ];
 
   return (
-    <Card title="Customer Management" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Customer</Button>}>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
-          <Input placeholder="Search customers..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchCustomers(1)} />
-        </Col>
-        <Col span={4}>
-          <Select placeholder="Status" allowClear style={{ width: '100%' }} value={filterStatus} onChange={setFilterStatus}>
-            {STATUS_OPTIONS.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
+    <Card
+      title="Customer Management"
+      extra={
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          Add Customer
+        </Button>
+      }
+      style={{ borderRadius: 10 }}
+    >
+      <FilterBar
+        searchPlaceholder="Search customers (code, name, contact, email)..."
+        searchValue={search}
+        onSearchChange={(val) => {
+          setSearch(val);
+          setPage(1);
+        }}
+        primaryFilters={
+          <Select
+            placeholder="All Statuses"
+            allowClear
+            style={{ width: 150 }}
+            value={filterStatus}
+            onChange={(val) => {
+              setFilterStatus(val);
+              setPage(1);
+            }}
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <Select.Option key={s} value={s}>{s}</Select.Option>
+            ))}
           </Select>
-        </Col>
-        <Col span={4}>
-          <Select placeholder="Type" allowClear style={{ width: '100%' }} value={filterType} onChange={setFilterType}>
-            {CUSTOMER_TYPES.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}
-          </Select>
-        </Col>
-        <Col span={4}>
-          <Select placeholder="Tier" allowClear style={{ width: '100%' }} value={filterTier} onChange={setFilterTier}>
-            {CUSTOMER_TIERS.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}
-          </Select>
-        </Col>
-        <Col span={3}>
-          <Button onClick={() => fetchCustomers(1)}>Search</Button>
-        </Col>
-      </Row>
-      <Table
+        }
+        activeCount={(filterType ? 1 : 0) + (filterTier ? 1 : 0)}
+        totalCount={total}
+        itemLabel="customers"
+        onReset={() => {
+          setSearch('');
+          setFilterStatus(undefined);
+          setFilterType(undefined);
+          setFilterTier(undefined);
+          setPage(1);
+        }}
+      >
+        <Select
+          placeholder="Customer Type"
+          allowClear
+          style={{ width: '100%' }}
+          value={filterType}
+          onChange={(val) => {
+            setFilterType(val);
+            setPage(1);
+          }}
+        >
+          {CUSTOMER_TYPES.map((t) => (
+            <Select.Option key={t} value={t}>{t}</Select.Option>
+          ))}
+        </Select>
+        <Select
+          placeholder="Customer Tier"
+          allowClear
+          style={{ width: '100%' }}
+          value={filterTier}
+          onChange={(val) => {
+            setFilterTier(val);
+            setPage(1);
+          }}
+        >
+          {CUSTOMER_TIERS.map((t) => (
+            <Select.Option key={t} value={t}>{t}</Select.Option>
+          ))}
+        </Select>
+      </FilterBar>
+
+      <ERPTable
         columns={columns}
         dataSource={customers}
         rowKey="id"
         loading={loading}
-        pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }}
+        pagination={{
+          current: page,
+          total,
+          pageSize,
+          onChange: setPage,
+          showSizeChanger: false,
+        }}
+        scroll={{ x: 1300 }}
       />
 
       {/* Create/Edit Customer Modal */}
-      <Modal
+      <DraggableResizableModal
         title={editingCustomer ? 'Edit Customer' : 'Create Customer'}
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
         width={900}
+        okText="Save Customer"
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>
@@ -457,10 +547,20 @@ const CustomerManagement: React.FC = () => {
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
-      </Modal>
+      </DraggableResizableModal>
 
       {/* Customer Detail Modal */}
-      <Modal title="Customer Details" open={detailVisible} onCancel={() => setDetailVisible(false)} footer={null} width={800}>
+      <DraggableResizableModal
+        title="Customer Details"
+        open={detailVisible}
+        onCancel={() => setDetailVisible(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setDetailVisible(false)}>
+            Close
+          </Button>,
+        ]}
+        width={800}
+      >
         {selectedCustomer && (
           <Tabs defaultActiveKey="info">
             <TabPane tab="Information" key="info">
@@ -548,7 +648,7 @@ const CustomerManagement: React.FC = () => {
             </TabPane>
           </Tabs>
         )}
-      </Modal>
+      </DraggableResizableModal>
 
       {/* Add Contact Modal */}
       <Modal title="Add Contact" open={contactModalVisible} onOk={handleAddContact} onCancel={() => setContactModalVisible(false)}>
@@ -657,6 +757,39 @@ const CustomerManagement: React.FC = () => {
         itemName={printModal.customer?.name || ''}
         barcode={null}
         companyName="PWI ERP"
+      />
+
+      {/* Enterprise Delete Confirmation & Error Resolution Dialog */}
+      <DeleteConfirmModal
+        open={deleteModalVisible}
+        itemType="Customer"
+        itemCode={customerToDelete?.customerCode}
+        itemName={customerToDelete?.name}
+        description="Permanent deletion is blocked automatically if this customer is referenced by sales orders, delivery notes, or invoices."
+        onConfirm={async () => {
+          if (!customerToDelete) return;
+          await apiService.delete(`/customer/customers/${customerToDelete.id}`);
+          message.success('Customer deleted successfully');
+          setDeleteModalVisible(false);
+          setCustomerToDelete(null);
+          fetchCustomers(page);
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false);
+          setCustomerToDelete(null);
+        }}
+        onDeactivateInstead={
+          customerToDelete?.status === 'ACTIVE'
+            ? async () => {
+                await apiService.put(`/customer/customers/${customerToDelete.id}`, { status: 'INACTIVE' });
+                message.success('Customer deactivated successfully');
+                setDeleteModalVisible(false);
+                setCustomerToDelete(null);
+                fetchCustomers(page);
+              }
+            : undefined
+        }
+        deactivateLabel="Deactivate Customer Instead"
       />
     </Card>
   );

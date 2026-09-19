@@ -214,3 +214,36 @@
   fill: #0b1329;
 }
 
+/* ── Ant Design Global Spin Integration ────────────────────────────── */
+.ant-spin .erp-orbital-indicator {
+  display: inline-flex;
+  vertical-align: middle;
+  align-items: center;
+  justify-content: center;
+}
+
+.ant-spin.ant-spin-sm .erp-orbital-indicator {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.ant-spin.ant-spin-sm .erp-orbital-indicator svg {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.ant-spin.ant-spin-lg .erp-orbital-indicator {
+  width: 64px !important;
+  height: 64px !important;
+}
+
+.ant-spin.ant-spin-lg .erp-orbital-indicator svg {
+  width: 64px !important;
+  height: 64px !important;
+}
+
+.ant-spin-nested-loading > div > .ant-spin {
+  max-height: 400px;
+}
+
+

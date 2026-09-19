@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
-  InputNumber, Row, Col, Rate, Descriptions,
+  Button, Tag, Form, Input, Select, App, Card,
+  InputNumber, Row, Col, Rate, Descriptions, Tooltip,
 } from 'antd';
-import { PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import {
+  PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import {
+  ERPTable,
+  FilterBar,
+  DeleteConfirmModal,
+  DraggableResizableModal,
+} from '../../components/shared';
 
 interface Supplier {
   id: string;
@@ -40,37 +48,45 @@ const SupplierManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+
   const [modalVisible, setModalVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<Supplier | null>(null);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+
+  // Unified Delete Confirmation State
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null);
+
   const [form] = Form.useForm();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
-  const [pageSize] = useState(20);
 
-  const fetchSuppliers = useCallback(async (pageNum: number = 1) => {
+  const fetchSuppliers = useCallback(async (p = page) => {
     setLoading(true);
     try {
-      const params: any = { page: pageNum, limit: pageSize };
+      const params: any = { page: p, limit: pageSize };
       if (search) params.search = search;
       if (filterStatus) params.status = filterStatus;
-      const response = await apiService.get<{ data: Supplier[]; total: number }>('/procurement/suppliers', params);
-      setSuppliers(response.data);
-      setTotal(response.total);
-    } catch (error) {
-      message.error('Failed to fetch suppliers');
+      const res = await apiService.get<any>('/procurement/suppliers', params);
+      const data = res?.data || res;
+      setSuppliers(data?.data || (Array.isArray(data) ? data : []));
+      setTotal(data?.total || 0);
+    } catch {
+      message.error('Failed to load suppliers');
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize, message]);
+  }, [page, pageSize, search, filterStatus, message]);
 
-  useEffect(() => { fetchSuppliers(page); }, [page, fetchSuppliers]);
+  useEffect(() => {
+    fetchSuppliers();
+  }, [fetchSuppliers]);
 
   const handleCreate = () => {
     setEditingItem(null);
     form.resetFields();
-    form.setFieldsValue({ currencyCode: 'PKR', creditLimit: 0, leadTimeDays: 0, rating: 0 });
     setModalVisible(true);
   };
 
@@ -80,21 +96,16 @@ const SupplierManagement: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleView = async (record: Supplier) => {
-    try {
-      const res = await apiService.get<{ data: Supplier }>(`/procurement/suppliers/${record.id}`);
-      setSelectedSupplier(res.data);
-      setDetailVisible(true);
-    } catch (error) {
-      message.error('Failed to load supplier details');
-    }
+  const handleView = (record: Supplier) => {
+    setSelectedSupplier(record);
+    setDetailVisible(true);
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
       if (editingItem) {
-        await apiService.patch(`/procurement/suppliers/${editingItem.id}`, values);
+        await apiService.put(`/procurement/suppliers/${editingItem.id}`, values);
         message.success('Supplier updated successfully');
       } else {
         await apiService.post('/procurement/suppliers', values);
@@ -102,29 +113,18 @@ const SupplierManagement: React.FC = () => {
       }
       setModalVisible(false);
       fetchSuppliers(page);
-    } catch (error) {
+    } catch {
       message.error('Failed to save supplier');
     }
   };
 
-  const handleDelete = async (record: Supplier) => {
-    Modal.confirm({
-      title: 'Confirm Delete',
-      content: `Are you sure you want to delete supplier "${record.name}"?`,
-      onOk: async () => {
-        try {
-          await apiService.delete(`/procurement/suppliers/${record.id}`);
-          message.success('Supplier deleted successfully');
-          fetchSuppliers(page);
-        } catch (error) {
-          message.error('Failed to delete supplier');
-        }
-      },
-    });
+  const openDeleteConfirm = (record: Supplier) => {
+    setSupplierToDelete(record);
+    setDeleteModalVisible(true);
   };
 
   const columns: ColumnsType<Supplier> = [
-    { title: 'Code', dataIndex: 'supplierCode', key: 'supplierCode', width: 120 },
+    { title: 'Code', dataIndex: 'supplierCode', key: 'supplierCode', width: 120, fixed: 'left' },
     { title: 'Name', dataIndex: 'name', key: 'name', width: 200 },
     { title: 'Contact', dataIndex: 'contactPerson', key: 'contactPerson', width: 150 },
     { title: 'Email', dataIndex: 'email', key: 'email', width: 200 },
@@ -137,45 +137,108 @@ const SupplierManagement: React.FC = () => {
       render: (status: string) => <Tag color={statusColorMap[status]}>{status}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions', width: 150,
+      title: 'Actions', key: 'actions', width: 130, fixed: 'right',
       render: (_, record) => (
-        <Space>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => handleView(record)} />
-          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
-        </Space>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Tooltip title="View Supplier">
+            <Button
+              type="text"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handleView(record)}
+              className="erp-action-btn erp-action-btn--view"
+            />
+          </Tooltip>
+          <Tooltip title="Edit Supplier">
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+              className="erp-action-btn erp-action-btn--edit"
+            />
+          </Tooltip>
+          <Tooltip title="Delete Supplier">
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => openDeleteConfirm(record)}
+              className="erp-action-btn erp-action-btn--delete"
+            />
+          </Tooltip>
+        </div>
       ),
     },
   ];
 
   return (
-    <Card title="Supplier Management" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Add Supplier</Button>}>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
-          <Input placeholder="Search suppliers..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchSuppliers(1)} />
-        </Col>
-        <Col span={6}>
-          <Select placeholder="Filter by status" allowClear style={{ width: '100%' }} value={filterStatus} onChange={setFilterStatus}>
-            {STATUS_OPTIONS.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
+    <Card
+      title="Supplier Management"
+      extra={
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          Add Supplier
+        </Button>
+      }
+      style={{ borderRadius: 10 }}
+    >
+      {/* 1-Line Unified Enterprise Collapsible FilterBar */}
+      <FilterBar
+        searchPlaceholder="Search suppliers (code, name, contact, email)..."
+        searchValue={search}
+        onSearchChange={(val) => {
+          setSearch(val);
+          setPage(1);
+        }}
+        primaryFilters={
+          <Select
+            placeholder="All Statuses"
+            allowClear
+            style={{ width: 160 }}
+            value={filterStatus}
+            onChange={(val) => {
+              setFilterStatus(val);
+              setPage(1);
+            }}
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <Select.Option key={s} value={s}>{s}</Select.Option>
+            ))}
           </Select>
-        </Col>
-        <Col span={4}>
-          <Button onClick={() => fetchSuppliers(1)}>Search</Button>
-        </Col>
-      </Row>
-      <Table
+        }
+        totalCount={total}
+        itemLabel="suppliers"
+        onReset={() => {
+          setSearch('');
+          setFilterStatus(undefined);
+          setPage(1);
+        }}
+      />
+
+      <ERPTable
         columns={columns}
         dataSource={suppliers}
         rowKey="id"
         loading={loading}
-        pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }}
+        pagination={{
+          current: page,
+          total,
+          pageSize,
+          onChange: setPage,
+          showSizeChanger: false,
+        }}
+        scroll={{ x: 1200 }}
       />
-      <Modal
+
+      {/* Edit / Create Draggable Modal */}
+      <DraggableResizableModal
         title={editingItem ? 'Edit Supplier' : 'Create Supplier'}
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
         width={800}
+        okText="Save Supplier"
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>
@@ -254,10 +317,22 @@ const SupplierManagement: React.FC = () => {
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
-      </Modal>
-      <Modal title="Supplier Details" open={detailVisible} onCancel={() => setDetailVisible(false)} footer={null} width={700}>
+      </DraggableResizableModal>
+
+      {/* Supplier Details Modal */}
+      <DraggableResizableModal
+        title="Supplier Details"
+        open={detailVisible}
+        onCancel={() => setDetailVisible(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setDetailVisible(false)}>
+            Close
+          </Button>,
+        ]}
+        width={700}
+      >
         {selectedSupplier && (
-          <Descriptions bordered column={2}>
+          <Descriptions bordered column={2} size="small">
             <Descriptions.Item label="Code">{selectedSupplier.supplierCode}</Descriptions.Item>
             <Descriptions.Item label="Name">{selectedSupplier.name}</Descriptions.Item>
             <Descriptions.Item label="Contact">{selectedSupplier.contactPerson}</Descriptions.Item>
@@ -272,7 +347,40 @@ const SupplierManagement: React.FC = () => {
             <Descriptions.Item label="Status"><Tag color={statusColorMap[selectedSupplier.status]}>{selectedSupplier.status}</Tag></Descriptions.Item>
           </Descriptions>
         )}
-      </Modal>
+      </DraggableResizableModal>
+
+      {/* Enterprise Delete Confirmation & Error Resolution Dialog */}
+      <DeleteConfirmModal
+        open={deleteModalVisible}
+        itemType="Supplier"
+        itemCode={supplierToDelete?.supplierCode}
+        itemName={supplierToDelete?.name}
+        description="Permanent deletion is blocked automatically if this supplier has purchase orders, invoices, RFQs, or material receipts."
+        onConfirm={async () => {
+          if (!supplierToDelete) return;
+          await apiService.delete(`/procurement/suppliers/${supplierToDelete.id}`);
+          message.success('Supplier deleted successfully');
+          setDeleteModalVisible(false);
+          setSupplierToDelete(null);
+          fetchSuppliers(page);
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false);
+          setSupplierToDelete(null);
+        }}
+        onDeactivateInstead={
+          supplierToDelete?.status === 'ACTIVE'
+            ? async () => {
+                await apiService.put(`/procurement/suppliers/${supplierToDelete.id}`, { status: 'INACTIVE' });
+                message.success('Supplier deactivated successfully');
+                setDeleteModalVisible(false);
+                setSupplierToDelete(null);
+                fetchSuppliers(page);
+              }
+            : undefined
+        }
+        deactivateLabel="Deactivate Supplier Instead"
+      />
     </Card>
   );
 };

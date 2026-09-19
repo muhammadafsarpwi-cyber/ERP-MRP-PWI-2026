@@ -28,3 +28,4 @@ export {
   type SaveResultPhase,
 } from './SaveResultDialog';
 export { default as LargeLoadingBuffer, type LargeLoadingBufferProps } from './LargeLoadingBuffer';
+export { default as DeleteConfirmModal, type DeleteConfirmModalProps } from './DeleteConfirmModal';

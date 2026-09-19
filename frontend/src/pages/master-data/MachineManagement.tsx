@@ -22,6 +22,7 @@ import apiService from '../../services/api';
 import {
   PageHeader, StatusBadge, EmptyState, LoadingState, HeaderCell, HighlightedCell, TableActions,
   DraggableResizableModal, SaveResultDialog, SaveResultPhase, SaveResultData, BarcodeScanner,
+  DeleteConfirmModal,
 } from '../../components/shared';
 import { label } from '../maintenance/jobCards.types';
 import { getMachineColor } from '../../utils/colorMapping';
@@ -1498,6 +1499,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [fStatus, setFStatus] = useState<string | undefined>();
   const [fCriticality, setFCriticality] = useState<string | undefined>();
   const [showFilters, setShowFilters] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [machineToDelete, setMachineToDelete] = useState<Machine | null>(null);
 
   const handleBarcodeScan = (scannedCode: string) => {
     setScannerOpen(false);
@@ -2512,10 +2515,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                 icon: <DeleteOutlined />,
                 danger: true,
                 className: 'act-delete',
-                confirm: {
-                  title: `Delete '${m.machineCode}'?`,
-                  description: 'Blocked if referenced by production data.',
-                  onConfirm: () => handleDelete(m),
+                onClick: () => {
+                  setMachineToDelete(m);
+                  setDeleteModalVisible(true);
                 },
               },
             ]}
@@ -2975,6 +2977,38 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         onClose={handleResultClose}
         successTitle="Successful Save"
         okLabel="OK"
+      />
+
+      {/* Enterprise In-Modal Delete & Deactivate Dialog */}
+      <DeleteConfirmModal
+        open={deleteModalVisible}
+        itemType="Machine"
+        itemCode={machineToDelete?.machineCode}
+        itemName={machineToDelete?.name}
+        description="Permanent deletion is blocked automatically if this machine is referenced by production entries, maintenance schedules, job cards, or tooling links."
+        onConfirm={async () => {
+          if (!machineToDelete) return;
+          await apiService.delete(`/machines/${machineToDelete.id}`);
+          message.success(`Machine '${machineToDelete.machineCode}' deleted successfully`);
+          setDeleteModalVisible(false);
+          setMachineToDelete(null);
+          fetchMachines();
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false);
+          setMachineToDelete(null);
+        }}
+        onDeactivateInstead={
+          machineToDelete?.status === 'ACTIVE'
+            ? async () => {
+                await handleStatus(machineToDelete, 'INACTIVE');
+                message.success(`Machine '${machineToDelete.machineCode}' deactivated successfully`);
+                setDeleteModalVisible(false);
+                setMachineToDelete(null);
+              }
+            : undefined
+        }
+        deactivateLabel="Deactivate Machine Instead"
       />
 
       <DraggableResizableModal
