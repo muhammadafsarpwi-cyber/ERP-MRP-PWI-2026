@@ -1,15 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Button } from 'antd';
 import {
   ArrowRightOutlined,
-  SoundOutlined,
-  SoundFilled,
   LeftOutlined,
   RightOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import WelcomeBackground from '../../components/auth/WelcomeBackground';
 import WelcomeAnimation from '../../components/auth/WelcomeAnimation';
+import WelcomeCelebration from '../../components/auth/WelcomeCelebration';
+import WelcomeTopRibbon from '../../components/auth/WelcomeTopRibbon';
+import { classicalAmbientMusic } from '../../utils/classicalAmbientMusic';
 import { WELCOME_SLIDE_ITEMS } from '../../config/welcomeImages';
 import './welcome.css';
 
@@ -20,9 +21,7 @@ const Welcome: React.FC = () => {
   const navigate = useNavigate();
   const [exiting, setExiting] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
-  const [muted, setMuted] = useState(true);
-  const [soundReady, setSoundReady] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
 
   const reducedMotion = useMemo(
     () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -54,19 +53,35 @@ const Welcome: React.FC = () => {
     setActiveSlide((prev) => (prev - 1 + slides.length) % slides.length);
   }, [slides.length]);
 
-  const handleEnter = useCallback(() => {
-    if (
-      audioRef.current &&
-      typeof audioRef.current.pause === 'function' &&
-      process.env.NODE_ENV !== 'test'
-    ) {
-      try {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      } catch {
-        /* ignore */
-      }
+  const handleToggleMusic = useCallback(() => {
+    if (isMusicPlaying) {
+      classicalAmbientMusic.stop(300);
+      setIsMusicPlaying(false);
+    } else {
+      const ok = classicalAmbientMusic.start();
+      if (ok) setIsMusicPlaying(true);
     }
+  }, [isMusicPlaying]);
+
+  // Gentle unlock of classical ambient music on first user interaction anywhere
+  useEffect(() => {
+    const handleFirstGesture = () => {
+      if (!classicalAmbientMusic.getIsPlaying() && process.env.NODE_ENV !== 'test') {
+        const ok = classicalAmbientMusic.start();
+        if (ok) setIsMusicPlaying(true);
+      }
+    };
+
+    window.addEventListener('click', handleFirstGesture, { once: true });
+    window.addEventListener('keydown', handleFirstGesture, { once: true });
+    return () => {
+      window.removeEventListener('click', handleFirstGesture);
+      window.removeEventListener('keydown', handleFirstGesture);
+    };
+  }, []);
+
+  const handleEnter = useCallback(() => {
+    classicalAmbientMusic.stop(400);
     setExiting(true);
 
     try {
@@ -96,30 +111,30 @@ const Welcome: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [handleEnter, handleNextSlide, handlePrevSlide]);
 
-  useEffect(() => {
-    if (muted || soundReady) return;
-    if (audioRef.current) {
-      audioRef.current.volume = 0.25;
-      audioRef.current.play().catch(() => setMuted(true));
-      setSoundReady(true);
-    }
-  }, [muted, soundReady]);
-
-  const toggleMute = () => {
-    setMuted((m) => !m);
-    setSoundReady(false);
-  };
-
   const currentSlide = slides[activeSlide] || slides[0];
 
   return (
     <div className={`erp-welcome-root${exiting ? ' is-exiting' : ''}`}>
+      {/* Top Slide Ribbon (Pakistan Wire & Industry Showcase + Logo + Classical Music Toggle) */}
+      <WelcomeTopRibbon
+        isMusicPlaying={isMusicPlaying}
+        onToggleMusic={handleToggleMusic}
+      />
+
+      {/* Background Slideshow */}
       <WelcomeBackground
         reducedMotion={reducedMotion}
         activeIndex={activeSlide}
         onIndexChange={setActiveSlide}
       />
+
+      {/* Overlay Vignette */}
       <div className="erp-welcome-overlay" aria-hidden="true" />
+
+      {/* Festive Fireworks, Flash, Fairy Lights & Confetti Celebration Overlays */}
+      <WelcomeCelebration reducedMotion={reducedMotion} />
+
+      {/* Subtle floating gold particles */}
       <div className="erp-welcome-particles" aria-hidden="true">
         {particles.map((p, i) => (
           <span
@@ -136,29 +151,17 @@ const Welcome: React.FC = () => {
         ))}
       </div>
 
-      {/* Optional subtle intro audio */}
-      <audio
-        ref={audioRef}
-        src={`${process.env.PUBLIC_URL}/assets/welcome/welcome-intro.wav`}
-        preload="none"
-        loop
-      />
-      <Button
-        className="erp-welcome-sound"
-        type="text"
-        icon={muted ? <SoundOutlined /> : <SoundFilled />}
-        aria-label={muted ? 'Unmute welcome sound' : 'Mute welcome sound'}
-        onClick={toggleMute}
-      />
-
       {/* Center Stage Compact Glass Console */}
       <div className="erp-welcome-panel">
-        <div className="erp-welcome-logo-wrap">
-          <img
-            className="erp-welcome-logo"
-            src={`${process.env.PUBLIC_URL}/logo.png`}
-            alt="PWI — Pakistan Wire & Industry logo"
-          />
+        {/* Seamless Rounded Metallic Medallion Logo */}
+        <div className="erp-welcome-logo-wrap" title="Pakistan Wire & Industry (Private) Limited">
+          <div className="erp-welcome-logo-badge">
+            <img
+              className="erp-welcome-logo"
+              src={`${process.env.PUBLIC_URL}/logo.png`}
+              alt="PWI — Pakistan Wire & Industry logo"
+            />
+          </div>
         </div>
 
         {/* Live Handwriting Headline Animation */}
@@ -167,7 +170,7 @@ const Welcome: React.FC = () => {
           onAnimationComplete={() => {}}
         />
 
-        {/* 6-Photo Industrial Showcase Bar (100% English) */}
+        {/* 6-Photo Industrial Showcase Card (100% English) */}
         <div className="erp-welcome-showcase-card">
           <div className="erp-welcome-showcase-nav">
             <button

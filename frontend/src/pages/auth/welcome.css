@@ -1,6 +1,11 @@
 /* =====================================================================
    PWI — Pakistan Wire Industries
    Compact Industrial Welcome / Splash Experience (100% English)
+   Enhanced with:
+   - Festive Fireworks, Bursts, Flash & Confetti Celebration
+   - Top Header Slide Ribbon (Pakistan Wire & Industry Showcase + Logo)
+   - Rounded, Merged Metallic Medallion Logo Styling
+   - Soft Classical Ambient Music Visualizer & Controls
    ===================================================================== */
 
 /* Outer container */
@@ -11,19 +16,331 @@
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0;
-  padding: 16px;
+  padding: 64px 16px 20px;
   border: 0;
   box-sizing: border-box;
   overflow: hidden;
   background: #080e1a;
   color: #e8edf4;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* Background slideshow — factory and machinery photographs */
+/* =====================================================================
+   TOP SLIDE RIBBON (PWI Showcase, Logo & Classical Audio Control)
+   ===================================================================== */
+.erp-welcome-top-ribbon {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: linear-gradient(180deg, rgba(8, 14, 26, 0.88) 0%, rgba(6, 11, 20, 0.75) 100%);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border-bottom: 1px solid rgba(245, 212, 122, 0.28);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+}
+
+.erp-top-ribbon-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.erp-top-logo-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1.5px solid rgba(245, 212, 122, 0.75);
+  background: radial-gradient(circle at center, #ffffff 65%, #fef3c7 100%);
+  box-shadow: 0 0 10px rgba(245, 212, 122, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.erp-top-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 2px;
+  border-radius: 50%;
+}
+
+.erp-top-brand-text {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.erp-top-brand-code {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 1.5px;
+  color: #fce29d;
+  text-shadow: 0 0 8px rgba(245, 212, 122, 0.4);
+}
+
+.erp-top-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: erp-dot-pulse 2s infinite ease-in-out;
+}
+
+@keyframes erp-dot-pulse {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* Center Sliding Ticker */
+.erp-top-ribbon-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 760px;
+  margin: 0 14px;
+  justify-content: center;
+}
+
+.erp-top-slider-arrow {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(245, 212, 122, 0.25);
+  color: #fce29d;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.erp-top-slider-arrow:hover {
+  background: rgba(245, 212, 122, 0.2);
+  border-color: rgba(245, 212, 122, 0.6);
+  transform: scale(1.1);
+}
+
+.erp-top-slide-viewport {
+  flex: 1;
+  overflow: hidden;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.erp-top-slide-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  animation: erp-top-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes erp-top-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.erp-top-slide-pill {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(245, 212, 122, 0.18);
+  border: 1px solid rgba(245, 212, 122, 0.45);
+  color: #fde68a;
+}
+
+.erp-top-slide-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: #ffffff;
+  text-transform: uppercase;
+}
+
+.erp-top-slide-sep {
+  color: rgba(245, 212, 122, 0.6);
+  font-size: 11px;
+}
+
+.erp-top-slide-tagline {
+  font-size: 11px;
+  color: rgba(220, 230, 245, 0.85);
+  letter-spacing: 0.2px;
+}
+
+.erp-top-slide-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.erp-top-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.erp-top-dot.is-active {
+  width: 12px;
+  border-radius: 999px;
+  background: #fce29d;
+  box-shadow: 0 0 6px rgba(245, 212, 122, 0.7);
+}
+
+/* Classical Audio Toggle Pill */
+.erp-top-ribbon-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.erp-top-music-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(245, 212, 122, 0.35);
+  color: #e2e8f0;
+  transition: all 0.25s ease;
+}
+
+.erp-top-music-btn:hover {
+  background: rgba(245, 212, 122, 0.22);
+  border-color: rgba(245, 212, 122, 0.7);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.erp-top-music-btn.is-playing {
+  background: linear-gradient(135deg, rgba(245, 212, 122, 0.25) 0%, rgba(217, 119, 6, 0.3) 100%);
+  border-color: rgba(245, 212, 122, 0.8);
+  color: #fef08a;
+  box-shadow: 0 0 12px rgba(245, 212, 122, 0.35);
+}
+
+.erp-top-music-icon {
+  font-size: 12px;
+}
+
+/* Live Sound Wave Animation */
+.erp-top-soundwave {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  margin-left: 2px;
+}
+.wave-bar {
+  width: 2.5px;
+  background: #fde047;
+  border-radius: 1px;
+  animation: erp-wave-dance 1s ease-in-out infinite alternate;
+}
+.bar-1 { height: 6px; animation-delay: 0.1s; }
+.bar-2 { height: 12px; animation-delay: 0.3s; }
+.bar-3 { height: 8px; animation-delay: 0.2s; }
+
+@keyframes erp-wave-dance {
+  0% { height: 3px; }
+  100% { height: 12px; }
+}
+
+/* =====================================================================
+   CELEBRATION: FIREWORKS, FLASH & CONFETTI OVERLAYS
+   ===================================================================== */
+.erp-celebration-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Ambient Flash when fireworks explode */
+.erp-celebration-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(circle at 50% 30%, rgba(254, 240, 138, 0.45) 0%, rgba(245, 212, 122, 0.22) 40%, transparent 80%);
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+
+/* Festive Fairy Lights Garland */
+.erp-festive-lights-bar {
+  position: fixed;
+  top: 48px;
+  left: 0;
+  right: 0;
+  height: 14px;
+  z-index: 11;
+  display: flex;
+  justify-content: space-around;
+  pointer-events: none;
+  padding: 0 10px;
+}
+
+.erp-festive-bulb {
+  width: 6px;
+  height: 8px;
+  border-radius: 50% 50% 40% 40%;
+  animation: erp-festive-twinkle 1.6s ease-in-out infinite alternate;
+}
+.bulb-0 { background: #fbbf24; box-shadow: 0 0 8px 2px #fbbf24; }
+.bulb-1 { background: #38bdf8; box-shadow: 0 0 8px 2px #38bdf8; }
+.bulb-2 { background: #f43f5e; box-shadow: 0 0 8px 2px #f43f5e; }
+.bulb-3 { background: #34d399; box-shadow: 0 0 8px 2px #34d399; }
+.bulb-4 { background: #ffffff; box-shadow: 0 0 8px 2px #ffffff; }
+
+@keyframes erp-festive-twinkle {
+  0% { opacity: 0.35; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1.15); }
+}
+
+/* =====================================================================
+   BACKGROUND SLIDESHOW & PARTICLES
+   ===================================================================== */
 .erp-welcome-bg {
   position: absolute;
   inset: 0;
@@ -65,8 +382,8 @@
   inset: 0;
   z-index: 2;
   background:
-    radial-gradient(ellipse at center, rgba(8, 14, 26, 0.25) 0%, rgba(5, 10, 18, 0.60) 100%),
-    linear-gradient(180deg, rgba(8, 14, 26, 0.15) 0%, rgba(5, 10, 18, 0.45) 100%);
+    radial-gradient(ellipse at center, rgba(8, 14, 26, 0.22) 0%, rgba(5, 10, 18, 0.55) 100%),
+    linear-gradient(180deg, rgba(8, 14, 26, 0.12) 0%, rgba(5, 10, 18, 0.42) 100%);
 }
 
 /* Golden floating particles */
@@ -93,25 +410,27 @@
   100% { transform: translateY(-8vh); opacity: 0; }
 }
 
-/* Compact Center Stage Console Panel (Leaves background fully visible on all 4 sides) */
+/* =====================================================================
+   CENTER STAGE CONSOLE PANEL
+   ===================================================================== */
 .erp-welcome-panel {
   position: relative;
   z-index: 4;
-  width: min(88vw, 540px);
+  width: min(88vw, 530px);
   text-align: center;
   padding: 22px 24px 20px;
   box-sizing: border-box;
   border-radius: 20px;
   background:
-    linear-gradient(165deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.03) 40%, rgba(10, 18, 32, 0.40) 100%),
-    rgba(8, 15, 28, 0.42);
-  backdrop-filter: blur(12px) saturate(1.15);
-  -webkit-backdrop-filter: blur(12px) saturate(1.15);
-  border: 1px solid rgba(245, 212, 122, 0.28);
+    linear-gradient(165deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.03) 40%, rgba(10, 18, 32, 0.42) 100%),
+    rgba(8, 15, 28, 0.45);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgba(245, 212, 122, 0.32);
   box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.22),
-    0 18px 48px rgba(0, 0, 0, 0.5),
-    0 0 32px rgba(212, 163, 55, 0.12);
+    inset 0 1px 1px rgba(255, 255, 255, 0.25),
+    0 20px 52px rgba(0, 0, 0, 0.55),
+    0 0 36px rgba(212, 163, 55, 0.16);
   animation: erp-panel-enter 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -145,7 +464,7 @@
     from var(--welcome-beam),
     transparent 0deg 240deg,
     rgba(234, 179, 8, 0.4) 275deg,
-    rgba(251, 191, 36, 0.7) 310deg,
+    rgba(251, 191, 36, 0.75) 310deg,
     rgba(255, 245, 205, 0.95) 340deg,
     transparent 360deg
   );
@@ -153,7 +472,7 @@
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  filter: drop-shadow(0 0 5px rgba(245, 212, 122, 0.5));
+  filter: drop-shadow(0 0 6px rgba(245, 212, 122, 0.55));
   animation: erp-welcome-beam 8s linear infinite;
 }
 @keyframes erp-welcome-beam {
@@ -161,23 +480,60 @@
   to   { --welcome-beam: 360deg; }
 }
 
-/* Logo */
+/* =====================================================================
+   ROUNDED METALLIC MEDALLION LOGO (SEAMLESSLY INTEGRATED)
+   Fixes the square white edges and merges smoothly with card shading
+   ===================================================================== */
 .erp-welcome-logo-wrap {
   position: relative;
   display: inline-flex;
   margin-bottom: 6px;
-  padding: 6px;
+  padding: 4px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(245, 212, 122, 0.20) 0%, transparent 70%);
-}
-.erp-welcome-logo {
-  height: 56px;
-  width: 56px;
-  object-fit: contain;
-  filter: drop-shadow(0 4px 16px rgba(245, 212, 122, 0.45));
+  background: radial-gradient(circle at center, rgba(246, 212, 123, 0.35) 0%, rgba(246, 212, 123, 0.12) 55%, transparent 75%);
+  box-shadow: 0 0 24px rgba(246, 212, 123, 0.35);
+  animation: erp-logo-glow 4s ease-in-out infinite alternate;
 }
 
-/* Live Handwriting Container */
+@keyframes erp-logo-glow {
+  0% { transform: scale(1); filter: drop-shadow(0 0 10px rgba(246, 212, 123, 0.4)); }
+  100% { transform: scale(1.02); filter: drop-shadow(0 0 18px rgba(251, 191, 36, 0.65)); }
+}
+
+.erp-welcome-logo-badge {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2.2px solid rgba(246, 212, 123, 0.9);
+  background: radial-gradient(circle at 50% 50%, #ffffff 58%, #fffbf0 80%, #fde68a 100%);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.2),
+    0 8px 20px rgba(0, 0, 0, 0.45),
+    0 0 16px rgba(246, 212, 123, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s ease;
+}
+
+.erp-welcome-logo-badge:hover {
+  transform: rotate(4deg) scale(1.04);
+}
+
+.erp-welcome-logo {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: contain;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+/* =====================================================================
+   LIVE HANDWRITING HEADLINE
+   ===================================================================== */
 .erp-welcome-write {
   position: relative;
   display: flex;
@@ -290,7 +646,9 @@
   transform: translateY(0);
 }
 
-/* 6-Photo Industrial Showcase Card */
+/* =====================================================================
+   6-PHOTO INDUSTRIAL SHOWCASE CARD
+   ===================================================================== */
 .erp-welcome-showcase-card {
   position: relative;
   width: 100%;
@@ -415,7 +773,9 @@
   box-shadow: 0 0 8px rgba(246, 212, 123, 0.6);
 }
 
-/* Primary OK / Enter Action */
+/* =====================================================================
+   PRIMARY OK / ENTER ACTION
+   ===================================================================== */
 .erp-welcome-action-wrap {
   display: flex;
   flex-direction: column;
@@ -476,10 +836,10 @@
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
-/* Sound toggle */
+/* Secondary/Corner sound button fallback */
 .erp-welcome-sound {
   position: absolute;
-  top: 18px;
+  top: 60px;
   right: 18px;
   z-index: 5;
   color: rgba(255, 255, 255, 0.75) !important;
@@ -514,17 +874,39 @@
   .erp-welcome-particle { animation: none !important; opacity: 0; }
   .erp-welcome-panel::before { display: none; }
   .erp-write-pen { display: none; }
+  .erp-celebration-canvas { display: none; }
+  .erp-celebration-flash { display: none; }
+  .erp-festive-lights-bar { display: none; }
 }
 
 /* Responsive */
 @media (max-width: 767px) {
+  .erp-welcome-root {
+    padding-top: 54px;
+  }
+  .erp-welcome-top-ribbon {
+    padding: 0 10px;
+    height: 44px;
+  }
+  .erp-top-slide-tagline {
+    display: none;
+  }
+  .erp-top-slide-sep {
+    display: none;
+  }
+  .erp-top-music-label {
+    display: none;
+  }
+  .erp-festive-lights-bar {
+    top: 44px;
+  }
   .erp-welcome-panel {
     width: 94vw;
     padding: 20px 16px 18px;
   }
-  .erp-welcome-logo {
-    height: 48px;
-    width: 48px;
+  .erp-welcome-logo-badge {
+    width: 52px;
+    height: 52px;
   }
   .pwi-line--primary {
     font-size: clamp(28px, 8vw, 40px);
