@@ -1,9 +1,9 @@
 /* =====================================================================
-   Premium PWI Welcome / Splash experience
-   Edge-to-edge, cinematic, industrial, premium corporate.
+   PWI — Pakistan Wire Industries
+   Compact Industrial Welcome / Splash Experience (100% English)
    ===================================================================== */
 
-/* Outer container must touch viewport edges on all screens. */
+/* Outer container */
 .erp-welcome-root {
   position: relative;
   width: 100%;
@@ -11,32 +11,37 @@
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0;
-  padding: 0;
+  padding: 16px;
   border: 0;
   box-sizing: border-box;
   overflow: hidden;
-  background: #0d1424;
+  background: #080e1a;
   color: #e8edf4;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* Background slideshow */
+/* Background slideshow — factory and machinery photographs */
 .erp-welcome-bg {
   position: absolute;
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  background: #0d1424;
+  background: #080e1a;
 }
 .erp-welcome-slide {
   position: absolute;
   inset: 0;
   opacity: 0;
-  transition: opacity 1.4s ease;
+  transition: opacity 1.4s ease-in-out;
+  pointer-events: none;
 }
-.erp-welcome-slide.is-active { opacity: 1; z-index: 1; }
+.erp-welcome-slide.is-active {
+  opacity: 1;
+  z-index: 1;
+}
 .erp-welcome-img {
   position: absolute;
   inset: 0;
@@ -51,19 +56,20 @@
 }
 @keyframes erp-welcome-kenburns {
   from { transform: scale(1.02); }
-  to   { transform: scale(1.1); }
+  to   { transform: scale(1.10); }
 }
 
-/* Cinematic overlay — light, keeps the industry photograph visible. */
+/* Light, clear overlay so background photographs remain vibrantly visible */
 .erp-welcome-overlay {
   position: absolute;
   inset: 0;
   z-index: 2;
   background:
-    linear-gradient(180deg, rgba(5, 12, 22, 0.10) 0%, rgba(5, 12, 22, 0.20) 100%);
+    radial-gradient(ellipse at center, rgba(8, 14, 26, 0.25) 0%, rgba(5, 10, 18, 0.60) 100%),
+    linear-gradient(180deg, rgba(8, 14, 26, 0.15) 0%, rgba(5, 10, 18, 0.45) 100%);
 }
 
-/* Floating light / golden particles */
+/* Golden floating particles */
 .erp-welcome-particles {
   position: absolute;
   inset: 0;
@@ -76,42 +82,51 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: rgba(212, 178, 92, 0.55);
-  box-shadow: 0 0 8px 1px rgba(212, 178, 92, 0.4);
+  background: rgba(245, 212, 122, 0.55);
+  box-shadow: 0 0 8px 1px rgba(230, 185, 75, 0.4);
   animation: erp-welcome-float linear infinite;
 }
 @keyframes erp-welcome-float {
   0%   { transform: translateY(105vh); opacity: 0; }
-  12%  { opacity: 0.85; }
-  88%  { opacity: 0.6; }
+  15%  { opacity: 0.85; }
+  85%  { opacity: 0.65; }
   100% { transform: translateY(-8vh); opacity: 0; }
 }
 
-/* Brand + handwriting center panel — translucent premium glass. */
+/* Compact Center Stage Console Panel (Leaves background fully visible on all 4 sides) */
 .erp-welcome-panel {
   position: relative;
   z-index: 4;
-  width: min(94vw, 1100px);
+  width: min(88vw, 540px);
   text-align: center;
-  padding: 32px 26px 42px;
+  padding: 22px 24px 20px;
   box-sizing: border-box;
   border-radius: 20px;
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 42%, rgba(255, 255, 255, 0) 100%),
-    rgba(8, 16, 30, 0.14);
-  backdrop-filter: blur(8px) saturate(1.12);
-  -webkit-backdrop-filter: blur(8px) saturate(1.12);
-  border: 1px solid rgba(255, 224, 170, 0.20);
+    linear-gradient(165deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.03) 40%, rgba(10, 18, 32, 0.40) 100%),
+    rgba(8, 15, 28, 0.42);
+  backdrop-filter: blur(12px) saturate(1.15);
+  -webkit-backdrop-filter: blur(12px) saturate(1.15);
+  border: 1px solid rgba(245, 212, 122, 0.28);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 24px 60px rgba(0, 0, 0, 0.26);
+    inset 0 1px 1px rgba(255, 255, 255, 0.22),
+    0 18px 48px rgba(0, 0, 0, 0.5),
+    0 0 32px rgba(212, 163, 55, 0.12);
+  animation: erp-panel-enter 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Perimeter light sweep — a thin, subtle luminous streak that travels
-   clockwise around the box (top → right → bottom → left → top). CSS-only,
-   composited as a masked ring so it follows the rounded corners without ever
-   transforming or resizing the box. Uses the theme accent so it adapts to the
-   light/dark theme. */
+@keyframes erp-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Perimeter light streak beam */
 @property --welcome-beam {
   syntax: "<angle>";
   inherits: false;
@@ -129,47 +144,53 @@
   background: conic-gradient(
     from var(--welcome-beam),
     transparent 0deg 240deg,
-    color-mix(in srgb, #eab308 30%, transparent) 272deg,
-    color-mix(in srgb, #ec4899 44%, transparent) 300deg,
-    color-mix(in srgb, #8b5cf6 56%, #f4f5ff) 328deg,
-    color-mix(in srgb, #3b82f6 66%, #eaf2ff) 354deg,
+    rgba(234, 179, 8, 0.4) 275deg,
+    rgba(251, 191, 36, 0.7) 310deg,
+    rgba(255, 245, 205, 0.95) 340deg,
     transparent 360deg
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  filter: drop-shadow(0 0 5px color-mix(in srgb, #ffffff 30%, transparent));
-  animation: erp-welcome-beam 7s linear infinite;
+  filter: drop-shadow(0 0 5px rgba(245, 212, 122, 0.5));
+  animation: erp-welcome-beam 8s linear infinite;
 }
 @keyframes erp-welcome-beam {
   from { --welcome-beam: 0deg; }
   to   { --welcome-beam: 360deg; }
 }
 
+/* Logo */
+.erp-welcome-logo-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-bottom: 6px;
+  padding: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(245, 212, 122, 0.20) 0%, transparent 70%);
+}
 .erp-welcome-logo {
-  height: 72px;
-  width: 72px;
+  height: 56px;
+  width: 56px;
   object-fit: contain;
-  margin: 0 auto 14px;
-  filter: drop-shadow(0 4px 18px rgba(212, 178, 92, 0.35));
+  filter: drop-shadow(0 4px 16px rgba(245, 212, 122, 0.45));
 }
 
-/* Handwritten display headlines — premium gold script/brush. */
+/* Live Handwriting Container */
 .erp-welcome-write {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
   width: 100%;
-  margin: 8px 0 12px;
+  margin: 4px 0 14px;
 }
 .pwi-phrases {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   width: 100%;
 }
 .pwi-phrase {
@@ -181,139 +202,342 @@
   display: inline-block;
   white-space: nowrap;
   text-align: center;
-  font-family: 'Dancing Script', 'Kaushan Script', 'Segoe Script', cursive;
+  font-family: 'Dancing Script', 'Caveat', 'Segoe Script', cursive;
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1.15;
-  padding: 0 0.12em;
-  color: #e9c878; /* solid-gold fallback if background-clip:text is unsupported */
-  filter: drop-shadow(0 3px 12px rgba(0, 0, 0, 0.5));
+  margin: 0;
+  padding: 0 0.15em;
+  color: #f6d47b;
   will-change: clip-path;
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.6));
 }
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
   .pwi-line {
     color: transparent;
-    background-image: linear-gradient(175deg, #fbe9bd 0%, #e6c571 42%, #c69a44 78%, #a67c24 100%);
+    background-image: linear-gradient(175deg, #ffffff 0%, #fde68a 35%, #d97706 80%, #92400e 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
   }
 }
+
+/* Proportionate PWI title */
 .pwi-line--primary {
-  font-size: clamp(46px, 9vw, 96px);
+  font-size: clamp(34px, 5.5vw, 48px);
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
 }
+
+/* Pakistan Wire & Industry */
 .pwi-line--company {
-  font-size: clamp(18px, 4vw, 46px);
+  font-size: clamp(19px, 3.2vw, 26px);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-/* Premium gold marker/brush nib — tip anchored on the leading ink edge. */
-.erp-write-pen {
-  position: absolute;
-  width: 16px;
-  height: 22px;
-  transform: translate(-50%, -100%) rotate(-16deg);
-  transform-origin: 50% 100%;
-  pointer-events: none;
-  z-index: 6;
-  background:
-    radial-gradient(circle at 50% 8%, #fff3d3 0%, #f4dc94 34%, #d4b25c 70%, #9c7a24 100%);
-  clip-path: polygon(50% 0%, 100% 42%, 50% 100%, 0% 42%);
-  box-shadow:
-    0 0 14px rgba(216, 179, 94, 0.85),
-    0 0 4px rgba(255, 240, 205, 0.9);
+/* (Private) Limited */
+.pwi-line--sub {
+  font-size: clamp(14px, 2.2vw, 18px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #e6c571;
 }
 
-/* Sub copy (rendered by WelcomeAnimation). */
+/* Live golden stylus / pen nib */
+.erp-write-pen {
+  position: absolute;
+  width: 18px;
+  height: 28px;
+  transform: translate(-50%, -100%) rotate(-18deg);
+  transform-origin: 50% 100%;
+  pointer-events: none;
+  z-index: 10;
+  background:
+    radial-gradient(circle at 50% 12%, #ffffff 0%, #fae29c 35%, #dca936 70%, #92400e 100%);
+  clip-path: polygon(50% 0%, 92% 38%, 68% 100%, 32% 100%, 8% 38%);
+  box-shadow:
+    0 0 14px rgba(251, 191, 36, 0.9),
+    0 0 4px rgba(255, 255, 255, 0.95);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
+}
+.erp-write-pen-glow {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 10px 3px #fbbf24;
+}
+
+/* Sub copy */
 .erp-write-sub {
-  font-size: clamp(12px, 2vw, 16px);
-  color: #e0e8f2;
-  letter-spacing: 2px;
-  max-width: 640px;
-  margin: 4px auto 0;
-  line-height: 1.6;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+  color: #dbe4f0;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin: 6px auto 0;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
   opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.8s ease 0.2s, transform 0.8s ease 0.2s;
+  transform: translateY(6px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
 }
 .erp-write-sub.is-visible {
   opacity: 1;
   transform: translateY(0);
 }
 
-/* Premium enter button */
-.erp-welcome-enter {
-  height: 54px !important;
-  padding: 0 42px !important;
-  font-size: 15px !important;
-  letter-spacing: 4px !important;
-  font-weight: 600 !important;
-  border-radius: 999px !important;
-  background: linear-gradient(135deg, #d4b25c 0%, #b8933f 100%) !important;
-  border: none !important;
-  color: #0a101c !important;
-  box-shadow: 0 10px 32px rgba(212, 178, 92, 0.35) !important;
-  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+/* 6-Photo Industrial Showcase Card */
+.erp-welcome-showcase-card {
+  position: relative;
+  width: 100%;
+  background: linear-gradient(180deg, rgba(12, 22, 38, 0.65) 0%, rgba(6, 12, 22, 0.80) 100%);
+  border: 1px solid rgba(245, 212, 122, 0.22);
+  border-radius: 14px;
+  padding: 10px 14px 10px;
+  margin: 0 auto 16px;
+  box-sizing: border-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.35);
 }
+
+.erp-welcome-showcase-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.erp-welcome-nav-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(245, 212, 122, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fce29d;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.erp-welcome-nav-arrow:hover {
+  background: rgba(245, 212, 122, 0.25);
+  border-color: rgba(245, 212, 122, 0.7);
+  color: #ffffff;
+  transform: scale(1.08);
+}
+.erp-welcome-nav-arrow:active {
+  transform: scale(0.95);
+}
+
+.erp-welcome-showcase-content {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.erp-welcome-slide-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.erp-welcome-slide-num {
+  font-weight: 800;
+  font-size: 13px;
+  color: #fce29d;
+}
+.erp-welcome-slide-total {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.erp-welcome-slide-divider {
+  color: rgba(245, 212, 122, 0.5);
+  font-size: 11px;
+}
+.erp-welcome-slide-caption-en {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+}
+.erp-welcome-slide-desc {
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+  color: rgba(220, 230, 245, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Interactive Dots Bar */
+.erp-welcome-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.erp-welcome-dot {
+  background: transparent;
+  border: none;
+  padding: 3px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  outline: none;
+}
+.erp-welcome-dot-inner {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.erp-welcome-dot:hover .erp-welcome-dot-inner {
+  background: rgba(245, 212, 122, 0.6);
+  transform: scale(1.2);
+}
+.erp-welcome-dot.is-active .erp-welcome-dot-inner {
+  width: 22px;
+  background: linear-gradient(90deg, #f6d47b, #e6ad33);
+  box-shadow: 0 0 8px rgba(246, 212, 123, 0.6);
+}
+
+/* Primary OK / Enter Action */
+.erp-welcome-action-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.erp-welcome-enter {
+  height: 48px !important;
+  padding: 0 38px !important;
+  font-size: 14px !important;
+  letter-spacing: 2px !important;
+  font-weight: 700 !important;
+  border-radius: 999px !important;
+  background: linear-gradient(135deg, #fae29c 0%, #dca936 50%, #b3821d 100%) !important;
+  border: 1px solid rgba(255, 240, 190, 0.5) !important;
+  color: #0c1424 !important;
+  box-shadow:
+    0 6px 22px rgba(220, 169, 54, 0.45),
+    0 0 24px rgba(246, 212, 123, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.6) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  cursor: pointer !important;
+}
+
 .erp-welcome-enter:hover {
-  transform: translateY(-2px) !important;
-  box-shadow: 0 16px 42px rgba(212, 178, 92, 0.5) !important;
+  transform: translateY(-2px) scale(1.02) !important;
+  box-shadow:
+    0 10px 30px rgba(220, 169, 54, 0.6),
+    0 0 32px rgba(246, 212, 123, 0.4),
+    inset 0 1px 1px rgba(255, 255, 255, 0.8) !important;
+  background: linear-gradient(135deg, #fff0b8 0%, #e6b744 50%, #c49126 100%) !important;
+}
+.erp-welcome-enter:active {
+  transform: translateY(1px) scale(0.98) !important;
 }
 .erp-welcome-enter:focus-visible {
-  outline: 3px solid rgba(212, 178, 92, 0.9);
+  outline: 3px solid rgba(246, 212, 123, 0.9);
   outline-offset: 3px;
+}
+
+.erp-welcome-enter-arrow {
+  font-size: 15px;
+  transition: transform 0.2s ease;
+}
+.erp-welcome-enter:hover .erp-welcome-enter-arrow {
+  transform: translateX(3px);
+}
+
+.erp-welcome-login-hint {
+  font-size: 11px;
+  color: rgba(220, 230, 245, 0.75);
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
 /* Sound toggle */
 .erp-welcome-sound {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 18px;
+  right: 18px;
   z-index: 5;
+  color: rgba(255, 255, 255, 0.75) !important;
+  background: rgba(10, 20, 36, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 50% !important;
+  width: 36px !important;
+  height: 36px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  backdrop-filter: blur(8px) !important;
+  transition: all 0.2s ease !important;
+}
+.erp-welcome-sound:hover {
+  color: #fce29d !important;
+  border-color: rgba(245, 212, 122, 0.5) !important;
+  transform: scale(1.08) !important;
 }
 
 /* Exit transition */
 .erp-welcome-root.is-exiting {
   opacity: 0;
-  transform: scale(1.03);
-  transition: opacity 0.6s ease, transform 0.6s ease;
+  transform: scale(1.02);
+  transition: opacity 0.4s ease, transform 0.4s ease;
 }
 
-/* Reduced motion: disable cinematic effects */
+/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .erp-welcome-img,
   .erp-welcome-slide.is-active .erp-welcome-img { animation: none !important; }
   .erp-welcome-particle { animation: none !important; opacity: 0; }
+  .erp-welcome-panel::before { display: none; }
   .erp-write-pen { display: none; }
-  .erp-write-sub { transition: none !important; }
-  .erp-welcome-panel::before { display: none; } /* perimeter sweep → normal static border */
 }
 
-/* Mobile edge-to-edge + compact panel */
+/* Responsive */
 @media (max-width: 767px) {
   .erp-welcome-panel {
-    width: 100vw;
-    max-width: 100vw;
-    min-height: 100vh;
-    min-height: 100dvh;
-    border-radius: 0;
-    border: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 20px 16px 36px;
-    background:
-      linear-gradient(160deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 100%),
-      rgba(8, 16, 30, 0.24);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    width: 94vw;
+    padding: 20px 16px 18px;
   }
-  .erp-welcome-logo { height: 50px; width: 50px; }
-  .pwi-line--primary { font-size: clamp(40px, 11vw, 80px); }
-  .pwi-line--company { font-size: clamp(17px, 4.6vw, 38px); }
+  .erp-welcome-logo {
+    height: 48px;
+    width: 48px;
+  }
+  .pwi-line--primary {
+    font-size: clamp(28px, 8vw, 40px);
+  }
+  .pwi-line--company {
+    font-size: clamp(16px, 4.5vw, 22px);
+  }
+  .erp-welcome-slide-desc {
+    display: none;
+  }
+  .erp-welcome-enter {
+    height: 44px !important;
+    padding: 0 28px !important;
+    font-size: 13px !important;
+  }
 }

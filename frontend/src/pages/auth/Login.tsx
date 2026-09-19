@@ -40,6 +40,18 @@ const Login: React.FC = () => {
 
   useEffect(() => {
     document.title = 'Sign In | PWI — Pakistan Wire & Industry';
+
+    // If starting a fresh session without passing the Welcome screen first, start at Welcome (/)
+    if (process.env.NODE_ENV !== 'test') {
+      try {
+        const welcomePassed = sessionStorage.getItem('pwi_welcome_passed');
+        if (!welcomePassed) {
+          navigate('/', { replace: true });
+          return;
+        }
+      } catch {}
+    }
+
     if (redirecting) {
       navigate('/dashboard', { replace: true });
     } else {
@@ -167,6 +179,12 @@ const Login: React.FC = () => {
           >
             Sign In
           </Button>
+
+          <div style={{ textAlign: 'center', marginTop: 14 }}>
+            <Link className="erp-auth-link" to="/" style={{ fontSize: 13 }}>
+              ← Back to Welcome Screen
+            </Link>
+          </div>
         </Form>
 
         <p className="erp-auth-note">
