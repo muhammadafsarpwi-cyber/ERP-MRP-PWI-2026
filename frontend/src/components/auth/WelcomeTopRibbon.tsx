@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { SoundFilled, SoundOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
+import React, { useState } from 'react';
+import { SoundFilled, SoundOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
 
 interface Props {
   isMusicPlaying: boolean;
@@ -12,7 +12,7 @@ interface TopSlide {
   tagline: string;
 }
 
-const TOP_SLIDES: TopSlide[] = [
+const ANNOUNCEMENTS: TopSlide[] = [
   {
     badge: 'PWI OFFICIAL',
     title: 'PAKISTAN WIRE & INDUSTRY (PVT) LTD.',
@@ -20,46 +20,27 @@ const TOP_SLIDES: TopSlide[] = [
   },
   {
     badge: 'SPOKE DIVISION',
-    title: 'HIGH-PRECISION SPOKE & NIPPLE PROCESSING',
-    tagline: 'Automated Wire Drawing, Swagging, Threading & Mirror Nickel-Chrome Auto-Plating',
+    title: 'SPOKE & NIPPLE PROCESSING (SPD)',
+    tagline: 'Continuous Wire Drawing, Swagging, Threading & Mirror Nickel-Chrome Auto-Plating',
   },
   {
     badge: 'ENTERPRISE ERP',
     title: 'INTEGRATED MRP & PRODUCTION ECOSYSTEM',
-    tagline: 'Real-Time Plant Floor Intelligence, Material Tracking & Total Quality Assurance',
+    tagline: 'Real-Time Plant Floor Scheduling, Material Tracking & Total Quality Traceability',
   },
   {
     badge: 'NATIONAL EXCELLENCE',
-    title: 'SUPPLYING PREMIUM INDUSTRIAL AUTOMOTIVE COMPONENTS',
-    tagline: 'Trusted by OEM Vehicle Manufacturers & High-Tensile Industrial Wire Sectors',
+    title: 'INDUSTRIAL & AUTOMOTIVE WIRE SOLUTIONS',
+    tagline: 'High Tensile Galvanized & Annealed Wire Coils for OEM Vehicle Assembly',
   },
 ];
 
 const WelcomeTopRibbon: React.FC<Props> = ({ isMusicPlaying, onToggleMusic }) => {
-  const [activeSlide, setActiveSlide] = useState(0);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setActiveSlide((prev) => (prev + 1) % TOP_SLIDES.length);
-    }, 4800);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const handlePrev = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setActiveSlide((prev) => (prev - 1 + TOP_SLIDES.length) % TOP_SLIDES.length);
-  };
-
-  const handleNext = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setActiveSlide((prev) => (prev + 1) % TOP_SLIDES.length);
-  };
-
-  const current = TOP_SLIDES[activeSlide];
+  const [isPaused, setIsPaused] = useState(false);
 
   return (
     <header className="erp-welcome-top-ribbon" role="banner">
-      {/* Brand Identity with Circular Logo */}
+      {/* Brand Identity with Circular Medallion Logo */}
       <div className="erp-top-ribbon-brand">
         <div className="erp-top-logo-badge">
           <img
@@ -70,58 +51,44 @@ const WelcomeTopRibbon: React.FC<Props> = ({ isMusicPlaying, onToggleMusic }) =>
         </div>
         <div className="erp-top-brand-text">
           <span className="erp-top-brand-code">PWI</span>
-          <span className="erp-top-live-dot" title="System Online" />
+          <span className="erp-top-live-dot" title="Live Enterprise System Online" />
+          <span className="erp-top-live-label">LIVE</span>
         </div>
       </div>
 
-      {/* Center Sliding Ticker / Showcase */}
-      <div className="erp-top-ribbon-slider">
-        <button
-          type="button"
-          className="erp-top-slider-arrow"
-          onClick={handlePrev}
-          aria-label="Previous Announcement"
-          title="Previous Announcement"
-        >
-          <LeftOutlined />
-        </button>
-
-        <div className="erp-top-slide-viewport">
-          <div key={activeSlide} className="erp-top-slide-content">
-            <span className="erp-top-slide-pill">{current.badge}</span>
-            <strong className="erp-top-slide-title">{current.title}</strong>
-            <span className="erp-top-slide-sep">—</span>
-            <span className="erp-top-slide-tagline">{current.tagline}</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          className="erp-top-slider-arrow"
-          onClick={handleNext}
-          aria-label="Next Announcement"
-          title="Next Announcement"
-        >
-          <RightOutlined />
-        </button>
-
-        {/* Mini dot indicators */}
-        <div className="erp-top-slide-dots" aria-hidden="true">
-          {TOP_SLIDES.map((_, idx) => (
-            <span
-              key={idx}
-              className={`erp-top-dot${idx === activeSlide ? ' is-active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveSlide(idx);
-              }}
-            />
+      {/* Continuous Fluid Marquee Showcase (Never cuts off text, flows infinitely) */}
+      <div
+        className="erp-top-ticker-wrap"
+        onMouseEnter={() => setIsPaused(true)}
+        onMouseLeave={() => setIsPaused(false)}
+        title="Hover to pause announcement ticker"
+      >
+        <div className={`erp-top-ticker-track${isPaused ? ' is-paused' : ''}`}>
+          {/* Repeat sequence twice for continuous seamless infinite loop */}
+          {[...ANNOUNCEMENTS, ...ANNOUNCEMENTS].map((item, idx) => (
+            <div key={idx} className="erp-ticker-item">
+              <span className="erp-ticker-pill">{item.badge}</span>
+              <strong className="erp-ticker-title">{item.title}</strong>
+              <span className="erp-ticker-sep">—</span>
+              <span className="erp-ticker-tagline">{item.tagline}</span>
+              <span className="erp-ticker-bullet">✦</span>
+            </div>
           ))}
         </div>
       </div>
 
-      {/* Classical Background Audio Toggle Pill */}
+      {/* Right Controls: Marquee Pause Toggle + Classical Audio Control */}
       <div className="erp-top-ribbon-actions">
+        <button
+          type="button"
+          className="erp-top-action-btn erp-top-pause-btn"
+          onClick={() => setIsPaused((p) => !p)}
+          aria-label={isPaused ? 'Resume ticker marquee' : 'Pause ticker marquee'}
+          title={isPaused ? 'Resume scrolling ticker' : 'Pause scrolling ticker'}
+        >
+          {isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
+        </button>
+
         <button
           type="button"
           className={`erp-top-music-btn${isMusicPlaying ? ' is-playing' : ''}`}
@@ -130,13 +97,13 @@ const WelcomeTopRibbon: React.FC<Props> = ({ isMusicPlaying, onToggleMusic }) =>
             onToggleMusic();
           }}
           aria-label={isMusicPlaying ? 'Mute soft classical music' : 'Play soft classical music'}
-          title={isMusicPlaying ? 'Click to Mute Classical Background Music' : 'Click to Play Soft Classical Ambient Music'}
+          title={isMusicPlaying ? 'Click to Mute Classical Ambient Music' : 'Click to Play Soft Classical Ambient Music'}
         >
           <span className="erp-top-music-icon">
             {isMusicPlaying ? <SoundFilled /> : <SoundOutlined />}
           </span>
           <span className="erp-top-music-label">
-            {isMusicPlaying ? 'Classical Audio' : 'Audio Muted'}
+            {isMusicPlaying ? 'Classical Music' : 'Audio Muted'}
           </span>
           {isMusicPlaying && (
             <span className="erp-top-soundwave" aria-hidden="true">

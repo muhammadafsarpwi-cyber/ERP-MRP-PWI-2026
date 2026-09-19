@@ -805,3 +805,453 @@ html[data-theme='light'] .erp-auth-brand.is-theme .erp-brand-mark {
   font-size: inherit;
   font-family: inherit;
 }
+
+/* =====================================================================
+   2027 NEXT-GEN ENTERPRISE AUTHENTICATION & LOGIN MODEL
+   ===================================================================== */
+.erp-2027-login-card {
+  width: 100%;
+  max-width: 490px;
+  padding: 26px 32px 24px !important;
+  border-radius: 22px !important;
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 40%, rgba(8, 14, 26, 0.72) 100%),
+    rgba(6, 12, 22, 0.70) !important;
+  border: 1px solid rgba(246, 212, 123, 0.35) !important;
+  backdrop-filter: blur(20px) saturate(1.25) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.25) !important;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.65),
+    0 0 36px rgba(246, 212, 123, 0.14),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25) !important;
+}
+
+/* Top 2027 High-Tech HUD Bar */
+.erp-2027-hud-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.erp-hud-pill {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: rgba(220, 230, 245, 0.85);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.erp-hud-clock {
+  font-family: monospace;
+  letter-spacing: 0.5px;
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.25);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+/* Centered Medallion Logo */
+.erp-auth-logo-center {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.erp-2027-login-card .erp-auth-panel-brand {
+  border-bottom: none !important;
+  margin-bottom: 8px !important;
+  padding-bottom: 0 !important;
+  justify-content: center !important;
+}
+
+.erp-auth-logo-center .erp-welcome-logo-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-bottom: 6px;
+  padding: 4px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(246, 212, 123, 0.35) 0%, rgba(246, 212, 123, 0.12) 55%, transparent 75%);
+  box-shadow: 0 0 24px rgba(246, 212, 123, 0.35);
+  animation: erp-logo-glow 4s ease-in-out infinite alternate;
+}
+
+.erp-auth-logo-center .erp-welcome-logo-badge {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2.2px solid rgba(246, 212, 123, 0.9);
+  background: radial-gradient(circle at 50% 50%, #ffffff 58%, #fffbf0 80%, #fde68a 100%);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.2),
+    0 8px 20px rgba(0, 0, 0, 0.45),
+    0 0 16px rgba(246, 212, 123, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.erp-auth-logo-center .erp-welcome-logo {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: contain;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+.erp-auth-header-block {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.erp-auth-tagline-badge {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: #fde68a;
+  background: rgba(246, 212, 123, 0.14);
+  border: 1px solid rgba(246, 212, 123, 0.4);
+  padding: 2px 8px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.erp-2027-login-card .erp-auth-panel-heading {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  margin: 0 0 4px;
+}
+
+.erp-2027-login-card .erp-auth-panel-sub {
+  font-size: 12px;
+  color: rgba(220, 230, 245, 0.75);
+  margin: 0;
+}
+
+/* 2027 Access Profile / Role Selector Chips */
+.erp-2027-dept-selector {
+  margin: 14px 0 16px;
+}
+.erp-dept-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  color: rgba(246, 212, 123, 0.85);
+  display: block;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+.erp-dept-chips {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.erp-dept-chip {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(220, 230, 245, 0.85);
+  transition: all 0.2s ease;
+  text-align: left;
+}
+.erp-dept-chip:hover {
+  background: rgba(246, 212, 123, 0.12);
+  border-color: rgba(246, 212, 123, 0.45);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.erp-dept-chip.is-selected {
+  background: linear-gradient(135deg, rgba(246, 212, 123, 0.24) 0%, rgba(217, 119, 6, 0.28) 100%);
+  border-color: rgba(246, 212, 123, 0.85);
+  color: #fef08a;
+  box-shadow: 0 0 12px rgba(246, 212, 123, 0.3);
+}
+.dept-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.dept-name {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Caps Lock Warning Alert */
+.erp-caps-alert {
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #fca5a5;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: erp-caps-shake 0.3s ease;
+}
+
+@keyframes erp-caps-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* 2027 Field Labels & Inputs */
+.erp-2027-field-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #fde68a;
+  text-transform: uppercase;
+}
+
+.erp-field-icon {
+  color: #fce29d !important;
+  font-size: 14px;
+}
+
+.erp-2027-input.ant-input {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 10px !important;
+  color: #ffffff !important;
+  height: 44px !important;
+  transition: all 0.25s ease !important;
+}
+.erp-2027-input.ant-input:hover {
+  border-color: rgba(246, 212, 123, 0.5) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+.erp-2027-input.ant-input:focus,
+.erp-2027-input.ant-input-focused {
+  border-color: rgba(246, 212, 123, 0.9) !important;
+  box-shadow: 0 0 16px rgba(246, 212, 123, 0.35) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.erp-2027-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4px 0 18px;
+}
+
+.erp-2027-checkbox {
+  color: rgba(220, 230, 245, 0.8) !important;
+  font-size: 12px !important;
+}
+.erp-2027-checkbox .ant-checkbox-inner {
+  border-radius: 4px !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(245, 212, 122, 0.4) !important;
+}
+.erp-2027-checkbox .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: #dca936 !important;
+  border-color: #fce29d !important;
+}
+
+.erp-2027-forgot {
+  font-size: 12px;
+  color: #fce29d;
+  transition: color 0.2s ease;
+}
+.erp-2027-forgot:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+/* 2027 Primary Action Button */
+.erp-2027-auth-button.ant-btn {
+  height: 48px !important;
+  border-radius: 999px !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  letter-spacing: 1.5px !important;
+  background: linear-gradient(135deg, #fae29c 0%, #dca936 50%, #b3821d 100%) !important;
+  color: #0b1220 !important;
+  border: 1px solid rgba(255, 240, 190, 0.6) !important;
+  box-shadow:
+    0 8px 26px rgba(220, 169, 54, 0.45),
+    0 0 20px rgba(246, 212, 123, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.6) !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+}
+
+.erp-2027-auth-button.ant-btn:hover {
+  transform: translateY(-2px) scale(1.01) !important;
+  box-shadow:
+    0 12px 34px rgba(220, 169, 54, 0.65),
+    0 0 30px rgba(246, 212, 123, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.8) !important;
+  background: linear-gradient(135deg, #fff0b8 0%, #e6b744 50%, #c49126 100%) !important;
+}
+
+.erp-2027-auth-button.ant-btn:active {
+  transform: translateY(1px) scale(0.98) !important;
+}
+
+.erp-cta-arrow {
+  transition: transform 0.2s ease;
+}
+.erp-2027-auth-button:hover .erp-cta-arrow {
+  transform: translateX(4px);
+}
+
+.erp-2027-back-wrap {
+  text-align: center;
+  margin-top: 14px;
+}
+.erp-2027-back-link {
+  font-size: 12px;
+  color: rgba(220, 230, 245, 0.75);
+  transition: color 0.2s ease;
+}
+.erp-2027-back-link:hover {
+  color: #fce29d;
+}
+
+.erp-2027-footer-security {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  color: rgba(220, 230, 245, 0.6);
+  letter-spacing: 0.3px;
+  text-align: center;
+}
+.erp-lock-icon {
+  color: #34d399;
+}
+
+/* =====================================================================
+   2027 BRAND PANE (Left-hand Industrial Telemetry Showcase)
+   ===================================================================== */
+.erp-pane-badge-2027 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  background: rgba(246, 212, 123, 0.15);
+  border: 1px solid rgba(246, 212, 123, 0.4);
+  color: #fde68a;
+  margin-bottom: 12px;
+}
+.erp-pane-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.erp-2027-pane-title {
+  font-size: clamp(26px, 3.2vw, 42px) !important;
+  font-weight: 300 !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.15 !important;
+  color: #ffffff !important;
+  margin: 0 0 14px !important;
+}
+
+/* 2027 Plant Telemetry Grid */
+.erp-2027-telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 22px 0 26px;
+}
+
+.erp-telemetry-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+.erp-telemetry-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(246, 212, 123, 0.35);
+  transform: translateY(-2px);
+}
+
+.telemetry-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.telemetry-tag {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #fce29d;
+  text-transform: uppercase;
+}
+.telemetry-val {
+  font-size: 11px;
+  font-weight: 800;
+  color: #34d399;
+}
+.telemetry-name {
+  font-size: 11px;
+  color: rgba(220, 230, 245, 0.85);
+  line-height: 1.3;
+}
+
+.erp-2027-auth-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  color: rgba(220, 230, 245, 0.8);
+}
+.status-strong {
+  font-weight: 700;
+  color: #ffffff;
+}
+.status-sep {
+  color: rgba(246, 212, 123, 0.6);
+}
+.status-meta {
+  color: rgba(220, 230, 245, 0.65);
+}
+

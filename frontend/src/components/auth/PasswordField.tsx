@@ -5,7 +5,7 @@ import { EyeInvisibleOutlined, EyeOutlined, LockOutlined } from '@ant-design/ico
 
 interface PasswordFieldProps {
   name: string;
-  label?: string;
+  label?: React.ReactNode;
   placeholder?: string;
   autoComplete?: string;
   dependencies?: Array<string | number>;
