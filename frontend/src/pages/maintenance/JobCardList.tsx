@@ -103,7 +103,7 @@ const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
     const repairMins = Math.max(0, Math.round((endTime - startTime) / 60000));
     const totalDownMins = reqTime ? Math.max(0, Math.round((endTime - reqTime) / 60000)) : repairMins;
     return (
-      <div>
+      <div style={{ whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <CheckCircleOutlined style={{ color: '#10b981', fontSize: 12 }} />
           <span style={{ fontWeight: 700, color: '#10b981', fontSize: 12 }}>
@@ -122,7 +122,7 @@ const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
     const totalDownMins = reqTime ? Math.max(0, Math.round((now - reqTime) / 60000)) : activeMins;
     const isHold = card.currentStatus === 'WAITING_FOR_PARTS' || card.currentStatus === 'ON_HOLD';
     return (
-      <div>
+      <div style={{ whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           {isHold ? (
             <StopOutlined style={{ color: '#f59e0b', fontSize: 12 }} />
@@ -148,7 +148,7 @@ const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
   if (card.currentStatus === 'REJECTED') {
     const totalDownMins = reqTime ? Math.max(0, Math.round((now - reqTime) / 60000)) : 0;
     return (
-      <div>
+      <div style={{ whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <RollbackOutlined style={{ color: '#ef4444', fontSize: 12 }} />
           <span style={{ fontWeight: 700, color: '#ef4444', fontSize: 12 }}>
@@ -169,7 +169,7 @@ const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
   const waitMins = reqTime ? Math.max(0, Math.round((now - reqTime) / 60000)) : 0;
   const isHighDelay = waitMins >= 120; // > 2 hours waiting to start
   return (
-    <div>
+    <div style={{ whiteSpace: 'nowrap' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         <ClockCircleOutlined style={{ color: isHighDelay ? '#ef4444' : '#60a5fa', fontSize: 12 }} />
         <span style={{ fontWeight: 700, color: isHighDelay ? '#ef4444' : 'inherit', fontSize: 12 }}>
@@ -656,7 +656,7 @@ export const JobCardList: React.FC = () => {
   const IsAllView = (filters.statuses || []).length === 0;
 
   const viewActionBtn = (r: JobCard) => (
-    <Tooltip title="View Job Card Details Popup">
+    <Tooltip title="View Job Card" placement="top">
       <Button
         className="jc-view-btn"
         icon={<EyeOutlined style={{ fontSize: 13, color: '#2563eb' }} />}
@@ -668,7 +668,11 @@ export const JobCardList: React.FC = () => {
           width: 28,
           minWidth: 28,
           height: 28,
+          padding: 0,
           borderRadius: 6,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
         onClick={(e) => {
           e.stopPropagation();
@@ -699,15 +703,29 @@ export const JobCardList: React.FC = () => {
   };
 
   const actionIcon = (endpoint: string) => {
-    if (endpoint === 'assign') return <TeamOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
-    if (endpoint === 'start' || endpoint === 'resume' || endpoint === 'submit-for-verification') return <PlayCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
-    if (endpoint === 'complete' || endpoint === 'verify' || endpoint === 'approve') return <CheckCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
-    return undefined;
+    switch (endpoint) {
+      case 'assign':
+        return <TeamOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+      case 'start':
+      case 'resume':
+        return <PlayCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+      case 'complete':
+        return <CheckCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+      case 'verify':
+      case 'approve':
+        return <AuditOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+      case 'reject':
+        return <RollbackOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+      case 'submit-for-verification':
+        return <PlayCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+      default:
+        return <PlayCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+    }
   };
 
   const renderRowActions = (_: any, r: JobCard) => {
     const editBtn = can(USER_PERMISSIONS.update) && (
-      <Tooltip title="Edit Job Card">
+      <Tooltip title="Edit Job Card" placement="top">
         <Button
           size="small"
           icon={<EditOutlined style={{ fontSize: 13, color: '#2563eb' }} />}
@@ -719,7 +737,11 @@ export const JobCardList: React.FC = () => {
             width: 28,
             minWidth: 28,
             height: 28,
+            padding: 0,
             borderRadius: 6,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
           onClick={(e) => {
             e.stopPropagation();
@@ -731,7 +753,7 @@ export const JobCardList: React.FC = () => {
     );
 
     const deleteBtn = can(USER_PERMISSIONS.delete) && (
-      <Tooltip title="Delete Job Card">
+      <Tooltip title="Delete Job Card" placement="top">
         <Button
           danger
           size="small"
@@ -744,7 +766,11 @@ export const JobCardList: React.FC = () => {
             width: 28,
             minWidth: 28,
             height: 28,
+            padding: 0,
             borderRadius: 6,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
           onClick={(e) => {
             e.stopPropagation();
@@ -763,57 +789,64 @@ export const JobCardList: React.FC = () => {
     // All Job Cards is a historical / read-only view — View only + Edit/Delete for admin.
     if (IsAllView) {
       return (
-        <Space wrap size={6} className="jc-actions">
+        <div className="jc-actions-row">
           {viewActionBtn(r)}
           {editBtn}
           {deleteBtn}
-        </Space>
+        </div>
       );
     }
 
     const action = nextActionOf(r);
     return (
-      <Space wrap size={6} className="jc-actions">
+      <div className="jc-actions-row">
         {action && (
-          <Button
-            className={`jc-action-primary jc-btn-${action.endpoint}`}
-            size="small"
-            type="primary"
-            loading={actionInProgressId === r.id}
-            icon={actionIcon(action.endpoint)}
-            style={{
-              ...actionBtnStyle(action.endpoint),
-              fontWeight: 600,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              height: 28,
-              padding: '0 10px',
-              borderRadius: 6,
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              runQuick(r, action);
-            }}
-          >
-            {action.label}
-          </Button>
+          <Tooltip title={`${action.label} Job Card`} placement="top">
+            <Button
+              className={`jc-action-primary jc-btn-${action.endpoint}`}
+              size="small"
+              type="primary"
+              loading={actionInProgressId === r.id}
+              icon={actionIcon(action.endpoint)}
+              aria-label={`${action.label} Job Card ${r.jobCardNo || ''}`}
+              style={{
+                ...actionBtnStyle(action.endpoint),
+                width: 28,
+                minWidth: 28,
+                height: 28,
+                padding: 0,
+                borderRadius: 6,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                runQuick(r, action);
+              }}
+            />
+          </Tooltip>
         )}
 
         {/* Quick action: Put on hold / wait for parts if card is in progress */}
         {r.currentStatus === 'IN_PROGRESS' && (
-          <Tooltip title="Put on hold waiting for spare parts">
+          <Tooltip title="Hold for Spare Parts" placement="top">
             <Button
               size="small"
               icon={<StopOutlined style={{ fontSize: 13, color: '#d97706' }} />}
+              aria-label={`Put Job Card ${r.jobCardNo || ''} on hold`}
               style={{
                 width: 28,
                 minWidth: 28,
                 height: 28,
+                padding: 0,
                 borderRadius: 6,
                 borderColor: '#fde68a',
                 backgroundColor: '#fffbeb',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -826,7 +859,7 @@ export const JobCardList: React.FC = () => {
         {viewActionBtn(r)}
         {editBtn}
         {deleteBtn}
-      </Space>
+      </div>
     );
   };
 
@@ -1059,7 +1092,7 @@ export const JobCardList: React.FC = () => {
       },
     },
     {
-      title: 'Actions', key: 'actions', width: IsAllView ? 75 : (isMobile ? 140 : 200), fixed: isMobile ? undefined : 'right',
+      title: 'Actions', key: 'actions', width: IsAllView ? 115 : (isMobile ? 140 : 175), fixed: isMobile ? undefined : 'right',
       render: renderRowActions,
     },
   ];
@@ -1360,7 +1393,7 @@ export const JobCardList: React.FC = () => {
       <Row gutter={[8, 12]} align="middle">
         <Col>
           <Button icon={<FilterOutlined />} onClick={() => setShowFilters(v => !v)} type={showFilters ? 'primary' : 'default'}>
-            <Text style={{ color: showFilters ? '#fff' : undefined }}>Filters</Text>
+            <span style={{ color: showFilters ? '#fff' : undefined }}>Filters</span>
           </Button>
         </Col>
         {activeFilterCount > 0 && <Col><Tag color="blue">{activeFilterCount}</Tag></Col>}
@@ -1490,12 +1523,12 @@ export const JobCardList: React.FC = () => {
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap', padding: '12px 16px', borderTop: '1px solid var(--theme-border)' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            Showing <Text strong>{displayRows.length}</Text> of <Text strong>{total}</Text> job cards
-          </Text>
+          <span style={{ fontSize: 13, color: 'var(--theme-text-secondary, #64748b)' }}>
+            Showing <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{displayRows.length}</strong> of <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{total}</strong> job cards
+          </span>
         </div>
         <Space size="middle">
-          <Space size={6}><Text type="secondary" style={{ fontSize: 13 }}>Rows per page:</Text>
+          <Space size={6}><span style={{ fontSize: 13, color: 'var(--theme-text-secondary, #64748b)' }}>Rows per page:</span>
             <Select size="small" value={pageSize} onChange={v => { setPage(1); setPageSize(v); }} options={PAGE_SIZE_OPTIONS.map(v => ({ value: v, label: String(v) }))} style={{ width: 90 }} />
           </Space>
           <Pagination current={page} pageSize={pageSize} total={total} onChange={setPage} showSizeChanger={false} showLessItems />

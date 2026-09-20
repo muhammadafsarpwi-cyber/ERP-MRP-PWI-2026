@@ -261,7 +261,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
         </Button>,
       ]}
       onCancel={onClose}
-      destroyOnClose
+      destroyOnHidden
       style={{ top: 24 }}
     >
       {/* Item Profile Banner */}

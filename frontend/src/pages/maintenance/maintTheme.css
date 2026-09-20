@@ -226,12 +226,13 @@ html[data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-desc,
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 5px !important;
   color: #ffffff !important;
   font-weight: 600 !important;
-  font-size: 12px !important;
+  font-size: 13px !important;
+  width: 28px !important;
+  min-width: 28px !important;
   height: 28px !important;
-  padding: 0 10px !important;
+  padding: 0 !important;
   border-radius: 6px !important;
   cursor: pointer !important;
   white-space: nowrap !important;
@@ -449,23 +450,69 @@ html[data-theme='dark'] .jc-sub-date,
   font-weight: 600;
   font-size: 13px;
   color: var(--theme-text, #0f172a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 175px;
 }
 
 .jc-machine-code {
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   font-size: 11px;
   color: var(--theme-text-muted, #94a3b8);
+  white-space: nowrap;
 }
 
 .jc-complaint-text {
   font-size: 12.5px;
   color: var(--theme-text, #1e293b);
   line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 230px;
+  vertical-align: middle;
 }
 
 .jc-dept-text {
   font-size: 12.5px;
   color: var(--theme-text-secondary, #475569);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 125px;
+  vertical-align: middle;
+}
+
+/* ── 2027 Action Icons Row (Single line, no wrap) ── */
+.jc-actions-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+}
+
+.jc-actions-row .ant-btn {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 6px !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+  transition: transform 0.16s ease, box-shadow 0.16s ease !important;
+}
+
+.jc-actions-row .ant-btn:hover {
+  transform: translateY(-1px) scale(1.05);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.22) !important;
 }
 
 /* ── Row Hover & Separation ── */

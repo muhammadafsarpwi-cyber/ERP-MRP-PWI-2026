@@ -1,0 +1,39 @@
+/* ── Workspace Tab Viewport (Multi-Tab Keep-Alive Container) ──────────── */
+
+.erp-tab-viewport-container {
+  width: 100%;
+  min-height: 100%;
+  position: relative;
+}
+
+/* Active tab: standard document flow, full visibility and interaction */
+.erp-tab-pane--active {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+/* Inactive keep-alive tab:
+   Maintains full width (100%) so ResizeObserver and layout calculations
+   in Ant Design (tables, text ellipsis, charts) NEVER collapse to 0px width.
+   Height is 0 and overflow is hidden so it consumes zero vertical space.
+   Visibility is hidden and pointer-events is none for safety and performance.
+*/
+.erp-tab-pane--offscreen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -999;
+}

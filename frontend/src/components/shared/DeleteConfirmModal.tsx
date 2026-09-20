@@ -163,7 +163,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
       }
       centered
       width={520}
-      destroyOnClose
+      destroyOnHidden
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '12px 0 8px' }}>
         {itemName && itemName !== itemCode && (

@@ -70,12 +70,27 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
         const existingIndex = tabs.findIndex((t) => t.id === canonicalId);
 
         if (existingIndex !== -1) {
-          // Tab already exists! NEVER create duplicate. Update route in case search params changed.
+          // Tab already exists! NEVER create duplicate.
           const existing = tabs[existingIndex];
+          const newTitle = tabData.title || existing.title;
+          const newRoute = tabData.route;
+
+          // Only update state if something actually changed to prevent render cascades
+          const routeChanged = existing.route !== newRoute;
+          const titleChanged = newTitle && existing.title !== newTitle;
+
+          if (!routeChanged && !titleChanged) {
+            // Nothing changed — just ensure it's active, no set() if already active
+            if (get().activeTabId !== canonicalId) {
+              set({ activeTabId: canonicalId });
+            }
+            return existing;
+          }
+
           const updatedTab: WorkspaceTab = {
             ...existing,
-            route: tabData.route,
-            title: tabData.title || existing.title,
+            route: newRoute,
+            title: newTitle,
             timestamp: Date.now(),
           };
 
@@ -105,6 +120,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
         });
         return newTab;
       },
+
 
       activateTab: (id) => {
         const { tabs } = get();

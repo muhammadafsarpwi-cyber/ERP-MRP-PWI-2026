@@ -40,8 +40,13 @@ class ClassicalAmbientEngine {
     }
     if (!this.masterGain && this.ctx) {
       this.masterGain = this.ctx.createGain();
-      // Soft ambient background level (~0.16)
-      this.masterGain.gain.setValueAtTime(0.16, this.ctx.currentTime);
+      // Clear, rich ambient volume (default 0.65)
+      let initialVol = 0.65;
+      try {
+        const saved = localStorage.getItem('pwi_classical_music_volume');
+        if (saved !== null) initialVol = parseFloat(saved);
+      } catch {}
+      this.masterGain.gain.setValueAtTime(initialVol, this.ctx.currentTime);
       this.masterGain.connect(this.ctx.destination);
     }
     return true;
@@ -58,8 +63,8 @@ class ClassicalAmbientEngine {
 
     // Gentle low-pass filter to sound like soft felt piano / cello
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(isBass ? 450 : 950, startTime);
-    filter.frequency.exponentialRampToValueAtTime(isBass ? 200 : 400, startTime + duration);
+    filter.frequency.setValueAtTime(isBass ? 500 : 1100, startTime);
+    filter.frequency.exponentialRampToValueAtTime(isBass ? 220 : 450, startTime + duration);
 
     osc1.type = isBass ? 'triangle' : 'sine';
     osc1.frequency.setValueAtTime(freq, startTime);
@@ -68,7 +73,8 @@ class ClassicalAmbientEngine {
     osc2.type = 'triangle';
     osc2.frequency.setValueAtTime(freq * 1.002, startTime);
 
-    const peakVolume = isBass ? 0.08 : 0.04;
+    // Louder, clear acoustic piano & cello note volume
+    const peakVolume = isBass ? 0.22 : 0.16;
 
     // Soft attack & long resonant decay
     noteGain.gain.setValueAtTime(0.0001, startTime);

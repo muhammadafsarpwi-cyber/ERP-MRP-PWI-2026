@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { SoundFilled, SoundOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import ClassicalMusicControl from '../shared/ClassicalMusicControl';
 
 interface Props {
-  isMusicPlaying: boolean;
-  onToggleMusic: () => void;
+  isMusicPlaying?: boolean;
+  onToggleMusic?: () => void;
 }
 
 interface TopSlide {
@@ -89,30 +90,7 @@ const WelcomeTopRibbon: React.FC<Props> = ({ isMusicPlaying, onToggleMusic }) =>
           {isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
         </button>
 
-        <button
-          type="button"
-          className={`erp-top-music-btn${isMusicPlaying ? ' is-playing' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleMusic();
-          }}
-          aria-label={isMusicPlaying ? 'Mute soft classical music' : 'Play soft classical music'}
-          title={isMusicPlaying ? 'Click to Mute Classical Ambient Music' : 'Click to Play Soft Classical Ambient Music'}
-        >
-          <span className="erp-top-music-icon">
-            {isMusicPlaying ? <SoundFilled /> : <SoundOutlined />}
-          </span>
-          <span className="erp-top-music-label">
-            {isMusicPlaying ? 'Classical Music' : 'Audio Muted'}
-          </span>
-          {isMusicPlaying && (
-            <span className="erp-top-soundwave" aria-hidden="true">
-              <span className="wave-bar bar-1" />
-              <span className="wave-bar bar-2" />
-              <span className="wave-bar bar-3" />
-            </span>
-          )}
-        </button>
+        <ClassicalMusicControl />
       </div>
     </header>
   );

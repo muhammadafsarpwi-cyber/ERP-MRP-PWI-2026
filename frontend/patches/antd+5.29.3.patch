@@ -1,0 +1,17 @@
+diff --git a/node_modules/antd/es/typography/Base/index.js b/node_modules/antd/es/typography/Base/index.js
+index 0a8f6d8..915b6d2 100644
+--- a/node_modules/antd/es/typography/Base/index.js
++++ b/node_modules/antd/es/typography/Base/index.js
+@@ -133,8 +133,10 @@ const Base = /*#__PURE__*/React.forwardRef((props, ref) => {
+     children
+   });
+   // ========================== Ellipsis ==========================
+-  const [isLineClampSupport, setIsLineClampSupport] = React.useState(false);
+-  const [isTextOverflowSupport, setIsTextOverflowSupport] = React.useState(false);
++  // Initialize synchronously to avoid a one-render window where cssEllipsis=false
++  // and enableMeasure=true, which causes an infinite setState loop (antd#47803 workaround).
++  const [isLineClampSupport, setIsLineClampSupport] = React.useState(() => isStyleSupport('webkitLineClamp'));
++  const [isTextOverflowSupport, setIsTextOverflowSupport] = React.useState(() => isStyleSupport('textOverflow'));
+   const [isJsEllipsis, setIsJsEllipsis] = React.useState(false);
+   const [isNativeEllipsis, setIsNativeEllipsis] = React.useState(false);
+   const [isNativeVisible, setIsNativeVisible] = React.useState(true);

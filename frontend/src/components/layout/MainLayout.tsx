@@ -21,6 +21,7 @@ import { useThemeStore } from '../../theme/themeStore';
 import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from './headerActionsStore';
 import Breadcrumbs from '../shared/Breadcrumbs';
+import ClassicalMusicControl from '../shared/ClassicalMusicControl';
 import { useNavBadgeStore } from './navBadgeStore';
 import { syncMaintenanceQueueBadges } from './maintenanceQueueBadges';
 import apiService from '../../services/api';
@@ -306,15 +307,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     void prefetchAllLookups();
   }, []);
 
-  // Sync active route with the Workspace Tab Store
+  // Keep a stable ref of the title so openTab doesn't re-run on every title change
+  const latestTitleRef = React.useRef<string>('');
+
+  // Sync active route with the Workspace Tab Store.
+  // IMPORTANT: Only depend on pathname+search (stable navigation events),
+  // NOT on derived/computed values like headerTitleText or pageTitle which
+  // can change mid-render causing infinite update loops.
   React.useEffect(() => {
     if (!location.pathname || location.pathname === '/' || location.pathname === '/login') return;
 
-    const title = typeof headerTitleText === 'string'
-      ? headerTitleText
-      : typeof pageTitle === 'string'
-      ? pageTitle
-      : 'Page';
+    const title = latestTitleRef.current ||
+      (typeof headerTitleText === 'string' ? headerTitleText :
+       typeof pageTitle === 'string' ? pageTitle : 'Page');
 
     useWorkspaceTabStore.getState().openTab({
       id: location.pathname,
@@ -323,11 +328,41 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       title,
       closable: location.pathname !== '/dashboard',
     });
-  }, [location.pathname, location.search, headerTitleText, pageTitle]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, location.search]);
+
+  // Update the title ref whenever it changes, but DON'T use it as an effect dep
+  React.useEffect(() => {
+    const title = typeof headerTitleText === 'string'
+      ? headerTitleText
+      : typeof pageTitle === 'string'
+      ? pageTitle
+      : '';
+    if (title) {
+      latestTitleRef.current = title;
+      // Update tab title in store without triggering full re-sync
+      const store = useWorkspaceTabStore.getState();
+      const existing = store.tabs.find((t) => t.id === location.pathname);
+      if (existing && existing.title !== title) {
+        store.openTab({ ...existing, title });
+      }
+    }
+  }, [headerTitleText, pageTitle, location.pathname]);
+
 
   const handleMenuClick = (info: { key: string }) => {
     setMobileOpen(false);
-    navigate(navPathForKey(info.key));
+    const targetPath = navPathForKey(info.key);
+    // Seamlessly focus existing tab if already opened, or navigate to open a new tab
+    const existing = useWorkspaceTabStore.getState().tabs.find(
+      (t) => t.id === targetPath || t.pathname === targetPath
+    );
+    if (existing) {
+      useWorkspaceTabStore.getState().activateTab(existing.id);
+      navigate(existing.route);
+    } else {
+      navigate(targetPath);
+    }
   };
 
   /**
@@ -623,6 +658,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <NotificationBell />
               <EmailCommunicationIcon />
               <WhatsAppCommunicationIcon />
+              <ClassicalMusicControl />
               <ThemeSettingsButton />
               <ProfileMenu />
             </div>

@@ -107,7 +107,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
       }}
     />
     <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
-      <Text
+      <span
         style={{
           fontSize: 11,
           lineHeight: 1.2,
@@ -115,11 +115,15 @@ const KpiCard: React.FC<KpiCardProps> = ({
           letterSpacing: '0.04em',
           color: 'var(--theme-text-muted, #64748b)',
           textTransform: 'uppercase',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          display: 'block',
         }}
-        ellipsis
+        title={label}
       >
         {label}
-      </Text>
+      </span>
       <span
         aria-hidden="true"
         style={{

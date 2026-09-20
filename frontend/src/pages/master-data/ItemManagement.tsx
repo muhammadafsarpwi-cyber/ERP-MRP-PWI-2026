@@ -38,6 +38,7 @@ import {
 import InputMaterialSelect from './items/InputMaterialSelect';
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import './itemManagement.css';
 
 const { Text } = Typography;
@@ -213,16 +214,21 @@ const ItemTypeCard: React.FC<ItemTypeCardProps> = ({
           color: active ? 'var(--theme-accent, var(--theme-primary, #4f46e5))' : 'var(--theme-text-muted)',
         }}
       />
-      <Text
+      <span
         style={{
-          fontSize: 12.5, lineHeight: 1.25,
+          fontSize: 12.5,
+          lineHeight: 1.25,
           color: active ? 'var(--theme-accent, var(--theme-primary, #4f46e5))' : 'var(--theme-text)',
           fontWeight: active ? 700 : 500,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          display: 'block',
         }}
-        ellipsis
+        title={label}
       >
         {label}
-      </Text>
+      </span>
     </span>
     {count !== undefined && (
       <Text type="secondary" style={{ position: 'relative', zIndex: 1, fontSize: 10.5, lineHeight: 1.2 }}>
@@ -269,7 +275,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
       }}
     />
     <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
-      <Text
+      <span
         style={{
           fontSize: 11,
           lineHeight: 1.2,
@@ -277,11 +283,15 @@ const KpiCard: React.FC<KpiCardProps> = ({
           letterSpacing: '0.03em',
           color: 'var(--theme-text-muted)',
           textTransform: 'uppercase',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          display: 'block',
         }}
-        ellipsis
+        title={label}
       >
         {label}
-      </Text>
+      </span>
       <span
         data-kpi-icon="true"
         aria-hidden="true"
@@ -592,30 +602,48 @@ const ItemManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
   const screens = Grid.useBreakpoint();
+  // ── Filter State Persistence via tabSessionCache ──────────────────────────
+  // Saves filter/sort/pagination state on every change so it can be restored
+  // when the user navigates back to this tab from another.
+  const ITEM_CACHE_KEY = '/master-data/items::filterState';
+
+  interface ItemFilterState {
+    fDivision?: string; fSection?: string; fDepartment?: string;
+    fCategory?: string; fItemType?: string; fRoleUsage?: string;
+    fRouteType?: string; fStatus?: string;
+    search: string; searchInput: string;
+    page: number; pageSize: number;
+    sortField: string; sortOrder: string;
+    activeTab: string; showFilters: boolean;
+  }
+
+  const savedFilters = tabSessionCache.get<ItemFilterState>(ITEM_CACHE_KEY);
+
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [sortField, setSortField] = useState<string>('itemCode');
-  const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('ASC');
+  const [page, setPage] = useState(savedFilters?.page ?? 1);
+  const [pageSize, setPageSize] = useState(savedFilters?.pageSize ?? 20);
+  const [sortField, setSortField] = useState<string>(savedFilters?.sortField ?? 'itemCode');
+  const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>((savedFilters?.sortOrder as 'ASC' | 'DESC') ?? 'ASC');
 
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [searchInput, setSearchInput] = useState(savedFilters?.searchInput ?? '');
+  const [search, setSearch] = useState(savedFilters?.search ?? '');
+  const [showFilters, setShowFilters] = useState(savedFilters?.showFilters ?? false);
   const [deleteTargetItem, setDeleteTargetItem] = useState<Item | null>(null);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
 
-  const [fDivision, setFDivision] = useState<string | undefined>();
-  const [fSection, setFSection] = useState<string | undefined>();
-  const [fDepartment, setFDepartment] = useState<string | undefined>();
-  const [fCategory, setFCategory] = useState<string | undefined>();
-  const [fItemType, setFItemType] = useState<string | undefined>();
-  const [fRoleUsage, setFRoleUsage] = useState<string | undefined>();
-  const [fRouteType, setFRouteType] = useState<string | undefined>();
-  const [fStatus, setFStatus] = useState<string | undefined>();
-  const [activeTab, setActiveTab] = useState<string>('all');
+  const [fDivision, setFDivision] = useState<string | undefined>(savedFilters?.fDivision);
+  const [fSection, setFSection] = useState<string | undefined>(savedFilters?.fSection);
+  const [fDepartment, setFDepartment] = useState<string | undefined>(savedFilters?.fDepartment);
+  const [fCategory, setFCategory] = useState<string | undefined>(savedFilters?.fCategory);
+  const [fItemType, setFItemType] = useState<string | undefined>(savedFilters?.fItemType);
+  const [fRoleUsage, setFRoleUsage] = useState<string | undefined>(savedFilters?.fRoleUsage);
+  const [fRouteType, setFRouteType] = useState<string | undefined>(savedFilters?.fRouteType);
+  const [fStatus, setFStatus] = useState<string | undefined>(savedFilters?.fStatus);
+  const [activeTab, setActiveTab] = useState<string>(savedFilters?.activeTab ?? 'all');
+
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('pwi_item_table_columns_v2') || localStorage.getItem('pwi_item_table_columns_v1');
@@ -923,6 +951,15 @@ const ItemManagement: React.FC = () => {
     return () => clearTimeout(t);
   }, [searchInput]);
 
+  // Persist filter state to sessionStorage so it survives tab navigation
+  useEffect(() => {
+    tabSessionCache.set<ItemFilterState>(ITEM_CACHE_KEY, {
+      fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus,
+      search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters,
+    });
+  }, [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus,
+      search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const activeFilterCount = useMemo(
     () => [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus].filter(Boolean).length,
     [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus],
@@ -1141,7 +1178,7 @@ const ItemManagement: React.FC = () => {
         setPipelineStats(res.data);
       }
     } catch (err) {
-      console.error('Failed to load pipeline stats', err);
+      console.warn('Pipeline stats temporarily unavailable:', (err as any)?.message || err);
     }
   }, [fDivision, fSection, fDepartment]);
 

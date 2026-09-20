@@ -9,6 +9,7 @@ import {
   EyeOutlined,
   EditOutlined,
   DeleteOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import EmptyState from './EmptyState';
 import { OrbitalDualRingLoader, TableEmptyLoadingState } from './LoadingState';
@@ -46,7 +47,10 @@ export function ERPTable<T extends object = any>({
   pagination,
   locale,
   scroll,
-  scrollY,
+  // Default scrollY to false to prevent EllipsisMeasure / ResizeObserver infinite loop
+  // caused by scroll.y = 'calc(...)' triggering continuous remeasurement.
+  // Pass an explicit number (e.g. scrollY={500}) to opt-in to virtual scrolling.
+  scrollY = false,
   sticky = true,
   emptyTitle = 'No records found',
   emptyText,
@@ -110,21 +114,25 @@ export function ERPTable<T extends object = any>({
     };
   }, [isTableSpinning, hasTableData, loadingTitle, loadingSubtitle, emptyText, emptyTitle, emptyDescription, emptyActionLabel, onEmptyAction, locale]);
 
-  // Standardized enterprise scrolling with sticky header & internal mouse wheel scroll
+  // Standardized enterprise scrolling with sticky header & internal mouse wheel scroll.
+  // IMPORTANT: Do NOT use calc() or viewport-relative values for scroll.y —
+  // that causes EllipsisMeasure/ResizeObserver to enter an infinite setState loop.
+  // Only set scroll.y when a fixed pixel value is provided.
   const resolvedScroll = React.useMemo(() => {
     const x = scroll?.x ?? 'max-content';
-    let y: string | number | undefined = scroll?.y;
+    let y: number | undefined;
 
-    if (y === undefined && scrollY !== false) {
-      y = typeof scrollY === 'string' || typeof scrollY === 'number'
-        ? scrollY
-        : 'calc(100vh - 350px)';
+    // Only accept fixed pixel numbers to avoid layout loops
+    if (typeof scrollY === 'number' && scrollY > 0) {
+      y = scrollY;
+    } else if (typeof scroll?.y === 'number' && scroll.y > 0) {
+      y = scroll.y;
     }
+    // String values (calc, %, vh) are intentionally rejected to prevent resize loops
 
     return {
       x,
       ...(y !== undefined ? { y } : {}),
-      ...(scroll ? { ...scroll, x, ...(y !== undefined ? { y } : {}) } : {}),
     };
   }, [scroll, scrollY]);
 
@@ -148,35 +156,46 @@ export function ERPTable<T extends object = any>({
     }));
   }, [restProps.columns]);
 
-  // Guarantee enlarged 2027 neon orbital dual-ring spinner on table loading state
+  // Prominent circular rotating loading spinner positioned directly in foreground
   const resolvedLoading = React.useMemo(() => {
     if (!restProps.loading) return false;
     const baseConfig = typeof restProps.loading === 'object' ? restProps.loading : { spinning: !!restProps.loading };
 
-    // When the table has NO rows and is spinning, resolvedLocale renders TableEmptyLoadingState.
-    // Suppress the redundant Ant Design overlay indicator to avoid duplicate stacked spinners.
-    if (!hasTableData) {
-      return {
-        spinning: true,
-        indicator: <span style={{ display: 'none' }} />,
-        ...baseConfig,
-      };
-    }
-
-    // When the table HAS data (background refresh or page change), display the prominent glowing loader over rows.
     return {
       size: 'large' as const,
-      spinning: !!restProps.loading,
+      spinning: true,
       indicator: (
-        <div className="erp-table-prominent-loader">
-          <div className="erp-table-loader-glow-halo" />
-          <OrbitalDualRingLoader size="large" />
-          <div className="erp-table-loader-caption">Retrieving Data...</div>
+        <div
+          style={{
+            display: 'inline-flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px 28px',
+            background: 'rgba(255, 255, 255, 0.96)',
+            borderRadius: 14,
+            boxShadow: '0 12px 36px rgba(0, 0, 0, 0.16)',
+            border: '1px solid #e2e8f0',
+            zIndex: 999,
+          }}
+        >
+          <LoadingOutlined style={{ fontSize: 44, color: 'var(--theme-primary, #2563eb)' }} spin />
+          <span
+            style={{
+              marginTop: 12,
+              fontWeight: 700,
+              fontSize: 13,
+              color: '#1e293b',
+              letterSpacing: '0.3px',
+            }}
+          >
+            {loadingTitle || 'Loading Records...'}
+          </span>
         </div>
       ),
       ...baseConfig,
     };
-  }, [restProps.loading, hasTableData]);
+  }, [restProps.loading, loadingTitle]);
 
   const resolvedRowClassName = React.useCallback(
     (record: T, index: number, indent: number) => {

@@ -248,7 +248,7 @@ const SerialNumberManagement: React.FC = () => {
         onCancel={() => { setModalVisible(false); form.resetFields(); }}
         onOk={handleCreate}
         okText="Create"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" preserve={false}>
           <Form.Item name="itemId" label="Item" rules={[{ required: true }]}>
