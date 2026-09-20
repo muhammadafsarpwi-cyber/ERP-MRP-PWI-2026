@@ -7,7 +7,7 @@ import {
   ArrowRightOutlined, CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined,
   DeleteOutlined, EditOutlined, EyeInvisibleOutlined, EyeOutlined, PaperClipOutlined,
   PictureOutlined, PlusOutlined, ReloadOutlined, RollbackOutlined, SaveOutlined, SendOutlined,
-  WarningOutlined, WhatsAppOutlined,
+  WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -30,7 +30,7 @@ const SECTION_SELECT_LIST_HEIGHT = 200;
 const PHOTO_FILE_MAX = 5 * 1024 * 1024;
 const ATTACH_FILE_MAX = 10 * 1024 * 1024;
 const PHOTO_MIME_ALLOW = ['image/jpeg', 'image/png', 'image/webp'];
-const PHOTO_EXT_RE = /\.(jpe?g|png|webp)$/i;
+// const PHOTO_EXT_RE = /\.(jpe?g|png|webp)$/i;
 const ATTACH_EXT_ALLOW = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv'];
 
 interface OrgOption {
@@ -529,7 +529,7 @@ const RawMaterialReturn: React.FC = () => {
           return next;
         });
       });
-  }, [invPreviewSignature, invPreviewRetryTick]);
+  }, [invPreviewSignature, invPreviewRetryTick, refData?.items, refData?.uoms]);
 
   const invUomByItem: Record<string, string> = useMemo(() => {
     const byId: Record<string, string> = {};
@@ -537,24 +537,24 @@ const RawMaterialReturn: React.FC = () => {
     return byId;
   }, [refData?.uoms]);
 
-  const invCurrentOnHand = (itemId?: string): number | null => {
+  const invCurrentOnHand = useCallback((itemId?: string): number | null => {
     if (!itemId) return null;
     const it = invPreview[itemId];
     if (!it) return null;
     if (!it.exists) return 0;
     return Number(it.onHand);
-  };
+  }, [invPreview]);
 
-  const invPriorForItem = (itemId?: string): number => {
+  const invPriorForItem = useCallback((itemId?: string): number => {
     if (!itemId) return 0;
     return priorPosted.filter((p) => p.itemId === itemId).reduce((s, p) => s + Number(p.quantity || 0), 0);
-  };
+  }, [priorPosted]);
 
-  const invUomCodeForItem = (itemId: string): string => {
+  const invUomCodeForItem = useCallback((itemId: string): string => {
     const row = rows.find((r) => r.itemId === itemId);
     if (row?.uomId && invUomByItem[row.uomId]) return invUomByItem[row.uomId];
     return invPreview[itemId]?.uomCode ?? '';
-  };
+  }, [rows, invUomByItem, invPreview]);
 
   const retryInvPreview = useCallback(() => setInvPreviewRetryTick((t) => t + 1), []);
 
@@ -619,7 +619,7 @@ const RawMaterialReturn: React.FC = () => {
     });
 
     return groups;
-  }, [rows, refData?.items, invPreview, invPreviewLoading, invPreviewError, priorPosted]);
+  }, [rows, refData?.items, invPreview, invPreviewLoading, invPreviewError, priorPosted, invCurrentOnHand, invPriorForItem, invUomCodeForItem]);
 
   // Object-URL previews for photos
   const photoPreview = useCallback((p: PendingUpload): string | undefined => {
@@ -728,7 +728,7 @@ const RawMaterialReturn: React.FC = () => {
   };
 
   // Open Create Modal
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setEditingId(null);
     form.resetFields();
     form.setFieldValue('returnDate', dayjs());
@@ -738,7 +738,7 @@ const RawMaterialReturn: React.FC = () => {
     setPriorPosted([]);
     setIsModalMinimized(false);
     setModalOpen(true);
-  };
+  }, [form]);
 
   // Open Edit Modal
   const openEdit = async (rec: ReturnHeader) => {
@@ -1055,9 +1055,22 @@ const RawMaterialReturn: React.FC = () => {
       key: 'returnCode',
       width: 140,
       render: (v, r) => (
-        <a onClick={() => openDetail(r)} style={{ fontWeight: 600 }}>
+        <button
+          type="button"
+          onClick={() => openDetail(r)}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: '#1677ff',
+            cursor: 'pointer',
+            fontWeight: 600,
+            textAlign: 'left',
+            textDecoration: 'none',
+          }}
+        >
           {v || '—'}
-        </a>
+        </button>
       ),
     },
     {
@@ -1276,7 +1289,7 @@ const RawMaterialReturn: React.FC = () => {
         Refresh
       </Button>
     </Space>
-  ), [page]);
+  ), [page, loadList, openCreate]);
 
   return (
     <div className="erp-dashboard">

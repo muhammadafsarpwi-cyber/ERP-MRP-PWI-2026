@@ -113,14 +113,22 @@ export const JobCardDetail: React.FC = () => {
     setLoading(true); setError('');
     try {
       const [job, parts, logs, attachments, history, technicians] = await Promise.all([
-        apiService.get<JobCard>(`${JOB_CARD_BASE}/${id}`),
-        apiService.get<any[]>(`${JOB_CARD_BASE}/${id}/parts`),
-        apiService.get<any[]>(`${JOB_CARD_BASE}/${id}/work-logs`),
-        apiService.get<any[]>(`${JOB_CARD_BASE}/${id}/attachments`),
-        apiService.get<any[]>(`${JOB_CARD_BASE}/${id}/history`),
-        apiService.get<any[]>(`${JOB_CARD_BASE}/${id}/technicians`),
+        apiService.get<any>(`${JOB_CARD_BASE}/${id}`),
+        apiService.get<any>(`${JOB_CARD_BASE}/${id}/parts`),
+        apiService.get<any>(`${JOB_CARD_BASE}/${id}/work-logs`),
+        apiService.get<any>(`${JOB_CARD_BASE}/${id}/attachments`),
+        apiService.get<any>(`${JOB_CARD_BASE}/${id}/history`),
+        apiService.get<any>(`${JOB_CARD_BASE}/${id}/technicians`),
       ]);
-      setCard(job); setRelated({ parts, logs, attachments, history, technicians });
+      const cardData = job?.data || job;
+      setCard(cardData);
+      setRelated({
+        parts: rowsOf(parts) || [],
+        logs: rowsOf(logs) || [],
+        attachments: rowsOf(attachments) || [],
+        history: rowsOf(history) || [],
+        technicians: rowsOf(technicians) || [],
+      });
     } catch (e) { setError(errorText(e)); }
     finally { setLoading(false); }
   }, [id]);

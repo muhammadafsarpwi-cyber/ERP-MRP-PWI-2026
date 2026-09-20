@@ -180,5 +180,43 @@ export const OrbitalDualRingLoader: React.FC<OrbitalDualRingLoaderProps> = ({
   );
 };
 
+export interface TableEmptyLoadingStateProps {
+  title?: string;
+  subtitle?: string;
+  badgeText?: string;
+  style?: React.CSSProperties;
+  className?: string;
+}
+
+/**
+ * 2027 Enterprise Table Empty Loading State
+ * Renders an enlarged neon orbital dual-ring spinner with ambient glow halo,
+ * responsive typography, and live telemetry pill badge.
+ */
+export const TableEmptyLoadingState: React.FC<TableEmptyLoadingStateProps> = ({
+  title = 'Loading Records...',
+  subtitle = 'Retrieving real-time data directly from database...',
+  badgeText = 'LIVE DATABASE QUERY',
+  style,
+  className = '',
+}) => {
+  return (
+    <div className={`erp-table-empty-loader-container ${className}`.trim()} style={style}>
+      <div className="erp-table-empty-loader-glow" />
+      <div className="erp-table-empty-loader-spinner">
+        <OrbitalDualRingLoader size="large" />
+      </div>
+      <div className="erp-table-empty-loader-title">{title}</div>
+      <div className="erp-table-empty-loader-sub">{subtitle}</div>
+      {badgeText && (
+        <div className="erp-table-empty-loader-pill">
+          <span className="erp-table-empty-pulse-dot" />
+          <span>{badgeText}</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default LoadingState;
 

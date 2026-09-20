@@ -13,7 +13,7 @@ const AuthBrandPane: React.FC = () => {
       </div>
 
       <h2 className="erp-auth-pane-title erp-2027-pane-title">
-        Manufacturing Intelligence
+        Manufacturing
         <br />
         &amp; Operations Platform
       </h2>

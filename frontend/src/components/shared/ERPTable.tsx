@@ -11,10 +11,11 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import EmptyState from './EmptyState';
-import { OrbitalDualRingLoader } from './LoadingState';
+import { OrbitalDualRingLoader, TableEmptyLoadingState } from './LoadingState';
 
 export interface ERPTableProps<T extends object = any> extends TableProps<T> {
   dense?: boolean;
+  cardRows?: boolean;
   containerClassName?: string;
   containerStyle?: React.CSSProperties;
   emptyTitle?: string;
@@ -22,6 +23,8 @@ export interface ERPTableProps<T extends object = any> extends TableProps<T> {
   emptyDescription?: string;
   emptyActionLabel?: string;
   onEmptyAction?: () => void;
+  loadingTitle?: string;
+  loadingSubtitle?: string;
   /**
    * Vertical scroll height for sticky header and table body scrolling.
    * Defaults to 'calc(100vh - 350px)'. Pass `false` to disable.
@@ -36,6 +39,7 @@ export interface ERPTableProps<T extends object = any> extends TableProps<T> {
  */
 export function ERPTable<T extends object = any>({
   dense = false,
+  cardRows = true,
   containerClassName = '',
   containerStyle,
   className = '',
@@ -49,6 +53,9 @@ export function ERPTable<T extends object = any>({
   emptyDescription = 'No data matches your current criteria.',
   emptyActionLabel,
   onEmptyAction,
+  loadingTitle,
+  loadingSubtitle,
+  rowClassName,
   ...restProps
 }: ERPTableProps<T>) {
   // Standardized enterprise pagination
@@ -66,18 +73,42 @@ export function ERPTable<T extends object = any>({
           ...(typeof pagination === 'object' ? pagination : {}),
         };
 
-  // Standardized enterprise empty state
-  const resolvedLocale = {
-    emptyText: (
-      <EmptyState
-        title={emptyText || emptyTitle}
-        description={emptyDescription}
-        actionLabel={emptyActionLabel}
-        onAction={onEmptyAction}
-      />
-    ),
-    ...locale,
-  };
+  const isTableSpinning = Boolean(
+    typeof restProps.loading === 'object'
+      ? restProps.loading?.spinning !== false
+      : restProps.loading
+  );
+
+  const hasTableData = Boolean(
+    restProps.dataSource && Array.isArray(restProps.dataSource) && restProps.dataSource.length > 0
+  );
+
+  // Standardized enterprise empty state (dynamically renders prominent 2027 neon loader when loading with 0 rows)
+  const resolvedLocale = React.useMemo(() => {
+    if (isTableSpinning && !hasTableData) {
+      return {
+        emptyText: (
+          <TableEmptyLoadingState
+            title={loadingTitle || 'Loading Records...'}
+            subtitle={loadingSubtitle || 'Retrieving real-time data directly from database...'}
+          />
+        ),
+        ...locale,
+      };
+    }
+
+    return {
+      emptyText: (
+        <EmptyState
+          title={emptyText || emptyTitle}
+          description={emptyDescription}
+          actionLabel={emptyActionLabel}
+          onAction={onEmptyAction}
+        />
+      ),
+      ...locale,
+    };
+  }, [isTableSpinning, hasTableData, loadingTitle, loadingSubtitle, emptyText, emptyTitle, emptyDescription, emptyActionLabel, onEmptyAction, locale]);
 
   // Standardized enterprise scrolling with sticky header & internal mouse wheel scroll
   const resolvedScroll = React.useMemo(() => {
@@ -107,30 +138,55 @@ export function ERPTable<T extends object = any>({
         return {
           ...existing,
           style: {
-            backgroundColor: 'var(--theme-table-header-bg, #0b1e36)',
-            color: 'var(--theme-table-header-color, #ffffff)',
+            backgroundColor: 'var(--theme-table-header-bg, #090e1a)',
+            color: 'var(--theme-table-header-color, #94a3b8)',
             ...(existing?.style || {}),
           },
-          className: `${existing?.className || ''} erp-th-navy`.trim(),
+          className: `${existing?.className || ''} erp-th-navy erp-th-2027`.trim(),
         };
       },
     }));
   }, [restProps.columns]);
 
-  // Guarantee signature orbital dual-ring spinner on table loading state
+  // Guarantee enlarged 2027 neon orbital dual-ring spinner on table loading state
   const resolvedLoading = React.useMemo(() => {
     if (!restProps.loading) return false;
-    if (typeof restProps.loading === 'object') {
+    const baseConfig = typeof restProps.loading === 'object' ? restProps.loading : { spinning: !!restProps.loading };
+
+    // When the table has NO rows and is spinning, resolvedLocale renders TableEmptyLoadingState.
+    // Suppress the redundant Ant Design overlay indicator to avoid duplicate stacked spinners.
+    if (!hasTableData) {
       return {
-        indicator: <OrbitalDualRingLoader size="default" />,
-        ...restProps.loading,
+        spinning: true,
+        indicator: <span style={{ display: 'none' }} />,
+        ...baseConfig,
       };
     }
+
+    // When the table HAS data (background refresh or page change), display the prominent glowing loader over rows.
     return {
+      size: 'large' as const,
       spinning: !!restProps.loading,
-      indicator: <OrbitalDualRingLoader size="default" />,
+      indicator: (
+        <div className="erp-table-prominent-loader">
+          <div className="erp-table-loader-glow-halo" />
+          <OrbitalDualRingLoader size="large" />
+          <div className="erp-table-loader-caption">Retrieving Data...</div>
+        </div>
+      ),
+      ...baseConfig,
     };
-  }, [restProps.loading]);
+  }, [restProps.loading, hasTableData]);
+
+  const resolvedRowClassName = React.useCallback(
+    (record: T, index: number, indent: number) => {
+      const custom = typeof rowClassName === 'function'
+        ? rowClassName(record, index, indent)
+        : rowClassName || '';
+      return `erp-table-row erp-table-row--separated ${custom}`.trim();
+    },
+    [rowClassName]
+  );
 
   return (
     <div
@@ -138,11 +194,12 @@ export function ERPTable<T extends object = any>({
       style={containerStyle}
     >
       <Table<T>
-        className={`erp-table ${className}`.trim()}
+        className={`erp-table ${cardRows ? 'erp-table--card-rows' : ''} ${className}`.trim()}
         scroll={resolvedScroll}
         sticky={sticky}
         pagination={resolvedPagination}
         locale={resolvedLocale}
+        rowClassName={resolvedRowClassName}
         {...restProps}
         loading={resolvedLoading}
         columns={resolvedColumns}

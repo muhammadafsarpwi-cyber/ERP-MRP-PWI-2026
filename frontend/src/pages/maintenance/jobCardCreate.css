@@ -1,0 +1,1270 @@
+/* ============================================================================
+   JOB CARD CREATE & WORKFLOW — MODERN 2027 ERP DIALOG & LIVE TICKET STYLES
+   Draggable, resizable, minimizable modals with real-time live preview sheet
+   Fully responsive, light/dark theme synchronized with zero color clashes
+   ============================================================================ */
+
+/* ── Modal Window Shell ─────────────────────────────────────────────────── */
+.erp-jc-modal-wrap {
+  z-index: 1250 !important;
+}
+
+@media (min-width: 992px) {
+  /* Default well-balanced, comfortable modal size centered in main workspace */
+  .erp-jc-modal-wrap .ant-modal:not(.erp-jc-modal-custom-size) {
+    margin-left: calc(var(--erp-sidebar-width, 275px) + max(16px, (100vw - var(--erp-sidebar-width, 275px) - 1040px) / 2)) !important;
+    margin-right: auto !important;
+    width: min(1040px, calc(100vw - var(--erp-sidebar-width, 275px) - 32px)) !important;
+    max-width: min(1040px, calc(100vw - var(--erp-sidebar-width, 275px) - 32px)) !important;
+    transition: margin-left 0.22s cubic-bezier(0.4, 0, 0.2, 1), width 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  .erp-jc-modal-wrap .ant-modal.erp-jc-modal-custom-size {
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .erp-jc-modal-wrap .ant-modal {
+    margin: 0 !important;
+    max-width: 100vw !important;
+    width: 100vw !important;
+    top: 0 !important;
+    padding: 0 !important;
+  }
+  .erp-jc-modal-wrap .ant-modal-content {
+    border-radius: 0 !important;
+    height: 100vh !important;
+  }
+}
+
+.erp-jc-modal-wrap .ant-modal-content {
+  padding: 0 !important;
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid var(--theme-border, #e2e8f0) !important;
+  background: var(--theme-surface, #ffffff) !important;
+  color: var(--theme-text, #0f172a) !important;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Modal Header Bar ───────────────────────────────────────────────────── */
+.erp-jc-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 20px;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: #ffffff;
+  cursor: grab;
+  user-select: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.erp-jc-modal-header:active {
+  cursor: grabbing;
+}
+
+.erp-jc-header-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.erp-jc-header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.25);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #60a5fa;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.erp-jc-header-icon--success {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: rgba(52, 211, 153, 0.4);
+  color: #34d399;
+}
+
+.erp-jc-header-icon--warning {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: rgba(251, 191, 36, 0.4);
+  color: #fbbf24;
+}
+
+.erp-jc-header-icon--purple {
+  background: rgba(168, 85, 247, 0.22);
+  border-color: rgba(192, 132, 252, 0.4);
+  color: #c084fc;
+}
+
+.erp-jc-header-title-text {
+  min-width: 0;
+}
+
+.erp-jc-header-title-text h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-jc-header-title-text span {
+  font-size: 12px;
+  color: #94a3b8;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-jc-header-ctrl-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.erp-jc-header-ctrl-btn {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 13px;
+  padding: 0 8px;
+}
+
+.erp-jc-header-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.erp-jc-header-ctrl-btn--close:hover {
+  background: #dc2626;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+/* ── Modal Body Layout (Two Pane) ───────────────────────────────────────── */
+.erp-jc-body-container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--theme-background, #f8fafc);
+}
+
+/* Left Form Pane */
+.erp-jc-form-pane {
+  flex: 1 1 58%;
+  min-width: 0;
+  padding: 18px 22px;
+  overflow-y: auto;
+  border-right: 1px solid var(--theme-border, #e2e8f0);
+  scrollbar-width: thin;
+}
+
+/* Right Live Sheet Preview Pane */
+.erp-jc-preview-pane {
+  flex: 1 1 42%;
+  min-width: 360px;
+  max-width: 480px;
+  padding: 18px 20px;
+  overflow-y: auto;
+  background: var(--theme-surface, #ffffff);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scrollbar-width: thin;
+  border-left: 1px solid var(--theme-border, #e2e8f0);
+}
+
+/* ── 2027 Executive View Layout (Cockpit & Spec Sheet) ─────────── */
+.erp-jc-detail-pane {
+  flex: 1 1 100%;
+  width: 100%;
+  padding: 18px 22px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  background: var(--theme-background, #f8fafc);
+  color: var(--theme-text, #0f172a);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+html[data-theme='dark'] .erp-jc-detail-pane,
+[data-theme='dark'] .erp-jc-detail-pane {
+  background: #080d1a !important;
+  color: #f1f5f9 !important;
+}
+
+/* Executive Micro-Card Panels */
+.erp-jc-view-card {
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 12px;
+  padding: 14px 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+html[data-theme='dark'] .erp-jc-view-card,
+[data-theme='dark'] .erp-jc-view-card {
+  background: #111827 !important;
+  border-color: #1f2937 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Executive Hero Banner */
+.erp-jc-view-hero {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.07) 0%, rgba(14, 165, 233, 0.04) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.06);
+}
+
+html[data-theme='dark'] .erp-jc-view-hero,
+[data-theme='dark'] .erp-jc-view-hero {
+  background: linear-gradient(135deg, rgba(17, 24, 39, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+  border-color: rgba(56, 189, 248, 0.25) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+}
+
+.erp-jc-view-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.erp-jc-view-hero-code {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--theme-text, #0f172a);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+html[data-theme='dark'] .erp-jc-view-hero-code,
+[data-theme='dark'] .erp-jc-view-hero-code {
+  color: #ffffff !important;
+}
+
+.erp-jc-view-hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--theme-text-secondary, #64748b);
+}
+
+html[data-theme='dark'] .erp-jc-view-hero-meta,
+[data-theme='dark'] .erp-jc-view-hero-meta {
+  color: #94a3b8 !important;
+}
+
+/* Card Header Strip */
+.erp-jc-view-card-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--theme-text-muted, #64748b);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--theme-border-subtle, rgba(0, 0, 0, 0.05));
+}
+
+html[data-theme='dark'] .erp-jc-view-card-header,
+[data-theme='dark'] .erp-jc-view-card-header {
+  border-color: #1f2937 !important;
+  color: #94a3b8 !important;
+}
+
+/* Horizontal Key-Value Rows (Side-by-Side) */
+.erp-jc-view-kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.erp-jc-view-kv-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 6px;
+  gap: 16px;
+  border-bottom: 1px solid var(--theme-border-subtle, rgba(0, 0, 0, 0.04));
+  transition: background 0.15s ease;
+}
+
+.erp-jc-view-kv-row:last-child {
+  border-bottom: none;
+}
+
+.erp-jc-view-kv-row:hover {
+  background: var(--theme-surface-alt, rgba(0, 0, 0, 0.02));
+}
+
+html[data-theme='dark'] .erp-jc-view-kv-row {
+  border-bottom-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+html[data-theme='dark'] .erp-jc-view-kv-row:hover {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+.erp-jc-view-kv-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--theme-text-secondary, #64748b);
+  white-space: nowrap;
+  min-width: 150px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+html[data-theme='dark'] .erp-jc-view-kv-label,
+[data-theme='dark'] .erp-jc-view-kv-label {
+  color: #94a3b8 !important;
+}
+
+.erp-jc-view-kv-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-text, #0f172a);
+  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+html[data-theme='dark'] .erp-jc-view-kv-val,
+[data-theme='dark'] .erp-jc-view-kv-val {
+  color: #f1f5f9 !important;
+}
+
+/* Callout for Reported Complaint */
+.erp-jc-view-complaint-box {
+  background: rgba(239, 68, 68, 0.04);
+  border-left: 4px solid #ef4444;
+  border-radius: 0 10px 10px 0;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(239, 68, 68, 0.12);
+  border-right: 1px solid rgba(239, 68, 68, 0.12);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.12);
+}
+
+html[data-theme='dark'] .erp-jc-view-complaint-box,
+[data-theme='dark'] .erp-jc-view-complaint-box {
+  background: rgba(220, 38, 38, 0.08) !important;
+  border-left-color: #f87171 !important;
+  border-color: rgba(248, 113, 113, 0.2) !important;
+  border-left-width: 4px !important;
+}
+
+/* Callout for Technical Solution */
+.erp-jc-view-solution-box {
+  background: rgba(16, 185, 129, 0.04);
+  border-left: 4px solid #10b981;
+  border-radius: 0 10px 10px 0;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(16, 185, 129, 0.12);
+  border-right: 1px solid rgba(16, 185, 129, 0.12);
+  border-bottom: 1px solid rgba(16, 185, 129, 0.12);
+}
+
+html[data-theme='dark'] .erp-jc-view-solution-box,
+[data-theme='dark'] .erp-jc-view-solution-box {
+  background: rgba(16, 185, 129, 0.08) !important;
+  border-left-color: #34d399 !important;
+  border-color: rgba(52, 211, 153, 0.2) !important;
+  border-left-width: 4px !important;
+}
+/* ── Stepper Smooth Horizontal Scroll (Mobile & Desktop) ─────────────────── */
+.erp-jc-stepper-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px 4px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.erp-jc-stepper-scroll .ant-steps {
+  min-width: 920px;
+}
+
+@media (max-width: 768px) {
+  .erp-jc-stepper-scroll .ant-steps {
+    min-width: 840px;
+  }
+}
+
+/* ── Live Pulsating Indicator ─────────────────────────────────────────── */
+.erp-jc-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  animation: erpPulse 1.4s infinite;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+@keyframes erpPulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+/* ── Bottom-Right Corner Resize Grip (Mouse Resizing) ─────────────────────── */
+.erp-jc-resize-handle {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--theme-text-muted, #94a3b8);
+  opacity: 0.65;
+  transition: opacity 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  z-index: 100;
+  user-select: none;
+}
+
+.erp-jc-resize-handle:hover {
+  opacity: 1;
+  color: #2563eb;
+  transform: scale(1.2);
+}
+
+@media (max-width: 768px) {
+  .erp-jc-resize-handle {
+    display: none !important;
+  }
+
+  .erp-jc-view-kv-row {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 6px 6px;
+    gap: 8px;
+  }
+
+  .erp-jc-view-kv-label {
+    min-width: 110px;
+    font-size: 11px;
+  }
+
+  .erp-jc-view-kv-val {
+    font-size: 12px;
+    max-width: 60%;
+  }
+}
+
+/* ── Section Cards Inside Form ─────────────────────────────────────────── */
+.erp-jc-form-section {
+  background: var(--theme-surface, #ffffff);
+  border-radius: 12px;
+  border: 1px solid var(--theme-border, #e2e8f0);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.erp-jc-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--theme-border, #f1f5f9);
+}
+
+.erp-jc-section-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.15);
+  color: #3b82f6;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.erp-jc-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--theme-text, #1e293b);
+  margin: 0;
+}
+
+/* ── Interactive Priority Selection Pills ──────────────────────────────── */
+.erp-jc-priority-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.erp-jc-priority-pill {
+  padding: 10px 8px;
+  border-radius: 10px;
+  border: 1.5px solid var(--theme-border, #e2e8f0);
+  background: var(--theme-surface-alt, #ffffff);
+  color: var(--theme-text, #334155);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.erp-jc-priority-pill:hover {
+  border-color: var(--theme-primary, #3b82f6);
+  transform: translateY(-1px);
+}
+
+.erp-jc-priority-pill--active-LOW {
+  border-color: #64748b !important;
+  background: rgba(100, 116, 139, 0.15) !important;
+  font-weight: 700;
+  color: #475569 !important;
+}
+
+.erp-jc-priority-pill--active-MEDIUM {
+  border-color: #2563eb !important;
+  background: rgba(37, 99, 235, 0.15) !important;
+  font-weight: 700;
+  color: #2563eb !important;
+}
+
+.erp-jc-priority-pill--active-HIGH {
+  border-color: #f97316 !important;
+  background: rgba(249, 115, 22, 0.15) !important;
+  font-weight: 700;
+  color: #ea580c !important;
+}
+
+.erp-jc-priority-pill--active-CRITICAL {
+  border-color: #dc2626 !important;
+  background: rgba(220, 38, 38, 0.18) !important;
+  font-weight: 700;
+  color: #ef4444 !important;
+  animation: pulse-critical 2s infinite ease-in-out;
+}
+
+@keyframes pulse-critical {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  50% { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0); }
+}
+
+/* ── Quick Chips (Shop-Floor Tap Shortcuts) ────────────────────────────── */
+.erp-jc-quick-chips-wrapper {
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+
+.erp-jc-quick-chips-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.erp-jc-chips-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.erp-jc-quick-chip {
+  padding: 5px 11px;
+  border-radius: 14px;
+  border: 1px solid var(--theme-border, #cbd5e1);
+  background: var(--theme-surface-alt, #f8fafc);
+  font-size: 12px;
+  color: var(--theme-text, #334155);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.erp-jc-quick-chip:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: #3b82f6;
+  color: #2563eb;
+  transform: translateY(-1px);
+}
+
+.erp-jc-quick-chip:active {
+  transform: translateY(0);
+}
+
+/* ── Live Ticket Preview Card Styling ──────────────────────────────────── */
+.erp-jc-live-ticket {
+  border-radius: 14px;
+  background: var(--theme-surface, #ffffff);
+  border: 1.5px solid var(--theme-border, #e2e8f0);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  position: relative;
+}
+
+.erp-jc-ticket-header {
+  padding: 13px 16px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.erp-jc-ticket-code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.erp-jc-ticket-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--theme-surface, #ffffff);
+}
+
+.erp-jc-ticket-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.erp-jc-ticket-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.erp-jc-ticket-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-text, #1e293b);
+}
+
+.erp-jc-ticket-complaint-box {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-left: 4px solid #ef4444;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #b91c1c;
+  font-style: italic;
+  min-height: 48px;
+  white-space: pre-wrap;
+}
+
+.erp-jc-ticket-complaint-box--empty {
+  background: var(--theme-surface-alt, #f8fafc);
+  border: 1px dashed var(--theme-border, #cbd5e1);
+  border-left: 4px solid var(--theme-border-strong, #94a3b8);
+  color: var(--theme-text-muted, #94a3b8);
+  font-style: normal;
+}
+
+.erp-jc-ticket-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--theme-surface-alt, #f8fafc);
+  border-radius: 8px;
+  border: 1px solid var(--theme-border, #e2e8f0);
+}
+
+/* ── Modal Bottom Action Footer ────────────────────────────────────────── */
+.erp-jc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px;
+  background: var(--theme-surface, #ffffff);
+  border-top: 1px solid var(--theme-border, #e2e8f0);
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Minimized Floating Dock Pill ──────────────────────────────────────── */
+.erp-jc-docked-pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1050;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 10px 18px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  border: 1.5px solid #3b82f6;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  animation: slide-up 0.25s ease-out;
+}
+
+.erp-jc-docked-pill:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+}
+
+@keyframes slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.erp-jc-docked-pill-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.erp-jc-docked-pill-sub {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* ============================================================================
+   DARK THEME SYNCHRONIZATION OVERRIDES
+   Activates whenever html[data-theme='dark'] or .dark is set on document
+   ============================================================================ */
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-modal-content,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-modal-content {
+  background: #101528 !important;
+  border-color: #232b47 !important;
+  color: #e2e8f0 !important;
+}
+
+html[data-theme='dark'] .erp-jc-body-container,
+[data-theme='dark'] .erp-jc-body-container {
+  background: #0b0f19 !important;
+}
+
+html[data-theme='dark'] .erp-jc-form-pane,
+[data-theme='dark'] .erp-jc-form-pane {
+  background: #0b0f19 !important;
+  border-right-color: #1f2742 !important;
+}
+
+html[data-theme='dark'] .erp-jc-preview-pane,
+[data-theme='dark'] .erp-jc-preview-pane {
+  background: #101528 !important;
+  border-left-color: #1f2742 !important;
+}
+
+html[data-theme='dark'] .erp-jc-form-section,
+[data-theme='dark'] .erp-jc-form-section {
+  background: #141b30 !important;
+  border-color: #212c4d !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+
+html[data-theme='dark'] .erp-jc-section-header,
+[data-theme='dark'] .erp-jc-section-header {
+  border-bottom-color: #1f2742 !important;
+}
+
+html[data-theme='dark'] .erp-jc-section-title,
+[data-theme='dark'] .erp-jc-section-title {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme='dark'] .erp-jc-section-badge,
+[data-theme='dark'] .erp-jc-section-badge {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #60a5fa !important;
+}
+
+html[data-theme='dark'] .erp-jc-priority-pill,
+[data-theme='dark'] .erp-jc-priority-pill {
+  background: #182038 !important;
+  border-color: #2a365c !important;
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .erp-jc-priority-pill--active-LOW,
+[data-theme='dark'] .erp-jc-priority-pill--active-LOW {
+  background: rgba(100, 116, 139, 0.25) !important;
+  border-color: #94a3b8 !important;
+  color: #e2e8f0 !important;
+}
+
+html[data-theme='dark'] .erp-jc-priority-pill--active-MEDIUM,
+[data-theme='dark'] .erp-jc-priority-pill--active-MEDIUM {
+  background: rgba(37, 99, 235, 0.3) !important;
+  border-color: #60a5fa !important;
+  color: #93c5fd !important;
+}
+
+html[data-theme='dark'] .erp-jc-priority-pill--active-HIGH,
+[data-theme='dark'] .erp-jc-priority-pill--active-HIGH {
+  background: rgba(249, 115, 22, 0.3) !important;
+  border-color: #fb923c !important;
+  color: #fed7aa !important;
+}
+
+html[data-theme='dark'] .erp-jc-priority-pill--active-CRITICAL,
+[data-theme='dark'] .erp-jc-priority-pill--active-CRITICAL {
+  background: rgba(220, 38, 38, 0.35) !important;
+  border-color: #f87171 !important;
+  color: #fca5a5 !important;
+}
+
+html[data-theme='dark'] .erp-jc-quick-chip,
+[data-theme='dark'] .erp-jc-quick-chip {
+  background: #182038 !important;
+  border-color: #27345b !important;
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .erp-jc-quick-chip:hover,
+[data-theme='dark'] .erp-jc-quick-chip:hover {
+  background: rgba(59, 130, 246, 0.25) !important;
+  border-color: #60a5fa !important;
+  color: #93c5fd !important;
+}
+
+html[data-theme='dark'] .erp-jc-live-ticket,
+[data-theme='dark'] .erp-jc-live-ticket {
+  background: #141b30 !important;
+  border-color: #253358 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+html[data-theme='dark'] .erp-jc-ticket-body,
+[data-theme='dark'] .erp-jc-ticket-body {
+  background: #141b30 !important;
+}
+
+html[data-theme='dark'] .erp-jc-ticket-val,
+[data-theme='dark'] .erp-jc-ticket-val {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .erp-jc-ticket-label,
+[data-theme='dark'] .erp-jc-ticket-label {
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .erp-jc-ticket-complaint-box,
+[data-theme='dark'] .erp-jc-ticket-complaint-box {
+  background: rgba(220, 38, 38, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  color: #fca5a5 !important;
+}
+
+html[data-theme='dark'] .erp-jc-ticket-complaint-box--empty,
+[data-theme='dark'] .erp-jc-ticket-complaint-box--empty {
+  background: #0f1526 !important;
+  border-color: #27345b !important;
+  color: #64748b !important;
+}
+
+html[data-theme='dark'] .erp-jc-ticket-meta-grid,
+[data-theme='dark'] .erp-jc-ticket-meta-grid {
+  background: #0d1222 !important;
+  border-color: #1e2746 !important;
+}
+
+html[data-theme='dark'] .erp-jc-footer,
+[data-theme='dark'] .erp-jc-footer {
+  background: #101528 !important;
+  border-top-color: #1f2742 !important;
+}
+
+/* Ant Design component overrides inside the dark modal */
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-input,
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-input-affix-wrapper,
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-select-selector,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-input,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-input-affix-wrapper,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-select-selector {
+  background-color: #18223c !important;
+  border-color: #2a385f !important;
+  color: #f1f5f9 !important;
+}
+
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-input::placeholder,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-input::placeholder {
+  color: #64748b !important;
+}
+
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-select-selection-item,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-select-selection-item {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-form-item-label > label,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-form-item-label > label {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-descriptions-bordered .ant-descriptions-view,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-descriptions-bordered .ant-descriptions-view {
+  border-color: #27345b !important;
+}
+
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-descriptions-bordered .ant-descriptions-item-label,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-descriptions-bordered .ant-descriptions-item-label {
+  background-color: #131a2e !important;
+  color: #94a3b8 !important;
+  border-color: #27345b !important;
+}
+
+html[data-theme='dark'] .erp-jc-modal-wrap .ant-descriptions-bordered .ant-descriptions-item-content,
+[data-theme='dark'] .erp-jc-modal-wrap .ant-descriptions-bordered .ant-descriptions-item-content {
+  background-color: #101528 !important;
+  color: #f1f5f9 !important;
+  border-color: #27345b !important;
+}
+
+/* ── Specialized Form Components ───────────────────────────────────────── */
+.erp-jc-completion-card {
+  background: var(--theme-surface-alt, #f8fafc);
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--theme-border, #e2e8f0);
+}
+
+.erp-jc-machine-banner {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.erp-jc-machine-banner-title {
+  color: #166534;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.erp-jc-machine-banner-sub {
+  font-size: 11px;
+  color: #15803d;
+}
+
+.erp-jc-ticket-notes {
+  font-size: 12px;
+  color: var(--theme-text, #475569);
+  background: var(--theme-surface-alt, #f8fafc);
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--theme-border, #e2e8f0);
+}
+
+/* ── Dark Theme Overrides for Specialized Form Components ─────────────── */
+html[data-theme='dark'] .erp-jc-completion-card,
+[data-theme='dark'] .erp-jc-completion-card {
+  background: #141b30 !important;
+  border-color: #253358 !important;
+  color: #f1f5f9 !important;
+}
+
+.erp-jc-timing-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 1200px) {
+  .erp-jc-timing-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .erp-jc-timing-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.erp-jc-timing-box {
+  background: var(--theme-surface-alt, #f8fafc);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 10px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.erp-jc-timing-box:hover {
+  transform: translateY(-1px);
+}
+
+.erp-jc-timing-box--wait {
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  background: rgba(56, 189, 248, 0.06) !important;
+}
+
+.erp-jc-timing-box--gross {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  background: rgba(245, 158, 11, 0.06) !important;
+}
+
+.erp-jc-timing-box--hold {
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  background: rgba(239, 68, 68, 0.06) !important;
+}
+
+.erp-jc-timing-box--highlight {
+  border-color: rgba(16, 185, 129, 0.55) !important;
+  background: rgba(16, 185, 129, 0.08) !important;
+}
+
+.erp-jc-timing-box--downtime {
+  border-color: rgba(225, 29, 72, 0.45) !important;
+  background: rgba(225, 29, 72, 0.06) !important;
+}
+
+.erp-jc-timing-box--lifecycle {
+  border-color: rgba(99, 102, 241, 0.45) !important;
+  background: rgba(99, 102, 241, 0.06) !important;
+}
+
+.erp-jc-header-icon--red {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.erp-jc-timing-box-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--theme-text-secondary, #64748b);
+  text-transform: uppercase;
+  margin-bottom: 5px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-jc-timing-box-val {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--theme-text, #0f172a);
+  line-height: 1.2;
+}
+
+.erp-jc-timing-box-sub {
+  font-size: 10px;
+  color: var(--theme-text-muted, #94a3b8);
+  margin-top: 3px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box,
+[data-theme='dark'] .erp-jc-timing-box {
+  background: #10162a !important;
+  border-color: #253358 !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box--wait,
+[data-theme='dark'] .erp-jc-timing-box--wait {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border-color: rgba(56, 189, 248, 0.45) !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box--gross,
+[data-theme='dark'] .erp-jc-timing-box--gross {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.45) !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box--hold,
+[data-theme='dark'] .erp-jc-timing-box--hold {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box--highlight,
+[data-theme='dark'] .erp-jc-timing-box--highlight {
+  background: rgba(16, 185, 129, 0.14) !important;
+  border-color: rgba(52, 211, 153, 0.5) !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box--downtime,
+[data-theme='dark'] .erp-jc-timing-box--downtime {
+  background: rgba(225, 29, 72, 0.14) !important;
+  border-color: rgba(225, 29, 72, 0.5) !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box--lifecycle,
+[data-theme='dark'] .erp-jc-timing-box--lifecycle {
+  background: rgba(99, 102, 241, 0.14) !important;
+  border-color: rgba(99, 102, 241, 0.5) !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box-header,
+[data-theme='dark'] .erp-jc-timing-box-header {
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box-val,
+[data-theme='dark'] .erp-jc-timing-box-val {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme='dark'] .erp-jc-timing-box-sub,
+[data-theme='dark'] .erp-jc-timing-box-sub {
+  color: #94a3b8 !important;
+}
+
+/* ── Confirmation & Success Dialogs ────────────────────────────────────── */
+.erp-jc-dialog-wrap .ant-modal-content {
+  border-radius: 14px !important;
+  overflow: hidden;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45) !important;
+}
+
+html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-content,
+[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-content {
+  background: #141b30 !important;
+  border: 1px solid #253358 !important;
+  color: #f1f5f9 !important;
+}
+
+html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-header,
+[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-header {
+  background: #141b30 !important;
+  border-bottom: 1px solid #253358 !important;
+}
+
+html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
+[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title {
+  color: #ffffff !important;
+}
+
+/* ── Mobile and Tablet Responsiveness ──────────────────────────────────── */
+@media (max-width: 960px) {
+  .erp-jc-body-container {
+    flex-direction: column;
+  }
+  .erp-jc-form-pane {
+    flex: 1 1 auto;
+    border-right: none;
+    border-bottom: 1px solid var(--theme-border, #e2e8f0);
+    padding: 14px 16px;
+  }
+  .erp-jc-preview-pane {
+    max-width: 100%;
+    min-width: 100%;
+    border-left: none;
+    padding: 14px 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .erp-jc-priority-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .erp-jc-modal-header {
+    padding: 10px 14px;
+  }
+  .erp-jc-header-title-text h4 {
+    font-size: 14px;
+  }
+  .erp-jc-footer {
+    padding: 10px 14px;
+    flex-direction: column-reverse;
+  }
+  .erp-jc-footer button {
+    width: 100%;
+  }
+}
+

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Descriptions, Empty, Input, Modal, Row, Select, Space, Table, Tag, Tooltip, Typography,
+  Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Empty, Input, Modal, Row, Select, Space, Table, Tag, Tooltip, Typography,
 } from 'antd';
 import {
   AimOutlined,
@@ -288,7 +288,6 @@ const ProductionInventoryReport: React.FC = () => {
 
   const [loading, setLoading] = useState(!cachedTab);
   const [error, setError] = useState<string | null>(null);
-  const isInitialMount = useRef(true);
 
   // Quick live search filter on loaded items
   const [searchTerm, setSearchTerm] = useState('');

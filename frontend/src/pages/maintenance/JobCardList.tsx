@@ -7,13 +7,15 @@ import {
   PlusOutlined, ReloadOutlined, SearchOutlined, DownloadOutlined,
   FilePdfOutlined, PrinterOutlined, FilterOutlined, ClearOutlined, CaretDownOutlined, ImportOutlined,
   EyeOutlined, DeleteOutlined, PlayCircleOutlined, CheckCircleOutlined, TeamOutlined,
+  AppstoreOutlined, ToolOutlined, AuditOutlined, RollbackOutlined,
+  EditOutlined, StopOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
-import { StatusBadge, ERPTable } from '../../components/shared';
+import { StatusBadge, PriorityBadge, MaintenanceTypeBadge, ERPTable } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
 import {
   JOB_CARD_BASE, JOB_CARD_STATUSES, JOB_CARD_PRIORITIES, MAINTENANCE_TYPES,
@@ -22,8 +24,11 @@ import {
 } from './jobCards.types';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { JOB_CARD_DASH_COUNTER as DASH_COUNTER, syncMaintenanceQueueBadges } from '../../components/layout/maintenanceQueueBadges';
-import { STATUS_COLORS, tint, shadowSm, panelCard } from './maintTheme';
+import { STATUS_COLORS, shadowSm, panelCard } from './maintTheme';
 import { useMaintenanceHierarchy, divisionLabel, sectionLabel, departmentLabel } from './useMaintenanceHierarchy';
+import { JobCardWorkflowModal, WorkflowModalMode } from './JobCardWorkflowModal';
+import { EditJobCardModal } from './EditJobCardModal';
+import { maintenanceCache } from './maintenanceCache';
 import './maintTheme.css';
 
 const { Text } = Typography;
@@ -31,14 +36,14 @@ const { Text } = Typography;
 const ALL = '__all__';
 const ALL_OPTION = { value: ALL, label: 'All' };
 
-/** Top summary cards (workflow queues) on the All Job Cards page. */
-const QUEUE_KEYS: Array<{ statuses: string[]; colorKey: string; label: string; key: string }> = [
-  { statuses: [], colorKey: 'ALL', label: 'ALL', key: 'total' },
-  { statuses: ['OPEN', 'ASSIGNED'], colorKey: 'OPEN', label: 'STARTED', key: 'started' },
-  { statuses: ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'], colorKey: 'IN_PROGRESS', label: 'CLOSED · IN WORK', key: 'closed' },
-  { statuses: ['PENDING_VERIFICATION'], colorKey: 'PENDING_VERIFICATION', label: 'PENDING REVIEW', key: 'review' },
-  { statuses: ['REJECTED'], colorKey: 'REJECTED', label: 'RETURNED', key: 'returned' },
-  { statuses: ['CLOSED', 'APPROVED'], colorKey: 'CLOSED', label: 'COMPLETE', key: 'complete' },
+/** Top summary cards (workflow queues) on the All Job Cards page with icons and watermarks */
+const QUEUE_KEYS: Array<{ statuses: string[]; colorKey: string; label: string; key: string; icon: React.ReactNode; desc: string; badgeColor: string }> = [
+  { statuses: [], colorKey: 'ALL', label: 'ALL TICKETS', key: 'total', icon: <AppstoreOutlined />, desc: 'Total Logged', badgeColor: '#2563eb' },
+  { statuses: ['OPEN', 'ASSIGNED'], colorKey: 'OPEN', label: 'STARTED', key: 'started', icon: <PlayCircleOutlined />, desc: 'Open & Assigned', badgeColor: '#0284c7' },
+  { statuses: ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'], colorKey: 'IN_PROGRESS', label: 'IN WORK', key: 'closed', icon: <ToolOutlined />, desc: 'Under Active Repair', badgeColor: '#f59e0b' },
+  { statuses: ['PENDING_VERIFICATION'], colorKey: 'PENDING_VERIFICATION', label: 'REVIEW', key: 'review', icon: <AuditOutlined />, desc: 'Awaiting Inspection', badgeColor: '#8b5cf6' },
+  { statuses: ['REJECTED'], colorKey: 'REJECTED', label: 'RETURNED', key: 'returned', icon: <RollbackOutlined />, desc: 'Needs Rework', badgeColor: '#ef4444' },
+  { statuses: ['CLOSED', 'APPROVED'], colorKey: 'CLOSED', label: 'COMPLETE', key: 'complete', icon: <CheckCircleOutlined />, desc: 'Verified & Closed', badgeColor: '#10b981' },
 ];
 
 const USER_PERMISSIONS = {
@@ -46,6 +51,11 @@ const USER_PERMISSIONS = {
   view: 'maintenance.job_card.view',
   update: 'maintenance.job_card.update',
   delete: 'maintenance.job_card.delete',
+  start: 'maintenance.job_card.start',
+  complete: 'maintenance.job_card.complete',
+  verify: 'maintenance.job_card.verify',
+  approve: 'maintenance.job_card.approve',
+  close: 'maintenance.job_card.close',
 };
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -67,6 +77,115 @@ const technicianNames = (r: JobCard) => {
     }
     return userName(t.technicianUser);
   }).join(', ') : '';
+};
+
+export const formatDuration = (minutes: number): string => {
+  if (minutes < 1) return '< 1m';
+  if (minutes < 60) return `${minutes}m`;
+  const hrs = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hrs < 24) return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  const remHrs = hrs % 24;
+  return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+};
+
+const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
+  const reqTime = card.requestedAt ? new Date(card.requestedAt).getTime() : null;
+  const startTime = card.startedAt ? new Date(card.startedAt).getTime() : null;
+  const endTime = (card.completedAt || card.closedAt) ? new Date(card.completedAt || card.closedAt).getTime() : null;
+  const now = Date.now();
+
+  const isClosed = ['CLOSED', 'APPROVED', 'VERIFIED', 'COMPLETED', 'PENDING_VERIFICATION'].includes(card.currentStatus);
+  const isStarted = ['IN_PROGRESS', 'WAITING_FOR_PARTS', 'ON_HOLD'].includes(card.currentStatus);
+
+  if (isClosed && startTime && endTime) {
+    const repairMins = Math.max(0, Math.round((endTime - startTime) / 60000));
+    const totalDownMins = reqTime ? Math.max(0, Math.round((endTime - reqTime) / 60000)) : repairMins;
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <CheckCircleOutlined style={{ color: '#10b981', fontSize: 12 }} />
+          <span style={{ fontWeight: 700, color: '#10b981', fontSize: 12 }}>
+            {formatDuration(repairMins)}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1 }}>
+          Total Down: {formatDuration(totalDownMins)}
+        </div>
+      </div>
+    );
+  }
+
+  if (isStarted) {
+    const activeMins = startTime ? Math.max(0, Math.round((now - startTime) / 60000)) : 0;
+    const totalDownMins = reqTime ? Math.max(0, Math.round((now - reqTime) / 60000)) : activeMins;
+    const isHold = card.currentStatus === 'WAITING_FOR_PARTS' || card.currentStatus === 'ON_HOLD';
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {isHold ? (
+            <StopOutlined style={{ color: '#f59e0b', fontSize: 12 }} />
+          ) : (
+            <ToolOutlined style={{ color: '#38bdf8', fontSize: 12 }} />
+          )}
+          <span style={{ fontWeight: 700, color: isHold ? '#f59e0b' : '#38bdf8', fontSize: 12 }}>
+            {formatDuration(activeMins)}
+          </span>
+          {isHold && (
+            <Tag color="warning" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>
+              Hold
+            </Tag>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1 }}>
+          Total Down: {formatDuration(totalDownMins)}
+        </div>
+      </div>
+    );
+  }
+
+  if (card.currentStatus === 'REJECTED') {
+    const totalDownMins = reqTime ? Math.max(0, Math.round((now - reqTime) / 60000)) : 0;
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <RollbackOutlined style={{ color: '#ef4444', fontSize: 12 }} />
+          <span style={{ fontWeight: 700, color: '#ef4444', fontSize: 12 }}>
+            {formatDuration(totalDownMins)}
+          </span>
+          <Tag color="error" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>
+            Needs Rework
+          </Tag>
+        </div>
+        <div style={{ fontSize: 11, color: '#f87171', marginTop: 1, fontWeight: 500 }}>
+          Returned / Needs Rework
+        </div>
+      </div>
+    );
+  }
+
+  // Pending start (OPEN or ASSIGNED)
+  const waitMins = reqTime ? Math.max(0, Math.round((now - reqTime) / 60000)) : 0;
+  const isHighDelay = waitMins >= 120; // > 2 hours waiting to start
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <ClockCircleOutlined style={{ color: isHighDelay ? '#ef4444' : '#60a5fa', fontSize: 12 }} />
+        <span style={{ fontWeight: 700, color: isHighDelay ? '#ef4444' : 'inherit', fontSize: 12 }}>
+          {formatDuration(waitMins)}
+        </span>
+        {isHighDelay && (
+          <Tag color="error" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>
+            &gt;2h Wait
+          </Tag>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1 }}>
+        Wait to Start
+      </div>
+    </div>
+  );
 };
 
 type FlatFilters = {
@@ -97,6 +216,23 @@ const emptyFilters = (companyId?: string): FlatFilters => ({
   search: '',
 });
 
+interface JobCardCacheEntry {
+  data: JobCard[];
+  total: number;
+  timestamp: number;
+}
+
+const JOB_CARD_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes (120,000 ms)
+
+/** In-memory cache surviving tab switches, queue navigation and route returns */
+const jobCardMemoryCache = new Map<string, JobCardCacheEntry>();
+
+export const clearJobCardCache = () => {
+  jobCardMemoryCache.clear();
+};
+
+maintenanceCache.onClearJobCards(clearJobCardCache);
+
 export const JobCardList: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -110,10 +246,57 @@ export const JobCardList: React.FC = () => {
   const [queue, setQueue] = useState<Record<string, number>>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [filters, setFilters] = useState<FlatFilters>(() => emptyFilters(user?.defaultCompanyId));
+  const [filters, setFilters] = useState<FlatFilters>(() => {
+    const base = emptyFilters(user?.defaultCompanyId);
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      const sts = sp.get('statuses');
+      const s = sp.get('status');
+      if (sts) {
+        const list = sts.split(',').map(v => v.trim()).filter(v => JOB_CARD_STATUSES.includes(v));
+        if (list.length) base.statuses = list;
+      } else if (s && JOB_CARD_STATUSES.includes(s)) {
+        base.statuses = [s];
+      }
+    }
+    return base;
+  });
   const [showFilters, setShowFilters] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [machines, setMachines] = useState<OrgOption[]>([]);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
+  // Unified Draggable Workflow Modal State
+  const [workflowModal, setWorkflowModal] = useState<{
+    open: boolean;
+    mode: WorkflowModalMode;
+    card: JobCard | null;
+  }>({
+    open: false,
+    mode: 'start',
+    card: null,
+  });
+  const actionInProgressId = null;
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [rootCategories, setRootCategories] = useState<any[]>([]);
+  const [failureCategories, setFailureCategories] = useState<any[]>([]);
+
+  // Edit Job Card Modal State
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editModalCard, setEditModalCard] = useState<JobCard | null>(null);
+
+  useEffect(() => {
+    maintenanceCache.getTechnicians().then(setTechnicians).catch(() => setTechnicians([]));
+    maintenanceCache.getRootCauseCategories().then(setRootCategories).catch(() => setRootCategories([]));
+    maintenanceCache.getFailureCategories().then(setFailureCategories).catch(() => setFailureCategories([]));
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const companyId = filters.companyId || user?.defaultCompanyId;
   const activeFilterCount = useMemo(() => ['machineId', 'divisionId', 'sectionId', 'assignedDepartmentId', 'statuses', 'priority', 'maintenanceType', 'dateFrom', 'dateTo']
@@ -197,24 +380,83 @@ export const JobCardList: React.FC = () => {
     return () => { document.title = 'PWI — Pakistan Wire & Industry | ERP / MRP Command Center'; };
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true); setError('');
-    try {
-      const params: Record<string, any> = { page, limit: pageSize };
-      if (filters.statuses && filters.statuses.length) params.statuses = filters.statuses.join(',');
-      for (const key of ['companyId', 'divisionId', 'sectionId', 'assignedDepartmentId', 'machineId'] as const) {
-        const value = filters[key];
-        if (value && UUID_RE.test(String(value))) params[key] = value;
+  const load = useCallback(async (force = false) => {
+    const params: Record<string, any> = { page, limit: pageSize };
+    if (filters.statuses && filters.statuses.length) params.statuses = filters.statuses.join(',');
+    for (const key of ['companyId', 'divisionId', 'sectionId', 'assignedDepartmentId', 'machineId'] as const) {
+      const value = filters[key];
+      if (value && UUID_RE.test(String(value))) params[key] = value;
+    }
+    if (filters.priority) params.priority = filters.priority;
+    if (filters.maintenanceType) params.maintenanceType = filters.maintenanceType;
+    if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+    if (filters.dateTo) params.dateTo = filters.dateTo;
+    if (filters.search) params.search = filters.search;
+
+    const cacheKey = Object.keys(params)
+      .sort()
+      .map(k => `${k}:${params[k] ?? ''}`)
+      .join('|');
+
+    // 1. In-memory Cache Check: Serve instantly with 0ms delay if less than 2 minutes old
+    if (!force) {
+      const cached = jobCardMemoryCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < JOB_CARD_CACHE_TTL_MS)) {
+        setRows(cached.data);
+        setTotal(cached.total);
+        setLoading(false);
+        setError('');
+        return; // 0ms instantaneous read without repetitive loading screens!
       }
-      if (filters.priority) params.priority = filters.priority;
-      if (filters.maintenanceType) params.maintenanceType = filters.maintenanceType;
-      if (filters.dateFrom) params.dateFrom = filters.dateFrom;
-      if (filters.dateTo) params.dateTo = filters.dateTo;
-      if (filters.search) params.search = filters.search;
+
+      // 2. Queue Navigation & Closed Job Cards Fast Cross-Cache:
+      // When navigating to 'Closed Job Cards' or any queue card, check if an 'all cards' query is fresh in memory (< 2 min)
+      if (filters.statuses && filters.statuses.length > 0 && !filters.search && !filters.priority && !filters.maintenanceType) {
+        const allKey = Object.keys({ ...params, statuses: undefined, page: 1, limit: 1000 })
+          .filter(k => k !== 'statuses')
+          .sort()
+          .map(k => `${k}:${params[k] ?? ''}`)
+          .join('|');
+        const cachedAll = jobCardMemoryCache.get(allKey);
+        if (cachedAll && (Date.now() - cachedAll.timestamp < JOB_CARD_CACHE_TTL_MS)) {
+          const matching = cachedAll.data.filter(r => filters.statuses!.includes(r.currentStatus));
+          setRows(matching);
+          setTotal(matching.length);
+          setLoading(false);
+          setError('');
+          // Background revalidate to ensure page consistency
+          void apiService.get<{ data: JobCard[]; total: number }>(JOB_CARD_BASE, params)
+            .then(res => {
+              const d = res?.data || [];
+              const t = res?.total || 0;
+              setRows(d);
+              setTotal(t);
+              jobCardMemoryCache.set(cacheKey, { data: d, total: t, timestamp: Date.now() });
+            })
+            .catch(() => {});
+          return;
+        }
+      }
+    }
+
+    setLoading(true);
+    setError('');
+    try {
       const result = await apiService.get<{ data: JobCard[]; total: number }>(JOB_CARD_BASE, params);
-      setRows(result.data || []); setTotal(result.total || 0);
-    } catch (e) { setError(errorText(e)); }
-    finally { setLoading(false); }
+      const data = result.data || [];
+      const total = result.total || 0;
+      setRows(data);
+      setTotal(total);
+      jobCardMemoryCache.set(cacheKey, {
+        data,
+        total,
+        timestamp: Date.now(),
+      });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setLoading(false);
+    }
   }, [filters, page, pageSize]);
 
   useEffect(() => { load(); }, [load]);
@@ -278,17 +520,116 @@ export const JobCardList: React.FC = () => {
   const resetAll = () => { setPage(1); setSearchInput(''); setFilters(emptyFilters(user?.defaultCompanyId)); setShowFilters(false); setSearchParams({}); };
 
   const remove = async (id: string) => {
-    try { await apiService.delete(`${JOB_CARD_BASE}/${id}`); message.success('Job card deleted'); load(); loadQueue(); if (companyId) void syncMaintenanceQueueBadges(companyId); }
-    catch (e) { message.error(errorText(e)); }
+    try {
+      await apiService.delete(`${JOB_CARD_BASE}/${id}`);
+      message.success('Job card deleted');
+      clearJobCardCache();
+      load(true);
+      loadQueue();
+      if (companyId) void syncMaintenanceQueueBadges(companyId);
+    } catch (e) {
+      message.error(errorText(e));
+    }
+  };
+
+  const machineDisplay = (r: JobCard) => {
+    const m = r.machine;
+    if (!m) return { name: 'Unnamed machine', code: '—' };
+    return { name: m.name || m.machineName || 'Unnamed machine', code: m.machineCode || m.machineNumber || '—' };
+  };
+
+  const openStartModalForCard = useCallback((card: JobCard) => {
+    setWorkflowModal({ open: true, mode: 'start', card });
+  }, []);
+
+  const openCloseModalForCard = useCallback((card: JobCard) => {
+    setWorkflowModal({ open: true, mode: 'close', card });
+  }, []);
+
+  const startSelectedJobs = useCallback(async () => {
+    if (!selectedRowKeys.length) return;
+    const count = selectedRowKeys.length;
+    Modal.confirm({
+      title: `Start ${count} Selected Job Card(s)?`,
+      content: (
+        <div>
+          <p style={{ fontSize: 14, margin: '0 0 8px 0' }}>
+            Are you sure you want to start all <strong>{count}</strong> selected job cards simultaneously?
+          </p>
+          <p style={{ color: '#64748b', fontSize: 12, margin: 0 }}>
+            Their statuses will be transitioned to <strong>IN PROGRESS</strong>.
+          </p>
+        </div>
+      ),
+      okText: `Start ${count} Job Cards`,
+      okButtonProps: {
+        type: 'primary',
+        icon: <PlayCircleOutlined />,
+        style: { backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 },
+      },
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await Promise.all(
+            selectedRowKeys.map(id => apiService.post(`${JOB_CARD_BASE}/${id}/start`, {}))
+          );
+          message.success(`${count} job card(s) started successfully.`);
+          setRows(prev => prev.filter(r => !selectedRowKeys.includes(r.id)));
+          setSelectedRowKeys([]);
+          load();
+          loadQueue();
+          if (companyId) void syncMaintenanceQueueBadges(companyId);
+        } catch (e) {
+          message.error(errorText(e));
+          load();
+          loadQueue();
+          throw e;
+        }
+      },
+    });
+  }, [companyId, load, loadQueue, message, selectedRowKeys]);
+
+  const openViewModal = (r: JobCard) => {
+    setWorkflowModal({ open: true, mode: 'view', card: r });
   };
 
   const runQuick = async (r: JobCard, action: { label: string; endpoint: string; permission: string }) => {
-    const modalEndpoints = ['assign', 'complete', 'start', 'verify', 'reject', 'approve'];
+    if (action.endpoint === 'start') {
+      openStartModalForCard(r);
+      return;
+    }
+    if (action.endpoint === 'complete') {
+      openCloseModalForCard(r);
+      return;
+    }
+    if (action.endpoint === 'waiting-for-parts') {
+      setWorkflowModal({ open: true, mode: 'parts', card: r });
+      return;
+    }
+    if (action.endpoint === 'resume') {
+      try {
+        await apiService.post(`${JOB_CARD_BASE}/${r.id}/resume`, {});
+        message.success('Job card resumed. Status is now IN PROGRESS.');
+        clearJobCardCache();
+        load(true);
+        loadQueue();
+        if (companyId) void syncMaintenanceQueueBadges(companyId);
+      } catch (e) {
+        message.error(errorText(e));
+      }
+      return;
+    }
+    if (action.endpoint === 'verify' || action.endpoint === 'approve' || action.endpoint === 'reject') {
+      setWorkflowModal({ open: true, mode: 'review', card: r });
+      return;
+    }
+    if (action.endpoint === 'submit-for-verification') {
+      setWorkflowModal({ open: true, mode: 'rework', card: r });
+      return;
+    }
+    const modalEndpoints = ['assign'];
     if (modalEndpoints.includes(action.endpoint)) {
-      const param = action.endpoint === 'verify' ? 'review'
-        : action.endpoint === 'reject' ? 'return'
-        : action.endpoint;
-      navigate(`/maintenance/job-cards/${r.id}?action=${param}`);
+      navigate(`/maintenance/job-cards/${r.id}?action=${action.endpoint}`);
       return;
     }
     Modal.confirm({
@@ -296,9 +637,12 @@ export const JobCardList: React.FC = () => {
       content: `${r.jobCardNo || r.id}`,
       onOk: async () => {
         try {
-          await apiService.post(`${JOB_CARD_BASE}/${r.id}/${action.endpoint}`, action.endpoint === 'reject' ? { reason: 'Rejected during review' } : {});
+          await apiService.post(`${JOB_CARD_BASE}/${r.id}/${action.endpoint}`, {});
           message.success(`${action.label} completed`);
-          load(); loadQueue(); if (companyId) void syncMaintenanceQueueBadges(companyId);
+          clearJobCardCache();
+          load(true);
+          loadQueue();
+          if (companyId) void syncMaintenanceQueueBadges(companyId);
         } catch (e) { message.error(errorText(e)); throw e; }
       },
     });
@@ -307,70 +651,183 @@ export const JobCardList: React.FC = () => {
   const nextActionOf = (r: JobCard) => (ACTION_MAP[r.currentStatus] || []).find(a => can(a.permission));
 
   /**
-   * Responsive action-button helper for a Job Card table row. Returns a single
-   * conflict-free action strip: an optional workflow primary action (driven by
-   * the current status AND the operator's permissions), a View icon button,
-   * and — only on non-All queues for an OPEN card with delete rights — a
-   * Delete icon button. No generic dropdown, no duplicated View/Edit.
+   * Responsive action-button helper for a Job Card table row.
    */
   const IsAllView = (filters.statuses || []).length === 0;
 
   const viewActionBtn = (r: JobCard) => (
-    <Tooltip title="View Job Card">
+    <Tooltip title="View Job Card Details Popup">
       <Button
         className="jc-view-btn"
-        icon={<EyeOutlined />}
+        icon={<EyeOutlined style={{ fontSize: 13, color: '#2563eb' }} />}
         aria-label={`View Job Card ${r.jobCardNo || ''}`}
-        onClick={() => navigate(`/maintenance/job-cards/${r.id}`)}
+        style={{
+          color: '#2563eb',
+          borderColor: '#93c5fd',
+          backgroundColor: '#eff6ff',
+          width: 28,
+          minWidth: 28,
+          height: 28,
+          borderRadius: 6,
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          openViewModal(r);
+        }}
       />
     </Tooltip>
   );
 
+  const actionBtnStyle = (endpoint: string) => {
+    switch (endpoint) {
+      case 'start':
+        return { backgroundColor: '#2563eb', borderColor: '#1d4ed8', color: '#ffffff' };
+      case 'complete':
+        return { backgroundColor: '#059669', borderColor: '#047857', color: '#ffffff' };
+      case 'verify':
+      case 'approve':
+        return { backgroundColor: '#7c3aed', borderColor: '#6d28d9', color: '#ffffff' };
+      case 'reject':
+      case 'resume':
+      case 'submit-for-verification':
+        return { backgroundColor: '#d97706', borderColor: '#b45309', color: '#ffffff' };
+      case 'assign':
+        return { backgroundColor: '#0284c7', borderColor: '#0369a1', color: '#ffffff' };
+      default:
+        return { backgroundColor: '#2563eb', borderColor: '#1d4ed8', color: '#ffffff' };
+    }
+  };
+
   const actionIcon = (endpoint: string) => {
-    if (endpoint === 'assign') return <TeamOutlined />;
-    if (endpoint === 'start' || endpoint === 'resume' || endpoint === 'submit-for-verification') return <PlayCircleOutlined />;
-    if (endpoint === 'complete' || endpoint === 'verify' || endpoint === 'approve') return <CheckCircleOutlined />;
+    if (endpoint === 'assign') return <TeamOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+    if (endpoint === 'start' || endpoint === 'resume' || endpoint === 'submit-for-verification') return <PlayCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+    if (endpoint === 'complete' || endpoint === 'verify' || endpoint === 'approve') return <CheckCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
     return undefined;
   };
 
   const renderRowActions = (_: any, r: JobCard) => {
-    // All Job Cards is a historical / read-only view — View only.
-    if (IsAllView) return viewActionBtn(r);
+    const editBtn = can(USER_PERMISSIONS.update) && (
+      <Tooltip title="Edit Job Card">
+        <Button
+          size="small"
+          icon={<EditOutlined style={{ fontSize: 13, color: '#2563eb' }} />}
+          aria-label={`Edit Job Card ${r.jobCardNo || ''}`}
+          style={{
+            borderColor: '#bfdbfe',
+            backgroundColor: '#eff6ff',
+            color: '#2563eb',
+            width: 28,
+            minWidth: 28,
+            height: 28,
+            borderRadius: 6,
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditModalCard(r);
+            setEditModalOpen(true);
+          }}
+        />
+      </Tooltip>
+    );
+
+    const deleteBtn = can(USER_PERMISSIONS.delete) && (
+      <Tooltip title="Delete Job Card">
+        <Button
+          danger
+          size="small"
+          icon={<DeleteOutlined style={{ fontSize: 13 }} />}
+          aria-label={`Delete Job Card ${r.jobCardNo || ''}`}
+          style={{
+            borderColor: '#fca5a5',
+            backgroundColor: '#fef2f2',
+            color: '#dc2626',
+            width: 28,
+            minWidth: 28,
+            height: 28,
+            borderRadius: 6,
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            Modal.confirm({
+              title: 'Are you sure you want to delete this Job Card?',
+              content: `Job Card: ${r.jobCardNo || r.id}`,
+              okText: 'Yes, Delete',
+              okType: 'danger',
+              onOk: () => remove(r.id),
+            });
+          }}
+        />
+      </Tooltip>
+    );
+
+    // All Job Cards is a historical / read-only view — View only + Edit/Delete for admin.
+    if (IsAllView) {
+      return (
+        <Space wrap size={6} className="jc-actions">
+          {viewActionBtn(r)}
+          {editBtn}
+          {deleteBtn}
+        </Space>
+      );
+    }
 
     const action = nextActionOf(r);
     return (
-      <Space wrap size={4} className="jc-actions">
+      <Space wrap size={6} className="jc-actions">
         {action && (
           <Button
-            className="jc-action-primary"
+            className={`jc-action-primary jc-btn-${action.endpoint}`}
             size="small"
             type="primary"
+            loading={actionInProgressId === r.id}
             icon={actionIcon(action.endpoint)}
-            onClick={() => runQuick(r, action)}
+            style={{
+              ...actionBtnStyle(action.endpoint),
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              height: 28,
+              padding: '0 10px',
+              borderRadius: 6,
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              runQuick(r, action);
+            }}
           >
             {action.label}
           </Button>
         )}
-        {viewActionBtn(r)}
-        {can(USER_PERMISSIONS.delete) && r.currentStatus === 'OPEN' && (
-          <Tooltip title="Delete">
+
+        {/* Quick action: Put on hold / wait for parts if card is in progress */}
+        {r.currentStatus === 'IN_PROGRESS' && (
+          <Tooltip title="Put on hold waiting for spare parts">
             <Button
-              danger
               size="small"
-              icon={<DeleteOutlined />}
-              aria-label={`Delete Job Card ${r.jobCardNo || ''}`}
-              onClick={() => Modal.confirm({ title: 'Are you sure you want to delete this Job Card?', onOk: () => remove(r.id) })}
+              icon={<StopOutlined style={{ fontSize: 13, color: '#d97706' }} />}
+              style={{
+                width: 28,
+                minWidth: 28,
+                height: 28,
+                borderRadius: 6,
+                borderColor: '#fde68a',
+                backgroundColor: '#fffbeb',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setWorkflowModal({ open: true, mode: 'parts', card: r });
+              }}
             />
           </Tooltip>
         )}
+
+        {viewActionBtn(r)}
+        {editBtn}
+        {deleteBtn}
       </Space>
     );
-  };
-
-  const machineDisplay = (r: JobCard) => {
-    const m = r.machine;
-    if (!m) return { name: 'Unnamed machine', code: '—' };
-    return { name: m.name || m.machineName || 'Unnamed machine', code: m.machineCode || m.machineNumber || '—' };
   };
 
   const buildExportRows = async () => {
@@ -497,7 +954,10 @@ export const JobCardList: React.FC = () => {
       setImportResult(res);
       if (res && res.imported > 0) {
         message.success(`Imported ${res.imported} job card(s).`);
-        load(); loadQueue(); if (companyId) void syncMaintenanceQueueBadges(companyId);
+        clearJobCardCache();
+        load(true);
+        loadQueue();
+        if (companyId) void syncMaintenanceQueueBadges(companyId);
       } else {
         message.warning('No job cards were imported. Review the report for details.');
       }
@@ -510,39 +970,96 @@ export const JobCardList: React.FC = () => {
 
   const columns: ColumnsType<JobCard> = [
     {
-      title: 'Job Card', key: 'job', width: 160, fixed: 'left',
+      title: 'Job Card', key: 'job', width: isMobile ? 130 : 155, fixed: isMobile ? undefined : 'left',
       render: (_: any, r: JobCard) => (
-        <div>
-          <a href={`#/maintenance/job-cards/${r.id}`} onClick={(e) => { e.preventDefault(); navigate(`/maintenance/job-cards/${r.id}`); }} style={{ fontWeight: 600 }}>{r.jobCardNo || r.id}</a>
-          <div><Text type="secondary" style={{ fontSize: 12 }}>{r.requestedAt ? new Date(r.requestedAt).toLocaleDateString() : '—'}</Text></div>
+        <div className="jc-id-cell">
+          <a
+            href={`#/maintenance/job-cards/${r.id}`}
+            onClick={(e) => {
+              e.preventDefault();
+              openViewModal(r);
+            }}
+            className="jc-code-link"
+          >
+            {r.jobCardNo || r.id}
+          </a>
+          <div className="jc-sub-date">{r.requestedAt ? new Date(r.requestedAt).toLocaleDateString() : '—'}</div>
         </div>
       ),
     },
     {
-      title: 'Machine', key: 'machine', width: 180,
-      render: (_: any, r: JobCard) => { const m = machineDisplay(r); return (<div><div>{m.name}</div><div><Text type="secondary" style={{ fontSize: 12 }}>{m.code}</Text></div></div>); },
-    },
-    {
-      title: 'Complaint', dataIndex: 'complaint', key: 'complaint', width: 260, ellipsis: true,
-      render: (v: string) => v ? <Tooltip title={v}><span>{v}</span></Tooltip> : '—',
-    },
-    { title: 'Type', dataIndex: 'maintenanceType', key: 'type', width: 110, render: (v: string) => <Tag color={v === 'BREAKDOWN' ? 'red' : v === 'PREVENTIVE' ? 'green' : v === 'EMERGENCY' ? 'volcano' : 'blue'}>{label(v)}</Tag> },
-    { title: 'Priority', dataIndex: 'priority', key: 'priority', width: 100, render: (v: string) => <Tag color={v === 'CRITICAL' ? 'red' : v === 'HIGH' ? 'orange' : v === 'MEDIUM' ? 'blue' : 'default'}>{label(v)}</Tag> },
-    {
-      title: 'Assigned To', key: 'assigned', width: 180,
-      render: (_: any, r: JobCard) => { const t = technicianNames(r); return t ? <span>{t}</span> : <Tag>Unassigned</Tag>; },
-    },
-    { title: 'Department', key: 'dept', width: 150, render: (_: any, r: JobCard) => (r.assignedDepartment && (r.assignedDepartment.name || r.assignedDepartment.departmentCode)) || '—' },
-    { title: 'Status', dataIndex: 'currentStatus', key: 'status', width: 150, render: (v: string) => <StatusBadge status={v} /> },
-    {
-      title: 'Next Action', key: 'next', width: 150,
+      title: 'Machine', key: 'machine', width: isMobile ? 140 : 170,
       render: (_: any, r: JobCard) => {
-        const nxt = NEXT_ACTION_LABEL[r.currentStatus] || (nextActionOf(r) || {}).label || '—';
-        return <Tag color="geekblue">{nxt}</Tag>;
+        const m = machineDisplay(r);
+        return (
+          <div className="jc-machine-cell">
+            <div className="jc-machine-name">{m.name}</div>
+            <div className="jc-machine-code">{m.code}</div>
+          </div>
+        );
       },
     },
     {
-      title: 'Actions', key: 'actions', width: 240, fixed: 'right',
+      title: 'Downtime / Elapsed', key: 'downtime', width: isMobile ? 135 : 160,
+      sorter: (a, b) => {
+        const aTime = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+        const bTime = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+        return aTime - bTime;
+      },
+      render: (_: any, r: JobCard) => <JobCardDowntimeCell card={r} />,
+    },
+    {
+      title: 'Complaint', dataIndex: 'complaint', key: 'complaint', width: isMobile ? 180 : 240, ellipsis: true,
+      render: (v: string) => v ? <Tooltip title={v}><span className="jc-complaint-text">{v}</span></Tooltip> : '—',
+    },
+    {
+      title: 'Type',
+      dataIndex: 'maintenanceType',
+      key: 'type',
+      width: 115,
+      render: (v: string) => <MaintenanceTypeBadge type={v} />,
+    },
+    {
+      title: 'Priority',
+      dataIndex: 'priority',
+      key: 'priority',
+      width: 105,
+      render: (v: string) => <PriorityBadge priority={v} />,
+    },
+    {
+      title: 'Assigned To', key: 'assigned', width: isMobile ? 130 : 160,
+      render: (_: any, r: JobCard) => {
+        const t = technicianNames(r);
+        return t ? (
+          <span className="erp-tech-chip">
+            <TeamOutlined className="erp-tech-chip-icon" />
+            <span className="erp-tech-chip-name">{t}</span>
+          </span>
+        ) : (
+          <span className="erp-pill-badge erp-pill-badge--unassigned">
+            Unassigned
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Department', key: 'dept', width: 130,
+      render: (_: any, r: JobCard) => (
+        <span className="jc-dept-text">
+          {(r.assignedDepartment && (r.assignedDepartment.name || r.assignedDepartment.departmentCode)) || '—'}
+        </span>
+      ),
+    },
+    { title: 'Status', dataIndex: 'currentStatus', key: 'status', width: 130, render: (v: string) => <StatusBadge status={v} /> },
+    {
+      title: 'Next Action', key: 'next', width: 130,
+      render: (_: any, r: JobCard) => {
+        const nxt = NEXT_ACTION_LABEL[r.currentStatus] || (nextActionOf(r) || {}).label || '—';
+        return <span className="erp-pill-badge erp-pill-badge--purple">{nxt}</span>;
+      },
+    },
+    {
+      title: 'Actions', key: 'actions', width: IsAllView ? 75 : (isMobile ? 140 : 200), fixed: isMobile ? undefined : 'right',
       render: renderRowActions,
     },
   ];
@@ -588,19 +1105,159 @@ export const JobCardList: React.FC = () => {
     { key: 'template', label: 'Download Template', icon: <DownloadOutlined />, onClick: downloadTemplate },
   ];
 
+  const currentStatuses = filters.statuses || [];
+  const isStartedQueue = currentStatuses.length > 0 && currentStatuses.every(s => ['OPEN', 'ASSIGNED'].includes(s));
+  const isClosedQueue = currentStatuses.length > 0 && currentStatuses.every(s => ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(s));
+  const isReviewQueue = currentStatuses.length > 0 && currentStatuses.every(s => ['PENDING_VERIFICATION'].includes(s));
+  const isReturnedQueue = currentStatuses.length > 0 && currentStatuses.every(s => ['REJECTED'].includes(s));
+  const isCompleteQueue = currentStatuses.length > 0 && currentStatuses.every(s => ['CLOSED', 'APPROVED'].includes(s));
+
+  const displayRows = useMemo(() => {
+    if (filters.statuses && filters.statuses.length > 0) {
+      return rows.filter(r => filters.statuses!.includes(r.currentStatus));
+    }
+    return rows;
+  }, [rows, filters.statuses]);
+
+  const canStart = can(USER_PERMISSIONS.start);
+  const canComplete = can(USER_PERMISSIONS.complete);
+  const canVerify = can(USER_PERMISSIONS.verify) || can(USER_PERMISSIONS.approve);
+
+  const onHeaderStartJob = useCallback(() => {
+    if (selectedRowKeys.length === 1) {
+      const card = rows.find(r => r.id === selectedRowKeys[0]);
+      if (card) {
+        openStartModalForCard(card);
+        return;
+      }
+    }
+    if (selectedRowKeys.length > 1) {
+      startSelectedJobs();
+      return;
+    }
+    setWorkflowModal({ open: true, mode: 'start', card: null });
+  }, [rows, selectedRowKeys, openStartModalForCard, startSelectedJobs]);
+
+  const onHeaderCloseJob = useCallback(() => {
+    if (selectedRowKeys.length === 1) {
+      const card = rows.find(r => r.id === selectedRowKeys[0]);
+      if (card) {
+        openCloseModalForCard(card);
+        return;
+      }
+    }
+    setWorkflowModal({ open: true, mode: 'close', card: null });
+  }, [rows, selectedRowKeys, openCloseModalForCard]);
+
+  const onHeaderReviewJob = useCallback(() => {
+    if (selectedRowKeys.length === 1) {
+      const card = rows.find(r => r.id === selectedRowKeys[0]);
+      if (card) {
+        setWorkflowModal({ open: true, mode: 'review', card });
+        return;
+      }
+    }
+    const targetCard = rows.find(r => r.currentStatus === 'PENDING_VERIFICATION') || rows[0];
+    if (targetCard) {
+      setWorkflowModal({ open: true, mode: 'review', card: targetCard });
+    } else {
+      message.info('No pending job cards to review.');
+    }
+  }, [rows, selectedRowKeys, message]);
+
+  const onHeaderReworkJob = useCallback(() => {
+    if (selectedRowKeys.length === 1) {
+      const card = rows.find(r => r.id === selectedRowKeys[0]);
+      if (card) {
+        setWorkflowModal({ open: true, mode: 'rework', card });
+        return;
+      }
+    }
+    const targetCard = rows.find(r => r.currentStatus === 'REJECTED') || rows[0];
+    if (targetCard) {
+      setWorkflowModal({ open: true, mode: 'rework', card: targetCard });
+    } else {
+      message.info('No returned job cards needing rework.');
+    }
+  }, [rows, selectedRowKeys, message]);
+
   useEffect(() => {
     setHeaderActions([
-      ...(canCreate
+      ...(isStartedQueue
+        ? (canStart
+            ? [{
+                key: 'start-job-card',
+                node: (
+                  <Button
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
+                    onClick={onHeaderStartJob}
+                  >
+                    {selectedRowKeys.length > 0 ? `Start Selected (${selectedRowKeys.length})` : 'Start Job Card'}
+                  </Button>
+                ),
+              }]
+            : [])
+        : isClosedQueue
+        ? (canComplete
+            ? [{
+                key: 'close-job-card',
+                node: (
+                  <Button
+                    type="primary"
+                    icon={<CheckCircleOutlined />}
+                    style={{ backgroundColor: '#059669', borderColor: '#059669', fontWeight: 600 }}
+                    onClick={onHeaderCloseJob}
+                  >
+                    {selectedRowKeys.length > 0 ? `Close Selected (${selectedRowKeys.length})` : 'Close Job Card'}
+                  </Button>
+                ),
+              }]
+            : [])
+        : isReviewQueue
+        ? (canVerify
+            ? [{
+                key: 'review-job-card',
+                node: (
+                  <Button
+                    type="primary"
+                    icon={<AuditOutlined />}
+                    style={{ backgroundColor: '#8b5cf6', borderColor: '#7c3aed', fontWeight: 600 }}
+                    onClick={onHeaderReviewJob}
+                  >
+                    {selectedRowKeys.length === 1 ? 'Review Selected Job' : 'Review / Verify Job Card'}
+                  </Button>
+                ),
+              }]
+            : [])
+        : isReturnedQueue
         ? [{
-            key: 'create-job-card',
+            key: 'rework-job-card',
             node: (
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/maintenance/job-cards/new', { state: { context: createContext() } })}>
-                Create Job Card
+              <Button
+                type="primary"
+                icon={<RollbackOutlined />}
+                style={{ backgroundColor: '#ef4444', borderColor: '#dc2626', fontWeight: 600 }}
+                onClick={onHeaderReworkJob}
+              >
+                {selectedRowKeys.length === 1 ? 'Rework Selected Job' : 'Rework & Resubmit Job Card'}
               </Button>
             ),
           }]
-        : []),
-      { key: 'refresh', node: (<Button icon={<ReloadOutlined />} onClick={() => { load(); loadQueue(); }}>Refresh</Button>) },
+        : isCompleteQueue
+        ? []
+        : (canCreate
+            ? [{
+                key: 'create-job-card',
+                node: (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/maintenance/job-cards/new', { state: { context: createContext() } })}>
+                    Create Job Card
+                  </Button>
+                ),
+              }]
+            : [])),
+      { key: 'refresh', node: (<Button icon={<ReloadOutlined />} onClick={() => { clearJobCardCache(); load(true); loadQueue(); }}>Refresh</Button>) },
       ...(canCreate
         ? [{
             key: 'import',
@@ -624,27 +1281,75 @@ export const JobCardList: React.FC = () => {
     ]);
     return () => clearHeaderActions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setHeaderActions, clearHeaderActions, canCreate, canView, importing, navigate, companyId, load, loadQueue]);
+  }, [setHeaderActions, clearHeaderActions, isStartedQueue, isClosedQueue, isReviewQueue, isReturnedQueue, isCompleteQueue, canStart, canComplete, canVerify, canCreate, canView, selectedRowKeys.length, onHeaderStartJob, onHeaderCloseJob, onHeaderReviewJob, onHeaderReworkJob, importing, navigate, companyId, load, loadQueue]);
 
   return <div>
     <Card styles={{ body: { padding: 12 } }} style={{ ...panelCard, marginBottom: 12 }}>
       <div className="maint-status-grid">
-        {pipeline.map(q => {
-          const color = STATUS_COLORS[q.colorKey] || STATUS_COLORS.ALL;
+        {pipeline.map((q) => {
+          const color = (q as any).badgeColor || STATUS_COLORS[q.colorKey] || STATUS_COLORS.ALL;
           return (
             <button
               key={q.key}
               onClick={() => setFilterWithUrl({ statuses: q.statuses.length ? q.statuses : undefined })}
+              className={`maint-queue-card ${q.active ? 'is-active' : ''}`}
               style={{
-                width: '100%', cursor: 'pointer', border: 'none', borderRadius: 8, minWidth: 0,
-                padding: '10px 14px', textAlign: 'left', transition: 'all .15s',
-                background: q.active ? color : tint(color),
-                boxShadow: q.active ? `0 2px 8px ${color}55` : shadowSm,
-                display: 'flex', flexDirection: 'column', gap: 2, minHeight: 52,
+                borderLeft: `4px solid ${color}`,
+                border: q.active ? `2px solid ${color}` : undefined,
+                background: q.active
+                  ? `linear-gradient(135deg, ${color} 0%, ${color}e0 100%)`
+                  : undefined,
+                boxShadow: q.active ? `0 4px 14px ${color}40` : shadowSm,
               }}
             >
-              <span style={{ fontSize: 12, fontWeight: 600, color: q.active ? '#fff' : color, textTransform: 'uppercase', letterSpacing: '.02em', lineHeight: 1.3 }}>{q.label}</span>
-              <span style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.1, color: q.active ? '#fff' : 'var(--theme-text)' }}>{q.count}</span>
+              {/* Watermark Background Icon */}
+              <div
+                style={{
+                  position: 'absolute',
+                  right: -4,
+                  bottom: -8,
+                  fontSize: 44,
+                  opacity: q.active ? 0.18 : 0.08,
+                  color: q.active ? '#ffffff' : color,
+                  pointerEvents: 'none',
+                  lineHeight: 1,
+                  userSelect: 'none',
+                }}
+              >
+                {(q as any).icon}
+              </div>
+
+              {/* Top Row: Icon + Label */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, zIndex: 1 }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 20,
+                    height: 20,
+                    borderRadius: 5,
+                    background: q.active ? 'rgba(255, 255, 255, 0.25)' : `${color}18`,
+                    color: q.active ? '#ffffff' : color,
+                    fontSize: 11,
+                  }}
+                >
+                  {(q as any).icon}
+                </span>
+                <span className="maint-qc-label">
+                  {q.label}
+                </span>
+              </div>
+
+              {/* Bottom Row: Counter + Subtitle */}
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 4, zIndex: 1 }}>
+                <span className="maint-qc-count">
+                  {q.count}
+                </span>
+                <span className="maint-qc-desc">
+                  {(q as any).desc}
+                </span>
+              </div>
             </button>
           );
         })}
@@ -741,16 +1446,43 @@ export const JobCardList: React.FC = () => {
       )}
     </Card>
 
-    {error && <Alert type="error" showIcon message="Unable to load job cards" description={error} action={<Button onClick={() => { load(); loadQueue(); }}>Retry</Button>} style={{ marginBottom: 16, borderRadius: 6 }} />}
+    {error && <Alert type="error" showIcon message="Unable to load job cards" description={error} action={<Button onClick={() => { clearJobCardCache(); load(true); loadQueue(); }}>Retry</Button>} style={{ marginBottom: 16, borderRadius: 6 }} />}
 
     <div>
       <ERPTable
         rowKey="id"
         columns={columns}
-        dataSource={rows}
+        dataSource={displayRows}
         pagination={false}
-        scroll={{ x: 1500 }}
+        scroll={{ x: isMobile ? 1050 : 1300 }}
         loading={loading}
+        onRow={(record: JobCard) => ({
+          onClick: (e: React.MouseEvent) => {
+            const target = e.target as HTMLElement | null;
+            if (target && (target.closest('button') || target.closest('a') || target.closest('input') || target.closest('.ant-checkbox-wrapper'))) {
+              return;
+            }
+            if (isStartedQueue && ['OPEN', 'ASSIGNED'].includes(record.currentStatus)) {
+              openStartModalForCard(record);
+            } else if (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus)) {
+              openCloseModalForCard(record);
+            }
+          },
+          style: {
+            cursor: (isStartedQueue && ['OPEN', 'ASSIGNED'].includes(record.currentStatus)) ||
+                    (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus))
+                      ? 'pointer' : 'default',
+          },
+        })}
+        rowSelection={(isStartedQueue || isClosedQueue) ? {
+          selectedRowKeys,
+          onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+          getCheckboxProps: (record: JobCard) => ({
+            disabled: isStartedQueue
+              ? !['OPEN', 'ASSIGNED'].includes(record.currentStatus)
+              : !['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus),
+          }),
+        } : undefined}
         emptyTitle="No Job Cards Found"
         emptyDescription="Create a new job card to begin maintenance tracking."
         emptyActionLabel={canCreate ? 'Create Job Card' : undefined}
@@ -759,7 +1491,7 @@ export const JobCardList: React.FC = () => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap', padding: '12px 16px', borderTop: '1px solid var(--theme-border)' }}>
         <div>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            Showing <Text strong>{rows.length}</Text> of <Text strong>{total}</Text> job cards
+            Showing <Text strong>{displayRows.length}</Text> of <Text strong>{total}</Text> job cards
           </Text>
         </div>
         <Space size="middle">
@@ -805,6 +1537,52 @@ export const JobCardList: React.FC = () => {
         )}
       </Modal>
     )}
+
+    {/* Unified Draggable Master Workflow Modal */}
+    <JobCardWorkflowModal
+      open={workflowModal.open}
+      mode={workflowModal.mode}
+      card={workflowModal.card}
+      technicians={technicians}
+      rootCategories={rootCategories}
+      failureCategories={failureCategories}
+      allOpenCards={
+        workflowModal.mode === 'close'
+          ? rows.filter(r => ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(r.currentStatus))
+          : rows.filter(r => ['OPEN', 'ASSIGNED'].includes(r.currentStatus))
+      }
+      onClose={() => {
+        setWorkflowModal(prev => ({ ...prev, open: false }));
+      }}
+      onSuccess={(action, cardId) => {
+        if (action === 'start' || action === 'close' || action === 'verify' || action === 'reject') {
+          setRows(prev => prev.filter(r => r.id !== cardId));
+          setSelectedRowKeys(keys => keys.filter(k => k !== cardId));
+        } else if (action === 'parts') {
+          setRows(prev => prev.map(r => r.id === cardId ? { ...r, currentStatus: 'WAITING_FOR_PARTS' } : r));
+        }
+        clearJobCardCache();
+        load(true);
+        loadQueue();
+        if (companyId) void syncMaintenanceQueueBadges(companyId);
+      }}
+    />
+
+    {/* Dedicated Edit Job Card Modal */}
+    <EditJobCardModal
+      open={editModalOpen}
+      card={editModalCard}
+      onClose={() => {
+        setEditModalOpen(false);
+        setEditModalCard(null);
+      }}
+      onSuccess={() => {
+        message.success('Job card updated successfully.');
+        clearJobCardCache();
+        load(true);
+        loadQueue();
+      }}
+    />
 
     <div style={{ height: 16 }} />
   </div>;

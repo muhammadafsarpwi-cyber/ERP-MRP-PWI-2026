@@ -620,11 +620,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                   Refresh
                 </Button>
               </Tooltip>
-              {headerActions.map((a) => (
-                <div key={a.key} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                  {a.node}
-                </div>
-              ))}
               <NotificationBell />
               <EmailCommunicationIcon />
               <WhatsAppCommunicationIcon />
@@ -684,7 +679,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               </div>
             </div>
 
-            {headerExtra && (
+            {(headerActions.length > 0 || headerExtra) && (
               <div
                 className="erp-header-extra"
                 style={{
@@ -701,6 +696,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                   paddingBottom: isMobile ? 2 : 0,
                 }}
               >
+                {headerActions.map((a) => (
+                  <div key={a.key} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                    {a.node}
+                  </div>
+                ))}
                 {headerExtra}
               </div>
             )}

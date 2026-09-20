@@ -75,3 +75,33 @@ export const ACTION_MAP: Record<string, { label: string; endpoint: string; permi
   APPROVED: [],
   CANCELLED: [],
 };
+
+export interface JobCardPartRequest {
+  id?: string;
+  itemId?: string;
+  itemCode?: string;
+  partName: string;
+  partCode?: string;
+  quantity: number;
+  uom?: string;
+  unitCost?: number;
+  totalCost?: number;
+  stockStatus?: 'IN_STOCK' | 'OUT_OF_STOCK' | 'PENDING_PROCUREMENT' | 'LOW_STOCK';
+  onHand?: number;
+  available?: number;
+  delayMinutes?: number;
+  remarks?: string;
+  requestedAt?: string;
+  isProcurementHold?: boolean;
+}
+
+export interface JobCardCompletePayload {
+  diagnosis: string;
+  correctiveAction: string;
+  preventiveAction?: string;
+  rootCauseCategoryId?: string;
+  failureCategoryId?: string;
+  remarks?: string;
+  parts?: JobCardPartRequest[];
+}
+
