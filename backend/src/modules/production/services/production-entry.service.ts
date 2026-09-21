@@ -1622,6 +1622,7 @@ addToDept(org, {
         direction: 'IN',
         referenceType: ENTRY_REFERENCE_TYPE,
         referenceId: entry.id,
+        referenceNumber: entry.entryNumber || undefined,
         notes: `Daily production receipt (${entry.machineNo}, ${entry.entryDate})`,
         createdBy: userId ?? undefined,
       }, manager);
@@ -1645,6 +1646,7 @@ addToDept(org, {
           direction: 'OUT',
           referenceType: ENTRY_REFERENCE_TYPE,
           referenceId: entry.id,
+          referenceNumber: entry.entryNumber || undefined,
           notes: `Scrap/rejection recorded for daily production entry (audit trail; no balance impact)`,
           createdBy: userId ?? undefined,
         }, manager);
@@ -1743,7 +1745,7 @@ addToDept(org, {
     manager: EntityManager,
     companyId: string,
     output: { itemId: string; uomId: string; actualQuantity: number; scrapQuantity: number },
-    entryRef: { id: string; machineNo: string; entryDate: string },
+    entryRef: { id: string; machineNo: string; entryDate: string; entryNumber?: string | null },
     sourceStoreId: string | null,
     routingInputs?: Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }> | null,
     userId?: string,
@@ -1852,6 +1854,7 @@ addToDept(org, {
         direction: 'OUT',
         referenceType: ENTRY_REFERENCE_TYPE,
         referenceId: entryRef.id,
+        referenceNumber: entryRef.entryNumber || undefined,
         notes: `Automatic raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate})`,
         createdBy: userId ?? undefined,
       }, manager);
@@ -1873,7 +1876,7 @@ addToDept(org, {
     manager: EntityManager,
     companyId: string,
     output: { itemId: string; uomId: string; actualQuantity: number; scrapQuantity: number },
-    entryRef: { id: string; machineNo: string; entryDate: string },
+    entryRef: { id: string; machineNo: string; entryDate: string; entryNumber?: string | null },
     sourceStoreId: string | null,
     routingInputs: Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }>,
     userId?: string,
@@ -1934,6 +1937,7 @@ addToDept(org, {
         direction: 'OUT',
         referenceType: ENTRY_REFERENCE_TYPE,
         referenceId: entryRef.id,
+        referenceNumber: entryRef.entryNumber || undefined,
         notes: `Routing-configured raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate})`,
         createdBy: userId ?? undefined,
       }, manager);

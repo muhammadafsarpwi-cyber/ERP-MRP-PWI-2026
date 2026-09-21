@@ -98,6 +98,7 @@ interface LedgerEntry {
   transactionType: string;
   direction: string;
   quantity: number | string;
+  balanceAfter?: number | string | null;
   uom?: { id: string; code: string; name: string };
   referenceType: string;
   referenceId?: string;
@@ -221,6 +222,7 @@ const StockLedgerView: React.FC = () => {
       'Transaction Type',
       'Direction',
       'Quantity',
+      'Balance',
       'UOM',
       'Reference Number',
       'Reference Type',
@@ -236,6 +238,7 @@ const StockLedgerView: React.FC = () => {
       `"${formatTxType(e.transactionType).replace(/"/g, '""')}"`,
       `"${e.direction || ''}"`,
       formatNumber(e.quantity, 2),
+      e.balanceAfter != null ? formatNumber(e.balanceAfter, 2) : '',
       `"${e.uom?.code || ''}"`,
       `"${(e.referenceNumber || '').replace(/"/g, '""')}"`,
       `"${formatTxType(e.referenceType || '').replace(/"/g, '""')}"`,
@@ -273,7 +276,7 @@ const StockLedgerView: React.FC = () => {
       doc.text(`Generated: ${dateStr} · Total entries: ${total || entries.length}`, 40, 50);
 
       const head = [
-        ['Date & Time', 'Item Code', 'Item Name', 'Warehouse', 'Location', 'Type', 'Dir', 'Quantity', 'UOM', 'Reference']
+        ['Date & Time', 'Item Code', 'Item Name', 'Warehouse', 'Location', 'Type', 'Dir', 'Quantity', 'Balance', 'UOM', 'Reference']
       ];
 
       const body = entries.map((e) => [
@@ -285,8 +288,9 @@ const StockLedgerView: React.FC = () => {
         formatTxType(e.transactionType),
         e.direction || '—',
         formatNumber(e.quantity, 2),
-        e.uom?.code || '',
-        e.referenceNumber || e.referenceType || '—',
+        e.balanceAfter != null ? formatNumber(e.balanceAfter, 2) : '—',
+        e.uom?.code || '—',
+        e.referenceNumber || (e.referenceType ? formatTxType(e.referenceType) : '—'),
       ]);
 
       autoTable(doc, {
@@ -410,15 +414,14 @@ const StockLedgerView: React.FC = () => {
       ),
       dataIndex: 'transactionDate',
       key: 'transactionDate',
-      width: 155,
-      ellipsis: true,
+      width: 125,
       render: (v: string) => {
         if (!v) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
         const d = dayjs(v);
         return (
           <div style={{ whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-            <div style={{ fontWeight: 500 }}>{d.format('DD MMM YYYY')}</div>
-            <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
+            <div style={{ fontWeight: 500, fontSize: 12 }}>{d.format('DD MMM YYYY')}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)' }}>
               {d.format('HH:mm:ss')}
             </div>
           </div>
@@ -433,15 +436,14 @@ const StockLedgerView: React.FC = () => {
         </span>
       ),
       key: 'item',
-      width: 240,
-      ellipsis: true,
+      width: 195,
       render: (_, r) => {
         if (!r.item) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
         const itemName = r.item.name || r.item.itemCode;
         const itemCode = r.item.itemCode;
         const hasDiffCode = itemCode && itemName && itemCode !== itemName;
         return (
-          <div style={{ maxWidth: 230, lineHeight: 1.25 }}>
+          <div style={{ maxWidth: 190, lineHeight: 1.25 }}>
             <ItemBadge item={r.item} fallback="—" />
             {hasDiffCode && (
               <div
@@ -470,17 +472,16 @@ const StockLedgerView: React.FC = () => {
         </span>
       ),
       key: 'warehouse',
-      width: 160,
-      ellipsis: true,
+      width: 135,
       render: (_, r) => {
         if (!r.warehouse) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
         return (
           <div style={{ lineHeight: 1.3 }}>
-            <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.warehouse.name}>
+            <div style={{ fontWeight: 500, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.warehouse.name}>
               {r.warehouse.name}
             </div>
             {r.location?.name && (
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)', whiteSpace: 'nowrap' }}>
                 Loc: {r.location.name}
               </div>
             )}
@@ -492,30 +493,22 @@ const StockLedgerView: React.FC = () => {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <TagOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Transaction Type</span>
+          <span>Transaction</span>
         </span>
       ),
-      dataIndex: 'transactionType',
-      key: 'transactionType',
-      width: 180,
-      ellipsis: true,
-      render: (v: string) => {
-        const color = txTypeColorMap[v] || 'default';
-        return <Tag color={color} className="erp-table-tag">{formatTxType(v)}</Tag>;
+      key: 'transaction',
+      width: 165,
+      render: (_, r) => {
+        const color = txTypeColorMap[r.transactionType] || 'default';
+        return (
+          <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+            <Tag color={color} className="erp-table-tag" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
+              {formatTxType(r.transactionType)}
+            </Tag>
+            <DirectionTag direction={r.direction} />
+          </div>
+        );
       },
-    },
-    {
-      title: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <SwapOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Direction</span>
-        </span>
-      ),
-      dataIndex: 'direction',
-      key: 'direction',
-      width: 95,
-      ellipsis: true,
-      render: (v: string) => <DirectionTag direction={v} />,
     },
     {
       title: (
@@ -526,13 +519,56 @@ const StockLedgerView: React.FC = () => {
       ),
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 110,
+      width: 100,
       align: 'right',
-      render: (v: unknown) => (
-        <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 13, color: 'var(--theme-text)' }}>
-          {formatNumber(v, 2)}
+      render: (v: unknown, r) => {
+        const isOut = r.direction === 'OUT';
+        const num = formatNumber(v, 2);
+        return (
+          <span
+            style={{
+              fontWeight: 600,
+              fontFamily: "'SF Mono', 'Cascadia Code', monospace",
+              fontSize: 12.5,
+              color: isOut ? '#e11d48' : '#059669',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {isOut ? `-${num}` : `+${num}`}
+          </span>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <DatabaseOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Balance</span>
         </span>
       ),
+      key: 'balance',
+      width: 110,
+      align: 'right',
+      render: (_, r) => {
+        if (r.balanceAfter === undefined || r.balanceAfter === null) {
+          return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
+        }
+        const bal = Number(r.balanceAfter);
+        const isNeg = bal < 0;
+        return (
+          <span
+            style={{
+              fontWeight: 700,
+              fontFamily: "'SF Mono', 'Cascadia Code', monospace",
+              fontSize: 12.5,
+              color: isNeg ? '#dc2626' : 'var(--theme-text, #0f172a)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {formatNumber(bal, 2)}
+          </span>
+        );
+      },
     },
     {
       title: (
@@ -543,12 +579,12 @@ const StockLedgerView: React.FC = () => {
       ),
       dataIndex: ['uom', 'code'],
       key: 'uomCode',
-      width: 80,
+      width: 65,
       align: 'center',
       render: (v: string) => (
-        <span style={{ color: 'var(--theme-text-muted)', fontSize: 12, fontWeight: 500 }}>
+        <Tag style={{ margin: 0, fontSize: 10.5, padding: '0 5px', borderRadius: 4 }}>
           {v || '—'}
-        </span>
+        </Tag>
       ),
     },
     {
@@ -559,22 +595,32 @@ const StockLedgerView: React.FC = () => {
         </span>
       ),
       key: 'reference',
-      width: 165,
+      width: 150,
       ellipsis: true,
       render: (_, r) => {
         const refNum = r.referenceNumber;
         const refType = r.referenceType ? formatTxType(r.referenceType) : '';
-        const shortId = r.referenceId ? `${r.referenceId.slice(0, 8)}…` : '';
-        const displayRef = refNum || shortId || '—';
+        const displayRef = refNum || (refType || '—');
+
         return (
           <div style={{ lineHeight: 1.3 }}>
-            <Tooltip title={refNum || r.referenceId || refType}>
-              <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <Tooltip title={refNum || refType || r.referenceId || '—'}>
+              <div
+                style={{
+                  fontWeight: refNum ? 600 : 500,
+                  fontFamily: refNum ? "'SF Mono', 'Cascadia Code', monospace" : 'inherit',
+                  fontSize: refNum ? 12 : 11.5,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  color: refNum ? 'var(--theme-text)' : 'var(--theme-text-muted, #64748b)',
+                }}
+              >
                 {displayRef}
               </div>
             </Tooltip>
-            {refType && (
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', whiteSpace: 'nowrap' }}>
+            {refNum && refType && (
+              <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)', whiteSpace: 'nowrap' }}>
                 {refType}
               </div>
             )}
@@ -591,12 +637,12 @@ const StockLedgerView: React.FC = () => {
       ),
       dataIndex: 'notes',
       key: 'notes',
-      width: 150,
+      width: 130,
       ellipsis: true,
       responsive: ['lg'],
       render: (v: string) => (
         <Tooltip title={v || undefined}>
-          <span style={{ color: v ? 'var(--theme-text)' : 'var(--theme-text-muted)' }}>
+          <span style={{ color: v ? 'var(--theme-text)' : 'var(--theme-text-muted)', fontSize: 11.5 }}>
             {v || '—'}
           </span>
         </Tooltip>
@@ -610,7 +656,7 @@ const StockLedgerView: React.FC = () => {
         </span>
       ),
       key: 'actions',
-      width: 75,
+      width: 65,
       fixed: 'right',
       align: 'center',
       render: (_, r) => (
@@ -746,7 +792,10 @@ const StockLedgerView: React.FC = () => {
                   placeholder="Search item, code, reference…"
                   prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
                   onPressEnter={handleSearch}
                   allowClear
                 />
@@ -831,7 +880,7 @@ const StockLedgerView: React.FC = () => {
         dataSource={entries}
         rowKey="id"
         loading={loading}
-        scroll={{ x: 1320 }}
+        scroll={{ x: 1080 }}
         dense
         containerClassName="erp-table-striped"
         emptyTitle="No stock ledger transactions found"
@@ -888,6 +937,13 @@ const StockLedgerView: React.FC = () => {
             <Descriptions.Item label="Quantity">
               <span style={{ fontWeight: 600 }}>
                 {formatNumber(selectedEntry.quantity, 2)} {selectedEntry.uom?.code || ''}
+              </span>
+            </Descriptions.Item>
+            <Descriptions.Item label="Balance After">
+              <span style={{ fontWeight: 700, color: 'var(--theme-primary, #2563eb)' }}>
+                {selectedEntry.balanceAfter != null
+                  ? `${formatNumber(selectedEntry.balanceAfter, 2)} ${selectedEntry.uom?.code || ''}`
+                  : '—'}
               </span>
             </Descriptions.Item>
             <Descriptions.Item label="Warehouse">

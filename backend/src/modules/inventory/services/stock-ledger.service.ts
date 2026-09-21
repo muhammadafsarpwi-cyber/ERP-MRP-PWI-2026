@@ -61,6 +61,7 @@ export class StockLedgerService {
   async findAll(filter: {
     page?: number;
     limit?: number;
+    search?: string;
     companyId?: string;
     itemId?: string;
     warehouseId?: string;
@@ -78,6 +79,7 @@ export class StockLedgerService {
     const {
       page = 1,
       limit = 20,
+      search,
       companyId,
       itemId,
       warehouseId,
@@ -160,6 +162,15 @@ export class StockLedgerService {
       params.referenceId = referenceId;
     }
 
+    // Free-text search across item code, item name, reference number, and notes
+    if (search && search.trim()) {
+      const term = `%${search.trim()}%`;
+      conditions.push(
+        '(item.itemCode ILIKE :searchTerm OR item.name ILIKE :searchTerm OR ledger.referenceNumber ILIKE :searchTerm OR ledger.notes ILIKE :searchTerm)',
+      );
+      params.searchTerm = term;
+    }
+
     if (conditions.length > 0) {
       qb.where(conditions.join(' AND '), params);
     }
@@ -168,6 +179,46 @@ export class StockLedgerService {
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
+
+    if (data.length > 0) {
+      try {
+        const ids = data.map((d) => d.id);
+        const targetCompanyId = companyId || data[0]?.companyId;
+        const queryStr = targetCompanyId
+          ? `SELECT id, running_balance FROM (
+               SELECT id,
+                      SUM(CASE WHEN direction = 'IN' THEN quantity ELSE -quantity END)
+                        OVER (
+                          PARTITION BY company_id, warehouse_id, item_id 
+                          ORDER BY transaction_date ASC, created_at ASC
+                        ) AS running_balance
+               FROM stock_ledger
+               WHERE company_id = $1
+             ) sub
+             WHERE id = ANY($2::uuid[])`
+          : `SELECT id, running_balance FROM (
+               SELECT id,
+                      SUM(CASE WHEN direction = 'IN' THEN quantity ELSE -quantity END)
+                        OVER (
+                          PARTITION BY company_id, warehouse_id, item_id 
+                          ORDER BY transaction_date ASC, created_at ASC
+                        ) AS running_balance
+               FROM stock_ledger
+             ) sub
+             WHERE id = ANY($1::uuid[])`;
+        const queryParams = targetCompanyId ? [targetCompanyId, ids] : [ids];
+        const balances: Array<{ id: string; running_balance: string }> = await this.repo.query(queryStr, queryParams);
+        const balMap = new Map(balances.map((b) => [b.id, Number(b.running_balance || 0)]));
+        for (const item of data) {
+          (item as any).balanceAfter = balMap.has(item.id) ? balMap.get(item.id) : null;
+        }
+      } catch {
+        for (const item of data) {
+          (item as any).balanceAfter = null;
+        }
+      }
+    }
+
     return { data, total };
   }
 

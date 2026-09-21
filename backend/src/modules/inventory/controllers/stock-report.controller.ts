@@ -50,6 +50,7 @@ export class StockReportController {
   @ApiOperation({ summary: 'Get stock ledger report' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false, description: 'Free-text search across item code, name, reference, notes' })
   @ApiQuery({ name: 'companyId', required: false })
   @ApiQuery({ name: 'itemId', required: false })
   @ApiQuery({ name: 'warehouseId', required: false })
@@ -65,6 +66,7 @@ export class StockReportController {
     @Req() req: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @Query('search') search?: string,
     @Query('companyId') companyId?: string,
     @Query('itemId') itemId?: string,
     @Query('warehouseId') warehouseId?: string,
@@ -79,7 +81,7 @@ export class StockReportController {
   ) {
     const resolvedCompanyId = this.resolveCompanyId(req, companyId);
     const result = await this.stockLedgerService.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, companyId: resolvedCompanyId, itemId, warehouseId,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId: resolvedCompanyId, itemId, warehouseId,
       transactionType, direction, referenceType, referenceId,
       transactionDateFrom: dateFrom ? new Date(dateFrom) : undefined,
       transactionDateTo: dateTo ? new Date(dateTo) : undefined,
