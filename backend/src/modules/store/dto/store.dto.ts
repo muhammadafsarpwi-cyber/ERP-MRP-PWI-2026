@@ -1,23 +1,29 @@
-import { IsString, IsOptional, IsBoolean, IsUUID, IsNumber, IsArray, ValidateNested, Min, MaxLength, IsDateString, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsUUID, IsNumber, IsArray, ValidateNested, Min, MaxLength, IsDateString, IsIn, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateStoreDto {
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
-  companyId!: string;
+  companyId?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
   divisionId?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
   sectionId?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
   departmentId?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
   warehouseId?: string;
 
@@ -54,18 +60,31 @@ export class CreateStoreDto {
 
 export class UpdateStoreDto {
   @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUUID()
+  companyId?: string;
+
+  @IsOptional()
+  @IsString()
+  storeCode?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
   divisionId?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
   sectionId?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
   departmentId?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
   @IsUUID()
   warehouseId?: string;
 

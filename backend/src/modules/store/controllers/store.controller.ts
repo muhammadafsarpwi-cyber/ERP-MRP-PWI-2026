@@ -56,7 +56,8 @@ export class StoreController {
   @Post('stores')
   @RequirePermission('store.create')
   async createStore(@Body() dto: CreateStoreDto, @Req() req: any) {
-    return this.storeService.createStore({ ...dto, companyId: this.getCompanyId(req) }, this.getUserId(req));
+    const companyId = this.getCompanyId(req) || dto.companyId;
+    return this.storeService.createStore({ ...dto, companyId }, this.getUserId(req));
   }
 
   @Put('stores/:id')
@@ -285,5 +286,17 @@ export class StoreController {
   @RequirePermission('store.item.view')
   async getItemLifecycle(@Req() req: any, @Param('itemId') itemId: string, @Query() query: any) {
     return this.storeMaterialTraceService.getItemLifecycle(this.getCompanyId(req), itemId, query);
+  }
+
+  @Delete('lifecycle/ledger/:id')
+  @RequirePermission('store.item.view')
+  async deleteLedgerRow(@Req() req: any, @Param('id') id: string) {
+    return this.storeMaterialTraceService.deleteLedgerRow(this.getCompanyId(req), id);
+  }
+
+  @Delete('lifecycle/ledger/item/:itemId/dummy')
+  @RequirePermission('store.item.view')
+  async deleteDummyLedgerRows(@Req() req: any, @Param('itemId') itemId: string) {
+    return this.storeMaterialTraceService.deleteDummyLedgerRows(this.getCompanyId(req), itemId);
   }
 }

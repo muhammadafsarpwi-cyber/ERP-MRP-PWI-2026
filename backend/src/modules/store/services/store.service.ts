@@ -87,16 +87,41 @@ export class StoreService {
   }
 
   async createStore(dto: CreateStoreDto, userId: string) {
+    if (!dto.companyId) {
+      throw new BadRequestException('Company ID is required to create a store');
+    }
     const existing = await this.storeRepo.findOne({ where: { companyId: dto.companyId, storeCode: dto.storeCode } });
-    if (existing) throw new BadRequestException(`Store code ${dto.storeCode} already exists`);
+    if (existing) throw new BadRequestException(`Store code "${dto.storeCode}" already exists`);
 
-    const store = this.storeRepo.create({ ...dto, createdBy: userId });
+    const store = this.storeRepo.create({
+      ...dto,
+      divisionId: dto.divisionId || null,
+      sectionId: dto.sectionId || null,
+      departmentId: dto.departmentId || null,
+      warehouseId: dto.warehouseId || null,
+      createdBy: userId,
+    });
     return this.storeRepo.save(store);
   }
 
   async updateStore(id: string, dto: UpdateStoreDto, userId: string, companyId?: string) {
     const store = await this.findStoreById(id, companyId);
-    Object.assign(store, dto, { updatedBy: userId });
+    if (dto.storeCode && dto.storeCode !== store.storeCode) {
+      const existing = await this.storeRepo.findOne({ where: { companyId: store.companyId, storeCode: dto.storeCode } });
+      if (existing && existing.id !== id) {
+        throw new BadRequestException(`Store code "${dto.storeCode}" already exists`);
+      }
+      store.storeCode = dto.storeCode;
+    }
+    const { storeCode: _sc, companyId: _cid, ...rest } = dto;
+    Object.assign(store, {
+      ...rest,
+      divisionId: rest.divisionId !== undefined ? (rest.divisionId || null) : store.divisionId,
+      sectionId: rest.sectionId !== undefined ? (rest.sectionId || null) : store.sectionId,
+      departmentId: rest.departmentId !== undefined ? (rest.departmentId || null) : store.departmentId,
+      warehouseId: rest.warehouseId !== undefined ? (rest.warehouseId || null) : store.warehouseId,
+      updatedBy: userId,
+    });
     return this.storeRepo.save(store);
   }
 

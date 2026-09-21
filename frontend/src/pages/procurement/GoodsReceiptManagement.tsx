@@ -39,7 +39,9 @@ const GoodsReceiptManagement: React.FC = () => {
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string; warehouseType?: string }>>([]);
+  const watchedWarehouseId = Form.useWatch('warehouseId', form);
+  const selectedWarehouse = warehouses.find((w) => w.id === watchedWarehouseId);
 
   useEffect(() => {
     const erpUser = localStorage.getItem('erp_user');
@@ -52,8 +54,9 @@ const GoodsReceiptManagement: React.FC = () => {
         setSuppliers(s.data || []);
       } catch { /* ignore */ }
       try {
-        const w = await apiService.get<{ data: Array<{ id: string; warehouseCode: string; name: string }> }>('/warehouses', { limit: 100 });
-        setWarehouses(w.data || []);
+        const w = await apiService.get<any>('/organization/warehouses', { limit: 100 });
+        const items = Array.isArray(w) ? w : w?.data?.items || w?.items || w?.data || [];
+        setWarehouses(items);
       } catch { /* ignore */ }
     })();
   }, []);
@@ -191,7 +194,16 @@ const GoodsReceiptManagement: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
-          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} showWarehouse={false} label="Receipt Items" />
+          <ERPLineItems
+            companyId={companyId}
+            value={lineItems}
+            onChange={setLineItems}
+            showWarehouse={false}
+            label="Receipt Items"
+            warehouseId={watchedWarehouseId}
+            warehouseType={selectedWarehouse?.warehouseType}
+            isPurchasable={true}
+          />
           <Form.Item name="notes" label="Notes">
             <Input.TextArea rows={2} />
           </Form.Item>

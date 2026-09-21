@@ -53,7 +53,6 @@ import {
   ReservationManagement,
   StockLedgerView,
   InventoryReports,
-  OpeningStock,
   SerialNumberManagement,
 } from './pages/inventory';
 import Production from './pages/production/Production';
@@ -163,7 +162,7 @@ const App: React.FC = () => {
                   <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
                   <Route path="/inventory/batches" element={<BatchManagement />} />
                   <Route path="/inventory/serial-numbers" element={<SerialNumberManagement />} />
-                  <Route path="/inventory/opening-stock" element={<OpeningStock />} />
+                  <Route path="/inventory/opening-stock" element={<Navigate to="/store/opening-stock" replace />} />
                   <Route path="/inventory/adjustments" element={<StockAdjustmentManagement />} />
                   <Route path="/inventory/adjustments/pending-approval" element={<StockAdjustmentManagement defaultTab="PENDING_APPROVAL" />} />
                   <Route path="/inventory/stock-adjustments" element={<Navigate to="/inventory/adjustments" replace />} />

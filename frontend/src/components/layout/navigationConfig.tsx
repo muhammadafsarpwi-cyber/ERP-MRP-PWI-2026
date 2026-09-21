@@ -267,7 +267,6 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/inventory/policies', label: 'Inventory Policies', icon: SafetyOutlined, color: 'indigo', permissions: ['inventory.policy.view'] },
       { key: '/inventory/batches', label: 'Batch Tracking', icon: AppstoreOutlined, color: 'indigo', permissions: ['inventory.batch.view'] },
       { key: '/inventory/serial-numbers', label: 'Serial Numbers', icon: TagsOutlined, color: 'indigo', permissions: ['inventory.serial.view'] },
-      { key: '/inventory/opening-stock', label: 'Opening Stock', icon: PlusOutlined, color: 'indigo', permissions: ['inventory.opening_stock.create'] },
       { key: '/inventory/adjustments', label: 'Stock Adjustments', icon: EditOutlined, color: 'indigo', permissions: ['inventory.view'] },
       { key: '/inventory/adjustments/pending-approval', label: 'Pending Approval', icon: ClockCircleOutlined, color: 'orange', permissions: ['inventory.adjustment.approve', 'inventory.view'] },
       { key: '/inventory/transfers', label: 'Stock Transfers', icon: SwapOutlined, color: 'indigo', permissions: ['inventory.view'] },

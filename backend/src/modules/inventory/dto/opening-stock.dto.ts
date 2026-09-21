@@ -63,10 +63,10 @@ export class OpeningStockLineDto {
 }
 
 export class PostOpeningStockDto {
-  @ApiProperty({ description: 'Company ID' })
+  @ApiPropertyOptional({ description: 'Company ID (optional, defaults to authenticated company)' })
   @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  @IsOptional()
+  companyId?: string;
 
   @ApiProperty({ description: 'Warehouse ID' })
   @IsUUID()

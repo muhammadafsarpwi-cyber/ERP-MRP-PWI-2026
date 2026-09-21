@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Button, Space, Modal, Form, Input, Select, Tag, App, Row, Col } from 'antd';
+import { Card, Table, Button, Space, Modal, Form, Input, Select, Tag, App, Row, Col, Checkbox } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShopOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -40,14 +40,16 @@ const StoreManagement: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await apiService.get<Store[]>('/store/stores');
-      setData(response);
-    } catch (error) {
-      message.error('Failed to load stores');
+      const response = await apiService.get<any>('/store/stores');
+      const list = Array.isArray(response) ? response : (response?.data || []);
+      setData(list);
+    } catch (error: any) {
+      const apiMsg = error?.response?.data?.message || error?.message || 'Failed to load stores';
+      message.error(Array.isArray(apiMsg) ? apiMsg.join(', ') : apiMsg);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     fetchData();
@@ -74,8 +76,9 @@ const StoreManagement: React.FC = () => {
           await apiService.delete(`/store/stores/${id}`);
           message.success('Store deactivated');
           fetchData();
-        } catch (error) {
-          message.error('Failed to delete store');
+        } catch (error: any) {
+          const apiMsg = error?.response?.data?.message || error?.message || 'Failed to delete store';
+          message.error(Array.isArray(apiMsg) ? apiMsg.join(', ') : apiMsg);
         }
       },
     });
@@ -86,24 +89,29 @@ const StoreManagement: React.FC = () => {
       const values = await form.validateFields();
       if (editingRecord) {
         await apiService.put(`/store/stores/${editingRecord.id}`, values);
-        message.success('Store updated');
+        message.success('Store updated successfully');
       } else {
         await apiService.post('/store/stores', values);
-        message.success('Store created');
+        message.success('Store created successfully');
       }
       setModalVisible(false);
       fetchData();
-    } catch (error) {
-      message.error('Operation failed');
+    } catch (error: any) {
+      if (error?.errorFields) {
+        return;
+      }
+      const apiMsg = error?.response?.data?.message || error?.message || 'Operation failed';
+      const displayMsg = Array.isArray(apiMsg) ? apiMsg.join(', ') : apiMsg;
+      message.error(displayMsg);
     }
   };
 
   const columns: ColumnsType<Store> = [
-    { title: 'Store Code', dataIndex: 'storeCode', key: 'storeCode', width: 120 },
-    { title: 'Store Name', dataIndex: 'storeName', key: 'storeName', width: 200 },
+    { title: 'Store Code', dataIndex: 'storeCode', key: 'storeCode', width: 140 },
+    { title: 'Store Name', dataIndex: 'storeName', key: 'storeName', width: 220 },
     {
-      title: 'Type', dataIndex: 'storeType', key: 'storeType', width: 120,
-      render: (type: string) => <Tag color={type === 'RAW_MATERIAL' ? 'blue' : type === 'FINISHED_GOODS' ? 'green' : 'default'}>{type}</Tag>,
+      title: 'Type', dataIndex: 'storeType', key: 'storeType', width: 130,
+      render: (type: string) => <Tag color={type === 'RAW_MATERIAL' ? 'blue' : type === 'FINISHED_GOODS' ? 'green' : 'default'}>{type || 'GENERAL'}</Tag>,
     },
     { title: 'Contact Person', dataIndex: 'contactPerson', key: 'contactPerson', width: 150 },
     { title: 'Contact Number', dataIndex: 'contactNumber', key: 'contactNumber', width: 120 },
@@ -151,13 +159,13 @@ const StoreManagement: React.FC = () => {
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="storeCode" label="Store Code" rules={[{ required: true }]}>
-                <Input disabled={!!editingRecord} />
+              <Form.Item name="storeCode" label="Store Code" rules={[{ required: true, message: 'Store code is required' }]}>
+                <Input disabled={!!editingRecord} placeholder="e.g. SPI-RM-STORE" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="storeName" label="Store Name" rules={[{ required: true }]}>
-                <Input />
+              <Form.Item name="storeName" label="Store Name" rules={[{ required: true, message: 'Store name is required' }]}>
+                <Input placeholder="e.g. SPI Raw Material Store" />
               </Form.Item>
             </Col>
           </Row>
@@ -174,8 +182,8 @@ const StoreManagement: React.FC = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="isDefault" label="Default Store" valuePropName="checked">
-                <input type="checkbox" />
+              <Form.Item name="isDefault" valuePropName="checked" style={{ marginTop: 30 }}>
+                <Checkbox>Default Store</Checkbox>
               </Form.Item>
             </Col>
           </Row>

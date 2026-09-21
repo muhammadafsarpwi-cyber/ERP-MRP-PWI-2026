@@ -918,4 +918,40 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
 
     return events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }
+
+  // ==================== DELETE LEDGER ENTRIES ====================
+
+  async deleteLedgerRow(companyId: string, ledgerId: string) {
+    await this.dataSource.query(
+      `UPDATE production_entries SET inventory_reference_id = NULL WHERE inventory_reference_id = $1`,
+      [ledgerId],
+    );
+    const res = await this.dataSource.query(
+      `DELETE FROM stock_ledger WHERE id = $1 AND company_id = $2 RETURNING id`,
+      [ledgerId, companyId],
+    );
+    return { success: true, deletedId: res[0]?.id || ledgerId };
+  }
+
+  async deleteDummyLedgerRows(companyId: string, itemId: string) {
+    const dummyRows = await this.dataSource.query(
+      `SELECT id FROM stock_ledger 
+       WHERE item_id = $1 AND company_id = $2 
+       AND (notes ILIKE '%FT-04%' OR notes ILIKE '%demo%' OR notes ILIKE '%test%' OR notes ILIKE '%dummy%')`,
+      [itemId, companyId],
+    );
+    const ids = dummyRows.map((r: any) => r.id);
+    if (ids.length > 0) {
+      await this.dataSource.query(
+        `UPDATE production_entries SET inventory_reference_id = NULL WHERE inventory_reference_id = ANY($1::uuid[])`,
+        [ids],
+      );
+      const res = await this.dataSource.query(
+        `DELETE FROM stock_ledger WHERE id = ANY($1::uuid[]) RETURNING id`,
+        [ids],
+      );
+      return { success: true, deletedCount: res.length, deletedIds: res.map((r: any) => r.id) };
+    }
+    return { success: true, deletedCount: 0, deletedIds: [] };
+  }
 }

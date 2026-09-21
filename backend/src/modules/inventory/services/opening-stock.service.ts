@@ -22,6 +22,7 @@ export class OpeningStockService {
       throw new BadRequestException('Opening stock must have at least one line');
     }
 
+    const companyId = dto.companyId || '7725aa04-a270-4314-9e82-90949cbe7791';
     const results: any[] = [];
 
     for (const line of dto.lines) {
@@ -29,7 +30,7 @@ export class OpeningStockService {
 
       if (line.batchNumber && !batchId) {
         const batch = await this.batchService.create({
-          companyId: dto.companyId,
+          companyId,
           itemId: line.itemId,
           warehouseId: dto.warehouseId,
           batchNumber: line.batchNumber,
@@ -39,7 +40,7 @@ export class OpeningStockService {
       }
 
       const ledgerEntry = await this.ledgerService.create({
-        companyId: dto.companyId,
+        companyId,
         transactionType: 'OPENING',
         transactionDate: dto.transactionDate || new Date(),
         itemId: line.itemId,
@@ -57,7 +58,7 @@ export class OpeningStockService {
       });
 
       await this.balanceService.updateBalance(
-        dto.companyId,
+        companyId,
         line.itemId,
         dto.warehouseId,
         line.locationId || null,

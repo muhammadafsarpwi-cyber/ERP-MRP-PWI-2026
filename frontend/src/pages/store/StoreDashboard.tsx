@@ -13,6 +13,7 @@ import {
   type StoreOption,
   type StoreDashboardSummary,
   type DashboardFilters,
+  ITEM_TYPES,
 } from '../../services/storeDashboard';
 import KpiCards from './components/dashboard/kpiCards';
 import WorkflowSteps from './components/dashboard/workflowSteps';
@@ -46,10 +47,11 @@ const sectionCardTitle = (title: string, subtitle?: string) => (
 );
 
 interface DraftFilters {
-  storeId?: string;
   divisionId?: string;
   sectionId?: string;
   departmentId?: string;
+  storeId?: string;
+  itemType?: string;
   range?: [Dayjs, Dayjs];
 }
 
@@ -68,6 +70,8 @@ const StoreDashboard: React.FC = () => {
 
   const [draft, setDraft] = useState<DraftFilters>({});
   const [applied, setApplied] = useState<DashboardFilters>({});
+  // Client-side only store filter for StoreStockSummary (separate from server-side applied filters)
+  const [stockSummaryStoreId, setStockSummaryStoreId] = useState<string | undefined>();
 
   useEffect(() => {
     fetchStores().then(setStores).catch(() => setStores([]));
@@ -106,7 +110,13 @@ const StoreDashboard: React.FC = () => {
   }, []);
 
   const handleDivisionChange = async (value?: string) => {
-    const next = { ...draft, divisionId: value, sectionId: undefined, departmentId: undefined };
+    const next: DraftFilters = {
+      ...draft,
+      divisionId: value,
+      sectionId: undefined,
+      departmentId: undefined,
+      storeId: undefined,
+    };
     setDraft(next);
     if (value) {
       try {
@@ -122,17 +132,53 @@ const StoreDashboard: React.FC = () => {
   };
 
   const handleSectionChange = async (value?: string) => {
-    const next = { ...draft, sectionId: value, departmentId: undefined };
+    const next: DraftFilters = {
+      ...draft,
+      sectionId: value,
+      departmentId: undefined,
+      storeId: undefined,
+    };
     setDraft(next);
     loadDepartmentOptions(draft.divisionId, value);
   };
 
+  const handleDepartmentChange = (value?: string) => {
+    const next: DraftFilters = {
+      ...draft,
+      departmentId: value,
+      storeId: undefined,
+    };
+    setDraft(next);
+  };
+
+  const handleItemTypeChange = (value?: string) => {
+    const cleanVal = value === 'ALL' ? undefined : value;
+    setDraft((prev) => ({ ...prev, itemType: cleanVal }));
+    setApplied((prev) => ({ ...prev, itemType: cleanVal }));
+  };
+
+  // StoreStockSummary dropdown: client-side only filtering (does NOT trigger API re-fetch)
+  const handleStoreFilterChange = (value?: string) => {
+    const cleanVal = value === 'ALL' ? undefined : value;
+    setStockSummaryStoreId(cleanVal);
+  };
+
+  const filteredStores = useMemo(() => {
+    return stores.filter((s) => {
+      if (draft.divisionId && s.divisionId && s.divisionId !== draft.divisionId) return false;
+      if (draft.sectionId && s.sectionId && s.sectionId !== draft.sectionId) return false;
+      if (draft.departmentId && s.departmentId && s.departmentId !== draft.departmentId) return false;
+      return true;
+    });
+  }, [stores, draft.divisionId, draft.sectionId, draft.departmentId]);
+
   const applyFilters = () => {
     const filters: DashboardFilters = {};
-    if (draft.storeId) filters.storeId = draft.storeId;
     if (draft.divisionId) filters.divisionId = draft.divisionId;
     if (draft.sectionId) filters.sectionId = draft.sectionId;
     if (draft.departmentId) filters.departmentId = draft.departmentId;
+    if (draft.storeId) filters.storeId = draft.storeId;
+    if (draft.itemType && draft.itemType !== 'ALL') filters.itemType = draft.itemType;
     if (draft.range && draft.range[0] && draft.range[1]) {
       filters.dateFrom = draft.range[0].format('YYYY-MM-DD');
       filters.dateTo = draft.range[1].format('YYYY-MM-DD');
@@ -143,6 +189,7 @@ const StoreDashboard: React.FC = () => {
   const clearFilters = () => {
     setDraft({});
     setApplied({});
+    setStockSummaryStoreId(undefined);
   };
 
   const hasFilters = useMemo(
@@ -175,19 +222,6 @@ const StoreDashboard: React.FC = () => {
           <span style={{ fontSize: 13 }}>Filters</span>
         </Space>
         <Select
-          placeholder="Store"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          style={selectStyle}
-          value={draft.storeId}
-          onChange={(value?: string) => setDraft((prev) => ({ ...prev, storeId: value }))}
-          options={stores.map((store) => ({
-            value: store.id,
-            label: `${store.storeName} (${store.storeCode})`,
-          }))}
-        />
-        <Select
           placeholder="Division"
           allowClear
           style={selectStyle}
@@ -214,10 +248,34 @@ const StoreDashboard: React.FC = () => {
           allowClear
           style={selectStyle}
           value={draft.departmentId}
-          onChange={(value?: string) => setDraft((prev) => ({ ...prev, departmentId: value }))}
+          onChange={(value?: string) => handleDepartmentChange(value)}
           options={departments.map((department) => ({
             value: department.id,
             label: department.name,
+          }))}
+        />
+        <Select
+          placeholder="Store"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={selectStyle}
+          value={draft.storeId}
+          onChange={(value?: string) => setDraft((prev) => ({ ...prev, storeId: value }))}
+          options={filteredStores.map((store) => ({
+            value: store.id,
+            label: `${store.storeName} (${store.storeCode})`,
+          }))}
+        />
+        <Select
+          placeholder="Item Type"
+          allowClear
+          style={{ width: 180 }}
+          value={draft.itemType}
+          onChange={(value?: string) => handleItemTypeChange(value)}
+          options={ITEM_TYPES.map((t) => ({
+            value: t.value === 'ALL' ? undefined : t.value,
+            label: t.label,
           }))}
         />
         <DatePicker.RangePicker
@@ -287,6 +345,11 @@ const StoreDashboard: React.FC = () => {
               <StoreStockSummary
                 rows={summary.stockSummary.rows}
                 belowMinimum={summary.stockSummary.belowMinimum}
+                stores={filteredStores.length > 0 ? filteredStores : stores}
+                selectedStoreId={stockSummaryStoreId}
+                onStoreChange={handleStoreFilterChange}
+                itemType={applied.itemType || draft.itemType}
+                onItemTypeChange={handleItemTypeChange}
                 onViewBalance={navigate}
               />
             </Col>

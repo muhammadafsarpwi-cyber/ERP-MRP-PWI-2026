@@ -459,3 +459,11 @@ export const fetchItemLifecycle = (
   if (filters.dateTo) params.dateTo = filters.dateTo;
   return apiService.get<MaterialLifecycle>(`/store/lifecycle/items/${itemId}`, params);
 };
+
+export const deleteLedgerRow = (id: string): Promise<{ success: boolean; deletedId: string }> => {
+  return apiService.delete(`/store/lifecycle/ledger/${id}`);
+};
+
+export const deleteDummyLedgerRows = (itemId: string): Promise<{ success: boolean; deletedCount: number }> => {
+  return apiService.delete(`/store/lifecycle/ledger/item/${itemId}/dummy`);
+};

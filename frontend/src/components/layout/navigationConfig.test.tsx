@@ -88,7 +88,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/sales/quotations', '/sales/orders', '/sales/deliveries',
   '/sales/invoices', '/sales/returns',
   '/inventory', '/inventory/policies', '/inventory/batches',
-  '/inventory/serial-numbers', '/inventory/opening-stock',
+  '/inventory/serial-numbers',
   '/inventory/adjustments', '/inventory/adjustments/pending-approval', '/inventory/transfers', '/inventory/transfers/pending-approval', '/inventory/reservations',
   '/inventory/ledger', '/inventory/reports',
   '/procurement/suppliers', '/procurement/requisitions', '/procurement/rfqs',

@@ -14,6 +14,7 @@ export interface StoreDashboardFilters {
   divisionId?: string;
   sectionId?: string;
   departmentId?: string;
+  itemType?: string;
   dateFrom?: string;
   dateTo?: string;
 }
@@ -33,6 +34,7 @@ export class StoreDashboardService {
       divisionId: rawFilters.divisionId || undefined,
       sectionId: rawFilters.sectionId || undefined,
       departmentId: rawFilters.departmentId || undefined,
+      itemType: rawFilters.itemType || undefined,
       dateFrom: rawFilters.dateFrom || undefined,
       dateTo: rawFilters.dateTo || undefined,
     };
@@ -438,30 +440,33 @@ export class StoreDashboardService {
 
   private async buildStockSummary(companyId: string, filters: StoreDashboardFilters) {
     const params: any[] = [companyId];
+    const scopeConds = this.inventoryScopeConds(filters, params);
     const rows = await this.dataSource.query<any[]>(
-      `SELECT si.id AS "storeItemId", si.store_id AS "storeId", si.item_id AS "itemId",
-              s.store_code AS "storeCode", s.store_name AS "storeName",
-              i.item_code AS "itemCode", i.name AS "itemName",
+      `SELECT COALESCE(MAX(si.id::text), MAX(ib.id::text)) AS "storeItemId",
+              COALESCE(s.id::text, '') AS "storeId",
+              ib.item_id AS "itemId",
+              COALESCE(s.store_code, w.warehouse_code, '') AS "storeCode",
+              COALESCE(s.store_name, w.name, '') AS "storeName",
+              i.item_code AS "itemCode",
+              i.name AS "itemName",
+              i.item_type AS "itemType",
               COALESCE(u.code, '') AS "uomCode",
               COALESCE(SUM(ib.on_hand), 0)::float8 AS "onHand",
               COALESCE(SUM(ib.reserved), 0)::float8 AS "reserved",
               COALESCE(SUM(ib.available), 0)::float8 AS "available",
-              COALESCE(MAX(si.minimum_stock), 0)::float8 AS "minimumStock",
-              COALESCE(MAX(si.reorder_level), 0)::float8 AS "reorderLevel",
-              COALESCE(MAX(si.maximum_stock), 0)::float8 AS "maximumStock"
-         FROM store_items si
-         JOIN stores s ON s.id = si.store_id
-         JOIN items i ON i.id = si.item_id
+              COALESCE(MAX(si.minimum_stock), MAX(i.minimum_stock_level), 0)::float8 AS "minimumStock",
+              COALESCE(MAX(si.reorder_level), MAX(i.reorder_level), 0)::float8 AS "reorderLevel",
+              COALESCE(MAX(si.maximum_stock), MAX(i.maximum_stock_level), 0)::float8 AS "maximumStock"
+         FROM inventory_balances ib
+         JOIN items i ON i.id = ib.item_id
+         JOIN warehouses w ON w.id = ib.warehouse_id
+         LEFT JOIN stores s ON s.warehouse_id = ib.warehouse_id AND s.company_id = ib.company_id AND s.status = 'ACTIVE'
+         LEFT JOIN store_items si ON si.store_id = s.id AND si.item_id = ib.item_id AND si.status = 'ACTIVE'
          LEFT JOIN uoms u ON u.id = i.base_uom_id
-         LEFT JOIN inventory_balances ib
-                ON ib.item_id = si.item_id
-               AND ib.company_id = s.company_id
-               AND ib.status = 'ACTIVE'
-               AND (s.warehouse_id IS NULL OR ib.warehouse_id = s.warehouse_id)
-        WHERE ${this.appendConds(`s.company_id = $1 AND si.status = 'ACTIVE'`, this.storeScopeConds(filters, params))}
-        GROUP BY si.id, s.store_code, s.store_name, i.item_code, i.name, u.code
-        ORDER BY (COALESCE(MAX(si.minimum_stock), 0) - COALESCE(SUM(ib.available), 0)) DESC, i.name ASC
-        LIMIT 100`,
+        WHERE ${this.appendConds(`ib.company_id = $1 AND ib.status = 'ACTIVE'`, scopeConds)}
+        GROUP BY ib.warehouse_id, ib.item_id, s.id, s.store_code, w.warehouse_code, s.store_name, w.name, i.item_code, i.name, i.item_type, u.code
+        ORDER BY (COALESCE(MAX(si.minimum_stock), MAX(i.minimum_stock_level), 0) - COALESCE(SUM(ib.available), 0)) DESC, i.name ASC
+        LIMIT 200`,
       params,
     );
 
@@ -471,7 +476,7 @@ export class StoreDashboardService {
       const reorderLevel = Number(row.reorderLevel || 0);
       const shortage = Math.max(0, minimumStock - available);
       let status = 'OK';
-      if (available <= minimumStock) status = 'LOW';
+      if (minimumStock > 0 && available <= minimumStock) status = 'LOW';
       else if (reorderLevel > 0 && available <= reorderLevel) status = 'REORDER';
       return {
         ...row,
@@ -630,34 +635,37 @@ export class StoreDashboardService {
 
   private async countStoreItems(companyId: string, filters: StoreDashboardFilters) {
     const params: any[] = [companyId];
+    const scopeConds = this.inventoryScopeConds(filters, params);
     return this.scalar(
-      `SELECT COUNT(*)::int AS v
-         FROM store_items si
-         JOIN stores s ON s.id = si.store_id
-        WHERE ${this.appendConds(`s.company_id = $1 AND si.status = 'ACTIVE' AND s.status = 'ACTIVE'`, this.storeScopeConds(filters, params))}`,
+      `SELECT COUNT(DISTINCT ib.item_id)::int AS v
+         FROM inventory_balances ib
+         JOIN items i ON i.id = ib.item_id
+         JOIN warehouses w ON w.id = ib.warehouse_id
+         LEFT JOIN stores s ON s.warehouse_id = ib.warehouse_id AND s.company_id = ib.company_id AND s.status = 'ACTIVE'
+        WHERE ${this.appendConds(`ib.company_id = $1 AND ib.status = 'ACTIVE'`, scopeConds)}`,
       params,
     );
   }
 
   private async countInsufficientItems(companyId: string, filters: StoreDashboardFilters) {
     const params: any[] = [companyId];
+    const scopeConds = this.inventoryScopeConds(filters, params);
     return this.scalar(
       `SELECT COUNT(*)::int AS v FROM (
-         SELECT si.id,
+         SELECT ib.warehouse_id, ib.item_id,
                 COALESCE(SUM(ib.available), 0)::float8 AS "availableSum",
-                COALESCE(MAX(si.minimum_stock), 0)::float8 AS "minimumStock",
-                COALESCE(MAX(si.reorder_level), 0)::float8 AS "reorderLevel"
-           FROM store_items si
-           JOIN stores s ON s.id = si.store_id
-           LEFT JOIN inventory_balances ib
-                  ON ib.item_id = si.item_id
-                 AND ib.company_id = s.company_id
-                 AND ib.status = 'ACTIVE'
-                 AND (s.warehouse_id IS NULL OR ib.warehouse_id = s.warehouse_id)
-          WHERE ${this.appendConds(`s.company_id = $1 AND si.status = 'ACTIVE' AND s.status = 'ACTIVE'`, this.storeScopeConds(filters, params))}
-          GROUP BY si.id
+                COALESCE(MAX(si.minimum_stock), MAX(i.minimum_stock_level), 0)::float8 AS "minimumStock",
+                COALESCE(MAX(si.reorder_level), MAX(i.reorder_level), 0)::float8 AS "reorderLevel"
+           FROM inventory_balances ib
+           JOIN items i ON i.id = ib.item_id
+           JOIN warehouses w ON w.id = ib.warehouse_id
+           LEFT JOIN stores s ON s.warehouse_id = ib.warehouse_id AND s.company_id = ib.company_id AND s.status = 'ACTIVE'
+           LEFT JOIN store_items si ON si.store_id = s.id AND si.item_id = ib.item_id AND si.status = 'ACTIVE'
+          WHERE ${this.appendConds(`ib.company_id = $1 AND ib.status = 'ACTIVE'`, scopeConds)}
+          GROUP BY ib.warehouse_id, ib.item_id
        ) t
-       WHERE t."availableSum" <= t."minimumStock" OR t."availableSum" <= t."reorderLevel"`,
+       WHERE (t."minimumStock" > 0 AND t."availableSum" <= t."minimumStock")
+          OR (t."reorderLevel" > 0 AND t."availableSum" <= t."reorderLevel")`,
       params,
     );
   }
@@ -837,6 +845,34 @@ const params: any[] = [companyId];
     if (filters.divisionId) add('division_id', filters.divisionId);
     if (filters.sectionId) add('section_id', filters.sectionId);
     if (filters.departmentId) add('department_id', filters.departmentId);
+    return conds;
+  }
+
+  private inventoryScopeConds(filters: StoreDashboardFilters, params: any[]): string[] {
+    const conds: string[] = [];
+    if (filters.storeId) {
+      params.push(filters.storeId);
+      conds.push(`s.id = $${params.length}`);
+    }
+    if (filters.divisionId) {
+      params.push(filters.divisionId);
+      const p = `$${params.length}`;
+      conds.push(`((s.division_id = ${p} OR (s.division_id IS NULL AND i.division_id = ${p})) AND (i.division_id = ${p} OR i.division_id IS NULL))`);
+    }
+    if (filters.sectionId) {
+      params.push(filters.sectionId);
+      const p = `$${params.length}`;
+      conds.push(`((s.section_id = ${p} OR (s.section_id IS NULL AND i.section_id = ${p})) AND (i.section_id = ${p} OR i.section_id IS NULL))`);
+    }
+    if (filters.departmentId) {
+      params.push(filters.departmentId);
+      const p = `$${params.length}`;
+      conds.push(`((s.department_id = ${p} OR (s.department_id IS NULL AND i.department_id = ${p})) AND (i.department_id = ${p} OR i.department_id IS NULL))`);
+    }
+    if (filters.itemType && filters.itemType !== 'ALL') {
+      params.push(filters.itemType);
+      conds.push(`i.item_type = $${params.length}`);
+    }
     return conds;
   }
 }

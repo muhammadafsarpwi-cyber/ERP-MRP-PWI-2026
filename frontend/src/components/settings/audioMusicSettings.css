@@ -1,0 +1,60 @@
+/* Audio & Music Settings Styles */
+
+.erp-audio-settings-container {
+  width: 100%;
+}
+
+.erp-audio-avatar-circle.playing {
+  animation: erp-audio-pulse 2.2s infinite ease-in-out;
+}
+
+@keyframes erp-audio-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+/* Sound Wave Equalizer Bars */
+.erp-sound-wave-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 16px;
+  padding: 0 4px;
+}
+
+.erp-sound-wave-bars .bar {
+  display: inline-block;
+  width: 3px;
+  background: #10b981;
+  border-radius: 2px;
+  animation: erp-sound-wave-anim 1.2s infinite ease-in-out alternate;
+}
+
+.erp-sound-wave-bars .bar:nth-child(1) { height: 6px; animation-delay: 0.1s; }
+.erp-sound-wave-bars .bar:nth-child(2) { height: 14px; animation-delay: 0.3s; }
+.erp-sound-wave-bars .bar:nth-child(3) { height: 9px; animation-delay: 0.2s; }
+.erp-sound-wave-bars .bar:nth-child(4) { height: 16px; animation-delay: 0.4s; }
+.erp-sound-wave-bars .bar:nth-child(5) { height: 7px; animation-delay: 0.15s; }
+
+@keyframes erp-sound-wave-anim {
+  0% {
+    height: 4px;
+    opacity: 0.5;
+  }
+  100% {
+    height: 16px;
+    opacity: 1;
+  }
+}
+
+.erp-track-item-card:hover {
+  border-color: #10b981 !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.08);
+}

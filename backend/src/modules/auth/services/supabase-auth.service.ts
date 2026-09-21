@@ -13,6 +13,8 @@ export class SupabaseAuthService {
   private readonly logger = new Logger(SupabaseAuthService.name);
   private jwtSecretValidated = false;
   private jwtSecretValid = false;
+  private readonly localJwtSecret: string;
+  private readonly localJwtExpiration: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -30,9 +32,22 @@ export class SupabaseAuthService {
       supabaseUrl || 'http://localhost:54321',
       supabaseServiceKey || 'dummy-key',
     );
+
+    this.localJwtSecret = this.configService.get<string>('JWT_SECRET', 'dev-jwt-secret-not-for-production');
+    this.localJwtExpiration = this.configService.get<string>('JWT_EXPIRATION', '1h');
   }
 
   async verifyToken(token: string): Promise<SupabaseJwtPayload> {
+    // First, try to verify as a locally-issued JWT (fallback tokens)
+    try {
+      const payload = jwt.verify(token, this.localJwtSecret) as any;
+      if (payload.sub && payload.iss === 'pwi-local-auth') {
+        return { sub: payload.sub, email: payload.email, role: payload.role };
+      }
+    } catch {
+      // Not a local token — continue to Supabase verification
+    }
+
     if (!this.jwtSecretValidated) {
       this.validateJwtSecret();
     }
@@ -41,7 +56,19 @@ export class SupabaseAuthService {
       return this.verifyTokenLocally(token);
     }
 
-    return this.verifyTokenViaSupabase(token);
+    // Try Supabase API, fall back to local if quota exhausted
+    try {
+      return await this.verifyTokenViaSupabase(token);
+    } catch (error) {
+      // If Supabase is down/quota exhausted, try decoding locally with JWT_SECRET
+      try {
+        const payload = jwt.verify(token, this.localJwtSecret) as any;
+        if (payload.sub) {
+          return { sub: payload.sub, email: payload.email, role: payload.role };
+        }
+      } catch {}
+      throw error;
+    }
   }
 
   private validateJwtSecret(): void {
@@ -154,39 +181,157 @@ export class SupabaseAuthService {
     const supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY');
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      throw new UnauthorizedException('Supabase not configured');
+      // No Supabase config — go straight to local fallback
+      return this.signInLocalFallback(email, password);
     }
 
-    const response = await fetch(
-      `${supabaseUrl}/auth/v1/token?grant_type=password`,
-      {
-        method: 'POST',
-        headers: {
-          apikey: supabaseAnonKey,
-          'Content-Type': 'application/json',
+    try {
+      const response = await fetch(
+        `${supabaseUrl}/auth/v1/token?grant_type=password`,
+        {
+          method: 'POST',
+          headers: {
+            apikey: supabaseAnonKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, password }),
         },
-        body: JSON.stringify({ email, password }),
-      },
+      );
+
+      const data = await response.json();
+
+      // 402 = quota exceeded, 500/503 = service down — use local fallback
+      if (response.status === 402 || response.status === 500 || response.status === 503) {
+        this.logger.warn(
+          `Supabase Auth API returned ${response.status} for ${email} — ` +
+          `falling back to local DB authentication. ` +
+          `Reason: ${data.message || data.error_description || data.msg || 'Service unavailable'}`,
+        );
+        return this.signInLocalFallback(email, password);
+      }
+
+      if (!response.ok || data.error) {
+        const msg = data.error_description || data.msg || 'Invalid credentials';
+        this.logger.warn(`Login failed for ${email}: ${msg}`);
+        throw new UnauthorizedException(msg);
+      }
+
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        user: data.user,
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      // Network error, DNS failure, timeout — try local fallback
+      this.logger.warn(
+        `Supabase Auth API unreachable for ${email}: ${error.message} — falling back to local DB authentication`,
+      );
+      return this.signInLocalFallback(email, password);
+    }
+  }
+
+  /**
+   * Local fallback authentication: queries auth.users directly and verifies
+   * the bcrypt password hash. Issues a locally-signed JWT when Supabase Auth
+   * API is unavailable (quota exceeded, outage, etc.).
+   */
+  private async signInLocalFallback(
+    email: string,
+    password: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    this.logger.log(`Attempting local DB authentication for ${email}`);
+
+    // Query auth.users for the encrypted password and user metadata
+    const rows = await this.dataSource.query(
+      `SELECT id, email, encrypted_password, email_confirmed_at, banned_until,
+              raw_user_meta_data, role
+       FROM auth.users
+       WHERE LOWER(email) = LOWER($1)
+       LIMIT 1`,
+      [email],
     );
 
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      const msg = data.error_description || data.msg || 'Invalid credentials';
-      this.logger.warn(`Login failed for ${email}: ${msg}`);
-      throw new UnauthorizedException(msg);
+    if (!rows || rows.length === 0) {
+      this.logger.warn(`Local auth: no user found for ${email}`);
+      throw new UnauthorizedException('Invalid credentials');
     }
 
+    const authUser = rows[0];
+
+    // Check if email is confirmed
+    if (!authUser.email_confirmed_at) {
+      this.logger.warn(`Local auth: email not confirmed for ${email}`);
+      throw new UnauthorizedException('Email not confirmed');
+    }
+
+    // Check if user is banned
+    if (authUser.banned_until && new Date(authUser.banned_until) > new Date()) {
+      this.logger.warn(`Local auth: user banned until ${authUser.banned_until} for ${email}`);
+      throw new UnauthorizedException('Account is banned');
+    }
+
+    // Verify password via bcrypt
+    const passwordValid = await bcrypt.compare(password, authUser.encrypted_password);
+    if (!passwordValid) {
+      this.logger.warn(`Local auth: invalid password for ${email}`);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Update last_sign_in_at in auth.users
+    await this.dataSource.query(
+      `UPDATE auth.users SET last_sign_in_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [authUser.id],
+    ).catch((err) => this.logger.warn(`Failed to update last_sign_in_at: ${err.message}`));
+
+    // Generate local JWT tokens
+    const now = Math.floor(Date.now() / 1000);
+    const accessPayload = {
+      sub: authUser.id,
+      email: authUser.email,
+      role: authUser.role || 'authenticated',
+      iss: 'pwi-local-auth',
+      iat: now,
+    };
+
+    const accessToken = jwt.sign(accessPayload, this.localJwtSecret, {
+      expiresIn: this.localJwtExpiration,
+    });
+
+    const refreshExpiration = this.configService.get<string>('JWT_REFRESH_EXPIRATION', '7d');
+    const refreshToken = jwt.sign(
+      { sub: authUser.id, type: 'refresh', iss: 'pwi-local-auth', iat: now },
+      this.localJwtSecret,
+      { expiresIn: refreshExpiration },
+    );
+
+    this.logger.log(`Local auth: login successful for ${email} (user ${authUser.id})`);
+
     return {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      user: data.user,
+      accessToken,
+      refreshToken,
+      user: {
+        id: authUser.id,
+        email: authUser.email,
+        role: authUser.role || 'authenticated',
+        user_metadata: authUser.raw_user_meta_data || {},
+      },
     };
   }
 
   async refreshSession(
     refreshToken: string,
   ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    // First, check if this is a locally-issued refresh token
+    try {
+      const payload = jwt.verify(refreshToken, this.localJwtSecret) as any;
+      if (payload.iss === 'pwi-local-auth' && payload.type === 'refresh' && payload.sub) {
+        return this.refreshLocalSession(payload.sub);
+      }
+    } catch {
+      // Not a local token — try Supabase
+    }
+
     const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
     const supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY');
 
@@ -194,30 +339,101 @@ export class SupabaseAuthService {
       throw new UnauthorizedException('Supabase not configured');
     }
 
-    const response = await fetch(
-      `${supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
-      {
-        method: 'POST',
-        headers: {
-          apikey: supabaseAnonKey,
-          'Content-Type': 'application/json',
+    try {
+      const response = await fetch(
+        `${supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+        {
+          method: 'POST',
+          headers: {
+            apikey: supabaseAnonKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ refresh_token: refreshToken }),
         },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      },
+      );
+
+      const data = await response.json();
+
+      // Quota/service issues — try to decode the original refresh token for a local refresh
+      if (response.status === 402 || response.status === 500 || response.status === 503) {
+        this.logger.warn(`Supabase refresh API returned ${response.status} — attempting local fallback`);
+        // Try to extract sub from the expired/original Supabase refresh token
+        try {
+          const decoded = jwt.decode(refreshToken) as any;
+          if (decoded?.sub) {
+            return this.refreshLocalSession(decoded.sub);
+          }
+        } catch {}
+        throw new UnauthorizedException('Unable to refresh session — Supabase service unavailable');
+      }
+
+      if (!response.ok || data.error) {
+        const msg = data.error_description || data.msg || 'Invalid refresh token';
+        this.logger.warn(`Token refresh failed: ${msg}`);
+        throw new UnauthorizedException(msg);
+      }
+
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        user: data.user,
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      this.logger.warn(`Supabase refresh API unreachable: ${error.message}`);
+      // Try local fallback with decoded token
+      try {
+        const decoded = jwt.decode(refreshToken) as any;
+        if (decoded?.sub) {
+          return this.refreshLocalSession(decoded.sub);
+        }
+      } catch {}
+      throw new UnauthorizedException('Unable to refresh session');
+    }
+  }
+
+  /**
+   * Issue a new local access+refresh token pair for a known auth user ID.
+   */
+  private async refreshLocalSession(
+    authUserId: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const rows = await this.dataSource.query(
+      `SELECT id, email, role, raw_user_meta_data FROM auth.users WHERE id = $1 LIMIT 1`,
+      [authUserId],
     );
 
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      const msg = data.error_description || data.msg || 'Invalid refresh token';
-      this.logger.warn(`Token refresh failed: ${msg}`);
-      throw new UnauthorizedException(msg);
+    if (!rows || rows.length === 0) {
+      throw new UnauthorizedException('User not found');
     }
 
+    const authUser = rows[0];
+    const now = Math.floor(Date.now() / 1000);
+
+    const accessToken = jwt.sign(
+      { sub: authUser.id, email: authUser.email, role: authUser.role || 'authenticated', iss: 'pwi-local-auth', iat: now },
+      this.localJwtSecret,
+      { expiresIn: this.localJwtExpiration },
+    );
+
+    const refreshExpiration = this.configService.get<string>('JWT_REFRESH_EXPIRATION', '7d');
+    const newRefreshToken = jwt.sign(
+      { sub: authUser.id, type: 'refresh', iss: 'pwi-local-auth', iat: now },
+      this.localJwtSecret,
+      { expiresIn: refreshExpiration },
+    );
+
+    this.logger.log(`Local session refresh succeeded for user ${authUserId}`);
+
     return {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      user: data.user,
+      accessToken,
+      refreshToken: newRefreshToken,
+      user: {
+        id: authUser.id,
+        email: authUser.email,
+        role: authUser.role || 'authenticated',
+        user_metadata: authUser.raw_user_meta_data || {},
+      },
     };
   }
 

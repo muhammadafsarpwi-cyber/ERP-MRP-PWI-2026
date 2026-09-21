@@ -26,15 +26,21 @@ export interface ERPLineItemsProps {
   showWarehouse?: boolean;
   showDiscount?: boolean;
   showTax?: boolean;
-  warehouses?: Array<{ id: string; warehouseCode: string; name: string }>;
+  warehouses?: Array<{ id: string; warehouseCode: string; name: string; warehouseType?: string }>;
   disabled?: boolean;
   label?: string;
+  warehouseId?: string;
+  warehouseType?: string;
+  divisionId?: string;
+  itemType?: string;
+  isPurchasable?: boolean;
 }
 
 interface ItemOption {
   id: string;
   itemCode: string;
   name: string;
+  itemType?: string;
   uomId?: string;
   baseUomId?: string;
   baseUom?: { id: string; code?: string; uomType?: string };
@@ -56,6 +62,11 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
   warehouses = [],
   disabled = false,
   label = 'Items',
+  warehouseId,
+  warehouseType,
+  divisionId,
+  itemType,
+  isPurchasable,
 }) => {
   const [itemOptions, setItemOptions] = useState<ItemOption[]>([]);
   const [searchText, setSearchText] = useState('');
@@ -63,16 +74,34 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
   const loadItems = useCallback(async (search?: string) => {
     if (!companyId) return;
     try {
-      const res = await apiService.get<{ data: ItemOption[] }>('/master-data/items', {
+      const params: Record<string, any> = {
         companyId,
         search: search || undefined,
-        limit: 50,
-      });
-      setItemOptions(res.data || []);
+        limit: 100,
+      };
+
+      // Filter by item type: if explicit itemType passed, or warehouseType is RAW_MATERIAL
+      if (itemType) {
+        params.itemType = itemType;
+      } else if (warehouseType === 'RAW_MATERIAL') {
+        params.itemType = 'RAW_MATERIAL';
+      }
+
+      if (divisionId) {
+        params.divisionId = divisionId;
+      }
+
+      if (isPurchasable) {
+        params.isPurchasable = true;
+      }
+
+      const res = await apiService.get<{ data: ItemOption[] }>('/master-data/items', params);
+      const rawItems = res.data || [];
+      setItemOptions(rawItems);
     } catch {
       // keep existing options; item search is non-blocking
     }
-  }, [companyId]);
+  }, [companyId, itemType, warehouseType, divisionId, isPurchasable]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
 

@@ -5,9 +5,24 @@ export interface DashboardFilters {
   divisionId?: string;
   sectionId?: string;
   departmentId?: string;
+  itemType?: string;
   dateFrom?: string;
   dateTo?: string;
 }
+
+export const ITEM_TYPES = [
+  { value: 'ALL', label: 'All Item Types' },
+  { value: 'RAW_MATERIAL', label: 'Raw Material' },
+  { value: 'PACKAGING_MATERIAL', label: 'Packaging Material' },
+  { value: 'CONSUMABLE', label: 'Consumable' },
+  { value: 'SEMI_FINISHED', label: 'Semi Finished' },
+  { value: 'WORK_IN_PROGRESS', label: 'Work In Progress' },
+  { value: 'FINISHED_GOOD', label: 'Finished Good' },
+  { value: 'SPARE_PART', label: 'Spare Part' },
+  { value: 'SERVICE', label: 'Service' },
+  { value: 'ASSET', label: 'Asset' },
+  { value: 'OTHER', label: 'Other' },
+] as const;
 
 export interface DashboardKpi {
   key: string;
@@ -93,6 +108,7 @@ export interface StockSummaryRow {
   itemId: string;
   itemCode: string;
   itemName: string;
+  itemType?: string;
   uomCode: string;
   onHand: number;
   reserved: number;
@@ -143,6 +159,9 @@ export interface StoreOption {
   storeCode: string;
   storeName: string;
   warehouseId: string | null;
+  divisionId?: string | null;
+  sectionId?: string | null;
+  departmentId?: string | null;
 }
 
 export interface OrgOption {

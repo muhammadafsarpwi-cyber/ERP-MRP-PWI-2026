@@ -1,17 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Select, Tag, Spin, Empty, Row, Col, Statistic, Button, Space } from 'antd';
-import { DatabaseOutlined, WarningOutlined, HistoryOutlined } from '@ant-design/icons';
+import { Card, Table, Select, Tag, Spin, Empty, Row, Col, Statistic, Button, Space, Tooltip } from 'antd';
+import { DatabaseOutlined, WarningOutlined, HistoryOutlined, BookOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import PageHeader from '../../components/shared/PageHeader';
 
+import OrgStoreCascadingFilter, { OrgStoreFilterValue, OrgStoreFilterMeta } from '../../components/shared/OrgStoreCascadingFilter';
+import StockItemLedgerDrawer from './components/StockItemLedgerDrawer';
+
 interface Store {
   id: string;
   storeCode: string;
   storeName: string;
   warehouseId: string;
+  divisionId?: string;
+  sectionId?: string;
+  departmentId?: string;
 }
 
 interface StockItem {
@@ -34,9 +40,18 @@ const StoreStockBalance: React.FC = () => {
   const navigate = useNavigate();
   const [stores, setStores] = useState<Store[]>([]);
   const [selectedStoreId, setSelectedStoreId] = useState<string | undefined>();
+  const [cascadeFilter, setCascadeFilter] = useState<OrgStoreFilterValue>({});
+  const [filterMeta, setFilterMeta] = useState<OrgStoreFilterMeta>({});
   const [stockData, setStockData] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [storesLoading, setStoresLoading] = useState(true);
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [activeItem, setActiveItem] = useState<StockItem | null>(null);
+
+  const handleOpenLedger = (record: StockItem) => {
+    setActiveItem(record);
+    setDrawerVisible(true);
+  };
 
   useEffect(() => {
     loadStores();
@@ -44,8 +59,23 @@ const StoreStockBalance: React.FC = () => {
 
   const loadStores = async () => {
     try {
-      const response = await apiService.get<Store[]>('/store/stores');
-      setStores(response);
+      const response = await apiService.get<any[]>('/store/stores');
+      const items = Array.isArray(response) ? response : (response as any)?.data || [];
+      setStores(items);
+      // Auto-select CCD-RM-STORE by default if available and none selected
+      if (!selectedStoreId && items.length > 0) {
+        const ccdStore = items.find((s: Store) => s.storeCode === 'CCD-RM-STORE') || items[0];
+        if (ccdStore) {
+          setSelectedStoreId(ccdStore.id);
+          setCascadeFilter({
+            divisionId: ccdStore.divisionId || undefined,
+            sectionId: ccdStore.sectionId || undefined,
+            departmentId: ccdStore.departmentId || undefined,
+            storeId: ccdStore.id,
+            warehouseId: ccdStore.warehouseId || undefined,
+          });
+        }
+      }
     } catch {
       console.error('Failed to load stores');
     } finally {
@@ -53,16 +83,18 @@ const StoreStockBalance: React.FC = () => {
     }
   };
 
-  const loadStock = useCallback(async (storeId: string) => {
+  const loadStock = useCallback(async (whId?: string, storeId?: string) => {
     setLoading(true);
     try {
-      const store = stores.find(s => s.id === storeId);
-      if (!store?.warehouseId) {
-        setStockData([]);
-        return;
+      let targetWhId = whId;
+      if (!targetWhId && storeId) {
+        const store = stores.find(s => s.id === storeId);
+        targetWhId = store?.warehouseId;
       }
-      const response = await apiService.get<any[]>(`/inventory/balances?warehouseId=${store.warehouseId}`);
-      const items: StockItem[] = (response || []).map((b: any) => {
+      const url = targetWhId ? `/inventory/balances?warehouseId=${targetWhId}&limit=200` : `/inventory/balances?limit=200`;
+      const response = await apiService.get<any>(url);
+      const rawItems: any[] = Array.isArray(response) ? response : (response?.data || []);
+      const items: StockItem[] = rawItems.map((b: any) => {
         const onHand = Number(b.onHand || 0);
         const reserved = Number(b.reserved || 0);
         const available = onHand - reserved;
@@ -86,8 +118,8 @@ const StoreStockBalance: React.FC = () => {
         };
       });
       setStockData(items);
-    } catch {
-      console.error('Failed to load stock data');
+    } catch (err) {
+      console.error('Failed to load stock data:', err);
       setStockData([]);
     } finally {
       setLoading(false);
@@ -95,10 +127,15 @@ const StoreStockBalance: React.FC = () => {
   }, [stores]);
 
   useEffect(() => {
-    if (selectedStoreId) {
-      loadStock(selectedStoreId);
-    }
-  }, [selectedStoreId, loadStock]);
+    loadStock(cascadeFilter.warehouseId, selectedStoreId);
+  }, [selectedStoreId, cascadeFilter.warehouseId, loadStock]);
+
+  const handleCascadeChange = (val: OrgStoreFilterValue, meta: OrgStoreFilterMeta) => {
+    setCascadeFilter(val);
+    setFilterMeta(meta);
+    setSelectedStoreId(val.storeId);
+    loadStock(val.warehouseId, val.storeId);
+  };
 
   const getStockStatus = (item: StockItem): { color: string; label: string } => {
     if (item.available <= 0) return { color: 'red', label: 'OUT OF STOCK' };
@@ -118,9 +155,45 @@ const StoreStockBalance: React.FC = () => {
       render: (v: string) => (v ? <Tag color="cyan" style={{ fontWeight: 600 }}>{v}</Tag> : <span style={{ color: '#999' }}>—</span>),
     },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 80 },
-    { title: 'On Hand', dataIndex: 'onHand', key: 'onHand', width: 100, align: 'right' },
+    {
+      title: 'On Hand',
+      dataIndex: 'onHand',
+      key: 'onHand',
+      width: 120,
+      align: 'right',
+      render: (v: number, record: StockItem) => (
+        <Tooltip title="Click to view stock movement ledger (Where it came from & where it went)">
+          <Button
+            type="link"
+            size="small"
+            style={{ fontWeight: 700, fontSize: 13, padding: 0, height: 'auto', textDecoration: 'underline' }}
+            onClick={() => handleOpenLedger(record)}
+          >
+            {v.toLocaleString()}
+          </Button>
+        </Tooltip>
+      ),
+    },
     { title: 'Reserved', dataIndex: 'reserved', key: 'reserved', width: 100, align: 'right' },
-    { title: 'Available', dataIndex: 'available', key: 'available', width: 100, align: 'right', render: (v: number) => <strong>{v}</strong> },
+    {
+      title: 'Available',
+      dataIndex: 'available',
+      key: 'available',
+      width: 120,
+      align: 'right',
+      render: (v: number, record: StockItem) => (
+        <Tooltip title="Click to view stock movement ledger (Where it came from & where it went)">
+          <Button
+            type="link"
+            size="small"
+            style={{ fontWeight: 700, fontSize: 13, color: '#389e0d', padding: 0, height: 'auto', textDecoration: 'underline' }}
+            onClick={() => handleOpenLedger(record)}
+          >
+            {v.toLocaleString()}
+          </Button>
+        </Tooltip>
+      ),
+    },
     { title: 'Min', dataIndex: 'minimumStock', key: 'minimumStock', width: 80, align: 'right' },
     { title: 'Reorder', dataIndex: 'reorderLevel', key: 'reorderLevel', width: 80, align: 'right' },
     { title: 'Max', dataIndex: 'maximumStock', key: 'maximumStock', width: 80, align: 'right' },
@@ -142,11 +215,20 @@ const StoreStockBalance: React.FC = () => {
       },
     },
     {
-      title: '',
-      key: 'trace',
-      width: 100,
+      title: 'Actions',
+      key: 'actions',
+      width: 170,
       render: (_: any, record: StockItem) => (
-        <Space size={0}>
+        <Space size={4}>
+          <Button
+            type="primary"
+            size="small"
+            ghost
+            icon={<BookOutlined />}
+            onClick={() => handleOpenLedger(record)}
+          >
+            Stock Ledger
+          </Button>
           <Button
             type="link"
             size="small"
@@ -160,6 +242,7 @@ const StoreStockBalance: React.FC = () => {
     },
   ];
 
+  const selectedStore = stores.find((s) => s.id === selectedStoreId);
   const totalItems = stockData.length;
   const lowStockItems = stockData.filter(i => i.shortage > 0).length;
   const outOfStockItems = stockData.filter(i => i.available <= 0).length;
@@ -168,26 +251,20 @@ const StoreStockBalance: React.FC = () => {
     <div>
       <PageHeader icon={<DatabaseOutlined />} title="Store Stock Balance" />
       <div style={{ padding: '0 24px' }}>
-        <Card style={{ marginBottom: 16 }}>
-          <Row gutter={16} align="middle">
-            <Col flex="auto">
-              <span style={{ marginRight: 8, fontWeight: 500 }}>Select Store:</span>
-              <Select
-                placeholder="Choose a store"
-                style={{ width: 300 }}
-                loading={storesLoading}
-                value={selectedStoreId}
-                onChange={setSelectedStoreId}
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                options={stores.map(s => ({ value: s.id, label: `${s.storeCode} - ${s.storeName}` }))}
-              />
-            </Col>
-          </Row>
+        <Card style={{ marginBottom: 16 }} styles={{ body: { padding: '12px 16px' } }}>
+          <div style={{ marginBottom: 8 }}>
+            <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)' }}>
+              Organizational & Store Hierarchy Filter:
+            </span>
+          </div>
+          <OrgStoreCascadingFilter
+            value={cascadeFilter}
+            onChange={handleCascadeChange}
+            size="middle"
+          />
         </Card>
 
-        {selectedStoreId && (
+        {Boolean(selectedStoreId || cascadeFilter.warehouseId) && (
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             <Col xs={24} sm={8}>
               <Card><Statistic title="Total Items" value={totalItems} prefix={<DatabaseOutlined />} /></Card>
@@ -202,8 +279,8 @@ const StoreStockBalance: React.FC = () => {
         )}
 
         <Card>
-          {!selectedStoreId ? (
-            <Empty description="Select a store to view stock balance" />
+          {!selectedStoreId && !cascadeFilter.warehouseId ? (
+            <Empty description="Select a Division, Store or Warehouse to view stock balance" />
           ) : (
             <Table
               columns={columns}
@@ -216,6 +293,21 @@ const StoreStockBalance: React.FC = () => {
             />
           )}
         </Card>
+
+        <StockItemLedgerDrawer
+          visible={drawerVisible}
+          onClose={() => setDrawerVisible(false)}
+          itemId={activeItem?.itemId}
+          itemCode={activeItem?.itemCode}
+          itemName={activeItem?.itemName}
+          storeId={selectedStoreId}
+          storeName={selectedStore?.storeName}
+          warehouseId={cascadeFilter.warehouseId || selectedStore?.warehouseId}
+          currentOnHand={activeItem?.onHand}
+          currentAvailable={activeItem?.available}
+          uomCode={activeItem?.uomCode}
+          onDataChanged={loadStock}
+        />
       </div>
     </div>
   );

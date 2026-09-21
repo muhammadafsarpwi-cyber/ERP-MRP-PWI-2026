@@ -314,16 +314,37 @@ const NotificationBell: React.FC = () => {
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: 34,
-            height: 34,
+            width: 38,
+            height: 38,
             borderRadius: 8,
             cursor: 'pointer',
-            color: 'var(--theme-text)',
-            fontSize: 17,
+            color: '#f59e0b',
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.22)',
+            fontSize: 21,
+            transition: 'all 0.2s ease',
           }}
         >
-          <Badge count={unreadCount} overflowCount={99} showZero={false} size="small">
-            <BellOutlined />
+          <Badge
+            count={unreadCount}
+            overflowCount={99}
+            showZero={false}
+            offset={[4, -4]}
+            styles={{
+              root: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
+              indicator: {
+                backgroundColor: '#ef4444',
+                boxShadow: '0 0 0 1.5px #ffffff',
+                fontWeight: 700,
+                fontSize: 11,
+                minWidth: 18,
+                height: 18,
+                lineHeight: '18px',
+                padding: '0 5px',
+              },
+            }}
+          >
+            <BellOutlined style={{ fontSize: 21, color: '#f59e0b' }} />
           </Badge>
         </span>
       </Tooltip>
