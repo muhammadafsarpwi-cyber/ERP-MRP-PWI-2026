@@ -772,5 +772,48 @@
   }
 }
 
+/* =====================================================================
+   PRODUCTS-ITEMS-LOADING-FIX-01 — Clean table loading surface
+   =====================================================================
+   Root cause of the blurred / washed-out refresh state (both layers come
+   from styles applied WHILE antd's table Spin is active):
+
+   1) largeLoadingBuffer.css → `.erp-table .ant-spin-nested-loading > div > .ant-spin`
+      paints the overlay that sits above the table with
+      `background: rgba(...) !important` + `backdrop-filter: blur(5px) !important`
+      → the table behind the loading card was literally blurred and
+        semi-transparent (translucent white in light, translucent dark in dark).
+   2) antd Spin (cssinjs) → the table container receives `.ant-spin-blur`:
+      `opacity: 0.5` plus a `::after` wash at `opacity: 0.4` → the table
+      underneath renders faded (that wash even paints above the overlay card).
+
+   Fix is scoped to Products & Items ONLY through the `items-loading-surface`
+   container class that ItemManagement passes to ERPTable: the Spin overlay
+   becomes an opaque, theme-aware surface with no blur, and the table below
+   renders at full clarity — while antd's interaction block
+   (`.ant-spin-blur` → pointer-events: none / user-select: none) stays fully
+   intact so the table remains non-interactive while loading.
+
+   Shared files are NOT modified, so every other module keeps its current
+   look. Loading card, orbital icon, title, subtitle and badge untouched. */
+.erp-table-container.items-loading-surface .erp-table .ant-spin-nested-loading > div > .ant-spin {
+  /* Solid token-based surface (light #f7f8fd / dark #181c33 via html[data-theme]) */
+  background: var(--theme-surface) !important;
+  /* Kill the blur of the table behind the card */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  /* Cover the whole table area instead of the shared 480px translucent band */
+  max-height: none !important;
+}
+
+/* Keep antd's interaction block — drop only its visual fade + wash */
+.erp-table-container.items-loading-surface .ant-spin-blur {
+  opacity: 1;
+}
+
+.erp-table-container.items-loading-surface .ant-spin-blur::after {
+  opacity: 0;
+}
+
 
 

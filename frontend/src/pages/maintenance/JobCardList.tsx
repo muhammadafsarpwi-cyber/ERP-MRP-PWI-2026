@@ -85,6 +85,53 @@ const COLUMN_META: Record<string, { label: string }> = {
   updatedByNameDate: { label: 'Updated By / Date' },
   actions: { label: 'Actions' },
 };
+
+/* ── Status column presentation ─────────────────────────────────────────────
+   Keys are the exact `JOB_CARD_STATUSES` values from jobCards.types.ts — no
+   status is renamed, added or removed. Each value gets its own Ant Design Tag
+   preset so every row state reads differently at a glance (previously several
+   distinct statuses collapsed onto the same pill colour). Presets are theme
+   tokens, so text/background/border contrast adapts to the light and dark
+   theme automatically. StatusBadge renders an antd Tag whenever `colorMap` is
+   supplied — the established pattern in this repo (MachineManagement,
+   TargetManagement, ItemManagement). */
+const JOB_CARD_STATUS_TAG: Record<string, string> = {
+  OPEN: 'blue',                  // not started yet
+  ASSIGNED: 'cyan',              // technician assigned, ready to start
+  IN_PROGRESS: 'geekblue',       // actively being worked
+  ON_HOLD: 'gold',               // paused on hold
+  WAITING_FOR_PARTS: 'purple',   // blocked on spare parts (maintTheme pipeline colour)
+  PENDING_VERIFICATION: 'magenta', // awaiting supervisor review
+  COMPLETED: 'green',            // work finished
+  CLOSED: 'default',             // terminal — nothing left to do
+  VERIFIED: 'pink',              // legacy verified state
+  APPROVED: 'lime',              // legacy final approval
+  REJECTED: 'red',               // returned / rejected
+  CANCELLED: 'volcano',          // cancelled
+};
+
+/* ── Next Action column presentation ────────────────────────────────────────
+   Keys are the exact labels already produced by NEXT_ACTION_LABEL (and the
+   ACTION_MAP fallback) in jobCards.types.ts — labels themselves are never
+   rewritten. Each action keeps its own semantic colour instead of the single
+   hard-coded purple pill every row used before. */
+const NEXT_ACTION_TAG: Record<string, string> = {
+  'Start Job': 'blue',             // begin work
+  'Close Job': 'green',            // finish work
+  'Resume Work': 'cyan',           // continue after pause
+  'Close (Legacy)': 'geekblue',    // legacy close path
+  'Completed': 'default',          // terminal — no action pending
+  'Review': 'purple',              // review step
+  'Approve': 'lime',               // sign-off
+  'Resubmit for Review': 'orange', // rework needed
+  'Cancelled': 'volcano',          // stopped
+  // Fallback labels from ACTION_MAP, in case an unlabelled status ever arrives
+  'Assign': 'magenta',
+  'Put On Hold': 'gold',
+  'Waiting for Parts': 'purple',
+  'Resume': 'cyan',
+  'Return to Technician': 'red',
+};
 /**
  * Human-readable technician names for the Job Card table. Internal employee /
  * user identifiers (employee IDs, UUIDs) are intentionally excluded here —
@@ -1124,12 +1171,17 @@ export const JobCardList: React.FC = () => {
         </span>
       ),
     },
-    { title: 'Status', dataIndex: 'currentStatus', key: 'status', width: 130, render: (v: string) => <StatusBadge status={v} /> },
+    { title: 'Status', dataIndex: 'currentStatus', key: 'status', width: 130, render: (v: string) => <StatusBadge status={v} colorMap={JOB_CARD_STATUS_TAG} /> },
     {
       title: 'Next Action', key: 'next', width: 130,
       render: (_: any, r: JobCard) => {
         const nxt = NEXT_ACTION_LABEL[r.currentStatus] || (nextActionOf(r) || {}).label || '—';
-        return <span className="erp-pill-badge erp-pill-badge--purple">{nxt}</span>;
+        if (nxt === '—') return <span className="erp-pill-badge erp-pill-badge--neutral">{nxt}</span>;
+        return (
+          <Tag color={NEXT_ACTION_TAG[nxt] || 'default'} style={{ marginInlineEnd: 0 }}>
+            {nxt}
+          </Tag>
+        );
       },
     },
     {

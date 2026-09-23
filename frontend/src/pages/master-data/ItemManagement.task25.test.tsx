@@ -34,9 +34,12 @@ const ROWS: any[] = [
 ];
 
 beforeAll(() => {
+  // Desktop viewport: min-width queries match (antd Grid screens.lg/md = true),
+  // max-width (xs) queries don't. The split-view live detail sheet only renders
+  // on screens.lg.
   window.matchMedia = (query: string) =>
     ({
-      matches: false,
+      matches: !/max-width/i.test(query),
       media: query,
       onchange: null,
       addListener: () => {},
@@ -64,6 +67,9 @@ beforeEach(() => {
       permissions: ['item.view', 'item.create', 'item.update', 'item.delete', 'item.import'],
     }),
   );
+  // Fresh permission timestamp so `usePermission` trusts the stored grants
+  // instead of refetching /auth/me (which would wipe them in this mock).
+  localStorage.setItem('erp_permissions_ts', String(Date.now()));
 
   apiMock.get.mockImplementation(async (url: string) => {
     if (url === '/master-data/items') {
@@ -88,10 +94,27 @@ beforeEach(() => {
   });
 });
 
+// PageHeader pushes its `extra` (Add Item / Scan / Export) into the header-actions
+// store; the real layout renders it through a host component. Mirror that here so
+// the Add Item button exists in this suite's tree.
+import { useHeaderActions } from '../../components/layout/headerActionsStore';
+
+function HeaderActionsHost() {
+  const extra = useHeaderActions((s) => s.extra);
+  const title = useHeaderActions((s) => s.title);
+  return (
+    <div data-testid="header-actions">
+      <div>{title}</div>
+      <div>{extra}</div>
+    </div>
+  );
+}
+
 function renderPage() {
   return render(
     <App>
       <MemoryRouter initialEntries={['/master-data/items']}>
+        <HeaderActionsHost />
         <ItemManagement />
       </MemoryRouter>
     </App>,
@@ -106,11 +129,15 @@ describe('ItemManagement UX Enhancement (Split-View & Minimize)', () => {
     const addBtn = screen.getByRole('button', { name: /add item/i });
     fireEvent.click(addBtn);
 
+    // Split-view live sheet is opt-in via the header toggle (desktop only).
+    const previewToggle = await screen.findByRole('button', { name: /live preview/i });
+    fireEvent.click(previewToggle);
+
     await waitFor(() => {
       expect(screen.getByTestId('item-live-detail-sheet')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Live Preview')).toBeInTheDocument();
+    expect(screen.getByText('Live Form Preview')).toBeInTheDocument();
     expect(screen.getByText('Organization & Classification')).toBeInTheDocument();
     expect(screen.getByText('Technical Specifications')).toBeInTheDocument();
   });
@@ -122,18 +149,26 @@ describe('ItemManagement UX Enhancement (Split-View & Minimize)', () => {
     const addBtn = screen.getByRole('button', { name: /add item/i });
     fireEvent.click(addBtn);
 
+    // Enable split-view so the live sheet is present before minimizing.
+    const previewToggle = await screen.findByRole('button', { name: /live preview/i });
+    fireEvent.click(previewToggle);
+
     await waitFor(() => {
       expect(screen.getByTestId('item-live-detail-sheet')).toBeInTheDocument();
     });
 
-    // Click minimize (-) button
-    const minBtn = screen.getByRole('button', { name: /minimize modal/i });
+    // Click minimize (-) button (shared modal header control)
+    const minBtn = await screen.findByTestId('modal-minimize-btn');
     fireEvent.click(minBtn);
 
-    // Modal should be hidden
-    await waitFor(() => {
-      expect(screen.queryByTestId('item-live-detail-sheet')).not.toBeInTheDocument();
-    });
+    // Modal closes (antd keeps children mounted in jsdom, but the wrap is
+    // hidden) while the minimized tab appears in the bottom dock.
+    const sheet = document.querySelector('[data-testid="item-live-detail-sheet"]');
+    if (sheet) {
+      const wrap = sheet.closest('.ant-modal-wrap') as HTMLElement | null;
+      expect(wrap).not.toBeNull();
+      expect(wrap!.style.display).toBe('none');
+    }
 
     // Floating dock should display minimized tab
     const dock = screen.getByTestId('item-minimized-dock');
@@ -144,9 +179,12 @@ describe('ItemManagement UX Enhancement (Split-View & Minimize)', () => {
     const restoreTab = screen.getByTitle('Click to restore Item Form');
     fireEvent.click(restoreTab);
 
-    // Modal is restored
+    // Modal is restored (visible again)
     await waitFor(() => {
-      expect(screen.getByTestId('item-live-detail-sheet')).toBeInTheDocument();
+      const restored = document.querySelector('[data-testid="item-live-detail-sheet"]');
+      expect(restored).toBeInTheDocument();
+      const wrap = restored?.closest('.ant-modal-wrap') as HTMLElement | null;
+      expect(wrap?.style.display).not.toBe('none');
     });
   });
 
@@ -154,16 +192,17 @@ describe('ItemManagement UX Enhancement (Split-View & Minimize)', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('RAW-1')).toBeInTheDocument());
 
-    // Click item code link to open details
-    const itemLink = screen.getByRole('button', { name: 'RAW-1' });
+    // Click the item code button to open details
+    const itemLink = screen.getByRole('button', { name: 'View item RAW-1' });
     fireEvent.click(itemLink);
 
     await waitFor(() => {
-      expect(screen.getByText('B4 Wire 1.20')).toBeInTheDocument();
+      // the detail sheet shows the item name in addition to the table row
+      expect(screen.getAllByText('B4 Wire 1.20').length).toBeGreaterThan(1);
     });
 
-    // Find minimize button in header
-    const minBtn = screen.getByRole('button', { name: /minimize modal/i });
+    // Find minimize button in shared modal header
+    const minBtn = await screen.findByTestId('modal-minimize-btn');
     fireEvent.click(minBtn);
 
     // Dock tab should appear
@@ -178,7 +217,7 @@ describe('ItemManagement UX Enhancement (Split-View & Minimize)', () => {
     fireEvent.click(restoreTab);
 
     await waitFor(() => {
-      expect(screen.getByText('B4 Wire 1.20')).toBeInTheDocument();
+      expect(screen.getAllByText('B4 Wire 1.20').length).toBeGreaterThan(1);
     });
   });
 });

@@ -54,6 +54,7 @@ import {
   OrgOption,
   JobCardContext,
   normalizeOptionalUuid,
+  rowsOf,
   uuidRowsOf,
   optionLabel,
   categoryLabel,
@@ -167,24 +168,31 @@ export const JobCardCreate: React.FC = () => {
   // Resolve companyId from context, user defaults, or form value
   const resolvedCompanyId = context?.companyId || user?.defaultCompanyId || (user as any)?.companyId || companyId;
 
-  // Load Divisions - unconditional mount fetch of ALL active divisions.
-  // Deliberately un-guarded: runs immediately, no companyId gate.
+  // Load Divisions - unconditional mount fetch of the authoritative Division
+  // master (Organization module) filtered to ACTIVE rows, narrowed to the
+  // resolved company whenever one is known so company isolation is preserved.
+  // Deliberately un-guarded: runs immediately, no companyId gate, so a missing
+  // default company can never leave the dropdown permanently blank.
   useEffect(() => {
     let cancelled = false;
     setDivisionsLoading(true);
     setDivisionsError('');
 
     apiService
-      .get<any>('/divisions', { status: 'ACTIVE', limit: 500 })
+      .get<any>('/divisions', {
+        status: 'ACTIVE',
+        ...(resolvedCompanyId ? { companyId: resolvedCompanyId } : {}),
+        limit: 500,
+      })
       .then((r) => {
         if (cancelled) return;
-        const divList = uuidRowsOf(r);
-        setOrg((v) => ({ ...v, divisions: divList }));
+        const cleanDivisions = (rowsOf(r) as any[])?.map(div => ({ id: div.id, name: div.name, divisionCode: div.divisionCode || div.division_code })) || [];
+        setOrg((v) => ({ ...v, divisions: cleanDivisions }));
         setDivisionsError('');
 
         // Auto-select first division if none selected and not in context mode
-        if (!context && divList.length > 0 && !form.getFieldValue('divisionId')) {
-          form.setFieldValue('divisionId', divList[0].id);
+        if (!context && cleanDivisions.length > 0 && !form.getFieldValue('divisionId')) {
+          form.setFieldValue('divisionId', cleanDivisions[0].id);
         }
       })
       .catch((e) => {
@@ -200,12 +208,12 @@ export const JobCardCreate: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [context, form]);
+  }, [context, form, resolvedCompanyId]);
 
   // Load Sections - Cascading fetch triggered when divisionId changes
   useEffect(() => {
     const divId = form.getFieldValue('divisionId');
-    if (!divId || !resolvedCompanyId) {
+    if (!divId) {
       setOrg((v) => ({ ...v, sections: [] }));
       setSectionsError('');
       return;
@@ -216,10 +224,10 @@ export const JobCardCreate: React.FC = () => {
     setSectionsError('');
 
     apiService
-      .get<any>('/sections', { companyId: resolvedCompanyId, divisionId: divId, limit: 100 })
+      .get<any>('/sections', { status: 'ACTIVE', ...(resolvedCompanyId ? { companyId: resolvedCompanyId } : {}), divisionId: divId, limit: 100 })
       .then((r) => {
         if (cancelled) return;
-        const secList = uuidRowsOf(r);
+        const secList = (uuidRowsOf(r) as any[]).map(s => ({ id: s.id, name: s.name, sectionCode: s.sectionCode ?? s.section_code }));
         setOrg((v) => ({ ...v, sections: secList }));
         setSectionsError('');
 
@@ -249,7 +257,7 @@ export const JobCardCreate: React.FC = () => {
   // Load Departments - Cascading fetch triggered when sectionId changes
   useEffect(() => {
     const secId = form.getFieldValue('sectionId');
-    if (!secId || !resolvedCompanyId) {
+    if (!secId) {
       setOrg((v) => ({ ...v, departments: [] }));
       setDepartmentsError('');
       return;
@@ -260,10 +268,10 @@ export const JobCardCreate: React.FC = () => {
     setDepartmentsError('');
 
     apiService
-      .get<any>('/departments', { companyId: resolvedCompanyId, divisionId: form.getFieldValue('divisionId'), sectionId: secId, limit: 100 })
+      .get<any>('/departments', { status: 'ACTIVE', ...(resolvedCompanyId ? { companyId: resolvedCompanyId } : {}), divisionId: form.getFieldValue('divisionId'), sectionId: secId, limit: 100 })
       .then((r) => {
         if (cancelled) return;
-        const deptList = uuidRowsOf(r);
+        const deptList = (uuidRowsOf(r) as any[]).map(d => ({ id: d.id, name: d.name, departmentCode: d.departmentCode ?? d.department_code }));
         setOrg((v) => ({ ...v, departments: deptList }));
         setDepartmentsError('');
       })
@@ -282,9 +290,12 @@ export const JobCardCreate: React.FC = () => {
     };
   }, [resolvedCompanyId, divisionId, sectionId]);
 
-  // Load Machines
+  // Load Machines - filtered by the selected organization hierarchy
+  // Division -> Section -> Department -> Machine (Department is optional).
+  // Gated on the resolved company (context / user default / form) rather than
+  // the raw form field so machines can never be permanently unreachable.
   useEffect(() => {
-    if (!companyId) {
+    if (!resolvedCompanyId) {
       setMachines([]);
       return;
     }
@@ -299,7 +310,24 @@ export const JobCardCreate: React.FC = () => {
       .get<any>('/machines', params)
       .then((r) => {
         if (!cancelled) {
-          setMachines(uuidRowsOf(r));
+          setMachines(
+            (uuidRowsOf(r) as any[]).map((m) => ({
+              id: m.id,
+              name: m.name,
+              machineCode: m.machineCode ?? m.machine_code,
+              machineId: m.machineId,
+              machineName: m.machineName,
+              machineNumber: m.machineNumber,
+              machineType: m.machineType,
+              location: m.location,
+              qrPayload: m.qrPayload,
+              companyId: m.companyId,
+              divisionId: m.divisionId,
+              sectionId: m.sectionId,
+              departmentId: m.departmentId,
+              status: m.status,
+            }))
+          );
           setMachinesError('');
         }
       })
@@ -315,7 +343,7 @@ export const JobCardCreate: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [companyId, divisionId, sectionId, departmentId]);
+  }, [resolvedCompanyId, divisionId, sectionId, departmentId]);
 
   // Load Categories
   const loadCategories = useCallback(async () => {
@@ -799,9 +827,14 @@ export const JobCardCreate: React.FC = () => {
                                optionFilterProp="label"
                                placeholder={divisionsLoading ? 'Loading divisions...' : 'Select Division'}
                                loading={divisionsLoading}
-                               options={org.divisions?.map(div => ({ value: div.id, label: div.name }))}
+                                classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
+                               options={org.divisions?.map(div => ({ value: div.id, label: div.name || div.division_code || div.divisionCode }))}
                                notFoundContent={
-                                 divisionsLoading ? 'Loading...' : divisionsError || 'No divisions available'
+                                 divisionsLoading
+                                    ? 'Loading divisions...'
+                                    : divisionsError
+                                      ? `Unable to load divisions. Please try again. (${divisionsError})`
+                                      : 'No divisions available for your company.'
                                }
                                onChange={(val) => {
                                  form.setFieldValue('divisionId', val);
@@ -822,9 +855,16 @@ export const JobCardCreate: React.FC = () => {
                                disabled={!divisionId}
                                placeholder={sectionsLoading ? 'Loading sections...' : 'Select Section'}
                                loading={sectionsLoading}
+                                classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
                                options={org.sections.map((v) => ({ value: v.id, label: optionLabel(v) }))}
                                notFoundContent={
-                                 sectionsLoading ? 'Loading...' : sectionsError || 'No sections available'
+                                 !divisionId
+                                    ? 'Select a division first'
+                                    : sectionsLoading
+                                      ? 'Loading sections...'
+                                      : sectionsError
+                                        ? `Unable to load sections. Please try again. (${sectionsError})`
+                                        : 'No sections available for this division.'
                                }
                                onChange={(val) => {
                                  form.setFieldValue('sectionId', val);
@@ -845,9 +885,16 @@ export const JobCardCreate: React.FC = () => {
                                disabled={!sectionId}
                                placeholder={departmentsLoading ? 'Loading departments...' : 'Select Department'}
                                loading={departmentsLoading}
+                                classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
                                options={org.departments.map((v) => ({ value: v.id, label: optionLabel(v) }))}
                                notFoundContent={
-                                 departmentsLoading ? 'Loading...' : departmentsError || 'No departments available'
+                                 !sectionId
+                                    ? 'Select a section first'
+                                    : departmentsLoading
+                                      ? 'Loading departments...'
+                                      : departmentsError
+                                        ? `Unable to load departments. Please try again. (${departmentsError})`
+                                        : 'No departments available for this section.'
                                }
                                onChange={() => clearMachine()}
                              />
@@ -868,11 +915,12 @@ export const JobCardCreate: React.FC = () => {
                               allowClear
                               placeholder="Search machine by name or code..."
                               optionFilterProp="label"
+                              classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
                               filterOption={(input, option) =>
                                 ((option?.label as string) || '').toLowerCase().includes(input.toLowerCase())
                               }
                               loading={machinesLoading}
-                              disabled={!companyId || machinesLoading}
+                              disabled={!resolvedCompanyId || machinesLoading}
                               options={machines.map((m) => ({
                                 value: m.id,
                                 label: machineLabel(m),
@@ -881,7 +929,9 @@ export const JobCardCreate: React.FC = () => {
                               notFoundContent={
                                 machinesLoading
                                   ? 'Loading machines...'
-                                  : machinesError || 'No machines available for the selected organization'
+                                  : machinesError
+                                    ? `Unable to load machines. Please try again. (${machinesError})`
+                                    : 'No machines available for the selected organization'
                               }
                               onChange={handleMachineChange}
                             />
@@ -1030,6 +1080,7 @@ export const JobCardCreate: React.FC = () => {
                         rules={[{ required: true }]}
                       >
                         <Select
+                          classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
                           options={MAINTENANCE_TYPES.map((v) => ({
                             value: v,
                             label: label(v),
@@ -1047,6 +1098,7 @@ export const JobCardCreate: React.FC = () => {
                           showSearch
                           optionFilterProp="label"
                           options={categories.map((c) => ({ value: c.id, label: categoryLabel(c) }))}
+                          classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
                           placeholder="Select complaint category"
                           notFoundContent="No categories available"
                         />
@@ -1070,6 +1122,7 @@ export const JobCardCreate: React.FC = () => {
                           showSearch
                           optionFilterProp="label"
                           options={rootCategories.map((c) => ({ value: c.id, label: categoryLabel(c) }))}
+                          classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
                           placeholder="Select root cause"
                         />
                       </Form.Item>
@@ -1081,6 +1134,7 @@ export const JobCardCreate: React.FC = () => {
                           showSearch
                           optionFilterProp="label"
                           options={failureCategories.map((c) => ({ value: c.id, label: categoryLabel(c) }))}
+                          classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
                           placeholder="Select failure category"
                         />
                       </Form.Item>

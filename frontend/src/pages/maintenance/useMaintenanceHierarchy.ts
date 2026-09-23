@@ -28,24 +28,39 @@ export function useMaintenanceHierarchy(
 
   useEffect(() => {
     setDivisions([]);
-    if (!companyId) return;
-    apiService.get<any>('/divisions', { companyId, limit: 200 })
+    // Narrow company scoping only when a company is known. If the profile's
+    // companyId is missing/null on mount, fall back to an unscoped ACTIVE
+    // lookup so the Division panel is never left blank.
+    const divisionParams: Record<string, unknown> = companyId
+      ? { companyId, limit: 200 }
+      : { status: 'ACTIVE', limit: 200 };
+    apiService.get<any>('/divisions', divisionParams)
       .then(r => setDivisions(uuidRowsOf(r)))
       .catch(() => setDivisions([]));
   }, [companyId]);
 
   useEffect(() => {
     setSections([]);
-    if (!companyId || !divisionId) return;
-    apiService.get<any>('/sections', { companyId, divisionId, limit: 500 })
+    if (!divisionId) return; // cascade key only — companyId is no longer required
+    // Company scoping only when known; otherwise fall back to ACTIVE rows for
+    // the selected division so the Section panel never blanks out.
+    const sectionParams: Record<string, unknown> = companyId
+      ? { companyId, divisionId, limit: 500 }
+      : { status: 'ACTIVE', divisionId, limit: 200 };
+    apiService.get<any>('/sections', sectionParams)
       .then(r => setSections(uuidRowsOf(r)))
       .catch(() => setSections([]));
   }, [companyId, divisionId]);
 
   useEffect(() => {
     setDepartments([]);
-    if (!companyId || !divisionId || !sectionId) return;
-    apiService.get<any>('/departments', { companyId, divisionId, sectionId, limit: 500 })
+    if (!divisionId || !sectionId) return; // cascade keys only — companyId no longer required
+    // Company scoping only when known; otherwise fall back to ACTIVE rows for
+    // the selected division/section so the Department panel never blanks out.
+    const departmentParams: Record<string, unknown> = companyId
+      ? { companyId, divisionId, sectionId, limit: 500 }
+      : { status: 'ACTIVE', divisionId, sectionId, limit: 200 };
+    apiService.get<any>('/departments', departmentParams)
       .then(r => setDepartments(uuidRowsOf(r)))
       .catch(() => setDepartments([]));
   }, [companyId, divisionId, sectionId]);

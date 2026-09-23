@@ -113,12 +113,12 @@ describe('2027 Model UX — Import Items Modernization & Error Triage', () => {
     renderPage();
     await screen.findByText('RAW-1');
 
-    expect(screen.getByRole('columnheader', { name: 'Item Code' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Item Name' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Wire / Dia · Length' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Division / Section' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Actions' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'tag Item Code' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'appstore Item Name' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'tool Wire / Dia Length' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'apartment Division / Section' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'check-circle Item Status' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Row Actions' })).toBeInTheDocument();
   });
 
   it('3: Opening Import modal displays modern title, 2027 UX badge, and minimize button', async () => {

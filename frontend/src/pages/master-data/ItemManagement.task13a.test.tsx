@@ -5,6 +5,7 @@ import { App } from 'antd';
 import { MemoryRouter } from 'react-router-dom';
 import ItemManagement from './ItemManagement';
 import apiService from '../../services/api';
+import { tabSessionCache } from '../../services/tabSessionCache';
 
 jest.mock('../../services/api');
 
@@ -85,61 +86,74 @@ beforeEach(() => {
       'item.activate', 'item.deactivate', 'item_barcode.view'],
   }));
   localStorage.setItem('erp_permissions_ts', String(Date.now()));
+  window.sessionStorage.clear();
+  tabSessionCache.clear();
   apiMock.get.mockReset();
   mockApi();
 });
 
 describe('TASK 13A — KPI + filter toolbar UI correction', () => {
-  it('1: Filters comes before Search in the toolbar DOM order', async () => {
+  const SEARCH_PLACEHOLDER = 'Search Item Register (code, name, SKU, barcode)...';
+
+  it('1: Search comes before the More Filters toggle in the toolbar DOM order', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    const filtersBtn = screen.getByRole('button', { name: /Filters/i });
-    const search = screen.getByPlaceholderText('Search by code, name, SKU, barcode, wire size...');
-    const filtersBadge = filtersBtn.closest('.ant-badge');
-    const searchWrap = search.closest('.ant-input-affix-wrapper');
-    expect(filtersBadge).not.toBeNull();
+    const search = await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
+    const moreBtn = screen.getByRole('button', { name: /More Filters/ });
+    const searchWrap = search.closest('.ant-input-affix-wrapper') as HTMLElement;
+    const moreWrap = (moreBtn.closest('.ant-badge') as HTMLElement) ?? moreBtn;
     expect(searchWrap).not.toBeNull();
+    expect(moreWrap).not.toBeNull();
     expect(
-      filtersBadge!.compareDocumentPosition(searchWrap!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      searchWrap.compareDocumentPosition(moreWrap) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
-  it('2: Search appears immediately after Filters (no toolbar element between them)', async () => {
+  it('2: the toolbar keeps one row order: Search → Division → Category → More Filters → Clear → Apply', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    const filtersBtn = screen.getByRole('button', { name: /Filters/i });
-    const search = screen.getByPlaceholderText('Search by code, name, SKU, barcode, wire size...');
-    const filtersBadge = filtersBtn.closest('.ant-badge') as HTMLElement;
+    const search = await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
     const searchWrap = search.closest('.ant-input-affix-wrapper') as HTMLElement;
-    expect(filtersBadge.nextElementSibling).toBe(searchWrap);
+    const divSel = screen
+      .getByText('All Divisions', { selector: '.ant-select-selection-placeholder' })
+      .closest('.ant-select') as HTMLElement;
+    const catSel = screen
+      .getByText('All Categories', { selector: '.ant-select-selection-placeholder' })
+      .closest('.ant-select') as HTMLElement;
+    const moreBtn = screen.getByRole('button', { name: /More Filters/ });
+    const moreWrap = (moreBtn.closest('.ant-badge') as HTMLElement) ?? moreBtn;
+    const clearBtn = screen.getByTestId('clear-filters');
+    const applyBtn = screen.getByTestId('apply-filters');
+    const chain: HTMLElement[] = [searchWrap, divSel, catSel, moreWrap, clearBtn, applyBtn];
+    for (let i = 0; i < chain.length - 1; i += 1) {
+      expect(chain[i].compareDocumentPosition(chain[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 
-  it('3: the Filters button appears exactly once', async () => {
+  it('3: the More Filters toggle appears exactly once', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    expect(screen.getAllByRole('button', { name: /Filters/i })).toHaveLength(1);
+    await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
+    expect(screen.getAllByRole('button', { name: /More Filters/ })).toHaveLength(1);
   });
 
   it('4: the Search input appears exactly once', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    expect(
-      screen.getAllByPlaceholderText('Search by code, name, SKU, barcode, wire size...'),
-    ).toHaveLength(1);
+    expect(await screen.findAllByPlaceholderText(SEARCH_PLACEHOLDER)).toHaveLength(1);
   });
 
-  it('5: Clear remains available after Filters + Search when filtering/searching', async () => {
+  it('5: Clear Filters + Apply Filters stay available alongside Search and More Filters', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    const search = screen.getByPlaceholderText('Search by code, name, SKU, barcode, wire size...');
-    expect(screen.queryByRole('button', { name: /Clear/i })).not.toBeInTheDocument();
+    const search = await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
+    expect(screen.getByTestId('clear-filters')).toBeInTheDocument();
+    expect(screen.getByTestId('apply-filters')).toBeInTheDocument();
     fireEvent.change(search, { target: { value: 'RAW' } });
-    expect(await screen.findByRole('button', { name: /Clear/i }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByTestId('clear-filters')).toBeInTheDocument();
+    expect(screen.getByTestId('apply-filters')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('clear-filters'));
+    expect(search).toHaveValue('');
   });
 
   it('6: all five KPI cards render (Total, Active, Inactive, Stock, Manufactured)', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
+    await screen.findByPlaceholderText('Search Item Register (code, name, SKU, barcode)...');
     expect(screen.getByTestId('kpi-total')).toBeInTheDocument();
     expect(screen.getByTestId('kpi-active')).toBeInTheDocument();
     expect(screen.getByTestId('kpi-inactive')).toBeInTheDocument();
@@ -149,7 +163,7 @@ describe('TASK 13A — KPI + filter toolbar UI correction', () => {
 
   it('7: every KPI card has a foreground/main icon', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
+    await screen.findByPlaceholderText('Search Item Register (code, name, SKU, barcode)...');
     for (const id of ['kpi-total', 'kpi-active', 'kpi-inactive', 'kpi-stock', 'kpi-manufactured']) {
       const card = screen.getByTestId(id);
       const icon = card.querySelector('[data-kpi-icon="true"]');
@@ -160,7 +174,7 @@ describe('TASK 13A — KPI + filter toolbar UI correction', () => {
 
   it('8: every KPI card has a background/watermark icon', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
+    await screen.findByPlaceholderText('Search Item Register (code, name, SKU, barcode)...');
     for (const id of ['kpi-total', 'kpi-active', 'kpi-inactive', 'kpi-stock', 'kpi-manufactured']) {
       const card = screen.getByTestId(id);
       const watermark = card.querySelector('[data-kpi-watermark="true"]');
@@ -171,7 +185,7 @@ describe('TASK 13A — KPI + filter toolbar UI correction', () => {
 
   it('9: KPI values stay dynamic and derive from the real data (no hardcoded counts)', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
+    await screen.findByPlaceholderText('Search Item Register (code, name, SKU, barcode)...');
     await waitFor(() => {
       const v = screen.getByTestId('kpi-total').querySelector('[data-kpi-value="true"]');
       expect(v).not.toBeNull();
@@ -189,7 +203,7 @@ describe('TASK 13A — KPI + filter toolbar UI correction', () => {
 
   it('10: KPI labels are correct', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
+    await screen.findByPlaceholderText('Search Item Register (code, name, SKU, barcode)...');
     expect(within(screen.getByTestId('kpi-total')).getByText('Total Items')).toBeInTheDocument();
     expect(within(screen.getByTestId('kpi-active')).getByText('Active')).toBeInTheDocument();
     expect(within(screen.getByTestId('kpi-inactive')).getByText('Inactive')).toBeInTheDocument();

@@ -36,7 +36,7 @@ export const STATUS_DESCRIPTION: Record<string, string> = {
 };
 
 export type JobCard = Record<string, any>;
-export type OrgOption = { id: string; name?: string; companyName?: string; legalName?: string; tradeName?: string; companyCode?: string; code?: string; departmentCode?: string; machineCode?: string; machineId?: string; machineNumber?: string; machineName?: string; divisionId?: string; sectionId?: string; departmentId?: string };
+export type OrgOption = { id: string; name?: string; divisionCode?: string; division_code?: string; companyName?: string; legalName?: string; tradeName?: string; companyCode?: string; code?: string; departmentCode?: string; machineCode?: string; machineId?: string; machineNumber?: string; machineName?: string; divisionId?: string; sectionId?: string; departmentId?: string };
 export type JobCardContext = { companyId: string; companyName: string; divisionId: string; divisionName: string; sectionId: string; sectionName: string; departmentId: string; departmentName: string; machineId: string; machineName: string; machineCode?: string };
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -9,6 +9,18 @@
   z-index: 1250 !important;
 }
 
+/* The Job Card dialog is raised to 1250 above, but Ant Design portals every
+   Select menu to <body> at z-index 1150. Menus opened inside this dialog were
+   therefore painted *behind* the modal: the Division/Section/Department options
+   existed in state and in the DOM, yet were invisible — which reads as an
+   "empty/non-functional" dropdown.
+   Fix: raise only this dialog's own menus (classNames.popup.root = "erp-jc-select-dropdown")
+   above the shell. Other screens keep Ant Design's default stacking, so no
+   unrelated dropdown behaviour changes. */
+.ant-select-dropdown.erp-jc-select-dropdown {
+  z-index: 1300 !important;
+}
+
 @media (min-width: 992px) {
   /* Default well-balanced, comfortable modal size centered in main workspace */
   .erp-jc-modal-wrap .ant-modal:not(.erp-jc-modal-custom-size) {

@@ -17,7 +17,13 @@ import {
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import apiService from '../../services/api';
+import apiService, { describeRequestError } from '../../services/api';
+import {
+  buildItemQueryParams,
+  itemQueryKey,
+  pruneStaleOrgSelections,
+  type ItemQueryState,
+} from './items/itemQuery';
 import { formatDimension } from '../../utils/numberFormat';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { usePermission } from '../../hooks/usePermission';
@@ -600,6 +606,56 @@ const ItemModalProcessChevronNav: React.FC<{
   );
 };
 
+/* ── Standard loading presentation (PRODUCTS-ITEMS-LOADING-01) ────────────────
+ * One shared copy for BOTH loading states on this page:
+ *   • first load (no rows yet)  → page-level `<GlobalLoading>` card, and
+ *   • refresh with rows present → the same card centred inside the table's
+ *     antd Spin overlay, which the `items-loading-surface` scope class renders
+ *     as an OPAQUE var(--theme-surface) panel — no blur, no translucent wash
+ *     (PRODUCTS-ITEMS-LOADING-FIX-01; see itemManagement.css).
+ * Wording is factual — never hard-codes row counts or other live data. */
+const ITEMS_LOADING_TITLE = 'Loading Products & Items...';
+const ITEMS_LOADING_SUBTITLE = 'Fetching products and item records...';
+// Genuinely accurate: every load issues a live API request the backend answers
+// with a database query — and this is the badge the ERP standard uses everywhere.
+const ITEMS_LOADING_BADGE = 'LIVE DATABASE QUERY';
+
+/**
+ * Pure layout host for the shared `<GlobalLoading>` card when antd's table
+ * Spin already covers the table (refresh with rows present). It renders no
+ * loading visuals of its own — indicator/title/description/badge and all
+ * light/dark colours come from the shared component + theme tokens.
+ *
+ * Declared as a component (not an element) on purpose: antd's Spin `Indicator`
+ * clones its `indicator` element and injects `className="ant-spin-dot"` /
+ * `percent`, which this component ignores so the standard card is never
+ * distorted by the small-dot positioning rules.
+ */
+const ItemsTableLoadingIndicator: React.FC = () => (
+  <div
+    style={{
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+      boxSizing: 'border-box',
+      overflow: 'hidden',
+    }}
+  >
+    <GlobalLoading
+      title={ITEMS_LOADING_TITLE}
+      subtitle={ITEMS_LOADING_SUBTITLE}
+      badgeText={ITEMS_LOADING_BADGE}
+      style={{ maxWidth: 460 }}
+    />
+  </div>
+);
+
 const ItemManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
@@ -634,8 +690,15 @@ const ItemManagement: React.FC = () => {
     filterState: ItemFilterState;
   }
 
-  const savedFilters = tabSessionCache.get<ItemFilterState>(ITEM_CACHE_KEY);
-  const savedMaster = tabSessionCache.get<ItemMasterCache>(ITEM_CACHE_KEY);
+  const savedEntry = tabSessionCache.get<any>(ITEM_CACHE_KEY);
+  // Two writers used to share this key with two different shapes (flat filter
+  // state vs. full master snapshot). Read both so the restored filter controls
+  // always belong to the restored rows (ITEM-FILTER-01 #8).
+  const savedFilters: ItemFilterState | undefined =
+    savedEntry?.filterState ??
+    (savedEntry && savedEntry.search !== undefined ? (savedEntry as ItemFilterState) : undefined);
+  const savedMaster: ItemMasterCache | undefined =
+    savedEntry && Array.isArray(savedEntry.items) ? (savedEntry as ItemMasterCache) : undefined;
 
   const [items, setItems] = useState<Item[]>(() => savedMaster?.items ?? []);
   const [loading, setLoading] = useState(!savedMaster);
@@ -962,21 +1025,21 @@ const ItemManagement: React.FC = () => {
   }, [location.state, items]);
 
   useEffect(() => {
+    const trimmed = searchInput.trim();
+    // Nothing to commit — never reset pagination for a search that did not change.
+    if (trimmed === search) return;
     const t = setTimeout(() => {
-      setSearch(searchInput.trim());
+      setSearch(trimmed);
       setPage(1);
     }, 400);
     return () => clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, search]);
 
-  // Persist filter state to sessionStorage so it survives tab navigation
-  useEffect(() => {
-    tabSessionCache.set<ItemFilterState>(ITEM_CACHE_KEY, {
-      fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus,
-      search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters,
-    });
-  }, [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus,
-      search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ITEM-FILTER-01: the filter/search/pagination state is persisted together
+  // with the rows it produced (one consistent snapshot) by TabKeepAlive's
+  // `serialize` and by fetchItems after every successful response. Persisting
+  // the filters separately used to overwrite that snapshot with a different
+  // shape, which restored rows that did not belong to the restored filters.
 
   const activeFilterCount = useMemo(
     () => [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus].filter(Boolean).length,
@@ -1030,27 +1093,37 @@ const ItemManagement: React.FC = () => {
     [departments],
   );
 
+  // ITEM-FILTER-01 #4 — Division → Section → Department cascade.
+  // Whenever a parent selection changes (or restored lookups arrive), any
+  // child selection that no longer belongs to its parent is dropped and the
+  // query is re-issued — a stale Section/Department can never stay visible
+  // next to a table that no longer contains it. Lookups are read from the
+  // existing organization APIs (`/divisions`, `/sections`, `/departments`);
+  // nothing about the organization is hard-coded.
+  useEffect(() => {
+    const next = pruneStaleOrgSelections({ fDivision, fSection, fDepartment }, sections, departments);
+    if (next.fSection === fSection && next.fDepartment === fDepartment) return;
+    setFSection(next.fSection);
+    setFDepartment(next.fDepartment);
+    setPage(1);
+  }, [fDivision, fSection, fDepartment, sections, departments]);
+
+  // ── ITEM-FILTER-01: the Products & Items query ────────────────────────────
+  // One state object → one parameter object → one request. The query state is
+  // the ONLY input of `buildParams`, so a change of any filter, of the search
+  // text, of the sort or of the pagination necessarily produces a new request.
+  const queryState = useMemo<ItemQueryState>(
+    () => ({
+      page, pageSize, sortField, sortOrder, search,
+      fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus,
+    }),
+    [page, pageSize, sortField, sortOrder, search,
+      fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus],
+  );
+
   const buildParams = useCallback(
-    (extra: Record<string, unknown> = {}) => {
-      const params: Record<string, unknown> = {
-        page,
-        limit: pageSize,
-        sortField,
-        sortOrder,
-        ...extra,
-      };
-      if (search) params.search = search;
-      if (fDivision) params.divisionId = fDivision;
-      if (fSection) params.sectionId = fSection;
-      if (fDepartment) params.departmentId = fDepartment;
-      if (fCategory) params.categoryId = fCategory;
-      if (fItemType) params.itemType = fItemType;
-      if (fRoleUsage) params.materialRoleUsage = fRoleUsage;
-      if (fRouteType) params.routeTypeId = fRouteType;
-      if (fStatus) params.status = fStatus;
-      return params;
-    },
-    [page, pageSize, sortField, sortOrder, search, fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus],
+    (extra: Record<string, unknown> = {}) => buildItemQueryParams(queryState, extra),
+    [queryState],
   );
 
   // Normalize relation data: derive display names from the nested relations the
@@ -1068,20 +1141,79 @@ const ItemManagement: React.FC = () => {
     return item as Item;
   }, []);
 
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', buildParams());
-      const list = (response.data || []).map(normalizeItem);
-      setItems(list);
-      setTotal(response.total || 0);
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to load items. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [buildParams, normalizeItem]);
+  // Keep the freshest UI-only values without widening the identity of
+  // `fetchItems` (a changing identity would re-trigger the query effect).
+  const uiSnapshotRef = useRef({ searchInput, activeTab, showFilters });
+  uiSnapshotRef.current = { searchInput, activeTab, showFilters };
+  const messageRef = useRef(message);
+  messageRef.current = message;
+
+  // ITEM-FILTER-01: request bookkeeping.
+  //  - `fetchSeqRef`   : only the newest response is allowed to touch the table
+  //                      (a slow response can never overwrite a filtered one).
+  //  - `inFlightKeyRef`: an identical query that is already running is not
+  //                      issued a second time (no duplicate filter requests).
+  const fetchSeqRef = useRef(0);
+  const inFlightKeyRef = useRef<string | null>(null);
+
+  const fetchItems = useCallback(
+    async (options?: { force?: boolean }) => {
+      const params = buildParams();
+      const key = itemQueryKey(params);
+      if (!options?.force && inFlightKeyRef.current === key) return; // identical request already running
+
+      const seq = ++fetchSeqRef.current;
+      inFlightKeyRef.current = key;
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', params);
+        if (seq !== fetchSeqRef.current) return; // superseded by a newer request
+        const list = (response.data || []).map(normalizeItem);
+        const nextTotal = response.total || 0;
+        setItems(list);
+        setTotal(nextTotal);
+
+        // Keep rows and the filters that produced them in ONE snapshot so a
+        // restored tab can never show rows that do not match its filters.
+        const prevCache = tabSessionCache.get<ItemMasterCache>(ITEM_CACHE_KEY);
+        tabSessionCache.set<ItemMasterCache>(ITEM_CACHE_KEY, {
+          ...prevCache,
+          items: list,
+          total: nextTotal,
+          filterState: {
+            ...(prevCache?.filterState as Partial<ItemFilterState> | undefined),
+            ...queryState,
+            searchInput: uiSnapshotRef.current.searchInput,
+            activeTab: uiSnapshotRef.current.activeTab,
+            showFilters: uiSnapshotRef.current.showFilters,
+          } as ItemFilterState,
+        } as ItemMasterCache);
+
+        // Safety net: if the current page is beyond the filtered range
+        // (stale page number), fall back to page 1 instead of showing empty.
+        if (list.length === 0 && nextTotal > 0 && queryState.page > 1) setPage(1);
+      } catch (err: any) {
+        if (seq !== fetchSeqRef.current) return;
+        const raw = err?.response?.data?.message;
+        const errorText: string =
+          (Array.isArray(raw) ? raw.join('; ') : raw) ||
+          describeRequestError(err) ||
+          'Failed to load items. Please try again.';
+        // Never present a stale/unfiltered dataset as a successful filter run.
+        setItems([]);
+        setTotal(0);
+        setError(errorText);
+        messageRef.current?.error(`Could not load items — ${errorText}`);
+      } finally {
+        if (seq === fetchSeqRef.current) {
+          setLoading(false);
+          inFlightKeyRef.current = null;
+        }
+      }
+    },
+    [buildParams, normalizeItem, queryState],
+  );
 
   const resolveCompanyId = useCallback(async (): Promise<string | null> => {
     try {
@@ -1169,32 +1301,45 @@ const ItemManagement: React.FC = () => {
     })();
   }, [resolveCompanyId, message, can]);
 
-  // Persist the full dataset + labels to the session cache after every load so
-  // switching back restores 3,833 items and their dropdown labels instantly.
-  const persistMaster = () => {
-    tabSessionCache.set<ItemMasterCache>(ITEM_CACHE_KEY, {
-      items,
-      total,
-      stats,
-      typeCounts,
-      uoms, categories, divisions, sections, departments, routeTypes, masterItemTypes,
-      filterState: {
-        fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus,
-        search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters,
-      },
-    });
-  };
-  const persistMasterRef = useRef(persistMaster);
-  persistMasterRef.current = persistMaster;
+  // ITEM-FILTER-01: the session snapshot (rows + lookups + filter state) is
+  // written by (a) `fetchItems` after every successful response and
+  // (b) TabKeepAlive's `serialize` after every render — one consistent shape.
+
+  // ITEM-FILTER-01 — the ONLY automatic list request.
+  // `fetchItems` is re-created whenever the query state changes (search,
+  // Division, Section, Department, Category, Route Type, Material Role/Usage,
+  // Status, item type, sort, page, page size), so every filter change — and
+  // only a real query change — reloads the table with the new parameters.
+  // Identical in-flight requests are de-duplicated inside `fetchItems`.
+  //
+  // PRODUCTS-ITEMS-LOADING-02 — SPA-return guard (same contract as the shared
+  // TabKeepAlive wrapper above / the Dashboard: load ONLY when no cached
+  // snapshot exists). The workspace remounts this page on every route change,
+  // so without this guard the mount-time run below re-issued the identical
+  // query and flashed "Loading Products & Items..." over rows that were
+  // already on screen. When a complete snapshot (`savedMaster`: the rows PLUS
+  // the filter state that produced them — written by `fetchItems` and
+  // `TabKeepAlive.serialize`) seeds this mount, the query it seeds IS the
+  // cached query: that first effect run is skipped. The comparison is
+  // key-based, so it stays correct under StrictMode's double-invoked effects
+  // (SPA return → 0 extra list requests). The moment the query really
+  // changes, the guard flips off permanently — every later filter, search,
+  // sort or pagination change fetches as before, including one that returns
+  // to the original values. Mounts WITHOUT a cache (first visit, re-open
+  // after the tab was closed, refresh-driven invalidation) behave exactly as
+  // before, still under the single-flight guard. Explicit Refresh, mutations
+  // and the global refresh event call `fetchItems({ force: true })` directly
+  // and are unaffected by this guard.
+  const mountQueryKeyRef = useRef<string | null>(savedMaster ? itemQueryKey(buildParams()) : null);
 
   useEffect(() => {
-    // If the tab was already loaded in this session, DO NOT re-fetch when
-    // returning to it — the cached items/labels are already seeded into state.
-    if (!tabSessionCache.has(ITEM_CACHE_KEY)) {
-      fetchItems();
-    } else {
-      persistMasterRef.current();
+    if (mountQueryKeyRef.current !== null) {
+      if (itemQueryKey(buildParams()) === mountQueryKeyRef.current) {
+        return; // cached SPA return: previous data is already seeded — no request, no overlay
+      }
+      mountQueryKeyRef.current = null; // a real query change happened — never skip again
     }
+    void fetchItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchItems]);
 
@@ -1331,6 +1476,21 @@ const ItemManagement: React.FC = () => {
     setPage(1);
     setSortField('itemCode');
     setSortOrder('ASC');
+  };
+
+  // ITEM-FILTER-01 #6 — "Apply Filters".
+  // The filter controls apply live; this button (a) commits a search text that
+  // has not reached the 400 ms debounce yet, (b) returns to page 1 and
+  // (c) re-runs the current query so the table rows and the total count are
+  // refreshed from the server with exactly the values shown in the controls.
+  const applyFilters = () => {
+    const trimmed = searchInput.trim();
+    if (trimmed !== search || page !== 1) {
+      setSearch(trimmed);
+      setPage(1);
+      return; // the query effect issues the request with the committed values
+    }
+    void fetchItems({ force: true });
   };
 
   const handleDivisionChange = (val?: string) => {
@@ -1768,7 +1928,7 @@ const ItemManagement: React.FC = () => {
     if (resultPhase === 'success') {
       setFormOpen(false);
       form.resetFields();
-      fetchItems();
+      fetchItems({ force: true });
     }
   };
 
@@ -1780,7 +1940,7 @@ const ItemManagement: React.FC = () => {
     try {
       await apiService.patch(`/master-data/items/${record.id}/${action}`);
       message.success(`Item ${record.itemCode} ${action}d`);
-      fetchItems();
+      fetchItems({ force: true });
     } catch (err: any) {
       message.error(err?.response?.data?.message || `Failed to ${action} item`);
     }
@@ -1790,7 +1950,7 @@ const ItemManagement: React.FC = () => {
     try {
       await apiService.delete(`/master-data/items/${record.id}`);
       message.success(`Item ${record.itemCode} deleted`);
-      fetchItems();
+      fetchItems({ force: true });
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Failed to delete item');
     }
@@ -2559,7 +2719,7 @@ const ItemManagement: React.FC = () => {
       skipped: importRows.length - imported - failed,
       errors,
     });
-    fetchItems();
+    fetchItems({ force: true });
   };
 
   const closeImport = () => {
@@ -3003,7 +3163,7 @@ const ItemManagement: React.FC = () => {
               </Button>
             )}
             <Tooltip title="Refresh">
-              <Button size="middle" className="erp-toolbar-action-btn" icon={<ReloadOutlined />} onClick={() => fetchItems()} />
+              <Button size="middle" className="erp-toolbar-action-btn" icon={<ReloadOutlined />} onClick={() => fetchItems({ force: true })} />
             </Tooltip>
             {can('item.view') && (
               <Button size="middle" className="erp-toolbar-action-btn" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
@@ -3216,8 +3376,21 @@ const ItemManagement: React.FC = () => {
             </Button>
           </Dropdown>
 
-          <Button icon={<ClearOutlined />} onClick={resetFilters}>
-            Reset
+          <Button
+            icon={<ClearOutlined />}
+            onClick={resetFilters}
+            data-testid="clear-filters"
+          >
+            Clear Filters
+          </Button>
+          <Button
+            type="primary"
+            icon={<FilterOutlined />}
+            onClick={applyFilters}
+            data-testid="apply-filters"
+            loading={loading}
+          >
+            Apply Filters
           </Button>
 
           {screens.lg && (
@@ -3238,7 +3411,7 @@ const ItemManagement: React.FC = () => {
           >
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="Section"
-              value={fSection} disabled={!fDivision}
+              value={fSection}
               options={toUnique(sectionsForDivision(fDivision), (s) => s.name)}
               onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
             />
@@ -3278,7 +3451,7 @@ const ItemManagement: React.FC = () => {
           showIcon
           message="Could not load items"
           description={error}
-          action={<Button size="small" danger onClick={() => fetchItems()}>Retry</Button>}
+          action={<Button size="small" danger onClick={() => fetchItems({ force: true })}>Retry</Button>}
           style={{ marginBottom: 16 }}
           closable
         />
@@ -3286,9 +3459,9 @@ const ItemManagement: React.FC = () => {
 
       {loading && items.length === 0 ? (
         <GlobalLoading
-          title="Loading Item Registry..."
-          subtitle="Fetching 3,833 wire products and master items..."
-          badgeText="LIVE DATABASE QUERY"
+          title={ITEMS_LOADING_TITLE}
+          subtitle={ITEMS_LOADING_SUBTITLE}
+          badgeText={ITEMS_LOADING_BADGE}
           minHeight={450}
         />
       ) : (
@@ -3296,7 +3469,17 @@ const ItemManagement: React.FC = () => {
           rowKey="id"
           columns={filteredColumns}
           dataSource={items}
-          loading={false}
+          // Refresh with rows present: reuse the shared loading card as the
+          // table's Spin indicator (ERPTable spreads the object last, so this
+          // replaces its ad-hoc hard-coded white card without touching the
+          // shared component). `false` when idle → identical to plain `loading`.
+          loading={loading ? { spinning: true, indicator: <ItemsTableLoadingIndicator /> } : false}
+          loadingTitle={ITEMS_LOADING_TITLE}
+          loadingSubtitle={ITEMS_LOADING_SUBTITLE}
+          // PRODUCTS-ITEMS-LOADING-FIX-01: scopes the clean loading surface in
+          // itemManagement.css — opaque theme token, backdrop-filter: none,
+          // no antd .ant-spin-blur fade (interaction block stays in place).
+          containerClassName="items-loading-surface"
           scroll={{ x: 1045, y: 'calc(100vh - 350px)' }}
           sticky
           size="small"
@@ -6118,7 +6301,7 @@ const ItemManagement: React.FC = () => {
           message.success(`Item '${deleteTargetItem.itemCode}' deleted successfully`);
           setDeleteModalVisible(false);
           setDeleteTargetItem(null);
-          fetchItems();
+          fetchItems({ force: true });
         }}
         onCancel={() => {
           setDeleteModalVisible(false);
@@ -6131,7 +6314,7 @@ const ItemManagement: React.FC = () => {
                 message.success(`Item '${deleteTargetItem.itemCode}' deactivated`);
                 setDeleteModalVisible(false);
                 setDeleteTargetItem(null);
-                fetchItems();
+                fetchItems({ force: true });
               }
             : undefined
         }

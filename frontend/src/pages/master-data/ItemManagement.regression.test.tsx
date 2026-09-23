@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import ItemManagement, { ITEM_TYPE_ICONS, ITEM_TYPE_WATERMARK_ICONS } from './ItemManagement';
 import { ITEM_TYPES } from './items/itemTypes';
 import apiService from '../../services/api';
+import { tabSessionCache } from '../../services/tabSessionCache';
 
 jest.mock('../../services/api');
 
@@ -59,6 +60,21 @@ function mockApi() {
       });
       return { data: rows, total: rows.length };
     }
+    if (url === '/master-data/items/pipeline-stats') {
+      // Chevron ribbon counts (ALL ITEMS / ACTIVE / INACTIVE + item-type tabs).
+      return {
+        data: {
+          total: ROWS.length,
+          active: ROWS.filter((r) => r.status === 'ACTIVE').length,
+          inactive: ROWS.filter((r) => r.status !== 'ACTIVE').length,
+          types: [
+            { key: 'RAW_MATERIAL', label: 'Raw Material', count: ROWS.filter((r) => r.itemType === 'RAW_MATERIAL').length },
+            { key: 'SERVICE', label: 'Service', count: ROWS.filter((r) => r.itemType === 'SERVICE').length },
+          ],
+        },
+        total: 3,
+      };
+    }
     if (url.startsWith('/master-data/items/')) {
       const id = url.split('/').pop();
       return { data: ROWS.find((r) => r.id === id) ?? null };
@@ -101,89 +117,97 @@ beforeEach(() => {
       'item.activate', 'item.deactivate', 'item_barcode.view'],
   }));
   localStorage.setItem('erp_permissions_ts', String(Date.now()));
+  window.sessionStorage.clear();
+  tabSessionCache.clear();
   apiMock.get.mockReset();
   mockApi();
 });
 
+const SEARCH_PLACEHOLDER = 'Search Item Register (code, name, SKU, barcode)...';
+
 const rowOf = (code: string) => screen.getAllByText(code)[0]!.closest('tr')!;
-const lastMainItemsCall = () => {
-  return [...apiMock.get.mock.calls]
-    .reverse()
-    .find(([url, p]) => url === '/master-data/items' && p && (p as any).page && !(p as any).itemType);
-};
+/** The list queries only (the KPI/type count probes use limit=1). */
+const mainItemCalls = () =>
+  [...apiMock.get.mock.calls].filter(
+    ([url, p]) => url === '/master-data/items' && p && (p as any).page && (p as any).limit !== 1,
+  );
+const lastMainItemsCall = () => mainItemCalls()[mainItemCalls().length - 1];
+/** Chevron ribbon button found by its letters only (icon label + count stripped). */
+const chevronByLetters = (letters: string) =>
+  Array.from(document.querySelectorAll('button')).find(
+    (b) => (b.textContent ?? '').replace(/[^A-Z]/g, '') === letters,
+  );
+const waitForChevron = (letters: string) =>
+  waitFor(() => expect(chevronByLetters(letters)).toBeTruthy(), { timeout: 8000 });
 
 describe('TASK 13 — Products & Items UI refinement regression', () => {
-  it('R1: renders the item type cards in the canonical business order', async () => {
+  it('R1: the chevron pipeline ribbon renders the canonical tabs in order (ALL ITEMS → ACTIVE → INACTIVE → types)', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    const cards = screen.getAllByTestId(/^item-type-card-/)
-      .filter((el) => el.getAttribute('data-testid') !== 'item-type-card-all');
-    expect(cards.map((c) => c.getAttribute('aria-label'))).toEqual(ITEM_TYPES.map((t) => t.label));
-    expect(cards[0]).toHaveAttribute('aria-label', 'Raw Material');
+    await waitForChevron('RAWMATERIAL');
+    const expected = ['ALLITEMS', 'ACTIVE', 'INACTIVE', 'RAWMATERIAL', 'SERVICE'];
+    const buttons = expected.map((letters) => chevronByLetters(letters));
+    buttons.forEach((b) => expect(b).toBeTruthy());
+    const allButtons = Array.from(document.querySelectorAll('button'));
+    const positions = buttons.map((b) => allButtons.indexOf(b!));
+    expect(positions).toEqual([...positions].sort((a, b) => a - b)); // DOM order = canonical order
+    expect(chevronByLetters('RAWMATERIAL')).toBeTruthy();
   });
 
-  it('R2: every item type has a primary icon (map parity + on-card icon)', async () => {
+  it('R2: every canonical item type has a primary icon (map parity + on-ribbon icon)', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
+    await waitForChevron('RAWMATERIAL');
     // map covers exactly the canonical item types
     expect(Object.keys(ITEM_TYPE_ICONS)).toEqual(ITEM_TYPES.map((t) => t.value));
-    for (const t of ITEM_TYPES) {
-      const card = screen.getByTestId(`item-type-card-${t.value}`);
-      expect(card.querySelector('[data-primary-icon="true"]')).not.toBeNull();
-    }
-    // no plain, icon-less item type card exists
-    for (const card of screen.getAllByTestId(/^item-type-card-/)) {
-      expect(card.querySelector('[data-primary-icon="true"]')).not.toBeNull();
+    // the item-type chevrons rendered on the ribbon all carry their icon
+    for (const letters of ['RAWMATERIAL', 'SERVICE']) {
+      const chevron = chevronByLetters(letters);
+      expect(chevron).toBeTruthy();
+      expect(chevron!.querySelector('.anticon')).not.toBeNull();
     }
   });
 
-  it('R3: every item type has a background watermark icon (map parity + on-card icon)', async () => {
+  it('R3: the background-watermark icon map stays in parity with the canonical item types', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
+    await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
     expect(Object.keys(ITEM_TYPE_WATERMARK_ICONS)).toEqual(ITEM_TYPES.map((t) => t.value));
-    for (const t of ITEM_TYPES) {
-      const card = screen.getByTestId(`item-type-card-${t.value}`);
-      const watermark = card.querySelector('[data-watermark="true"]');
-      expect(watermark).not.toBeNull();
-      expect(watermark!.getAttribute('aria-hidden')).toBe('true');
-    }
   });
 
-  it('R4: active state defaults to All Items and moves to the clicked item type (server refetch)', async () => {
+  it('R4: active state defaults to ALL ITEMS and moves to the clicked item type (server refetch)', async () => {
     renderPage();
-    const allCard = await screen.findByTestId('item-type-card-all');
-    expect(allCard).toHaveAttribute('aria-selected', 'true');
-    const rawCard = screen.getByTestId('item-type-card-RAW_MATERIAL');
-    expect(rawCard).toHaveAttribute('aria-selected', 'false');
-    fireEvent.click(rawCard);
-    expect(rawCard).toHaveAttribute('aria-selected', 'true');
-    expect(allCard).toHaveAttribute('aria-selected', 'false');
+    // default mount query carries no item type filter
     await waitFor(() => {
-      const call = [...apiMock.get.mock.calls]
+      const call = lastMainItemsCall();
+      expect(call).toBeDefined();
+      expect(call![1]).not.toHaveProperty('itemType');
+    }, { timeout: 8000 });
+    await waitForChevron('RAWMATERIAL');
+    fireEvent.click(chevronByLetters('RAWMATERIAL')!);
+    await waitFor(() => {
+      const call = [...mainItemCalls()]
         .reverse()
-        .find(([url, p]) => url === '/master-data/items' && p && (p as any).page && (p as any).itemType === 'RAW_MATERIAL');
+        .find(([, p]) => (p as any).itemType === 'RAW_MATERIAL');
       expect(call).toBeDefined();
     });
   });
 
   it('R5: search box is rendered on the toolbar', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    expect(screen.getByPlaceholderText('Search by code, name, SKU, barcode, wire size...')).toBeInTheDocument();
+    await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
+    expect(screen.getByPlaceholderText(SEARCH_PLACEHOLDER)).toBeInTheDocument();
   });
 
-  it('R6: exactly one Filters button exists (single filter system), toggles the filter panel', async () => {
+  it('R6: exactly one More Filters button exists (single filter system), toggles the filter panel', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    expect(screen.getAllByRole('button', { name: /Filters/i })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
-    expect(await screen.findByText('Division', { selector: '.ant-select-selection-placeholder' })).toBeInTheDocument();
+    await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
+    expect(screen.getAllByRole('button', { name: /More Filters/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /More Filters/ }));
+    expect(await screen.findByText('Section', { selector: '.ant-select-selection-placeholder' })).toBeInTheDocument();
   });
 
   it('R7: the active-filter count badge on Filters reflects a chosen filter value', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
+    await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
+    fireEvent.click(screen.getByRole('button', { name: /More Filters/ }));
     const statusPlaceholder = await screen.findByText('Status', { selector: '.ant-select-selection-placeholder' });
     const statusSelect = statusPlaceholder.closest('.ant-select') as HTMLElement;
     fireEvent.mouseDown(statusSelect.querySelector('.ant-select-selector') as HTMLElement);
@@ -193,25 +217,30 @@ describe('TASK 13 — Products & Items UI refinement regression', () => {
       expect(badges.some((b) => b.textContent === '1')).toBe(true);
     });
     await waitFor(() => {
-      const call = [...apiMock.get.mock.calls]
+      const call = [...mainItemCalls()]
         .reverse()
-        .find(([url, p]) => url === '/master-data/items' && p && (p as any).status === 'ACTIVE' && (p as any).page);
+        .find(([, p]) => (p as any).status === 'ACTIVE');
       expect(call).toBeDefined();
     });
   });
 
-  it('R8: Clear button appears when filtering/searching and resets filters', async () => {
+  it('R8: Clear Filters resets the search/filters and the server query', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    expect(screen.queryByRole('button', { name: /Clear/i })).not.toBeInTheDocument();
-    const search = screen.getByPlaceholderText('Search by code, name, SKU, barcode, wire size...');
+    const search = await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
+    const clearBtn = screen.getByTestId('clear-filters');
+    const applyBtn = screen.getByTestId('apply-filters');
+    expect(clearBtn).toBeInTheDocument();
+    expect(applyBtn).toBeInTheDocument();
+
     fireEvent.change(search, { target: { value: 'RAW' } });
-    const clearBtn = await screen.findByRole('button', { name: /Clear/i }, { timeout: 3000 });
+    await waitFor(() => {
+      const call = lastMainItemsCall();
+      expect(call).toBeDefined();
+      expect((call![1] as any).search).toBe('RAW');
+    }, { timeout: 5000 });
+
     fireEvent.click(clearBtn);
     expect(search).toHaveValue('');
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /Clear/i })).not.toBeInTheDocument();
-    });
     // server-side list refetch without the search string
     await waitFor(() => {
       const call = lastMainItemsCall();
@@ -223,7 +252,7 @@ describe('TASK 13 — Products & Items UI refinement regression', () => {
   it('R9: Division + Section are merged into a single stacked 2-line column (no standalone columns)', async () => {
     renderPage();
     await screen.findByText('RAW-1');
-    expect(screen.getByRole('columnheader', { name: 'Division / Section' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'apartment Division / Section' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Division' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Section' })).not.toBeInTheDocument();
     const rawRow = rowOf('RAW-1');
@@ -234,20 +263,21 @@ describe('TASK 13 — Products & Items UI refinement regression', () => {
   it('R10: Wire / Dia + Length are merged into a single stacked 2-line column (no standalone columns)', async () => {
     renderPage();
     await screen.findByText('RAW-1');
-    expect(screen.getByRole('columnheader', { name: 'Wire / Dia · Length' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'tool Wire / Dia Length' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Wire / Dia' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Length' })).not.toBeInTheDocument();
     const rawRow = rowOf('RAW-1');
     expect(within(rawRow).getByText('1.20')).toBeInTheDocument();
-    expect(within(rawRow).getByText('Length: 150.00')).toBeInTheDocument();
+    expect(within(rawRow).getByText('L: 150.00')).toBeInTheDocument();
   });
 
   it('R11: the standalone Barcode table column is removed while the barcode row action is preserved', async () => {
     renderPage();
     await screen.findByText('RAW-1');
     expect(screen.queryByRole('columnheader', { name: 'Barcode' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Barcode for RAW-1' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Barcode for RAW-1' }));
+    // the barcode action lives in the row "More actions" menu
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for RAW-1' }));
+    fireEvent.click(await screen.findByText('Barcode & QR'));
     expect(await screen.findByText('Barcode — RAW-1')).toBeInTheDocument();
     expect(screen.getByText('Primary Barcode')).toBeInTheDocument();
   });
@@ -273,25 +303,25 @@ describe('TASK 13 — Products & Items UI refinement regression', () => {
 
   it('R14: item counts are real and dynamic — All Items and per-type count from the API', async () => {
     renderPage();
+    await waitForChevron('RAWMATERIAL');
     await waitFor(() => {
-      expect(within(screen.getByTestId('item-type-card-all')).getByText('3 items')).toBeInTheDocument();
-    });
+      expect(chevronByLetters('ALLITEMS')!.textContent).toContain(String(ROWS.length));
+    }, { timeout: 8000 });
     await waitFor(() => {
-      expect(within(screen.getByTestId('item-type-card-RAW_MATERIAL')).getByText('1 items')).toBeInTheDocument();
-    });
-    expect(within(screen.getByTestId('item-type-card-SERVICE')).getByText('1 items')).toBeInTheDocument();
+      expect(chevronByLetters('RAWMATERIAL')!.textContent).toContain('1');
+    }, { timeout: 8000 });
+    expect(chevronByLetters('SERVICE')!.textContent).toContain('1');
   });
 
   it('R15: typing performs server-side search (search param sent to the API)', async () => {
     renderPage();
-    await screen.findByTestId('item-type-card-all');
-    const search = screen.getByPlaceholderText('Search by code, name, SKU, barcode, wire size...');
+    const search = await screen.findByPlaceholderText(SEARCH_PLACEHOLDER);
     fireEvent.change(search, { target: { value: 'SVC-SKU' } });
     await waitFor(() => {
       expect(
-        [...apiMock.get.mock.calls].reverse()
-          .find(([url, p]) => url === '/master-data/items' && p && (p as any).search === 'SVC-SKU'),
+        [...mainItemCalls()].reverse()
+          .find(([, p]) => (p as any).search === 'SVC-SKU'),
       ).toBeDefined();
-    }, { timeout: 3000 });
+    }, { timeout: 5000 });
   });
 });
