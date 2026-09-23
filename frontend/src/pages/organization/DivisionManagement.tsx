@@ -1,23 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { App, Table, Button, Space, Tag, Modal, Form, Input, Select, Card } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { App, Button, Space, Tag, Form, Input, Select, Dropdown, Checkbox, theme } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, AppstoreOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
-import { getAuditColumns } from './orgUtils';
-
-interface Company {
-  id: string;
-  companyCode: string;
-  legalName: string;
-}
+import { GlobalLoading, ERPTable, DraggableResizableModal, TabKeepAlive } from '../../components/shared';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { useHeaderActions } from '../../components/layout/headerActionsStore';
 
 interface Division {
   id: string;
   divisionCode: string;
   name: string;
-  companyId: string;
-  company?: Company;
   description: string;
   status: string;
   sections?: any[];
@@ -29,53 +24,92 @@ interface Division {
   updatedByName?: string | null;
 }
 
+const formatDateTime = (dateStr?: string | null): string => {
+  if (!dateStr) return '-';
+  const d = dayjs(dateStr);
+  return d.isValid() ? d.format('DD-MMM-YYYY HH:mm') : '-';
+};
+
+const COLUMN_META: Record<string, { label: string }> = {
+  divisionCode: { label: 'Division Code' },
+  name: { label: 'Name' },
+  description: { label: 'Description' },
+  sections: { label: 'Sections' },
+  createdByNameDate: { label: 'Created By / Date' },
+  updatedByNameDate: { label: 'Updated By / Date' },
+  status: { label: 'Status' },
+  actions: { label: 'Actions' },
+};
+
+const ORGANIZATION_DIVISIONS_TAB_ID = '/organization/divisions';
+
+interface DivisionTabCache {
+  divisions: Division[];
+  total: number;
+  page: number;
+}
+
 const DivisionManagement: React.FC = () => {
   const { message, modal } = App.useApp();
-  const [divisions, setDivisions] = useState<Division[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const { token } = theme.useToken();
+  const cachedMaster = useMemo(() => tabSessionCache.get<DivisionTabCache>(ORGANIZATION_DIVISIONS_TAB_ID), []);
+
+  const [divisions, setDivisions] = useState<Division[]>(() => cachedMaster?.divisions ?? []);
+  const [loading, setLoading] = useState<boolean>(() => !cachedMaster || !cachedMaster.divisions || cachedMaster.divisions.length === 0);
+  const [total, setTotal] = useState<number>(() => cachedMaster?.total ?? 0);
+  const [page, setPage] = useState<number>(() => cachedMaster?.page ?? 1);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingDivision, setEditingDivision] = useState<Division | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const [searchText, setSearchText] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
-  const fetchDivisions = useCallback(async (pageNum: number = 1) => {
+  // Enterprise column visibility toggle state
+  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({
+    divisionCode: true,
+    name: true,
+    description: true,
+    sections: true,
+    createdByNameDate: true,
+    updatedByNameDate: true,
+    status: true,
+    actions: true,
+  });
+
+  const fetchDivisionsRef = useCallback(async (pageNum: number = page) => {
     setLoading(true);
     try {
-      const response = await apiService.get<{ data: Division[]; total: number }>('/divisions', {
-        page: pageNum,
-        limit: 20,
-      });
+      const response = await apiService.get<{ data: Division[]; total: number }>('/divisions', { page: pageNum, limit: 20 });
       setDivisions(response.data);
       setTotal(response.total);
+      tabSessionCache.set<DivisionTabCache>(ORGANIZATION_DIVISIONS_TAB_ID, { divisions: response.data, total: response.total, page: pageNum });
     } catch (error: any) {
-      modal.error({
-        title: 'Load Failed',
-        content: formatApiError(error, 'Failed to fetch divisions'),
-      });
+      message.error(formatApiError(error, 'Failed to fetch divisions'));
     } finally {
       setLoading(false);
     }
-  }, [modal]);
-
-  const fetchCompanies = useCallback(async () => {
-    try {
-      const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
-      setCompanies(response.data);
-    } catch (error: any) {
-      modal.error({
-        title: 'Load Failed',
-        content: formatApiError(error, 'Failed to fetch companies'),
-      });
-    }
-  }, [modal]);
+  }, [page, message]);
 
   useEffect(() => {
-    fetchDivisions(page);
-    fetchCompanies();
-  }, [page, fetchDivisions, fetchCompanies]);
+    if (!cachedMaster || !cachedMaster.divisions || cachedMaster.divisions.length === 0) {
+      void fetchDivisionsRef(page);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(ORGANIZATION_DIVISIONS_TAB_ID)) {
+        tabSessionCache.remove(ORGANIZATION_DIVISIONS_TAB_ID);
+        void fetchDivisionsRef(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   const handleCreate = () => {
     setEditingDivision(null);
@@ -100,7 +134,7 @@ const DivisionManagement: React.FC = () => {
         try {
           await apiService.delete(`/divisions/${record.id}`);
           message.success('Division deleted successfully');
-          fetchDivisions(page);
+          fetchDivisionsRef(page);
         } catch (error: any) {
           modal.error({
             title: 'Delete Failed',
@@ -121,7 +155,7 @@ const DivisionManagement: React.FC = () => {
         try {
           await apiService.patch(`/divisions/${record.id}/activate`);
           message.success('Division activated successfully');
-          fetchDivisions(page);
+          fetchDivisionsRef(page);
         } catch (error: any) {
           modal.error({
             title: 'Activation Failed',
@@ -143,7 +177,7 @@ const DivisionManagement: React.FC = () => {
         try {
           await apiService.patch(`/divisions/${record.id}/deactivate`);
           message.success('Division deactivated successfully');
-          fetchDivisions(page);
+          fetchDivisionsRef(page);
         } catch (error: any) {
           modal.error({
             title: 'Deactivation Failed',
@@ -193,7 +227,7 @@ const DivisionManagement: React.FC = () => {
             message.success('Division created successfully');
           }
           setModalVisible(false);
-          fetchDivisions(page);
+          fetchDivisionsRef(page);
         } catch (error: any) {
           modal.error({
             title: 'Save Failed',
@@ -206,52 +240,80 @@ const DivisionManagement: React.FC = () => {
     });
   };
 
-  const baseColumns: ColumnsType<Division> = [
+  const columns: ColumnsType<Division> = [
     {
       title: 'Code',
       dataIndex: 'divisionCode',
       key: 'divisionCode',
-      sorter: true,
+      sorter: (a, b) => a.divisionCode.localeCompare(b.divisionCode),
+      width: 140,
+      fixed: 'left',
     },
     {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-    },
-    {
-      title: 'Company',
-      key: 'company',
-      render: (_, record) => record.company?.legalName || '-',
+      width: 200,
     },
     {
       title: 'Description',
       dataIndex: 'description',
       key: 'description',
+      width: 200,
       ellipsis: true,
     },
     {
       title: 'Sections',
       key: 'sections',
+      width: 130,
       render: (_, record) => record.sections?.length || 0,
+    },
+    {
+      title: 'Created By / Date',
+      key: 'createdByNameDate',
+      width: 160,
+      sorter: (a, b) => (a.createdByName || '').localeCompare(b.createdByName || ''),
+      render: (_, record) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}>{record.createdByName || (record.createdBy ? 'Admin' : '-')}</span>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary }}>{formatDateTime(record.createdAt)}</span>
+        </div>
+      ),
+    },
+    {
+      title: 'Updated By / Date',
+      key: 'updatedByNameDate',
+      width: 160,
+      sorter: (a, b) => (a.updatedByName || '').localeCompare(b.updatedByName || ''),
+      render: (_, record) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}>{record.updatedByName || (record.updatedBy ? 'Admin' : '-')}</span>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary }}>{formatDateTime(record.updatedAt)}</span>
+        </div>
+      ),
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
+      width: 100,
       render: (status: string) => (
-        <Tag color={status === 'ACTIVE' ? 'green' : 'red'}>{status}</Tag>
+        <Tag
+          color={status === 'ACTIVE' ? 'green' : 'red'}
+          style={{ margin: 0, borderRadius: 10, fontWeight: 600 }}
+        >
+          {status}
+        </Tag>
       ),
     },
-  ];
-
-  const columns: ColumnsType<Division> = [
-    ...baseColumns,
-    ...getAuditColumns<Division>(),
     {
       title: 'Actions',
       key: 'actions',
+      fixed: 'right',
+      width: 170,
+      align: 'center',
       render: (_, record) => (
-        <Space size="small">
+        <Space size="small" direction="horizontal">
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)} title="Edit Division" />
           {record.status === 'ACTIVE' ? (
             <Button type="link" danger icon={<CloseCircleOutlined />} onClick={() => handleDeactivate(record)} title="Deactivate Division" />
@@ -264,71 +326,182 @@ const DivisionManagement: React.FC = () => {
     },
   ];
 
+  const visibleColumns = columns.filter((c) => visibleCols[c.key as keyof typeof visibleCols] !== false);
+
+  const { setHeaderActions, clearHeaderActions } = useHeaderActions.getState();
+  useEffect(() => {
+    setHeaderActions([
+      {
+        key: 'add-division',
+        node: (
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            + Add Division
+          </Button>
+        ),
+      },
+      {
+        key: 'refresh-division',
+        node: (
+          <Button icon={<ReloadOutlined />} onClick={() => fetchDivisionsRef(page)}>
+            Refresh
+          </Button>
+        ),
+      },
+    ]);
+    return () => clearHeaderActions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setHeaderActions, clearHeaderActions, handleCreate, page]);
+
+  const filteredDivisions = divisions.filter((d) => {
+    if (searchText && !`${d.divisionCode || ''} ${d.name || ''} ${d.description || ''}`.toLowerCase().includes(searchText.toLowerCase())) {
+      return false;
+    }
+    if (statusFilter !== 'ALL' && d.status !== statusFilter) {
+      return false;
+    }
+    return true;
+  });
+
   return (
-    <Card title="Division Management">
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          Add Division
-        </Button>
-      </Space>
+    <TabKeepAlive
+      tabId={ORGANIZATION_DIVISIONS_TAB_ID}
+      load={async () => { await fetchDivisionsRef(page); }}
+      serialize={() => ({ divisions, total, page })}
+    >
+      <div>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, padding: '8px 0' }}>Division Management</h2>
 
-      <Table
-        columns={columns}
-        dataSource={divisions}
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          current: page,
-          total,
-          pageSize: 20,
-          onChange: setPage,
-        }}
-      />
+        <div className="erp-table-toolbar-grid" style={{ marginBottom: 12, gap: 8, padding: '8px 16px' }}>
+          <Input
+            placeholder="Search divisions..."
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{ width: 260 }}
+            size="middle"
+          />
+          <Select
+            placeholder="Status"
+            style={{ width: 150 }}
+            value={statusFilter}
+            onChange={setStatusFilter}
+            popupMatchSelectWidth={false}
+          >
+            <Select.Option value="ALL">All Status</Select.Option>
+            <Select.Option value="ACTIVE">Active</Select.Option>
+            <Select.Option value="INACTIVE">Inactive</Select.Option>
+          </Select>
 
-      <Modal
-        title={editingDivision ? 'Edit Division' : 'Create Division'}
-        open={modalVisible}
-        onOk={handleSubmit}
-        confirmLoading={submitting}
-        onCancel={() => {
-          if (!submitting) setModalVisible(false);
-        }}
-        width={600}
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item
-            name="companyId"
-            label="Company"
-            rules={[{ required: true, message: 'Please select company' }]}
+          <Dropdown
+            trigger={['click']}
+            placement="bottomRight"
+            popupRender={() => (
+              <div
+                style={{
+                  background: token.colorBgElevated,
+                  padding: '12px 16px',
+                  borderRadius: 8,
+                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                  minWidth: 200,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 10,
+                    paddingBottom: 8,
+                    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
+                    Table Columns
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {Object.entries(COLUMN_META).map(([key, meta]) => (
+                    <Checkbox
+                      key={key}
+                      checked={visibleCols[key] !== false}
+                      disabled={key === 'divisionCode' || key === 'actions'}
+                      onChange={(e) => {
+                        const next = { ...visibleCols, [key]: e.target.checked };
+                        setVisibleCols(next);
+                        try {
+                          localStorage.setItem('erp_division_table_columns', JSON.stringify(next));
+                        } catch {}
+                      }}
+                      style={{ fontSize: 13, color: token.colorText }}
+                    >
+                      {meta.label}
+                    </Checkbox>
+                  ))}
+                </div>
+              </div>
+            )}
           >
-            <Select placeholder="Select company">
-              {companies.map((company) => (
-                <Select.Option key={company.id} value={company.id}>
-                  {company.legalName}
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item
-            name="divisionCode"
-            label="Division Code"
-            rules={[{ required: true, message: 'Please enter division code' }]}
-          >
-            <Input disabled={!!editingDivision} />
-          </Form.Item>
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[{ required: true, message: 'Please enter name' }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input.TextArea />
-          </Form.Item>
-        </Form>
-      </Modal>
-    </Card>
+            <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
+              Columns
+            </Button>
+          </Dropdown>
+        </div>
+
+        {loading && filteredDivisions.length === 0 ? (
+          <GlobalLoading title="Loading Organization Registry..." subtitle="Fetching registered divisions..." badgeText="LIVE DATABASE QUERY" minHeight={400} />
+        ) : (
+          <ERPTable
+            columns={visibleColumns}
+            dataSource={filteredDivisions}
+            rowKey="id"
+            loading={false}
+            pagination={{
+              current: page,
+              total: filteredDivisions.length,
+              pageSize: 20,
+              onChange: setPage,
+              showTotal: (totalCount) => `Total ${totalCount} divisions`,
+            }}
+            emptyText="No divisions found"
+          />
+        )}
+
+        <DraggableResizableModal
+          title={editingDivision ? 'Edit Division' : 'Create Division'}
+          open={modalVisible}
+          onOk={handleSubmit}
+          confirmLoading={submitting}
+          onCancel={() => {
+            if (!submitting) setModalVisible(false);
+          }}
+          width={720}
+          height={600}
+          minWidth={600}
+          minHeight={480}
+        >
+          <Form form={form} layout="vertical">
+            <Form.Item
+              name="divisionCode"
+              label="Division Code"
+              rules={[{ required: true, message: 'Please enter division code' }]}
+            >
+              <Input disabled={!!editingDivision} />
+            </Form.Item>
+            <Form.Item
+              name="name"
+              label="Name"
+              rules={[{ required: true, message: 'Please enter name' }]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item name="description" label="Description">
+              <Input.TextArea rows={3} />
+            </Form.Item>
+          </Form>
+        </DraggableResizableModal>
+      </div>
+    </TabKeepAlive>
   );
 };
 

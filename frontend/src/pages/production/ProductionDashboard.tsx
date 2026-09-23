@@ -1,16 +1,28 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Select, Space, Spin } from 'antd';
+import { Alert, Button, Card, DatePicker, Select, Space } from 'antd';
 import { ReloadOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, PlayCircleOutlined, FileDoneOutlined, AimOutlined, BarChartOutlined, NumberOutlined } from '@ant-design/icons';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 import apiService from '../../services/api';
+import { GlobalLoading, TabKeepAlive } from '../../components/shared';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import dashboardService, {
   DashboardFilters as DashboardFiltersType, ProductionSummary, ProductionTrendDay, MachinePerformanceItem, FilterOption,
 } from '../../services/dashboardService';
 import './productionDashboard.css';
 
 const { RangePicker } = DatePicker;
+
+const PRODUCTION_DASHBOARD_TAB_ID = '/production/dashboard';
+
+interface ProductionDashboardTabCache {
+  orderSummary: OrderSummary | null;
+  prod: ProductionSummary | null;
+  trend: ProductionTrendDay[];
+  machines: MachinePerformanceItem[];
+  filters: DashboardFiltersType & { dateFrom?: string; dateTo?: string };
+}
 
 interface OrderSummary {
   total: number;
@@ -35,17 +47,19 @@ const STATUS_COLORS: Record<string, string> = {
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('en-US');
 const ProductionDashboard: React.FC = () => {
-  const [loading, setLoading] = useState(true);
+  const cachedTab = useMemo(() => tabSessionCache.get<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID), []);
+
+  const [loading, setLoading] = useState(!cachedTab);
   const [error, setError] = useState<string | null>(null);
-  const [orderSummary, setOrderSummary] = useState<OrderSummary | null>(null);
-  const [prod, setProd] = useState<ProductionSummary | null>(null);
-  const [trend, setTrend] = useState<ProductionTrendDay[]>([]);
-  const [machines, setMachines] = useState<MachinePerformanceItem[]>([]);
+  const [orderSummary, setOrderSummary] = useState<OrderSummary | null>(() => cachedTab?.orderSummary ?? null);
+  const [prod, setProd] = useState<ProductionSummary | null>(() => cachedTab?.prod ?? null);
+  const [trend, setTrend] = useState<ProductionTrendDay[]>(() => cachedTab?.trend ?? []);
+  const [machines, setMachines] = useState<MachinePerformanceItem[]>(() => cachedTab?.machines ?? []);
 
   const [divisions, setDivisions] = useState<FilterOption[]>([]);
   const [departments, setDepartments] = useState<FilterOption[]>([]);
 
-  const [filters, setFilters] = useState<DashboardFiltersType & { dateFrom?: string; dateTo?: string }>({});
+  const [filters, setFilters] = useState<DashboardFiltersType & { dateFrom?: string; dateTo?: string }>(() => cachedTab?.filters ?? {});
 
   // Load filter options
   useEffect(() => {
@@ -84,10 +98,40 @@ const ProductionDashboard: React.FC = () => {
 
     const failedCount = [order, prodR, trendR, machR].filter(r => r.status === 'rejected').length;
     setError(failedCount > 0 ? 'Some production dashboard sections failed to load. Showing partial results.' : null);
+
+    // Persist to session cache so switching back restores metrics + charts instantly
+    tabSessionCache.set<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID, {
+      orderSummary: order.status === 'fulfilled' ? order.value.data : orderSummary,
+      prod: prodR.status === 'fulfilled' && prodR.value.success ? prodR.value.data : prod,
+      trend: trendR.status === 'fulfilled' && trendR.value.success ? trendR.value.data : trend,
+      machines: machR.status === 'fulfilled' && machR.value.success ? machR.value.data : machines,
+      filters: eff,
+    });
     setLoading(false);
   }, [filters]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached metrics/charts are already seeded into state.
+    if (!tabSessionCache.has(PRODUCTION_DASHBOARD_TAB_ID)) {
+      void load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(PRODUCTION_DASHBOARD_TAB_ID)) {
+        tabSessionCache.remove(PRODUCTION_DASHBOARD_TAB_ID);
+        void load();
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load]);
 
   const onDate = (_: unknown, [from, to]: [string, string]) => {
     setFilters((p) => ({ ...p, dateFrom: from || undefined, dateTo: to || undefined }));
@@ -145,7 +189,12 @@ const ProductionDashboard: React.FC = () => {
   const tooltipStyle = { background: 'var(--theme-surface-alt)', border: '1px solid var(--theme-border)', color: 'var(--theme-text)', borderRadius: 6, fontSize: 12 };
 
   return (
-    <div className="erp-dashboard erp-pd">
+    <TabKeepAlive
+      tabId={PRODUCTION_DASHBOARD_TAB_ID}
+      load={async () => { await load(); }}
+      serialize={() => ({ orderSummary, prod, trend, machines, filters })}
+    >
+      <div className="erp-dashboard erp-pd">
       {/* Filters */}
       <div className="erp-pd__toolbar">
         <Space wrap size={10}>
@@ -186,7 +235,7 @@ const ProductionDashboard: React.FC = () => {
       <div className="erp-pd-chart-row">
         <Card className="erp-section-card" title="Production Trend (Actual vs Target)" size="small">
           <div className="erp-pd-chart">
-            {loading && !trend.length ? <Spin /> : trendData.length === 0 ? <div className="erp-pd-empty">No production trend data</div> : (
+            {loading && !trend.length ? <GlobalLoading title="Loading Production Trend..." subtitle="Aggregating daily actual vs target production..." badgeText="LIVE DATABASE QUERY" minHeight={260} /> : trendData.length === 0 ? <div className="erp-pd-empty">No production trend data</div> : (
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={trendData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
@@ -257,6 +306,7 @@ const ProductionDashboard: React.FC = () => {
         </Card>
       </div>
     </div>
+  </TabKeepAlive>
   );
 };
 

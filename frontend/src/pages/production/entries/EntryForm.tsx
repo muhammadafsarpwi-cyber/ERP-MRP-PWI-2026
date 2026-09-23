@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
-  App, Typography, Switch, Alert, Spin, AutoComplete, Tooltip, Tag, Progress,
+  App, Typography, Switch, Alert, AutoComplete, Tooltip, Tag, Progress,
 } from 'antd';
 import {
   ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined,
@@ -24,6 +24,7 @@ import {
   convertProductToComponentQty,
 } from './downtimeHours';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
+import { GlobalLoading } from '../../../components/shared';
 import ProductionSaveSuccessModal, { SavedEntrySummary } from './ProductionSaveSuccessModal';
 
 const { Title, Text } = Typography;
@@ -1601,7 +1602,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
       >
         {loadingEntry && (
           <Card>
-            <Spin style={{ width: '100%', marginTop: 80 }} />
+            <GlobalLoading title="Loading Production Entry..." subtitle="Retrieving entry details, downtime and item lines..." badgeText="LIVE DATABASE QUERY" style={{ padding: 24 }} />
           </Card>
         )}
         {!loadingEntry && (
@@ -1785,7 +1786,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                       notFoundContent={
                         lookups.hrEmployeesLoading ? (
                           <div style={{ padding: '8px 12px', textAlign: 'center' }}>
-                            <Spin size="small" /> <span style={{ marginLeft: 8 }}>Loading HR operators...</span>
+                            <GlobalLoading spinnerOnly size="small" /> <span style={{ marginLeft: 8 }}>Loading HR operators...</span>
                           </div>
                         ) : (
                           "No HR operators found — type a name to enter manually"
@@ -2070,7 +2071,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
                           }}
                         >
                           {resolvingMt ? (
-                            <Spin size="small" />
+                            <GlobalLoading spinnerOnly size="small" />
                           ) : displayTarget !== null ? (
                             <Text strong style={{ fontSize: 18 }}>
                               {formatNumber(displayTarget, 3)}
@@ -2517,7 +2518,7 @@ const EntryForm: React.FC<{ mode: 'create' | 'edit' }> = ({ mode }) => {
               {machineLinked && mtResolution?.route ? (
                 <RouteChain route={mtResolution.route} />
               ) : machineLinked && resolvingMt ? (
-                <Spin size="small" />
+                <GlobalLoading spinnerOnly size="small" />
               ) : machineLinked && !mtResolution?.route ? (
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   No production route configured for this item.
@@ -3699,7 +3700,7 @@ const RawMaterialAvailability: React.FC<{
                 Output Inventory {receiptStoreLabel ? `(${receiptStoreLabel})` : ''}
               </Text>
               {info.outLoading ? (
-                <Spin size="small" />
+                <GlobalLoading spinnerOnly size="small" />
               ) : info.outError || info.outAvailable == null ? (
                 <Text type="secondary" data-testid={`material-flow-outputinv-${index + 1}`} style={{ color: 'var(--theme-text-muted, #8c8c8c)' }}>—</Text>
               ) : (() => {
@@ -3817,7 +3818,7 @@ const RawMaterialAvailability: React.FC<{
                     <Text type="secondary" style={{ fontSize: 11 }}>Required <Text strong data-testid={`material-flow-required-${index + 1}`}>{formatNumber(line.required, 3)} {line.uomCode}</Text></Text>
                     <Text type="secondary">·</Text>
                     {line.loadingAvailable ? (
-                      <Text type="secondary"><Spin size="small" /></Text>
+                      <Text type="secondary"><GlobalLoading spinnerOnly size="small" /></Text>
                     ) : line.availableError || line.available == null ? (
                       <Text type="secondary" data-testid={`material-flow-status-${index + 1}`} style={{ color: 'var(--theme-text-muted, #8c8c8c)' }}>Available — Unable to determine</Text>
                     ) : line.shortage != null && line.shortage > 0 ? (
@@ -3960,7 +3961,7 @@ const RawMaterialAvailability: React.FC<{
             </Text>
             <div style={{ marginTop: 4 }}>
               {info?.loading ? (
-                <div style={{ padding: '4px 0' }}><Spin size="small" /></div>
+                <div style={{ padding: '4px 0' }}><GlobalLoading spinnerOnly size="small" /></div>
               ) : info?.traceStatus === 'no-previous-stage' ? (
                 <>
                   <Text type="secondary" style={{ fontSize: 12 }}>Previous production stage is not configured for this item.</Text>

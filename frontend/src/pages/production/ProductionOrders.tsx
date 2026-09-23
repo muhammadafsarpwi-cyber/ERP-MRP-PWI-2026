@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Tag, Modal, Form, Input, Select, App, Row, Col,
   InputNumber, Drawer, Descriptions, Divider, Typography, Button, Table,
@@ -9,7 +9,8 @@ import apiService from '../../services/api';
 import { formatNumber } from '../../utils/numberFormat';
 import { calcActualKg, perUnitWeightLabel } from '../../utils/productionWeight';
 import { formatNameWithCode } from '../../utils/formatEntityLabel';
-import { PageHeader, ERPTable, TableToolbar, TableActions } from '../../components/shared';
+import { PageHeader, ERPTable, TableToolbar, TableActions, TabKeepAlive, GlobalLoading } from '../../components/shared';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 interface ProductionOrder {
   id: string;
@@ -61,6 +62,16 @@ const STATUS_OPTIONS = ['DRAFT', 'RELEASED', 'IN_PROGRESS', 'COMPLETED', 'CANCEL
 
 const PRIORITY_OPTIONS = ['LOW', 'NORMAL', 'HIGH', 'URGENT', 'CRITICAL'];
 
+const ORDERS_TAB_ID = '/production/orders';
+
+interface ProductionOrdersTabCache {
+  data: ProductionOrder[];
+  total: number;
+  page: number;
+  search: string;
+  filterStatus?: string;
+}
+
 const statusColorMap: Record<string, string> = {
   DRAFT: 'default', RELEASED: 'blue', IN_PROGRESS: 'orange',
   COMPLETED: 'green', CANCELLED: 'red',
@@ -99,12 +110,14 @@ export function buildCreateOrderPayload(values: {
 
 const ProductionOrders: React.FC = () => {
   const { message } = App.useApp();
-  const [data, setData] = useState<ProductionOrder[]>([]);
+  const cachedTab = useMemo(() => tabSessionCache.get<ProductionOrdersTabCache>(ORDERS_TAB_ID), []);
+
+  const [data, setData] = useState<ProductionOrder[]>(() => cachedTab?.data ?? []);
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
+  const [total, setTotal] = useState<number>(() => cachedTab?.total ?? 0);
+  const [page, setPage] = useState<number>(() => cachedTab?.page ?? 1);
+  const [search, setSearch] = useState<string>(() => cachedTab?.search ?? '');
+  const [filterStatus, setFilterStatus] = useState<string | undefined>(() => cachedTab?.filterStatus ?? undefined);
   const [pageSize] = useState(20);
   const [boms, setBoms] = useState<BomOption[]>([]);
   const [items, setItems] = useState<ItemOption[]>([]);
@@ -125,6 +138,14 @@ const ProductionOrders: React.FC = () => {
       const res = await apiService.get<{ data: ProductionOrder[]; total: number }>('/production/orders', params);
       setData(res.data);
       setTotal(res.total);
+      // Persist to session cache so switching back restores filters + rows
+      tabSessionCache.set<ProductionOrdersTabCache>(ORDERS_TAB_ID, {
+        data: res.data,
+        total: res.total,
+        page: pageNum,
+        search,
+        filterStatus,
+      });
     } catch {
       message.error('Failed to fetch production orders');
     } finally {
@@ -132,7 +153,13 @@ const ProductionOrders: React.FC = () => {
     }
   }, [search, filterStatus, pageSize, message]);
 
-  useEffect(() => { fetchData(page); }, [page, fetchData]);
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached rows are already seeded into state.
+    if (tabSessionCache.has(ORDERS_TAB_ID)) return;
+    void fetchData(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -160,7 +187,22 @@ const ProductionOrders: React.FC = () => {
       setRoutings(rt);
       setUoms(uo);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(ORDERS_TAB_ID)) {
+        tabSessionCache.remove(ORDERS_TAB_ID);
+        void fetchData(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData, page]);
 
   const handleCreate = () => {
     form.resetFields();
@@ -347,51 +389,77 @@ const ProductionOrders: React.FC = () => {
   const selectedProductId = Form.useWatch('productId', form);
 
   return (
-    <div>
-      <PageHeader
-        icon={<PlusOutlined />}
-        title="Production Orders"
-        showBreadcrumbs
-        subtitle="Plan and manage manufacturing orders"
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            Create Order
-          </Button>
-        }
-      />
+    <TabKeepAlive
+      tabId={ORDERS_TAB_ID}
+      load={async () => { await fetchData(page); }}
+      serialize={() => ({ data, total, page, search, filterStatus })}
+    >
+      <div>
+        <PageHeader
+          icon={<PlusOutlined />}
+          title="Production Orders"
+          showBreadcrumbs
+          subtitle="Plan and manage manufacturing orders"
+          extra={
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+              Create Order
+            </Button>
+          }
+        />
 
-      <TableToolbar
-        searchPlaceholder="Search orders..."
-        searchValue={search}
-        onSearchChange={(v: string) => { setSearch(v); setPage(1); }}
-        filters={[
-          {
-            key: 'status',
-            placeholder: 'Status',
-            value: filterStatus,
-            options: STATUS_OPTIONS.map((s) => ({ value: s, label: s })),
-            onChange: (v: any) => { setFilterStatus(v as string); setPage(1); },
-            width: 150,
-          },
-        ]}
-        onRefresh={() => fetchData(page)}
-      />
+        <TableToolbar
+          searchPlaceholder="Search orders..."
+          searchValue={search}
+          onSearchChange={(v: string) => { setSearch(v); setPage(1); }}
+          filters={[
+            {
+              key: 'status',
+              placeholder: 'Status',
+              value: filterStatus,
+              options: STATUS_OPTIONS.map((s) => ({ value: s, label: s })),
+              onChange: (v: any) => { setFilterStatus(v as string); setPage(1); },
+              width: 150,
+            },
+          ]}
+          onRefresh={() => fetchData(page)}
+        />
 
-      <ERPTable
-        columns={columns}
-        dataSource={data}
-        rowKey="id"
-        loading={loading}
-        scroll={{ x: 950 }}
-        pagination={{
-          current: page,
-          total,
-          pageSize,
-          onChange: setPage,
-          showSizeChanger: false,
-          showTotal: (t, r) => `Showing ${r[0]}–${r[1]} of ${t} entries`,
-        }}
-      />
+        <div style={{ position: 'relative', minHeight: 340 }}>
+          {loading && data.length === 0 ? (
+            <GlobalLoading
+              title="Loading Production Orders..."
+              subtitle="Retrieving open and completed manufacturing orders directly from database..."
+              badgeText="LIVE DATABASE QUERY"
+              minHeight={360}
+            />
+          ) : (
+            <>
+              {loading && (
+                <GlobalLoading
+                  overlay
+                  title="Refreshing Production Orders..."
+                  subtitle="Updating order status and material requirements..."
+                  badgeText="Instant Sync"
+                />
+              )}
+              <ERPTable
+                columns={columns}
+                dataSource={data}
+                rowKey="id"
+                loading={false}
+                scroll={{ x: 950 }}
+                pagination={{
+                  current: page,
+                  total,
+                  pageSize,
+                  onChange: setPage,
+                  showSizeChanger: false,
+                  showTotal: (t, r) => `Showing ${r[0]}–${r[1]} of ${t} entries`,
+                }}
+              />
+            </>
+          )}
+        </div>
 
       <Modal title="Create Production Order" open={modalVisible} onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={760}>
         <Form form={form} layout="vertical" onValuesChange={(changed) => {
@@ -500,6 +568,7 @@ const ProductionOrders: React.FC = () => {
         )}
       </Drawer>
     </div>
+  </TabKeepAlive>
   );
 };
 

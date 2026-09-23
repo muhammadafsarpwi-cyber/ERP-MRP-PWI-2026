@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, App as AntApp, Button, Card, Col, Dropdown, Input, Modal, Pagination, Row, Select,
-  Space, Tag, Tooltip, Typography,
+  Space, Tag, Tooltip, Typography, theme, Checkbox,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, SearchOutlined, DownloadOutlined,
@@ -15,7 +15,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
-import { StatusBadge, PriorityBadge, MaintenanceTypeBadge, ERPTable } from '../../components/shared';
+import dayjs from 'dayjs';
+import { StatusBadge, PriorityBadge, MaintenanceTypeBadge, ERPTable, GlobalLoading } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
 import {
   JOB_CARD_BASE, JOB_CARD_STATUSES, JOB_CARD_PRIORITIES, MAINTENANCE_TYPES,
@@ -62,6 +63,28 @@ const DEFAULT_PAGE_SIZE = 20;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 const userName = (u: any) => (u && (u.displayName || u.fullName || u.firstName || u.email || u.id)) || '—';
+
+const formatDateTime = (dateStr?: string | null): string => {
+  if (!dateStr) return '-';
+  const d = dayjs(dateStr);
+  return d.isValid() ? d.format('DD-MMM-YYYY HH:mm') : '-';
+};
+
+const COLUMN_META: Record<string, { label: string }> = {
+  job: { label: 'Job Card' },
+  machine: { label: 'Machine' },
+  downtime: { label: 'Downtime / Elapsed' },
+  complaint: { label: 'Complaint' },
+  type: { label: 'Type' },
+  priority: { label: 'Priority' },
+  assigned: { label: 'Assigned To' },
+  dept: { label: 'Department' },
+  status: { label: 'Status' },
+  next: { label: 'Next Action' },
+  createdByNameDate: { label: 'Created By / Date' },
+  updatedByNameDate: { label: 'Updated By / Date' },
+  actions: { label: 'Actions' },
+};
 /**
  * Human-readable technician names for the Job Card table. Internal employee /
  * user identifiers (employee IDs, UUIDs) are intentionally excluded here —
@@ -238,6 +261,23 @@ export const JobCardList: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { message } = AntApp.useApp();
   const { user, can } = usePermission();
+  const { token } = theme.useToken();
+
+  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({
+    job: true,
+    machine: true,
+    downtime: true,
+    complaint: true,
+    type: true,
+    priority: true,
+    assigned: true,
+    dept: true,
+    status: true,
+    next: true,
+    createdByNameDate: true,
+    updatedByNameDate: true,
+    actions: true,
+  });
 
   const [rows, setRows] = useState<JobCard[]>([]);
   const [total, setTotal] = useState(0);
@@ -922,7 +962,8 @@ export const JobCardList: React.FC = () => {
           r.assignedDepartment?.name || '',
           label(r.currentStatus).replace(/_/g, ' '),
           r.requestedAt ? new Date(r.requestedAt).toLocaleString() : '',
-        ];
+  ];
+
       });
       autoTable(doc, { head, body, startY: 70, styles: { fontSize: 8, cellPadding: 4 }, headStyles: { fillColor: [31, 41, 55], textColor: 255 }, alternateRowStyles: { fillColor: [245, 245, 245] } });
       const pageCount = (doc as any).internal.getNumberOfPages();
@@ -1092,10 +1133,36 @@ export const JobCardList: React.FC = () => {
       },
     },
     {
+      title: 'Created By / Date',
+      key: 'createdByNameDate',
+      width: 160,
+      sorter: (a, b) => (a.createdByName || '').localeCompare(b.createdByName || ''),
+      render: (_, record) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}>{record.createdByName || (record.createdBy ? 'Admin' : '-')}</span>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary }}>{formatDateTime(record.createdAt)}</span>
+        </div>
+      ),
+    },
+    {
+      title: 'Updated By / Date',
+      key: 'updatedByNameDate',
+      width: 160,
+      sorter: (a, b) => (a.updatedByName || '').localeCompare(b.updatedByName || ''),
+      render: (_, record) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}>{record.updatedByName || (record.updatedBy ? 'Admin' : '-')}</span>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary }}>{formatDateTime(record.updatedAt)}</span>
+        </div>
+      ),
+    },
+    {
       title: 'Actions', key: 'actions', width: IsAllView ? 115 : (isMobile ? 140 : 175), fixed: isMobile ? undefined : 'right',
       render: renderRowActions,
     },
   ];
+
+  const visibleColumns = columns.filter((c) => visibleCols[c.key as keyof typeof visibleCols] !== false);
 
   const createContext = () => {
     const machine = machines.find(v => v.id === filters.machineId);
@@ -1397,7 +1464,6 @@ export const JobCardList: React.FC = () => {
           </Button>
         </Col>
         {activeFilterCount > 0 && <Col><Tag color="blue">{activeFilterCount}</Tag></Col>}
-        <Col flex="auto" />
         <Col style={{ minWidth: 220, flex: '1 1 260px' }}>
           <Input
             allowClear prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
@@ -1406,6 +1472,63 @@ export const JobCardList: React.FC = () => {
             onChange={e => onSearchChange(e.target.value)}
             style={{ width: '100%' }}
           />
+        </Col>
+        <Col flex="auto" />
+        <Col>
+          <Dropdown
+            trigger={['click']}
+            placement="bottomRight"
+            popupRender={() => (
+              <div
+                style={{
+                  background: token.colorBgElevated,
+                  padding: '12px 16px',
+                  borderRadius: 8,
+                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                  minWidth: 200,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 10,
+                    paddingBottom: 8,
+                    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
+                    Table Columns
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {Object.entries(COLUMN_META).map(([key, meta]) => (
+                    <Checkbox
+                      key={key}
+                      checked={visibleCols[key] !== false}
+                      disabled={key === 'job' || key === 'actions'}
+                      onChange={(e) => {
+                        const next = { ...visibleCols, [key]: e.target.checked };
+                        setVisibleCols(next);
+                        try {
+                          localStorage.setItem('erp_job_card_table_columns', JSON.stringify(next));
+                        } catch {}
+                      }}
+                      style={{ fontSize: 13, color: token.colorText }}
+                    >
+                      {meta.label}
+                    </Checkbox>
+                  ))}
+                </div>
+              </div>
+            )}
+          >
+            <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
+              Columns
+            </Button>
+          </Dropdown>
         </Col>
         {(activeFilterCount > 0 || filters.search) && <Col><Button type="text" icon={<ClearOutlined />} onClick={resetAll}>Clear</Button></Col>}
       </Row>
@@ -1482,13 +1605,22 @@ export const JobCardList: React.FC = () => {
     {error && <Alert type="error" showIcon message="Unable to load job cards" description={error} action={<Button onClick={() => { clearJobCardCache(); load(true); loadQueue(); }}>Retry</Button>} style={{ marginBottom: 16, borderRadius: 6 }} />}
 
     <div>
+      {loading ? (
+        <GlobalLoading
+          title="Loading Maintenance Job Cards..."
+          subtitle="Fetching active hardware fault tickets..."
+          badgeText="LIVE DATABASE QUERY"
+          minHeight={450}
+        />
+      ) : (
+        <>
       <ERPTable
         rowKey="id"
-        columns={columns}
+        columns={visibleColumns}
         dataSource={displayRows}
         pagination={false}
         scroll={{ x: isMobile ? 1050 : 1300 }}
-        loading={loading}
+        loading={false}
         onRow={(record: JobCard) => ({
           onClick: (e: React.MouseEvent) => {
             const target = e.target as HTMLElement | null;
@@ -1534,6 +1666,8 @@ export const JobCardList: React.FC = () => {
           <Pagination current={page} pageSize={pageSize} total={total} onChange={setPage} showSizeChanger={false} showLessItems />
         </Space>
       </div>
+        </>
+      )}
     </div>
     <input ref={fileInputRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={onFileSelected} />
 

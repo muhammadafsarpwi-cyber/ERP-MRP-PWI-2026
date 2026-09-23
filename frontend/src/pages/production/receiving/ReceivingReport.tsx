@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Badge, Button, Card, Col, DatePicker, Divider, Form, Input, Row, Select, Space, Spin, Table, Tag, Typography, App,
+  Alert, Badge, Button, Card, Col, DatePicker, Divider, Form, Input, Row, Select, Space, Table, Tag, Typography, App,
 } from 'antd';
 import {
   BarChartOutlined, ReloadOutlined, SearchOutlined,
@@ -13,12 +13,21 @@ import apiService from '../../../services/api';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
 import { formatNameWithCode } from '../../../utils/formatEntityLabel';
+import { GlobalLoading, TabKeepAlive } from '../../../components/shared';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import './rawMaterialForms.css';
 
 const { Text, Title } = Typography;
 
 /** Formats numbers with thousand separators and trims redundant trailing zeros */
 const formatQty = (v: unknown): string => formatNumber(v, 2);
+
+const RM_RECEIVING_RETURN_REPORT_TAB_ID = '/production/receiving-return-report';
+
+interface ReceivingReportTabCache {
+  report: ReportResult;
+  formValues: Record<string, any>;
+}
 
 interface OrgOption { id: string; name: string; divisionCode?: string; sectionCode?: string; departmentCode?: string; }
 interface WarehouseOption { id: string; name: string; warehouseCode?: string; }
@@ -141,6 +150,7 @@ interface ReportResult {
 const ReceivingReport: React.FC = () => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  const cachedTab = useMemo(() => tabSessionCache.get<ReceivingReportTabCache>(RM_RECEIVING_RETURN_REPORT_TAB_ID), []);
 
   const [refData, setRefData] = useState<FormRefData | null>(null);
   const [refState, setRefState] = useState<'loading' | 'error' | 'ready'>('loading');
@@ -148,10 +158,10 @@ const ReceivingReport: React.FC = () => {
   const [departments, setDepartments] = useState<OrgOption[]>([]);
   const [departmentsState, setDepartmentsState] = useState<'loading' | 'error' | 'ready'>('ready');
 
-  const [report, setReport] = useState<ReportResult | null>(null);
+  const [report, setReport] = useState<ReportResult | null>(() => cachedTab?.report ?? null);
   const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [reportState, setReportState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
+  const [loaded, setLoaded] = useState<boolean>(() => !!cachedTab?.report);
+  const [reportState, setReportState] = useState<'idle' | 'loading' | 'error' | 'ready'>(() => cachedTab ? 'ready' : 'idle');
 
   const watchDivision = Form.useWatch('divisionId', form);
   const watchSection = Form.useWatch('sectionId', form);
@@ -247,6 +257,11 @@ const ReceivingReport: React.FC = () => {
       setReport(res.data);
       setLoaded(true);
       setReportState('ready');
+      // Persist to session cache so switching back restores the report instantly
+      tabSessionCache.set<ReceivingReportTabCache>(RM_RECEIVING_RETURN_REPORT_TAB_ID, {
+        report: res.data,
+        formValues: values,
+      });
     } catch (err: any) {
       setReport(null);
       setReportState('error');
@@ -267,7 +282,28 @@ const ReceivingReport: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runReport, currentMonth]);
 
-  useEffect(() => { runDefault(); }, [runDefault]);
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-run the report
+    // when returning to it — the cached report is already seeded into state.
+    if (!tabSessionCache.has(RM_RECEIVING_RETURN_REPORT_TAB_ID)) {
+      runDefault();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(RM_RECEIVING_RETURN_REPORT_TAB_ID)) {
+        tabSessionCache.remove(RM_RECEIVING_RETURN_REPORT_TAB_ID);
+        runDefault();
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runDefault]);
 
   const receiptColumns: ColumnsType<ReceiptGroup> = [
     { title: 'Receipt Code', dataIndex: 'receiptCode', key: 'receiptCode', width: 130, render: (v: string) => <Text strong>{v}</Text> },
@@ -328,7 +364,12 @@ const ReceivingReport: React.FC = () => {
   const hasData = loaded && !!report;
 
   return (
-    <div className="erp-dashboard">
+    <TabKeepAlive
+      tabId={RM_RECEIVING_RETURN_REPORT_TAB_ID}
+      load={async () => { runDefault(); }}
+      serialize={() => ({ report, formValues: form.getFieldsValue(true) })}
+    >
+      <div className="erp-dashboard">
       <Card className="erp-section-card" style={{ marginBottom: 16 }}>
         <Row justify="space-between" align="middle">
           <Col>
@@ -512,8 +553,8 @@ const ReceivingReport: React.FC = () => {
       )}
 
       {reportState === 'loading' && (
-        <Card className="erp-section-card" style={{ marginTop: 16, textAlign: 'center' }}>
-          <Spin tip="Loading report..." />
+        <Card className="erp-section-card" style={{ marginTop: 16 }}>
+          <GlobalLoading title="Generating Receiving & Return Report..." subtitle="Aggregating gate pass, received, difference, returns and legacy ledger entries..." badgeText="LIVE DATABASE QUERY" minHeight={260} />
         </Card>
       )}
 
@@ -711,6 +752,7 @@ const ReceivingReport: React.FC = () => {
         </>
       )}
     </div>
+  </TabKeepAlive>
   );
 };
 

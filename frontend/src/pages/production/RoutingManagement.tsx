@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Descriptions, Segmented,
@@ -15,10 +15,20 @@ import RoutingProcessFlow from './RoutingProcessFlow';
 import dayjs from 'dayjs';
 import apiService, { describeRequestError } from '../../services/api';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
+import { TabKeepAlive, GlobalLoading } from '../../components/shared';
 import { formatDecimal, toNum } from '../../utils/numberFormat';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 
 import { getLookupsSnapshot, subscribeLookups } from '../../services/lookupsCache';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+
+const ROUTING_TAB_ID = '/production/routings';
+
+interface RoutingTabCache {
+  routings: Routing[];
+  search: string;
+  filterStatus?: string;
+}
 
 const { Title } = Typography;
 
@@ -46,7 +56,9 @@ const ROUTING_PAYLOAD_FIELDS = [
 const RoutingManagement: React.FC = () => {
   const { message, modal } = App.useApp();
   const initialSnap = getLookupsSnapshot();
-  const [routings, setRoutings] = useState<Routing[]>([]);
+  const cachedTab = useMemo(() => tabSessionCache.get<RoutingTabCache>(ROUTING_TAB_ID), []);
+
+  const [routings, setRoutings] = useState<Routing[]>(() => cachedTab?.routings ?? []);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<Item[]>(() => initialSnap.items as Item[]);
   const [itemSearching, setItemSearching] = useState(false);
@@ -72,8 +84,8 @@ const RoutingManagement: React.FC = () => {
   const [routingResultError, setRoutingResultError] = useState<string>('');
   const [routingResultErrorTitle, setRoutingResultErrorTitle] = useState<string | undefined>(undefined);
   const [routingResultErrorLead, setRoutingResultErrorLead] = useState<string | undefined>(undefined);
-  const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
+  const [search, setSearch] = useState<string>(() => cachedTab?.search ?? '');
+  const [filterStatus, setFilterStatus] = useState<string | undefined>(() => cachedTab?.filterStatus ?? undefined);
   const [viewMode, setViewMode] = useState<'table' | 'flow'>('table');
 
   const searchItems = useCallback(async (query: string) => {
@@ -102,11 +114,17 @@ const RoutingManagement: React.FC = () => {
         ? raw
         : (Array.isArray(raw?.data) ? raw.data : (Array.isArray(res) ? res : []));
       setRoutings(list);
+      // Persist to session cache so switching back restores rows + filters
+      tabSessionCache.set<RoutingTabCache>(ROUTING_TAB_ID, {
+        routings: list,
+        search,
+        filterStatus,
+      });
     } catch {
       message.error('Failed to fetch routings');
     }
     finally { setLoading(false); }
-  }, [message]);
+  }, [message, search, filterStatus]);
 
   const fetchLookupData = useCallback(async () => {
     try {
@@ -134,7 +152,11 @@ const RoutingManagement: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchRoutings();
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached rows are already seeded into state.
+    if (!tabSessionCache.has(ROUTING_TAB_ID)) {
+      fetchRoutings();
+    }
     fetchLookupData();
     const unsubscribe = subscribeLookups((snap) => {
       if (snap.items.length > 0) setItems(snap.items as Item[]);
@@ -145,7 +167,22 @@ const RoutingManagement: React.FC = () => {
       if (snap.machines.length > 0) setMachines(snap.machines as Machine[]);
     });
     return () => unsubscribe();
-  }, [fetchRoutings, fetchLookupData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(ROUTING_TAB_ID)) {
+        tabSessionCache.remove(ROUTING_TAB_ID);
+        void fetchRoutings();
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchRoutings]);
 
   const filteredRoutings = (routings || []).filter(r => {
     const matchSearch = !search || r.routingCode.toLowerCase().includes(search.toLowerCase()) || r.name.toLowerCase().includes(search.toLowerCase());
@@ -592,28 +629,54 @@ const RoutingManagement: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '4px 6px', width: '100%' }}>
-      <Card title="Production Routings" extra={
-        <Space>
-          <Input.Search placeholder="Search routings..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
-          <Select placeholder="Status" allowClear value={filterStatus} onChange={setFilterStatus} style={{ width: 130 }}>
-            <Select.Option value="DRAFT">Draft</Select.Option>
-            <Select.Option value="ACTIVE">Active</Select.Option>
-            <Select.Option value="OBSOLETE">Obsolete</Select.Option>
-          </Select>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>New Routing</Button>
-          <Button icon={<ReloadOutlined />} onClick={fetchRoutings}>Refresh</Button>
-        </Space>
-      }>
-        <Table
-          dataSource={filteredRoutings}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          scroll={{ x: 1800 }}
-          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `Total ${t} routings` }}
-        />
-      </Card>
+    <TabKeepAlive
+      tabId={ROUTING_TAB_ID}
+      load={async () => { await fetchRoutings(); await fetchLookupData(); }}
+      serialize={() => ({ routings, search, filterStatus })}
+    >
+      <div style={{ padding: '4px 6px', width: '100%' }}>
+        <Card title="Production Routings" extra={
+          <Space>
+            <Input.Search placeholder="Search routings..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
+            <Select placeholder="Status" allowClear value={filterStatus} onChange={setFilterStatus} style={{ width: 130 }}>
+              <Select.Option value="DRAFT">Draft</Select.Option>
+              <Select.Option value="ACTIVE">Active</Select.Option>
+              <Select.Option value="OBSOLETE">Obsolete</Select.Option>
+            </Select>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>New Routing</Button>
+            <Button icon={<ReloadOutlined />} onClick={fetchRoutings}>Refresh</Button>
+          </Space>
+        }>
+          <div style={{ position: 'relative', minHeight: 340 }}>
+            {loading && filteredRoutings.length === 0 ? (
+              <GlobalLoading
+                title="Loading Production Routings..."
+                subtitle="Retrieving all configured routings directly from database..."
+                badgeText="LIVE DATABASE QUERY"
+                minHeight={360}
+              />
+            ) : (
+              <>
+                {loading && (
+                  <GlobalLoading
+                    overlay
+                    title="Refreshing Production Routings..."
+                    subtitle="Updating routing operations and cost estimates..."
+                    badgeText="Instant Sync"
+                  />
+                )}
+                <Table
+                  dataSource={filteredRoutings}
+                  columns={columns}
+                  rowKey="id"
+                  loading={false}
+                  scroll={{ x: 1800 }}
+                  pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `Total ${t} routings` }}
+                />
+              </>
+            )}
+          </div>
+        </Card>
 
       <Modal
         title={editingRouting ? 'Edit Routing' : 'New Routing'}
@@ -710,6 +773,7 @@ const RoutingManagement: React.FC = () => {
         onClose={() => setRoutingResultOpen(false)}
       />
     </div>
+  </TabKeepAlive>
   );
 };
 

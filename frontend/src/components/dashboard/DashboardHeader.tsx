@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Tooltip } from 'antd';
 import { ClockCircleOutlined, DashboardOutlined, ReloadOutlined } from '@ant-design/icons';
+import { GlobalLoading } from '../shared';
 
 export type SystemStatus = 'operational' | 'degraded' | 'loading';
 
@@ -14,6 +15,10 @@ interface DashboardHeaderProps {
  * Command-center header with a live clock (minute precision), a derived
  * operational status indicator and a refresh action. The clock is updated on
  * a 30 s interval and fully cleaned up on unmount.
+ *
+ * When the dashboard is loading with no cached data yet, the status indicator
+ * renders the canonical GlobalLoading radar spinner (the same orbital rings
+ * used by the Production Inventory Report) instead of a plain status dot.
  */
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({ status, refreshing, onRefresh }) => {
   const [now, setNow] = useState(() => new Date());
@@ -56,7 +61,11 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ status, refreshing, o
           role="status"
           aria-label={statusText}
         >
-          <span className="erp-header__status-dot" aria-hidden="true" />
+          {status === 'loading' ? (
+            <GlobalLoading spinnerOnly size="small" />
+          ) : (
+            <span className="erp-header__status-dot" aria-hidden="true" />
+          )}
           {statusText}
         </span>
         <Tooltip title="Refresh All Data">

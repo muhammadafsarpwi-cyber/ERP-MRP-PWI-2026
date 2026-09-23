@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Alert, App, Badge, Button, Card, Checkbox, DatePicker, Descriptions, Dropdown, Form, Grid, Input, InputNumber,
-  Modal, Popover, Segmented, Select, Space, Spin, Table, Tooltip, Typography, Upload,
+  Modal, Popover, Segmented, Select, Space, Table, Tooltip, Typography, Upload,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -20,9 +20,9 @@ import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
 import apiService from '../../services/api';
 import {
-  PageHeader, StatusBadge, EmptyState, LoadingState, HeaderCell, HighlightedCell, TableActions,
+  PageHeader, StatusBadge, EmptyState, HeaderCell, HighlightedCell, TableActions,
   DraggableResizableModal, SaveResultDialog, SaveResultPhase, SaveResultData, BarcodeScanner,
-  DeleteConfirmModal,
+  DeleteConfirmModal, TabKeepAlive, GlobalLoading,
 } from '../../components/shared';
 import { label } from '../maintenance/jobCards.types';
 import { getMachineColor } from '../../utils/colorMapping';
@@ -30,8 +30,21 @@ import { handleValidationErrors } from '../../utils/formValidationHelper';
 import BarcodePrint from '../../components/shared/BarcodePrint';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 const { Text } = Typography;
+
+const MASTER_MACHINE_MASTER_TAB_ID = '/master-data/machine-master';
+
+interface MachineMasterCache {
+  machines: Machine[];
+  total: number;
+  statusCounts: { all: number; active: number; maintenance: number; breakdown: number; inactive: number; retired: number };
+  divisions: DivisionLk[];
+  sections: SectionLk[];
+  departments: DepartmentLk[];
+  filters: { search: string; fMachineId: string; fDivision?: string; fSection?: string; fDepartment?: string; fStatus?: string; fCriticality?: string; page: number; pageSize: number; sortBy: string; sortDir: 'ASC' | 'DESC' };
+}
 
 interface OrgItem { id: string; name: string; }
 interface DivisionLk extends OrgItem { divisionCode: string; }
@@ -636,10 +649,10 @@ const JobCardsSection: React.FC<{ jobCards: JobCardLite[]; jobCardsLoading: bool
       <Table
         rowKey="id"
         size="small"
-        loading={jobCardsLoading}
+        loading={false}
         dataSource={filtered}
         pagination={false}
-        locale={{ emptyText: jobCardsLoading ? ' ' : <EmptyState title="No job card history available." description="Job cards raised against this machine will appear here." /> }}
+        locale={{ emptyText: jobCardsLoading ? <GlobalLoading spinnerOnly size="small" /> : <EmptyState title="No job card history available." description="Job cards raised against this machine will appear here." /> }}
         scroll={{ x: 700 }}
         columns={buildColumns()}
       />
@@ -868,10 +881,10 @@ const ToolingSection: React.FC<{
       <Table
         rowKey="id"
         size="small"
-        loading={loading}
+        loading={false}
         dataSource={filtered}
         pagination={false}
-        locale={{ emptyText: loading ? ' ' : <EmptyState title="No tooling components found." description="Register tooling components for this machine in Machine Tooling." /> }}
+        locale={{ emptyText: loading ? <GlobalLoading spinnerOnly size="small" /> : <EmptyState title="No tooling components found." description="Register tooling components for this machine in Machine Tooling." /> }}
         scroll={{ x: 700 }}
         columns={buildCols()}
       />
@@ -987,8 +1000,8 @@ const ProductionSection: React.FC<{
         <Link to="/production/targets" style={{ fontSize: 12 }}>Open Machine Targets</Link>
       </div>
       <Table
-        rowKey="id" size="small" loading={targetsLoading} dataSource={targets} pagination={false}
-        locale={{ emptyText: targetsLoading ? ' ' : <Typography.Text type="secondary">No machine targets for this machine</Typography.Text> }}
+        rowKey="id" size="small" loading={false} dataSource={targets} pagination={false}
+        locale={{ emptyText: targetsLoading ? <GlobalLoading spinnerOnly size="small" /> : <Typography.Text type="secondary">No machine targets for this machine</Typography.Text> }}
         scroll={{ x: 640 }}
         columns={[
           { title: 'Shift', key: 'shift', render: (_, r) => <span style={{ whiteSpace: 'nowrap' }}>{r.shift?.name ?? r.shift?.shiftCode ?? '—'}</span> },
@@ -1026,8 +1039,8 @@ const ProductionSection: React.FC<{
       </div>
 
       <Table
-        rowKey="id" size="small" loading={entriesLoading} dataSource={filtered} pagination={false}
-        locale={{ emptyText: entriesLoading ? ' ' : <Typography.Text type="secondary">No production entries for this machine</Typography.Text> }}
+        rowKey="id" size="small" loading={false} dataSource={filtered} pagination={false}
+        locale={{ emptyText: entriesLoading ? <GlobalLoading spinnerOnly size="small" /> : <Typography.Text type="secondary">No production entries for this machine</Typography.Text> }}
         scroll={{ x: 640 }}
         columns={buildCols()}
       />
@@ -1481,23 +1494,25 @@ const EXPORT_HEADERS = [
 const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMachineId }) => {
   const { message } = App.useApp();
   const screens = Grid.useBreakpoint();
-  const [machines, setMachines] = useState<Machine[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [sortBy, setSortBy] = useState<string>('machineCode');
-  const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('ASC');
+  const cachedMaster = useMemo(() => tabSessionCache.get<MachineMasterCache>(MASTER_MACHINE_MASTER_TAB_ID), []);
 
-  const [search, setSearch] = useState('');
+  const [machines, setMachines] = useState<Machine[]>(() => cachedMaster?.machines ?? []);
+  const [loading, setLoading] = useState(!cachedMaster);
+  const [error, setError] = useState<string | null>(null);
+  const [total, setTotal] = useState<number>(() => cachedMaster?.total ?? 0);
+  const [page, setPage] = useState<number>(() => cachedMaster?.filters?.page ?? 1);
+  const [pageSize, setPageSize] = useState<number>(() => cachedMaster?.filters?.pageSize ?? 20);
+  const [sortBy, setSortBy] = useState<string>(() => cachedMaster?.filters?.sortBy ?? 'machineCode');
+  const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>((cachedMaster?.filters?.sortDir as 'ASC' | 'DESC') ?? 'ASC');
+
+  const [search, setSearch] = useState<string>(() => cachedMaster?.filters?.search ?? '');
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [fMachineId, setFMachineId] = useState<string>('');
-  const [fDivision, setFDivision] = useState<string | undefined>();
-  const [fSection, setFSection] = useState<string | undefined>();
-  const [fDepartment, setFDepartment] = useState<string | undefined>();
-  const [fStatus, setFStatus] = useState<string | undefined>();
-  const [fCriticality, setFCriticality] = useState<string | undefined>();
+  const [fMachineId, setFMachineId] = useState<string>(() => cachedMaster?.filters?.fMachineId ?? '');
+  const [fDivision, setFDivision] = useState<string | undefined>(() => cachedMaster?.filters?.fDivision);
+  const [fSection, setFSection] = useState<string | undefined>(() => cachedMaster?.filters?.fSection);
+  const [fDepartment, setFDepartment] = useState<string | undefined>(() => cachedMaster?.filters?.fDepartment);
+  const [fStatus, setFStatus] = useState<string | undefined>(() => cachedMaster?.filters?.fStatus);
+  const [fCriticality, setFCriticality] = useState<string | undefined>(() => cachedMaster?.filters?.fCriticality);
   const [showFilters, setShowFilters] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [machineToDelete, setMachineToDelete] = useState<Machine | null>(null);
@@ -1516,7 +1531,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     breakdown: number;
     inactive: number;
     retired: number;
-  }>({ all: 0, active: 0, maintenance: 0, breakdown: 0, inactive: 0, retired: 0 });
+  }>(() => cachedMaster?.statusCounts ?? { all: 0, active: 0, maintenance: 0, breakdown: 0, inactive: 0, retired: 0 });
 
   // ─── Column visibility toggle state (Image 2 style) ───────────────────────
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>(() => {
@@ -1619,7 +1634,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     }
   }, [initialMachineId, message]);
 
-  const fetchMachines = useCallback(async (pageNum: number = page) => {
+  const fetchMachines = async (pageNum: number = page) => {
     setLoading(true);
     setError(null);
     try {
@@ -1634,12 +1649,23 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       const response = await apiService.get<{ data: Machine[]; total: number }>('/machines', params);
       setMachines(response.data);
       setTotal(response.total);
+      // Persist to session cache so switching back restores the registry instantly
+      tabSessionCache.set<MachineMasterCache>(MASTER_MACHINE_MASTER_TAB_ID, {
+        machines: response.data,
+        total: response.total,
+        statusCounts,
+        divisions, sections, departments,
+        filters: { search, fMachineId, fDivision, fSection, fDepartment, fStatus, fCriticality, page: pageNum, pageSize, sortBy, sortDir },
+      });
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load machines. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, sortBy, sortDir, search, fMachineId, fDivision, fSection, fDepartment, fStatus, fCriticality]);
+  };
+
+  const fetchMachinesRef = useRef(fetchMachines);
+  fetchMachinesRef.current = fetchMachines;
 
   const fetchStatusCounts = useCallback(async () => {
     try {
@@ -1670,7 +1696,14 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   }, []);
 
   useEffect(() => { fetchStatusCounts(); }, [fetchStatusCounts]);
-  useEffect(() => { fetchMachines(page); }, [page, pageSize, fetchMachines]);
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached registry is already seeded into state.
+    if (!tabSessionCache.has(MASTER_MACHINE_MASTER_TAB_ID)) {
+      void fetchMachinesRef.current(page);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, fetchMachines]);
 
   useEffect(() => {
     (async () => {
@@ -1688,6 +1721,20 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       }
     })();
   }, [message]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(MASTER_MACHINE_MASTER_TAB_ID)) {
+        tabSessionCache.remove(MASTER_MACHINE_MASTER_TAB_ID);
+        void fetchMachinesRef.current(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   const sectionsForDivision = useMemo(
     () => (divisionId?: string) => (divisionId ? sections.filter((s) => s.divisionId === divisionId) : sections),
@@ -2566,7 +2613,12 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   };
 
   return (
-    <div style={{ padding: '4px 6px', width: '100%' }}>
+    <TabKeepAlive
+      tabId={MASTER_MACHINE_MASTER_TAB_ID}
+      load={async () => { await fetchMachinesRef.current(page); }}
+      serialize={() => ({ machines, total, statusCounts, divisions, sections, departments, filters: { search, fMachineId, fDivision, fSection, fDepartment, fStatus, fCriticality, page, pageSize, sortBy, sortDir } })}
+    >
+      <div style={{ padding: '4px 6px', width: '100%' }}>
       <PageHeader
         icon={<ToolOutlined />}
         title="Machine Master"
@@ -2788,11 +2840,14 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
 
       <Card title={<span style={{ fontSize: 14, fontWeight: 600 }}>Machines</span>} styles={{ body: { padding: '8px 0 0' } }}>
         <div className="erp-table-container erp-table-container--dense">
+          {loading && machines.length === 0 ? (
+            <GlobalLoading title="Loading Machine Registry..." subtitle="Fetching machine configurations and shift assignments..." badgeText="LIVE DATABASE QUERY" minHeight={450} />
+          ) : (
           <Table
             rowKey="id"
             columns={filteredColumns}
             dataSource={machines}
-            loading={loading}
+            loading={false}
             scroll={{ x: 1040, y: 'calc(100vh - 360px)' }}
             sticky={{ offsetHeader: 0 }}
             size="middle"
@@ -2826,6 +2881,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               ),
             }}
           />
+          )}
         </div>
       </Card>
 
@@ -2858,7 +2914,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         }
       >
         {detailLoading ? (
-          <LoadingState tip="Loading machine details…" />
+          <GlobalLoading title="Loading Machine Details..." subtitle="Fetching machine metadata..." badgeText="LIVE DATABASE QUERY" minHeight={260} />
         ) : detail && detailModel ? (
           <Space direction="vertical" size={14} style={{ width: '100%' }}>
             <div className="erp-modal-nav" style={{ overflowX: 'auto', paddingBottom: 4 }}>
@@ -3139,7 +3195,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
 
         {importing && (
           <div style={{ textAlign: 'center', padding: 32 }}>
-            <Spin size="large" />
+            <GlobalLoading spinnerOnly size="large" />
             <div style={{ marginTop: 12 }}>Importing machines… this may take a moment.</div>
           </div>
         )}
@@ -3248,6 +3304,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         </div>
       )}
     </div>
+    </TabKeepAlive>
   );
 };
 
@@ -3444,7 +3501,7 @@ const FormModal: React.FC<FormModalProps> = ({
             <MachineSection model={previewModel} section="dates" showTitle />
           </>
         ) : (
-          <LoadingState tip="Preparing preview…" />
+          <GlobalLoading title="Preparing Preview..." subtitle="Generating machine configuration profile..." badgeText="LIVE DATABASE QUERY" minHeight={200} />
         )}
       </div>
     </div>

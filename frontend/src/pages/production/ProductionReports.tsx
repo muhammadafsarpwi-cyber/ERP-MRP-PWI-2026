@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, App, Button, Card, Dropdown, Row, Col, Select, DatePicker,
   Space, Statistic, Tabs, Tag, Tooltip, Typography,
@@ -15,9 +15,10 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
-import { PageHeader, PageToolbar, ERPTable } from '../../components/shared';
+import { PageHeader, PageToolbar, ERPTable, TabKeepAlive, GlobalLoading } from '../../components/shared';
 import { ITEM_TYPES } from '../master-data/items/itemTypes';
 import { calcActualKg, perUnitWeightLabel } from '../../utils/productionWeight';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import './productionReports.css';
 
 /* Shared Per Unit Weight / Actual KG helpers live in utils/productionWeight.ts
@@ -26,6 +27,28 @@ export { perUnitWeightLabel };
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
+
+const PRODUCTION_REPORTS_TAB_ID = '/production/reports';
+
+interface ProductionReportsTabCache {
+  report: EntryReportResponse | null;
+  entries: ProdEntryRow[];
+  entriesTotal: number;
+  entriesPage: number;
+  orders: ProdOrderRow[];
+  ordersTotal: number;
+  ordersPage: number;
+  targets: MachineTargetRow[];
+  targetsTotal: number;
+  targetsPage: number;
+  shipments: SalesDeliveryRow[];
+  shipmentsTotal: number;
+  shipmentsPage: number;
+  search: string;
+  filters: Filters;
+  dateRange: [dayjs.Dayjs | null, dayjs.Dayjs | null] | null;
+  activeTab: string;
+}
 
 /* ── Types (mirror backend responses) ─────────────────────────────────── */
 
@@ -233,34 +256,36 @@ function exportPdf(filename: string, title: string, subtitle: string, tables: Pd
 
 const ProductionReports: React.FC = () => {
   const { message } = App.useApp();
-  const [loading, setLoading] = useState(true);
+  const cachedTab = useMemo(() => tabSessionCache.get<ProductionReportsTabCache>(PRODUCTION_REPORTS_TAB_ID), []);
+
+  const [loading, setLoading] = useState(!cachedTab);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState<string>(() => cachedTab?.search ?? '');
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState<Filters>({});
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
-  const [activeTab, setActiveTab] = useState('dept');
+  const [filters, setFilters] = useState<Filters>(() => cachedTab?.filters ?? {});
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(() => cachedTab?.dateRange ?? null);
+  const [activeTab, setActiveTab] = useState<string>(() => cachedTab?.activeTab ?? 'dept');
 
   const [divisions, setDivisions] = useState<FilterOption[]>([]);
   const [departments, setDepartments] = useState<FilterOption[]>([]);
   const [shifts, setShifts] = useState<ShiftLk[]>([]);
   const [uoms, setUoms] = useState<UomLk[]>([]);
 
-  const [report, setReport] = useState<EntryReportResponse | null>(null);
+  const [report, setReport] = useState<EntryReportResponse | null>(() => cachedTab?.report ?? null);
   const [deptPage, setDeptPage] = useState(1);
   const [deptPageSize, setDeptPageSize] = useState(10);
-  const [entries, setEntries] = useState<ProdEntryRow[]>([]);
-  const [entriesTotal, setEntriesTotal] = useState(0);
-  const [entriesPage, setEntriesPage] = useState(1);
-  const [orders, setOrders] = useState<ProdOrderRow[]>([]);
-  const [ordersTotal, setOrdersTotal] = useState(0);
-  const [ordersPage, setOrdersPage] = useState(1);
-  const [targets, setTargets] = useState<MachineTargetRow[]>([]);
-  const [targetsTotal, setTargetsTotal] = useState(0);
-  const [targetsPage, setTargetsPage] = useState(1);
-  const [shipments, setShipments] = useState<SalesDeliveryRow[]>([]);
-  const [shipmentsTotal, setShipmentsTotal] = useState(0);
-  const [shipmentsPage, setShipmentsPage] = useState(1);
+  const [entries, setEntries] = useState<ProdEntryRow[]>(() => cachedTab?.entries ?? []);
+  const [entriesTotal, setEntriesTotal] = useState<number>(() => cachedTab?.entriesTotal ?? 0);
+  const [entriesPage, setEntriesPage] = useState<number>(() => cachedTab?.entriesPage ?? 1);
+  const [orders, setOrders] = useState<ProdOrderRow[]>(() => cachedTab?.orders ?? []);
+  const [ordersTotal, setOrdersTotal] = useState<number>(() => cachedTab?.ordersTotal ?? 0);
+  const [ordersPage, setOrdersPage] = useState<number>(() => cachedTab?.ordersPage ?? 1);
+  const [targets, setTargets] = useState<MachineTargetRow[]>(() => cachedTab?.targets ?? []);
+  const [targetsTotal, setTargetsTotal] = useState<number>(() => cachedTab?.targetsTotal ?? 0);
+  const [targetsPage, setTargetsPage] = useState<number>(() => cachedTab?.targetsPage ?? 1);
+  const [shipments, setShipments] = useState<SalesDeliveryRow[]>(() => cachedTab?.shipments ?? []);
+  const [shipmentsTotal, setShipmentsTotal] = useState<number>(() => cachedTab?.shipmentsTotal ?? 0);
+  const [shipmentsPage, setShipmentsPage] = useState<number>(() => cachedTab?.shipmentsPage ?? 1);
 
   /* ── Filter metadata ── */
   useEffect(() => {
@@ -345,17 +370,51 @@ const ProductionReports: React.FC = () => {
     if (r.success) { setShipments(r.data); setShipmentsTotal(n(r.total)); setShipmentsPage(page); }
   }, [filters.status, search, shipmentsPage]);
 
-  const loadAll = useCallback(async () => {
+  const loadAll = async () => {
     setLoading(true); setError(null);
     const results = await Promise.allSettled([
       loadReport(), loadEntries(1), loadOrders(1), loadTargets(1), loadShipments(1),
     ]);
     const failed = results.filter((r) => r.status === 'rejected').length;
     if (failed > 0) setError(`Some report sections failed to load (${failed} of ${results.length}).`);
-    setLoading(false);
-  }, [loadReport, loadEntries, loadOrders, loadTargets, loadShipments]);
 
-  useEffect(() => { void loadAll(); }, [loadAll]);
+    // Persist to session cache so switching back restores all report sections
+    tabSessionCache.set<ProductionReportsTabCache>(PRODUCTION_REPORTS_TAB_ID, {
+      report,
+      entries, entriesTotal, entriesPage,
+      orders, ordersTotal, ordersPage,
+      targets, targetsTotal, targetsPage,
+      shipments, shipmentsTotal, shipmentsPage,
+      search, filters, dateRange, activeTab,
+    });
+    setLoading(false);
+  };
+
+  const loadAllRef = useRef(loadAll);
+  loadAllRef.current = loadAll;
+
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached report sections are already seeded into state.
+    if (!tabSessionCache.has(PRODUCTION_REPORTS_TAB_ID)) {
+      void loadAllRef.current();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(PRODUCTION_REPORTS_TAB_ID)) {
+        tabSessionCache.remove(PRODUCTION_REPORTS_TAB_ID);
+        void loadAllRef.current();
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => { void loadEntries(1); }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -896,7 +955,12 @@ const ProductionReports: React.FC = () => {
   )) || null;
 
   return (
-    <div className="erp-pr">
+    <TabKeepAlive
+      tabId={PRODUCTION_REPORTS_TAB_ID}
+      load={async () => { await loadAllRef.current(); }}
+      serialize={() => ({ report, entries, entriesTotal, entriesPage, orders, ordersTotal, ordersPage, targets, targetsTotal, targetsPage, shipments, shipmentsTotal, shipmentsPage, search, filters, dateRange, activeTab })}
+    >
+      <div className="erp-pr">
       <PageHeader
         icon={<BarChartOutlined />}
         title="Production Reports"
@@ -907,7 +971,7 @@ const ProductionReports: React.FC = () => {
               <Button size="middle" icon={<DownloadOutlined />}>Export</Button>
             </Dropdown>
             <Tooltip title="Refresh all reports">
-              <Button size="middle" icon={<ReloadOutlined />} loading={loading} onClick={() => loadAll()} />
+              <Button size="middle" icon={<ReloadOutlined />} loading={loading} onClick={() => loadAllRef.current()} />
             </Tooltip>
           </Space>
         }
@@ -1184,6 +1248,7 @@ const ProductionReports: React.FC = () => {
         ]}
       />
     </div>
+  </TabKeepAlive>
   );
 };
 

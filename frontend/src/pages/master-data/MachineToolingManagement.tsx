@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   App, Button, Space, Select, Form, Input, InputNumber, Popconfirm, Tabs,
-  Descriptions, Row, Col, Tag, Tooltip, DatePicker, TimePicker, Alert, Statistic, Spin,
+  Descriptions, Row, Col, Tag, Tooltip, DatePicker, TimePicker, Alert, Statistic,
   Checkbox, Dropdown,
 } from 'antd';
 import {
@@ -16,10 +16,11 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import {
-  PageHeader, StatusBadge, ERPTable, TableToolbar,
+  PageHeader, StatusBadge, ERPTable, TableToolbar, TabKeepAlive, GlobalLoading,
   DraggableResizableModal, SaveResultDialog,
   type SaveResultPhase, type SaveResultData,
 } from '../../components/shared';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 
@@ -192,6 +193,26 @@ interface StoreIssueLk {
 
 const EMPTY = <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
 
+const MASTER_MACHINE_TOOLS_TAB_ID = '/master-data/machine-tools';
+
+interface MachineToolsTabCache {
+  components: ComponentRec[];
+  componentsTotal: number;
+  compPage: number;
+  compPageSize: number;
+  compSearch: string;
+  activeTab: string;
+  lookups: {
+    machines: MachineLk[];
+    items: ItemLk[];
+    uoms: UomLk[];
+    divisions: DivisionLk[];
+    sections: SectionLk[];
+    departments: DepartmentLk[];
+    masterItemTypes: MasterItemTypeLk[];
+  };
+}
+
 const MachineToolingManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
@@ -341,9 +362,10 @@ const MachineToolingManagement: React.FC = () => {
   };
 
   /* ── Tab 1: Component setup ──────────────────────────────────────────────── */
-  const [components, setComponents] = useState<ComponentRec[]>([]);
-  const [componentsTotal, setComponentsTotal] = useState(0);
-  const [componentsLoading, setComponentsLoading] = useState(false);
+  const cachedMaster = tabSessionCache.get<MachineToolsTabCache>(MASTER_MACHINE_TOOLS_TAB_ID);
+  const [components, setComponents] = useState<ComponentRec[]>(() => cachedMaster?.components ?? []);
+  const [componentsTotal, setComponentsTotal] = useState<number>(() => cachedMaster?.componentsTotal ?? 0);
+  const [componentsLoading, setComponentsLoading] = useState<boolean>(() => !cachedMaster || !Array.isArray(cachedMaster.components) || cachedMaster.components.length === 0);
   const [compPage, setCompPage] = useState<number>(() => {
     try {
       const p = sessionStorage.getItem('pwi_tooling_comp_page');
@@ -607,30 +629,64 @@ const MachineToolingManagement: React.FC = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyData, setHistoryData] = useState<ComponentHistory | null>(null);
 
-  const fetchComponents = useCallback(
-    async (pageNum: number = 1) => {
-      setComponentsLoading(true);
-      try {
-        const params: any = { page: pageNum, limit: compPageSize };
-        if (compSearch) params.search = compSearch;
-        if (fCompMachine) params.machineId = fCompMachine;
-        if (fCompType) params.componentType = fCompType;
-        const res = await apiService.get<{ data: ComponentRec[]; total: number }>('/machine-tooling/components', params);
-        setComponents(res.data || []);
-        setComponentsTotal(res.total || 0);
-      } catch (error: any) {
-        message.error(extractApiError(error, 'Failed to fetch components'));
-      } finally {
-        setComponentsLoading(false);
-      }
-    },
-    [compPageSize, compSearch, fCompMachine, fCompType, message],
-  );
+  const fetchComponents = async (pageNum: number = 1) => {
+    setComponentsLoading(true);
+    try {
+      const params: any = { page: pageNum, limit: compPageSize };
+      if (compSearch) params.search = compSearch;
+      if (fCompMachine) params.machineId = fCompMachine;
+      if (fCompType) params.componentType = fCompType;
+      const res = await apiService.get<{ data: ComponentRec[]; total: number }>('/machine-tooling/components', params);
+      setComponents(res.data || []);
+      setComponentsTotal(res.total || 0);
+      // Persist to session cache so switching back restores the tool registry instantly
+      tabSessionCache.set<MachineToolsTabCache>(MASTER_MACHINE_TOOLS_TAB_ID, {
+        components: res.data || [],
+        componentsTotal: res.total || 0,
+        compPage: pageNum,
+        compPageSize,
+        compSearch,
+        activeTab,
+        lookups: { machines, items, uoms, divisions, sections, departments, masterItemTypes },
+      });
+    } catch (error: any) {
+      message.error(extractApiError(error, 'Failed to fetch components'));
+    } finally {
+      setComponentsLoading(false);
+    }
+  };
+
+  const fetchComponentsRef = useRef(fetchComponents);
+  fetchComponentsRef.current = fetchComponents;
+
+  // Only skip the fetch when the cache actually holds populated components.
+  // A cache entry with an empty `components` array (e.g. from a prior failed
+  // load) must still trigger a fresh fetch on mount so the page is never blank.
+  const cachedHasPopulatedComponents = (() => {
+    const c = tabSessionCache.get<MachineToolsTabCache>(MASTER_MACHINE_TOOLS_TAB_ID);
+    return !!c && Array.isArray(c.components) && c.components.length > 0;
+  })();
 
   useEffect(() => {
-    if (activeTab === 'setup') fetchComponents(compPage);
+    if (activeTab === 'setup' && !cachedHasPopulatedComponents) {
+      void fetchComponentsRef.current(compPage);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, compPage, fetchComponents]);
+  }, [activeTab, compPage, fetchComponents, cachedHasPopulatedComponents]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(MASTER_MACHINE_TOOLS_TAB_ID)) {
+        tabSessionCache.remove(MASTER_MACHINE_TOOLS_TAB_ID);
+        if (activeTab === 'setup') void fetchComponentsRef.current(compPage);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, compPage]);
 
   const handleCreateComponent = () => {
     setIsCompMinimized(false);
@@ -2161,7 +2217,14 @@ const MachineToolingManagement: React.FC = () => {
   ]);
 
   return (
-    <div>
+    <TabKeepAlive
+      tabId={MASTER_MACHINE_TOOLS_TAB_ID}
+      load={async () => {
+        if (activeTab === 'setup') await fetchComponentsRef.current(compPage);
+      }}
+      serialize={() => ({ components, componentsTotal, compPage, compPageSize, compSearch, activeTab, lookups: { machines, items, uoms, divisions, sections, departments, masterItemTypes } })}
+    >
+      <div>
       <PageHeader
         icon={<ToolOutlined />}
         title={
@@ -2290,9 +2353,17 @@ const MachineToolingManagement: React.FC = () => {
         </div>
 
         {activeTab === 'setup' && (
-          <>
-            <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))' }}>
-              <TableToolbar
+          componentsLoading && components.length === 0 ? (
+            <GlobalLoading
+              title="Loading Tool Registry..."
+              subtitle="Fetching tool lists, dies, and lifespans..."
+              badgeText="LIVE DATABASE QUERY"
+              minHeight={450}
+            />
+          ) : (
+            <div style={{ width: '100%' }}>
+              <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))' }}>
+                <TableToolbar
                 searchPlaceholder="Search component name, code, machine..."
                 searchValue={compSearch}
                 onSearchChange={(v) => { setCompSearch(v); setCompPage(1); }}
@@ -2371,7 +2442,7 @@ const MachineToolingManagement: React.FC = () => {
                 columns={visibleComponentColumns}
                 dataSource={components}
                 rowKey="id"
-                loading={componentsLoading}
+                loading={false}
                 scroll={{ x: 1450 }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No components found"
@@ -2386,8 +2457,8 @@ const MachineToolingManagement: React.FC = () => {
                 }}
               />
             </div>
-          </>
-        )}
+          </div>
+        ))}
 
         {activeTab === 'changes' && (
           <>
@@ -2507,7 +2578,7 @@ const MachineToolingManagement: React.FC = () => {
                 columns={visibleChangeColumns}
                 dataSource={changes}
                 rowKey="id"
-                loading={changesLoading}
+                loading={false}
                 scroll={{ x: 1300 }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No changes recorded"
@@ -2569,7 +2640,7 @@ const MachineToolingManagement: React.FC = () => {
                 columns={reportColumns}
                 dataSource={report?.rows ?? []}
                 rowKey={(r) => `${r.machine?.id ?? '?'}-${r.component?.id ?? '?'}`}
-                loading={reportLoading}
+                loading={false}
                 scroll={{ x: 1300 }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 pagination={false}
@@ -2616,7 +2687,7 @@ const MachineToolingManagement: React.FC = () => {
                 columns={activeToolColumns}
                 dataSource={activeTools}
                 rowKey="id"
-                loading={activeToolsLoading}
+                loading={false}
                 scroll={{ x: 1500 }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No active tools"
@@ -2731,7 +2802,7 @@ const MachineToolingManagement: React.FC = () => {
                 columns={lifeColumns}
                 dataSource={lifeRows}
                 rowKey="id"
-                loading={lifeLoading}
+                loading={false}
                 scroll={{ x: 1600 }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No lifecycle history"
@@ -3031,7 +3102,7 @@ const MachineToolingManagement: React.FC = () => {
                             notFoundContent={
                               modalItemsLoading ? (
                                 <div style={{ padding: '10px 14px', textAlign: 'center' }}>
-                                  <Spin size="small" /> <span style={{ marginLeft: 8, color: '#64748b' }}>Searching database items...</span>
+                                  <GlobalLoading spinnerOnly size="small" /> <span style={{ marginLeft: 8, color: '#64748b' }}>Searching database items...</span>
                                 </div>
                               ) : (
                                 <div style={{ padding: '10px 14px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
@@ -3255,7 +3326,7 @@ const MachineToolingManagement: React.FC = () => {
       >
         {historyLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-            <Spin tip="Loading history..." />
+            <GlobalLoading title="Loading History..." subtitle="Retrieving component replacement history..." badgeText="LIVE DATABASE QUERY" minHeight={200} />
           </div>
         ) : historyData ? (
           <div>
@@ -3478,7 +3549,7 @@ const MachineToolingManagement: React.FC = () => {
       >
         {changeDetailLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-            <Spin tip="Loading change details..." />
+            <GlobalLoading title="Loading Change Details..." subtitle="Retrieving transaction detail and replacement history..." badgeText="LIVE DATABASE QUERY" minHeight={200} />
           </div>
         ) : changeDetail ? (
           <>
@@ -3906,7 +3977,7 @@ const MachineToolingManagement: React.FC = () => {
           ] as ColumnsType<ComponentItemLine>}
           dataSource={componentItems}
           rowKey="id"
-          loading={itemsLoading}
+          loading={false}
           size="small"
           pagination={false}
           scroll={{ x: 800 }}
@@ -4045,6 +4116,7 @@ const MachineToolingManagement: React.FC = () => {
         </div>
       )}
     </div>
+    </TabKeepAlive>
   );
 };
 

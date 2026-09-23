@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Button, Space, Tag, Form, Input, Select, DatePicker, App,
   Card, Descriptions, InputNumber, Alert, Statistic,
-  Grid, Row, Col, Dropdown, Tooltip, Typography, Upload, Spin, Table,
+  Grid, Row, Col, Dropdown, Tooltip, Typography, Upload, Table,
   Segmented, Switch, Progress,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -25,9 +25,10 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import {
-  PageHeader, ERPTable, TableActions, PageToolbar,
+  PageHeader, ERPTable, TableActions, PageToolbar, TabKeepAlive, GlobalLoading,
   StatusBadge, DraggableResizableModal, HeaderCell, HighlightedCell,
 } from '../../components/shared';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { getMachineColor } from '../../utils/colorMapping';
 import TargetView, { TargetRecord } from './TargetView';
@@ -262,18 +263,36 @@ const EXPORT_HEADERS = [
   'Created By', 'Created At', 'Updated By', 'Updated At',
 ];
 
+const MASTER_MACHINE_TARGETS_TAB_ID = '/master-data/machine-targets';
+
+interface MachineTargetsTabCache {
+  targets: MachineTarget[];
+  total: number;
+  allActiveTargets: MachineTarget[];
+  machines: MachineLk[];
+  shifts: ShiftLk[];
+  uoms: UomLk[];
+  items: ItemLk[];
+  divisions: DivisionLk[];
+  sections: SectionLk[];
+  departments: DepartmentLk[];
+  filters: { search: string; fMachineId?: string; fDivision?: string; fSection?: string; fDepartment?: string; fShift?: string; fItem?: string; fUom?: string; fStatus?: string; page: number; pageSize: number; sortBy: string; sortDir: 'ASC' | 'DESC' };
+}
+
 const TargetManagement: React.FC = () => {
   const { message, modal } = App.useApp();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const isStacked = !screens.lg;
-  const [targets, setTargets] = useState<MachineTarget[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [sortBy, setSortBy] = useState<string>('machineCode');
-  const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('ASC');
+  const cachedMaster = useMemo(() => tabSessionCache.get<MachineTargetsTabCache>(MASTER_MACHINE_TARGETS_TAB_ID), []);
+
+  const [targets, setTargets] = useState<MachineTarget[]>(() => cachedMaster?.targets ?? []);
+  const [loading, setLoading] = useState(!cachedMaster);
+  const [total, setTotal] = useState<number>(() => cachedMaster?.total ?? 0);
+  const [page, setPage] = useState<number>(() => cachedMaster?.filters?.page ?? 1);
+  const [pageSize, setPageSize] = useState<number>(() => cachedMaster?.filters?.pageSize ?? DEFAULT_PAGE_SIZE);
+  const [sortBy, setSortBy] = useState<string>(() => cachedMaster?.filters?.sortBy ?? 'machineCode');
+  const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>((cachedMaster?.filters?.sortDir as 'ASC' | 'DESC') ?? 'ASC');
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [pdfing, setPdfing] = useState(false);
@@ -307,24 +326,24 @@ const TargetManagement: React.FC = () => {
   >([]);
   const reuploadInputRef = useRef<HTMLInputElement>(null);
 
-  const [search, setSearch] = useState('');
-  const [fMachineId, setFMachineId] = useState<string | undefined>();
-  const [fDivision, setFDivision] = useState<string | undefined>();
-  const [fSection, setFSection] = useState<string | undefined>();
-  const [fDepartment, setFDepartment] = useState<string | undefined>();
-  const [fShift, setFShift] = useState<string | undefined>();
-  const [fItem, setFItem] = useState<string | undefined>();
-  const [fUom, setFUom] = useState<string | undefined>();
-  const [fStatus, setFStatus] = useState<string | undefined>();
+  const [search, setSearch] = useState<string>(() => cachedMaster?.filters?.search ?? '');
+  const [fMachineId, setFMachineId] = useState<string | undefined>(() => cachedMaster?.filters?.fMachineId);
+  const [fDivision, setFDivision] = useState<string | undefined>(() => cachedMaster?.filters?.fDivision);
+  const [fSection, setFSection] = useState<string | undefined>(() => cachedMaster?.filters?.fSection);
+  const [fDepartment, setFDepartment] = useState<string | undefined>(() => cachedMaster?.filters?.fDepartment);
+  const [fShift, setFShift] = useState<string | undefined>(() => cachedMaster?.filters?.fShift);
+  const [fItem, setFItem] = useState<string | undefined>(() => cachedMaster?.filters?.fItem);
+  const [fUom, setFUom] = useState<string | undefined>(() => cachedMaster?.filters?.fUom);
+  const [fStatus, setFStatus] = useState<string | undefined>(() => cachedMaster?.filters?.fStatus);
 
-  const [machines, setMachines] = useState<MachineLk[]>([]);
-  const [shifts, setShifts] = useState<ShiftLk[]>([]);
-  const [uoms, setUoms] = useState<UomLk[]>([]);
-  const [items, setItems] = useState<ItemLk[]>([]);
-  const [divisions, setDivisions] = useState<DivisionLk[]>([]);
-  const [sections, setSections] = useState<SectionLk[]>([]);
-  const [departments, setDepartments] = useState<DepartmentLk[]>([]);
-  const [allActiveTargets, setAllActiveTargets] = useState<MachineTarget[]>([]);
+  const [machines, setMachines] = useState<MachineLk[]>(() => cachedMaster?.machines ?? []);
+  const [shifts, setShifts] = useState<ShiftLk[]>(() => cachedMaster?.shifts ?? []);
+  const [uoms, setUoms] = useState<UomLk[]>(() => cachedMaster?.uoms ?? []);
+  const [items, setItems] = useState<ItemLk[]>(() => cachedMaster?.items ?? []);
+  const [divisions, setDivisions] = useState<DivisionLk[]>(() => cachedMaster?.divisions ?? []);
+  const [sections, setSections] = useState<SectionLk[]>(() => cachedMaster?.sections ?? []);
+  const [departments, setDepartments] = useState<DepartmentLk[]>(() => cachedMaster?.departments ?? []);
+  const [allActiveTargets, setAllActiveTargets] = useState<MachineTarget[]>(() => cachedMaster?.allActiveTargets ?? []);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editing, setEditing] = useState<MachineTarget | null>(null);
@@ -453,7 +472,7 @@ const TargetManagement: React.FC = () => {
     return params;
   }, [search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus]);
 
-  const fetchTargets = useCallback(async (pageNum: number = page) => {
+  const fetchTargets = async (pageNum: number = page) => {
     setLoading(true);
     try {
       const params: any = buildQuery({ page: pageNum, limit: pageSize, sortBy, sortDir });
@@ -462,14 +481,32 @@ const TargetManagement: React.FC = () => {
       );
       setTargets(response.data || []);
       setTotal(response.total ?? response.data?.length ?? 0);
+      // Persist to session cache so switching back restores the target matrix instantly
+      tabSessionCache.set<MachineTargetsTabCache>(MASTER_MACHINE_TARGETS_TAB_ID, {
+        targets: response.data || [],
+        total: response.total ?? response.data?.length ?? 0,
+        allActiveTargets,
+        machines, shifts, uoms, items, divisions, sections, departments,
+        filters: { search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus, page: pageNum, pageSize, sortBy, sortDir },
+      });
     } catch (error: any) {
       message.error(error?.response?.data?.message || 'Failed to fetch machine targets');
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, sortBy, sortDir, buildQuery, message]);
+  };
 
-  useEffect(() => { fetchTargets(page); }, [page, pageSize, fetchTargets]);
+  const fetchTargetsRef = useRef(fetchTargets);
+  fetchTargetsRef.current = fetchTargets;
+
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached targets are already seeded into state.
+    if (!tabSessionCache.has(MASTER_MACHINE_TARGETS_TAB_ID)) {
+      void fetchTargetsRef.current(page);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, fetchTargets]);
 
   const fetchAllActiveTargets = useCallback(async () => {
     try {
@@ -523,6 +560,20 @@ const TargetManagement: React.FC = () => {
       }
     })();
   }, [message]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(MASTER_MACHINE_TARGETS_TAB_ID)) {
+        tabSessionCache.remove(MASTER_MACHINE_TARGETS_TAB_ID);
+        void fetchTargetsRef.current(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   const sectionsForDivision = useCallback(
     (divisionId?: string) => (divisionId ? sections.filter((s) => s.divisionId === divisionId) : sections),
@@ -1649,7 +1700,12 @@ const TargetManagement: React.FC = () => {
     : 800;
 
   return (
-    <div style={{ padding: '4px 6px', width: '100%' }}>
+    <TabKeepAlive
+      tabId={MASTER_MACHINE_TARGETS_TAB_ID}
+      load={async () => { await fetchTargetsRef.current(page); }}
+      serialize={() => ({ targets, total, allActiveTargets, machines, shifts, uoms, items, divisions, sections, departments, filters: { search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus, page, pageSize, sortBy, sortDir } })}
+    >
+      <div style={{ padding: '4px 6px', width: '100%' }}>
       <PageHeader
         icon={<ToolOutlined />}
         title="Machine Targets"
@@ -1770,46 +1826,55 @@ const TargetManagement: React.FC = () => {
         </Card>
       )}
 
-      <ERPTable
-        rowKey="id"
-        dense
-        columns={columns}
-        dataSource={targets}
-        loading={loading}
-        scroll={{ x: 1600 }}
-        sticky={{ offsetHeader: 0 }}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          showTotal: (t) => `${t} targets`,
-          onChange: (p, ps) => { setPage(p); setPageSize(ps); },
-        }}
-        onChange={(_pg, _flt, sorter: any) => {
-          if (sorter && sorter.field) {
-            const map: Record<string, string> = {
-              machineCode: 'machineCode',
-              machineName: 'machineName',
-              itemCode: 'itemCode',
-              shiftCode: 'shiftCode',
-              uomCode: 'uomCode',
-              standardHours: 'standardHours',
-              targetQuantity: 'targetQuantity',
-              effectiveFrom: 'effectiveFrom',
-              status: 'status',
-            };
-            const col = map[sorter.field] || 'machineCode';
-            setSortBy(col);
-            setSortDir(sorter.order === 'descend' ? 'DESC' : 'ASC');
-          } else {
-            setSortBy('machineCode');
-            setSortDir('ASC');
-          }
-        }}
-        emptyTitle="No machine targets found"
-        emptyDescription="Try adjusting the search or filters, or add a new target with the header button."
-      />
+      {loading && targets.length === 0 ? (
+        <GlobalLoading
+          title="Loading Machine Targets..."
+          subtitle="Fetching machine output targets and shift thresholds..."
+          badgeText="LIVE DATABASE QUERY"
+          minHeight={450}
+        />
+      ) : (
+        <ERPTable
+          rowKey="id"
+          dense
+          columns={columns}
+          dataSource={targets}
+          loading={false}
+          scroll={{ x: 1600 }}
+          sticky={{ offsetHeader: 0 }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showTotal: (t) => `${t} targets`,
+            onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+          }}
+          onChange={(_pg, _flt, sorter: any) => {
+            if (sorter && sorter.field) {
+              const map: Record<string, string> = {
+                machineCode: 'machineCode',
+                machineName: 'machineName',
+                itemCode: 'itemCode',
+                shiftCode: 'shiftCode',
+                uomCode: 'uomCode',
+                standardHours: 'standardHours',
+                targetQuantity: 'targetQuantity',
+                effectiveFrom: 'effectiveFrom',
+                status: 'status',
+              };
+              const col = map[sorter.field] || 'machineCode';
+              setSortBy(col);
+              setSortDir(sorter.order === 'descend' ? 'DESC' : 'ASC');
+            } else {
+              setSortBy('machineCode');
+              setSortDir('ASC');
+            }
+          }}
+          emptyTitle="No machine targets found"
+          emptyDescription="Try adjusting the search or filters, or add a new target with the header button."
+        />
+      )}
 
       <DraggableResizableModal
         open={modalVisible && !isTargetMinimized}
@@ -2618,7 +2683,7 @@ const TargetManagement: React.FC = () => {
                   >
                     {liveImportedItems.length === 0 ? (
                       <div className="import-console-empty">
-                        <Spin size="small" style={{ marginBottom: 8 }} />
+                        <GlobalLoading spinnerOnly size="small" style={{ marginBottom: 8 }} />
                         <Text type="secondary" style={{ fontSize: 12 }}>Streaming targets as they are saved to database…</Text>
                       </div>
                     ) : (
@@ -2825,6 +2890,7 @@ const TargetManagement: React.FC = () => {
         </div>
       )}
     </div>
+    </TabKeepAlive>
   );
 };
 

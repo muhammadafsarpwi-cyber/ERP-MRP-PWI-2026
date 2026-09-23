@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Card, Row, Col, DatePicker, Select, Button, Space, Typography, Spin,
+  Card, Row, Col, DatePicker, Select, Button, Space, Typography,
   Empty, Popover, Tag, Alert, Steps, App,
 } from 'antd';
 import {
@@ -11,6 +11,7 @@ import {
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { useLookups } from './lookups';
+import { GlobalLoading } from '../../../components/shared';
 
 const { Title, Text } = Typography;
 
@@ -334,7 +335,7 @@ const EntryMachineSelect: React.FC = () => {
           </Card>
 
           {loading && machines.length === 0 ? (
-            <Card><Spin style={{ width: '100%', marginTop: 60 }} /></Card>
+            <Card><GlobalLoading title="Loading Machines..." subtitle="Retrieving active machines for this selection..." badgeText="LIVE DATABASE QUERY" minHeight={240} /></Card>
           ) : machines.length === 0 ? (
             <Empty description="No active machines found for this selection." />
           ) : (

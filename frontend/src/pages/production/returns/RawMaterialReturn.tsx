@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Button, Card, Col, DatePicker, Divider, Drawer, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, App,
+  Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, App,
 } from 'antd';
 import {
   ArrowRightOutlined, CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined,
@@ -20,14 +20,26 @@ import {
   ShareReturnInfo,
 } from '../../../utils/receiptShare';
 import { formatNameWithCode } from '../../../utils/formatEntityLabel';
-import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar } from '../../../components/shared';
+import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar, TabKeepAlive, GlobalLoading } from '../../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
+import { useRawReceiptDraftStore } from '../../../store/rawReceiptDraftStore';
+import type { ReceiptDraft, OrgBundle } from '../../../store/rawReceiptDraftStore';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import '../receiving/rawMaterialForms.css';
 
 const { Text, Title } = Typography;
 
 const SECTION_SELECT_LIST_HEIGHT = 200;
 const PHOTO_FILE_MAX = 5 * 1024 * 1024;
+
+const RM_RETURN_TAB_ID = '/production/raw-material-return';
+
+interface RawMaterialReturnTabCache {
+  list: ReturnHeader[];
+  total: number;
+  page: number;
+  filters: { status?: string; warehouseId?: string; sourceNo?: string; dateFrom?: string; dateTo?: string };
+}
 const ATTACH_FILE_MAX = 10 * 1024 * 1024;
 const PHOTO_MIME_ALLOW = ['image/jpeg', 'image/png', 'image/webp'];
 // const PHOTO_EXT_RE = /\.(jpe?g|png|webp)$/i;
@@ -181,6 +193,8 @@ const formatBytes = (b: number): string => {
 const RawMaterialReturn: React.FC = () => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  const cachedTab = useMemo(() => tabSessionCache.get<RawMaterialReturnTabCache>(RM_RETURN_TAB_ID), []);
+
   const [refData, setRefData] = useState<FormRefData | null>(null);
   const [refState, setRefState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [sections, setSections] = useState<OrgOption[]>([]);
@@ -193,12 +207,12 @@ const RawMaterialReturn: React.FC = () => {
   const rowsRef = useRef<LineRow[]>(rows);
   rowsRef.current = rows;
 
-  const [list, setList] = useState<ReturnHeader[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [list, setList] = useState<ReturnHeader[]>(() => cachedTab?.list ?? []);
+  const [total, setTotal] = useState<number>(() => cachedTab?.total ?? 0);
+  const [page, setPage] = useState<number>(() => cachedTab?.page ?? 1);
   const [pageSize] = useState(20);
   const [listLoading, setListLoading] = useState(false);
-  const [listState, setListState] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [listState, setListState] = useState<'loading' | 'error' | 'ready'>(() => cachedTab ? 'ready' : 'loading');
 
   const [filters, setFilters] = useState<{
     status?: string;
@@ -206,7 +220,7 @@ const RawMaterialReturn: React.FC = () => {
     sourceNo?: string;
     dateFrom?: string;
     dateTo?: string;
-  }>({});
+  }>(() => cachedTab?.filters ?? {});
 
   const [modalOpen, setModalOpen] = useState(false);
   const [isModalMinimized, setIsModalMinimized] = useState(false);
@@ -366,6 +380,13 @@ const RawMaterialReturn: React.FC = () => {
       setList(res.data || []);
       setTotal(res.total || 0);
       setListState('ready');
+      // Persist to session cache so switching back restores rows + filters
+      tabSessionCache.set<RawMaterialReturnTabCache>(RM_RETURN_TAB_ID, {
+        list: res.data || [],
+        total: res.total || 0,
+        page: p,
+        filters: f,
+      });
     } catch {
       setList([]);
       setTotal(0);
@@ -376,7 +397,28 @@ const RawMaterialReturn: React.FC = () => {
   }, [page, pageSize, filters]);
 
   useEffect(() => { void loadRef(); void loadReceiptRefs(); }, [loadRef, loadReceiptRefs]);
-  useEffect(() => { void loadList(1); }, [loadList]);
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached rows are already seeded into state.
+    if (!tabSessionCache.has(RM_RETURN_TAB_ID)) {
+      void loadList(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadList]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(RM_RETURN_TAB_ID)) {
+        tabSessionCache.remove(RM_RETURN_TAB_ID);
+        void loadList(1);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadList]);
 
   // Dynamic cascades when division changes
   useEffect(() => {
@@ -1292,7 +1334,12 @@ const RawMaterialReturn: React.FC = () => {
   ), [page, loadList, openCreate]);
 
   return (
-    <div className="erp-dashboard">
+    <TabKeepAlive
+      tabId={RM_RETURN_TAB_ID}
+      load={async () => { await loadRef(); await loadReceiptRefs(); await loadList(1); }}
+      serialize={() => ({ list, total, page, filters })}
+    >
+      <div className="erp-dashboard">
       <PageHeader
         icon={<RollbackOutlined />}
         title="Raw Material Return"
@@ -1620,7 +1667,7 @@ const RawMaterialReturn: React.FC = () => {
                             </div>
                           ) : g.loading ? (
                             <div className="rmr-inv-summary-status">
-                              <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12 }}>Loading current stock…</Text>
+                              <GlobalLoading spinnerOnly size="small" /> <Text type="secondary" style={{ fontSize: 12 }}>Loading current stock…</Text>
                             </div>
                           ) : (
                             <div className="rmr-inv-summary-grid">
@@ -2129,7 +2176,7 @@ const RawMaterialReturn: React.FC = () => {
             </div>
           </Space>
         ) : (
-          <Spin />
+          <GlobalLoading title="Preparing WhatsApp Share..." subtitle="Generating formatted return message..." badgeText="LIVE DATABASE QUERY" minHeight={200} />
         )}
       </Modal>
 
@@ -2147,7 +2194,7 @@ const RawMaterialReturn: React.FC = () => {
         width={780}
       >
         {detailLoading ? (
-          <Spin style={{ display: 'block', margin: '40px auto' }} />
+          <GlobalLoading title="Loading Return Detail..." subtitle="Retrieving return header, item lines and inventory ledger..." badgeText="LIVE DATABASE QUERY" minHeight={260} />
         ) : detail ? (
           <div>
             <Card size="small" className="erp-section-card-inner" style={{ marginBottom: 16 }}>
@@ -2223,7 +2270,8 @@ const RawMaterialReturn: React.FC = () => {
           </div>
         ) : null}
       </Drawer>
-    </div>
+      </div>
+    </TabKeepAlive>
   );
 };
 

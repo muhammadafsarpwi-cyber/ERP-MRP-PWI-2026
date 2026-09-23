@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Divider,
@@ -7,6 +7,8 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal, toNum } from '../../utils/numberFormat';
+import { TabKeepAlive, GlobalLoading } from '../../components/shared';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 interface BomLine {
   id: string;
@@ -62,9 +64,19 @@ const STATUS_COLORS: Record<string, string> = {
   OBSOLETE: 'red',
 };
 
+const BOM_TAB_ID = '/production/bom';
+
+interface BomTabCache {
+  boms: Bom[];
+  search: string;
+  filterStatus?: string;
+}
+
 const BomManagement: React.FC = () => {
   const { message } = App.useApp();
-  const [boms, setBoms] = useState<Bom[]>([]);
+  const cachedTab = useMemo(() => tabSessionCache.get<BomTabCache>(BOM_TAB_ID), []);
+
+  const [boms, setBoms] = useState<Bom[]>(() => cachedTab?.boms ?? []);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [uoms, setUoms] = useState<Uom[]>([]);
@@ -73,20 +85,26 @@ const BomManagement: React.FC = () => {
   const [editingBom, setEditingBom] = useState<Bom | null>(null);
   const [selectedBom, setSelectedBom] = useState<Bom | null>(null);
   const [form] = Form.useForm();
-  const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
+  const [search, setSearch] = useState<string>(() => cachedTab?.search ?? '');
+  const [filterStatus, setFilterStatus] = useState<string | undefined>(() => cachedTab?.filterStatus ?? undefined);
 
   const fetchBoms = useCallback(async () => {
     setLoading(true);
     try {
       const response = await apiService.get<{ data: Bom[]; total: number }>('/bom');
       setBoms(response.data);
+      // Persist to session cache so switching back restores rows + filters
+      tabSessionCache.set<BomTabCache>(BOM_TAB_ID, {
+        boms: response.data,
+        search,
+        filterStatus,
+      });
     } catch (error) {
       message.error('Failed to fetch BOMs');
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [message, search, filterStatus]);
 
   const fetchItems = useCallback(async () => {
     try {
@@ -102,7 +120,29 @@ const BomManagement: React.FC = () => {
     } catch {}
   }, []);
 
-  useEffect(() => { fetchBoms(); fetchItems(); fetchUoms(); }, [fetchBoms, fetchItems, fetchUoms]);
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached rows are already seeded into state.
+    if (tabSessionCache.has(BOM_TAB_ID)) return;
+    void fetchBoms();
+    void fetchItems();
+    void fetchUoms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(BOM_TAB_ID)) {
+        tabSessionCache.remove(BOM_TAB_ID);
+        void fetchBoms();
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchBoms]);
 
   const handleCreate = () => {
     setEditingBom(null);
@@ -271,27 +311,53 @@ const BomManagement: React.FC = () => {
   ];
 
   return (
-    <div>
-      <Card title="Bill of Materials" extra={
-        <Space>
-          <Input.Search placeholder="Search BOMs..." allowClear onSearch={setSearch} style={{ width: 200 }} />
-          <Select placeholder="Status" allowClear style={{ width: 120 }} value={filterStatus} onChange={setFilterStatus}>
-            <Select.Option value="DRAFT">Draft</Select.Option>
-            <Select.Option value="ACTIVE">Active</Select.Option>
-            <Select.Option value="OBSOLETE">Obsolete</Select.Option>
-          </Select>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>New BOM</Button>
-          <Button icon={<ReloadOutlined />} onClick={fetchBoms}>Refresh</Button>
-        </Space>
-      }>
-        <Table
-          columns={columns}
-          dataSource={filteredBoms}
-          rowKey="id"
-          loading={loading}
-          pagination={{ pageSize: 20 }}
-        />
-      </Card>
+    <TabKeepAlive
+      tabId={BOM_TAB_ID}
+      load={async () => { await fetchBoms(); await fetchItems(); await fetchUoms(); }}
+      serialize={() => ({ boms, search, filterStatus })}
+    >
+      <div>
+        <Card title="Bill of Materials" extra={
+          <Space>
+            <Input.Search placeholder="Search BOMs..." allowClear onSearch={setSearch} style={{ width: 200 }} />
+            <Select placeholder="Status" allowClear style={{ width: 120 }} value={filterStatus} onChange={setFilterStatus}>
+              <Select.Option value="DRAFT">Draft</Select.Option>
+              <Select.Option value="ACTIVE">Active</Select.Option>
+              <Select.Option value="OBSOLETE">Obsolete</Select.Option>
+            </Select>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>New BOM</Button>
+            <Button icon={<ReloadOutlined />} onClick={fetchBoms}>Refresh</Button>
+          </Space>
+        }>
+          <div style={{ position: 'relative', minHeight: 340 }}>
+            {loading && filteredBoms.length === 0 ? (
+              <GlobalLoading
+                title="Loading Bill of Materials..."
+                subtitle="Retrieving all configured BOMs directly from database..."
+                badgeText="LIVE DATABASE QUERY"
+                minHeight={360}
+              />
+            ) : (
+              <>
+                {loading && (
+                  <GlobalLoading
+                    overlay
+                    title="Refreshing Bill of Materials..."
+                    subtitle="Updating component lines and cost estimates..."
+                    badgeText="Instant Sync"
+                  />
+                )}
+                <Table
+                  columns={columns}
+                  dataSource={filteredBoms}
+                  rowKey="id"
+                  loading={false}
+                  pagination={{ pageSize: 20 }}
+                />
+              </>
+            )}
+          </div>
+        </Card>
 
       {/* Create/Edit Modal */}
       <Modal
@@ -443,6 +509,7 @@ const BomManagement: React.FC = () => {
         )}
       </Modal>
     </div>
+  </TabKeepAlive>
   );
 };
 

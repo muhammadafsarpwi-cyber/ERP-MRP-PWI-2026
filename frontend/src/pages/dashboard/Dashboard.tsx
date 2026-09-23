@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Descriptions, Divider, Modal, Space, Spin, Tag, Typography } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Button, Descriptions, Divider, Modal, Space, Tag, Typography } from 'antd';
 import { ApartmentOutlined, ArrowRightOutlined, CheckCircleOutlined, DollarOutlined, InfoCircleOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AchievementCard from '../../components/dashboard/AchievementCard';
@@ -16,6 +16,7 @@ import OrderSummary from '../../components/dashboard/OrderSummary';
 import ProductionPerformance from '../../components/dashboard/ProductionPerformance';
 import ProductionTrend from '../../components/dashboard/ProductionTrend';
 import QuickActions from '../../components/dashboard/QuickActions';
+import { GlobalLoading, TabKeepAlive } from '../../components/shared';
 import './dashboard.css';
 import { filterItemOverview } from './itemSearch';
 import dashboardService, {
@@ -23,33 +24,51 @@ import dashboardService, {
   ItemOverview as ItemOverviewType, ItemRoute, MachinePerformanceItem,
   ProductionSummary, ProductionTrendDay, PurchaseOrderSummary, SalesOrderSummary,
 } from '../../services/dashboardService';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 const { Text } = Typography;
 
+const MAIN_DASHBOARD_TAB_ID = '/dashboard';
+
+interface MainDashboardTabCache {
+  summary: DashboardSummary | null;
+  prodSummary: ProductionSummary | null;
+  trend: ProductionTrendDay[];
+  machinePerf: MachinePerformanceItem[];
+  itemOverview: ItemOverviewType[];
+  inventory: InventorySummary | null;
+  alerts: AlertItem[];
+  activity: ActivityItem[];
+  poSummary: PurchaseOrderSummary | null;
+  soSummary: SalesOrderSummary | null;
+  appliedFilters: DashboardFiltersType;
+}
+
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+  const cachedTab = useMemo(() => tabSessionCache.get<MainDashboardTabCache>(MAIN_DASHBOARD_TAB_ID), []);
 
   // ── Global Filters ──
-  const [appliedFilters, setAppliedFilters] = useState<DashboardFiltersType>({});
-  const [draftFilters, setDraftFilters] = useState<DashboardFiltersType>({});
+  const [appliedFilters, setAppliedFilters] = useState<DashboardFiltersType>(() => cachedTab?.appliedFilters ?? {});
+  const [draftFilters, setDraftFilters] = useState<DashboardFiltersType>(() => cachedTab?.appliedFilters ?? {});
   const [divisions, setDivisions] = useState<Array<{ id: string; name: string; divisionCode?: string }>>([]);
   const [sections, setSections] = useState<Array<{ id: string; name: string }>>([]);
   const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
   const [shifts, setShifts] = useState<Array<{ id: string; name: string; startTime?: string; endTime?: string }>>([]);
 
   // ── Data ──
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedTab);
   const [error, setError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [prodSummary, setProdSummary] = useState<ProductionSummary | null>(null);
-  const [trend, setTrend] = useState<ProductionTrendDay[]>([]);
-  const [machinePerf, setMachinePerf] = useState<MachinePerformanceItem[]>([]);
-  const [itemOverview, setItemOverview] = useState<ItemOverviewType[]>([]);
-  const [inventory, setInventory] = useState<InventorySummary | null>(null);
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [poSummary, setPoSummary] = useState<PurchaseOrderSummary | null>(null);
-  const [soSummary, setSoSummary] = useState<SalesOrderSummary | null>(null);
+  const [summary, setSummary] = useState<DashboardSummary | null>(() => cachedTab?.summary ?? null);
+  const [prodSummary, setProdSummary] = useState<ProductionSummary | null>(() => cachedTab?.prodSummary ?? null);
+  const [trend, setTrend] = useState<ProductionTrendDay[]>(() => cachedTab?.trend ?? []);
+  const [machinePerf, setMachinePerf] = useState<MachinePerformanceItem[]>(() => cachedTab?.machinePerf ?? []);
+  const [itemOverview, setItemOverview] = useState<ItemOverviewType[]>(() => cachedTab?.itemOverview ?? []);
+  const [inventory, setInventory] = useState<InventorySummary | null>(() => cachedTab?.inventory ?? null);
+  const [alerts, setAlerts] = useState<AlertItem[]>(() => cachedTab?.alerts ?? []);
+  const [activity, setActivity] = useState<ActivityItem[]>(() => cachedTab?.activity ?? []);
+  const [poSummary, setPoSummary] = useState<PurchaseOrderSummary | null>(() => cachedTab?.poSummary ?? null);
+  const [soSummary, setSoSummary] = useState<SalesOrderSummary | null>(() => cachedTab?.soSummary ?? null);
 
   // ── Item Detail Modal ──
   const [itemDetailVisible, setItemDetailVisible] = useState(false);
@@ -124,16 +143,51 @@ const Dashboard: React.FC = () => {
       if (failed.length > 0) {
         setError('Some dashboard sections failed to load. Showing partial results.');
       }
+
+      // Persist to session cache so switching back restores all metrics + charts
+      tabSessionCache.set<MainDashboardTabCache>(MAIN_DASHBOARD_TAB_ID, {
+        summary: sumRes.status === 'fulfilled' && sumRes.value.success ? sumRes.value.data : summary,
+        prodSummary: prodRes.status === 'fulfilled' && prodRes.value.success ? prodRes.value.data : prodSummary,
+        trend: trendRes.status === 'fulfilled' && trendRes.value.success ? trendRes.value.data : trend,
+        machinePerf: machineRes.status === 'fulfilled' && machineRes.value.success ? machineRes.value.data : machinePerf,
+        itemOverview: itemRes.status === 'fulfilled' && itemRes.value.success ? itemRes.value.data : itemOverview,
+        inventory: invRes.status === 'fulfilled' && invRes.value.success ? invRes.value.data : inventory,
+        alerts: alertRes.status === 'fulfilled' && alertRes.value.success ? alertRes.value.data : alerts,
+        activity: actRes.status === 'fulfilled' && actRes.value.success ? actRes.value.data : activity,
+        poSummary: poRes.status === 'fulfilled' && poRes.value.success ? poRes.value.data : poSummary,
+        soSummary: soRes.status === 'fulfilled' && soRes.value.success ? soRes.value.data : soSummary,
+        appliedFilters: effectiveFilters,
+      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load dashboard');
     } finally {
       setLoading(false);
     }
-  }, [appliedFilters]);
+  }, [appliedFilters, summary, prodSummary, trend, machinePerf, itemOverview, inventory, alerts, activity, poSummary, soSummary]);
 
-  // Initial load on mount
+  const loadAllRef = useRef(loadAll);
+  loadAllRef.current = loadAll;
+
   useEffect(() => {
-    void loadAll({});
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached metrics/charts are already seeded into state.
+    if (!tabSessionCache.has(MAIN_DASHBOARD_TAB_ID)) {
+      void loadAllRef.current({});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(MAIN_DASHBOARD_TAB_ID)) {
+        tabSessionCache.remove(MAIN_DASHBOARD_TAB_ID);
+        void loadAllRef.current({});
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -153,23 +207,23 @@ const Dashboard: React.FC = () => {
 
   const handleApplyFilters = useCallback(() => {
     setAppliedFilters(draftFilters);
-    void loadAll(draftFilters);
-  }, [draftFilters, loadAll]);
+    void loadAllRef.current(draftFilters);
+  }, [draftFilters]);
 
   const handleResetFilters = useCallback(() => {
     setDraftFilters({});
     setAppliedFilters({});
-    void loadAll({});
-  }, [loadAll]);
+    void loadAllRef.current({});
+  }, []);
 
   const handleRemoveFilter = useCallback((key: string) => {
     setDraftFilters(prev => {
       const next = { ...prev, [key]: undefined };
       setAppliedFilters(next);
-      void loadAll(next);
+      void loadAllRef.current(next);
       return next;
     });
-  }, [loadAll]);
+  }, []);
 
   // ── Item Detail ──
   const openItemDetail = async (item: ItemOverviewType) => {
@@ -226,8 +280,13 @@ const Dashboard: React.FC = () => {
   const soTotal = (soSummary?.recentOrders.length ?? 0) + (soSummary?.statusBreakdown.reduce((s, b) => s + b.count, 0) ?? 0);
 
   return (
-    <div className="erp-dashboard">
-      <DashboardHeader status={status} refreshing={loading} onRefresh={() => loadAll()} />
+    <TabKeepAlive
+      tabId={MAIN_DASHBOARD_TAB_ID}
+      load={async () => { await loadAllRef.current({}); }}
+      serialize={() => ({ summary, prodSummary, trend, machinePerf, itemOverview, inventory, alerts, activity, poSummary, soSummary, appliedFilters })}
+    >
+      <div className="erp-dashboard">
+        <DashboardHeader status={status} refreshing={loading} onRefresh={() => loadAllRef.current()} />
 
       {error && <Alert message={error} type="warning" showIcon closable className="erp-alert-bar" onClose={() => setError(null)} />}
 
@@ -348,7 +407,7 @@ const Dashboard: React.FC = () => {
         width={700}
       >
                 {itemDetailLoading ? (
-                  <Spin />
+                  <GlobalLoading title="Loading Item Details..." subtitle="Retrieving item master, stock and production route..." badgeText="LIVE DATABASE QUERY" minHeight={260} />
                 ) : itemDetail ? (
           <div>
             <Descriptions bordered size="small" column={2}>
@@ -700,6 +759,7 @@ const Dashboard: React.FC = () => {
         )}
       </Modal>
     </div>
+  </TabKeepAlive>
   );
 };
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Descriptions, Tag, Button, Space, Spin, App, Typography, Divider, Popconfirm, Row, Col, Table, Alert, Skeleton,
+  Card, Descriptions, Tag, Button, Space, App, Typography, Divider, Popconfirm, Row, Col, Table, Alert, Skeleton,
 } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined,
@@ -14,6 +14,7 @@ import { formatNumber, formatDimension, toNum } from '../../../utils/numberForma
 import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
 import { ITEM_TYPES } from '../../master-data/items/itemTypes';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
+import { GlobalLoading } from '../../../components/shared';
 
 const { Title, Text } = Typography;
 
@@ -440,7 +441,7 @@ const EntryDetail: React.FC = () => {
     return () => { cancelled = true; };
   }, [entry?.id]);
 
-  if (loading) return <Card><Spin style={{ width: '100%', marginTop: 80 }} /></Card>;
+  if (loading) return <Card><GlobalLoading title="Loading Production Entry..." subtitle="Retrieving entry details, downtime and item lines..." badgeText="LIVE DATABASE QUERY" style={{ padding: 24 }} /></Card>;
   if (!entry) return <Card>Entry not found.</Card>;
 
   const ach = toNum(entry.achievementPercentage);

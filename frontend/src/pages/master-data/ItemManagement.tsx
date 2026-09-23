@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom';
 import {
   Alert, App, Badge, Button, Card, Checkbox, Col, Descriptions, Dropdown, Form, Grid, Input,
-  InputNumber, Modal, Popconfirm, Progress, Row, Segmented, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
+  InputNumber, Modal, Popconfirm, Progress, Row, Segmented, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -22,7 +22,7 @@ import { formatDimension } from '../../utils/numberFormat';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { usePermission } from '../../hooks/usePermission';
 import {
-  PageHeader, StatusBadge, EmptyState, LoadingState, ERPTable,
+  PageHeader, StatusBadge, EmptyState, ERPTable, TabKeepAlive, GlobalLoading,
   BarcodeScanner, BarcodePrint, DraggableResizableModal, HeaderCell,
   SaveResultDialog, DeleteConfirmModal, type SaveResultPhase, type SaveResultData,
 } from '../../components/shared';
@@ -42,6 +42,8 @@ import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCac
 import './itemManagement.css';
 
 const { Text } = Typography;
+
+const MASTER_PRODUCTS_ITEMS_TAB_ID = '/master-data/products-items';
 
 function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -605,7 +607,7 @@ const ItemManagement: React.FC = () => {
   // ── Filter State Persistence via tabSessionCache ──────────────────────────
   // Saves filter/sort/pagination state on every change so it can be restored
   // when the user navigates back to this tab from another.
-  const ITEM_CACHE_KEY = '/master-data/items::filterState';
+  const ITEM_CACHE_KEY = MASTER_PRODUCTS_ITEMS_TAB_ID;
 
   interface ItemFilterState {
     fDivision?: string; fSection?: string; fDepartment?: string;
@@ -617,12 +619,28 @@ const ItemManagement: React.FC = () => {
     activeTab: string; showFilters: boolean;
   }
 
-  const savedFilters = tabSessionCache.get<ItemFilterState>(ITEM_CACHE_KEY);
+  interface ItemMasterCache {
+    items: Item[];
+    total: number;
+    stats: { total: number | null; active: number | null; inactive: number | null; stock: number | null; manufactured: number | null };
+    typeCounts: Record<string, number>;
+    uoms: UomOption[];
+    categories: CategoryOption[];
+    divisions: DivisionOption[];
+    sections: SectionOption[];
+    departments: DepartmentOption[];
+    routeTypes: Array<{ id: string; routeCode: string; name: string; status: string }>;
+    masterItemTypes: MasterItemType[];
+    filterState: ItemFilterState;
+  }
 
-  const [items, setItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(false);
+  const savedFilters = tabSessionCache.get<ItemFilterState>(ITEM_CACHE_KEY);
+  const savedMaster = tabSessionCache.get<ItemMasterCache>(ITEM_CACHE_KEY);
+
+  const [items, setItems] = useState<Item[]>(() => savedMaster?.items ?? []);
+  const [loading, setLoading] = useState(!savedMaster);
   const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal] = useState<number>(() => savedMaster?.total ?? 0);
   const [page, setPage] = useState(savedFilters?.page ?? 1);
   const [pageSize, setPageSize] = useState(savedFilters?.pageSize ?? 20);
   const [sortField, setSortField] = useState<string>(savedFilters?.sortField ?? 'itemCode');
@@ -659,28 +677,28 @@ const ItemManagement: React.FC = () => {
     return DEFAULT_ITEM_VISIBLE_COLUMNS;
   });
 
-  const [uoms, setUoms] = useState<UomOption[]>([]);
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [divisions, setDivisions] = useState<DivisionOption[]>([]);
-  const [sections, setSections] = useState<SectionOption[]>([]);
-  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
-  const [routeTypes, setRouteTypes] = useState<Array<{ id: string; routeCode: string; name: string; status: string }>>([]);
-  const [routeTypesState, setRouteTypesState] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [uoms, setUoms] = useState<UomOption[]>(() => savedMaster?.uoms ?? []);
+  const [categories, setCategories] = useState<CategoryOption[]>(() => savedMaster?.categories ?? []);
+  const [divisions, setDivisions] = useState<DivisionOption[]>(() => savedMaster?.divisions ?? []);
+  const [sections, setSections] = useState<SectionOption[]>(() => savedMaster?.sections ?? []);
+  const [departments, setDepartments] = useState<DepartmentOption[]>(() => savedMaster?.departments ?? []);
+  const [routeTypes, setRouteTypes] = useState<Array<{ id: string; routeCode: string; name: string; status: string }>>(() => savedMaster?.routeTypes ?? []);
+  const [routeTypesState, setRouteTypesState] = useState<'loading' | 'error' | 'ready'>(() => savedMaster ? 'ready' : 'loading');
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [stats, setStats] = useState<{
     total: number | null; active: number | null; inactive: number | null;
     stock: number | null; manufactured: number | null;
-  }>({ total: null, active: null, inactive: null, stock: null, manufactured: null });
+  }>(() => savedMaster?.stats ?? { total: null, active: null, inactive: null, stock: null, manufactured: null });
   // TASK 13 — real per-item-type counts fetched from the same items API
   // (limit 1, total only). A type whose count could not be fetched simply has no
   // badge; counts are never fabricated or hard-coded.
-  const [typeCounts, setTypeCounts] = useState<Record<string, number>>({});
+  const [typeCounts, setTypeCounts] = useState<Record<string, number>>(() => savedMaster?.typeCounts ?? {});
   // Database-backed Item Type master. When the master loads successfully the
   // registry becomes the single source of truth for the type cards, the form
   // Select and every label; when it is unavailable/empty the static ITEM_TYPES
   // list is used as a graceful fallback (keeps all existing screens working).
-  const [masterItemTypes, setMasterItemTypes] = useState<MasterItemType[]>([]);
-  const [masterTypesState, setMasterTypesState] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [masterItemTypes, setMasterItemTypes] = useState<MasterItemType[]>(() => savedMaster?.masterItemTypes ?? []);
+  const [masterTypesState, setMasterTypesState] = useState<'loading' | 'error' | 'ready'>(() => savedMaster ? 'ready' : 'loading');
 
   const displayTypes = useMemo(() => (
     masterItemTypes.length > 0
@@ -1055,7 +1073,8 @@ const ItemManagement: React.FC = () => {
     setError(null);
     try {
       const response = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', buildParams());
-      setItems((response.data || []).map(normalizeItem));
+      const list = (response.data || []).map(normalizeItem);
+      setItems(list);
       setTotal(response.total || 0);
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load items. Please try again.');
@@ -1150,8 +1169,47 @@ const ItemManagement: React.FC = () => {
     })();
   }, [resolveCompanyId, message, can]);
 
+  // Persist the full dataset + labels to the session cache after every load so
+  // switching back restores 3,833 items and their dropdown labels instantly.
+  const persistMaster = () => {
+    tabSessionCache.set<ItemMasterCache>(ITEM_CACHE_KEY, {
+      items,
+      total,
+      stats,
+      typeCounts,
+      uoms, categories, divisions, sections, departments, routeTypes, masterItemTypes,
+      filterState: {
+        fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus,
+        search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters,
+      },
+    });
+  };
+  const persistMasterRef = useRef(persistMaster);
+  persistMasterRef.current = persistMaster;
+
   useEffect(() => {
-    fetchItems();
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached items/labels are already seeded into state.
+    if (!tabSessionCache.has(ITEM_CACHE_KEY)) {
+      fetchItems();
+    } else {
+      persistMasterRef.current();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchItems]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(ITEM_CACHE_KEY)) {
+        tabSessionCache.remove(ITEM_CACHE_KEY);
+        void fetchItems();
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchItems]);
 
   const handleTabChange = (key: string) => {
@@ -2914,7 +2972,12 @@ const ItemManagement: React.FC = () => {
   }, [editing, watchedCode, watchedName]);
 
   return (
-    <div style={{ padding: '4px 6px', width: '100%' }}>
+    <TabKeepAlive
+      tabId={MASTER_PRODUCTS_ITEMS_TAB_ID}
+      load={async () => { await fetchItems(); }}
+      serialize={() => ({ items, total, stats, typeCounts, uoms, categories, divisions, sections, departments, routeTypes, masterItemTypes, filterState: { fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus, search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters } })}
+    >
+      <div style={{ padding: '4px 6px', width: '100%' }}>
       <PageHeader
         icon={<AppstoreOutlined />}
         title={
@@ -3221,33 +3284,42 @@ const ItemManagement: React.FC = () => {
         />
       )}
 
-      <ERPTable
-        rowKey="id"
-        columns={filteredColumns}
-        dataSource={items}
-        loading={loading}
-        scroll={{ x: 1045, y: 'calc(100vh - 350px)' }}
-        sticky
-        size="small"
-        pagination={pagination}
-        onChange={(_p, _f, sorter: any) => {
-          if (sorter?.field && !Array.isArray(sorter.field)) {
-            const order = sorter.order === 'descend' ? 'DESC' : 'ASC';
-            setSortField(sorter.field as string);
-            setSortOrder(order);
-          }
-        }}
-        locale={{
-          emptyText: (
-            <EmptyState
-              title={search || activeFilterCount > 0 ? 'No items match your filters' : 'No items found'}
-              description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by creating your first item.'}
-              actionLabel={can('item.create') ? 'Add Item' : undefined}
-              onAction={openCreate}
-            />
-          ),
-        }}
-      />
+      {loading && items.length === 0 ? (
+        <GlobalLoading
+          title="Loading Item Registry..."
+          subtitle="Fetching 3,833 wire products and master items..."
+          badgeText="LIVE DATABASE QUERY"
+          minHeight={450}
+        />
+      ) : (
+        <ERPTable
+          rowKey="id"
+          columns={filteredColumns}
+          dataSource={items}
+          loading={false}
+          scroll={{ x: 1045, y: 'calc(100vh - 350px)' }}
+          sticky
+          size="small"
+          pagination={pagination}
+          onChange={(_p, _f, sorter: any) => {
+            if (sorter?.field && !Array.isArray(sorter.field)) {
+              const order = sorter.order === 'descend' ? 'DESC' : 'ASC';
+              setSortField(sorter.field as string);
+              setSortOrder(order);
+            }
+          }}
+          locale={{
+            emptyText: (
+              <EmptyState
+                title={search || activeFilterCount > 0 ? 'No items match your filters' : 'No items found'}
+                description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by creating your first item.'}
+                actionLabel={can('item.create') ? 'Add Item' : undefined}
+                onAction={openCreate}
+              />
+            ),
+          }}
+        />
+      )}
 
       <DraggableResizableModal
         open={detailOpen && !isDetailMinimized}
@@ -3296,7 +3368,7 @@ const ItemManagement: React.FC = () => {
         }
       >
         {detailLoading || !detailItem ? (
-          <LoadingState tip="Loading item details…" />
+          <GlobalLoading title="Loading Item Details…" subtitle="Retrieving item master, stock and production route…" badgeText="LIVE DATABASE QUERY" minHeight={260} />
         ) : (
           <Tabs
             activeKey={detailTab}
@@ -3662,7 +3734,7 @@ const ItemManagement: React.FC = () => {
                 key: 'history',
                 label: <Space><HistoryOutlined />History</Space>,
                 children: historyLoading ? (
-                  <LoadingState tip="Loading item history..." />
+                  <GlobalLoading title="Loading Item History…" subtitle="Retrieving item change history and audit trail…" badgeText="LIVE DATABASE QUERY" minHeight={220} />
                 ) : (
                   <Tabs
                     activeKey={historyTab}
@@ -5668,7 +5740,7 @@ const ItemManagement: React.FC = () => {
                 >
                   {liveImportedItems.length === 0 ? (
                     <div className="import-console-empty">
-                      <Spin size="small" style={{ marginBottom: 8 }} />
+                      <GlobalLoading spinnerOnly size="small" style={{ marginBottom: 8 }} />
                       <Text type="secondary" style={{ fontSize: 12 }}>Streaming items as they are saved to database…</Text>
                     </div>
                   ) : (
@@ -6066,6 +6138,7 @@ const ItemManagement: React.FC = () => {
         deactivateLabel="Deactivate Instead"
       />
     </div>
+  </TabKeepAlive>
   );
 };
 

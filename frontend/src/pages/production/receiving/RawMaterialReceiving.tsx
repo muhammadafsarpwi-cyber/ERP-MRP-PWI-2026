@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, App as AntApp,
+  Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, App as AntApp,
 } from 'antd';
 import {
   CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
@@ -17,17 +17,26 @@ import { formatApiError } from '../../../utils/apiError';
 import { buildReceiptWhatsAppMessage, normalizeWaPhone, waLink, waDirectShareUrl } from '../../../utils/receiptShare';
 import type { ShareReceiptInfo } from '../../../utils/receiptShare';
 import { formatNameWithCode } from '../../../utils/formatEntityLabel';
-import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar, ItemStockLedgerModal } from '../../../components/shared';
+import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar, ItemStockLedgerModal, TabKeepAlive, GlobalLoading } from '../../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
 import { useRawReceiptDraftStore } from '../../../store/rawReceiptDraftStore';
 import type { ReceiptDraft, OrgBundle } from '../../../store/rawReceiptDraftStore';
+import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import './rawMaterialForms.css';
 
 const { Text, Title } = Typography;
 
 const SECTION_SELECT_LIST_HEIGHT = 200;
-
 const PHOTO_FILE_MAX = 5 * 1024 * 1024;
+
+const RM_RECEIVING_TAB_ID = '/production/raw-material-receiving';
+
+interface RawMaterialReceivingTabCache {
+  list: ReceiptHeader[];
+  total: number;
+  page: number;
+  filters: { status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string };
+}
 const ATTACH_FILE_MAX = 10 * 1024 * 1024;
 const PHOTO_MIME_ALLOW = ['image/jpeg', 'image/png', 'image/webp'];
 const PHOTO_EXT_RE = /\.(jpe?g|png|webp)$/i;
@@ -181,6 +190,8 @@ const formatBytes = (b: number): string => {
 const RawMaterialReceiving: React.FC = () => {
   const { message } = AntApp.useApp();
   const [form] = Form.useForm();
+  const cachedTab = useMemo(() => tabSessionCache.get<RawMaterialReceivingTabCache>(RM_RECEIVING_TAB_ID), []);
+
   const [refData, setRefData] = useState<FormRefData | null>(null);
   const [refState, setRefState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [sections, setSections] = useState<OrgOption[]>([]);
@@ -192,14 +203,14 @@ const RawMaterialReceiving: React.FC = () => {
   const rowsRef = useRef<LineRow[]>(rows);
   rowsRef.current = rows;
 
-  const [list, setList] = useState<ReceiptHeader[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [list, setList] = useState<ReceiptHeader[]>(() => cachedTab?.list ?? []);
+  const [total, setTotal] = useState<number>(() => cachedTab?.total ?? 0);
+  const [page, setPage] = useState<number>(() => cachedTab?.page ?? 1);
   const [pageSize] = useState(20);
   const [listLoading, setListLoading] = useState(false);
-  const [listState, setListState] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [listState, setListState] = useState<'loading' | 'error' | 'ready'>(() => cachedTab ? 'ready' : 'loading');
 
-  const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string }>({});
+  const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string }>(() => cachedTab?.filters ?? {});
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -389,6 +400,13 @@ const RawMaterialReceiving: React.FC = () => {
       setList(res.data || []);
       setTotal(res.total || 0);
       setListState('ready');
+      // Persist to session cache so switching back restores rows + filters
+      tabSessionCache.set<RawMaterialReceivingTabCache>(RM_RECEIVING_TAB_ID, {
+        list: res.data || [],
+        total: res.total || 0,
+        page: p,
+        filters: f,
+      });
     } catch {
       setList([]);
       setTotal(0);
@@ -400,7 +418,28 @@ const RawMaterialReceiving: React.FC = () => {
   }, [page, pageSize, filters]);
 
   useEffect(() => { void loadRef(); }, [loadRef]);
-  useEffect(() => { void loadList(1); }, [loadList]);
+  useEffect(() => {
+    // If the tab was already loaded in this session, DO NOT re-fetch when
+    // returning to it — the cached rows are already seeded into state.
+    if (!tabSessionCache.has(RM_RECEIVING_TAB_ID)) {
+      void loadList(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadList]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith(RM_RECEIVING_TAB_ID)) {
+        tabSessionCache.remove(RM_RECEIVING_TAB_ID);
+        void loadList(1);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadList]);
 
   const loadSections = useCallback(async (divisionId: string) => {
     const bundled = (refData?.sections || []).filter((s) => !s.divisionId || s.divisionId === divisionId);
@@ -1566,7 +1605,7 @@ const RawMaterialReceiving: React.FC = () => {
         if (loading) {
           return (
             <div className="rmr-inv-row" data-testid={`rm-preview-${r.itemId}-loading`}>
-              <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Loading…</Text>
+              <GlobalLoading spinnerOnly size="small" /> <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Loading…</Text>
             </div>
           );
         }
@@ -1628,7 +1667,12 @@ const RawMaterialReceiving: React.FC = () => {
   const isEditing = editingId !== null;
 
   return (
-    <div className="erp-dashboard">
+    <TabKeepAlive
+      tabId={RM_RECEIVING_TAB_ID}
+      load={async () => { await loadRef(); await loadList(1); }}
+      serialize={() => ({ list, total, page, filters })}
+    >
+      <div className="erp-dashboard">
       <PageHeader
         icon={<InboxOutlined />}
         title="Raw Material Receiving"
@@ -1919,7 +1963,7 @@ const RawMaterialReceiving: React.FC = () => {
                             </div>
                           ) : g.loading ? (
                             <div className="rmr-inv-summary-status" data-testid="rm-inv-summary-loading">
-                              <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12 }}>Loading current inventory…</Text>
+                              <GlobalLoading spinnerOnly size="small" /> <Text type="secondary" style={{ fontSize: 12 }}>Loading current inventory…</Text>
                             </div>
                           ) : (
                             <div className="rmr-inv-summary-grid">
@@ -2838,6 +2882,7 @@ const RawMaterialReceiving: React.FC = () => {
       />
 
     </div>
+  </TabKeepAlive>
   );
 };
 

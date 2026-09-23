@@ -134,6 +134,12 @@ export const JobCardCreate: React.FC = () => {
     sections: [],
     departments: [],
   });
+  const [divisionsLoading, setDivisionsLoading] = useState(false);
+  const [divisionsError, setDivisionsError] = useState('');
+  const [sectionsLoading, setSectionsLoading] = useState(false);
+  const [sectionsError, setSectionsError] = useState('');
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [departmentsError, setDepartmentsError] = useState('');
 
   // Watched Form Fields for Real-Time Live Preview Sheet
   const companyId = Form.useWatch('companyId', form);
@@ -150,7 +156,7 @@ export const JobCardCreate: React.FC = () => {
   const watchedFailureCat = Form.useWatch('failureCategoryId', form);
   const watchedDescription = Form.useWatch('description', form) || '';
 
-  // Initial user default company setup
+  // Initial user default company setup - fires on mount and whenever user/context becomes available
   useEffect(() => {
     const defaultCid = context?.companyId || user?.defaultCompanyId || (user as any)?.companyId;
     if (defaultCid && !form.getFieldValue('companyId')) {
@@ -158,52 +164,123 @@ export const JobCardCreate: React.FC = () => {
     }
   }, [user, context, form]);
 
-  // Load Divisions
+  // Resolve companyId from context, user defaults, or form value
+  const resolvedCompanyId = context?.companyId || user?.defaultCompanyId || (user as any)?.companyId || companyId;
+
+  // Load Divisions - unconditional mount fetch of ALL active divisions.
+  // Deliberately un-guarded: runs immediately, no companyId gate.
   useEffect(() => {
-    if (!companyId) return;
+    let cancelled = false;
+    setDivisionsLoading(true);
+    setDivisionsError('');
+
     apiService
-      .get<any>('/divisions', { companyId, limit: 100 })
+      .get<any>('/divisions', { status: 'ACTIVE', limit: 500 })
       .then((r) => {
+        if (cancelled) return;
         const divList = uuidRowsOf(r);
         setOrg((v) => ({ ...v, divisions: divList }));
-        // Auto-select first division if none selected and not provided in context
+        setDivisionsError('');
+
+        // Auto-select first division if none selected and not in context mode
         if (!context && divList.length > 0 && !form.getFieldValue('divisionId')) {
           form.setFieldValue('divisionId', divList[0].id);
         }
       })
-      .catch(() => undefined);
-  }, [companyId, context, form]);
+      .catch((e) => {
+        if (!cancelled) {
+          setOrg((v) => ({ ...v, divisions: [] }));
+          setDivisionsError(errorText(e));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDivisionsLoading(false);
+      });
 
-  // Load Sections
+    return () => {
+      cancelled = true;
+    };
+  }, [context, form]);
+
+  // Load Sections - Cascading fetch triggered when divisionId changes
   useEffect(() => {
-    if (divisionId) {
-      apiService
-        .get<any>('/sections', { companyId, divisionId, limit: 100 })
-        .then((r) => {
-          const secList = uuidRowsOf(r);
-          setOrg((v) => ({ ...v, sections: secList }));
-          // Auto-select first section if none selected and only 1 available
-          if (!context && secList.length === 1 && !form.getFieldValue('sectionId')) {
-            form.setFieldValue('sectionId', secList[0].id);
-          }
-        })
-        .catch(() => undefined);
-    } else {
+    const divId = form.getFieldValue('divisionId');
+    if (!divId || !resolvedCompanyId) {
       setOrg((v) => ({ ...v, sections: [] }));
+      setSectionsError('');
+      return;
     }
-  }, [companyId, divisionId, context, form]);
 
-  // Load Departments
+    let cancelled = false;
+    setSectionsLoading(true);
+    setSectionsError('');
+
+    apiService
+      .get<any>('/sections', { companyId: resolvedCompanyId, divisionId: divId, limit: 100 })
+      .then((r) => {
+        if (cancelled) return;
+        const secList = uuidRowsOf(r);
+        setOrg((v) => ({ ...v, sections: secList }));
+        setSectionsError('');
+
+        // Auto-clear dependent fields
+        form.resetFields(['assignedDepartmentId']);
+
+        // Auto-select first section if none selected and not in context mode, only if single result
+        if (!context && secList.length === 1 && !form.getFieldValue('sectionId')) {
+          form.setFieldValue('sectionId', secList[0].id);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setOrg((v) => ({ ...v, sections: [] }));
+          setSectionsError(errorText(e));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSectionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedCompanyId, divisionId, context, form]);
+
+  // Load Departments - Cascading fetch triggered when sectionId changes
   useEffect(() => {
-    if (sectionId) {
-      apiService
-        .get<any>('/departments', { companyId, divisionId, sectionId, limit: 100 })
-        .then((r) => setOrg((v) => ({ ...v, departments: uuidRowsOf(r) })))
-        .catch(() => undefined);
-    } else {
+    const secId = form.getFieldValue('sectionId');
+    if (!secId || !resolvedCompanyId) {
       setOrg((v) => ({ ...v, departments: [] }));
+      setDepartmentsError('');
+      return;
     }
-  }, [companyId, divisionId, sectionId]);
+
+    let cancelled = false;
+    setDepartmentsLoading(true);
+    setDepartmentsError('');
+
+    apiService
+      .get<any>('/departments', { companyId: resolvedCompanyId, divisionId: form.getFieldValue('divisionId'), sectionId: secId, limit: 100 })
+      .then((r) => {
+        if (cancelled) return;
+        const deptList = uuidRowsOf(r);
+        setOrg((v) => ({ ...v, departments: deptList }));
+        setDepartmentsError('');
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setOrg((v) => ({ ...v, departments: [] }));
+          setDepartmentsError(errorText(e));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDepartmentsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedCompanyId, divisionId, sectionId]);
 
   // Load Machines
   useEffect(() => {
@@ -712,54 +789,68 @@ export const JobCardCreate: React.FC = () => {
                     <>
                       <Row gutter={12}>
                         <Col xs={24} md={8}>
-                          <Form.Item
-                            name="divisionId"
-                            label={<span><ApartmentOutlined style={{ marginRight: 4, color: '#2563eb' }} />Division</span>}
-                            rules={[{ required: true, message: 'Division is required' }]}
-                          >
-                            <Select
-                              showSearch
-                              optionFilterProp="label"
-                              placeholder="Select Division"
-                              options={org.divisions.map((v) => ({ value: v.id, label: optionLabel(v) }))}
-                              onChange={() => {
-                                form.resetFields(['sectionId', 'assignedDepartmentId']);
-                                clearMachine();
-                              }}
-                            />
+                           <Form.Item
+                             name="divisionId"
+                             label={<span><ApartmentOutlined style={{ marginRight: 4, color: '#2563eb' }} />Division</span>}
+                             rules={[{ required: true, message: 'Division is required' }]}
+                           >
+                             <Select
+                               showSearch
+                               optionFilterProp="label"
+                               placeholder={divisionsLoading ? 'Loading divisions...' : 'Select Division'}
+                               loading={divisionsLoading}
+                               options={org.divisions?.map(div => ({ value: div.id, label: div.name }))}
+                               notFoundContent={
+                                 divisionsLoading ? 'Loading...' : divisionsError || 'No divisions available'
+                               }
+                               onChange={(val) => {
+                                 form.setFieldValue('divisionId', val);
+                                  form.resetFields(['sectionId', 'assignedDepartmentId']);
+                                 clearMachine();
+                               }}
+                             />
                           </Form.Item>
                         </Col>
                         <Col xs={24} md={8}>
-                          <Form.Item
-                            name="sectionId"
-                            label={<span><BranchesOutlined style={{ marginRight: 4, color: '#2563eb' }} />Section</span>}
-                            rules={[{ required: true, message: 'Section is required' }]}
-                          >
-                            <Select
-                              showSearch
-                              disabled={!divisionId}
-                              placeholder="Select Section"
-                              options={org.sections.map((v) => ({ value: v.id, label: optionLabel(v) }))}
-                              onChange={() => {
-                                form.resetFields(['assignedDepartmentId']);
-                                clearMachine();
-                              }}
-                            />
+                           <Form.Item
+                             name="sectionId"
+                             label={<span><BranchesOutlined style={{ marginRight: 4, color: '#2563eb' }} />Section</span>}
+                             rules={[{ required: true, message: 'Section is required' }]}
+                           >
+                             <Select
+                               showSearch
+                               disabled={!divisionId}
+                               placeholder={sectionsLoading ? 'Loading sections...' : 'Select Section'}
+                               loading={sectionsLoading}
+                               options={org.sections.map((v) => ({ value: v.id, label: optionLabel(v) }))}
+                               notFoundContent={
+                                 sectionsLoading ? 'Loading...' : sectionsError || 'No sections available'
+                               }
+                               onChange={(val) => {
+                                 form.setFieldValue('sectionId', val);
+                                 form.resetFields(['assignedDepartmentId']);
+                                 clearMachine();
+                               }}
+                             />
                           </Form.Item>
                         </Col>
                         <Col xs={24} md={8}>
-                          <Form.Item
-                            name="assignedDepartmentId"
-                            label={<span><ClusterOutlined style={{ marginRight: 4, color: '#2563eb' }} />Department (Optional)</span>}
-                          >
-                            <Select
-                              showSearch
-                              allowClear
-                              disabled={!sectionId}
-                              placeholder="Select Department"
-                              options={org.departments.map((v) => ({ value: v.id, label: optionLabel(v) }))}
-                              onChange={() => clearMachine()}
-                            />
+                           <Form.Item
+                             name="assignedDepartmentId"
+                             label={<span><ClusterOutlined style={{ marginRight: 4, color: '#2563eb' }} />Department (Optional)</span>}
+                           >
+                             <Select
+                               showSearch
+                               allowClear
+                               disabled={!sectionId}
+                               placeholder={departmentsLoading ? 'Loading departments...' : 'Select Department'}
+                               loading={departmentsLoading}
+                               options={org.departments.map((v) => ({ value: v.id, label: optionLabel(v) }))}
+                               notFoundContent={
+                                 departmentsLoading ? 'Loading...' : departmentsError || 'No departments available'
+                               }
+                               onChange={() => clearMachine()}
+                             />
                           </Form.Item>
                         </Col>
                       </Row>
