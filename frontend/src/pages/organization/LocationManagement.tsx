@@ -19,6 +19,7 @@ interface WarehouseLocation {
   id: string;
   locationCode: string;
   name: string;
+  description?: string | null;
   warehouseId: string;
   warehouse?: Warehouse;
   parentLocationId?: string;
@@ -199,7 +200,16 @@ const LocationManagement: React.FC = () => {
 
   const handleEdit = (record: WarehouseLocation) => {
     setEditingLocation(record);
-    form.setFieldsValue(record);
+    // Clear any values left over from a previously edited record so the form
+    // always reflects only this record (NULL parent must load as blank).
+    form.resetFields();
+    form.setFieldsValue({
+      warehouseId: record.warehouseId,
+      locationCode: record.locationCode,
+      name: record.name,
+      description: record.description ?? '',
+      parentLocationId: record.parentLocationId ?? null,
+    });
     setModalVisible(true);
   };
 
@@ -293,28 +303,19 @@ const LocationManagement: React.FC = () => {
       return;
     }
 
-    // Convert camelCase form fields to snake_case, then strip foreign key fields
-    // that the backend rejects in raw mutations (it likely expects relations via nested objects or context).
-    const payload: any = { ...values };
-    if (payload.warehouseId !== undefined) {
-      payload.warehouse_id = payload.warehouseId;
-      delete payload.warehouseId;
+    // Build the payload with exactly the camelCase keys the backend DTO accepts.
+    // parentLocationId is always included — explicit null means "No Parent" and
+    // must clear parent_location_id in the database.
+    const isEdit = !!editingLocation;
+    const payload: any = {
+      name: values.name,
+      description: values.description ?? null,
+      parentLocationId: values.parentLocationId ?? null,
+    };
+    if (!isEdit) {
+      payload.warehouseId = values.warehouseId;
+      payload.locationCode = values.locationCode;
     }
-    if (payload.parentLocationId !== undefined) {
-      payload.parent_location_id = payload.parentLocationId;
-      delete payload.parentLocationId;
-    }
-    if (payload.locationCode !== undefined) {
-      payload.code = payload.locationCode;
-      delete payload.locationCode;
-    }
-    // Strip foreign key columns and nested relation objects that Supabase/PostgREST rejects on direct upsert
-    delete payload.warehouse_id;
-    delete payload.parent_location_id;
-    delete payload.warehouses;
-    delete payload.parentLocation;
-    // Remove any remaining snake_case keys not expected by the database schema
-    delete payload.location_code;
 
     modal.confirm({
       title: 'Save Confirmation',
@@ -325,8 +326,6 @@ const LocationManagement: React.FC = () => {
         setSubmitting(true);
         try {
           if (editingLocation) {
-            // During PATCH/update, the backend locks the code field and rejects it if sent
-            delete payload.code;
             await apiService.patch(`/warehouse-locations/${editingLocation.id}`, payload);
             message.success('Location updated successfully');
           } else {
@@ -334,12 +333,23 @@ const LocationManagement: React.FC = () => {
             message.success('Location created successfully');
           }
           setModalVisible(false);
+          // The edit session is over — clearing it also flips the modal title
+          // off "Edit Location" immediately instead of after the close animation.
+          setEditingLocation(null);
           fetchLocationsRef(page);
           fetchHierarchy();
         } catch (error: any) {
+          // Keep the modal open and surface the real backend error — never show
+          // a false success when the server rejected or failed the save.
+          const backendMsg = Array.isArray(error?.response?.data?.message)
+            ? error.response.data.message[0]
+            : error?.response?.data?.message;
+          const operation = editingLocation ? 'update' : 'create';
           modal.error({
             title: 'Save Failed',
-            content: formatApiError(error, 'Operation failed'),
+            content: backendMsg
+              ? `Failed to ${operation} warehouse location: ${backendMsg}`
+              : formatApiError(error, `Failed to ${operation} warehouse location`),
           });
         } finally {
           setSubmitting(false);
@@ -441,6 +451,41 @@ const LocationManagement: React.FC = () => {
   ];
 
   const visibleColumns = columns.filter((c) => visibleCols[c.key as keyof typeof visibleCols] !== false);
+
+  // Parent Location options: exclude the record being edited, all of its
+  // descendants (which would create a circular hierarchy), and locations that
+  // belong to a different warehouse (backend requires same-warehouse parents).
+  const formWarehouseId = Form.useWatch('warehouseId', form);
+  const parentOptions = useMemo(() => {
+    const excludedIds = new Set<string>();
+    if (editingLocation) {
+      excludedIds.add(editingLocation.id);
+      const childIdsByParent = new Map<string, string[]>();
+      locations.forEach((loc) => {
+        if (loc.parentLocationId) {
+          const siblings = childIdsByParent.get(loc.parentLocationId) ?? [];
+          siblings.push(loc.id);
+          childIdsByParent.set(loc.parentLocationId, siblings);
+        }
+      });
+      const stack = [editingLocation.id];
+      while (stack.length > 0) {
+        const currentId = stack.pop() as string;
+        (childIdsByParent.get(currentId) ?? []).forEach((childId) => {
+          if (!excludedIds.has(childId)) {
+            excludedIds.add(childId);
+            stack.push(childId);
+          }
+        });
+      }
+    }
+    const parentWarehouseId = editingLocation ? editingLocation.warehouseId : formWarehouseId;
+    return locations.filter(
+      (loc) =>
+        !excludedIds.has(loc.id) &&
+        (!parentWarehouseId || loc.warehouseId === parentWarehouseId),
+    );
+  }, [locations, editingLocation, formWarehouseId]);
 
   const { setHeaderActions, clearHeaderActions } = useHeaderActions.getState();
   useEffect(() => {
@@ -593,6 +638,10 @@ const LocationManagement: React.FC = () => {
           <DraggableResizableModal
             title={editingLocation ? 'Edit Location' : 'Create Location'}
             open={modalVisible}
+            // rc-dialog keeps the closed dialog mounted (hidden with display:none)
+            // unless destroyOnHidden is set. Destroying on close removes the
+            // "Edit Location" title node from the DOM once the save closes it.
+            destroyOnHidden
             onOk={handleSubmit}
             confirmLoading={submitting}
             onCancel={() => {
@@ -635,8 +684,8 @@ const LocationManagement: React.FC = () => {
                 <Input.TextArea />
               </Form.Item>
               <Form.Item name="parentLocationId" label="Parent Location">
-                <Select placeholder="Select parent location (optional)" allowClear>
-                  {locations.map((loc) => (
+                <Select placeholder="No Parent (root location)" allowClear>
+                  {parentOptions.map((loc) => (
                     <Select.Option key={loc.id} value={loc.id}>
                       {loc.locationCode} - {loc.name}
                     </Select.Option>

@@ -67,7 +67,7 @@ export const EditJobCardModal: React.FC<EditJobCardModalProps> = ({
           key="submit"
           type="primary"
           loading={submitting}
-          style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
+          style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 600 }}
           onClick={handleSubmit}
         >
           Save Changes

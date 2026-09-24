@@ -175,8 +175,8 @@ const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
     return (
       <div style={{ whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <CheckCircleOutlined style={{ color: '#10b981', fontSize: 12 }} />
-          <span style={{ fontWeight: 700, color: '#10b981', fontSize: 12 }}>
+          <CheckCircleOutlined style={{ color: 'var(--maint-success-fg)', fontSize: 12 }} />
+          <span style={{ fontWeight: 700, color: 'var(--maint-success-fg)', fontSize: 12 }}>
             {formatDuration(repairMins)}
           </span>
         </div>
@@ -195,11 +195,11 @@ const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
       <div style={{ whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           {isHold ? (
-            <StopOutlined style={{ color: '#f59e0b', fontSize: 12 }} />
+            <StopOutlined style={{ color: 'var(--maint-warning-fg)', fontSize: 12 }} />
           ) : (
-            <ToolOutlined style={{ color: '#38bdf8', fontSize: 12 }} />
+            <ToolOutlined style={{ color: 'var(--maint-info-fg)', fontSize: 12 }} />
           )}
-          <span style={{ fontWeight: 700, color: isHold ? '#f59e0b' : '#38bdf8', fontSize: 12 }}>
+          <span style={{ fontWeight: 700, color: isHold ? 'var(--maint-warning-fg)' : 'var(--maint-info-fg)', fontSize: 12 }}>
             {formatDuration(activeMins)}
           </span>
           {isHold && (
@@ -220,15 +220,15 @@ const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
     return (
       <div style={{ whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <RollbackOutlined style={{ color: '#ef4444', fontSize: 12 }} />
-          <span style={{ fontWeight: 700, color: '#ef4444', fontSize: 12 }}>
+          <RollbackOutlined style={{ color: 'var(--maint-danger-fg)', fontSize: 12 }} />
+          <span style={{ fontWeight: 700, color: 'var(--maint-danger-fg)', fontSize: 12 }}>
             {formatDuration(totalDownMins)}
           </span>
           <Tag color="error" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>
             Needs Rework
           </Tag>
         </div>
-        <div style={{ fontSize: 11, color: '#f87171', marginTop: 1, fontWeight: 500 }}>
+        <div style={{ fontSize: 11, color: 'var(--maint-danger-fg)', marginTop: 1, fontWeight: 500 }}>
           Returned / Needs Rework
         </div>
       </div>
@@ -241,7 +241,7 @@ const JobCardDowntimeCell: React.FC<{ card: JobCard }> = ({ card }) => {
   return (
     <div style={{ whiteSpace: 'nowrap' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <ClockCircleOutlined style={{ color: isHighDelay ? '#ef4444' : '#60a5fa', fontSize: 12 }} />
+        <ClockCircleOutlined style={{ color: isHighDelay ? 'var(--maint-danger-fg)' : 'var(--maint-info-fg)', fontSize: 12 }} />
         <span style={{ fontWeight: 700, color: isHighDelay ? '#ef4444' : 'inherit', fontSize: 12 }}>
           {formatDuration(waitMins)}
         </span>
@@ -643,7 +643,7 @@ export const JobCardList: React.FC = () => {
           <p style={{ fontSize: 14, margin: '0 0 8px 0' }}>
             Are you sure you want to start all <strong>{count}</strong> selected job cards simultaneously?
           </p>
-          <p style={{ color: '#64748b', fontSize: 12, margin: 0 }}>
+          <p style={{ color: 'var(--theme-text-muted)', fontSize: 12, margin: 0 }}>
             Their statuses will be transitioned to <strong>IN PROGRESS</strong>.
           </p>
         </div>
@@ -652,7 +652,7 @@ export const JobCardList: React.FC = () => {
       okButtonProps: {
         type: 'primary',
         icon: <PlayCircleOutlined />,
-        style: { backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 },
+        style: { backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 600 },
       },
       cancelText: 'Cancel',
       onOk: async () => {
@@ -746,12 +746,12 @@ export const JobCardList: React.FC = () => {
     <Tooltip title="View Job Card" placement="top">
       <Button
         className="jc-view-btn"
-        icon={<EyeOutlined style={{ fontSize: 13, color: '#2563eb' }} />}
+        icon={<EyeOutlined style={{ fontSize: 13, color: 'var(--maint-info-fg)' }} />}
         aria-label={`View Job Card ${r.jobCardNo || ''}`}
         style={{
-          color: '#2563eb',
-          borderColor: '#93c5fd',
-          backgroundColor: '#eff6ff',
+          color: 'var(--maint-info-fg)',
+          borderColor: 'var(--maint-info-border)',
+          backgroundColor: 'var(--maint-info-bg)',
           width: 28,
           minWidth: 28,
           height: 28,
@@ -815,12 +815,12 @@ export const JobCardList: React.FC = () => {
       <Tooltip title="Edit Job Card" placement="top">
         <Button
           size="small"
-          icon={<EditOutlined style={{ fontSize: 13, color: '#2563eb' }} />}
+          icon={<EditOutlined style={{ fontSize: 13, color: 'var(--maint-info-fg)' }} />}
           aria-label={`Edit Job Card ${r.jobCardNo || ''}`}
           style={{
-            borderColor: '#bfdbfe',
-            backgroundColor: '#eff6ff',
-            color: '#2563eb',
+            borderColor: 'var(--maint-info-border)',
+            backgroundColor: 'var(--maint-info-bg)',
+            color: 'var(--maint-info-fg)',
             width: 28,
             minWidth: 28,
             height: 28,
@@ -847,9 +847,9 @@ export const JobCardList: React.FC = () => {
           icon={<DeleteOutlined style={{ fontSize: 13 }} />}
           aria-label={`Delete Job Card ${r.jobCardNo || ''}`}
           style={{
-            borderColor: '#fca5a5',
-            backgroundColor: '#fef2f2',
-            color: '#dc2626',
+            borderColor: 'var(--maint-danger-border)',
+            backgroundColor: 'var(--maint-danger-bg)',
+            color: 'var(--maint-danger-fg)',
             width: 28,
             minWidth: 28,
             height: 28,
@@ -921,7 +921,7 @@ export const JobCardList: React.FC = () => {
           <Tooltip title="Hold for Spare Parts" placement="top">
             <Button
               size="small"
-              icon={<StopOutlined style={{ fontSize: 13, color: '#d97706' }} />}
+              icon={<StopOutlined style={{ fontSize: 13, color: 'var(--maint-warning-fg)' }} />}
               aria-label={`Put Job Card ${r.jobCardNo || ''} on hold`}
               style={{
                 width: 28,
@@ -929,8 +929,8 @@ export const JobCardList: React.FC = () => {
                 height: 28,
                 padding: 0,
                 borderRadius: 6,
-                borderColor: '#fde68a',
-                backgroundColor: '#fffbeb',
+                borderColor: 'var(--maint-warning-border)',
+                backgroundColor: 'var(--maint-warning-bg)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1343,7 +1343,7 @@ export const JobCardList: React.FC = () => {
                   <Button
                     type="primary"
                     icon={<PlayCircleOutlined />}
-                    style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
+                    style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 600 }}
                     onClick={onHeaderStartJob}
                   >
                     {selectedRowKeys.length > 0 ? `Start Selected (${selectedRowKeys.length})` : 'Start Job Card'}
@@ -1359,7 +1359,7 @@ export const JobCardList: React.FC = () => {
                   <Button
                     type="primary"
                     icon={<CheckCircleOutlined />}
-                    style={{ backgroundColor: '#059669', borderColor: '#059669', fontWeight: 600 }}
+                    style={{ backgroundColor: '#059669', borderColor: '#059669', color: '#ffffff', fontWeight: 600 }}
                     onClick={onHeaderCloseJob}
                   >
                     {selectedRowKeys.length > 0 ? `Close Selected (${selectedRowKeys.length})` : 'Close Job Card'}
@@ -1390,7 +1390,7 @@ export const JobCardList: React.FC = () => {
               <Button
                 type="primary"
                 icon={<RollbackOutlined />}
-                style={{ backgroundColor: '#ef4444', borderColor: '#dc2626', fontWeight: 600 }}
+                style={{ backgroundColor: '#ef4444', borderColor: '#dc2626', color: '#ffffff', fontWeight: 600 }}
                 onClick={onHeaderReworkJob}
               >
                 {selectedRowKeys.length === 1 ? 'Rework Selected Job' : 'Rework & Resubmit Job Card'}
@@ -1512,7 +1512,7 @@ export const JobCardList: React.FC = () => {
       <Row gutter={[8, 12]} align="middle">
         <Col>
           <Button icon={<FilterOutlined />} onClick={() => setShowFilters(v => !v)} type={showFilters ? 'primary' : 'default'}>
-            <span style={{ color: showFilters ? '#fff' : undefined }}>Filters</span>
+            <span style={{ color: showFilters ? 'var(--theme-on-accent)' : undefined }}>Filters</span>
           </Button>
         </Col>
         {activeFilterCount > 0 && <Col><Tag color="blue">{activeFilterCount}</Tag></Col>}

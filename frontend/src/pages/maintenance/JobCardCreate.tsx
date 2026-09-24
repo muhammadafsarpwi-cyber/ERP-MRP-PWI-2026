@@ -26,6 +26,7 @@ import {
   BuildOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  CloseCircleOutlined,
   CloseOutlined,
   ClusterOutlined,
   CopyOutlined,
@@ -46,6 +47,7 @@ import {
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
+import BarcodeScanner from '../../components/shared/BarcodeScanner';
 import {
   JOB_CARD_BASE,
   JOB_CARD_PRIORITIES,
@@ -62,6 +64,7 @@ import {
   label,
 } from './jobCards.types';
 import './jobCardCreate.css';
+import './maintTheme.css';
 
 const { Text } = Typography;
 
@@ -69,6 +72,49 @@ const priorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
 const machineLabel = (m: OrgOption) =>
   `${m.machineCode || m.machineId || '—'} — ${m.machineName || m.name || m.machineId || 'Unnamed machine'}`;
+
+const MACHINE_CODE_MISMATCH = 'Machine code does not match the selected machine.';
+
+/**
+ * Robustly extracts a valid companyId string from context or user store.
+ * Strictly returns string or undefined, preventing objects or circular references
+ * from entering Form state.
+ */
+export const resolveCompanyId = (ctx?: JobCardContext | null, u?: any): string | undefined => {
+  if (typeof ctx?.companyId === 'string' && ctx.companyId.trim()) return ctx.companyId.trim();
+  if (typeof u?.defaultCompanyId === 'string' && u.defaultCompanyId.trim()) return u.defaultCompanyId.trim();
+  if (typeof u?.companyId === 'string' && u.companyId.trim()) return u.companyId.trim();
+  if (typeof u?.defaultCompany?.id === 'string' && u.defaultCompany.id.trim()) return u.defaultCompany.id.trim();
+  if (typeof u?.company?.id === 'string' && u.company.id.trim()) return u.company.id.trim();
+  return undefined;
+};
+
+/**
+ * Validates a typed / scanned value against a machine record's authoritative
+ * identifiers (mirrors the backend `GET /machines/by-code/:code` resolver):
+ *  - machineCode  — human code printed on the asset (e.g. FT-01)
+ *  - machineId    — system-generated id (e.g. MCH001)
+ *  - qrPayload    — stored QR value (qr_code column, e.g. /production/machines/<uuid>)
+ *  - id           — primary UUID (embedded in printed QR URLs)
+ * Exact match is case-insensitive and tolerates a `machine:` prefix; printed
+ * QR labels encode an absolute URL around the payload, so long tokens also
+ * match by containment. Short tokens never match by containment to avoid
+ * false positives.
+ */
+export const machineCodeMatches = (
+  raw: string,
+  machine: Record<string, any> | null | undefined,
+): boolean => {
+  if (!machine) return false;
+  const norm = (v: any) => String(v ?? '').trim().toLowerCase().replace(/^machine:/, '');
+  const code = norm(raw);
+  if (!code) return false;
+  const tokens = [machine.machineCode, machine.machineId, machine.qrPayload, machine.id]
+    .map(norm)
+    .filter(Boolean);
+  if (tokens.includes(code)) return true;
+  return tokens.some((t) => t.length >= 8 && code.includes(t));
+};
 
 // Common shop-floor 1-tap quick complaint presets for rapid mobile/tablet entry
 const QUICK_COMPLAINTS = [
@@ -103,11 +149,24 @@ export const JobCardCreate: React.FC = () => {
 
   // Mobile View Tab: 'form' | 'preview'
   const [mobileActiveTab, setMobileActiveTab] = useState<'form' | 'preview'>('form');
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 960);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 960);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Machine Lookup State
   const [lookupCode, setLookupCode] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
   const [selectedMachine, setSelectedMachine] = useState<JobCard | null>(null);
+  // Machine verification result (drives the machine banner's verified/error state)
+  const [machineVerified, setMachineVerified] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // Machine & Organization Data
   const [machines, setMachines] = useState<OrgOption[]>([]);
@@ -159,14 +218,16 @@ export const JobCardCreate: React.FC = () => {
 
   // Initial user default company setup - fires on mount and whenever user/context becomes available
   useEffect(() => {
-    const defaultCid = context?.companyId || user?.defaultCompanyId || (user as any)?.companyId;
+    const defaultCid = resolveCompanyId(context, user);
     if (defaultCid && !form.getFieldValue('companyId')) {
       form.setFieldValue('companyId', defaultCid);
     }
   }, [user, context, form]);
 
-  // Resolve companyId from context, user defaults, or form value
-  const resolvedCompanyId = context?.companyId || user?.defaultCompanyId || (user as any)?.companyId || companyId;
+  // Resolve companyId from context, user defaults, or form value (guaranteed string or undefined)
+  const resolvedCompanyId = useMemo(() => {
+    return resolveCompanyId(context, user) || (typeof companyId === 'string' ? companyId : undefined);
+  }, [context, user, companyId]);
 
   // Load Divisions - unconditional mount fetch of the authoritative Division
   // master (Organization module) filtered to ACTIVE rows, narrowed to the
@@ -186,13 +247,16 @@ export const JobCardCreate: React.FC = () => {
       })
       .then((r) => {
         if (cancelled) return;
-        const cleanDivisions = (rowsOf(r) as any[])?.map(div => ({ id: div.id, name: div.name, divisionCode: div.divisionCode || div.division_code })) || [];
+        const cleanDivisions = (rowsOf(r) as any[])?.map(div => ({ id: String(div.id), name: div.name, divisionCode: div.divisionCode || div.division_code })) || [];
         setOrg((v) => ({ ...v, divisions: cleanDivisions }));
         setDivisionsError('');
 
         // Auto-select first division if none selected and not in context mode
         if (!context && cleanDivisions.length > 0 && !form.getFieldValue('divisionId')) {
-          form.setFieldValue('divisionId', cleanDivisions[0].id);
+          const firstId = cleanDivisions[0]?.id;
+          if (firstId && typeof firstId === 'string') {
+            form.setFieldValue('divisionId', firstId);
+          }
         }
       })
       .catch((e) => {
@@ -416,13 +480,23 @@ export const JobCardCreate: React.FC = () => {
     }
   };
 
+  // Any machine change must invalidate the previous verification result and
+  // clear the previously scanned code so it cannot stay "verified" by proxy.
+  const resetMachineVerification = () => {
+    setMachineVerified(false);
+    setVerifyError(null);
+    setLookupCode('');
+  };
+
   const clearMachine = () => {
     setSelectedMachine(null);
+    resetMachineVerification();
     form.setFieldsValue({ machineId: undefined, machineNumber: undefined, machineBarcode: undefined });
   };
 
   const handleMachineChange = (value: string) => {
     const machine = machines.find((m) => m.id === value) || null;
+    resetMachineVerification();
     setSelectedMachine(machine);
     if (machine) {
       form.setFieldsValue({
@@ -444,12 +518,38 @@ export const JobCardCreate: React.FC = () => {
     }
   };
 
-  // Instant Machine QR / Barcode Lookup
-  const lookupMachine = async () => {
-    if (!lookupCode.trim()) return;
+  // Machine QR / Barcode verification — the SINGLE entry point shared by the
+  // "Verify Code" button, the input's Enter key and the camera scanner.
+  // With a machine already selected the entered/scanned value is validated
+  // against that record's authoritative identifiers (machineCode / machineId /
+  // stored qrPayload / UUID); only when no machine is selected does it fall
+  // back to server-side resolution via GET /machines/by-code/:code.
+  const verifyMachineCode = async (codeOverride?: string) => {
+    const code = (codeOverride ?? lookupCode).trim();
+    if (!code) {
+      message.warning('Please scan or enter a machine code first.');
+      return;
+    }
+
+    if (selectedMachine) {
+      if (machineCodeMatches(code, selectedMachine)) {
+        setMachineVerified(true);
+        setVerifyError(null);
+        message.success(
+          `Machine Verified: ${selectedMachine.machineName || selectedMachine.name || selectedMachine.machineCode || selectedMachine.id}`,
+        );
+      } else {
+        setMachineVerified(false);
+        setVerifyError(MACHINE_CODE_MISMATCH);
+        message.error(MACHINE_CODE_MISMATCH);
+      }
+      return;
+    }
+
+    // No machine selected yet — resolve the code server-side and select it.
     setLookupLoading(true);
     try {
-      const machine = await apiService.get<JobCard>(`/machines/by-code/${encodeURIComponent(lookupCode.trim())}`);
+      const machine = await apiService.get<JobCard>(`/machines/by-code/${encodeURIComponent(code)}`);
       if (
         (companyId && machine.companyId !== companyId) ||
         (divisionId && machine.divisionId !== divisionId) ||
@@ -459,15 +559,20 @@ export const JobCardCreate: React.FC = () => {
         throw new Error('Machine is outside the selected organizational context');
       }
       setSelectedMachine(machine);
+      // The entered code resolved this exact record → it is verified.
+      setMachineVerified(true);
+      setVerifyError(null);
       form.setFieldValue('machineId', machine.id);
       form.setFieldValue('machineBarcode', machine.qrPayload || machine.machineCode || '');
       form.setFieldValue('machineNumber', machine.id);
       if (machine.divisionId) form.setFieldValue('divisionId', machine.divisionId);
       if (machine.sectionId) form.setFieldValue('sectionId', machine.sectionId);
       if (machine.departmentId) form.setFieldValue('assignedDepartmentId', machine.departmentId);
-      message.success(`Machine verified: ${machine.machineName || machine.name || machine.machineCode || machine.id}`);
+      message.success(`Machine Verified: ${machine.machineName || machine.name || machine.machineCode || machine.id}`);
     } catch (e) {
       setSelectedMachine(null);
+      setMachineVerified(false);
+      setVerifyError(null);
       message.error(errorText(e));
     } finally {
       setLookupLoading(false);
@@ -587,21 +692,24 @@ export const JobCardCreate: React.FC = () => {
     }
   };
 
-  const initialValues = context
-    ? {
-        priority: 'MEDIUM',
-        maintenanceType: 'BREAKDOWN',
-        companyId: context.companyId,
-        divisionId: context.divisionId,
-        sectionId: context.sectionId,
-        assignedDepartmentId: context.departmentId,
-        machineId: context.machineId,
-      }
-    : {
-        priority: 'MEDIUM',
-        maintenanceType: 'BREAKDOWN',
-        companyId: user?.defaultCompanyId || (user as any)?.companyId,
-      };
+  const initialValues = useMemo(() => {
+    const defaultCid = resolveCompanyId(context, user);
+    return context
+      ? {
+          priority: 'MEDIUM',
+          maintenanceType: 'BREAKDOWN',
+          companyId: defaultCid,
+          divisionId: context.divisionId ? String(context.divisionId) : undefined,
+          sectionId: context.sectionId ? String(context.sectionId) : undefined,
+          assignedDepartmentId: context.departmentId ? String(context.departmentId) : undefined,
+          machineId: context.machineId ? String(context.machineId) : undefined,
+        }
+      : {
+          priority: 'MEDIUM',
+          maintenanceType: 'BREAKDOWN',
+          companyId: defaultCid,
+        };
+  }, [context, user]);
 
   // Live Sheet Calculations
   const resolvedDivisionName = useMemo(() => {
@@ -672,14 +780,47 @@ export const JobCardCreate: React.FC = () => {
 
       {/* Main Draggable & Resizable Popup Modal */}
       <Modal
-        wrapClassName="erp-jc-modal-wrap"
+        wrapClassName={`erp-jc-modal-wrap ${isMobile ? 'erp-jc-mobile-view' : ''}`}
+        rootClassName={isMobile ? 'erp-jc-mobile-root' : undefined}
         open={!isMinimized}
         closable={false}
         footer={null}
-        width={isMaximized ? '100vw' : 1180}
+        zIndex={1250}
+        width={isMobile || isMaximized ? '100vw' : 1180}
+        styles={{
+          content: {
+            height: isMobile || isMaximized ? '100vh' : undefined,
+            maxHeight: isMobile || isMaximized ? '100vh' : undefined,
+            display: 'flex',
+            flexDirection: 'column',
+            padding: 0,
+            borderRadius: isMobile || isMaximized ? 0 : 16,
+            overflow: 'hidden',
+          },
+          body: {
+            flex: '1 1 0%',
+            height: '100%',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            padding: 0,
+            overflow: 'hidden',
+          },
+        }}
         style={
-          isMaximized
-            ? { top: 0, padding: 0, maxWidth: '100vw' }
+          isMobile || isMaximized
+            ? {
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                padding: 0,
+                margin: 0,
+                maxWidth: '100vw',
+                width: '100vw',
+                height: '100vh',
+                position: 'fixed',
+              }
             : {
                 top: 24,
                 transform: `translate(${modalPos.x}px, ${modalPos.y}px)`,
@@ -688,16 +829,23 @@ export const JobCardCreate: React.FC = () => {
         }
       >
         <div
+          className="erp-jc-modal-root-container"
           style={{
             display: 'flex',
             flexDirection: 'column',
-            height: isMaximized ? '100vh' : 'calc(88vh)',
-            maxHeight: isMaximized ? '100vh' : '840px',
+            flex: '1 1 0%',
+            height: '100%',
+            minHeight: 0,
             overflow: 'hidden',
+            position: 'relative',
           }}
         >
           {/* Header with mouse drag & window controls */}
-          <div className="erp-jc-modal-header" onMouseDown={handleDragStart}>
+          <div
+            className="erp-jc-modal-header"
+            style={{ flexShrink: 0 }}
+            onMouseDown={isMobile ? undefined : handleDragStart}
+          >
             <div className="erp-jc-header-title-group">
               <div className="erp-jc-header-icon">
                 <ToolOutlined />
@@ -709,39 +857,43 @@ export const JobCardCreate: React.FC = () => {
             </div>
 
             <div className="erp-jc-header-ctrl-group" onMouseDown={(e) => e.stopPropagation()}>
-              <Tooltip title={showPreviewPane ? 'Hide Live Ticket Sheet' : 'Show Live Ticket Sheet'}>
-                <button
-                  type="button"
-                  className="erp-jc-header-ctrl-btn"
-                  onClick={() => setShowPreviewPane((v) => !v)}
-                  aria-label={showPreviewPane ? 'Hide Detail Sheet' : 'Show Detail Sheet'}
-                  style={{
-                    width: 'auto',
-                    padding: '0 10px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: showPreviewPane ? 'rgba(37, 99, 235, 0.35)' : 'rgba(255, 255, 255, 0.1)',
-                    borderColor: showPreviewPane ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
-                  }}
-                >
-                  {showPreviewPane ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-                  <span>{showPreviewPane ? 'Hide Detail Sheet' : 'Show Detail Sheet'}</span>
-                </button>
-              </Tooltip>
+              {!isMobile && (
+                <Tooltip title={showPreviewPane ? 'Hide Live Ticket Sheet' : 'Show Live Ticket Sheet'}>
+                  <button
+                    type="button"
+                    className="erp-jc-header-ctrl-btn"
+                    onClick={() => setShowPreviewPane((v) => !v)}
+                    aria-label={showPreviewPane ? 'Hide Detail Sheet' : 'Show Detail Sheet'}
+                    style={{
+                      width: 'auto',
+                      padding: '0 10px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      background: showPreviewPane ? 'rgba(37, 99, 235, 0.35)' : 'rgba(255, 255, 255, 0.1)',
+                      borderColor: showPreviewPane ? '#3b82f6' : 'rgba(255, 255, 255, 0.2)',
+                    }}
+                  >
+                    {showPreviewPane ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                    <span>{showPreviewPane ? 'Hide Detail Sheet' : 'Show Detail Sheet'}</span>
+                  </button>
+                </Tooltip>
+              )}
 
-              <Tooltip title={isMaximized ? 'Restore Window Size' : 'Maximize Fullscreen'}>
-                <button
-                  type="button"
-                  className="erp-jc-header-ctrl-btn"
-                  onClick={() => setIsMaximized(!isMaximized)}
-                  aria-label="Maximize"
-                >
-                  {isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                </button>
-              </Tooltip>
+              {!isMobile && (
+                <Tooltip title={isMaximized ? 'Restore Window Size' : 'Maximize Fullscreen'}>
+                  <button
+                    type="button"
+                    className="erp-jc-header-ctrl-btn"
+                    onClick={() => setIsMaximized(!isMaximized)}
+                    aria-label="Maximize"
+                  >
+                    {isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  </button>
+                </Tooltip>
+              )}
 
               <Tooltip title="Minimize to bottom dock">
                 <button
@@ -768,7 +920,16 @@ export const JobCardCreate: React.FC = () => {
           </div>
 
           {/* Mobile Tab Switcher */}
-          <div className="erp-jc-mobile-tab-bar" style={{ display: 'none', padding: '8px 16px', background: '#f1f5f9' }}>
+          <div
+            className="erp-jc-mobile-tab-bar"
+            style={{
+              flexShrink: 0,
+              display: isMobile ? 'block' : 'none',
+              padding: '8px 14px',
+              background: 'var(--theme-surface-alt, #0f172a)',
+              borderBottom: '1px solid var(--theme-border, #1e293b)',
+            }}
+          >
             <Segmented
               block
               value={mobileActiveTab}
@@ -781,15 +942,30 @@ export const JobCardCreate: React.FC = () => {
           </div>
 
           {/* Modal Body Container: Left Form + Right Live Ticket Sheet */}
-          <div className="erp-jc-body-container">
+          <div
+            className="erp-jc-body-container"
+            style={{
+              display: 'flex',
+              flexDirection: isMobile ? 'column' : 'row',
+              flex: '1 1 0%',
+              minHeight: 0,
+              overflow: 'hidden',
+            }}
+          >
             {/* ── Left Form Pane ────────────────────────────────────────── */}
-            <div
-              className="erp-jc-form-pane"
-              style={{
-                flex: showPreviewPane ? '1 1 60%' : '1 1 100%',
-                borderRight: showPreviewPane ? '1px solid #e2e8f0' : 'none',
-              }}
-            >
+            {(!isMobile || mobileActiveTab === 'form') && (
+              <div
+                className="erp-jc-form-pane"
+                style={{
+                  flex: isMobile ? '1 1 100%' : (showPreviewPane ? '1 1 60%' : '1 1 100%'),
+                  height: '100%',
+                  overflowY: 'auto',
+                  WebkitOverflowScrolling: 'touch',
+                  borderRight: !isMobile && showPreviewPane ? '1px solid var(--theme-border)' : 'none',
+                  width: isMobile ? '100%' : undefined,
+                  display: isMobile && mobileActiveTab !== 'form' ? 'none' : 'block',
+                }}
+              >
               <Form
                 form={form}
                 layout="vertical"
@@ -819,7 +995,7 @@ export const JobCardCreate: React.FC = () => {
                         <Col xs={24} md={8}>
                            <Form.Item
                              name="divisionId"
-                             label={<span><ApartmentOutlined style={{ marginRight: 4, color: '#2563eb' }} />Division</span>}
+                             label={<span><ApartmentOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />Division</span>}
                              rules={[{ required: true, message: 'Division is required' }]}
                            >
                              <Select
@@ -847,7 +1023,7 @@ export const JobCardCreate: React.FC = () => {
                         <Col xs={24} md={8}>
                            <Form.Item
                              name="sectionId"
-                             label={<span><BranchesOutlined style={{ marginRight: 4, color: '#2563eb' }} />Section</span>}
+                             label={<span><BranchesOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />Section</span>}
                              rules={[{ required: true, message: 'Section is required' }]}
                            >
                              <Select
@@ -877,7 +1053,7 @@ export const JobCardCreate: React.FC = () => {
                         <Col xs={24} md={8}>
                            <Form.Item
                              name="assignedDepartmentId"
-                             label={<span><ClusterOutlined style={{ marginRight: 4, color: '#2563eb' }} />Department (Optional)</span>}
+                             label={<span><ClusterOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />Department (Optional)</span>}
                            >
                              <Select
                                showSearch
@@ -907,7 +1083,7 @@ export const JobCardCreate: React.FC = () => {
                         <Col xs={24} md={16}>
                           <Form.Item
                             name="machineNumber"
-                            label={<span><BuildOutlined style={{ marginRight: 4, color: '#2563eb' }} />Select Machine</span>}
+                            label={<span><BuildOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />Select Machine</span>}
                             rules={[{ required: true, message: 'Machine selection is required' }]}
                           >
                             <Select
@@ -940,13 +1116,13 @@ export const JobCardCreate: React.FC = () => {
                         <Col xs={24} md={8}>
                           <Form.Item
                             name="machineBarcode"
-                            label={<span><BarcodeOutlined style={{ marginRight: 4, color: '#2563eb' }} />Machine Barcode</span>}
+                            label={<span><BarcodeOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />Machine Barcode</span>}
                             tooltip="Auto-populated when machine is selected or scanned"
                           >
                             <Input
                               readOnly
                               placeholder="Auto-populated"
-                              suffix={<BarcodeOutlined style={{ color: '#94a3b8' }} />}
+                              suffix={<BarcodeOutlined style={{ color: 'var(--theme-text-muted)' }} />}
                             />
                           </Form.Item>
                         </Col>
@@ -955,48 +1131,73 @@ export const JobCardCreate: React.FC = () => {
                   )}
 
                   {/* QR Scan or Quick Code Input */}
-                  <Row gutter={12} align="bottom">
+                  <Row gutter={12} align="bottom" style={{ marginBottom: 12 }}>
                     <Col xs={24} sm={16}>
-                      <Form.Item
-                        label="Scan Machine Barcode / QR Code"
-                        style={{ marginBottom: 8 }}
-                      >
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--theme-text-secondary)', marginBottom: 4 }}>
+                          Scan Machine Barcode / QR Code
+                        </div>
                         <Input
                           placeholder="Scan QR or enter machine code and press Enter..."
                           value={lookupCode}
                           onChange={(e) => setLookupCode(e.target.value)}
-                          onPressEnter={lookupMachine}
-                          suffix={<ScanOutlined style={{ color: '#2563eb' }} />}
+                          onPressEnter={() => verifyMachineCode()}
+                          suffix={
+                            <ScanOutlined
+                              title="Open camera scanner"
+                              aria-label="Open camera scanner"
+                              style={{ color: 'var(--maint-info-fg)', cursor: 'pointer' }}
+                              onClick={() => setScannerOpen(true)}
+                            />
+                          }
                         />
-                      </Form.Item>
+                      </div>
                     </Col>
                     <Col xs={24} sm={8}>
-                      <Form.Item style={{ marginBottom: 8 }}>
+                      <div style={{ marginBottom: 8 }}>
                         <Button
                           type="default"
                           icon={<ScanOutlined />}
                           loading={lookupLoading}
-                          onClick={lookupMachine}
+                          onClick={() => verifyMachineCode()}
                           block
                         >
                           Verify Code
                         </Button>
-                      </Form.Item>
+                      </div>
                     </Col>
                   </Row>
 
-                  {/* Machine Live Alert Banner */}
+                  {/* Machine Live Alert Banner — also the verification result/status area */}
                   {selectedMachine && (
-                    <div className="erp-jc-machine-banner">
+                    <div
+                      className={
+                        verifyError
+                          ? 'erp-jc-machine-banner erp-jc-machine-banner--error'
+                          : machineVerified
+                            ? 'erp-jc-machine-banner erp-jc-machine-banner--verified'
+                            : 'erp-jc-machine-banner'
+                      }
+                    >
                       <Space>
-                        <CheckCircleOutlined style={{ color: '#10b981', fontSize: 18 }} />
+                        {verifyError ? (
+                          <CloseCircleOutlined style={{ color: 'var(--maint-danger-fg)', fontSize: 18 }} />
+                        ) : (
+                          <CheckCircleOutlined style={{ color: 'var(--maint-success-fg)', fontSize: 18 }} />
+                        )}
                         <div>
+                          {machineVerified && (
+                            <div className="erp-jc-machine-banner-verified-label">&#10003; Machine Verified</div>
+                          )}
                           <div className="erp-jc-machine-banner-title">
                             {selectedMachine.machineName || selectedMachine.name || selectedMachine.machineCode}
                           </div>
                           <div className="erp-jc-machine-banner-sub">
                             Code: {selectedMachine.machineCode || '—'} &bull; Type: {selectedMachine.machineType || '—'} &bull; Location: {selectedMachine.location || '—'}
                           </div>
+                          {verifyError && (
+                            <div className="erp-jc-machine-banner-error-msg">{verifyError}</div>
+                          )}
                         </div>
                       </Space>
                       <Button size="small" type="text" danger onClick={clearMachine}>
@@ -1066,7 +1267,7 @@ export const JobCardCreate: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                    <Form.Item name="priority" hidden initialValue="MEDIUM">
+                    <Form.Item name="priority" hidden>
                       <Input />
                     </Form.Item>
                   </div>
@@ -1167,10 +1368,22 @@ export const JobCardCreate: React.FC = () => {
                 </div>
               </Form>
             </div>
+            )}
 
             {/* ── Right Live Sheet Preview Pane (Collapsible via Toggle Button) ── */}
-            {showPreviewPane && (
-              <div className="erp-jc-preview-pane">
+            {(!isMobile ? showPreviewPane : mobileActiveTab === 'preview') && (
+              <div
+                className="erp-jc-preview-pane"
+                style={{
+                  flex: isMobile ? '1 1 100%' : undefined,
+                  height: '100%',
+                  overflowY: 'auto',
+                  WebkitOverflowScrolling: 'touch',
+                  width: isMobile ? '100%' : undefined,
+                  maxWidth: isMobile ? '100%' : 480,
+                  display: isMobile && mobileActiveTab !== 'preview' ? 'none' : 'flex',
+                }}
+              >
               {/* Readiness Progress Meter */}
               <div className="erp-jc-completion-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1196,7 +1409,7 @@ export const JobCardCreate: React.FC = () => {
                       <BarcodeOutlined />
                       #JC-DRAFT
                     </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
                       Status: <Tag color="blue" style={{ fontSize: 10, margin: 0, padding: '0 4px', height: 18, lineHeight: '16px' }}>OPEN</Tag>
                     </div>
                   </div>
@@ -1242,7 +1455,7 @@ export const JobCardCreate: React.FC = () => {
                     <div className="erp-jc-ticket-val">
                       {selectedMachine ? (
                         <span>
-                          <BuildOutlined style={{ color: '#2563eb', marginRight: 6 }} />
+                          <BuildOutlined style={{ color: 'var(--maint-info-fg)', marginRight: 6 }} />
                           {selectedMachine.machineName || selectedMachine.name || selectedMachine.machineCode}
                           {selectedMachine.machineCode && (
                             <Tag color="cyan" style={{ marginLeft: 6, fontSize: 11 }}>
@@ -1257,7 +1470,7 @@ export const JobCardCreate: React.FC = () => {
                       )}
                     </div>
                     {watchedMachineBarcode && (
-                      <div style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                         <BarcodeOutlined /> Barcode: <code>{watchedMachineBarcode}</code>
                       </div>
                     )}
@@ -1310,14 +1523,14 @@ export const JobCardCreate: React.FC = () => {
                   <div className="erp-jc-ticket-meta-grid">
                     <div>
                       <span className="erp-jc-ticket-label">Reported By</span>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <UserOutlined style={{ color: '#2563eb' }} />
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <UserOutlined style={{ color: 'var(--maint-info-fg)' }} />
                         {user?.displayName || user?.email || 'Logged User'}
                       </div>
                     </div>
                     <div>
                       <span className="erp-jc-ticket-label">Date &amp; Time</span>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', display: 'flex', alignItems: 'center', gap: 4 }}>
                         <ClockCircleOutlined style={{ color: '#16a34a' }} />
                         {dayjs().format('DD MMM, hh:mm A')}
                       </div>
@@ -1330,12 +1543,32 @@ export const JobCardCreate: React.FC = () => {
         </div>
 
           {/* Modal Bottom Footer Actions */}
-          <div className="erp-jc-footer">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Button onClick={() => navigate('/maintenance/job-cards')}>
+          <div
+            className="erp-jc-footer"
+            style={{
+              flexShrink: 0,
+              marginTop: 'auto',
+              position: 'relative',
+              zIndex: 20,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                width: isMobile ? '100%' : 'auto',
+                justifyContent: isMobile ? 'space-between' : 'flex-start',
+              }}
+            >
+              <Button
+                style={isMobile ? { flex: 1 } : undefined}
+                onClick={() => navigate('/maintenance/job-cards')}
+              >
                 Cancel &amp; Return
               </Button>
               <Button
+                style={isMobile ? { flex: 1 } : undefined}
                 icon={<ReloadOutlined />}
                 onClick={() => {
                   form.resetFields();
@@ -1345,15 +1578,17 @@ export const JobCardCreate: React.FC = () => {
               >
                 Reset Form
               </Button>
-              <Button
-                icon={showPreviewPane ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-                onClick={() => setShowPreviewPane((v) => !v)}
-              >
-                {showPreviewPane ? 'Hide Detail Sheet' : 'Show Detail Sheet'}
-              </Button>
+              {!isMobile && (
+                <Button
+                  icon={showPreviewPane ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                  onClick={() => setShowPreviewPane((v) => !v)}
+                >
+                  {showPreviewPane ? 'Hide Detail Sheet' : 'Show Detail Sheet'}
+                </Button>
+              )}
             </div>
 
-            <Space>
+            <Space style={{ width: isMobile ? '100%' : 'auto' }}>
               <Button
                 type="primary"
                 size="large"
@@ -1361,8 +1596,9 @@ export const JobCardCreate: React.FC = () => {
                 loading={loading}
                 disabled={!completionStats.isReady}
                 onClick={() => form.submit()}
+                block={isMobile}
                 style={{
-                  minWidth: 170,
+                  minWidth: isMobile ? '100%' : 170,
                   fontWeight: 700,
                   borderRadius: 10,
                   backgroundColor: completionStats.isReady ? '#2563eb' : undefined,
@@ -1379,13 +1615,17 @@ export const JobCardCreate: React.FC = () => {
       {/* Add Complaint Category Modal */}
       <Modal
         title="Add Complaint Category"
+        wrapClassName="erp-jc-dialog-wrap"
         open={categoryModalOpen}
+        zIndex={1500}
         confirmLoading={categorySaving}
         onCancel={() => {
           setCategoryModalOpen(false);
           categoryForm.resetFields();
         }}
         onOk={() => categoryForm.submit()}
+        width={isMobile ? 'calc(100vw - 24px)' : 520}
+        style={isMobile ? { top: 20, margin: '0 auto', maxWidth: 'calc(100vw - 24px)' } : undefined}
       >
         <Form form={categoryForm} layout="vertical" onFinish={saveCategory}>
           <Form.Item
@@ -1408,9 +1648,10 @@ export const JobCardCreate: React.FC = () => {
       <Modal
         wrapClassName="erp-jc-dialog-wrap"
         open={confirmModalOpen}
+        zIndex={1500}
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ToolOutlined style={{ color: '#2563eb', fontSize: 18 }} />
+            <ToolOutlined style={{ color: 'var(--maint-info-fg)', fontSize: 18 }} />
             <span style={{ fontWeight: 700, fontSize: 16 }}>Confirm Job Card Submission</span>
           </div>
         }
@@ -1429,13 +1670,14 @@ export const JobCardCreate: React.FC = () => {
             type="primary"
             loading={loading}
             icon={<CheckCircleOutlined />}
-            style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 700 }}
+            style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 700 }}
             onClick={handleConfirmSave}
           >
             Yes, Confirm & Submit
           </Button>,
         ]}
-        width={540}
+        width={isMobile ? 'calc(100vw - 24px)' : 540}
+        style={isMobile ? { top: 20, margin: '0 auto', maxWidth: 'calc(100vw - 24px)' } : undefined}
       >
         <div style={{ padding: '8px 0' }}>
           <p style={{ color: 'var(--theme-text-secondary, #94a3b8)', marginBottom: 14, fontSize: 13 }}>
@@ -1476,12 +1718,12 @@ export const JobCardCreate: React.FC = () => {
               <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>REPORTED COMPLAINT</span>
               <div
                 style={{
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  borderLeft: '3px solid #ef4444',
+                  background: 'var(--maint-danger-bg)',
+                  borderLeft: '3px solid var(--maint-danger-fg)',
                   padding: '8px 12px',
                   borderRadius: 4,
                   fontSize: 12,
-                  color: '#f87171',
+                  color: 'var(--maint-danger-fg)',
                   fontStyle: 'italic',
                   marginTop: 4,
                 }}
@@ -1508,9 +1750,11 @@ export const JobCardCreate: React.FC = () => {
       <Modal
         wrapClassName="erp-jc-dialog-wrap"
         open={successModalOpen}
+        zIndex={1500}
         closable={false}
         footer={null}
-        width={480}
+        width={isMobile ? 'calc(100vw - 24px)' : 480}
+        style={isMobile ? { top: 20, margin: '0 auto', maxWidth: 'calc(100vw - 24px)' } : undefined}
       >
         <div style={{ textAlign: 'center', padding: '20px 14px' }}>
           <div
@@ -1524,7 +1768,7 @@ export const JobCardCreate: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
               margin: '0 auto 14px',
-              color: '#10b981',
+              color: 'var(--maint-success-fg)',
               fontSize: 28,
             }}
           >
@@ -1552,14 +1796,14 @@ export const JobCardCreate: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>TICKET NUMBER:</span>
               <Space size={4}>
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#38bdf8', fontSize: 14 }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--maint-info-fg)', fontSize: 14 }}>
                   #{createdTicket?.jobCardNo || createdTicket?.id}
                 </span>
                 <Tooltip title="Copy ticket code">
                   <Button
                     type="text"
                     size="small"
-                    icon={<CopyOutlined style={{ color: '#38bdf8' }} />}
+                    icon={<CopyOutlined style={{ color: 'var(--maint-info-fg)' }} />}
                     onClick={() => {
                       navigator.clipboard?.writeText(createdTicket?.jobCardNo || createdTicket?.id || '');
                       message.info('Ticket code copied to clipboard!');
@@ -1586,7 +1830,7 @@ export const JobCardCreate: React.FC = () => {
             </Button>
             <Button
               type="primary"
-              style={{ backgroundColor: '#10b981', borderColor: '#10b981', fontWeight: 700 }}
+              style={{ backgroundColor: '#10b981', borderColor: '#10b981', color: '#ffffff', fontWeight: 700 }}
               onClick={() => {
                 setSuccessModalOpen(false);
                 navigate('/maintenance/job-cards');
@@ -1597,6 +1841,20 @@ export const JobCardCreate: React.FC = () => {
           </Space>
         </div>
       </Modal>
+
+      {/* Machine QR / Barcode camera scanner — reuses the shared html5-qrcode
+          scanner component; the scanned value lands in the verification input
+          and is verified through the same verifyMachineCode() entry point. */}
+      <BarcodeScanner
+        open={scannerOpen}
+        zIndex={1500}
+        onClose={() => setScannerOpen(false)}
+        onScan={(code) => {
+          setLookupCode(code);
+          verifyMachineCode(code);
+        }}
+        title="Machine QR / Barcode Scanner"
+      />
     </div>
   );
 };

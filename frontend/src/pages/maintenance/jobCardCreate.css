@@ -37,19 +37,7 @@
   }
 }
 
-@media (max-width: 768px) {
-  .erp-jc-modal-wrap .ant-modal {
-    margin: 0 !important;
-    max-width: 100vw !important;
-    width: 100vw !important;
-    top: 0 !important;
-    padding: 0 !important;
-  }
-  .erp-jc-modal-wrap .ant-modal-content {
-    border-radius: 0 !important;
-    height: 100vh !important;
-  }
-}
+
 
 .erp-jc-modal-wrap .ant-modal-content {
   padding: 0 !important;
@@ -1019,8 +1007,8 @@ html[data-theme='dark'] .erp-jc-modal-wrap .ant-descriptions-bordered .ant-descr
 }
 
 .erp-jc-machine-banner {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  background: var(--maint-success-bg);
+  border: 1px solid var(--maint-success-border);
   border-radius: 8px;
   padding: 10px 14px;
   display: flex;
@@ -1030,14 +1018,47 @@ html[data-theme='dark'] .erp-jc-modal-wrap .ant-descriptions-bordered .ant-descr
 }
 
 .erp-jc-machine-banner-title {
-  color: #166534;
+  color: var(--maint-success-fg);
   font-size: 13px;
   font-weight: 700;
 }
 
 .erp-jc-machine-banner-sub {
   font-size: 11px;
-  color: #15803d;
+  color: var(--maint-success-fg-sub);
+}
+
+/* Verification result states (driven by the Verify Code / scanner workflow) */
+.erp-jc-machine-banner--verified {
+  border-color: var(--maint-success-fg);
+}
+
+.erp-jc-machine-banner-verified-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--maint-success-fg);
+}
+
+.erp-jc-machine-banner--error {
+  background: var(--maint-danger-bg);
+  border-color: var(--maint-danger-border);
+}
+
+.erp-jc-machine-banner--error .erp-jc-machine-banner-title {
+  color: var(--maint-danger-fg-strong);
+}
+
+.erp-jc-machine-banner--error .erp-jc-machine-banner-sub {
+  color: var(--maint-danger-fg);
+}
+
+.erp-jc-machine-banner-error-msg {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--maint-danger-fg);
 }
 
 .erp-jc-ticket-notes {
@@ -1218,10 +1239,26 @@ html[data-theme='dark'] .erp-jc-timing-box-sub,
 }
 
 /* ── Confirmation & Success Dialogs ────────────────────────────────────── */
+.erp-jc-dialog-wrap {
+  z-index: 1500 !important;
+}
+
+.erp-jc-dialog-wrap + .ant-modal-mask {
+  z-index: 1490 !important;
+}
+
 .erp-jc-dialog-wrap .ant-modal-content {
   border-radius: 14px !important;
   overflow: hidden;
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45) !important;
+}
+
+@media (max-width: 600px) {
+  .erp-jc-dialog-wrap .ant-modal {
+    max-width: calc(100vw - 20px) !important;
+    margin: 16px auto !important;
+    top: 16px !important;
+  }
 }
 
 html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-content,
@@ -1242,41 +1279,207 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
   color: #ffffff !important;
 }
 
-/* ── Mobile and Tablet Responsiveness ──────────────────────────────────── */
+/* ── Mobile Full-Screen Layout & Bottom Actions ───────────────────────── */
 @media (max-width: 960px) {
+  .erp-jc-modal-wrap,
+  .erp-jc-modal-wrap.erp-jc-mobile-view {
+    padding: 0 !important;
+    overflow: hidden !important;
+    inset: 0 !important;
+    position: fixed !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+  }
+  .erp-jc-modal-wrap .ant-modal,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal {
+    margin: 0 !important;
+    max-width: 100vw !important;
+    width: 100vw !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    padding: 0 !important;
+    transform: none !important;
+    position: fixed !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    overflow: hidden !important;
+  }
+  .erp-jc-modal-wrap .ant-modal-content,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal-content {
+    border-radius: 0 !important;
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    overflow: hidden !important;
+  }
+  .erp-jc-modal-wrap .ant-modal-body,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal-body {
+    position: relative !important;
+    flex: 1 1 0% !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .erp-jc-modal-root-container {
+    position: absolute !important;
+    inset: 0 !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
   .erp-jc-body-container {
-    flex-direction: column;
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
   .erp-jc-form-pane {
-    flex: 1 1 auto;
-    border-right: none;
-    border-bottom: 1px solid var(--theme-border, #e2e8f0);
-    padding: 14px 16px;
+    flex: 1 1 0% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    padding: 12px 14px 28px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-right: none !important;
+    border-bottom: none !important;
+    box-sizing: border-box !important;
   }
   .erp-jc-preview-pane {
-    max-width: 100%;
-    min-width: 100%;
-    border-left: none;
-    padding: 14px 16px;
-  }
-}
-
-@media (max-width: 640px) {
-  .erp-jc-priority-grid {
-    grid-template-columns: repeat(2, 1fr);
+    flex: 1 1 0% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    padding: 12px 14px 28px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-left: none !important;
+    box-sizing: border-box !important;
   }
   .erp-jc-modal-header {
     padding: 10px 14px;
+    flex-shrink: 0 !important;
+  }
+  .erp-jc-mobile-tab-bar {
+    flex-shrink: 0 !important;
   }
   .erp-jc-header-title-text h4 {
     font-size: 14px;
   }
+  .erp-jc-header-title-text span {
+    font-size: 11px;
+  }
+  .erp-jc-priority-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
   .erp-jc-footer {
-    padding: 10px 14px;
-    flex-direction: column-reverse;
+    padding: 12px 14px max(14px, env(safe-area-inset-bottom, 14px)) !important;
+    flex-direction: column-reverse !important;
+    gap: 8px !important;
+    flex-shrink: 0 !important;
+    margin-top: auto !important;
+    position: relative !important;
+    z-index: 30 !important;
+    background: var(--theme-surface, #ffffff);
+    border-top: 1px solid var(--theme-border, #e2e8f0) !important;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12) !important;
+  }
+  html[data-theme='dark'] .erp-jc-footer,
+  [data-theme='dark'] .erp-jc-footer {
+    background: #141b30 !important;
+    border-top-color: #253358 !important;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35) !important;
+  }
+  .erp-jc-footer > div {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+  .erp-jc-footer .ant-space {
+    width: 100% !important;
   }
   .erp-jc-footer button {
-    width: 100%;
+    font-size: 13px !important;
   }
 }
+
+/* Also support explicit .erp-jc-mobile-view class regardless of screen width */
+.erp-jc-modal-wrap.erp-jc-mobile-view {
+  padding: 0 !important;
+  overflow: hidden !important;
+  inset: 0 !important;
+  position: fixed !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+}
+.erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal {
+  margin: 0 !important;
+  max-width: 100vw !important;
+  width: 100vw !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+  position: fixed !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+}
+.erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal-content {
+  border-radius: 0 !important;
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+  overflow: hidden !important;
+}
+.erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal-body {
+  position: relative !important;
+  flex: 1 1 0% !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
 

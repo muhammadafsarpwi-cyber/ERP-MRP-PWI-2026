@@ -248,7 +248,7 @@ export const MaintenanceReports: React.FC = () => {
         <Row gutter={[8, 12]} align="middle">
           <Col>
             <Button icon={<FilterOutlined />} onClick={() => setShowFilters(v => !v)} type={showFilters ? 'primary' : 'default'}>
-              <Text style={{ color: showFilters ? '#fff' : undefined }}>Filters</Text>
+              <Text style={{ color: showFilters ? 'var(--theme-on-accent)' : undefined }}>Filters</Text>
             </Button>
           </Col>
           <Col flex="auto" />

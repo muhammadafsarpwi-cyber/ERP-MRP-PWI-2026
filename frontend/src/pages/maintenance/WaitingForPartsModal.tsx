@@ -4,6 +4,7 @@ import { StopOutlined, ClockCircleOutlined, ToolOutlined } from '@ant-design/ico
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { JobCard, JOB_CARD_BASE, errorText } from './jobCards.types';
+import './maintTheme.css';
 
 interface WaitingForPartsModalProps {
   open: boolean;
@@ -78,7 +79,7 @@ export const WaitingForPartsModal: React.FC<WaitingForPartsModalProps> = ({
       onCancel={onClose}
       title={(
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <StopOutlined style={{ color: '#d97706', fontSize: 20 }} />
+          <StopOutlined style={{ color: 'var(--theme-icon-warning)', fontSize: 20 }} />
           <span style={{ fontWeight: 700, fontSize: 16 }}>
             Hold Job Card — Waiting for Spare Parts
           </span>
@@ -96,6 +97,7 @@ export const WaitingForPartsModal: React.FC<WaitingForPartsModalProps> = ({
           style={{
             backgroundColor: isValid ? '#d97706' : undefined,
             borderColor: isValid ? '#b45309' : undefined,
+            color: isValid ? '#ffffff' : undefined,
             fontWeight: 600,
           }}
           onClick={handleSubmit}
@@ -106,35 +108,35 @@ export const WaitingForPartsModal: React.FC<WaitingForPartsModalProps> = ({
       width={600}
     >
       <div style={{ padding: '8px 0' }}>
-        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 14 }}>
+        <p style={{ color: 'var(--theme-text-muted)', fontSize: 13, marginBottom: 14 }}>
           If a necessary spare part or component is out of stock or awaiting store delivery, record the part requirement here. The job card status will transition to <strong>WAITING FOR PARTS</strong>.
         </p>
 
         {/* Live Timestamp */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fffbeb', border: '1px solid #fef3c7', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--maint-warning-bg)', border: '1px solid var(--maint-warning-border)', padding: '10px 14px', borderRadius: 8, marginBottom: 14 }}>
           <Space size={8}>
-            <ClockCircleOutlined style={{ color: '#d97706', fontSize: 16 }} />
+            <ClockCircleOutlined style={{ color: 'var(--theme-icon-warning)', fontSize: 16 }} />
             <div>
-              <div style={{ fontSize: 12, color: '#92400e' }}>Hold Timestamp (System Captured):</div>
-              <div style={{ fontWeight: 600, color: '#78350f', fontSize: 13 }}>{dayjs().format('DD MMMM YYYY, hh:mm A')}</div>
+              <div style={{ fontSize: 12, color: 'var(--maint-warning-fg)' }}>Hold Timestamp (System Captured):</div>
+              <div style={{ fontWeight: 600, color: 'var(--maint-warning-fg-strong)', fontSize: 13 }}>{dayjs().format('DD MMMM YYYY, hh:mm A')}</div>
             </div>
           </Space>
           <Tag color="warning" style={{ fontWeight: 600, borderRadius: 4 }}>Auto Captured</Tag>
         </div>
 
         {/* Target Job Card Summary */}
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+        <div style={{ background: 'var(--theme-surface-alt)', border: '1px solid var(--theme-border)', borderRadius: 8, padding: 12, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-            <span style={{ fontWeight: 700, color: '#1e293b' }}>
-              <ToolOutlined style={{ marginRight: 6, color: '#2563eb' }} />
+            <span style={{ fontWeight: 700, color: 'var(--theme-text)' }}>
+              <ToolOutlined style={{ marginRight: 6, color: 'var(--maint-info-fg)' }} />
               {card.jobCardNo || card.id}
             </span>
             <Tag color="orange" style={{ fontWeight: 600 }}>UNDER REPAIR</Tag>
           </div>
-          <div style={{ fontSize: 13, color: '#334155' }}>
+          <div style={{ fontSize: 13, color: 'var(--theme-text-secondary)' }}>
             <strong>Machine:</strong> {machineName} <Tag style={{ marginLeft: 4 }}>{machineCode}</Tag>
           </div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: 'var(--theme-text-muted)', marginTop: 2 }}>
             <strong>Complaint:</strong> {card.complaint || '—'}
           </div>
         </div>
@@ -142,7 +144,7 @@ export const WaitingForPartsModal: React.FC<WaitingForPartsModalProps> = ({
         {/* Part Name / Description */}
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-            Missing Spare Part Name / Specifications <span style={{ color: '#ef4444' }}>*</span>:
+            Missing Spare Part Name / Specifications <span style={{ color: 'var(--theme-danger)' }}>*</span>:
           </label>
           <Input
             placeholder="e.g. Bearing 6205-2RS, V-Belt B-64, Solenoid Valve 24V DC..."
@@ -165,7 +167,7 @@ export const WaitingForPartsModal: React.FC<WaitingForPartsModalProps> = ({
           </Col>
           <Col span={7}>
             <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-              Quantity Needed <span style={{ color: '#ef4444' }}>*</span>:
+              Quantity Needed <span style={{ color: 'var(--theme-danger)' }}>*</span>:
             </label>
             <InputNumber
               min={1}
@@ -189,7 +191,7 @@ export const WaitingForPartsModal: React.FC<WaitingForPartsModalProps> = ({
         {/* Reason / Procurement Notes */}
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-            Reason / Procurement Indent Note <span style={{ color: '#ef4444' }}>*</span>:
+            Reason / Procurement Indent Note <span style={{ color: 'var(--theme-danger)' }}>*</span>:
           </label>
           <Input.TextArea
             rows={3}
@@ -198,7 +200,7 @@ export const WaitingForPartsModal: React.FC<WaitingForPartsModalProps> = ({
             onChange={e => setReason(e.target.value)}
           />
           {!reason.trim() && (
-            <div style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
+            <div style={{ color: 'var(--theme-danger)', fontSize: 12, marginTop: 4 }}>
               * Please specify why the part is unavailable or when it is expected.
             </div>
           )}
@@ -206,7 +208,7 @@ export const WaitingForPartsModal: React.FC<WaitingForPartsModalProps> = ({
 
         {/* Validation hint */}
         {!isValid && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 6, color: '#b45309', fontSize: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: 'var(--maint-warning-bg)', border: '1px solid var(--maint-warning-border)', borderRadius: 6, color: 'var(--maint-warning-fg)', fontSize: 12 }}>
             <span style={{ fontWeight: 600 }}>Action Required:</span>
             <span>Please enter the spare part description, quantity, and procurement reason to enable the Hold button.</span>
           </div>

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, Not, TreeRepository, DataSource } from 'typeorm';
+import { Repository, Not, TreeRepository, DataSource, In } from 'typeorm';
 import { WarehouseLocation, WarehouseLocationStatus } from '../entities';
 import { CreateWarehouseLocationDto, UpdateWarehouseLocationDto } from '../dto';
 import { populateAuditNames } from '../helpers/audit-names';
@@ -122,10 +122,32 @@ export class WarehouseLocationService {
   }
 
   async update(id: string, updateLocationDto: UpdateWarehouseLocationDto, userId?: string): Promise<WarehouseLocation> {
-    const location = await this.findOne(id);
+    const requestedParentId = updateLocationDto.parentLocationId;
+
+    // The row itself (together with the requested parent, in a single round trip)
+    // is only needed for the duplicate-code and parent validations. Plain field
+    // updates go straight to one UPDATE, whose affected-row count proves existence.
+    const needsRow = !!updateLocationDto.locationCode || !!requestedParentId;
+    let location: WarehouseLocation | undefined;
+    let directParent: WarehouseLocation | undefined;
+
+    if (needsRow) {
+      const ids = requestedParentId && requestedParentId !== id ? [id, requestedParentId] : [id];
+      const rows = await this.locationRepository.find({ where: { id: In(ids) } });
+      location = rows.find((row) => row.id === id);
+      directParent = rows.find((row) => row.id === requestedParentId);
+
+      if (!location) {
+        throw new NotFoundException(`Location with ID '${id}' not found`);
+      }
+    }
 
     // Check for duplicate code within warehouse if code is being updated
     if (updateLocationDto.locationCode) {
+      if (!location) {
+        throw new NotFoundException(`Location with ID '${id}' not found`);
+      }
+
       const existingLocation = await this.locationRepository.findOne({
         where: {
           locationCode: updateLocationDto.locationCode,
@@ -140,60 +162,75 @@ export class WarehouseLocationService {
     }
 
     // Validate parent location if being updated
-    if (updateLocationDto.parentLocationId) {
+    if (requestedParentId) {
       // Check for self-reference
-      if (updateLocationDto.parentLocationId === id) {
+      if (requestedParentId === id) {
         throw new BadRequestException('Location cannot be its own parent');
       }
 
-      // Check for circular reference
-      const isCircular = await this.checkCircularReference(id, updateLocationDto.parentLocationId);
-      if (isCircular) {
-        throw new BadRequestException('Cannot set parent location as it would create a circular reference');
+      if (!location || !directParent) {
+        throw new NotFoundException(`Parent location with ID '${requestedParentId}' not found`);
+      }
+
+      // Walk up from the direct parent to rule out a circular reference —
+      // one query per extra ancestor level (none for root ancestors).
+      const visited = new Set<string>([directParent.id]);
+      let ancestorId: string | undefined = directParent.parentLocationId ?? undefined;
+
+      while (ancestorId) {
+        if (ancestorId === id || visited.has(ancestorId)) {
+          throw new BadRequestException('Cannot set parent location as it would create a circular reference');
+        }
+        visited.add(ancestorId);
+
+        const ancestor = await this.locationRepository.findOne({ where: { id: ancestorId } });
+        if (!ancestor) {
+          break; // broken ancestor chain — stop walking, same as before
+        }
+        ancestorId = ancestor.parentLocationId ?? undefined;
       }
 
       // Ensure parent location belongs to the same warehouse
-      const parentLocation = await this.locationRepository.findOne({
-        where: { id: updateLocationDto.parentLocationId },
-      });
-
-      if (parentLocation && parentLocation.warehouseId !== location.warehouseId) {
+      if (directParent.warehouseId !== location.warehouseId) {
         throw new BadRequestException('Parent location must belong to the same warehouse');
       }
     }
 
-    Object.assign(location, updateLocationDto, { updatedBy: userId });
+    // Persist with a single authoritative UPDATE. The entity maps parent_location_id
+    // twice (@Column + @ManyToOne/@JoinColumn), which makes TypeORM save() skip the
+    // UPDATE entirely when the loaded parentLocation relation still points at the old
+    // parent (so an explicit NULL never persists) and return a stale parentLocationId
+    // after a successful set — a direct UPDATE writes exactly what the DTO says,
+    // including null for "No Parent".
+    const updateSet: Record<string, any> = { updatedAt: () => 'CURRENT_TIMESTAMP' };
+    if (updateLocationDto.locationCode !== undefined) updateSet.locationCode = updateLocationDto.locationCode;
+    if (updateLocationDto.name !== undefined) updateSet.name = updateLocationDto.name;
+    if (updateLocationDto.description !== undefined) updateSet.description = updateLocationDto.description;
+    if (requestedParentId !== undefined) updateSet.parentLocationId = requestedParentId ?? null;
+    if (userId !== undefined) updateSet.updatedBy = userId;
 
-    return this.locationRepository.save(location);
-  }
+    const result = await this.locationRepository
+      .createQueryBuilder()
+      .update(WarehouseLocation)
+      .set(updateSet)
+      .where('id = :id', { id })
+      .execute();
 
-  private async checkCircularReference(locationId: string, potentialParentId: string): Promise<boolean> {
-    let currentId = potentialParentId;
-    const visited = new Set<string>();
-
-    while (currentId) {
-      if (currentId === locationId) {
-        return true;
-      }
-
-      if (visited.has(currentId)) {
-        return true;
-      }
-
-      visited.add(currentId);
-
-      const parent = await this.locationRepository.findOne({
-        where: { id: currentId },
-      });
-
-      if (!parent || !parent.parentLocationId) {
-        break;
-      }
-
-      currentId = parent.parentLocationId;
+    if (!result.affected) {
+      throw new NotFoundException(`Location with ID '${id}' not found`);
     }
 
-    return false;
+    // Re-read the row so the response reflects the actual saved database state.
+    const saved = await this.locationRepository.findOne({
+      where: { id },
+      relations: ['warehouse', 'parentLocation', 'children'],
+    });
+
+    if (!saved) {
+      throw new NotFoundException(`Location with ID '${id}' not found`);
+    }
+
+    return saved;
   }
 
   async activate(id: string, userId?: string): Promise<WarehouseLocation> {

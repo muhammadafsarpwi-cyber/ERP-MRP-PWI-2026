@@ -3,6 +3,7 @@ import { Modal, Input, Button, Tag } from 'antd';
 import { AuditOutlined, CheckCircleOutlined, RollbackOutlined, ToolOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { JobCard, JOB_CARD_BASE, errorText } from './jobCards.types';
+import './maintTheme.css';
 
 interface ReviewJobCardModalProps {
   open: boolean;
@@ -98,7 +99,7 @@ export const ReviewJobCardModal: React.FC<ReviewJobCardModalProps> = ({
             type="primary"
             icon={<CheckCircleOutlined />}
             loading={submitting}
-            style={{ backgroundColor: '#7c3aed', borderColor: '#7c3aed', fontWeight: 600 }}
+            style={{ backgroundColor: '#7c3aed', borderColor: '#7c3aed', color: '#ffffff', fontWeight: 600 }}
             onClick={handleVerify}
           >
             Verify &amp; Approve Job
@@ -120,40 +121,40 @@ export const ReviewJobCardModal: React.FC<ReviewJobCardModalProps> = ({
       width={640}
     >
       <div style={{ padding: '8px 0' }}>
-        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 14 }}>
+        <p style={{ color: 'var(--theme-text-muted)', fontSize: 13, marginBottom: 14 }}>
           Inspect the technician&apos;s repair findings and either <strong>verify &amp; approve</strong> the job card or <strong>return for rework</strong> if issues remain unresolved.
         </p>
 
         {/* Target Job Card Summary */}
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+        <div style={{ background: 'var(--theme-surface-alt)', border: '1px solid var(--theme-border)', borderRadius: 8, padding: 12, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ fontWeight: 700, color: '#1e293b' }}>
-              <ToolOutlined style={{ marginRight: 6, color: '#2563eb' }} />
+            <span style={{ fontWeight: 700, color: 'var(--theme-text)' }}>
+              <ToolOutlined style={{ marginRight: 6, color: 'var(--maint-info-fg)' }} />
               {card.jobCardNo || card.id}
             </span>
             <Tag color="purple" style={{ fontWeight: 600 }}>AWAITING VERIFICATION</Tag>
           </div>
-          <div style={{ fontSize: 13, color: '#334155', marginBottom: 4 }}>
+          <div style={{ fontSize: 13, color: 'var(--theme-text-secondary)', marginBottom: 4 }}>
             <strong>Machine:</strong> {machineName} <Tag style={{ marginLeft: 4 }}>{machineCode}</Tag>
           </div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>
+          <div style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
             <strong>Complaint:</strong> {card.complaint || '—'}
           </div>
         </div>
 
         {/* Technician Findings Review */}
-        <div style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12, marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', marginBottom: 8 }}>
+        <div style={{ background: 'var(--theme-surface-alt)', border: '1px solid var(--theme-border)', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text)', marginBottom: 8 }}>
             Technician Diagnosis &amp; Work Done:
           </div>
-          <div style={{ fontSize: 13, color: '#334155', marginBottom: 6 }}>
-            <strong style={{ color: '#0369a1' }}>Fault Findings:</strong> {card.diagnosis || '—'}
+          <div style={{ fontSize: 13, color: 'var(--theme-text-secondary)', marginBottom: 6 }}>
+            <strong style={{ color: 'var(--maint-info-fg)' }}>Fault Findings:</strong> {card.diagnosis || '—'}
           </div>
-          <div style={{ fontSize: 13, color: '#334155', marginBottom: 6 }}>
-            <strong style={{ color: '#059669' }}>Work Completed:</strong> {card.correctiveAction || '—'}
+          <div style={{ fontSize: 13, color: 'var(--theme-text-secondary)', marginBottom: 6 }}>
+            <strong style={{ color: 'var(--maint-success-fg)' }}>Work Completed:</strong> {card.correctiveAction || '—'}
           </div>
           {card.preventiveAction && (
-            <div style={{ fontSize: 12, color: '#64748b' }}>
+            <div style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
               <strong>Preventive Advice:</strong> {card.preventiveAction}
             </div>
           )}
@@ -172,9 +173,9 @@ export const ReviewJobCardModal: React.FC<ReviewJobCardModalProps> = ({
             />
           </div>
         ) : (
-          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 12 }}>
+          <div style={{ background: 'var(--maint-danger-bg)', border: '1px solid var(--maint-danger-border)', borderRadius: 8, padding: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <strong style={{ color: '#991b1b', fontSize: 13 }}>Reason for Returning to Technician:</strong>
+              <strong style={{ color: 'var(--maint-danger-fg-strong)', fontSize: 13 }}>Reason for Returning to Technician:</strong>
               <Button size="small" type="text" onClick={() => setShowRejectForm(false)}>
                 Back to Approval
               </Button>
@@ -186,7 +187,7 @@ export const ReviewJobCardModal: React.FC<ReviewJobCardModalProps> = ({
               onChange={e => setRejectionReason(e.target.value)}
             />
             {!rejectionReason.trim() && (
-              <div style={{ color: '#dc2626', fontSize: 12, marginTop: 4 }}>
+              <div style={{ color: 'var(--maint-danger-fg)', fontSize: 12, marginTop: 4 }}>
                 * Rejection reason is mandatory to return the card for rework.
               </div>
             )}

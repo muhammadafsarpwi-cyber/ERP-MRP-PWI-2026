@@ -68,6 +68,7 @@ import {
   label,
   rowsOf,
 } from './jobCards.types';
+import './maintTheme.css';
 import { maintenanceCache } from './maintenanceCache';
 import './jobCardCreate.css';
 
@@ -528,7 +529,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       title: 'Log Consumed Spare Part?',
       content: `Are you sure you want to add "${resolvedName}" (Qty: ${newPartQty} ${newPartUom || 'Pcs'}) to Job Card #${jobCardNo}?`,
       okText: 'Yes, Save Part',
-      okButtonProps: { style: { backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 } },
+      okButtonProps: { style: { backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 600 } },
       cancelText: 'Cancel',
       onOk: async () => {
         setAddingPart(true);
@@ -715,7 +716,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                 height: 24,
                 borderRadius: 6,
                 background: 'rgba(56, 189, 248, 0.15)',
-                color: '#38bdf8',
+                color: 'var(--maint-info-fg)',
                 fontSize: 13,
               }}
             >
@@ -749,8 +750,8 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
         {/* Embedded High-Density Row Input Bar */}
         <div
           style={{
-            background: 'rgba(30, 41, 59, 0.45)',
-            border: '1px solid rgba(56, 189, 248, 0.2)',
+            background: 'var(--theme-surface-alt)',
+            border: '1px solid var(--theme-border)',
             borderRadius: 8,
             padding: '10px 12px',
             marginBottom: 12,
@@ -826,6 +827,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                 style={{
                   backgroundColor: '#2563eb',
                   borderColor: '#1d4ed8',
+                  color: '#ffffff',
                   fontWeight: 600,
                   height: 28,
                   padding: '0 12px',
@@ -953,22 +955,22 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       {/* ── Hierarchy & Item Type Smart Filters Strip ── */}
       <div
         style={{
-          background: 'rgba(30, 41, 59, 0.65)',
-          border: '1px solid rgba(56, 189, 248, 0.25)',
+          background: 'var(--theme-surface-alt)',
+          border: '1px solid var(--theme-border)',
           borderRadius: 8,
           padding: '10px 12px',
           marginBottom: 12,
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--maint-info-fg)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <FilterOutlined /> Smart Part Filters &amp; Target Hierarchy
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <Button
               size="small"
               type="link"
-              style={{ padding: 0, fontSize: 11, color: '#94a3b8' }}
+              style={{ padding: 0, fontSize: 11, color: 'var(--theme-text-muted)' }}
               onClick={() => {
                 setPartDivisionId('');
                 setPartSectionId('');
@@ -977,11 +979,11 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
             >
               Clear Hierarchy Filters
             </Button>
-            <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
+            <span style={{ color: 'var(--theme-border)' }}>|</span>
             <Button
               size="small"
               type="link"
-              style={{ padding: 0, fontSize: 11, color: '#38bdf8' }}
+              style={{ padding: 0, fontSize: 11, color: 'var(--maint-info-fg)' }}
               onClick={() => {
                 const dId = activeCard?.divisionId || activeCard?.division?.id || machine?.divisionId || '';
                 const sId = activeCard?.sectionId || activeCard?.section?.id || machine?.sectionId || '';
@@ -1091,7 +1093,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       <Row gutter={[10, 10]}>
         <Col xs={24} sm={14}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-            Select Spare Part ({filteredItems.length} matching) <span style={{ color: '#ef4444' }}>*</span>:
+            Select Spare Part ({filteredItems.length} matching) <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
           </label>
           <Select
             showSearch
@@ -1122,7 +1124,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
           {/* Live Store Inventory Stock Display */}
           {loadingItemStock && (
-            <div style={{ marginTop: 6, fontSize: 11, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--maint-info-fg)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Spin size="small" /> <span>Checking live store inventory...</span>
             </div>
           )}
@@ -1139,11 +1141,11 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {selectedItemStock.onHand > 0 ? (
-                    <CheckCircleOutlined style={{ color: '#10b981', fontSize: 15 }} />
+                    <CheckCircleOutlined style={{ color: 'var(--maint-success-fg)', fontSize: 15 }} />
                   ) : (
-                    <WarningOutlined style={{ color: '#ef4444', fontSize: 15 }} />
+                    <WarningOutlined style={{ color: 'var(--maint-danger-fg)', fontSize: 15 }} />
                   )}
-                  <span style={{ fontWeight: 700, color: selectedItemStock.onHand > 0 ? '#10b981' : '#ef4444', fontSize: 12 }}>
+                  <span style={{ fontWeight: 700, color: selectedItemStock.onHand > 0 ? 'var(--maint-success-fg)' : 'var(--maint-danger-fg)', fontSize: 12 }}>
                     Store Inventory: {selectedItemStock.available} {newPartUom} Available (On Hand: {selectedItemStock.onHand} {newPartUom})
                   </span>
                 </div>
@@ -1173,7 +1175,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
         <Col xs={12} sm={6}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-            Quantity <span style={{ color: '#ef4444' }}>*</span>:
+            Quantity <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
           </label>
           <InputNumber
             min={0.01}
@@ -1223,7 +1225,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           type="primary"
           loading={addingPart}
           icon={<PlusOutlined />}
-          style={{ backgroundColor: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
+          style={{ backgroundColor: '#10b981', borderColor: '#10b981', color: '#ffffff', fontWeight: 600 }}
           onClick={handleAddConsumedPart}
         >
           Save Part to Job Card
@@ -1471,12 +1473,12 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
     return [
       {
         title: (
-          <span style={{ fontWeight: isCurOpen ? 800 : 600, color: isCurOpen ? '#2563eb' : undefined, fontSize: 12 }}>
+          <span style={{ fontWeight: isCurOpen ? 800 : 600, color: isCurOpen ? 'var(--maint-info-fg)' : undefined, fontSize: 12 }}>
             1. Open
           </span>
         ),
         description: (
-          <div style={{ fontSize: 11, color: isCurOpen ? '#2563eb' : 'var(--theme-text-secondary)', marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: isCurOpen ? 'var(--maint-info-fg)' : 'var(--theme-text-secondary)', marginTop: 2 }}>
             <div style={{ fontWeight: isCurOpen ? 700 : 400 }}>{openDate ? dayjs(openDate).format('DD/MM/YYYY') : '—'}</div>
             {openDate && (
               <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>
@@ -1489,12 +1491,12 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       },
       {
         title: (
-          <span style={{ fontWeight: isCurAsg ? 800 : 600, color: isCurAsg ? '#0284c7' : undefined, fontSize: 12 }}>
+          <span style={{ fontWeight: isCurAsg ? 800 : 600, color: isCurAsg ? 'var(--maint-info-fg)' : undefined, fontSize: 12 }}>
             2. Assigned
           </span>
         ),
         description: (
-          <div style={{ fontSize: 11, color: isCurAsg ? '#0284c7' : 'var(--theme-text-secondary)', marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: isCurAsg ? 'var(--maint-info-fg)' : 'var(--theme-text-secondary)', marginTop: 2 }}>
             {diffAsgText ? (
               <Tag color="cyan" style={{ fontSize: 10, margin: '2px 0', padding: '0 6px', lineHeight: '18px', fontWeight: 700 }}>
                 {diffAsgText}
@@ -1513,16 +1515,16 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       },
       {
         title: (
-          <span style={{ fontWeight: isCurProgress ? 800 : 600, color: isCurProgress ? (cur === 'IN_PROGRESS' ? '#ef4444' : '#f59e0b') : undefined, fontSize: 12 }}>
+          <span style={{ fontWeight: isCurProgress ? 800 : 600, color: isCurProgress ? (cur === 'IN_PROGRESS' ? 'var(--maint-danger-fg)' : 'var(--maint-warning-fg)') : undefined, fontSize: 12 }}>
             3. In Progress
           </span>
         ),
         description: (
-          <div style={{ fontSize: 11, color: isCurProgress ? '#ef4444' : 'var(--theme-text-secondary)', fontWeight: isCurProgress ? 700 : 400, marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: isCurProgress ? 'var(--maint-danger-fg)' : 'var(--theme-text-secondary)', fontWeight: isCurProgress ? 700 : 400, marginTop: 2 }}>
             {cur === 'IN_PROGRESS' ? (
               <div>
                 <span className="erp-jc-live-dot" style={{ marginRight: 5 }} />
-                <span style={{ color: '#ef4444', fontWeight: 800 }}>LIVE: {liveWorkingDuration}</span>
+                <span style={{ color: 'var(--maint-danger-fg)', fontWeight: 800 }}>LIVE: {liveWorkingDuration}</span>
               </div>
             ) : cur === 'WAITING_FOR_PARTS' ? (
               <Tag color="orange" style={{ margin: 0, fontWeight: 700 }}>Waiting for Parts</Tag>
@@ -1540,7 +1542,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       },
       {
         title: (
-          <span style={{ fontWeight: compDate && !isCurClosed ? 800 : 600, color: compDate ? '#10b981' : undefined, fontSize: 12 }}>
+          <span style={{ fontWeight: compDate && !isCurClosed ? 800 : 600, color: compDate ? 'var(--maint-success-fg)' : undefined, fontSize: 12 }}>
             4. Work Completed
           </span>
         ),
@@ -1567,7 +1569,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           <span
             style={{
               fontWeight: isCurReview || isCurRejected ? 800 : 600,
-              color: isCurRejected ? '#dc2626' : (isCurReview ? '#7c3aed' : undefined),
+              color: isCurRejected ? 'var(--maint-danger-fg)' : (isCurReview ? '#7c3aed' : undefined),
               fontSize: 12,
             }}
           >
@@ -1591,7 +1593,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       },
       {
         title: (
-          <span style={{ fontWeight: isCurVerified ? 800 : 600, color: isCurVerified ? '#10b981' : undefined, fontSize: 12 }}>
+          <span style={{ fontWeight: isCurVerified ? 800 : 600, color: isCurVerified ? 'var(--maint-success-fg)' : undefined, fontSize: 12 }}>
             6. Verified
           </span>
         ),
@@ -1615,7 +1617,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       },
       {
         title: (
-          <span style={{ fontWeight: isCurClosed ? 800 : 600, color: isCurClosed ? '#059669' : undefined, fontSize: 12 }}>
+          <span style={{ fontWeight: isCurClosed ? 800 : 600, color: isCurClosed ? 'var(--maint-success-fg)' : undefined, fontSize: 12 }}>
             7. Closed
           </span>
         ),
@@ -1962,14 +1964,14 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       content: (
         <div style={{ marginTop: 8, fontSize: 13, color: 'var(--theme-text-secondary, #64748b)' }}>
           <p style={{ margin: '0 0 8px 0', lineHeight: 1.5 }}>{confirmPrompt}</p>
-          <div style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.04)', borderRadius: 6, fontSize: 12 }}>
+          <div style={{ padding: '8px 12px', background: 'var(--theme-hover)', borderRadius: 6, fontSize: 12 }}>
             <strong>Machine:</strong> {machineName} ({machineCode}) &bull; <strong>Current Status:</strong> {currentStatus}
           </div>
         </div>
       ),
       okText,
       okButtonProps: {
-        style: { backgroundColor: okColor, borderColor: okColor, fontWeight: 700 },
+        style: { backgroundColor: okColor, borderColor: okColor, color: '#ffffff', fontWeight: 700 },
       },
       cancelText: 'Cancel',
       onOk: executeSubmission,
@@ -2157,7 +2159,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                     <div className="erp-jc-view-hero">
                       <div className="erp-jc-view-hero-top">
                         <div className="erp-jc-view-hero-code">
-                          <ToolOutlined style={{ color: '#38bdf8' }} />
+                          <ToolOutlined style={{ color: 'var(--maint-info-fg)' }} />
                           <span>Job Card #{jobCardNo}</span>
                           <StatusBadge status={currentStatus} />
                           {hasProcurementHold && (
@@ -2202,7 +2204,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             <Button
                               type="primary"
                               icon={<PlayCircleOutlined />}
-                              style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 700, height: 36 }}
+                              style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 700, height: 36 }}
                               onClick={() => setCurrentMode('start')}
                             >
                               Start Job Now &rarr;
@@ -2212,7 +2214,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             <Button
                               type="primary"
                               icon={<CheckCircleOutlined />}
-                              style={{ backgroundColor: '#059669', borderColor: '#059669', fontWeight: 700, height: 36 }}
+                              style={{ backgroundColor: '#059669', borderColor: '#059669', color: '#ffffff', fontWeight: 700, height: 36 }}
                               onClick={() => setCurrentMode('close')}
                             >
                               Close &amp; Complete Job &rarr;
@@ -2222,7 +2224,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             <Button
                               type="primary"
                               icon={<PlayCircleOutlined />}
-                              style={{ backgroundColor: '#d97706', borderColor: '#d97706', fontWeight: 700, height: 36 }}
+                              style={{ backgroundColor: '#d97706', borderColor: '#d97706', color: '#ffffff', fontWeight: 700, height: 36 }}
                               onClick={async () => {
                                 try {
                                   await apiService.post(`${JOB_CARD_BASE}/${selectedCardId}/resume`);
@@ -2241,7 +2243,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             <Button
                               type="primary"
                               icon={<AuditOutlined />}
-                              style={{ backgroundColor: '#7c3aed', borderColor: '#7c3aed', fontWeight: 700, height: 36 }}
+                              style={{ backgroundColor: '#7c3aed', borderColor: '#7c3aed', color: '#ffffff', fontWeight: 700, height: 36 }}
                               onClick={() => setCurrentMode('review')}
                             >
                               Verify &amp; Approve Job &rarr;
@@ -2268,7 +2270,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                     <div className="erp-jc-view-card">
                       <div className="erp-jc-view-card-header">
                         <Space>
-                          <HistoryOutlined style={{ color: '#38bdf8' }} />
+                          <HistoryOutlined style={{ color: 'var(--maint-info-fg)' }} />
                           <span>Workflow Lifecycle Progress</span>
                         </Space>
                         <Tag color="geekblue" style={{ margin: 0, fontWeight: 700 }}>
@@ -2286,7 +2288,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             Current Stage: <strong style={{ color: 'var(--theme-text)' }}>{label(currentStatus)}</strong> — {STATUS_DESCRIPTION[currentStatus]}
                           </span>
                           {currentStatus === 'IN_PROGRESS' && (
-                            <span style={{ color: '#ef4444', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ color: 'var(--maint-danger-fg)', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                               <span className="erp-jc-live-dot" /> Live Active Repair Duration: {liveWorkingDuration}
                             </span>
                           )}
@@ -2324,7 +2326,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             <div className="erp-jc-view-kv-row">
                               <span className="erp-jc-view-kv-label">Machine Asset:</span>
                               <span className="erp-jc-view-kv-val">
-                                <strong style={{ color: '#0284c7' }}>{machineName}</strong>
+                                <strong style={{ color: 'var(--maint-info-fg)' }}>{machineName}</strong>
                                 <Tag style={{ marginLeft: 6 }}>{machineCode}</Tag>
                               </span>
                             </div>
@@ -2356,7 +2358,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           {/* Complaint Callout Box */}
                           <div style={{ marginTop: 4 }}>
                             <div className="erp-jc-view-complaint-box">
-                              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#ef4444', marginBottom: 4 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--maint-danger-fg)', marginBottom: 4 }}>
                                 Reported Fault &amp; Initial Complaint
                               </div>
                               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text)', marginBottom: 6 }}>
@@ -2412,7 +2414,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         <div className="erp-jc-view-card">
                           <div className="erp-jc-view-card-header">
                             <Space>
-                              <ClockCircleOutlined style={{ color: '#10b981' }} />
+                              <ClockCircleOutlined style={{ color: 'var(--maint-success-fg)' }} />
                               <span>Lifecycle Milestones &amp; Responsibilities Trail</span>
                             </Space>
                           </div>
@@ -2480,15 +2482,15 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           {/* 6-Component Timing Breakdown Grid */}
                           <div style={{ marginTop: 8 }}>
                             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <ClockCircleOutlined style={{ color: '#38bdf8' }} /> Lifecycle Timing Breakdown (6 Key Metrics)
+                              <ClockCircleOutlined style={{ color: 'var(--maint-info-fg)' }} /> Lifecycle Timing Breakdown (6 Key Metrics)
                             </div>
                             <div className="erp-jc-timing-grid" style={{ marginBottom: 0 }}>
                               <div className="erp-jc-timing-box erp-jc-timing-box--wait">
-                                <div className="erp-jc-timing-box-header" style={{ color: '#0284c7' }}>
+                                <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-info-fg)' }}>
                                   <ClockCircleOutlined />
                                   <span>1. Response Wait</span>
                                 </div>
-                                <div className="erp-jc-timing-box-val" style={{ color: '#0284c7' }}>
+                                <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-info-fg)' }}>
                                   {formatDuration(timingMetrics.waitMinutes)}
                                 </div>
                                 <div className="erp-jc-timing-box-sub">Open &rarr; Start</div>
@@ -2514,21 +2516,21 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                 <div className="erp-jc-timing-box-sub">Procurement Hold</div>
                               </div>
                               <div className="erp-jc-timing-box erp-jc-timing-box--highlight">
-                                <div className="erp-jc-timing-box-header" style={{ color: '#10b981' }}>
+                                <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-success-fg)' }}>
                                   <CheckCircleOutlined />
                                   <span>4. Net Labor</span>
                                 </div>
-                                <div className="erp-jc-timing-box-val" style={{ color: '#10b981' }}>
+                                <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-success-fg)' }}>
                                   {formatDuration(timingMetrics.netRepairMinutes)}
                                 </div>
                                 <div className="erp-jc-timing-box-sub">Gross &minus; Parts Hold</div>
                               </div>
                               <div className="erp-jc-timing-box erp-jc-timing-box--downtime">
-                                <div className="erp-jc-timing-box-header" style={{ color: '#ef4444' }}>
+                                <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-danger-fg)' }}>
                                   <WarningOutlined />
                                   <span>5. Total Downtime</span>
                                 </div>
-                                <div className="erp-jc-timing-box-val" style={{ color: '#ef4444' }}>
+                                <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-danger-fg)' }}>
                                   {formatDuration(timingMetrics.totalDowntimeMinutes)}
                                 </div>
                                 <div className="erp-jc-timing-box-sub">Equipment Downtime</div>
@@ -2653,7 +2655,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                       <Button
                                         size="small"
                                         type="link"
-                                        style={{ fontSize: 11, color: '#38bdf8' }}
+                                        style={{ fontSize: 11, color: 'var(--maint-info-fg)' }}
                                         onClick={() => setShowAddPartInline(!showAddPartInline)}
                                       >
                                         {showAddPartInline ? 'Hide Advanced Hierarchy Filters' : '🔍 Advanced Hierarchy Filters'}
@@ -2813,7 +2815,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                       >
                                         <div style={{ background: 'var(--theme-surface-alt, #18223c)', padding: '8px 10px', borderRadius: 6, textAlign: 'center' }}>
                                           <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>Total Jobs</div>
-                                          <div style={{ fontSize: 18, fontWeight: 700, color: '#38bdf8' }}>{machineStats.total || 0}</div>
+                                          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--maint-info-fg)' }}>{machineStats.total || 0}</div>
                                         </div>
                                         <div style={{ background: 'var(--theme-surface-alt, #18223c)', padding: '8px 10px', borderRadius: 6, textAlign: 'center' }}>
                                           <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>Downtime</div>
@@ -2821,11 +2823,11 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                         </div>
                                         <div style={{ background: 'var(--theme-surface-alt, #18223c)', padding: '8px 10px', borderRadius: 6, textAlign: 'center' }}>
                                           <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>MTBF</div>
-                                          <div style={{ fontSize: 18, fontWeight: 700, color: '#10b981' }}>{machineStats.mtbfHours || 0}h</div>
+                                          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--maint-success-fg)' }}>{machineStats.mtbfHours || 0}h</div>
                                         </div>
                                         <div style={{ background: 'var(--theme-surface-alt, #18223c)', padding: '8px 10px', borderRadius: 6, textAlign: 'center' }}>
                                           <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>Breakdowns</div>
-                                          <div style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}>{machineStats.byType?.breakdown || 0}</div>
+                                          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--maint-danger-fg)' }}>{machineStats.byType?.breakdown || 0}</div>
                                         </div>
                                       </div>
                                     )}
@@ -2868,7 +2870,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                     {currentMode === 'start' && !propCard && allOpenCards.length > 0 ? (
                       <div style={{ marginBottom: 12 }}>
                         <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                          Select Open Job Card <span style={{ color: '#ef4444' }}>*</span>:
+                          Select Open Job Card <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                         </label>
                         <Select
                           showSearch
@@ -2930,7 +2932,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             <ClockCircleOutlined style={{ fontSize: 18, color: timingMetrics.waitMinutes > 120 ? '#ef4444' : '#0284c7' }} />
                             <div>
                               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>
-                                Time Elapsed Since Opened: <span style={{ color: timingMetrics.waitMinutes > 120 ? '#f87171' : '#38bdf8', fontSize: 14 }}>{formatDuration(timingMetrics.waitMinutes)}</span>
+                                Time Elapsed Since Opened: <span style={{ color: timingMetrics.waitMinutes > 120 ? '#f87171' : 'var(--maint-info-fg)', fontSize: 14 }}>{formatDuration(timingMetrics.waitMinutes)}</span>
                               </div>
                               <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
                                 Ticket Logged: {activeCard?.requestedAt ? dayjs(activeCard.requestedAt).format('DD MMM YYYY, hh:mm A') : '—'}
@@ -2960,7 +2962,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         </div>
 
                         <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                          Select Technicians (Tick 1 or more) <span style={{ color: '#ef4444' }}>*</span>:
+                          Select Technicians (Tick 1 or more) <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                         </label>
                         <Select
                           mode="multiple"
@@ -2983,7 +2985,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           })}
                         />
                         {!selectedTechIds.length && (
-                          <div style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
+                          <div style={{ color: 'var(--maint-danger-fg)', fontSize: 12, marginTop: 4 }}>
                             * Please select at least one technician to start the job card.
                           </div>
                         )}
@@ -3018,7 +3020,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         </div>
 
                         <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                          Starting Remarks / Notes <span style={{ color: '#ef4444' }}>*</span>:
+                          Starting Remarks / Notes <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                         </label>
                         <Input.TextArea
                           rows={3}
@@ -3027,7 +3029,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           onChange={(e) => setStartingNotes(e.target.value)}
                         />
                         {!startingNotes.trim() && (
-                          <div style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
+                          <div style={{ color: 'var(--maint-danger-fg)', fontSize: 12, marginTop: 4 }}>
                             * Starting remarks are required before starting the job card.
                           </div>
                         )}
@@ -3041,11 +3043,11 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                       {/* 4-Component Timing Breakdown Strip */}
                       <div className="erp-jc-timing-grid">
                         <div className="erp-jc-timing-box erp-jc-timing-box--wait">
-                          <div className="erp-jc-timing-box-header" style={{ color: '#0284c7' }}>
+                          <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-info-fg)' }}>
                             <ClockCircleOutlined />
                             <span>1. Response Wait</span>
                           </div>
-                          <div className="erp-jc-timing-box-val" style={{ color: '#0284c7' }}>{formatDuration(timingMetrics.waitMinutes)}</div>
+                          <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-info-fg)' }}>{formatDuration(timingMetrics.waitMinutes)}</div>
                           <div className="erp-jc-timing-box-sub">Open &rarr; Start</div>
                         </div>
 
@@ -3070,22 +3072,22 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         </div>
 
                         <div className="erp-jc-timing-box erp-jc-timing-box--highlight">
-                          <div className="erp-jc-timing-box-header" style={{ color: '#10b981' }}>
+                          <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-success-fg)' }}>
                             <ThunderboltOutlined />
                             <span>4. Net Labor Time</span>
                           </div>
-                          <div className="erp-jc-timing-box-val" style={{ color: '#10b981' }}>
+                          <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-success-fg)' }}>
                             {formatDuration(timingMetrics.netRepairMinutes)}
                           </div>
                           <div className="erp-jc-timing-box-sub">Gross &minus; Parts Hold</div>
                         </div>
 
                         <div className="erp-jc-timing-box erp-jc-timing-box--downtime">
-                          <div className="erp-jc-timing-box-header" style={{ color: '#ef4444' }}>
+                          <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-danger-fg)' }}>
                             <WarningOutlined />
                             <span>5. Total Downtime</span>
                           </div>
-                          <div className="erp-jc-timing-box-val" style={{ color: '#ef4444' }}>
+                          <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-danger-fg)' }}>
                             {formatDuration(timingMetrics.totalDowntimeMinutes)}
                           </div>
                           <div className="erp-jc-timing-box-sub">Equipment Downtime</div>
@@ -3133,7 +3135,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
                         <div style={{ marginBottom: 14 }}>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                            Diagnosis / Fault Identified <span style={{ color: '#ef4444' }}>*</span>:
+                            Diagnosis / Fault Identified <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                           </label>
                           <Input.TextArea
                             rows={3}
@@ -3146,7 +3148,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         {/* Corrective Action Quick Chips */}
                         <div className="erp-jc-quick-chips-wrapper">
                           <div className="erp-jc-quick-chips-title">
-                            <ThunderboltOutlined style={{ color: '#10b981' }} />
+                            <ThunderboltOutlined style={{ color: 'var(--maint-success-fg)' }} />
                             1-Tap Corrective Action Shortcuts:
                           </div>
                           <div className="erp-jc-chips-scroll">
@@ -3166,7 +3168,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
                         <div style={{ marginBottom: 14 }}>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                            Corrective Action Taken <span style={{ color: '#ef4444' }}>*</span>:
+                            Corrective Action Taken <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                           </label>
                           <Input.TextArea
                             rows={3}
@@ -3201,7 +3203,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           <Button
                             size="small"
                             type="link"
-                            style={{ fontSize: 11, color: '#38bdf8' }}
+                            style={{ fontSize: 11, color: 'var(--maint-info-fg)' }}
                             onClick={() => setShowAddPartInline(!showAddPartInline)}
                           >
                             {showAddPartInline ? 'Hide Advanced Hierarchy Filters' : '🔍 Advanced Hierarchy Filters'}
@@ -3287,7 +3289,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#ef4444', fontWeight: 700, fontSize: 14 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--maint-danger-fg)', fontWeight: 700, fontSize: 14 }}>
                                 <RollbackOutlined style={{ fontSize: 16 }} />
                                 <span>Supervisor Return &amp; Rework Instructions:</span>
                               </div>
@@ -3299,10 +3301,10 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                 fontSize: 13,
                                 color: 'var(--theme-text, #ffffff)',
                                 lineHeight: 1.5,
-                                background: 'rgba(0,0,0,0.25)',
+                                background: 'var(--maint-danger-bg)',
                                 padding: '10px 14px',
                                 borderRadius: 6,
-                                borderLeft: '3px solid #ef4444',
+                                borderLeft: '3px solid var(--maint-danger-fg)',
                               }}
                             >
                               <strong>Reason for Return:</strong> {supervisorRemarks}
@@ -3318,11 +3320,11 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                       {/* 6-Component Timing Breakdown Strip */}
                       <div className="erp-jc-timing-grid">
                         <div className="erp-jc-timing-box erp-jc-timing-box--wait">
-                          <div className="erp-jc-timing-box-header" style={{ color: '#0284c7' }}>
+                          <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-info-fg)' }}>
                             <ClockCircleOutlined />
                             <span>1. Response Wait</span>
                           </div>
-                          <div className="erp-jc-timing-box-val" style={{ color: '#0284c7' }}>{formatDuration(timingMetrics.waitMinutes)}</div>
+                          <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-info-fg)' }}>{formatDuration(timingMetrics.waitMinutes)}</div>
                           <div className="erp-jc-timing-box-sub">Open &rarr; Start</div>
                         </div>
 
@@ -3347,22 +3349,22 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         </div>
 
                         <div className="erp-jc-timing-box erp-jc-timing-box--highlight">
-                          <div className="erp-jc-timing-box-header" style={{ color: '#10b981' }}>
+                          <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-success-fg)' }}>
                             <ThunderboltOutlined />
                             <span>4. Net Labor Time</span>
                           </div>
-                          <div className="erp-jc-timing-box-val" style={{ color: '#10b981' }}>
+                          <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-success-fg)' }}>
                             {formatDuration(timingMetrics.netRepairMinutes)}
                           </div>
                           <div className="erp-jc-timing-box-sub">Gross &minus; Parts Hold</div>
                         </div>
 
                         <div className="erp-jc-timing-box erp-jc-timing-box--downtime">
-                          <div className="erp-jc-timing-box-header" style={{ color: '#ef4444' }}>
+                          <div className="erp-jc-timing-box-header" style={{ color: 'var(--maint-danger-fg)' }}>
                             <WarningOutlined />
                             <span>5. Total Downtime</span>
                           </div>
-                          <div className="erp-jc-timing-box-val" style={{ color: '#ef4444' }}>
+                          <div className="erp-jc-timing-box-val" style={{ color: 'var(--maint-danger-fg)' }}>
                             {formatDuration(timingMetrics.totalDowntimeMinutes)}
                           </div>
                           <div className="erp-jc-timing-box-sub">Equipment Downtime</div>
@@ -3410,7 +3412,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
                         <div style={{ marginBottom: 14 }}>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                            Revised Diagnosis / Root Cause <span style={{ color: '#ef4444' }}>*</span>:
+                            Revised Diagnosis / Root Cause <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                           </label>
                           <Input.TextArea
                             rows={3}
@@ -3423,7 +3425,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         {/* Corrective Action Quick Chips */}
                         <div className="erp-jc-quick-chips-wrapper">
                           <div className="erp-jc-quick-chips-title">
-                            <ThunderboltOutlined style={{ color: '#10b981' }} />
+                            <ThunderboltOutlined style={{ color: 'var(--maint-success-fg)' }} />
                             1-Tap Corrective Action Shortcuts:
                           </div>
                           <div className="erp-jc-chips-scroll">
@@ -3443,7 +3445,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
                         <div style={{ marginBottom: 14 }}>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                            Additional / Corrective Actions Performed <span style={{ color: '#ef4444' }}>*</span>:
+                            Additional / Corrective Actions Performed <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                           </label>
                           <Input.TextArea
                             rows={3}
@@ -3491,7 +3493,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             size="small"
                             type={showAddPartInline ? 'default' : 'primary'}
                             icon={<PlusOutlined />}
-                            style={showAddPartInline ? undefined : { backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
+                            style={showAddPartInline ? undefined : { backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 600 }}
                             onClick={() => setShowAddPartInline(!showAddPartInline)}
                           >
                             {showAddPartInline ? 'Cancel Add' : '+ Add Consumed Spare Part'}
@@ -3622,7 +3624,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                       <Row gutter={12} style={{ marginBottom: 14 }}>
                         <Col span={16}>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                            Missing Spare Part Name <span style={{ color: '#ef4444' }}>*</span>:
+                            Missing Spare Part Name <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                           </label>
                           <Input
                             placeholder="e.g. SKF 6205-2RS Deep Groove Ball Bearing"
@@ -3645,7 +3647,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                       <Row gutter={12} style={{ marginBottom: 14 }}>
                         <Col span={12}>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                            Quantity Required <span style={{ color: '#ef4444' }}>*</span>:
+                            Quantity Required <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                           </label>
                           <InputNumber
                             min={1}
@@ -3695,7 +3697,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
                       <div>
                         <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                          Reason for Hold / Store Procurement Notes <span style={{ color: '#ef4444' }}>*</span>:
+                          Reason for Hold / Store Procurement Notes <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                         </label>
                         <Input.TextArea
                           rows={3}
@@ -3770,13 +3772,13 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           >
                             <Radio.Button value="verify">
                               <Space>
-                                <CheckCircleOutlined style={{ color: '#10b981' }} />
+                                <CheckCircleOutlined style={{ color: 'var(--maint-success-fg)' }} />
                                 <strong>Verify & Approve</strong>
                               </Space>
                             </Radio.Button>
                             <Radio.Button value="reject">
                               <Space>
-                                <RollbackOutlined style={{ color: '#ef4444' }} />
+                                <RollbackOutlined style={{ color: 'var(--maint-danger-fg)' }} />
                                 <strong>Return to Technician for Rework</strong>
                               </Space>
                             </Radio.Button>
@@ -3798,7 +3800,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         ) : (
                           <div>
                             <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                              Reason for Return / Rework Instructions <span style={{ color: '#ef4444' }}>*</span>:
+                              Reason for Return / Rework Instructions <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                             </label>
                             <Input.TextArea
                               rows={3}
@@ -3807,7 +3809,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                               onChange={(e) => setRejectionReason(e.target.value)}
                             />
                             {!rejectionReason.trim() && (
-                              <div style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
+                              <div style={{ color: 'var(--maint-danger-fg)', fontSize: 12, marginTop: 4 }}>
                                 * Return reason is mandatory when rejecting a job card.
                               </div>
                             )}
@@ -3895,7 +3897,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                     size="small"
                                     type={showAddPartInline ? 'default' : 'primary'}
                                     icon={<PlusOutlined />}
-                                    style={showAddPartInline ? undefined : { backgroundColor: '#2563eb', borderColor: '#2563eb' }}
+                                    style={showAddPartInline ? undefined : { backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff' }}
                                     onClick={() => setShowAddPartInline(!showAddPartInline)}
                                   >
                                     {showAddPartInline ? 'Cancel Add' : '+ Add Consumed Part'}
@@ -3944,7 +3946,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                     </Row>
                                     <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                                       <Button size="small" onClick={() => setShowAddPartInline(false)}>Cancel</Button>
-                                      <Button size="small" type="primary" loading={addingPart} style={{ backgroundColor: '#2563eb' }} onClick={handleAddConsumedPart}>Save</Button>
+                                      <Button size="small" type="primary" loading={addingPart} style={{ backgroundColor: '#2563eb', color: '#ffffff' }} onClick={handleAddConsumedPart}>Save</Button>
                                     </div>
                                   </div>
                                 )}
@@ -3955,7 +3957,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                   dataSource={cardParts}
                                   locale={{ emptyText: 'No spare parts logged.' }}
                                   columns={[
-                                    { title: 'Part', dataIndex: 'partName', render: (v, r) => <div><strong>{v}</strong>{r.partCode && <div style={{ fontSize: 10, color: '#94a3b8' }}>{r.partCode}</div>}</div> },
+                                    { title: 'Part', dataIndex: 'partName', render: (v, r) => <div><strong>{v}</strong>{r.partCode && <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>{r.partCode}</div>}</div> },
                                     { title: 'Qty', key: 'q', width: 90, render: (_, r) => <Tag color="blue">{r.quantity} {r.uom || 'Pcs'}</Tag> },
                                     { title: 'Remarks', dataIndex: 'remarks', render: (v) => v || '—' },
                                     { title: '', key: 'd', width: 40, render: (_, r) => <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => handleRemovePart(r.id)} /> },
@@ -4059,7 +4061,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
                                     <div style={{ background: 'var(--theme-surface-alt, #18223c)', padding: '6px 8px', borderRadius: 6, textAlign: 'center' }}>
                                       <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Jobs</div>
-                                      <div style={{ fontSize: 16, fontWeight: 700, color: '#38bdf8' }}>{machineStats.total || 0}</div>
+                                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--maint-info-fg)' }}>{machineStats.total || 0}</div>
                                     </div>
                                     <div style={{ background: 'var(--theme-surface-alt, #18223c)', padding: '6px 8px', borderRadius: 6, textAlign: 'center' }}>
                                       <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Downtime</div>
@@ -4067,11 +4069,11 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                                     </div>
                                     <div style={{ background: 'var(--theme-surface-alt, #18223c)', padding: '6px 8px', borderRadius: 6, textAlign: 'center' }}>
                                       <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>MTBF</div>
-                                      <div style={{ fontSize: 16, fontWeight: 700, color: '#10b981' }}>{machineStats.mtbfHours || 0}h</div>
+                                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--maint-success-fg)' }}>{machineStats.mtbfHours || 0}h</div>
                                     </div>
                                     <div style={{ background: 'var(--theme-surface-alt, #18223c)', padding: '6px 8px', borderRadius: 6, textAlign: 'center' }}>
                                       <div style={{ fontSize: 10, color: 'var(--theme-text-muted)' }}>Breakdowns</div>
-                                      <div style={{ fontSize: 16, fontWeight: 700, color: '#ef4444' }}>{machineStats.byType?.breakdown || 0}</div>
+                                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--maint-danger-fg)' }}>{machineStats.byType?.breakdown || 0}</div>
                                     </div>
                                   </div>
                                 )}
@@ -4105,7 +4107,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           type="text"
                           size="small"
                           icon={<CopyOutlined />}
-                          style={{ color: '#38bdf8' }}
+                          style={{ color: 'var(--maint-info-fg)' }}
                           onClick={() => {
                             navigator.clipboard?.writeText(jobCardNo);
                             message.info('Job card number copied to clipboard');
@@ -4179,7 +4181,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         <div style={{ background: 'var(--theme-surface-alt, #0f172a)', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--theme-border, #1e293b)' }}>
                           <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>1. Response Wait</div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8' }}>{formatDuration(timingMetrics.waitMinutes)}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--maint-info-fg)' }}>{formatDuration(timingMetrics.waitMinutes)}</div>
                         </div>
                         <div style={{ background: 'var(--theme-surface-alt, #0f172a)', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--theme-border, #1e293b)' }}>
                           <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>2. Gross Repair</div>
@@ -4193,7 +4195,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         </div>
                         <div style={{ background: 'rgba(16, 185, 129, 0.12)', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                           <div style={{ fontSize: 10, color: '#a7f3d0' }}>4. Net Labor</div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>{formatDuration(timingMetrics.netRepairMinutes)}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--maint-success-fg)' }}>{formatDuration(timingMetrics.netRepairMinutes)}</div>
                         </div>
                       </div>
                     </div>
@@ -4239,7 +4241,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             padding: '6px 10px',
                             borderRadius: 6,
                             border: '1px solid rgba(16, 185, 129, 0.3)',
-                            color: '#10b981',
+                            color: 'var(--maint-success-fg)',
                             fontWeight: 600,
                           }}
                         >
@@ -4272,14 +4274,14 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                       <div>
                         <div className="erp-jc-ticket-label">REPORTED BY</div>
                         <div className="erp-jc-ticket-val" style={{ fontSize: 12 }}>
-                          <UserOutlined style={{ marginRight: 4, color: '#38bdf8' }} />
+                          <UserOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />
                           {activeCard?.reportedBy?.name || activeCard?.reportedBy?.username || 'Maintenance Desk'}
                         </div>
                       </div>
                       <div>
                         <div className="erp-jc-ticket-label">DATE & TIME</div>
                         <div className="erp-jc-ticket-val" style={{ fontSize: 12 }}>
-                          <ClockCircleOutlined style={{ marginRight: 4, color: '#38bdf8' }} />
+                          <ClockCircleOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />
                           {activeCard?.createdAt ? dayjs(activeCard.createdAt).format('DD MMM, HH:mm') : dayjs().format('DD MMM, HH:mm')}
                         </div>
                       </div>
@@ -4322,6 +4324,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                   style={{
                     backgroundColor: '#2563eb',
                     borderColor: '#2563eb',
+                    color: '#ffffff',
                     fontWeight: 600,
                     height: 38,
                     padding: '0 24px',
@@ -4406,7 +4409,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                 size="small"
                 type="link"
                 icon={<CopyOutlined />}
-                style={{ padding: 0, fontWeight: 600, color: '#38bdf8' }}
+                style={{ padding: 0, fontWeight: 600, color: 'var(--maint-info-fg)' }}
                 onClick={() => {
                   navigator.clipboard.writeText(whatsappText);
                   message.success('WhatsApp text copied to clipboard!');
@@ -4446,7 +4449,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
             <Button
               type="primary"
               icon={<WhatsAppOutlined />}
-              style={{ backgroundColor: '#25D366', borderColor: '#25D366', fontWeight: 700 }}
+              style={{ backgroundColor: '#25D366', borderColor: '#25D366', color: '#ffffff', fontWeight: 700 }}
               onClick={() => {
                 openWhatsAppShare(whatsappText, whatsappPhone);
                 setWhatsappModalOpen(false);

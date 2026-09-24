@@ -15,6 +15,15 @@ export class SupabaseAuthService {
   private jwtSecretValid = false;
   private readonly localJwtSecret: string;
   private readonly localJwtExpiration: string;
+  /**
+   * Short-lived cache of successful Supabase API verifications. Verifying one
+   * token costs a ~300ms+ remote round trip, which is paid on EVERY otherwise
+   * unauthenticated request while SUPABASE_JWT_SECRET is unusable. Entries
+   * expire at min(token exp, 60s) so revocation is picked up within a minute.
+   */
+  private readonly verifyCache = new Map<string, { payload: SupabaseJwtPayload; expiresAt: number }>();
+  private static readonly VERIFY_CACHE_TTL_MS = 60_000;
+  private static readonly VERIFY_CACHE_MAX_ENTRIES = 200;
 
   constructor(
     private readonly configService: ConfigService,
@@ -56,9 +65,29 @@ export class SupabaseAuthService {
       return this.verifyTokenLocally(token);
     }
 
+    // Reuse a recent successful verification instead of calling the Supabase
+    // API on every request.
+    const now = Date.now();
+    const cached = this.verifyCache.get(token);
+    if (cached && cached.expiresAt > now) {
+      return cached.payload;
+    }
+
     // Try Supabase API, fall back to local if quota exhausted
     try {
-      return await this.verifyTokenViaSupabase(token);
+      const payload = await this.verifyTokenViaSupabase(token);
+      const decoded = jwt.decode(token) as { exp?: number } | null;
+      const ttl = Math.min(
+        decoded?.exp ? decoded.exp * 1000 - now : SupabaseAuthService.VERIFY_CACHE_TTL_MS,
+        SupabaseAuthService.VERIFY_CACHE_TTL_MS,
+      );
+      if (ttl > 0) {
+        if (this.verifyCache.size >= SupabaseAuthService.VERIFY_CACHE_MAX_ENTRIES) {
+          this.verifyCache.clear();
+        }
+        this.verifyCache.set(token, { payload, expiresAt: now + ttl });
+      }
+      return payload;
     } catch (error) {
       // If Supabase is down/quota exhausted, try decoding locally with JWT_SECRET
       try {

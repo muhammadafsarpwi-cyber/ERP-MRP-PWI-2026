@@ -515,7 +515,7 @@ const MaintenanceDashboard: React.FC = () => {
   return (
     <div>
       {/* COLLAPSIBLE FILTERS TOOLBAR (matches unified layout with Search next to Filters) */}
-      <Card styles={{ body: { padding: '14px 20px' } }} style={{ marginBottom: 12, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+      <Card styles={{ body: { padding: '14px 20px' } }} style={{ ...panelCard, marginBottom: 12, borderRadius: 8, background: 'var(--theme-surface)' }}>
         <Row gutter={[10, 12]} align="middle">
           <Col style={{ minWidth: 280, maxWidth: 360, flex: '1 1 320px' }}>
             <Input
@@ -529,7 +529,7 @@ const MaintenanceDashboard: React.FC = () => {
           </Col>
           <Col>
             <Button icon={<FilterOutlined />} onClick={() => setShowFilters(v => !v)} type={showFilters ? 'primary' : 'default'}>
-              <Text style={{ color: showFilters ? '#fff' : undefined }}>Filters</Text>
+              <Text style={{ color: showFilters ? 'var(--theme-on-accent)' : undefined }}>Filters</Text>
             </Button>
           </Col>
           {hasActiveFilters && (
@@ -682,7 +682,7 @@ const MaintenanceDashboard: React.FC = () => {
             <KpiCard label="Approved" value={data.approved} icon={<CheckCircleOutlined />} color={STATUS_COLORS.APPROVED} onClick={() => goStatus('APPROVED')} />
             <KpiCard label="Rejected" value={data.rejected} icon={<CloseCircleOutlined />} color={STATUS_COLORS.REJECTED} onClick={() => goStatus('REJECTED')} />
             <KpiCard label="Cancelled" value={data.cancelled} icon={<MinusCircleOutlined />} color={STATUS_COLORS.CANCELLED} onClick={() => goStatus('CANCELLED')} />
-            <KpiCard label="Closed" value={data.closed} icon={<CheckCircleOutlined />} color="#595959" onClick={() => goStatus('CLOSED')} />
+            <KpiCard label="Closed" value={data.closed} icon={<CheckCircleOutlined />} color={STATUS_COLORS.CLOSED} onClick={() => goStatus('CLOSED')} />
             <KpiCard label="Critical / Priority" value={data.critical} icon={<WarningOutlined />} color="#cf1322" suffix="active" />
             <KpiCard
               label="MTTR"

@@ -10,6 +10,7 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { StatusBadge } from '../../components/shared';
 import { JobCard, JOB_CARD_BASE, label, errorText, rowsOf } from './jobCards.types';
+import './maintTheme.css';
 
 const { Text } = Typography;
 
@@ -112,7 +113,7 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
             key="start"
             type="primary"
             icon={<PlayCircleOutlined />}
-            style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
+            style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 600 }}
             onClick={() => card && onActionTrigger('start', card)}
           >
             Start Job Now
@@ -133,7 +134,7 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
             key="complete"
             type="primary"
             icon={<CheckCircleOutlined />}
-            style={{ backgroundColor: '#059669', borderColor: '#059669', fontWeight: 600 }}
+            style={{ backgroundColor: '#059669', borderColor: '#059669', color: '#ffffff', fontWeight: 600 }}
             onClick={() => card && onActionTrigger('complete', card)}
           >
             Close Job Now
@@ -144,7 +145,7 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
             key="resume"
             type="primary"
             icon={<PlayCircleOutlined />}
-            style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
+            style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 600 }}
             onClick={() => card && onActionTrigger('resume', card)}
           >
             Resume Work
@@ -155,7 +156,7 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
             key="review"
             type="primary"
             icon={<AuditOutlined />}
-            style={{ backgroundColor: '#7c3aed', borderColor: '#7c3aed', fontWeight: 600 }}
+            style={{ backgroundColor: '#7c3aed', borderColor: '#7c3aed', color: '#ffffff', fontWeight: 600 }}
             onClick={() => card && onActionTrigger('verify', card)}
           >
             Review &amp; Verify
@@ -166,7 +167,7 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
             key="resubmit"
             type="primary"
             icon={<RollbackOutlined />}
-            style={{ backgroundColor: '#d97706', borderColor: '#d97706', fontWeight: 600 }}
+            style={{ backgroundColor: '#d97706', borderColor: '#d97706', color: '#ffffff', fontWeight: 600 }}
             onClick={() => card && onActionTrigger('submit-for-verification', card)}
           >
             Resubmit for Review
@@ -176,7 +177,7 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
       title={(
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 24 }}>
           <Space size={8}>
-            <ToolOutlined style={{ color: '#2563eb', fontSize: 20 }} />
+            <ToolOutlined style={{ color: 'var(--maint-info-fg)', fontSize: 20 }} />
             <span style={{ fontSize: 16, fontWeight: 700 }}>
               Job Card: {card?.jobCardNo || jobCardId}
             </span>
@@ -200,24 +201,24 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
       ) : card ? (
         <div>
           {/* Quick Equipment Summary Banner */}
-          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 16px', margin: '12px 0 16px 0' }}>
+          <div style={{ background: 'var(--theme-surface-alt)', border: '1px solid var(--theme-border)', borderRadius: 8, padding: '12px 16px', margin: '12px 0 16px 0' }}>
             <Row gutter={[16, 8]} align="middle">
               <Col xs={24} sm={12} md={8}>
-                <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Equipment / Machine</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
+                <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Equipment / Machine</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--theme-text)' }}>
                   {machineName} <Tag style={{ marginLeft: 4 }}>{machineCode}</Tag>
                 </div>
               </Col>
               <Col xs={24} sm={12} md={8}>
-                <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Location Hierarchy</div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>
+                <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Location Hierarchy</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-secondary)' }}>
                   {card.division?.name || m?.division?.name || 'Spoke Division'} &rsaquo; {card.section?.name || m?.section?.name || 'Section'} &rsaquo; {card.assignedDepartment?.name || 'Maintenance'}
                 </div>
               </Col>
               <Col xs={24} sm={12} md={8}>
-                <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Created &amp; Downtime</div>
-                <div style={{ fontSize: 12, color: '#334155' }}>
-                  <ClockCircleOutlined style={{ marginRight: 4, color: '#2563eb' }} />
+                <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Created &amp; Downtime</div>
+                <div style={{ fontSize: 12, color: 'var(--theme-text-secondary)' }}>
+                  <ClockCircleOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />
                   {card.requestedAt ? dayjs(card.requestedAt).format('DD MMM YYYY, hh:mm A') : '—'}
                   {card.downtimeMinutes ? <strong style={{ color: '#ef4444', marginLeft: 6 }}>({card.downtimeMinutes} mins downtime)</strong> : null}
                 </div>
@@ -226,7 +227,7 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
           </div>
 
           {/* Stepper Progress Bar */}
-          <div style={{ padding: '8px 12px 16px 12px', borderBottom: '1px solid #f1f5f9', marginBottom: 14 }}>
+          <div style={{ padding: '8px 12px 16px 12px', borderBottom: '1px solid var(--theme-border)', marginBottom: 14 }}>
             <Steps
               size="small"
               current={currentStepIndex}
@@ -251,15 +252,15 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
                 children: (
                   <div style={{ paddingTop: 4 }}>
                     {/* Complaint Callout Box */}
-                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 16px', marginBottom: 14 }}>
-                      <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 700, marginBottom: 4 }}>
+                    <div style={{ background: 'var(--maint-info-bg)', border: '1px solid var(--maint-info-border)', borderRadius: 8, padding: '12px 16px', marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, color: 'var(--maint-info-fg-strong)', fontWeight: 700, marginBottom: 4 }}>
                         OPERATIONAL COMPLAINT / FAULT REPORTED:
                       </div>
-                      <div style={{ fontSize: 14, color: '#1e3a8a', fontWeight: 600 }}>
+                      <div style={{ fontSize: 14, color: 'var(--maint-info-fg-strong)', fontWeight: 600 }}>
                         &ldquo;{card.complaint || 'No complaint details entered.'}&rdquo;
                       </div>
                       {card.description && (
-                        <div style={{ marginTop: 8, fontSize: 13, color: '#3b82f6', borderTop: '1px dashed #bfdbfe', paddingTop: 6 }}>
+                        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--maint-info-fg)', borderTop: '1px dashed var(--maint-info-border)', paddingTop: 6 }}>
                           <strong>Additional Description:</strong> {card.description}
                         </div>
                       )}
@@ -267,33 +268,33 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
 
                     <Row gutter={[16, 12]}>
                       <Col span={12}>
-                        <div style={{ background: '#f8fafc', padding: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 6 }}>Assignment &amp; Team:</div>
-                          <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
+                        <div style={{ background: 'var(--theme-surface-alt)', padding: 12, borderRadius: 6, border: '1px solid var(--theme-border)' }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)', marginBottom: 6 }}>Assignment &amp; Team:</div>
+                          <div style={{ fontSize: 12, color: 'var(--theme-text-secondary)', marginBottom: 4 }}>
                             <strong>Assigned Technicians:</strong>{' '}
                             {technicians.length > 0
                               ? technicians.map(t => t.technician?.technicianName || t.technicianName || 'Technician').join(', ')
                               : (card.assignedTechnician?.name || 'Unassigned')}
                           </div>
-                          <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
+                          <div style={{ fontSize: 12, color: 'var(--theme-text-secondary)', marginBottom: 4 }}>
                             <strong>Assigned Department:</strong> {card.assignedDepartment?.name || '—'}
                           </div>
-                          <div style={{ fontSize: 12, color: '#475569' }}>
+                          <div style={{ fontSize: 12, color: 'var(--theme-text-secondary)' }}>
                             <strong>Maintenance Team:</strong> {card.team?.name || 'General Maintenance'}
                           </div>
                         </div>
                       </Col>
 
                       <Col span={12}>
-                        <div style={{ background: '#f8fafc', padding: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 6 }}>Timestamps &amp; Actors:</div>
-                          <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
+                        <div style={{ background: 'var(--theme-surface-alt)', padding: 12, borderRadius: 6, border: '1px solid var(--theme-border)' }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)', marginBottom: 6 }}>Timestamps &amp; Actors:</div>
+                          <div style={{ fontSize: 12, color: 'var(--theme-text-secondary)', marginBottom: 4 }}>
                             <strong>Started At:</strong> {card.startedAt ? dayjs(card.startedAt).format('DD MMM YYYY, hh:mm A') : '—'}
                           </div>
-                          <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
+                          <div style={{ fontSize: 12, color: 'var(--theme-text-secondary)', marginBottom: 4 }}>
                             <strong>Completed At:</strong> {card.completedAt ? dayjs(card.completedAt).format('DD MMM YYYY, hh:mm A') : '—'}
                           </div>
-                          <div style={{ fontSize: 12, color: '#475569' }}>
+                          <div style={{ fontSize: 12, color: 'var(--theme-text-secondary)' }}>
                             <strong>Verified At:</strong> {card.verifiedAt ? dayjs(card.verifiedAt).format('DD MMM YYYY, hh:mm A') : '—'}
                           </div>
                         </div>
@@ -336,29 +337,29 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
                 children: (
                   <div>
                     <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 4 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)', marginBottom: 4 }}>
                         Root Cause Diagnosis / Fault Findings:
                       </div>
-                      <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13, color: '#334155' }}>
+                      <div style={{ background: 'var(--theme-surface-alt)', padding: 10, borderRadius: 6, border: '1px solid var(--theme-border)', fontSize: 13, color: 'var(--theme-text-secondary)' }}>
                         {card.diagnosis || <Text type="secondary">No diagnosis logged yet.</Text>}
                       </div>
                     </div>
 
                     <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 4 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)', marginBottom: 4 }}>
                         Corrective Action Taken / Work Done:
                       </div>
-                      <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13, color: '#334155' }}>
+                      <div style={{ background: 'var(--theme-surface-alt)', padding: 10, borderRadius: 6, border: '1px solid var(--theme-border)', fontSize: 13, color: 'var(--theme-text-secondary)' }}>
                         {card.correctiveAction || <Text type="secondary">No corrective action logged yet.</Text>}
                       </div>
                     </div>
 
                     {card.preventiveAction && (
                       <div style={{ marginBottom: 12 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 4 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)', marginBottom: 4 }}>
                           Preventive Recommendations:
                         </div>
-                        <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13, color: '#334155' }}>
+                        <div style={{ background: 'var(--theme-surface-alt)', padding: 10, borderRadius: 6, border: '1px solid var(--theme-border)', fontSize: 13, color: 'var(--theme-text-secondary)' }}>
                           {card.preventiveAction}
                         </div>
                       </div>
@@ -366,10 +367,10 @@ export const JobCardViewModal: React.FC<JobCardViewModalProps> = ({
 
                     {card.remarks && (
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', marginBottom: 4 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)', marginBottom: 4 }}>
                           Closing / General Remarks:
                         </div>
-                        <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13, color: '#334155' }}>
+                        <div style={{ background: 'var(--theme-surface-alt)', padding: 10, borderRadius: 6, border: '1px solid var(--theme-border)', fontSize: 13, color: 'var(--theme-text-secondary)' }}>
                           {card.remarks}
                         </div>
                       </div>

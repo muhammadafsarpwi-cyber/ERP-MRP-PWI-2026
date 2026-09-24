@@ -9,12 +9,65 @@
   --maint-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
   --maint-shadow-hover: 0 3px 10px rgba(16, 24, 40, 0.12);
   --maint-track-bg: #eef0f9;
+
+  /* ── Soft semantic chip / callout surfaces ──────────────────────────────
+     Used by Maintenance row-action buttons, info banners, review/waiting
+     callouts and the PM machine banner. Light values are the original
+     Maintenance palette (unchanged); dark values are translucent variants of
+     the same hues so the semantic meaning stays readable on dark surfaces.
+     Neutral surfaces/text/borders are NOT tokenised here — they use the
+     global --theme-* tokens directly. */
+  --maint-info-bg: #eff6ff;
+  --maint-info-bg-hover: #dbeafe;
+  --maint-info-border: #93c5fd;
+  --maint-info-border-hover: #3b82f6;
+  --maint-info-fg: #2563eb;
+  --maint-info-fg-hover: #1d4ed8;
+  --maint-info-fg-strong: #1e40af;
+
+  --maint-warning-bg: #fffbeb;
+  --maint-warning-border: #fde68a;
+  --maint-warning-fg: #b45309;
+  --maint-warning-fg-strong: #78350f;
+
+  --maint-danger-bg: #fef2f2;
+  --maint-danger-border: #fca5a5;
+  --maint-danger-fg: #dc2626;
+  --maint-danger-fg-strong: #991b1b;
+
+  --maint-success-bg: #f0fdf4;
+  --maint-success-border: #bbf7d0;
+  --maint-success-fg: #166534;
+  --maint-success-fg-sub: #15803d;
 }
 
 html[data-theme='dark'] {
   --maint-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
   --maint-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.55);
   --maint-track-bg: #242a49;
+
+  --maint-info-bg: rgba(37, 99, 235, 0.2);
+  --maint-info-bg-hover: rgba(37, 99, 235, 0.34);
+  --maint-info-border: rgba(96, 165, 250, 0.45);
+  --maint-info-border-hover: rgba(147, 197, 253, 0.8);
+  --maint-info-fg: #60a5fa;
+  --maint-info-fg-hover: #93c5fd;
+  --maint-info-fg-strong: #bfdbfe;
+
+  --maint-warning-bg: rgba(217, 119, 6, 0.2);
+  --maint-warning-border: rgba(245, 158, 11, 0.45);
+  --maint-warning-fg: #fbbf24;
+  --maint-warning-fg-strong: #fcd34d;
+
+  --maint-danger-bg: rgba(220, 38, 38, 0.2);
+  --maint-danger-border: rgba(248, 113, 113, 0.45);
+  --maint-danger-fg: #f87171;
+  --maint-danger-fg-strong: #fca5a5;
+
+  --maint-success-bg: rgba(22, 163, 74, 0.2);
+  --maint-success-border: rgba(74, 222, 128, 0.45);
+  --maint-success-fg: #4ade80;
+  --maint-success-fg-sub: #86efac;
 }
 
 /* Status pipeline: horizontally scrollable inside its own container only.
@@ -85,26 +138,29 @@ html[data-theme='dark'] {
   white-space: nowrap;
 }
 
-/* Dark mode theme overrides for queue cards */
-html[data-theme='dark'] .maint-queue-card,
-[data-theme='dark'] .maint-queue-card {
-  background: #141a2e !important;
-  border-color: #253358 !important;
+/* Dark mode theme overrides for queue cards.
+   Converted to the global --theme-* tokens and scoped to the inactive state so
+   the active card's inline status gradient is never flattened by an
+   !important background (it must render identically in light and dark). */
+html[data-theme='dark'] .maint-queue-card:not(.is-active),
+[data-theme='dark'] .maint-queue-card:not(.is-active) {
+  background: var(--theme-surface);
+  border-color: var(--theme-border);
 }
 
 html[data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-label,
 [data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-label {
-  color: #94a3b8 !important;
+  color: var(--theme-text-secondary);
 }
 
 html[data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-count,
 [data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-count {
-  color: #f1f5f9 !important;
+  color: var(--theme-text);
 }
 
 html[data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-desc,
 [data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-desc {
-  color: #64748b !important;
+  color: var(--theme-text-muted);
 }
 
 /* Active status styling */
@@ -194,9 +250,9 @@ html[data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-desc,
   height: 30px;
   padding: 0;
   border-radius: 6px;
-  color: var(--theme-primary);
-  border-color: var(--theme-border);
-  background: var(--theme-surface);
+  color: var(--maint-info-fg);
+  border-color: var(--maint-info-border);
+  background: var(--maint-info-bg);
   line-height: 1;
 }
 
@@ -209,17 +265,17 @@ html[data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-desc,
   height: 28px !important;
   padding: 0 !important;
   border-radius: 6px !important;
-  color: #2563eb !important;
-  border: 1px solid #93c5fd !important;
-  background: #eff6ff !important;
+  color: var(--maint-info-fg) !important;
+  border: 1px solid var(--maint-info-border) !important;
+  background: var(--maint-info-bg) !important;
   line-height: 1 !important;
 }
 
 .jc-view-btn.ant-btn:hover,
 .jc-view-btn.ant-btn:focus {
-  color: #1d4ed8 !important;
-  border-color: #3b82f6 !important;
-  background: #dbeafe !important;
+  color: var(--maint-info-fg-hover) !important;
+  border-color: var(--maint-info-border-hover) !important;
+  background: var(--maint-info-bg-hover) !important;
 }
 
 .jc-action-primary.ant-btn {

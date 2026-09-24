@@ -12,6 +12,7 @@ interface BarcodeScannerProps {
   onClose: () => void;
   onScan: (barcode: string) => void;
   title?: string;
+  zIndex?: number;
 }
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
@@ -19,6 +20,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   onClose,
   onScan,
   title = 'Scan QR Code / Barcode',
+  zIndex = 1500,
 }) => {
   const scannerRef = useRef<HTMLDivElement>(null);
   const html5QrCodeRef = useRef<any>(null);
@@ -199,6 +201,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   return (
     <Modal
       open={open}
+      zIndex={zIndex}
       onCancel={handleClose}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: 8 }}>
