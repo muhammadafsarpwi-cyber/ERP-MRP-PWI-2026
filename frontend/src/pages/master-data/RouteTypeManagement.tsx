@@ -10,6 +10,8 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService, { describeRequestError } from '../../services/api';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { PageHeader, StatusBadge, EmptyState, DraggableResizableModal } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 
 interface RouteType {
@@ -206,6 +208,18 @@ const RouteTypeManagement: React.FC = () => {
   }, [pageSize, search, statusFilter, companyId, message]);
 
   useEffect(() => { void fetchData(1); }, [fetchData]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/route-types')) {
+        void fetchData(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchData, page]);
 
   const counts = useMemo(() => {
     const active = data.filter((d) => d.status === 'ACTIVE').length;
@@ -448,7 +462,14 @@ const RouteTypeManagement: React.FC = () => {
           </div>
         </div>
 
-        {data.length === 0 && !loading ? (
+        {loading && data.length === 0 ? (
+          <GlobalLoading
+            title="Loading Route Types..."
+            subtitle="Fetching registered production route types..."
+            badgeText="LIVE DATABASE QUERY"
+            minHeight={400}
+          />
+        ) : data.length === 0 ? (
           <EmptyState title="No route types found" description="Click Add Route Type to create one." />
         ) : (
           <Table

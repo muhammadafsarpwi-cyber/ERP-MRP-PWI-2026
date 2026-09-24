@@ -9,6 +9,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { PageHeader, StatusBadge, EmptyState, FilterBar, DraggableResizableModal } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { FilterOption } from '../../components/shared/FilterBar';
 
 const UOM_TYPES = ['COUNT', 'WEIGHT', 'LENGTH', 'AREA', 'VOLUME', 'TIME', 'OTHER'];
@@ -190,6 +192,18 @@ const UomManagement: React.FC = () => {
   useEffect(() => {
     fetchUoms(page);
   }, [page, fetchUoms]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/uom')) {
+        void fetchUoms(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchUoms, page]);
 
   const counts = useMemo(() => {
     const active = uoms.filter((d) => d.status === 'ACTIVE').length;
@@ -431,31 +445,40 @@ const UomManagement: React.FC = () => {
       <FilterBar filters={filters} visible={showFilters} />
 
       <Card styles={{ body: { padding: '8px 0 0' } }}>
-        <Table
-          columns={columns}
-          dataSource={uoms}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: page,
-            pageSize,
-            total,
-            onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100],
-            showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} UOMs`,
-          }}
-          locale={{
-            emptyText: (
-              <EmptyState
-                title={search || filterType || statusFilter !== 'ALL' ? 'No UOMs match your search' : 'No UOMs found'}
-                description={search || filterType || statusFilter !== 'ALL' ? 'Try adjusting your search criteria.' : 'Get started by adding your first unit of measure.'}
-                actionLabel="Add UOM"
-                onAction={handleCreate}
-              />
-            ),
-          }}
-        />
+        {loading && uoms.length === 0 ? (
+          <GlobalLoading
+            title="Loading Units of Measure..."
+            subtitle="Fetching measurement units and conversion factors..."
+            badgeText="LIVE DATABASE QUERY"
+            minHeight={400}
+          />
+        ) : (
+          <Table
+            columns={columns}
+            dataSource={uoms}
+            rowKey="id"
+            loading={loading}
+            pagination={{
+              current: page,
+              pageSize,
+              total,
+              onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
+              showSizeChanger: true,
+              pageSizeOptions: [10, 20, 50, 100],
+              showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} UOMs`,
+            }}
+            locale={{
+              emptyText: (
+                <EmptyState
+                  title={search || filterType || statusFilter !== 'ALL' ? 'No UOMs match your search' : 'No UOMs found'}
+                  description={search || filterType || statusFilter !== 'ALL' ? 'Try adjusting your search criteria.' : 'Get started by adding your first unit of measure.'}
+                  actionLabel="Add UOM"
+                  onAction={handleCreate}
+                />
+              ),
+            }}
+          />
+        )}
       </Card>
 
       <DraggableResizableModal

@@ -21,6 +21,8 @@ import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { PageHeader, SaveResultDialog, DraggableResizableModal } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import UserAvatar, { resolveSrc } from '../../components/layout/UserAvatar';
 import { useUserStore } from '../../store/userStore';
@@ -219,6 +221,20 @@ const UserManagement: React.FC = () => {
     fetchRoles();
     fetchCompanies();
   }, [page, search, fetchUsers, fetchRoles, fetchCompanies, statusFilter]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/admin/users')) {
+        void fetchUsers(page, search || undefined, statusFilter);
+        void fetchRoles();
+        void fetchCompanies();
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchUsers, fetchRoles, fetchCompanies, page, search, statusFilter]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -1161,22 +1177,31 @@ const UserManagement: React.FC = () => {
           </Col>
         </Row>
 
-        <Table
-          columns={columns}
-          dataSource={users}
-          rowKey="id"
-          loading={loading}
-          scroll={{ x: 1100 }}
-          pagination={{
-            current: page,
-            total,
-            pageSize: 20,
-            onChange: setPage,
-            showSizeChanger: false,
-            showTotal: (t) => `Total ${t} user(s)`,
-          }}
-          locale={{ emptyText: <Empty description="No users found" /> }}
-        />
+        {loading && users.length === 0 ? (
+          <GlobalLoading
+            title="Loading User Accounts..."
+            subtitle="Fetching registered system users, roles, and profiles..."
+            badgeText="LIVE DATABASE QUERY"
+            minHeight={400}
+          />
+        ) : (
+          <Table
+            columns={columns}
+            dataSource={users}
+            rowKey="id"
+            loading={loading}
+            scroll={{ x: 1100 }}
+            pagination={{
+              current: page,
+              total,
+              pageSize: 20,
+              onChange: setPage,
+              showSizeChanger: false,
+              showTotal: (t) => `Total ${t} user(s)`,
+            }}
+            locale={{ emptyText: <Empty description="No users found" /> }}
+          />
+        )}
       </Card>
 
       {/* Quick Change User Photo Modal */}

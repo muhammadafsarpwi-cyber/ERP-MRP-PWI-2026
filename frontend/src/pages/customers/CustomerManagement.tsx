@@ -18,6 +18,8 @@ import {
   DeleteConfirmModal,
   DraggableResizableModal,
 } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import dayjs from 'dayjs';
 
 const { TabPane } = Tabs;
@@ -144,6 +146,18 @@ const CustomerManagement: React.FC = () => {
   }, [search, filterStatus, filterType, filterTier, pageSize, message]);
 
   useEffect(() => { fetchCustomers(page); }, [page, fetchCustomers]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/customers')) {
+        void fetchCustomers(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchCustomers, page]);
 
   const handleCreate = () => {
     setEditingCustomer(null);
@@ -396,20 +410,29 @@ const CustomerManagement: React.FC = () => {
         </Select>
       </FilterBar>
 
-      <ERPTable
-        columns={columns}
-        dataSource={customers}
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          current: page,
-          total,
-          pageSize,
-          onChange: setPage,
-          showSizeChanger: false,
-        }}
-        scroll={{ x: 1300 }}
-      />
+      {loading && customers.length === 0 ? (
+        <GlobalLoading
+          title="Loading Customers..."
+          subtitle="Fetching customer directory and commercial profiles..."
+          badgeText="LIVE DATABASE QUERY"
+          minHeight={400}
+        />
+      ) : (
+        <ERPTable
+          columns={columns}
+          dataSource={customers}
+          rowKey="id"
+          loading={loading}
+          pagination={{
+            current: page,
+            total,
+            pageSize,
+            onChange: setPage,
+            showSizeChanger: false,
+          }}
+          scroll={{ x: 1300 }}
+        />
+      )}
 
       {/* Create/Edit Customer Modal */}
       <DraggableResizableModal

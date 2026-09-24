@@ -1,9 +1,13 @@
 import React from 'react';
-import { App as AntApp, ConfigProvider, theme as antdTheme } from 'antd';
+import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd';
 import { findPalette, resolveRoles } from './palettes';
 import { useThemeStore } from './themeStore';
 import { darkenHex, lightenHex, mixHex, rgbaFromHex } from './colorUtils';
+import { OrbitalDualRingLoader } from '../components/shared/LoadingState';
 import './theme.css';
+
+// Configure canonical neon orbital dual-ring spinner for all antd Spin instances globally
+Spin.setDefaultIndicator(<OrbitalDualRingLoader size="default" />);
 
 interface ThemeProviderProps {
   children: React.ReactNode;

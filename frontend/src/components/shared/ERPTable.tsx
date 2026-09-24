@@ -161,6 +161,11 @@ export function ERPTable<T extends object = any>({
     if (!restProps.loading) return false;
     const baseConfig = typeof restProps.loading === 'object' ? restProps.loading : { spinning: !!restProps.loading };
 
+    // When there is no table data yet, resolvedLocale renders TableEmptyLoadingState directly
+    if (!hasTableData) {
+      return false;
+    }
+
     return {
       size: 'large' as const,
       spinning: true,
@@ -171,31 +176,35 @@ export function ERPTable<T extends object = any>({
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '20px 28px',
-            background: 'rgba(255, 255, 255, 0.96)',
-            borderRadius: 14,
-            boxShadow: '0 12px 36px rgba(0, 0, 0, 0.16)',
-            border: '1px solid #e2e8f0',
+            padding: '24px 32px',
+            background: 'var(--theme-surface, rgba(255, 255, 255, 0.96))',
+            borderRadius: 16,
+            boxShadow: '0 16px 40px rgba(0, 0, 0, 0.14)',
+            border: '1px solid var(--theme-border, #e2e8f0)',
             zIndex: 999,
           }}
         >
-          <LoadingOutlined style={{ fontSize: 44, color: 'var(--theme-primary, #2563eb)' }} spin />
+          <OrbitalDualRingLoader size="default" />
           <span
             style={{
               marginTop: 12,
               fontWeight: 700,
-              fontSize: 13,
-              color: '#1e293b',
-              letterSpacing: '0.3px',
+              fontSize: 14,
+              color: 'var(--theme-text, #1e293b)',
+              letterSpacing: '-0.01em',
             }}
           >
             {loadingTitle || 'Loading Records...'}
           </span>
+          <div className="erp-loading-meta-badge" style={{ marginTop: 8, fontSize: 10 }}>
+            <span className="erp-loading-pulse-dot" />
+            <span>LIVE DATABASE QUERY</span>
+          </div>
         </div>
       ),
       ...baseConfig,
     };
-  }, [restProps.loading, loadingTitle]);
+  }, [restProps.loading, loadingTitle, hasTableData]);
 
   const resolvedRowClassName = React.useCallback(
     (record: T, index: number, indent: number) => {

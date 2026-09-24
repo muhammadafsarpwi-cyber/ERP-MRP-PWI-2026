@@ -18,6 +18,8 @@ import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { PageHeader, SaveResultDialog, DraggableResizableModal } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -173,6 +175,19 @@ const RoleManagement: React.FC = () => {
     fetchRoles(page);
     fetchPermissions();
   }, [page, fetchRoles, fetchPermissions]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/admin/roles')) {
+        void fetchRoles(page);
+        void fetchPermissions();
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchRoles, fetchPermissions, page]);
 
   // Modal Open Handlers
   const handleOpenCreate = () => {
@@ -896,22 +911,31 @@ const RoleManagement: React.FC = () => {
           </Col>
         </Row>
 
-        <Table
-          columns={columns}
-          dataSource={filteredRoles}
-          rowKey="id"
-          loading={loading}
-          scroll={{ x: 950 }}
-          pagination={{
-            current: page,
-            total: filteredRoles.length,
-            pageSize: 20,
-            onChange: setPage,
-            showSizeChanger: false,
-            showTotal: (t) => `Total ${t} role(s)`,
-          }}
-          locale={{ emptyText: <Empty description="No roles found matching criteria" /> }}
-        />
+        {loading && roles.length === 0 ? (
+          <GlobalLoading
+            title="Loading Roles..."
+            subtitle="Fetching system and custom roles, security permissions..."
+            badgeText="LIVE DATABASE QUERY"
+            minHeight={400}
+          />
+        ) : (
+          <Table
+            columns={columns}
+            dataSource={filteredRoles}
+            rowKey="id"
+            loading={loading}
+            scroll={{ x: 950 }}
+            pagination={{
+              current: page,
+              total: filteredRoles.length,
+              pageSize: 20,
+              onChange: setPage,
+              showSizeChanger: false,
+              showTotal: (t) => `Total ${t} role(s)`,
+            }}
+            locale={{ emptyText: <Empty description="No roles found matching criteria" /> }}
+          />
+        )}
       </Card>
 
       {/* Create Role Modal (Draggable, Resizable & Split View: Form on Left, Live View on Right) */}

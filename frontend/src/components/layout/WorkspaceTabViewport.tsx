@@ -83,7 +83,8 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = ({ chil
     <div className="erp-tab-viewport-container">
       {tabs.map((tab) => {
         // Lazy-loading: Do not mount DOM nodes for tabs until first visited
-        if (!visitedTabIds.has(tab.id)) {
+        const isVisited = visitedTabIds.has(tab.id) || tab.id === activeTabId || tab.id === currentPathname;
+        if (!isVisited) {
           return null;
         }
 

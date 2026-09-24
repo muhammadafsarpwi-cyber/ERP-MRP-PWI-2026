@@ -12,6 +12,7 @@ import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
 import ProfileMenu from './ProfileMenu';
 import RawReceiptMinimizedDock from './RawReceiptMinimizedDock';
 import WorkspaceTabStrip from './WorkspaceTabStrip';
+import WorkspaceTabViewport from './WorkspaceTabViewport';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import './sidebar-nav.css';
 import './gradientLoadingBar.css';
@@ -353,6 +354,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const handleMenuClick = (info: { key: string }) => {
     setMobileOpen(false);
     const targetPath = navPathForKey(info.key);
+    const navMeta = resolveNavMeta(targetPath);
     // Seamlessly focus existing tab if already opened, or navigate to open a new tab
     const existing = useWorkspaceTabStore.getState().tabs.find(
       (t) => t.id === targetPath || t.pathname === targetPath
@@ -361,6 +363,13 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       useWorkspaceTabStore.getState().activateTab(existing.id);
       navigate(existing.route);
     } else {
+      useWorkspaceTabStore.getState().openTab({
+        id: targetPath,
+        route: targetPath,
+        pathname: targetPath,
+        title: navMeta?.label || 'Page',
+        closable: targetPath !== '/dashboard',
+      });
       navigate(targetPath);
     }
   };
@@ -759,7 +768,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             overflowX: 'auto',
           }}
         >
-          {children}
+          <WorkspaceTabViewport>
+            {children}
+          </WorkspaceTabViewport>
         </Content>
       </Layout>
       {/* Application-level persistent minimized receipt bar (RMR-01-A).

@@ -36,9 +36,9 @@ export interface GlobalLoadingProps {
  * orbital implementation — no new animation machinery, no divergence.
  */
 export const GlobalLoading: React.FC<GlobalLoadingProps> = ({
-  title,
-  subtitle,
-  badgeText,
+  title = 'Loading data...',
+  subtitle = 'Retrieving real-time records directly from database...',
+  badgeText = 'LIVE DATABASE QUERY',
   minHeight,
   fullPage = false,
   overlay = false,

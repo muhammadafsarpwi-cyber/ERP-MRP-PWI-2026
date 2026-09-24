@@ -9,6 +9,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { PageHeader, StatusBadge, EmptyState, FilterBar, DraggableResizableModal } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { FilterOption } from '../../components/shared/FilterBar';
 
 interface Operation {
@@ -192,6 +194,18 @@ const OperationManagement: React.FC = () => {
   useEffect(() => {
     fetchOperations(page);
   }, [page, fetchOperations]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/operations')) {
+        void fetchOperations(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchOperations, page]);
 
   const counts = useMemo(() => {
     const active = operations.filter((d) => d.status === 'ACTIVE').length;
@@ -436,31 +450,40 @@ const OperationManagement: React.FC = () => {
       <FilterBar filters={filters} visible={showFilters} />
 
       <Card styles={{ body: { padding: '8px 0 0' } }}>
-        <Table
-          columns={columns}
-          dataSource={operations}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: page,
-            pageSize,
-            total,
-            onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100],
-            showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} operations`,
-          }}
-          locale={{
-            emptyText: (
-              <EmptyState
-                title={search || statusFilter !== 'ALL' ? 'No operations match your search' : 'No operations found'}
-                description={search || statusFilter !== 'ALL' ? 'Try adjusting your search criteria.' : 'Get started by adding your first manufacturing operation.'}
-                actionLabel="Add Operation"
-                onAction={handleCreate}
-              />
-            ),
-          }}
-        />
+        {loading && operations.length === 0 ? (
+          <GlobalLoading
+            title="Loading Operations..."
+            subtitle="Fetching manufacturing operations and routing stages..."
+            badgeText="LIVE DATABASE QUERY"
+            minHeight={400}
+          />
+        ) : (
+          <Table
+            columns={columns}
+            dataSource={operations}
+            rowKey="id"
+            loading={loading}
+            pagination={{
+              current: page,
+              pageSize,
+              total,
+              onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
+              showSizeChanger: true,
+              pageSizeOptions: [10, 20, 50, 100],
+              showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} operations`,
+            }}
+            locale={{
+              emptyText: (
+                <EmptyState
+                  title={search || statusFilter !== 'ALL' ? 'No operations match your search' : 'No operations found'}
+                  description={search || statusFilter !== 'ALL' ? 'Try adjusting your search criteria.' : 'Get started by adding your first manufacturing operation.'}
+                  actionLabel="Add Operation"
+                  onAction={handleCreate}
+                />
+              ),
+            }}
+          />
+        )}
       </Card>
 
       <DraggableResizableModal

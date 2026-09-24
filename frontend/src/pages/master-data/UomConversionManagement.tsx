@@ -9,6 +9,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { PageHeader, StatusBadge, EmptyState, DraggableResizableModal } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 interface UomConversion {
   id: string;
@@ -200,6 +202,18 @@ const UomConversionManagement: React.FC = () => {
   useEffect(() => {
     fetchConversions(page);
   }, [page, fetchConversions]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/uom-conversions')) {
+        void fetchConversions(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchConversions, page]);
 
   const counts = useMemo(() => {
     const active = conversions.filter((d) => d.status === 'ACTIVE').length;
@@ -432,31 +446,40 @@ const UomConversionManagement: React.FC = () => {
       </div>
 
       <Card styles={{ body: { padding: '8px 0 0' } }}>
-        <Table
-          columns={columns}
-          dataSource={conversions}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: page,
-            pageSize,
-            total,
-            onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100],
-            showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} conversions`,
-          }}
-          locale={{
-            emptyText: (
-              <EmptyState
-                title={search || statusFilter !== 'ALL' ? 'No conversions match your search' : 'No UOM conversions found'}
-                description={search || statusFilter !== 'ALL' ? 'Try adjusting your search criteria.' : 'Get started by adding your first conversion factor.'}
-                actionLabel="Add Conversion"
-                onAction={handleCreate}
-              />
-            ),
-          }}
-        />
+        {loading && conversions.length === 0 ? (
+          <GlobalLoading
+            title="Loading UOM Conversions..."
+            subtitle="Fetching conversion multipliers and base unit mappings..."
+            badgeText="LIVE DATABASE QUERY"
+            minHeight={400}
+          />
+        ) : (
+          <Table
+            columns={columns}
+            dataSource={conversions}
+            rowKey="id"
+            loading={loading}
+            pagination={{
+              current: page,
+              pageSize,
+              total,
+              onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
+              showSizeChanger: true,
+              pageSizeOptions: [10, 20, 50, 100],
+              showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} conversions`,
+            }}
+            locale={{
+              emptyText: (
+                <EmptyState
+                  title={search || statusFilter !== 'ALL' ? 'No conversions match your search' : 'No UOM conversions found'}
+                  description={search || statusFilter !== 'ALL' ? 'Try adjusting your search criteria.' : 'Get started by adding your first conversion factor.'}
+                  actionLabel="Add Conversion"
+                  onAction={handleCreate}
+                />
+              ),
+            }}
+          />
+        )}
       </Card>
 
       <DraggableResizableModal

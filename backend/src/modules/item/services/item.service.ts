@@ -552,6 +552,7 @@ export class ItemService implements OnModuleInit {
           u.code AS "baseUomCode",
           u.symbol AS "baseUomSymbol",
           i.item_type AS "itemType",
+          i.cost_price AS "costPrice",
           i.material_role_usage AS "materialRoleUsage",
           i.status,
           i.is_manufacturable AS "isManufacturable",
@@ -618,7 +619,16 @@ export class ItemService implements OnModuleInit {
     }
 
     if (search) {
-      qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.barcode ILIKE :search OR item.materialRoleUsage ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search OR CAST(item.diameterMm AS TEXT) ILIKE :search)', { search: `%${search}%` });
+      const sTrim = search.trim();
+      const isRmAlias = /^rm$/i.test(sTrim) || /^raw$/i.test(sTrim) || /^raw[-_\s]?mat/i.test(sTrim);
+      if (isRmAlias) {
+        qb.where('(item.itemType = :rmType OR item.itemCode ILIKE :search OR item.name ILIKE :search)', {
+          rmType: ItemType.RAW_MATERIAL,
+          search: `%${sTrim}%`,
+        });
+      } else {
+        qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.barcode ILIKE :search OR item.itemType ILIKE :search OR item.materialRoleUsage ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search OR CAST(item.diameterMm AS TEXT) ILIKE :search)', { search: `%${sTrim}%` });
+      }
     }
     if (status) qb.andWhere('item.status = :status', { status });
     if (active !== undefined) qb.andWhere(active ? 'item.status = :activeStatus' : 'item.status != :activeStatus', { activeStatus: 'ACTIVE' });

@@ -22,7 +22,7 @@ export const LoadingState: React.FC<LoadingStateProps> = ({
   tip,
   title,
   subtitle = 'Retrieving real-time records directly from database...',
-  badgeText,
+  badgeText = 'LIVE DATABASE QUERY',
   minHeight,
   size = 'default',
   overlay = false,

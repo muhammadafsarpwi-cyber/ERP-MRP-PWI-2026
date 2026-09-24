@@ -64,6 +64,7 @@ backend/_check_*.js
 backend/_verify_*.js
 backend/tsconfig.tsbuildinfo
 backend/tsconfig.build.tsbuildinfo
+backend/dist-run*.txt
 
 # Dev utility scripts (contain credentials or DB access)
 backend/test-*.js

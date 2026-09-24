@@ -8,6 +8,8 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { usePermission } from '../../hooks/usePermission';
 import dayjs from 'dayjs';
 
@@ -102,6 +104,18 @@ const SalesOrderManagement: React.FC = () => {
   }, [search, filterStatus, pageSize, message]);
 
   useEffect(() => { fetchData(page); }, [page, fetchData]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/sales/orders')) {
+        void fetchData(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchData, page]);
 
   const handleCreate = () => {
     setEditingItem(null);
@@ -217,8 +231,17 @@ const SalesOrderManagement: React.FC = () => {
           <Button onClick={() => fetchData(1)}>Search</Button>
         </Col>
       </Row>
-      <Table columns={columns} dataSource={data} rowKey="id" loading={loading}
-        pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }} />
+      {loading && data.length === 0 ? (
+        <GlobalLoading
+          title="Loading Sales Orders..."
+          subtitle="Fetching active sales orders and booking details..."
+          badgeText="LIVE DATABASE QUERY"
+          minHeight={400}
+        />
+      ) : (
+        <Table columns={columns} dataSource={data} rowKey="id" loading={loading}
+          pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }} />
+      )}
 
       {/* Create/Edit Modal */}
       <Modal

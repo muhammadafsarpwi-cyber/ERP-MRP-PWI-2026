@@ -11,6 +11,8 @@ import apiService, { describeRequestError } from '../../services/api';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { PageHeader, StatusBadge, EmptyState, DraggableResizableModal } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 interface ItemType {
   id: string;
@@ -208,6 +210,18 @@ const ItemTypeManagement: React.FC = () => {
   }, [pageSize, search, statusFilter, companyId, message]);
 
   useEffect(() => { void fetchData(1); }, [fetchData]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/item-types')) {
+        void fetchData(page);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+  }, [fetchData, page]);
 
   const counts = useMemo(() => {
     const active = data.filter((d) => d.status === 'ACTIVE').length;
@@ -473,7 +487,14 @@ const ItemTypeManagement: React.FC = () => {
           </div>
         </div>
 
-        {data.length === 0 && !loading ? (
+        {loading && data.length === 0 ? (
+          <GlobalLoading
+            title="Loading Item Types..."
+            subtitle="Fetching registered item types and classifications..."
+            badgeText="LIVE DATABASE QUERY"
+            minHeight={400}
+          />
+        ) : data.length === 0 ? (
           <EmptyState title="No item types found" description="Click Add Item Type to create one." />
         ) : (
           <Table

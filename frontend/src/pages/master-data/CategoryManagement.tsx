@@ -7,6 +7,8 @@ import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import apiService from '../../services/api';
 import { PageHeader, StatusBadge, PageToolbar, TableActions, DraggableResizableModal } from '../../components/shared';
+import GlobalLoading from '../../components/shared/GlobalLoading';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 interface Category {
   id: string;
@@ -244,6 +246,18 @@ const CategoryManagement: React.FC = () => {
 
   useEffect(() => {
     void fetchHierarchy(companyId);
+  }, [companyId, fetchHierarchy]);
+
+  // Global header/tab refresh event listener
+  useEffect(() => {
+    const handleGlobalRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/categories')) {
+        void fetchHierarchy(companyId);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
   }, [companyId, fetchHierarchy]);
 
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
@@ -514,25 +528,34 @@ const CategoryManagement: React.FC = () => {
         }
       />
 
-      <Table<Category>
-        className="erp-table"
-        rowKey="id"
-        loading={loading}
-        dataSource={dataSource}
-        columns={filteredColumns}
-        childrenColumnName="children"
-        tableLayout="fixed"
-        pagination={false}
-        expandable={{
-          expandedRowKeys: expandedKeys,
-          onExpandedRowsChange: (keys) => setExpandedKeys(keys as React.Key[]),
-          expandRowByClick: false,
-          indentSize: 20,
-        }}
-        locale={{
-          emptyText: search ? 'No categories match your search' : 'No categories found',
-        }}
-      />
+      {loading && (!dataSource || dataSource.length === 0) ? (
+        <GlobalLoading
+          title="Loading Categories..."
+          subtitle="Fetching category hierarchy and product classifications..."
+          badgeText="LIVE DATABASE QUERY"
+          minHeight={400}
+        />
+      ) : (
+        <Table<Category>
+          className="erp-table"
+          rowKey="id"
+          loading={loading}
+          dataSource={dataSource}
+          columns={filteredColumns}
+          childrenColumnName="children"
+          tableLayout="fixed"
+          pagination={false}
+          expandable={{
+            expandedRowKeys: expandedKeys,
+            onExpandedRowsChange: (keys) => setExpandedKeys(keys as React.Key[]),
+            expandRowByClick: false,
+            indentSize: 20,
+          }}
+          locale={{
+            emptyText: search ? 'No categories match your search' : 'No categories found',
+          }}
+        />
+      )}
 
       <DraggableResizableModal
         title={editingCategory ? `Edit Category — ${editingCategory.categoryCode}` : 'Add Category'}
