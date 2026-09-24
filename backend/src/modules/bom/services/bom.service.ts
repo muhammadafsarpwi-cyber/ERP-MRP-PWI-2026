@@ -189,19 +189,32 @@ export class BomService {
   }
 
   private async generateBomCode(companyId: string): Promise<string> {
-    const last = await this.bomRepo.findOne({
+    const all = await this.bomRepo.find({
       where: { companyId },
-      order: { bomCode: 'DESC' },
+      select: ['bomCode'],
     });
 
-    if (last && last.bomCode) {
-      const match = last.bomCode.match(/BOM-(\d+)/);
+    let maxNum = 0;
+    for (const b of all) {
+      if (!b.bomCode) continue;
+      // Find standard BOM-xxx numeric suffix
+      const match = b.bomCode.match(/^BOM-(\d+)$/i);
       if (match) {
-        const next = parseInt(match[1], 10) + 1;
-        return `BOM-${String(next).padStart(3, '0')}`;
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
       }
     }
-    return 'BOM-001';
+
+    let next = Math.max(maxNum + 1, 1);
+    let candidate = `BOM-${String(next).padStart(3, '0')}`;
+    const existingCodes = new Set(all.map((b) => b.bomCode?.toUpperCase()));
+    while (existingCodes.has(candidate.toUpperCase())) {
+      next++;
+      candidate = `BOM-${String(next).padStart(3, '0')}`;
+    }
+    return candidate;
   }
 
   private async createLines(bomId: string, lineDtos: any[], userId?: string): Promise<BomLine[]> {

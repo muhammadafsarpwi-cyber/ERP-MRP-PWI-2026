@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
-  InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Divider, Spin,
+  InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Divider, Spin, Alert,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined,
-  SearchOutlined, DollarCircleOutlined,
+  SearchOutlined, DollarCircleOutlined, InfoCircleOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -38,7 +38,7 @@ interface Bom {
   status: string;
   baseQuantity: number;
   productId: string;
-  product?: { id?: string; name: string; itemCode: string; costPrice?: number | null; itemType?: string };
+  product?: { id?: string; name: string; itemCode: string; costPrice?: number | null; itemType?: string; baseUomId?: string; baseUom?: { id: string; code: string; name?: string } };
   productName?: string;
   productCode?: string;
   effectiveFrom?: string;
@@ -56,7 +56,13 @@ interface Item {
   itemType?: string;
   baseUomId?: string;
   baseUom?: { id: string; code: string; name?: string };
+  salesUomId?: string;
+  salesUom?: { id: string; code: string; name?: string };
   costPrice?: number | null;
+  weightPerPiece?: number | null;
+  piecesPerKg?: number | null;
+  weightPerMeter?: number | null;
+  lengthPerPiece?: number | null;
 }
 
 interface Uom {
@@ -101,6 +107,33 @@ const BomManagement: React.FC = () => {
   // Live Watched values for BOM Cost calculation
   const watchedLines = Form.useWatch('lines', form) || [];
   const watchedBaseQty = Form.useWatch('baseQuantity', form) || 1;
+  const watchedProductId = Form.useWatch('productId', form);
+
+  const selectedProduct = useMemo(
+    () => items.find((i) => i.id === watchedProductId),
+    [items, watchedProductId],
+  );
+
+  const productBaseUomCode = useMemo(() => {
+    if (!selectedProduct) return 'Units';
+    const uom = uoms.find((u) => u.id === selectedProduct.baseUomId);
+    return uom?.code || selectedProduct.baseUom?.code || 'Units';
+  }, [uoms, selectedProduct]);
+
+  const isPcsProduct = useMemo(() => {
+    const code = (productBaseUomCode || '').toUpperCase();
+    return code === 'PCS' || code === 'PC' || code === 'NOS' || code === 'EA';
+  }, [productBaseUomCode]);
+
+  const isMeterProduct = useMemo(() => {
+    const code = (productBaseUomCode || '').toUpperCase();
+    return code === 'M' || code === 'MTR' || code === 'METER';
+  }, [productBaseUomCode]);
+
+  const isKgProduct = useMemo(() => {
+    const code = (productBaseUomCode || '').toUpperCase();
+    return code === 'KG' || code === 'KGS' || code === 'KILOGRAM';
+  }, [productBaseUomCode]);
 
   const costBreakdown = useMemo(() => {
     let totalMaterialCost = 0;
@@ -204,7 +237,13 @@ const BomManagement: React.FC = () => {
               itemType: i.itemType || i.item_type || '',
               baseUomId: i.baseUomId || i.base_uom_id,
               baseUom: i.baseUom || (i.baseUomCode ? { id: i.baseUomId, code: i.baseUomCode, name: i.baseUomCode } : undefined),
+              salesUomId: i.salesUomId || i.sales_uom_id,
+              salesUom: i.salesUom,
               costPrice: i.costPrice !== undefined && i.costPrice !== null ? toNum(i.costPrice) : null,
+              weightPerPiece: toNum(i.weightPerPiece ?? i.weight_per_piece ?? 0),
+              piecesPerKg: toNum(i.piecesPerKg ?? i.pieces_per_kg ?? 0),
+              weightPerMeter: toNum(i.weightPerMeter ?? i.weight_per_meter ?? 0),
+              lengthPerPiece: toNum(i.lengthPerPiece ?? i.length_per_piece ?? 0),
             });
           });
           return Array.from(map.values());
@@ -226,7 +265,13 @@ const BomManagement: React.FC = () => {
               itemType: i.itemType || i.item_type || '',
               baseUomId: i.baseUomId || i.base_uom_id || i.baseUom?.id,
               baseUom: i.baseUom,
+              salesUomId: i.salesUomId || i.sales_uom_id || i.salesUom?.id,
+              salesUom: i.salesUom,
               costPrice: i.costPrice !== undefined && i.costPrice !== null ? toNum(i.costPrice) : null,
+              weightPerPiece: toNum(i.weightPerPiece ?? i.weight_per_piece ?? 0),
+              piecesPerKg: toNum(i.piecesPerKg ?? i.pieces_per_kg ?? 0),
+              weightPerMeter: toNum(i.weightPerMeter ?? i.weight_per_meter ?? 0),
+              lengthPerPiece: toNum(i.lengthPerPiece ?? i.length_per_piece ?? 0),
             });
           });
           return Array.from(map.values());
@@ -253,7 +298,13 @@ const BomManagement: React.FC = () => {
             itemType: i.itemType || i.item_type || '',
             baseUomId: i.baseUomId || i.base_uom_id || i.baseUom?.id,
             baseUom: i.baseUom,
+            salesUomId: i.salesUomId || i.sales_uom_id || i.salesUom?.id,
+            salesUom: i.salesUom,
             costPrice: i.costPrice !== undefined && i.costPrice !== null ? toNum(i.costPrice) : null,
+            weightPerPiece: toNum(i.weightPerPiece ?? i.weight_per_piece ?? 0),
+            piecesPerKg: toNum(i.piecesPerKg ?? i.pieces_per_kg ?? 0),
+            weightPerMeter: toNum(i.weightPerMeter ?? i.weight_per_meter ?? 0),
+            lengthPerPiece: toNum(i.lengthPerPiece ?? i.length_per_piece ?? 0),
           }));
           setItems((prev) => {
             const map = new Map(prev.map((it) => [it.id, it]));
@@ -617,20 +668,26 @@ const BomManagement: React.FC = () => {
         cancelText="Cancel"
       >
         <Form form={form} layout="vertical">
-          <div style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8, padding: '16px 20px 4px 20px', marginBottom: 16 }}>
+          <div style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8, padding: '16px 20px 8px 20px', marginBottom: 16 }}>
             <Row gutter={16}>
-              <Col span={8}>
+              <Col span={7}>
                 <Form.Item name="name" label={<span style={{ fontWeight: 600 }}>BOM Name</span>} rules={[{ required: true, message: 'BOM name is required' }]}>
-                  <Input placeholder="e.g. 5mm 2P PVC or Bearing 6205 Assembly" />
+                  <Input placeholder="e.g. Spoke 14G-260mm Galvanized or Bearing Assembly" />
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col span={11}>
                 <Form.Item name="productId" label={<span style={{ fontWeight: 600 }}>Product (Finished Good / Sub-Assembly)</span>} rules={[{ required: true, message: 'Finished good is required' }]}>
                   <Select
                     showSearch
-                    placeholder="Search product by code, name, or type..."
+                    placeholder="Search finished good by code, name, or type..."
                     filterOption={(input, opt) => (opt?.searchStr || opt?.label || '').toLowerCase().includes(input.toLowerCase())}
                     onSearch={handleSearchItems}
+                    onChange={(val) => {
+                      const prod = items.find((i) => i.id === val);
+                      if (prod && !form.getFieldValue('name')) {
+                        form.setFieldsValue({ name: `${prod.name} BOM` });
+                      }
+                    }}
                     loading={searchLoading}
                     notFoundContent={searchLoading ? <Spin size="small" /> : 'No matching product'}
                     options={items.map((i) => ({
@@ -658,15 +715,209 @@ const BomManagement: React.FC = () => {
                   />
                 </Form.Item>
               </Col>
-              <Col span={4}>
-                <Form.Item name="baseQuantity" label={<span style={{ fontWeight: 600 }}>Batch / Base Qty</span>} initialValue={1}>
-                  <InputNumber min={0.0001} style={{ width: '100%' }} placeholder="1" />
+              <Col span={6}>
+                <Form.Item
+                  name="baseQuantity"
+                  label={
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                      <span style={{ fontWeight: 600 }}>Batch Size / Output Qty</span>
+                      <Tag color="processing" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                        {productBaseUomCode}
+                      </Tag>
+                    </div>
+                  }
+                  initialValue={1}
+                  rules={[{ required: true, message: 'Batch quantity required' }]}
+                >
+                  <InputNumber
+                    min={0.0001}
+                    style={{ width: '100%' }}
+                    placeholder="1"
+                    addonAfter={<span style={{ fontWeight: 700, color: '#1677ff' }}>{productBaseUomCode}</span>}
+                  />
                 </Form.Item>
+
+                {/* Quick Batch Presets */}
+                <div style={{ display: 'flex', gap: 4, marginTop: -10, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {isPcsProduct && (
+                    <>
+                      <Button
+                        size="small"
+                        type={toNum(watchedBaseQty) === 1 ? 'primary' : 'dashed'}
+                        style={{ fontSize: 11, padding: '0 6px', height: 22 }}
+                        onClick={() => form.setFieldsValue({ baseQuantity: 1 })}
+                      >
+                        1 Pc
+                      </Button>
+                      <Button
+                        size="small"
+                        type={toNum(watchedBaseQty) === 144 ? 'primary' : 'dashed'}
+                        style={{ fontSize: 11, padding: '0 6px', height: 22, fontWeight: toNum(watchedBaseQty) === 144 ? 700 : 400 }}
+                        onClick={() => form.setFieldsValue({ baseQuantity: 144 })}
+                      >
+                        144 Pcs (1 Gross)
+                      </Button>
+                      <Button
+                        size="small"
+                        type={toNum(watchedBaseQty) === 1000 ? 'primary' : 'dashed'}
+                        style={{ fontSize: 11, padding: '0 6px', height: 22 }}
+                        onClick={() => form.setFieldsValue({ baseQuantity: 1000 })}
+                      >
+                        1,000 Pcs
+                      </Button>
+                    </>
+                  )}
+                  {isMeterProduct && (
+                    <>
+                      <Button size="small" type={toNum(watchedBaseQty) === 1 ? 'primary' : 'dashed'} style={{ fontSize: 11, padding: '0 6px', height: 22 }} onClick={() => form.setFieldsValue({ baseQuantity: 1 })}>
+                        1 Mtr
+                      </Button>
+                      <Button size="small" type={toNum(watchedBaseQty) === 100 ? 'primary' : 'dashed'} style={{ fontSize: 11, padding: '0 6px', height: 22 }} onClick={() => form.setFieldsValue({ baseQuantity: 100 })}>
+                        100 M (Roll)
+                      </Button>
+                      <Button size="small" type={toNum(watchedBaseQty) === 1000 ? 'primary' : 'dashed'} style={{ fontSize: 11, padding: '0 6px', height: 22 }} onClick={() => form.setFieldsValue({ baseQuantity: 1000 })}>
+                        1,000 M
+                      </Button>
+                    </>
+                  )}
+                  {isKgProduct && (
+                    <>
+                      <Button size="small" type={toNum(watchedBaseQty) === 1 ? 'primary' : 'dashed'} style={{ fontSize: 11, padding: '0 6px', height: 22 }} onClick={() => form.setFieldsValue({ baseQuantity: 1 })}>
+                        1 KG
+                      </Button>
+                      <Button size="small" type={toNum(watchedBaseQty) === 100 ? 'primary' : 'dashed'} style={{ fontSize: 11, padding: '0 6px', height: 22 }} onClick={() => form.setFieldsValue({ baseQuantity: 100 })}>
+                        100 KG
+                      </Button>
+                      <Button size="small" type={toNum(watchedBaseQty) === 1000 ? 'primary' : 'dashed'} style={{ fontSize: 11, padding: '0 6px', height: 22 }} onClick={() => form.setFieldsValue({ baseQuantity: 1000 })}>
+                        1,000 KG (1 Ton)
+                      </Button>
+                    </>
+                  )}
+                </div>
               </Col>
             </Row>
+
+            {/* Interactive Manufacturing & Multi-UOM Guide */}
+            {selectedProduct && (
+              <div style={{
+                background: '#e6f4ff',
+                border: '1px solid #91caff',
+                borderRadius: 6,
+                padding: '8px 12px',
+                marginBottom: 12,
+                fontSize: 12,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <InfoCircleOutlined style={{ color: '#1677ff', fontSize: 14 }} />
+                    <span style={{ fontWeight: 700, color: '#003eb3' }}>
+                      {isPcsProduct && 'فلو نمبر 1: را مٹیریل KG میں ➔ پروڈکشن PCS میں ➔ کمرشل سیل GROSS میں (1 Gross = 144 PCS)'}
+                      {isMeterProduct && 'فلو نمبر 2: را مٹیریل KG میں ➔ پروڈکشن اور سیل میٹر (MTR) میں'}
+                      {isKgProduct && 'فلو نمبر 3: را مٹیریل KG میں ➔ پروڈکشن اور سیل دونوں KG میں'}
+                      {!isPcsProduct && !isMeterProduct && !isKgProduct && `Production Flow: Base UOM [${productBaseUomCode}]`}
+                    </span>
+                  </div>
+                  <Tag color="blue" style={{ margin: 0, fontWeight: 600 }}>
+                    بنیادی اکائی: {productBaseUomCode} | تجارتی سیل اکائی: {isPcsProduct ? 'GROSS (144 Pcs)' : productBaseUomCode}
+                  </Tag>
+                </div>
+                <Row gutter={12} align="middle">
+                  <Col span={16}>
+                    <div style={{ color: '#262626', fontSize: 12 }}>
+                      {isPcsProduct && (
+                        <>
+                          اس وقت بیچ سائز <strong>{toNum(watchedBaseQty || 1)} {productBaseUomCode}</strong>{' '}
+                          {toNum(watchedBaseQty) === 144 ? '(مکمل 1 گروس = 144 پیس)' : toNum(watchedBaseQty) === 1 ? '(1 انفرادی پیس)' : ''} مقرر ہے۔
+                          {selectedProduct.weightPerPiece && selectedProduct.weightPerPiece > 0 ? (
+                            <>
+                              <br />
+                              ایک پیس کا وزن: <strong>{selectedProduct.weightPerPiece} KG</strong> ({ (selectedProduct.weightPerPiece * 1000).toFixed(2) } گرام) |{' '}
+                              <strong>{toNum(watchedBaseQty || 1)} پیس</strong> کے لیے کل تار درکار: <strong>{ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerPiece).toFixed(5) } KG</strong>
+                            </>
+                          ) : (
+                            <>
+                              <br />
+                              <span style={{ color: '#595959' }}>
+                                (اگر آپ 1 گروس کا فارمولا بنا رہے ہیں تو بیچ سائز <strong>144</strong> درج کریں اور تار کا وزن 144 پیس کا درج کریں۔ اگر 1 پیس کا فارمولا ہے تو بیچ سائز <strong>1</strong> رکھیں)
+                              </span>
+                            </>
+                          )}
+                        </>
+                      )}
+                      {isMeterProduct && (
+                        <>
+                          اس پراڈکٹ کی اکائی <strong>میٹر (MTR)</strong> ہے۔ بیچ سائز: <strong>{toNum(watchedBaseQty || 1)} میٹر</strong>۔
+                          {selectedProduct.weightPerMeter && selectedProduct.weightPerMeter > 0 ? (
+                            <>
+                              <br />
+                              وزن فی میٹر: <strong>{selectedProduct.weightPerMeter} KG/m</strong> | درکار خام مال: <strong>{ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerMeter).toFixed(4) } KG</strong>
+                            </>
+                          ) : (
+                            <>
+                              <br />
+                              <span style={{ color: '#595959' }}>(1 میٹر یا 100 میٹر رول کے حساب سے تار کا وزن KG میں درج کریں)</span>
+                            </>
+                          )}
+                        </>
+                      )}
+                      {isKgProduct && (
+                        <>
+                          اس پراڈکٹ کا ان پٹ اور آؤٹ پٹ دونوں <strong>KG</strong> میں ہیں۔ بیچ سائز: <strong>{toNum(watchedBaseQty || 1)} KG</strong>۔
+                          <br />
+                          ڈرائنگ/کٹنگ کے عمل میں اسکریپ فیصد (مثلاً 0.70%) شامل کر کے تار کی کل مقدار درج کریں۔
+                        </>
+                      )}
+                    </div>
+                  </Col>
+                  <Col span={8} style={{ textAlign: 'right' }}>
+                    {isPcsProduct && selectedProduct.weightPerPiece && selectedProduct.weightPerPiece > 0 && (
+                      <Button
+                        size="small"
+                        type="primary"
+                        ghost
+                        icon={<ThunderboltOutlined />}
+                        style={{ fontSize: 11 }}
+                        onClick={() => {
+                          const currentLines = form.getFieldValue('lines') || [];
+                          if (currentLines.length > 0) {
+                            const neededWire = Number((toNum(watchedBaseQty || 1) * (selectedProduct.weightPerPiece || 0)).toFixed(7));
+                            currentLines[0] = { ...currentLines[0], quantity: neededWire };
+                            form.setFieldsValue({ lines: [...currentLines] });
+                            message.success(`پہلی لائن میں وائر کی مقدار ${neededWire} KG سیٹ کر دی گئی`);
+                          }
+                        }}
+                      >
+                        وائر مقدار سیٹ کریں ({ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerPiece).toFixed(4) } KG)
+                      </Button>
+                    )}
+                    {isMeterProduct && selectedProduct.weightPerMeter && selectedProduct.weightPerMeter > 0 && (
+                      <Button
+                        size="small"
+                        type="primary"
+                        ghost
+                        icon={<ThunderboltOutlined />}
+                        style={{ fontSize: 11 }}
+                        onClick={() => {
+                          const currentLines = form.getFieldValue('lines') || [];
+                          if (currentLines.length > 0) {
+                            const needed = Number((toNum(watchedBaseQty || 1) * (selectedProduct.weightPerMeter || 0)).toFixed(4));
+                            currentLines[0] = { ...currentLines[0], quantity: needed };
+                            form.setFieldsValue({ lines: [...currentLines] });
+                            message.success(`لائن میں خام مال کی مقدار ${needed} KG سیٹ کر دی گئی`);
+                          }
+                        }}
+                      >
+                        خام مال سیٹ کریں ({ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerMeter).toFixed(3) } KG)
+                      </Button>
+                    )}
+                  </Col>
+                </Row>
+              </div>
+            )}
+
             <Row gutter={16}>
               <Col span={24}>
-                <Form.Item name="description" label={<span style={{ fontWeight: 600 }}>Description & Specifications</span>} style={{ marginBottom: 12 }}>
+                <Form.Item name="description" label={<span style={{ fontWeight: 600 }}>Description & Specifications</span>} style={{ marginBottom: 4 }}>
                   <Input.TextArea rows={2} placeholder="Optional production notes, technical specifications, or instructions..." />
                 </Form.Item>
               </Col>
@@ -694,22 +945,33 @@ const BomManagement: React.FC = () => {
               <Divider type="vertical" style={{ height: 32 }} />
               <div>
                 <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5 }}>Batch Size</Typography.Text>
-                <Typography.Text strong style={{ fontSize: 16, color: '#262626' }}>{toNum(watchedBaseQty || 1)} Units</Typography.Text>
+                <Typography.Text strong style={{ fontSize: 16, color: '#262626' }}>
+                  {toNum(watchedBaseQty || 1)} {productBaseUomCode} {isPcsProduct && toNum(watchedBaseQty) === 144 ? '★ (1 Gross)' : ''}
+                </Typography.Text>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
               <div style={{ textAlign: 'right' }}>
-                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5 }}>Est. Total Material Cost</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Est. Batch Material Cost ({toNum(watchedBaseQty || 1)} {productBaseUomCode})
+                </Typography.Text>
                 <Typography.Text strong style={{ fontSize: 18, color: '#389e0d' }}>
                   ₨ {costBreakdown.totalMaterialCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Typography.Text>
               </div>
               <Divider type="vertical" style={{ height: 32 }} />
               <div style={{ textAlign: 'right' }}>
-                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5 }}>Est. Cost per Finished Unit</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Est. Cost per 1 {productBaseUomCode}
+                </Typography.Text>
                 <Typography.Text strong style={{ fontSize: 18, color: '#0958d9' }}>
                   ₨ {costBreakdown.costPerBaseUnit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Typography.Text>
+                {isPcsProduct && (
+                  <div style={{ fontSize: 11, color: '#595959', marginTop: 1 }}>
+                    (₨ {(costBreakdown.costPerBaseUnit * 144).toFixed(2)} per Gross)
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -801,7 +1063,7 @@ const BomManagement: React.FC = () => {
                         </Col>
                         <Col span={2}>
                           <Form.Item {...rest} name={[name, 'quantity']} rules={[{ required: true }]} initialValue={1} style={{ marginBottom: 0 }}>
-                            <InputNumber min={0.0001} style={{ width: '100%' }} placeholder="Qty" />
+                            <InputNumber min={0.0000001} step={0.001} precision={7} style={{ width: '100%' }} placeholder="Qty" />
                           </Form.Item>
                         </Col>
                         <Col span={3}>
@@ -929,8 +1191,11 @@ const BomManagement: React.FC = () => {
                     <Typography.Text strong style={{ fontSize: 14 }}>{prodDisplayName}</Typography.Text>
                   </Col>
                   <Col span={4}>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>Base Quantity</Typography.Text><br />
-                    <Typography.Text strong>{formatDecimal(selectedBom.baseQuantity, 0)} Units</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>Batch Quantity</Typography.Text><br />
+                    <Typography.Text strong>
+                      {formatDecimal(selectedBom.baseQuantity, 0)} {(prodItem as any)?.baseUom?.code || (uoms.find(u => u.id === (prodItem as any)?.baseUomId)?.code) || 'Units'}
+                      {(((prodItem as any)?.baseUom?.code || '').toUpperCase() === 'PCS' && Number(selectedBom.baseQuantity) === 144) ? ' (1 Gross)' : ''}
+                    </Typography.Text>
                   </Col>
                   <Col span={4}>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>Est. Unit Cost</Typography.Text><br />
