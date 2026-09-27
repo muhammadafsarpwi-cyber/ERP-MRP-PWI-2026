@@ -36,6 +36,7 @@ import {
 } from '@ant-design/icons';
 import { apiService } from '../../services/api';
 import BarcodePrint from '../../components/shared/BarcodePrint';
+import { DraggableResizableModal } from '../../components/shared';
 
 const { Text, Title } = Typography;
 
@@ -815,11 +816,30 @@ export const MachineLifecycleContent: React.FC<MachineLifecycleContentProps> = (
                       >
                         {effectiveBarcode ? (
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-                            <div style={{ background: '#ffffff', padding: 8, borderRadius: 8, display: 'inline-block', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                              <QRCode value={effectiveBarcode} size={130} />
+                            <div
+                              style={{
+                                background: '#ffffff',
+                                padding: 12,
+                                borderRadius: 8,
+                                display: 'inline-flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                              }}
+                            >
+                              <QRCode
+                                value={effectiveBarcode}
+                                size={140}
+                                type="svg"
+                                color="#000000"
+                                bgColor="#ffffff"
+                                bordered={false}
+                              />
                             </div>
-                            <div>
-                              <Text code style={{ fontSize: 13 }}>{effectiveBarcode}</Text>
+                            <div style={{ width: '100%', wordBreak: 'break-all' }}>
+                              <Text code copyable style={{ fontSize: 12 }}>
+                                {effectiveBarcode}
+                              </Text>
                             </div>
                             <Button
                               type="primary"
@@ -867,29 +887,31 @@ export const ScannedMachineHistoryModal: React.FC<{
   barcodeValue?: string;
 }> = ({ open, onClose, machineId, machineCode, barcodeValue }) => {
   return (
-    <Modal
+    <DraggableResizableModal
       open={open}
       onCancel={onClose}
-      width={1050}
-      style={{ top: 20 }}
+      width={1120}
+      height={740}
+      minWidth={780}
+      minHeight={520}
+      centered={true}
+      allowMaximize={true}
+      allowMinimize={true}
+      maskClosable={false}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-          <Button onClick={onClose}>Close</Button>
+          <Button onClick={onClose} type="primary">
+            Close
+          </Button>
         </div>
       }
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <ToolOutlined style={{ fontSize: 20, color: '#1677ff' }} />
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 'bold' }}>
-              Machine Lifecycle & History Tracking
-            </div>
-            <div style={{ fontSize: 12, color: 'gray', fontWeight: 'normal' }}>
-              Maintenance Job Cards, Motor & Component Replacements, Production Runs & Technicians
-            </div>
-          </div>
+          <ToolOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+          <span>Machine Lifecycle & History Tracking</span>
         </div>
       }
+      subtitle="Maintenance Job Cards, Motor & Component Replacements, Production Runs & Technicians"
     >
       <MachineLifecycleContent
         machineId={machineId}
@@ -897,7 +919,7 @@ export const ScannedMachineHistoryModal: React.FC<{
         barcodeValue={barcodeValue}
         inModal={true}
       />
-    </Modal>
+    </DraggableResizableModal>
   );
 };
 

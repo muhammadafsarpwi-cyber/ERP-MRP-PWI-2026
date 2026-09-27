@@ -1129,8 +1129,15 @@ const ScanBarcode: React.FC = () => {
                     <QrcodeOutlined style={{ marginRight: 6 }} />
                     QR Code Preview
                   </Text>
-                  <div style={{ background: '#ffffff', padding: 8, borderRadius: 8, display: 'inline-block', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                    <QRCode value={result.barcodeValue} size={110} />
+                  <div style={{ background: '#ffffff', padding: 10, borderRadius: 8, display: 'inline-flex', justifyContent: 'center', alignItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                    <QRCode
+                      value={result.barcodeValue}
+                      size={120}
+                      type="svg"
+                      color="#000000"
+                      bgColor="#ffffff"
+                      bordered={false}
+                    />
                   </div>
                   <Text code style={{ fontSize: 11 }}>{result.barcodeValue}</Text>
                 </div>

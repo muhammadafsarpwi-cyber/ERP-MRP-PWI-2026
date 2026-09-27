@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import MainLayout from './components/layout/MainLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Welcome from './pages/auth/Welcome';
@@ -137,6 +137,11 @@ import AiAssistantPage from './pages/ai-assistant/AiAssistantPage';
 import GeneralReports from './pages/reports/GeneralReports';
 import './App.css';
 
+const MachineRouteRedirect: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to="/master-data/machines" replace state={{ entityId: id, machineId: id, openHistory: true }} />;
+};
+
 const App: React.FC = () => {
   return (
     <Routes>
@@ -264,6 +269,8 @@ const App: React.FC = () => {
                   <Route path="/master-data/uom" element={<UomManagement />} />
                   <Route path="/master-data/uom-conversions" element={<UomConversionManagement />} />
                   <Route path="/master-data/machines" element={<MachineManagement />} />
+                  <Route path="/production/machines/:id" element={<MachineRouteRedirect />} />
+                  <Route path="/machines/:id" element={<MachineRouteRedirect />} />
                   <Route path="/master-data/operations" element={<OperationManagement />} />
                   <Route path="/master-data/machine-tools" element={<MachineToolingManagement />} />
                   <Route path="/barcode-management" element={<BarcodeDashboard />} />
