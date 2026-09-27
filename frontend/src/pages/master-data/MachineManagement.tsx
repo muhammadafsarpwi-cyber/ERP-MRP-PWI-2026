@@ -17,8 +17,9 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import apiService from '../../services/api';
+import ScannedMachineHistoryModal from '../barcode-management/ScannedMachineHistoryModal';
 import {
   PageHeader, StatusBadge, EmptyState, HeaderCell, HighlightedCell, TableActions,
   DraggableResizableModal, SaveResultDialog, SaveResultPhase, SaveResultData, BarcodeScanner,
@@ -57,6 +58,9 @@ interface Machine {
   machineCode: string;
   machineNumber?: string | null;
   name: string;
+  machineName?: string | null;
+  barcode?: string | null;
+  qrCode?: string | null;
   description?: string | null;
   divisionId?: string | null;
   sectionId?: string | null;
@@ -1517,10 +1521,66 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [machineToDelete, setMachineToDelete] = useState<Machine | null>(null);
 
-  const handleBarcodeScan = (scannedCode: string) => {
+  const location = useLocation();
+  const [historyModalMachine, setHistoryModalMachine] = useState<Machine | null>(null);
+
+  // Auto-open machine history from scan navigation
+  useEffect(() => {
+    const scanState = location.state as { entityId?: string; machineId?: string; openBarcode?: boolean; openHistory?: boolean } | null;
+    const targetId = scanState?.entityId || scanState?.machineId;
+    if (targetId) {
+      const local = machines.find((m) => m.id === targetId || m.machineCode === targetId);
+      if (local) {
+        setHistoryModalMachine(local);
+        window.history.replaceState({}, document.title);
+      } else {
+        apiService.get<any>(`/master-data/machines/${targetId}`).then((res) => {
+          const m = res?.data || res;
+          if (m && (m.id || m.machineCode)) {
+            setHistoryModalMachine(m);
+            window.history.replaceState({}, document.title);
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [location.state, machines]);
+
+  const handleBarcodeScan = async (scannedCode: string) => {
     setScannerOpen(false);
-    setSearch(scannedCode);
+    if (!scannedCode || !scannedCode.trim()) return;
+    const clean = scannedCode.trim();
+
+    // 1. Check local loaded machines
+    const localMatch = machines.find(
+      (m) =>
+        m.machineCode?.toLowerCase() === clean.toLowerCase() ||
+        m.qrCode === clean ||
+        m.id === clean ||
+        m.machineNumber === clean,
+    );
+    if (localMatch) {
+      setHistoryModalMachine(localMatch);
+      message.success(`Found Machine: ${localMatch.machineCode} — ${localMatch.name || localMatch.machineName || ''}`);
+      return;
+    }
+
+    // 2. Lookup via API
+    try {
+      const res = await apiService.get<any>(`/master-data/machines`, { search: clean, limit: 1 });
+      const list = Array.isArray(res) ? res : res?.data || res?.items || [];
+      if (list.length > 0) {
+        setHistoryModalMachine(list[0]);
+        message.success(`Found Machine: ${list[0].machineCode} — ${list[0].name || list[0].machineName || ''}`);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    // Fallback: search table
+    setSearch(clean);
     setPage(1);
+    message.info(`Searching Machine register for: "${clean}"`);
   };
 
   // ─── Status Counts for 2027 Chevron Status Ribbon ──────────────────────────
@@ -2557,6 +2617,13 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                 className: 'act-neutral',
               },
               {
+                key: 'history',
+                label: `View history — ${machineLabel}`,
+                icon: <HistoryOutlined style={{ color: '#722ed1' }} />,
+                className: 'act-neutral',
+                onClick: () => setHistoryModalMachine(m),
+              },
+              {
                 key: 'delete',
                 label: `Delete machine — ${machineLabel}`,
                 icon: <DeleteOutlined />,
@@ -2569,21 +2636,33 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               },
             ]}
             extraActions={[
-              <Tooltip key="status" title="Change status">
+              <Tooltip key="status" title="Machine Actions / View History">
                 <span style={{ display: 'inline-flex' }}>
                   <Dropdown
                     menu={{
                       items: [
+                        {
+                          key: 'history',
+                          label: 'View History',
+                          icon: <HistoryOutlined style={{ color: '#722ed1', fontWeight: 600 }} />,
+                        },
+                        { type: 'divider' },
                         ...(m.status !== 'ACTIVE' ? [{ key: 'ACTIVE', label: 'Set Active' }] : []),
                         ...(m.status !== 'MAINTENANCE' ? [{ key: 'MAINTENANCE', label: 'Set Maintenance' }] : []),
                         ...(m.status !== 'INACTIVE' ? [{ key: 'INACTIVE', label: 'Deactivate' }] : []),
                         ...(m.status !== 'RETIRED' ? [{ key: 'RETIRED', label: 'Retire' }] : []),
                       ],
-                      onClick: ({ key }) => handleStatus(m, key),
+                      onClick: ({ key }) => {
+                        if (key === 'history') {
+                          setHistoryModalMachine(m);
+                        } else {
+                          handleStatus(m, key);
+                        }
+                      },
                     }}
                     trigger={['click']}
                   >
-                    <Button type="text" size="small" className="act-neutral" icon={<MoreOutlined />} aria-label={`Change status — ${machineLabel}`} />
+                    <Button type="text" size="small" className="act-neutral" icon={<MoreOutlined />} aria-label={`Actions — ${machineLabel}`} />
                   </Dropdown>
                 </span>
               </Tooltip>,
@@ -3153,6 +3232,16 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         onClose={() => setScannerOpen(false)}
         onScan={handleBarcodeScan}
       />
+
+      {historyModalMachine && (
+        <ScannedMachineHistoryModal
+          open={!!historyModalMachine}
+          onClose={() => setHistoryModalMachine(null)}
+          machineId={historyModalMachine.id}
+          machineCode={historyModalMachine.machineCode}
+          barcodeValue={historyModalMachine.barcode || historyModalMachine.qrCode || historyModalMachine.qrPayload || historyModalMachine.machineCode}
+        />
+      )}
 
       <SaveResultDialog
         open={resultOpen}

@@ -7,6 +7,26 @@ import {
 
 const { Text } = Typography;
 
+const playScanBeep = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1046.5, ctx.currentTime);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+  } catch {
+    // Audio context not allowed or failed
+  }
+};
+
 interface BarcodeScannerProps {
   open: boolean;
   onClose: () => void;
@@ -89,27 +109,65 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       setError(null);
       setScanning(true);
 
-      const { Html5Qrcode } = await import('html5-qrcode');
-      const scanner = new Html5Qrcode('barcode-scanner-region');
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
+
+      const formatsToSupport = [
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.DATA_MATRIX,
+      ];
+
+      const scanner = new Html5Qrcode('barcode-scanner-region', {
+        formatsToSupport,
+        verbose: false,
+      });
       html5QrCodeRef.current = scanner;
 
+      // Smart camera selection: try exact deviceId first to avoid mobile OverconstrainedError
+      let cameraConfig: any = { facingMode: facing };
+      try {
+        const cameras = await Html5Qrcode.getCameras();
+        if (cameras && cameras.length > 0) {
+          if (facing === 'environment') {
+            const backCam = cameras.find((c) =>
+              /back|rear|environment|macro/i.test(c.label)
+            ) || cameras[cameras.length - 1];
+            cameraConfig = backCam.id;
+          } else {
+            const frontCam = cameras.find((c) =>
+              /front|user|selfie/i.test(c.label)
+            ) || cameras[0];
+            cameraConfig = frontCam.id;
+          }
+        }
+      } catch {
+        cameraConfig = { facingMode: facing };
+      }
+
       await scanner.start(
-        { facingMode: facing },
+        cameraConfig,
         {
-          fps: 15,
+          fps: 20,
           qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.72);
-            return { width: edge, height: edge };
+            const w = Math.floor(viewfinderWidth * 0.82);
+            const h = Math.floor(Math.min(viewfinderHeight * 0.65, 260));
+            return { width: Math.max(w, 220), height: Math.max(h, 160) };
           },
-          aspectRatio: 1.0,
         },
         (decodedText: string) => {
+          playScanBeep();
           onScan(decodedText);
           stopScanner();
           onClose();
         },
         () => {
-          // Ignore scan frames without barcode/QR
+          // Ignore frames without decoded code
         },
       );
     } catch (err: any) {
@@ -282,25 +340,85 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           }}
         />
         {scanning && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 12,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              background: 'rgba(15, 23, 42, 0.85)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              color: '#fff',
-              padding: '5px 14px',
-              borderRadius: 20,
-              fontSize: 12,
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            Point camera at Barcode or QR Code
-          </div>
+          <>
+            <style>
+              {`
+                @keyframes scanner-laser-sweep {
+                  0% { top: 8%; opacity: 0.6; }
+                  50% { top: 92%; opacity: 1; }
+                  100% { top: 8%; opacity: 0.6; }
+                }
+              `}
+            </style>
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                pointerEvents: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 5,
+              }}
+            >
+              <div
+                style={{
+                  width: '84%',
+                  maxWidth: 360,
+                  height: 190,
+                  border: '2px solid rgba(16, 185, 129, 0.85)',
+                  borderRadius: 14,
+                  position: 'relative',
+                  overflow: 'hidden',
+                  boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.45)',
+                }}
+              >
+                {/* 4 corner accents */}
+                <div style={{ position: 'absolute', top: 0, left: 0, width: 16, height: 16, borderTop: '4px solid #10b981', borderLeft: '4px solid #10b981', borderRadius: '12px 0 0 0' }} />
+                <div style={{ position: 'absolute', top: 0, right: 0, width: 16, height: 16, borderTop: '4px solid #10b981', borderRight: '4px solid #10b981', borderRadius: '0 12px 0 0' }} />
+                <div style={{ position: 'absolute', bottom: 0, left: 0, width: 16, height: 16, borderBottom: '4px solid #10b981', borderLeft: '4px solid #10b981', borderRadius: '0 0 0 12px' }} />
+                <div style={{ position: 'absolute', bottom: 0, right: 0, width: 16, height: 16, borderBottom: '4px solid #10b981', borderRight: '4px solid #10b981', borderRadius: '0 0 12px 0' }} />
+
+                {/* Animated laser line */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 4,
+                    right: 4,
+                    height: 2,
+                    background: '#10b981',
+                    boxShadow: '0 0 12px 3px #10b981',
+                    animation: 'scanner-laser-sweep 2s infinite ease-in-out',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 12,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                background: 'rgba(15, 23, 42, 0.88)',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
+                color: '#fff',
+                padding: '6px 16px',
+                borderRadius: 20,
+                fontSize: 12,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                backdropFilter: 'blur(6px)',
+                zIndex: 10,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              }}
+            >
+              ⚡ Point camera steady at Barcode / QR Code
+            </div>
+          </>
         )}
       </div>
 

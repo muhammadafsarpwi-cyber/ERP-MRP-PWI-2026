@@ -1017,18 +1017,33 @@ const ItemManagement: React.FC = () => {
     }
   }, [barcodeModalOpen, renderBarcodeModal]);
 
-  // Auto-open item detail from scan navigation
+  // Auto-open item history or detail from scan navigation
   useEffect(() => {
-    const scanState = location.state as { entityId?: string; entityLabel?: string; openBarcode?: boolean } | null;
-    if (scanState?.entityId && items.length > 0) {
-      const item = items.find((i) => i.id === scanState.entityId);
-      if (item) {
+    const scanState = location.state as { entityId?: string; entityLabel?: string; openBarcode?: boolean; openHistory?: boolean } | null;
+    if (scanState?.entityId) {
+      const targetId = scanState.entityId;
+      const found = items.find((i) => i.id === targetId || i.itemCode === targetId);
+      if (found) {
         if (scanState.openBarcode) {
-          openBarcodeModal(item);
+          openBarcodeModal(found);
         } else {
-          openDetail(item);
+          openHistory(found);
         }
         window.history.replaceState({}, document.title);
+      } else {
+        // Fetch item directly from API if not in current page
+        apiService.get<{ data: Item }>(`/master-data/items/${targetId}`).then((res) => {
+          const raw = res?.data || res;
+          if (raw) {
+            const normalized = normalizeItem(raw as any);
+            if (scanState.openBarcode) {
+              openBarcodeModal(normalized);
+            } else {
+              openHistory(normalized);
+            }
+            window.history.replaceState({}, document.title);
+          }
+        }).catch(() => {});
       }
     }
   }, [location.state, items]);
@@ -2091,7 +2106,7 @@ const ItemManagement: React.FC = () => {
       const res = await apiService.get<{ data: Item }>(`/master-data/items/by-barcode/${cid}/${barcode}`);
       if (res.data) {
         message.success(`Item found: ${res.data.itemCode}`);
-        openDetail(res.data);
+        openHistory(normalizeItem(res.data));
       }
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Barcode not found';

@@ -17,6 +17,7 @@ import {
   PlusCircleOutlined, ApartmentOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { useLocation } from 'react-router-dom';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import BarcodePrint from '../../components/shared/BarcodePrint';
@@ -198,6 +199,7 @@ const GST_MODES = [
 
 const CustomerManagement: React.FC = () => {
   const { message } = App.useApp();
+  const location = useLocation();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -707,6 +709,15 @@ const CustomerManagement: React.FC = () => {
       message.error('Failed to load customer details');
     }
   };
+
+  // Auto-open Customer Details / Ledger History when navigated from Barcode / QR scanner
+  useEffect(() => {
+    const state = location.state as any;
+    if (state?.entityId || state?.customerId) {
+      const custId = state.entityId || state.customerId;
+      handleView({ id: custId } as any);
+    }
+  }, [location.state]);
 
   const handleSubmit = async () => {
     try {

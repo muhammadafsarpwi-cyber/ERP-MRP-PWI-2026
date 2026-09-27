@@ -13,6 +13,7 @@ import {
   InboxOutlined,
   BarcodeOutlined,
   PlusCircleOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import BarcodeScanner from '../../components/shared/BarcodeScanner';
@@ -34,6 +35,7 @@ const ScanBarcode: React.FC = () => {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [searchValue, setSearchValue] = useState('');
   const [result, setResult] = useState<BarcodeRecord | null>(null);
+  const [itemRecord, setItemRecord] = useState<any>(null);
   const [gatePassRecord, setGatePassRecord] = useState<any>(null);
   const [productionUnitRecord, setProductionUnitRecord] = useState<any>(null);
   const [dispatchPackageRecord, setDispatchPackageRecord] = useState<any>(null);
@@ -135,6 +137,7 @@ const ScanBarcode: React.FC = () => {
       setLoading(true);
       setError(null);
       setResult(null);
+      setItemRecord(null);
       setGatePassRecord(null);
       setProductionUnitRecord(null);
       setDispatchPackageRecord(null);
@@ -254,6 +257,14 @@ const ScanBarcode: React.FC = () => {
         setResult(data);
         if (data.entityType === BarcodeEntityType.MACHINE || (data.entityType as any) === 'MACHINE') {
           setMachineModalOpen(true);
+        } else if (data.entityType === BarcodeEntityType.ITEM || (data.entityType as any) === 'ITEM' || (data.entityType as any) === 'PRODUCT') {
+          try {
+            const itemRes = await apiService.get<any>(`/master-data/items/${data.entityId}`);
+            const itemData = itemRes?.data || itemRes;
+            if (itemData && itemData.id) {
+              setItemRecord(itemData);
+            }
+          } catch {}
         } else if (data.entityType === BarcodeEntityType.PRODUCTION_UNIT || (data.entityType as any) === 'PRODUCTION_UNIT') {
           try {
             const puRes = await productionUnitService.scanLookup(data.entityCode || data.barcodeValue || data.entityId);
@@ -295,16 +306,20 @@ const ScanBarcode: React.FC = () => {
     lookupBarcode(searchValue);
   };
 
-  const handleNavigateToEntity = () => {
+  const handleNavigateToEntity = (openHistoryMode = true) => {
     if (!result) return;
     const route = ENTITY_TYPE_ROUTES[result.entityType];
     if (route) {
       navigate(route, {
         state: {
           entityId: result.entityId,
+          machineId: result.entityId,
+          customerId: result.entityId,
+          itemId: result.entityId,
           entityLabel: result.entityLabel,
           entityCode: result.entityCode,
           openBarcode: true,
+          openHistory: openHistoryMode,
         },
       });
     }
@@ -382,6 +397,8 @@ const ScanBarcode: React.FC = () => {
   const isGatePass = result?.entityType === BarcodeEntityType.GATE_PASS || gatePassRecord != null;
   const isProdUnit = (result?.entityType === BarcodeEntityType.PRODUCTION_UNIT || (result?.entityType as any) === 'PRODUCTION_UNIT') && productionUnitRecord != null;
   const isPackage = (result?.entityType === BarcodeEntityType.DISPATCH_PACKAGE || (result?.entityType as any) === 'DISPATCH_PACKAGE') && dispatchPackageRecord != null;
+  const isItem = result?.entityType === BarcodeEntityType.ITEM || (result?.entityType as any) === 'ITEM' || (result?.entityType as any) === 'PRODUCT';
+  const isCustomer = result?.entityType === BarcodeEntityType.CUSTOMER || (result?.entityType as any) === 'CUSTOMER';
 
   return (
     <div>
@@ -961,7 +978,7 @@ const ScanBarcode: React.FC = () => {
         </Card>
       )}
 
-      {/* General Resolved Card (for Items, Machines, etc.) */}
+      {/* General Resolved Card (for Items, Machines, Customers, etc.) */}
       {result && !isGatePass && !isProdUnit && !isPackage && (
         <Card style={{ background: token.colorBgContainer, borderColor: token.colorBorderSecondary }}>
           <Result
@@ -969,27 +986,50 @@ const ScanBarcode: React.FC = () => {
             title="Barcode / QR Code Resolved"
             subTitle={`Found ${ENTITY_TYPE_LABELS[result.entityType] || result.entityType}: ${result.entityCode || result.entityLabel || result.barcodeValue}`}
             extra={[
+              isItem && (
+                <Button
+                  type="primary"
+                  key="item-history"
+                  icon={<HistoryOutlined />}
+                  style={{ background: '#059669', borderColor: '#059669', fontWeight: 700 }}
+                  onClick={() => handleNavigateToEntity(true)}
+                >
+                  View Complete Item History (ہسٹری)
+                </Button>
+              ),
               isMachine && (
                 <Button
                   type="primary"
                   key="machine-history"
                   icon={<ToolOutlined />}
-                  style={{ background: '#722ed1', borderColor: '#722ed1' }}
+                  style={{ background: '#722ed1', borderColor: '#722ed1', fontWeight: 700 }}
                   onClick={() => setMachineModalOpen(true)}
                 >
-                  View Machine Lifecycle History
+                  View Machine Lifecycle History (ہسٹری)
+                </Button>
+              ),
+              isCustomer && (
+                <Button
+                  type="primary"
+                  key="customer-history"
+                  icon={<HistoryOutlined />}
+                  style={{ background: '#1d4ed8', borderColor: '#1d4ed8', fontWeight: 700 }}
+                  onClick={() => handleNavigateToEntity(true)}
+                >
+                  View Customer 360 & Ledger History (ہسٹری)
                 </Button>
               ),
               <Button type="default" key="print" icon={<PrinterOutlined />} onClick={() => setPrintOpen(true)}>
                 Print Label
               </Button>,
-              <Button type="primary" key="navigate" onClick={handleNavigateToEntity}>
-                Open {ENTITY_TYPE_LABELS[result.entityType] || result.entityType} <ArrowRightOutlined />
+              <Button type="default" key="navigate" onClick={() => handleNavigateToEntity(false)}>
+                Open {ENTITY_TYPE_LABELS[result.entityType] || result.entityType} Master <ArrowRightOutlined />
               </Button>,
               <Button
                 key="scan-another"
                 onClick={() => {
                   setResult(null);
+                  setItemRecord(null);
                   setSearchValue('');
                 }}
               >
@@ -1015,12 +1055,54 @@ const ScanBarcode: React.FC = () => {
                     {result.entityCode && <div><Text strong>Entity Code:</Text> <Text strong>{result.entityCode}</Text></div>}
                     {result.entityLabel && <div><Text strong>Name / Label:</Text> <Text>{result.entityLabel}</Text></div>}
                     <div><Text strong>Status:</Text> <Tag color={result.status === 'ACTIVE' ? 'green' : 'red'}>{result.status}</Tag></div>
+
+                    {isItem && (
+                      <>
+                        {itemRecord?.category && (
+                          <div>
+                            <Text strong>Category:</Text> <Tag color="cyan">{itemRecord.category?.name || itemRecord.category}</Tag>
+                          </div>
+                        )}
+                        {itemRecord?.unitOfMeasure && (
+                          <div>
+                            <Text strong>Unit of Measure:</Text> <Text>{itemRecord.uom?.name || itemRecord.unitOfMeasure}</Text>
+                          </div>
+                        )}
+                        {itemRecord?.currentStock != null && (
+                          <div>
+                            <Text strong>Current Stock:</Text>{' '}
+                            <Tag color="green" style={{ fontWeight: 700 }}>
+                              {itemRecord.currentStock} {itemRecord.uom?.code || itemRecord.unitOfMeasure || ''}
+                            </Tag>
+                          </div>
+                        )}
+                        <Alert
+                          type="success"
+                          showIcon
+                          icon={<HistoryOutlined />}
+                          message="Direct Item History Available"
+                          description="Click 'View Complete Item History' to instantly open this item's full movement history, stock ledger, production consumption, and batch adjustments."
+                          style={{ marginTop: 12 }}
+                        />
+                      </>
+                    )}
+
                     {isMachine && (
                       <Alert
                         type="info"
                         showIcon
                         message="Machine History Available"
                         description="Click 'View Machine Lifecycle History' to inspect all maintenance job cards, replaced parts/tooling, and daily production entries."
+                        style={{ marginTop: 12 }}
+                      />
+                    )}
+
+                    {isCustomer && (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="Customer 360 & Statement Available"
+                        description="Click 'View Customer 360 & Ledger History' to inspect outstanding balance, order history, deliveries, and payment ledger."
                         style={{ marginTop: 12 }}
                       />
                     )}
