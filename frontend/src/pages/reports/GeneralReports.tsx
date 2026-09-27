@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Button, Select, DatePicker, Table, Tag, Modal, Space,
-  Tooltip, message,
+  Tooltip, message, Badge,
 } from 'antd';
 import {
   PieChartOutlined, PrinterOutlined, FileExcelOutlined,
   CalendarOutlined, FilterOutlined, CloseCircleOutlined,
   CaretRightOutlined, InfoCircleOutlined, DownloadOutlined,
+  CloseOutlined, ClearOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { formatDecimal } from '../../utils/numberFormat';
@@ -142,12 +143,21 @@ const DEFAULT_CUSTOMER_MARGIN_DATA: CustomerMarginRow[] = [
 ];
 
 export const GeneralReports: React.FC = () => {
+  const [showFilters, setShowFilters] = useState<boolean>(false);
   const [selectedReport, setSelectedReport] = useState<ReportType | undefined>('sales');
   const [fromDate, setFromDate] = useState<Dayjs | null>(null);
   const [toDate, setToDate] = useState<Dayjs | null>(null);
   const [isGenerated, setIsGenerated] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(false);
   const [printModalVisible, setPrintModalVisible] = useState<boolean>(false);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedReport) count++;
+    if (fromDate) count++;
+    if (toDate) count++;
+    return count;
+  }, [selectedReport, fromDate, toDate]);
 
   // Handle report generation
   const handleGenerate = () => {
@@ -457,6 +467,29 @@ export const GeneralReports: React.FC = () => {
     const { setHeaderActions, clearHeaderActions } = useHeaderActions.getState();
     setHeaderActions([
       {
+        key: 'filters-report',
+        node: (
+          <Button
+            type={showFilters ? 'primary' : 'default'}
+            icon={<FilterOutlined />}
+            onClick={() => setShowFilters((prev) => !prev)}
+            style={{ fontWeight: 600 }}
+          >
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge
+                count={activeFilterCount}
+                style={{
+                  marginLeft: 6,
+                  backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                  color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                }}
+              />
+            )}
+          </Button>
+        ),
+      },
+      {
         key: 'print-report',
         node: (
           <Button
@@ -485,7 +518,7 @@ export const GeneralReports: React.FC = () => {
     return () => {
       clearHeaderActions();
     };
-  }, [handleExportCsv]);
+  }, [handleExportCsv, showFilters, activeFilterCount]);
 
   // Report title label
   const reportLabel = useMemo(() => {
@@ -504,13 +537,36 @@ export const GeneralReports: React.FC = () => {
     <div className="reports-page-container">
       <div className="reports-main-card">
         {/* Page Title & Breadcrumb header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div className="reports-header-title" style={{ margin: 0 }}>
             <PieChartOutlined className="reports-header-icon" />
             <span>Reports</span>
+            {selectedReport && (
+              <Tag color="blue" style={{ marginLeft: 8, fontSize: 12, fontWeight: 600 }}>
+                {reportLabel}
+              </Tag>
+            )}
           </div>
 
-          <div className="reports-header-actions">
+          <div className="reports-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Button
+              type={showFilters ? 'primary' : 'default'}
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((prev) => !prev)}
+              style={{ fontWeight: 600 }}
+            >
+              Filters
+              {activeFilterCount > 0 && (
+                <Badge
+                  count={activeFilterCount}
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                  }}
+                />
+              )}
+            </Button>
             <Button
               className="reports-btn-print"
               icon={<PrinterOutlined />}
@@ -528,90 +584,147 @@ export const GeneralReports: React.FC = () => {
           </div>
         </div>
 
-        {/* Report Options Box (Pixel-Perfect from Screenshot 1 & 2) */}
-        <div className="reports-options-box">
-          <div className="reports-options-top">
-            <div className="reports-options-title">
-              <FilterOutlined /> Report Options
-            </div>
-            <button className="reports-btn-clear" onClick={handleClear}>
-              <CloseCircleOutlined /> Clear
-            </button>
-          </div>
-
-          <div className="reports-filter-grid">
-            <div className="reports-field-group">
-              <label className="reports-field-label">
-                <FileExcelOutlined style={{ color: '#10b981' }} /> REPORT
-              </label>
-              <Select
-                value={selectedReport}
-                onChange={(val) => {
-                  setSelectedReport(val);
-                  setIsGenerated(false);
-                }}
-                placeholder="Choose a report..."
-                style={{ width: '100%' }}
-                size="large"
-              >
-                <Select.Option value="sales">Sales</Select.Option>
-                <Select.Option value="purchases">Purchases</Select.Option>
-                <Select.Option value="product_sales">Product Sales</Select.Option>
-                <Select.Option value="customer_sales">Customer Sales</Select.Option>
-                <Select.Option value="product_margin">Product Margin</Select.Option>
-                <Select.Option value="customer_margin">Customer Margin</Select.Option>
-              </Select>
-            </div>
-
-            <div className="reports-field-group">
-              <label className="reports-field-label">
-                <CalendarOutlined style={{ color: '#10b981' }} /> FROM
-              </label>
-              <DatePicker
-                value={fromDate}
-                onChange={(d) => setFromDate(d)}
-                placeholder="mm/dd/yyyy"
-                style={{ width: '100%' }}
-                size="large"
-                format="MM/DD/YYYY"
-              />
-            </div>
-
-            <div className="reports-field-group">
-              <label className="reports-field-label">
-                <CalendarOutlined style={{ color: '#10b981' }} /> TO
-              </label>
-              <DatePicker
-                value={toDate}
-                onChange={(d) => setToDate(d)}
-                placeholder="mm/dd/yyyy"
-                style={{ width: '100%' }}
-                size="large"
-                format="MM/DD/YYYY"
-              />
-            </div>
-
-            <div>
+        {/* Collapsible Panel with ALL Report Filters */}
+        {showFilters && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '14px 16px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+              marginBottom: 20,
+            }}
+          >
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Report Options & Filters
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
               <Button
-                type="primary"
-                className="reports-btn-generate"
-                icon={<CaretRightOutlined />}
-                loading={loading}
-                onClick={handleGenerate}
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
               >
-                Generate
+                Close
               </Button>
             </div>
-          </div>
 
-          {/* Info Banner */}
-          <div className="reports-info-banner">
-            <InfoCircleOutlined style={{ fontSize: 16 }} />
-            <span>
-              Cancelled invoices, quotations and proformas are excluded from every report, so these figures always agree with the dashboard for the same dates.
-            </span>
+            {/* Body Grid */}
+            <div className="reports-filter-grid">
+              <div className="reports-field-group">
+                <label className="reports-field-label">
+                  <FileExcelOutlined style={{ color: '#10b981' }} /> REPORT
+                </label>
+                <Select
+                  value={selectedReport}
+                  onChange={(val) => {
+                    setSelectedReport(val);
+                    setIsGenerated(false);
+                  }}
+                  placeholder="Choose a report..."
+                  style={{ width: '100%' }}
+                  size="middle"
+                >
+                  <Select.Option value="sales">Sales</Select.Option>
+                  <Select.Option value="purchases">Purchases</Select.Option>
+                  <Select.Option value="product_sales">Product Sales</Select.Option>
+                  <Select.Option value="customer_sales">Customer Sales</Select.Option>
+                  <Select.Option value="product_margin">Product Margin</Select.Option>
+                  <Select.Option value="customer_margin">Customer Margin</Select.Option>
+                </Select>
+              </div>
+
+              <div className="reports-field-group">
+                <label className="reports-field-label">
+                  <CalendarOutlined style={{ color: '#10b981' }} /> FROM
+                </label>
+                <DatePicker
+                  value={fromDate}
+                  onChange={(d) => setFromDate(d)}
+                  placeholder="mm/dd/yyyy"
+                  style={{ width: '100%' }}
+                  size="middle"
+                  format="MM/DD/YYYY"
+                />
+              </div>
+
+              <div className="reports-field-group">
+                <label className="reports-field-label">
+                  <CalendarOutlined style={{ color: '#10b981' }} /> TO
+                </label>
+                <DatePicker
+                  value={toDate}
+                  onChange={(d) => setToDate(d)}
+                  placeholder="mm/dd/yyyy"
+                  style={{ width: '100%' }}
+                  size="middle"
+                  format="MM/DD/YYYY"
+                />
+              </div>
+            </div>
+
+            {/* Info Banner */}
+            <div className="reports-info-banner">
+              <InfoCircleOutlined style={{ fontSize: 16 }} />
+              <span>
+                Cancelled invoices, quotations and proformas are excluded from every report, so these figures always agree with the dashboard for the same dates.
+              </span>
+            </div>
+
+            {/* Footer with Clear Filters and Apply / Generate inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleClear}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<CaretRightOutlined />}
+                  onClick={() => {
+                    handleGenerate();
+                    setShowFilters(false);
+                  }}
+                  loading={loading}
+                  style={{ fontWeight: 600 }}
+                >
+                  Generate Report
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Generated Report Content */}
         {isGenerated && (
