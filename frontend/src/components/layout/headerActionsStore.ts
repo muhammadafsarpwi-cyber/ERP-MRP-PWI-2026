@@ -144,8 +144,7 @@ export const useHeaderActions = create<HeaderActionsState>((set, get) => ({
     const currentActive = getActiveTabId();
     const isCurrentActive =
       activeTab === currentActive ||
-      (typeof window !== 'undefined' && window.location.pathname === activeTab) ||
-      (activeTab.includes('/master-data/') && currentActive.includes('/master-data/'));
+      (typeof window !== 'undefined' && window.location.pathname === activeTab);
 
     const nextMeta = { title, subtitle, icon, extra };
     const nextMetaMap = { ...get().tabMetaMap, [activeTab]: nextMeta };
@@ -154,10 +153,10 @@ export const useHeaderActions = create<HeaderActionsState>((set, get) => ({
 
     set({
       tabMetaMap: nextMetaMap,
-      title: isCurrentActive ? title : (get().title ?? title),
-      subtitle: isCurrentActive ? subtitle : (get().subtitle ?? subtitle),
-      icon: isCurrentActive ? icon : (get().icon ?? icon),
-      extra: isCurrentActive ? extra : (get().extra ?? extra),
+      title: isCurrentActive ? title : get().title,
+      subtitle: isCurrentActive ? subtitle : get().subtitle,
+      icon: isCurrentActive ? icon : get().icon,
+      extra: isCurrentActive ? extra : get().extra,
     });
   },
 
@@ -204,10 +203,10 @@ export const useHeaderActions = create<HeaderActionsState>((set, get) => ({
       (tabId === '/master-data/products-items' ? tabMetaMap['/master-data/items'] : undefined);
     set({
       actions,
-      title: meta?.title ?? get().title,
-      subtitle: meta?.subtitle ?? get().subtitle,
-      icon: meta?.icon ?? get().icon,
-      extra: meta?.extra ?? get().extra,
+      title: meta?.title,
+      subtitle: meta?.subtitle,
+      icon: meta?.icon,
+      extra: meta?.extra,
     });
   },
 

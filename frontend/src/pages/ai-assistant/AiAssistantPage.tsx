@@ -90,6 +90,44 @@ export interface DivisionMeta {
   color: string;
 }
 
+export interface DepartmentMeta {
+  code: string;
+  name: string;
+  shortName?: string;
+}
+
+export const DIVISION_DEPARTMENTS: Record<string, DepartmentMeta[]> = {
+  'DIV-CCD': [
+    { code: 'ALL', name: 'All Departments', shortName: 'All Depts' },
+    { code: 'Flattening', name: 'Flattening Department', shortName: 'Flattening (FT)' },
+    { code: 'Spiral', name: 'Spiral Department', shortName: 'Spiral (SP/SR)' },
+    { code: 'PVC', name: 'PVC Coating Department', shortName: 'PVC (PV)' },
+    { code: 'Packing', name: 'Packing Department', shortName: 'Packing (CPK)' },
+  ],
+  'DIV-SPD': [
+    { code: 'ALL', name: 'All Departments', shortName: 'All Depts' },
+    { code: 'Spoke', name: 'Spoke Heading & Threading', shortName: 'Spoke (SPK)' },
+    { code: 'Straightener', name: 'Wire Straightening', shortName: 'Straightener (ST)' },
+    { code: 'Swagging', name: 'Swagging Department', shortName: 'Swagging (SW)' },
+    { code: 'Spoke Plating', name: 'Electroplating Department', shortName: 'Plating (BL/SPL)' },
+    { code: 'Spoke Packing', name: 'Packing & Boxing', shortName: 'Packing (PKS)' },
+  ],
+  'DIV-PWI': [
+    { code: 'ALL', name: 'All Departments', shortName: 'All Depts' },
+    { code: 'Drawing', name: 'Wire Drawing Line', shortName: 'Drawing' },
+    { code: 'Galvanizing', name: 'Hot Dip Galvanizing Line', shortName: 'Galvanizing' },
+    { code: 'Annealing', name: 'Annealing Furnace', shortName: 'Annealing' },
+    { code: 'Packing', name: 'Finished Coils Packaging', shortName: 'Packing' },
+  ],
+  'DIV-NB': [
+    { code: 'ALL', name: 'All Departments', shortName: 'All Depts' },
+    { code: 'Heading', name: 'Cold Heading Department', shortName: 'Heading' },
+    { code: 'Threading', name: 'Roll Threading Department', shortName: 'Threading' },
+    { code: 'Plating', name: 'Surface Finishing & Plating', shortName: 'Plating' },
+    { code: 'Packing', name: 'Automated Bagging & Packing', shortName: 'Packing' },
+  ],
+};
+
 const DEFAULT_DIVISIONS: DivisionMeta[] = [
   {
     id: 'ALL',
@@ -164,6 +202,8 @@ const AiAssistantPage: React.FC = () => {
   const [divisionsList, setDivisionsList] = useState<DivisionMeta[]>(DEFAULT_DIVISIONS);
   // Canonical division code: 'DIV-CCD', 'DIV-SPD', 'DIV-PWI', 'DIV-NB', or 'ALL'
   const [selectedDivisionCode, setSelectedDivisionCode] = useState<string>('DIV-CCD');
+  // Department filter within division: 'ALL' or specific department code (e.g. 'Flattening', 'Spiral', 'PVC', 'Packing')
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
@@ -223,13 +263,78 @@ const AiAssistantPage: React.FC = () => {
     return divisionsList.find((d) => d.code === selectedDivisionCode) || DEFAULT_DIVISIONS[1];
   }, [divisionsList, selectedDivisionCode]);
 
-  // Context-sensitive suggestions for active division in 100% clean English
+  const activeDepartments = useMemo(() => {
+    return DIVISION_DEPARTMENTS[selectedDivisionCode] || [];
+  }, [selectedDivisionCode]);
+
+  // Context-sensitive suggestions for active division & department in 100% clean English
   const currentSuggestions = useMemo(() => {
     if (activeDivisionMeta.code === 'DIV-CCD') {
+      if (selectedDepartment === 'Flattening') {
+        return [
+          {
+            label: '⚙️ Flattening: FT-01 to FT-05 Output & Target Performance',
+            subtitle: 'Sequential production metrics and daily averages for Flattening lines',
+            query: 'Show Control Cable division Flattening department machine-wise production, target and average report',
+          },
+          {
+            label: '📊 Flattening: Daily Output vs Scheduled Targets',
+            subtitle: 'Actual performance comparison for FT-01, FT-02, FT-03, FT-04, FT-05, FL-01',
+            query: 'Show Flattening department daily production vs targets report',
+          },
+          {
+            label: '⚠️ Flattening: Machine Downtime & Roller Status',
+            subtitle: 'Downtime hours and maintenance logs for flat wire machinery',
+            query: 'Show Flattening department machine downtime and maintenance',
+          },
+        ];
+      }
+      if (selectedDepartment === 'Spiral') {
+        return [
+          {
+            label: '⚙️ Spiral: SP-01 to SP-08 & SR-01 Output & Targets',
+            subtitle: 'Sequential output metrics and daily averages for Spiral machines',
+            query: 'Show Control Cable division Spiral department machine-wise production, target and average report',
+          },
+          {
+            label: '📊 Spiral: Production vs Target Efficiency',
+            subtitle: 'Target fulfillment percentages and operating days for SP series',
+            query: 'Show Spiral department production efficiency report',
+          },
+          {
+            label: '⚠️ Spiral: Tooling & Machine Downtime Report',
+            subtitle: 'Downtime hours and tooling status for Spiral lines',
+            query: 'Show Spiral department machine downtime',
+          },
+        ];
+      }
+      if (selectedDepartment === 'PVC') {
+        return [
+          {
+            label: '⚙️ PVC: PV-01, PVC-01 & PVC-02 Output Report',
+            subtitle: 'Extrusion line output and daily averages in meters and kg',
+            query: 'Show Control Cable division PVC Coating department machine-wise production, target and average report',
+          },
+          {
+            label: '⚠️ PVC: Extruder Downtime & Temperature Status',
+            subtitle: 'Operating hours and downtime analysis for coating lines',
+            query: 'Show PVC department machine downtime',
+          },
+        ];
+      }
+      if (selectedDepartment === 'Packing') {
+        return [
+          {
+            label: '⚙️ Packing: CPK-01 Output & Boxing Report',
+            subtitle: 'Packaging throughput vs targets and daily averages',
+            query: 'Show Control Cable division Packing department machine-wise production, target and average report',
+          },
+        ];
+      }
       return [
         {
-          label: '⚙️ Machine-wise Production, Target & Daily Average',
-          subtitle: 'Output vs scheduled target and daily run average for FT-01, FT-02, FT-04, etc.',
+          label: '⚙️ All Departments: Machine-wise Production, Targets & Subtotals',
+          subtitle: 'Sequenced FT-01..05, SP-01..08, PV-01, CPK-01 with departmental subtotals',
           query: 'Show Control Cable division machine-wise production, target and average report',
         },
         {
@@ -323,7 +428,7 @@ const AiAssistantPage: React.FC = () => {
         query: 'Show machine wise production and downtime this month',
       },
     ];
-  }, [activeDivisionMeta]);
+  }, [activeDivisionMeta, selectedDepartment]);
 
   const handleClearChat = () => {
     setMessages([]);
@@ -345,7 +450,11 @@ const AiAssistantPage: React.FC = () => {
   // ══════════════════════════════════════════════════════════════════════════
   // AI QUERY ROUTER (STRICT DIVISION ISOLATION & 100% ENGLISH)
   // ══════════════════════════════════════════════════════════════════════════
-  const processUserQuery = async (query: string, activeCode: string): Promise<QueryResult> => {
+  const processUserQuery = async (
+    query: string,
+    activeCode: string,
+    activeDeptCode: string = selectedDepartment,
+  ): Promise<QueryResult> => {
     const q = query.toLowerCase().trim();
 
     // 1. Determine Target Division
@@ -374,7 +483,7 @@ const AiAssistantPage: React.FC = () => {
     // Whenever a specific division is active, generate the detailed Machine-wise Report for THAT DIVISION ONLY!
     if (isSpecificDivision) {
       try {
-        const res: any = await apiService.get('/production/entries', { limit: 200 });
+        const res: any = await apiService.get('/production/entries', { limit: 300 });
         const allEntries = Array.isArray(res) ? res : res?.data || res?.items || [];
 
         // STRICT FILTER: Match ONLY records belonging to targetDivision.code
@@ -384,15 +493,19 @@ const AiAssistantPage: React.FC = () => {
           const mNo = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
 
           if (targetDivision.code === 'DIV-CCD') {
-            // Include Control Cable Division, EXCLUDE Spoke Division machines like SPK- or ST-01 from Spoke
+            // Strictly exclude Spoke straightener (ST-) or other Spoke division machines
             if (eCode === 'DIV-SPD' || eId.includes('0001')) return false;
+            if (mNo.startsWith('ST-') || mNo.startsWith('SPK-') || mNo.startsWith('SW-') || mNo.startsWith('BL-')) return false;
             return (
               eCode === 'DIV-CCD' ||
               eId.includes('0002') ||
               mNo.startsWith('FT-') ||
               mNo.startsWith('FL-') ||
               mNo.startsWith('PV-') ||
+              mNo.startsWith('PVC') ||
               mNo.startsWith('CPK-') ||
+              mNo.startsWith('PK-') ||
+              mNo.startsWith('SP-') ||
               mNo.startsWith('SR-')
             );
           }
@@ -404,6 +517,10 @@ const AiAssistantPage: React.FC = () => {
               eId.includes('0001') ||
               mNo.startsWith('SPK-') ||
               mNo.startsWith('ST-') ||
+              mNo.startsWith('SW-') ||
+              mNo.startsWith('BL-') ||
+              mNo.startsWith('SPL-') ||
+              mNo.startsWith('APS-') ||
               mNo.startsWith('NP-')
             );
           }
@@ -419,9 +536,20 @@ const AiAssistantPage: React.FC = () => {
           return eCode === targetDivision.code || eId === targetDivision.id;
         });
 
+        // Determine target department filter
+        let filterDept = activeDeptCode || 'ALL';
+        if (q.includes('flattening') || q.includes('فلیٹننگ')) filterDept = 'Flattening';
+        else if (q.includes('spiral') || q.includes('سپائرل')) filterDept = 'Spiral';
+        else if (q.includes('pvc') || q.includes('پی وی سی')) filterDept = 'PVC';
+        else if (q.includes('packing') || q.includes('پیکنگ')) filterDept = 'Packing';
+        else if (q.includes('straightener') || q.includes('سٹریٹنر')) filterDept = 'Straightener';
+        else if (q.includes('swagging') || q.includes('سویجنگ')) filterDept = 'Swagging';
+        else if (q.includes('plating') || q.includes('پلیٹنگ')) filterDept = targetDivision.code === 'DIV-SPD' ? 'Spoke Plating' : 'Plating';
+
         // Group by machine
         const machineMap: Record<string, {
           machine: string;
+          department: string;
           items: Set<string>;
           totalProduction: number;
           totalTarget: number;
@@ -431,13 +559,38 @@ const AiAssistantPage: React.FC = () => {
         }> = {};
 
         entries.forEach((e: any) => {
-          const mCode = e.machine?.machineCode || e.machineNo || 'UNKNOWN';
+          const mCode = (e.machine?.machineCode || e.machineNo || 'UNKNOWN').trim().toUpperCase();
+          if (mCode === 'UNKNOWN') return;
           const pName = e.item?.name || e.item?.itemCode || e.itemName || 'Standard Process';
           const dStr = dayjs(e.entryDate || e.createdAt).format('YYYY-MM-DD');
+
+          // Resolve department
+          let dept = '';
+          if (targetDivision.code === 'DIV-CCD') {
+            if (mCode.startsWith('FT-') || mCode.startsWith('FL-')) dept = 'Flattening';
+            else if (mCode.startsWith('SP-') || mCode.startsWith('SR-')) dept = 'Spiral';
+            else if (mCode.startsWith('PV-') || mCode.startsWith('PVC')) dept = 'PVC';
+            else if (mCode.startsWith('CPK-') || mCode.startsWith('PK-')) dept = 'Packing';
+            else dept = 'Flattening';
+          } else if (targetDivision.code === 'DIV-SPD') {
+            if (mCode.startsWith('SPK-')) dept = 'Spoke';
+            else if (mCode.startsWith('ST-')) dept = 'Straightener';
+            else if (mCode.startsWith('SW-')) dept = 'Swagging';
+            else if (mCode.startsWith('BL-') || mCode.startsWith('SPL-') || mCode.startsWith('APS-')) dept = 'Spoke Plating';
+            else if (mCode.startsWith('PKS-')) dept = 'Spoke Packing';
+            else dept = 'Spoke';
+          } else {
+            dept = e.department?.name || e.dept_name || 'Production';
+          }
+
+          if (filterDept !== 'ALL' && dept.toLowerCase() !== filterDept.toLowerCase()) {
+            return;
+          }
 
           if (!machineMap[mCode]) {
             machineMap[mCode] = {
               machine: mCode,
+              department: dept,
               items: new Set(),
               totalProduction: 0,
               totalTarget: 0,
@@ -454,142 +607,267 @@ const AiAssistantPage: React.FC = () => {
           machineMap[mCode].entriesCount += 1;
         });
 
-        const rows = Object.values(machineMap)
-          .map((m) => {
-            const daysCount = m.dates.size || 1;
-            const avgDaily = m.totalProduction / daysCount;
-            const eff = m.totalTarget > 0 ? Math.round((m.totalProduction / m.totalTarget) * 100) : 0;
-            return {
-              machine: m.machine,
-              itemsList: Array.from(m.items).slice(0, 2).join(', ') || 'Standard Process',
-              totalProduction: Math.round(m.totalProduction * 100) / 100,
-              totalTarget: Math.round(m.totalTarget * 100) / 100,
-              avgDaily: Math.round(avgDaily * 10) / 10,
-              efficiency: eff,
-              downtime: parseFloat(m.totalDowntime.toFixed(1)),
-              activeDays: daysCount,
-              entriesCount: m.entriesCount,
-            };
-          })
-          .sort((a, b) => b.totalProduction - a.totalProduction);
-
-        if (rows.length > 0) {
-          const totalProd = rows.reduce((s, r) => s + r.totalProduction, 0);
-          const totalTarget = rows.reduce((s, r) => s + r.totalTarget, 0);
-          const overallEff = totalTarget > 0 ? Math.round((totalProd / totalTarget) * 100) : 0;
-          const overallDailyAvg = Math.round((totalProd / (rows.reduce((s, r) => s + r.activeDays, 0) || 1)) * 10) / 10;
-
-          const chartData = rows.slice(0, 10).map((r) => ({
-            name: r.machine,
-            Production: r.totalProduction,
-            Target: r.totalTarget,
-            Average: r.avgDaily,
-          }));
-
+        const rawMachineRows = Object.values(machineMap).map((m) => {
+          const daysCount = m.dates.size || 1;
+          const avgDaily = m.totalProduction / daysCount;
+          const eff = m.totalTarget > 0 ? Math.round((m.totalProduction / m.totalTarget) * 100) : 0;
           return {
-            text: `⚙️ **${targetDivision.name} (${targetDivision.code}) — Machine-wise Production & Target Performance Report:**\n\n` +
-              `• **Division Scope:** ${targetDivision.name} (${targetDivision.code})\n` +
-              `• **Unit of Measure (UOM):** ${targetDivision.uom}\n` +
-              `• **Active Operational Machines:** ${rows.length} Machines\n` +
-              `• **Total Actual Output:** ${totalProd.toLocaleString()} ${targetDivision.uom}\n` +
-              `• **Total Scheduled Target:** ${totalTarget.toLocaleString()} ${targetDivision.uom}\n` +
-              `• **Overall Target Efficiency:** ${overallEff}%\n` +
-              `• **Average Daily Output per Machine:** ${overallDailyAvg.toLocaleString()} ${targetDivision.uom}/day`,
-            divisionScope: targetDivision.code,
-            chartData: {
-              type: 'bar',
-              data: chartData,
-              xKey: 'name',
-              title: `${targetDivision.name} — Machine Performance: Production vs Target vs Average (${targetDivision.uom})`,
-              dataKeys: [
-                { key: 'Production', color: '#3b82f6', name: `Production (${targetDivision.uom})` },
-                { key: 'Target', color: '#10b981', name: `Target (${targetDivision.uom})` },
-                { key: 'Average', color: '#f59e0b', name: `Daily Average (${targetDivision.uom})` },
-              ],
-            },
-            tableData: {
-              columns: [
-                {
-                  title: 'Machine Code',
-                  dataIndex: 'machine',
-                  key: 'machine',
-                  render: (v: string) => (
+            id: `m-${m.machine}`,
+            machine: m.machine,
+            department: m.department,
+            itemsList: Array.from(m.items).slice(0, 2).join(', ') || 'Standard Process',
+            totalProduction: Math.round(m.totalProduction * 100) / 100,
+            totalTarget: Math.round(m.totalTarget * 100) / 100,
+            avgDaily: Math.round(avgDaily * 10) / 10,
+            efficiency: eff,
+            downtime: parseFloat(m.totalDowntime.toFixed(1)),
+            activeDays: daysCount,
+            entriesCount: m.entriesCount,
+          };
+        });
+
+        if (rawMachineRows.length === 0) {
+          return {
+            text: `No production entries found for **${targetDivision.name}**${filterDept !== 'ALL' ? ` [${filterDept} Department]` : ''}. Please verify records in Daily Production Entry.`,
+          };
+        }
+
+        // Canonical department ordering
+        const ccdDeptOrder = ['Flattening', 'Spiral', 'PVC', 'Packing'];
+        const spdDeptOrder = ['Spoke', 'Straightener', 'Swagging', 'Spoke Plating', 'Spoke Packing'];
+        const allDepts = Array.from(new Set(rawMachineRows.map((r) => r.department)));
+        const sortedDeptNames = (targetDivision.code === 'DIV-CCD' ? ccdDeptOrder : targetDivision.code === 'DIV-SPD' ? spdDeptOrder : allDepts)
+          .filter((d) => allDepts.includes(d));
+
+        // Build sequential rows with Department Subtotals and Grand Total
+        const finalRows: any[] = [];
+        const chartData: any[] = [];
+
+        sortedDeptNames.forEach((dName) => {
+          const deptMachines = rawMachineRows.filter((r) => r.department === dName);
+          if (deptMachines.length === 0) return;
+
+          // NATURAL NUMERIC SORT: FT-01, FT-02, FT-03, FT-04, FT-05...
+          deptMachines.sort((a, b) =>
+            a.machine.localeCompare(b.machine, undefined, { numeric: true, sensitivity: 'base' })
+          );
+
+          // Append each sorted machine
+          deptMachines.forEach((m) => {
+            finalRows.push(m);
+            chartData.push({
+              name: m.machine,
+              Production: m.totalProduction,
+              Target: m.totalTarget,
+              Average: m.avgDaily,
+            });
+          });
+
+          // Calculate Department Subtotal
+          const subTarget = deptMachines.reduce((s, m) => s + m.totalTarget, 0);
+          const subProd = deptMachines.reduce((s, m) => s + m.totalProduction, 0);
+          const subDowntime = deptMachines.reduce((s, m) => s + m.downtime, 0);
+          const subAvg = Math.round(deptMachines.reduce((s, m) => s + m.avgDaily, 0) * 10) / 10;
+          const subEff = subTarget > 0 ? Math.round((subProd / subTarget) * 100) : 0;
+          const maxDays = Math.max(...deptMachines.map((m) => m.activeDays));
+
+          finalRows.push({
+            id: `subtotal-${dName}`,
+            isSubtotal: true,
+            department: dName,
+            machine: `${dName} Subtotal`,
+            itemsList: `${deptMachines.length} Machines Total`,
+            totalTarget: Math.round(subTarget * 100) / 100,
+            totalProduction: Math.round(subProd * 100) / 100,
+            avgDaily: subAvg,
+            efficiency: subEff,
+            downtime: parseFloat(subDowntime.toFixed(1)),
+            activeDays: maxDays,
+            entriesCount: deptMachines.reduce((s, m) => s + m.entriesCount, 0),
+          });
+        });
+
+        // Calculate Grand Total across all displayed departments
+        const grandTarget = rawMachineRows.reduce((s, m) => s + m.totalTarget, 0);
+        const grandProd = rawMachineRows.reduce((s, m) => s + m.totalProduction, 0);
+        const grandDowntime = rawMachineRows.reduce((s, m) => s + m.downtime, 0);
+        const grandAvg = Math.round(rawMachineRows.reduce((s, m) => s + m.avgDaily, 0) * 10) / 10;
+        const grandEff = grandTarget > 0 ? Math.round((grandProd / grandTarget) * 100) : 0;
+
+        finalRows.push({
+          id: `grand-total-${targetDivision.code}`,
+          isGrandTotal: true,
+          machine: filterDept !== 'ALL' ? `${filterDept} Total` : `GRAND TOTAL`,
+          itemsList: filterDept !== 'ALL'
+            ? `${rawMachineRows.length} Machines in ${filterDept}`
+            : `All ${sortedDeptNames.length} Departments (${rawMachineRows.length} Machines)`,
+          totalTarget: Math.round(grandTarget * 100) / 100,
+          totalProduction: Math.round(grandProd * 100) / 100,
+          avgDaily: grandAvg,
+          efficiency: grandEff,
+          downtime: parseFloat(grandDowntime.toFixed(1)),
+          activeDays: '-',
+          entriesCount: rawMachineRows.reduce((s, m) => s + m.entriesCount, 0),
+        });
+
+        return {
+          text: `⚙️ **${targetDivision.name} (${targetDivision.code}) — Machine-wise Performance Report${filterDept !== 'ALL' ? ` [${filterDept} Department]` : ''}:**\n\n` +
+            `• **Division Scope:** ${targetDivision.name} (${targetDivision.code})\n` +
+            `• **Department Scope:** ${filterDept !== 'ALL' ? `${filterDept} Department` : `All Departments (${sortedDeptNames.length} Operational Sections)`}\n` +
+            `• **Unit of Measure (UOM):** ${targetDivision.uom}\n` +
+            `• **Active Operational Machines:** ${rawMachineRows.length} Machines (Natural Numerical Sequence)\n` +
+            `• **Total Actual Output:** ${grandProd.toLocaleString()} ${targetDivision.uom}\n` +
+            `• **Total Scheduled Target:** ${grandTarget.toLocaleString()} ${targetDivision.uom}\n` +
+            `• **Overall Target Efficiency:** ${grandEff}%\n` +
+            `• **Average Daily Output per Machine:** ${grandAvg.toLocaleString()} ${targetDivision.uom}/day\n` +
+            `• **Total Recorded Downtime:** ${parseFloat(grandDowntime.toFixed(1))} hrs`,
+          divisionScope: targetDivision.code,
+          chartData: {
+            type: 'bar',
+            data: chartData,
+            xKey: 'name',
+            title: `${targetDivision.name}${filterDept !== 'ALL' ? ` (${filterDept})` : ''} — Sequential Machine Output vs Target (${targetDivision.uom})`,
+            dataKeys: [
+              { key: 'Production', color: '#3b82f6', name: `Production (${targetDivision.uom})` },
+              { key: 'Target', color: '#10b981', name: `Target (${targetDivision.uom})` },
+              { key: 'Average', color: '#f59e0b', name: `Daily Average (${targetDivision.uom})` },
+            ],
+          },
+          tableData: {
+            columns: [
+              {
+                title: 'Machine Code',
+                dataIndex: 'machine',
+                key: 'machine',
+                render: (v: string, r: any) => {
+                  if (r?.isGrandTotal) {
+                    return (
+                      <span style={{ fontWeight: 800, color: isDark ? '#34d399' : '#059669', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>🏛️</span> {v}
+                      </span>
+                    );
+                  }
+                  if (r?.isSubtotal) {
+                    return (
+                      <span style={{ fontWeight: 700, color: isDark ? '#93c5fd' : '#1d4ed8', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>📊</span> {v}
+                      </span>
+                    );
+                  }
+                  return (
                     <strong style={{ color: isDark ? '#93c5fd' : '#1d4ed8', fontSize: 13 }}>
                       {v}
                     </strong>
-                  ),
+                  );
                 },
-                {
-                  title: 'Products / Process',
-                  dataIndex: 'itemsList',
-                  key: 'itemsList',
-                  render: (v: string) => (
+              },
+              {
+                title: 'Products / Process',
+                dataIndex: 'itemsList',
+                key: 'itemsList',
+                render: (v: string, r: any) => {
+                  if (r?.isGrandTotal) {
+                    return <strong style={{ color: isDark ? '#34d399' : '#059669', fontSize: 12 }}>{v}</strong>;
+                  }
+                  if (r?.isSubtotal) {
+                    return <strong style={{ color: isDark ? '#cbd5e1' : '#334155', fontSize: 12 }}>{v}</strong>;
+                  }
+                  return (
                     <span style={{ fontSize: 12, color: isDark ? '#cbd5e1' : '#475569' }}>
                       {v}
                     </span>
-                  ),
+                  );
                 },
-                {
-                  title: `Target (${targetDivision.uom})`,
-                  dataIndex: 'totalTarget',
-                  key: 'totalTarget',
-                  render: (v: number) => (
-                    <span style={{ color: '#10b981', fontWeight: 600 }}>
-                      {v.toLocaleString()}
+              },
+              {
+                title: `Target (${targetDivision.uom})`,
+                dataIndex: 'totalTarget',
+                key: 'totalTarget',
+                render: (v: number, r: any) => {
+                  const isTotal = r?.isGrandTotal || r?.isSubtotal;
+                  return (
+                    <span style={{ color: '#10b981', fontWeight: isTotal ? 800 : 600, fontSize: r?.isGrandTotal ? 14 : 13 }}>
+                      {Number(v || 0).toLocaleString()}
                     </span>
-                  ),
+                  );
                 },
-                {
-                  title: `Actual Output (${targetDivision.uom})`,
-                  dataIndex: 'totalProduction',
-                  key: 'totalProduction',
-                  render: (v: number) => (
-                    <span style={{ color: '#3b82f6', fontWeight: 700, fontSize: 13 }}>
-                      {v.toLocaleString()}
+              },
+              {
+                title: `Actual Output (${targetDivision.uom})`,
+                dataIndex: 'totalProduction',
+                key: 'totalProduction',
+                render: (v: number, r: any) => {
+                  const isTotal = r?.isGrandTotal || r?.isSubtotal;
+                  return (
+                    <span style={{ color: r?.isGrandTotal ? (isDark ? '#34d399' : '#059669') : '#3b82f6', fontWeight: isTotal ? 800 : 700, fontSize: r?.isGrandTotal ? 15 : 13 }}>
+                      {Number(v || 0).toLocaleString()}
                     </span>
-                  ),
+                  );
                 },
-                {
-                  title: 'Daily Average',
-                  dataIndex: 'avgDaily',
-                  key: 'avgDaily',
-                  render: (v: number) => (
+              },
+              {
+                title: 'Daily Average',
+                dataIndex: 'avgDaily',
+                key: 'avgDaily',
+                render: (v: number, r: any) => {
+                  if (r?.isGrandTotal) {
+                    return (
+                      <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12, padding: '2px 8px' }}>
+                        {Number(v || 0).toLocaleString()} /day
+                      </Tag>
+                    );
+                  }
+                  if (r?.isSubtotal) {
+                    return (
+                      <Tag color="blue" style={{ fontWeight: 700 }}>
+                        {Number(v || 0).toLocaleString()} /day
+                      </Tag>
+                    );
+                  }
+                  return (
                     <Tag color="gold" style={{ fontWeight: 600 }}>
-                      {v.toLocaleString()} /day
+                      {Number(v || 0).toLocaleString()} /day
                     </Tag>
-                  ),
+                  );
                 },
-                {
-                  title: 'Efficiency (%)',
-                  dataIndex: 'efficiency',
-                  key: 'efficiency',
-                  render: (v: number) => (
-                    <Tag color={v >= 90 ? 'green' : v >= 75 ? 'orange' : 'red'}>
-                      {v}%
-                    </Tag>
-                  ),
+              },
+              {
+                title: 'Efficiency (%)',
+                dataIndex: 'efficiency',
+                key: 'efficiency',
+                render: (v: number, r: any) => (
+                  <Tag
+                    color={v >= 90 ? 'green' : v >= 75 ? 'orange' : 'red'}
+                    style={{ fontWeight: r?.isGrandTotal ? 800 : 600, padding: r?.isGrandTotal ? '2px 8px' : undefined }}
+                  >
+                    {v}% {r?.isGrandTotal ? 'Total' : ''}
+                  </Tag>
+                ),
+              },
+              {
+                title: 'Downtime (hrs)',
+                dataIndex: 'downtime',
+                key: 'downtime',
+                render: (v: number, r: any) => (
+                  <Tag color={v > 4 ? 'volcano' : 'default'} style={{ fontWeight: r?.isGrandTotal || r?.isSubtotal ? 700 : 500 }}>
+                    {v} hrs
+                  </Tag>
+                ),
+              },
+              {
+                title: 'Operating Days',
+                dataIndex: 'activeDays',
+                key: 'activeDays',
+                render: (v: any, r: any) => {
+                  if (r?.isGrandTotal) return <span style={{ fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b' }}>-</span>;
+                  if (r?.isSubtotal) return <span style={{ fontWeight: 700, color: isDark ? '#93c5fd' : '#1d4ed8' }}>{v} days</span>;
+                  return <span>{v} days</span>;
                 },
-                {
-                  title: 'Downtime (hrs)',
-                  dataIndex: 'downtime',
-                  key: 'downtime',
-                  render: (v: number) => (
-                    <Tag color={v > 4 ? 'volcano' : 'default'}>
-                      {v} hrs
-                    </Tag>
-                  ),
-                },
-                {
-                  title: 'Active Operating Days',
-                  dataIndex: 'activeDays',
-                  key: 'activeDays',
-                  render: (v: number) => <span>{v} days</span>,
-                },
-              ],
-              rows,
-            },
-          };
-        }
+              },
+            ],
+            rows: finalRows,
+          },
+        };
       } catch {
         return { text: `Unable to retrieve machine data for ${targetDivision.name}.` };
       }
@@ -760,11 +1038,12 @@ const AiAssistantPage: React.FC = () => {
     };
   };
 
-  const handleSend = async (customText?: string, overrideCode?: string) => {
+  const handleSend = async (customText?: string, overrideCode?: string, overrideDept?: string) => {
     const query = (customText || inputText).trim();
     if (!query || loading) return;
 
     const effectiveCode = overrideCode || selectedDivisionCode;
+    const effectiveDept = overrideDept !== undefined ? overrideDept : selectedDepartment;
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
@@ -780,8 +1059,8 @@ const AiAssistantPage: React.FC = () => {
 
     try {
       await new Promise((r) => setTimeout(r, 350));
-      // Process strictly with effective division code
-      const aiReply = await processUserQuery(query, effectiveCode);
+      // Process strictly with effective division code and department code
+      const aiReply = await processUserQuery(query, effectiveCode, effectiveDept);
 
       const botMsg: ChatMessage = {
         id: `b-${Date.now()}`,
@@ -812,6 +1091,7 @@ const AiAssistantPage: React.FC = () => {
   // Switch division handler: updates code AND automatically runs report for that division
   const handleDivisionSwitch = (code: string) => {
     setSelectedDivisionCode(code);
+    setSelectedDepartment('ALL');
     const meta = divisionsList.find((d) => d.code === code) || DEFAULT_DIVISIONS[1];
     message.success(`Plant filter set to: ${meta.name}`);
 
@@ -820,7 +1100,22 @@ const AiAssistantPage: React.FC = () => {
       ? 'Show division wise production and units comparison for all divisions'
       : `Show ${meta.name} machine-wise production, target and average report`;
 
-    handleSend(autoQuery, code);
+    handleSend(autoQuery, code, 'ALL');
+  };
+
+  // Switch department handler: updates department AND immediately runs report for that department
+  const handleDepartmentSwitch = (deptCode: string) => {
+    setSelectedDepartment(deptCode);
+    const divMeta = divisionsList.find((d) => d.code === selectedDivisionCode) || DEFAULT_DIVISIONS[1];
+    const deptMeta = activeDepartments.find((d) => d.code === deptCode);
+    const deptLabel = deptMeta?.name || deptCode;
+    message.success(`Department filter set to: ${deptLabel}`);
+
+    const autoQuery = deptCode === 'ALL'
+      ? `Show ${divMeta.name} machine-wise production, target and average report`
+      : `Show ${divMeta.name} ${deptLabel} machine-wise production, target and average report`;
+
+    handleSend(autoQuery, selectedDivisionCode, deptCode);
   };
 
   // ── Render Chart with Theme Adaptive Styles ────────────────────────────────
@@ -976,22 +1271,39 @@ const AiAssistantPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Division Selector Toolbar */}
+        {/* Division & Department Selector Toolbar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255, 255, 255, 0.12)', padding: '4px 10px', borderRadius: 8 }}>
             <FilterOutlined style={{ fontSize: 13, color: '#93c5fd' }} />
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Division Filter:</span>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Division:</span>
             <Select
               size="small"
               value={selectedDivisionCode}
               onChange={(val) => handleDivisionSwitch(val)}
-              style={{ width: 230 }}
+              style={{ width: 220 }}
               options={divisionsList.map((d) => ({
                 value: d.code,
                 label: `${d.name} (${d.uom})`,
               }))}
             />
           </div>
+
+          {selectedDivisionCode !== 'ALL' && activeDepartments.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255, 255, 255, 0.12)', padding: '4px 10px', borderRadius: 8 }}>
+              <ApartmentOutlined style={{ fontSize: 13, color: '#93c5fd' }} />
+              <span style={{ fontSize: 12, fontWeight: 600 }}>Department:</span>
+              <Select
+                size="small"
+                value={selectedDepartment}
+                onChange={(val) => handleDepartmentSwitch(val)}
+                style={{ width: 190 }}
+                options={activeDepartments.map((d) => ({
+                  value: d.code,
+                  label: d.name,
+                }))}
+              />
+            </div>
+          )}
 
           {messages.length > 0 && (
             <Button
@@ -1078,6 +1390,58 @@ const AiAssistantPage: React.FC = () => {
           );
         })}
       </div>
+
+      {/* ── Department Quick Chips Bar ────────────────────────────────────────── */}
+      {selectedDivisionCode !== 'ALL' && activeDepartments.length > 0 && (
+        <div
+          style={{
+            background: isDark ? '#0f172a' : '#f8fafc',
+            borderBottom: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
+            padding: '6px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            overflowX: 'auto',
+            fontSize: 12,
+          }}
+        >
+          <span style={{ fontWeight: 700, color: isDark ? '#38bdf8' : '#0284c7', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <FilterOutlined /> Section / Dept:
+          </span>
+          {activeDepartments.map((dept) => {
+            const isSelected = selectedDepartment === dept.code;
+            return (
+              <button
+                key={dept.code}
+                onClick={() => handleDepartmentSwitch(dept.code)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '3px 12px',
+                  borderRadius: 14,
+                  fontSize: 11.5,
+                  fontWeight: isSelected ? 700 : 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  whiteSpace: 'nowrap',
+                  border: isSelected
+                    ? '1.5px solid #0284c7'
+                    : isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                  background: isSelected
+                    ? (isDark ? '#075985' : '#e0f2fe')
+                    : (isDark ? '#1e293b' : '#ffffff'),
+                  color: isSelected
+                    ? (isDark ? '#bae6fd' : '#0369a1')
+                    : (isDark ? '#94a3b8' : '#475569'),
+                }}
+              >
+                <span>{dept.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Chat Messages Body ───────────────────────────────────────────── */}
       <div
@@ -1286,11 +1650,34 @@ const AiAssistantPage: React.FC = () => {
                         >
                           <Table
                             size="small"
-                            pagination={{ pageSize: 12, size: 'small', hideOnSinglePage: true }}
+                            pagination={false}
                             dataSource={msg.tableData.rows}
                             rowKey={(r, i) => r.id || r.machine || r.code || String(i)}
                             columns={msg.tableData.columns}
                             scroll={{ x: 'max-content' }}
+                            onRow={(record: any) => {
+                              if (record?.isGrandTotal) {
+                                return {
+                                  style: {
+                                    background: isDark ? 'rgba(16, 185, 129, 0.16)' : '#ecfdf5',
+                                    borderTop: '2px solid #10b981',
+                                    borderBottom: '2px solid #10b981',
+                                    fontWeight: 700,
+                                  },
+                                };
+                              }
+                              if (record?.isSubtotal) {
+                                return {
+                                  style: {
+                                    background: isDark ? 'rgba(59, 130, 246, 0.14)' : '#eff6ff',
+                                    borderTop: '1.5px solid #3b82f6',
+                                    borderBottom: '1px solid #bfdbfe',
+                                    fontWeight: 600,
+                                  },
+                                };
+                              }
+                              return {};
+                            }}
                           />
                         </div>
                       )}

@@ -221,6 +221,7 @@ export const WorkspaceTabStrip: React.FC = () => {
       ...tabs.map((tab) => {
         const isActive = tab.id === activeTabId;
         const navMeta = resolveNavMeta(tab.pathname);
+        const displayTitle = navMeta?.label || tab.title || 'Page';
         const IconComponent = navMeta?.icon || (tab.id === '/dashboard' ? HomeOutlined : null);
 
         return {
@@ -228,7 +229,7 @@ export const WorkspaceTabStrip: React.FC = () => {
           icon: IconComponent ? <IconComponent style={{ color: navMeta?.colorVar }} /> : null,
           label: (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-              <span style={{ fontWeight: isActive ? 600 : 400 }}>{tab.title}</span>
+              <span style={{ fontWeight: isActive ? 600 : 400 }}>{displayTitle}</span>
               {isActive && <CheckOutlined style={{ color: '#4f46e5', fontSize: 12 }} />}
             </div>
           ),
@@ -286,6 +287,7 @@ export const WorkspaceTabStrip: React.FC = () => {
         {tabs.map((tab, index) => {
           const isActive = tab.id === activeTabId;
           const navMeta = resolveNavMeta(tab.pathname);
+          const displayTitle = navMeta?.label || tab.title || 'Page';
           const IconComponent = navMeta?.icon || (tab.id === '/dashboard' ? HomeOutlined : null);
 
           return (
@@ -313,8 +315,8 @@ export const WorkspaceTabStrip: React.FC = () => {
                     <IconComponent />
                   </span>
                 )}
-                <span className="erp-tab-title" title={tab.title}>
-                  {tab.title}
+                <span className="erp-tab-title" title={displayTitle}>
+                  {displayTitle}
                 </span>
 
                 {tab.closable && (
@@ -331,7 +333,7 @@ export const WorkspaceTabStrip: React.FC = () => {
                           handleCloseTab(e, tab);
                         }
                       }}
-                      aria-label={`Close ${tab.title}`}
+                      aria-label={`Close ${displayTitle}`}
                     >
                       <CloseOutlined />
                     </span>

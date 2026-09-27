@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { tabSessionCache } from '../services/tabSessionCache';
+import { resolveNavMeta } from '../components/layout/navigationConfig';
 
 export interface WorkspaceTab {
   id: string; // Canonical key, e.g. "/production/targets"
@@ -67,12 +68,15 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
       openTab: (tabData) => {
         const { tabs } = get();
         const canonicalId = tabData.id;
+        const navMeta = resolveNavMeta(tabData.pathname || canonicalId);
+        const canonicalTitle = navMeta?.label;
+
         const existingIndex = tabs.findIndex((t) => t.id === canonicalId);
 
         if (existingIndex !== -1) {
           // Tab already exists! NEVER create duplicate.
           const existing = tabs[existingIndex];
-          const newTitle = tabData.title || existing.title;
+          const newTitle = tabData.title || canonicalTitle || existing.title;
           const newRoute = tabData.route;
 
           // Only update state if something actually changed to prevent render cascades
@@ -109,7 +113,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
           id: canonicalId,
           route: tabData.route,
           pathname: tabData.pathname,
-          title: tabData.title || 'Page',
+          title: tabData.title || canonicalTitle || 'Page',
           closable: canonicalId !== '/dashboard' ? (tabData.closable ?? true) : false,
           timestamp: Date.now(),
         };
@@ -304,6 +308,13 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
           state.tabs = state.tabs.filter(
             (t) => t && typeof t.id === 'string' && typeof t.route === 'string'
           );
+          // Rectify any corrupt cached titles from localStorage
+          state.tabs.forEach((tab) => {
+            const meta = resolveNavMeta(tab.pathname || tab.id);
+            if (meta?.label) {
+              tab.title = meta.label;
+            }
+          });
           const hasDashboard = state.tabs.some((t) => t.id === '/dashboard');
           if (!hasDashboard) {
             state.tabs.unshift({ ...DASHBOARD_TAB });

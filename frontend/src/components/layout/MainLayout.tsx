@@ -308,47 +308,39 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     void prefetchAllLookups();
   }, []);
 
-  // Keep a stable ref of the title so openTab doesn't re-run on every title change
-  const latestTitleRef = React.useRef<string>('');
-
   // Sync active route with the Workspace Tab Store.
-  // IMPORTANT: Only depend on pathname+search (stable navigation events),
-  // NOT on derived/computed values like headerTitleText or pageTitle which
-  // can change mid-render causing infinite update loops.
+  // Immediately sync header actions/metadata for the new active tab and open the tab
+  // with its canonical nav title.
   React.useEffect(() => {
     if (!location.pathname || location.pathname === '/' || location.pathname === '/login') return;
 
-    const title = latestTitleRef.current ||
-      (typeof headerTitleText === 'string' ? headerTitleText :
-       typeof pageTitle === 'string' ? pageTitle : 'Page');
+    // Immediately sync header actions and meta for the newly navigated tab
+    useHeaderActions.getState().syncHeaderForActiveTab(location.pathname);
+
+    const navMeta = resolveNavMeta(location.pathname, location.search);
+    const initialTitle = navMeta?.label || (typeof pageTitle === 'string' ? pageTitle : 'Page');
 
     useWorkspaceTabStore.getState().openTab({
       id: location.pathname,
       route: `${location.pathname}${location.search}`,
       pathname: location.pathname,
-      title,
+      title: initialTitle,
       closable: location.pathname !== '/dashboard',
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, location.search]);
 
-  // Update the title ref whenever it changes, but DON'T use it as an effect dep
+  // If a tab has a custom dynamic header title explicitly registered for ITSELF, update the tab title
   React.useEffect(() => {
-    const title = typeof headerTitleText === 'string'
-      ? headerTitleText
-      : typeof pageTitle === 'string'
-      ? pageTitle
-      : '';
-    if (title) {
-      latestTitleRef.current = title;
-      // Update tab title in store without triggering full re-sync
+    const metaForThisTab = useHeaderActions.getState().tabMetaMap[location.pathname];
+    if (metaForThisTab?.title && typeof metaForThisTab.title === 'string') {
       const store = useWorkspaceTabStore.getState();
       const existing = store.tabs.find((t) => t.id === location.pathname);
-      if (existing && existing.title !== title) {
-        store.openTab({ ...existing, title });
+      if (existing && existing.title !== metaForThisTab.title) {
+        store.openTab({ ...existing, title: metaForThisTab.title });
       }
     }
-  }, [headerTitleText, pageTitle, location.pathname]);
+  }, [headerTitle, location.pathname]);
 
 
   const handleMenuClick = (info: { key: string }) => {
@@ -360,7 +352,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       (t) => t.id === targetPath || t.pathname === targetPath
     );
     if (existing) {
-      useWorkspaceTabStore.getState().activateTab(existing.id);
+      if (navMeta?.label && existing.title !== navMeta.label) {
+        useWorkspaceTabStore.getState().openTab({ ...existing, title: navMeta.label });
+      } else {
+        useWorkspaceTabStore.getState().activateTab(existing.id);
+      }
       navigate(existing.route);
     } else {
       useWorkspaceTabStore.getState().openTab({
