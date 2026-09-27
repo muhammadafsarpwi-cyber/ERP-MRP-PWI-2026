@@ -194,6 +194,19 @@ export class ProductionUnitService {
       }
 
       const saved = await manager.save(ProductionUnit, units);
+
+      // Register barcode table entries for quick lookup
+      for (const u of saved) {
+        await manager.query(
+          `INSERT INTO barcodes (
+            id, company_id, barcode_value, entity_type, entity_id, entity_code, entity_label, status, is_primary, is_active, created_at, updated_at
+          ) VALUES (
+            gen_random_uuid(), $1, $2, 'PRODUCTION_UNIT', $3, $2, $4, 'ACTIVE', true, true, NOW(), NOW()
+          ) ON CONFLICT DO NOTHING`,
+          [u.companyId, u.unitSerialNo, u.id, `Coil ${u.coilNo} (${u.unitSerialNo})`],
+        ).catch(() => {});
+      }
+
       this.logger.log(`Generated ${saved.length} production units for company ${dto.companyId}`);
       return saved;
     });

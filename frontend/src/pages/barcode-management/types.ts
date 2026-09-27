@@ -5,6 +5,8 @@ export enum BarcodeEntityType {
   WAREHOUSE = 'WAREHOUSE',
   EMPLOYEE = 'EMPLOYEE',
   PRODUCTION_ENTRY = 'PRODUCTION_ENTRY',
+  PRODUCTION_UNIT = 'PRODUCTION_UNIT',
+  DISPATCH_PACKAGE = 'DISPATCH_PACKAGE',
   JOB_CARD = 'JOB_CARD',
   GATE_PASS = 'GATE_PASS',
 }
@@ -37,6 +39,8 @@ export interface BarcodeStats {
   WAREHOUSE?: number;
   EMPLOYEE?: number;
   PRODUCTION_ENTRY?: number;
+  PRODUCTION_UNIT?: number;
+  DISPATCH_PACKAGE?: number;
   JOB_CARD?: number;
   GATE_PASS?: number;
 }
@@ -48,6 +52,8 @@ export const ENTITY_TYPE_LABELS: Record<BarcodeEntityType, string> = {
   [BarcodeEntityType.WAREHOUSE]: 'Warehouse',
   [BarcodeEntityType.EMPLOYEE]: 'Employee',
   [BarcodeEntityType.PRODUCTION_ENTRY]: 'Production Entry',
+  [BarcodeEntityType.PRODUCTION_UNIT]: 'Production Unit / Coil',
+  [BarcodeEntityType.DISPATCH_PACKAGE]: 'Dispatch Package',
   [BarcodeEntityType.JOB_CARD]: 'Job Card',
   [BarcodeEntityType.GATE_PASS]: 'Outward Gate Pass',
 };
@@ -59,6 +65,8 @@ export const ENTITY_TYPE_ROUTES: Record<BarcodeEntityType, string> = {
   [BarcodeEntityType.WAREHOUSE]: '/organization/warehouses',
   [BarcodeEntityType.EMPLOYEE]: '/hr/employees',
   [BarcodeEntityType.PRODUCTION_ENTRY]: '/production/entries',
+  [BarcodeEntityType.PRODUCTION_UNIT]: '/production/units',
+  [BarcodeEntityType.DISPATCH_PACKAGE]: '/sales/packages',
   [BarcodeEntityType.JOB_CARD]: '/maintenance/job-cards',
   [BarcodeEntityType.GATE_PASS]: '/sales/deliveries',
 };

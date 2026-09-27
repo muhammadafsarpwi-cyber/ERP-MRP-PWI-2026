@@ -89,6 +89,16 @@ export class DispatchPackageService {
 
     const saved = await this.packageRepo.save(pkg);
 
+    // Register barcode table entry for quick lookup
+    await this.packageRepo.query(
+      `INSERT INTO barcodes (
+        id, company_id, barcode_value, entity_type, entity_id, entity_code, entity_label, status, is_primary, is_active, created_at, updated_at
+      ) VALUES (
+        gen_random_uuid(), $1, $2, 'DISPATCH_PACKAGE', $3, $2, $4, 'ACTIVE', true, true, NOW(), NOW()
+      ) ON CONFLICT DO NOTHING`,
+      [companyId, packageNo, saved.id, `Dispatch Package: ${packageNo}${dto.customerName ? ' (' + dto.customerName + ')' : ''}`],
+    ).catch(() => {});
+
     await this.recordAudit(
       saved.id,
       companyId,

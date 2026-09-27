@@ -175,47 +175,35 @@ export class BarcodeService {
       .getOne();
     if (barcode) return barcode;
 
-    // 3. Fallback: Search directly across core entities (Machine, Item, Job Card, Customer, Warehouse, Employee, Gate Pass)
-    try {
-      const validUuid = extractedEntityId || '00000000-0000-0000-0000-000000000000';
+    // 3. Fallback: Search directly across core entities (Machine, Item, Job Card, Customer, Warehouse, Employee, Gate Pass, Production Unit, Dispatch Package)
+    const validUuid = extractedEntityId || '00000000-0000-0000-0000-000000000000';
 
-      // Check Machine
+    // Check Machine
+    try {
       const machineRows = await this.barcodeRepo.query(
-        `SELECT id, machine_code, name, company_id FROM machines 
-         WHERE (machine_code ILIKE $1 OR name ILIKE $1 OR id::text = $1 OR id::text = $2 OR machine_code ILIKE $3 OR qr_code ILIKE $4) 
+        `SELECT id, machine_code, machine_name, company_id FROM machines 
+         WHERE (machine_code ILIKE $1 OR machine_name ILIKE $1 OR id::text = $1 OR id::text = $2 OR machine_code ILIKE $3 OR qr_code ILIKE $4) 
            AND is_active = true LIMIT 1`,
         [cleanValue, validUuid, extractedCode, `%${cleanValue}%`],
       );
       if (machineRows && machineRows.length > 0) {
         const machine = machineRows[0];
-        return this.ensureBarcodeForEntity(
+        return await this.ensureBarcodeForEntity(
           machine.company_id || companyId || '00000000-0000-0000-0000-000000000001',
           BarcodeEntityType.MACHINE,
           machine.id,
           machine.machine_code,
-          machine.name,
+          machine.machine_name || machine.machine_code,
+          undefined,
+          machine.machine_code,
         );
       }
+    } catch {
+      // Continue searching next entity
+    }
 
-      // Check Item
-      const itemRows = await this.barcodeRepo.query(
-        `SELECT id, item_code, name, company_id FROM items 
-         WHERE (item_code ILIKE $1 OR barcode ILIKE $1 OR sku ILIKE $1 OR name ILIKE $1 OR id::text = $1 OR id::text = $2 OR item_code ILIKE $3) 
-           AND is_active = true LIMIT 1`,
-        [cleanValue, validUuid, extractedCode],
-      );
-      if (itemRows && itemRows.length > 0) {
-        const item = itemRows[0];
-        return this.ensureBarcodeForEntity(
-          item.company_id || companyId || '00000000-0000-0000-0000-000000000001',
-          BarcodeEntityType.ITEM,
-          item.id,
-          item.item_code,
-          item.name,
-        );
-      }
-
-      // Check Production Unit (Coil / Serial)
+    // Check Production Unit (Coil / Serial)
+    try {
       const unitRows = await this.barcodeRepo.query(
         `SELECT id, unit_serial_no, coil_no, company_id FROM production_units
          WHERE (unit_serial_no ILIKE $1 OR coil_no ILIKE $1 OR qr_payload ILIKE $1 OR barcode_payload ILIKE $1 OR id::text = $1 OR id::text = $2 OR unit_serial_no ILIKE $3)
@@ -224,16 +212,70 @@ export class BarcodeService {
       );
       if (unitRows && unitRows.length > 0) {
         const unit = unitRows[0];
-        return this.ensureBarcodeForEntity(
+        return await this.ensureBarcodeForEntity(
           unit.company_id || companyId || '00000000-0000-0000-0000-000000000001',
           BarcodeEntityType.PRODUCTION_UNIT,
           unit.id,
           unit.unit_serial_no,
           `Coil ${unit.coil_no} (${unit.unit_serial_no})`,
+          undefined,
+          unit.unit_serial_no,
         );
       }
+    } catch {
+      // Continue searching next entity
+    }
 
-      // Check Maintenance Job Card
+    // Check Dispatch Package
+    try {
+      const pkgRows = await this.barcodeRepo.query(
+        `SELECT id, package_no, customer_name, company_id, package_qr_payload FROM dispatch_packages
+         WHERE (package_no ILIKE $1 OR package_qr_payload ILIKE $1 OR id::text = $1 OR id::text = $2 OR package_no ILIKE $3)
+           AND is_active = true LIMIT 1`,
+        [cleanValue, validUuid, extractedCode],
+      );
+      if (pkgRows && pkgRows.length > 0) {
+        const pkg = pkgRows[0];
+        return await this.ensureBarcodeForEntity(
+          pkg.company_id || companyId || '00000000-0000-0000-0000-000000000001',
+          BarcodeEntityType.DISPATCH_PACKAGE,
+          pkg.id,
+          pkg.package_no,
+          `Package ${pkg.package_no}${pkg.customer_name ? ' - ' + pkg.customer_name : ''}`,
+          undefined,
+          pkg.package_no,
+        );
+      }
+    } catch {
+      // Continue searching next entity
+    }
+
+    // Check Item
+    try {
+      const itemRows = await this.barcodeRepo.query(
+        `SELECT id, item_code, name, barcode, company_id FROM items 
+         WHERE (item_code ILIKE $1 OR barcode ILIKE $1 OR sku ILIKE $1 OR name ILIKE $1 OR id::text = $1 OR id::text = $2 OR item_code ILIKE $3) 
+           AND is_active = true LIMIT 1`,
+        [cleanValue, validUuid, extractedCode],
+      );
+      if (itemRows && itemRows.length > 0) {
+        const item = itemRows[0];
+        return await this.ensureBarcodeForEntity(
+          item.company_id || companyId || '00000000-0000-0000-0000-000000000001',
+          BarcodeEntityType.ITEM,
+          item.id,
+          item.item_code,
+          item.name,
+          undefined,
+          item.barcode || item.item_code,
+        );
+      }
+    } catch {
+      // Continue searching next entity
+    }
+
+    // Check Maintenance Job Card
+    try {
       const jcRows = await this.barcodeRepo.query(
         `SELECT id, job_card_no, company_id FROM maintenance_job_cards 
          WHERE (job_card_no ILIKE $1 OR id::text = $1 OR id::text = $2 OR job_card_no ILIKE $3) 
@@ -242,53 +284,71 @@ export class BarcodeService {
       );
       if (jcRows && jcRows.length > 0) {
         const jc = jcRows[0];
-        return this.ensureBarcodeForEntity(
+        return await this.ensureBarcodeForEntity(
           jc.company_id || companyId || '00000000-0000-0000-0000-000000000001',
           BarcodeEntityType.JOB_CARD,
           jc.id,
           jc.job_card_no,
           `${jc.job_card_no} - Maintenance Job Card`,
+          undefined,
+          jc.job_card_no,
         );
       }
+    } catch {
+      // Continue searching next entity
+    }
 
-      // Check Delivery Note / Outward Gate Pass
+    // Check Delivery Note / Outward Gate Pass
+    try {
       const cleanRef = cleanValue.replace(/^GP-OUT-|^GP-IN-|^DN-/, '');
       const delRows = await this.barcodeRepo.query(
         `SELECT id, delivery_number, company_id FROM sales_deliveries 
          WHERE (delivery_number ILIKE $1 OR delivery_number ILIKE $2 OR id::text = $1 OR id::text = $3) 
-           AND is_active = true LIMIT 1`,
+         LIMIT 1`,
         [cleanValue, `%${cleanRef}%`, validUuid],
       );
       if (delRows && delRows.length > 0) {
         const del = delRows[0];
-        return this.ensureBarcodeForEntity(
+        return await this.ensureBarcodeForEntity(
           del.company_id || companyId || '00000000-0000-0000-0000-000000000001',
           BarcodeEntityType.GATE_PASS,
           del.id,
           del.delivery_number,
           `Outward Gate Pass: ${del.delivery_number}`,
+          undefined,
+          del.delivery_number,
         );
       }
+    } catch {
+      // Continue searching next entity
+    }
 
-      // Check Customer
+    // Check Customer
+    try {
       const custRows = await this.barcodeRepo.query(
-        `SELECT id, customer_code, name, company_id FROM customers 
-         WHERE (customer_code ILIKE $1 OR name ILIKE $1 OR id::text = $1 OR id::text = $2 OR customer_code ILIKE $3) 
+        `SELECT id, customer_code, company_name, name, company_id FROM customers 
+         WHERE (customer_code ILIKE $1 OR company_name ILIKE $1 OR name ILIKE $1 OR id::text = $1 OR id::text = $2 OR customer_code ILIKE $3) 
            AND is_active = true LIMIT 1`,
         [cleanValue, validUuid, extractedCode],
       );
       if (custRows && custRows.length > 0) {
         const cust = custRows[0];
-        return this.ensureBarcodeForEntity(
+        return await this.ensureBarcodeForEntity(
           cust.company_id || companyId || '00000000-0000-0000-0000-000000000001',
           BarcodeEntityType.CUSTOMER,
           cust.id,
           cust.customer_code,
-          cust.name,
+          cust.company_name || cust.name || cust.customer_code,
+          undefined,
+          cust.customer_code,
         );
       }
+    } catch {
+      // Continue searching next entity
+    }
 
-      // Check Warehouse
+    // Check Warehouse
+    try {
       const whRows = await this.barcodeRepo.query(
         `SELECT id, warehouse_code, name, company_id FROM warehouses 
          WHERE (warehouse_code ILIKE $1 OR name ILIKE $1 OR id::text = $1 OR id::text = $2 OR warehouse_code ILIKE $3) 
@@ -297,16 +357,22 @@ export class BarcodeService {
       );
       if (whRows && whRows.length > 0) {
         const wh = whRows[0];
-        return this.ensureBarcodeForEntity(
+        return await this.ensureBarcodeForEntity(
           wh.company_id || companyId || '00000000-0000-0000-0000-000000000001',
           BarcodeEntityType.WAREHOUSE,
           wh.id,
           wh.warehouse_code,
           wh.name,
+          undefined,
+          wh.warehouse_code,
         );
       }
+    } catch {
+      // Continue searching next entity
+    }
 
-      // Check Employee
+    // Check Employee
+    try {
       const empRows = await this.barcodeRepo.query(
         `SELECT id, employee_code, (first_name || ' ' || COALESCE(last_name, '')) as name, company_id FROM hr_employees 
          WHERE (employee_code ILIKE $1 OR id::text = $1 OR id::text = $2 OR employee_code ILIKE $3) 
@@ -315,16 +381,18 @@ export class BarcodeService {
       );
       if (empRows && empRows.length > 0) {
         const emp = empRows[0];
-        return this.ensureBarcodeForEntity(
+        return await this.ensureBarcodeForEntity(
           emp.company_id || companyId || '00000000-0000-0000-0000-000000000001',
           BarcodeEntityType.EMPLOYEE,
           emp.id,
           emp.employee_code,
           emp.name,
+          undefined,
+          emp.employee_code,
         );
       }
-    } catch (searchErr) {
-      // Continue to throw NotFoundException below
+    } catch {
+      // Continue searching next entity
     }
 
     throw new NotFoundException(`No barcode or entity found for value: ${barcodeValue}`);
@@ -435,12 +503,30 @@ export class BarcodeService {
     entityCode: string,
     entityLabel: string,
     userId?: string,
+    preferredBarcodeValue?: string,
   ): Promise<Barcode> {
     const existing = await this.findByEntity(companyId, entityType, entityId);
     if (existing.length > 0) return existing[0];
 
+    const barcodeValue = preferredBarcodeValue || entityCode || (await this.generateBarcodeValue());
+
+    // Check if barcode with this value already exists in the company
+    const conflict = await this.barcodeRepo.findOne({
+      where: { companyId, barcodeValue, status: BarcodeStatus.ACTIVE },
+    });
+    if (conflict) {
+      if (conflict.entityId === entityId) return conflict;
+      // If conflicting with different entity, fallback to generated barcode
+      const generated = await this.generateBarcodeValue();
+      return this.create(
+        { entityType, entityId, entityCode, entityLabel, barcodeValue: generated },
+        companyId,
+        userId,
+      );
+    }
+
     return this.create(
-      { entityType, entityId, entityCode, entityLabel },
+      { entityType, entityId, entityCode, entityLabel, barcodeValue },
       companyId,
       userId,
     );

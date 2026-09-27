@@ -10,13 +10,19 @@ import {
   FileTextOutlined,
   CarOutlined,
   CheckCircleOutlined,
+  InboxOutlined,
+  BarcodeOutlined,
+  PlusCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import BarcodeScanner from '../../components/shared/BarcodeScanner';
 import BarcodePrint from '../../components/shared/BarcodePrint';
 import ScannedMachineHistoryModal, { MachineLifecycleContent } from './ScannedMachineHistoryModal';
 import { apiService } from '../../services/api';
-import { BarcodeRecord, ENTITY_TYPE_LABELS, ENTITY_TYPE_ROUTES, BarcodeEntityType } from './types';
+import { productionUnitService } from '../../services/productionUnitService';
+import { dispatchPackageService } from '../../services/dispatchPackageService';
+import { printProductionUnitLabels } from '../production/units/ProductionUnitLabel';
+import { BarcodeRecord, ENTITY_TYPE_LABELS, ENTITY_TYPE_ROUTES, BarcodeEntityType, BarcodeStatus } from './types';
 import { printGatePassDocument } from '../../utils/printTemplates';
 
 const { Title, Text } = Typography;
@@ -29,6 +35,8 @@ const ScanBarcode: React.FC = () => {
   const [searchValue, setSearchValue] = useState('');
   const [result, setResult] = useState<BarcodeRecord | null>(null);
   const [gatePassRecord, setGatePassRecord] = useState<any>(null);
+  const [productionUnitRecord, setProductionUnitRecord] = useState<any>(null);
+  const [dispatchPackageRecord, setDispatchPackageRecord] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [machineModalOpen, setMachineModalOpen] = useState(false);
@@ -128,6 +136,70 @@ const ScanBarcode: React.FC = () => {
       setError(null);
       setResult(null);
       setGatePassRecord(null);
+      setProductionUnitRecord(null);
+      setDispatchPackageRecord(null);
+
+      // Check if this is a Production Unit (Coil / Unit Serial)
+      const isProdUnitCode =
+        cleanCode.startsWith('PWI-PU-') ||
+        cleanCode.startsWith('PU-') ||
+        cleanCode.startsWith('CN-');
+
+      if (isProdUnitCode) {
+        try {
+          const uRes = await productionUnitService.scanLookup(cleanCode);
+          const uData = (uRes as any)?.data || uRes;
+          if (uData && (uData.id || uData.unitSerialNo)) {
+            setProductionUnitRecord(uData);
+            setResult({
+              id: uData.id,
+              companyId: uData.companyId || '',
+              barcodeValue: uData.unitSerialNo || cleanCode,
+              entityType: BarcodeEntityType.PRODUCTION_UNIT,
+              entityId: uData.id,
+              barcodeLabel: `Coil ${uData.coilNo}`,
+              entityLabel: `Production Unit: ${uData.unitSerialNo} (${uData.coilNo})`,
+              entityCode: uData.unitSerialNo,
+              status: (uData.status === 'CANCELLED' || uData.status === 'VOID') ? BarcodeStatus.INACTIVE : BarcodeStatus.ACTIVE,
+              isPrimary: true,
+              createdAt: uData.createdAt || new Date().toISOString(),
+              updatedAt: uData.updatedAt || new Date().toISOString(),
+            });
+            return;
+          }
+        } catch {
+          // fall through to general lookup
+        }
+      }
+
+      // Check if this is a Dispatch Package
+      const isPackageCode = cleanCode.startsWith('PKG-') || cleanCode.startsWith('PWI-PKG-');
+      if (isPackageCode) {
+        try {
+          const pkgRes = await dispatchPackageService.traceLookup(cleanCode);
+          const pkgData = (pkgRes as any)?.data?.package || (pkgRes as any)?.data || pkgRes;
+          if (pkgData && (pkgData.id || pkgData.packageNo)) {
+            setDispatchPackageRecord(pkgData);
+            setResult({
+              id: pkgData.id,
+              companyId: pkgData.companyId || '',
+              barcodeValue: pkgData.packageNo || cleanCode,
+              entityType: BarcodeEntityType.DISPATCH_PACKAGE,
+              entityId: pkgData.id,
+              barcodeLabel: 'Dispatch Package',
+              entityLabel: `Package: ${pkgData.packageNo}`,
+              entityCode: pkgData.packageNo,
+              status: pkgData.status === 'CANCELLED' ? BarcodeStatus.INACTIVE : BarcodeStatus.ACTIVE,
+              isPrimary: true,
+              createdAt: pkgData.createdAt || new Date().toISOString(),
+              updatedAt: pkgData.updatedAt || new Date().toISOString(),
+            });
+            return;
+          }
+        } catch {
+          // fall through to general lookup
+        }
+      }
 
       // Check if this is an Outward Gate Pass / Delivery Note
       const isGatePassCode =
@@ -182,6 +254,22 @@ const ScanBarcode: React.FC = () => {
         setResult(data);
         if (data.entityType === BarcodeEntityType.MACHINE || (data.entityType as any) === 'MACHINE') {
           setMachineModalOpen(true);
+        } else if (data.entityType === BarcodeEntityType.PRODUCTION_UNIT || (data.entityType as any) === 'PRODUCTION_UNIT') {
+          try {
+            const puRes = await productionUnitService.scanLookup(data.entityCode || data.barcodeValue || data.entityId);
+            const puData = (puRes as any)?.data || puRes;
+            if (puData && (puData.id || puData.unitSerialNo)) {
+              setProductionUnitRecord(puData);
+            }
+          } catch {}
+        } else if (data.entityType === BarcodeEntityType.DISPATCH_PACKAGE || (data.entityType as any) === 'DISPATCH_PACKAGE') {
+          try {
+            const dpRes = await dispatchPackageService.traceLookup(data.entityCode || data.barcodeValue || data.entityId);
+            const dpData = (dpRes as any)?.data?.package || (dpRes as any)?.data || dpRes;
+            if (dpData && (dpData.id || dpData.packageNo)) {
+              setDispatchPackageRecord(dpData);
+            }
+          } catch {}
         }
       } else {
         setError(`Barcode / QR Code "${cleanCode}" not found`);
@@ -292,6 +380,8 @@ const ScanBarcode: React.FC = () => {
 
   const isMachine = result?.entityType === BarcodeEntityType.MACHINE || (result?.entityType as any) === 'MACHINE';
   const isGatePass = result?.entityType === BarcodeEntityType.GATE_PASS || gatePassRecord != null;
+  const isProdUnit = (result?.entityType === BarcodeEntityType.PRODUCTION_UNIT || (result?.entityType as any) === 'PRODUCTION_UNIT') && productionUnitRecord != null;
+  const isPackage = (result?.entityType === BarcodeEntityType.DISPATCH_PACKAGE || (result?.entityType as any) === 'DISPATCH_PACKAGE') && dispatchPackageRecord != null;
 
   return (
     <div>
@@ -505,8 +595,374 @@ const ScanBarcode: React.FC = () => {
         </Card>
       )}
 
+      {/* Production Unit / Physical Coil Scanned Details Card */}
+      {isProdUnit && productionUnitRecord && (
+        <Card
+          style={{
+            marginBottom: 16,
+            background: token.colorBgContainer,
+            borderColor: token.colorBorderSecondary,
+            borderTop: '4px solid #0284c7',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+              marginBottom: 16,
+              paddingBottom: 12,
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            }}
+          >
+            <div>
+              <Space wrap>
+                <Tag color="#0284c7" style={{ fontSize: 13, padding: '3px 8px', fontWeight: 800 }}>
+                  PRODUCTION UNIT / COIL
+                </Tag>
+                <Tag color="green" icon={<CheckCircleOutlined />}>
+                  PHYSICAL COIL VERIFIED
+                </Tag>
+                <Tag
+                  color={
+                    productionUnitRecord.status === 'PRODUCED' || productionUnitRecord.status === 'GENERATED'
+                      ? 'blue'
+                      : productionUnitRecord.status === 'IN_PACKAGE'
+                      ? 'purple'
+                      : productionUnitRecord.status === 'DISPATCHED'
+                      ? 'green'
+                      : 'default'
+                  }
+                  style={{ fontWeight: 700 }}
+                >
+                  {productionUnitRecord.status || 'ACTIVE'}
+                </Tag>
+              </Space>
+              <div style={{ fontSize: 20, fontWeight: 800, color: token.colorTextHeading, marginTop: 6 }}>
+                Coil #: {productionUnitRecord.coilNo} &nbsp;·&nbsp;{' '}
+                <span style={{ fontSize: 16, color: '#64748b' }}>Serial: {productionUnitRecord.unitSerialNo}</span>
+              </div>
+            </div>
+
+            <Space wrap>
+              <Button
+                type="primary"
+                size="large"
+                icon={<PrinterOutlined />}
+                style={{ background: '#0284c7', borderColor: '#0284c7', fontWeight: 700 }}
+                onClick={() => {
+                  printProductionUnitLabels({
+                    units: [productionUnitRecord],
+                    template: productionUnitRecord.labelTemplate || 'PVC_COIL',
+                    presetKey: 'ROLL_100x50',
+                  });
+                }}
+              >
+                Print Coil Label
+              </Button>
+              <Button
+                size="large"
+                icon={<PlusCircleOutlined />}
+                style={{ background: '#059669', borderColor: '#059669', color: '#fff', fontWeight: 600 }}
+                onClick={() => {
+                  navigate('/sales/packages', {
+                    state: { addSerial: productionUnitRecord.unitSerialNo },
+                  });
+                }}
+              >
+                Add to Dispatch Package
+              </Button>
+              <Button
+                size="large"
+                icon={<FileTextOutlined />}
+                onClick={() => navigate('/production/units')}
+              >
+                Open in Production Units
+              </Button>
+              <Button
+                size="large"
+                onClick={() => {
+                  setResult(null);
+                  setProductionUnitRecord(null);
+                  setSearchValue('');
+                }}
+              >
+                Scan Another
+              </Button>
+            </Space>
+          </div>
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12}>
+              <div
+                style={{
+                  background: token.colorFillAlter,
+                  padding: 14,
+                  borderRadius: 6,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  height: '100%',
+                }}
+              >
+                <Text strong style={{ display: 'block', marginBottom: 8, color: token.colorTextSecondary }}>
+                  COIL & PRODUCT SPECIFICATION
+                </Text>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <div>
+                    <Text strong>Product / Item:</Text>{' '}
+                    <Text strong>
+                      {productionUnitRecord.item?.name || productionUnitRecord.itemName || 'Industrial Wire Product'}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text strong>Item Code / SKU:</Text>{' '}
+                    <Tag color="blue">{productionUnitRecord.item?.itemCode || productionUnitRecord.itemCode || '-'}</Tag>
+                  </div>
+                  <div>
+                    <Text strong>Batch / Lot #:</Text> <Text>{productionUnitRecord.batchNo || '-'}</Text>
+                  </div>
+                  {productionUnitRecord.pvcBatchNo && (
+                    <div>
+                      <Text strong>PVC Compound Batch:</Text> <Text>{productionUnitRecord.pvcBatchNo}</Text>
+                    </div>
+                  )}
+                  <div>
+                    <Text strong>Length (Meters):</Text>{' '}
+                    <Text strong style={{ color: '#0284c7' }}>
+                      {productionUnitRecord.lengthMeters != null
+                        ? Number(productionUnitRecord.lengthMeters).toLocaleString()
+                        : '-'}{' '}
+                      m
+                    </Text>
+                  </div>
+                  <div>
+                    <Text strong>Weight:</Text>{' '}
+                    <Text strong>
+                      {productionUnitRecord.netWeightKg || productionUnitRecord.weightKg || '-'} kg (Net)
+                    </Text>
+                    {productionUnitRecord.grossWeightKg && (
+                      <span> / {productionUnitRecord.grossWeightKg} kg (Gross)</span>
+                    )}
+                  </div>
+                </Space>
+              </div>
+            </Col>
+
+            <Col xs={24} md={12}>
+              <div
+                style={{
+                  background: token.colorFillAlter,
+                  padding: 14,
+                  borderRadius: 6,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  height: '100%',
+                }}
+              >
+                <Text strong style={{ display: 'block', marginBottom: 8, color: token.colorTextSecondary }}>
+                  PRODUCTION & TRACEABILITY AUDIT
+                </Text>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <div>
+                    <Text strong>Machine #:</Text>{' '}
+                    <Text>
+                      {productionUnitRecord.machineNo ||
+                        productionUnitRecord.machine?.machineName ||
+                        productionUnitRecord.machine?.machineCode ||
+                        '-'}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text strong>Shift / Department:</Text>{' '}
+                    <Text>
+                      {productionUnitRecord.shiftName || '-'}{' '}
+                      {productionUnitRecord.departmentName ? `(${productionUnitRecord.departmentName})` : ''}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text strong>Operator Name:</Text> <Text>{productionUnitRecord.operatorName || '-'}</Text>
+                  </div>
+                  <div>
+                    <Text strong>Production Date:</Text>{' '}
+                    <Text>
+                      {productionUnitRecord.productionDate
+                        ? new Date(productionUnitRecord.productionDate).toLocaleDateString()
+                        : '-'}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text strong>Print Count:</Text>{' '}
+                    <Tag color="orange">{productionUnitRecord.printCount || 0} times printed</Tag>
+                  </div>
+                  {productionUnitRecord.packageNo && (
+                    <div>
+                      <Text strong>Assigned Package:</Text>{' '}
+                      <Tag color="purple">📦 {productionUnitRecord.packageNo}</Tag>
+                    </div>
+                  )}
+                </Space>
+              </div>
+            </Col>
+          </Row>
+        </Card>
+      )}
+
+      {/* Dispatch Package Scanned Details Card */}
+      {isPackage && dispatchPackageRecord && (
+        <Card
+          style={{
+            marginBottom: 16,
+            background: token.colorBgContainer,
+            borderColor: token.colorBorderSecondary,
+            borderTop: '4px solid #059669',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+              marginBottom: 16,
+              paddingBottom: 12,
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            }}
+          >
+            <div>
+              <Space wrap>
+                <Tag color="#059669" style={{ fontSize: 13, padding: '3px 8px', fontWeight: 800 }}>
+                  DISPATCH PACKAGE
+                </Tag>
+                <Tag color="green" icon={<CheckCircleOutlined />}>
+                  PACKAGE VERIFIED
+                </Tag>
+                <Tag
+                  color={
+                    dispatchPackageRecord.status === 'FINALIZED'
+                      ? 'purple'
+                      : dispatchPackageRecord.status === 'DISPATCHED'
+                      ? 'green'
+                      : 'blue'
+                  }
+                >
+                  {dispatchPackageRecord.status || 'OPEN'}
+                </Tag>
+              </Space>
+              <div style={{ fontSize: 20, fontWeight: 800, color: token.colorTextHeading, marginTop: 6 }}>
+                Package #: {dispatchPackageRecord.packageNo}
+              </div>
+            </div>
+
+            <Space wrap>
+              <Button
+                type="primary"
+                size="large"
+                icon={<InboxOutlined />}
+                style={{ background: '#059669', borderColor: '#059669', fontWeight: 700 }}
+                onClick={() => navigate('/sales/packages')}
+              >
+                Open in Dispatch Packages
+              </Button>
+              <Button
+                size="large"
+                onClick={() => {
+                  setResult(null);
+                  setDispatchPackageRecord(null);
+                  setSearchValue('');
+                }}
+              >
+                Scan Another
+              </Button>
+            </Space>
+          </div>
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12}>
+              <div
+                style={{
+                  background: token.colorFillAlter,
+                  padding: 14,
+                  borderRadius: 6,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  height: '100%',
+                }}
+              >
+                <Text strong style={{ display: 'block', marginBottom: 8, color: token.colorTextSecondary }}>
+                  PACKAGE & DISPATCH SUMMARY
+                </Text>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <div>
+                    <Text strong>Customer:</Text> <Text strong>{dispatchPackageRecord.customerName || '-'}</Text>
+                  </div>
+                  <div>
+                    <Text strong>Sales Order #:</Text> <Text>{dispatchPackageRecord.salesOrderNo || '-'}</Text>
+                  </div>
+                  <div>
+                    <Text strong>Gate Pass #:</Text> <Tag color="gold">{dispatchPackageRecord.gatePassNo || '-'}</Tag>
+                  </div>
+                  <div>
+                    <Text strong>Total Packed Coils:</Text>{' '}
+                    <Tag color="cyan" style={{ fontWeight: 700 }}>
+                      {dispatchPackageRecord.totalUnits || dispatchPackageRecord.units?.length || 0} Units
+                    </Tag>
+                  </div>
+                  <div>
+                    <Text strong>Total Weight:</Text>{' '}
+                    <Text strong>{dispatchPackageRecord.totalWeightKg || 0} kg</Text>
+                  </div>
+                </Space>
+              </div>
+            </Col>
+
+            <Col xs={24} md={12}>
+              <div
+                style={{
+                  background: token.colorFillAlter,
+                  padding: 14,
+                  borderRadius: 6,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  height: '100%',
+                }}
+              >
+                <Text strong style={{ display: 'block', marginBottom: 8, color: token.colorTextSecondary }}>
+                  LOGISTICS & VEHICLE DETAILS
+                </Text>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <div>
+                    <Text strong>Vehicle / Truck #:</Text>{' '}
+                    <Text strong>{dispatchPackageRecord.vehicleNo || '-'}</Text>
+                  </div>
+                  <div>
+                    <Text strong>Driver Name & Phone:</Text>{' '}
+                    <Text>
+                      {dispatchPackageRecord.driverName || '-'}{' '}
+                      {dispatchPackageRecord.driverPhone ? `(${dispatchPackageRecord.driverPhone})` : ''}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text strong>Dispatch Location:</Text>{' '}
+                    <Text>{dispatchPackageRecord.dispatchLocation || '-'}</Text>
+                  </div>
+                  <div>
+                    <Text strong>Date:</Text>{' '}
+                    <Text>
+                      {dispatchPackageRecord.packageDate
+                        ? new Date(dispatchPackageRecord.packageDate).toLocaleDateString()
+                        : '-'}
+                    </Text>
+                  </div>
+                </Space>
+              </div>
+            </Col>
+          </Row>
+        </Card>
+      )}
+
       {/* General Resolved Card (for Items, Machines, etc.) */}
-      {result && !isGatePass && (
+      {result && !isGatePass && !isProdUnit && !isPackage && (
         <Card style={{ background: token.colorBgContainer, borderColor: token.colorBorderSecondary }}>
           <Result
             status="success"
