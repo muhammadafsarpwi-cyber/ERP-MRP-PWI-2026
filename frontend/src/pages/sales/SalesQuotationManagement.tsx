@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Form, Input, Select, App,
   InputNumber, Row, Col, Descriptions, Divider, Tooltip,
-  Tag, Card, Statistic, Space, Alert, Modal,
+  Tag, Card, Statistic, Space, Alert, Modal, Badge,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, SendOutlined,
   CheckOutlined, StopOutlined, CloseOutlined, ReloadOutlined, FileExcelOutlined,
   PrinterOutlined, FilterOutlined, CloseCircleOutlined, UserOutlined,
   CalendarOutlined, FileTextOutlined, DollarOutlined,
-  HistoryOutlined, ShoppingCartOutlined, SaveOutlined,
+  HistoryOutlined, ShoppingCartOutlined, SaveOutlined, ClearOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -131,7 +131,13 @@ const SalesQuotationManagement: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [filterDateFrom, setFilterDateFrom] = useState<string | undefined>(undefined);
   const [filterDateTo, setFilterDateTo] = useState<string | undefined>(undefined);
+  const [showFilters, setShowFilters] = useState<boolean>(false);
   const [search, setSearch] = useState('');
+
+  const activeFilterCount = useMemo(
+    () => [filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo].filter(Boolean).length,
+    [filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo],
+  );
 
   // Modals & Drawers
   const [modalVisible, setModalVisible] = useState(false);
@@ -1001,118 +1007,42 @@ const SalesQuotationManagement: React.FC = () => {
         <div className="inv-mint-accent-line" />
 
         {/* 5 Filters Grid */}
-        <div className="inv-filter-section">
-          <div className="inv-filter-header">
-            <div className="inv-filter-title">
-              <FilterOutlined style={{ color: '#2ecc71' }} />
-              <span>Filters</span>
-            </div>
-            <button className="inv-btn-clear-all" onClick={handleClearAll}>
-              <CloseCircleOutlined /> Clear All
-            </button>
+        {/* Controls Row: Search Bar & Unified Filters Button & Show Entries */}
+        <div className="inv-controls-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div className="inv-search-control" style={{ flex: '1 1 240px', maxWidth: 360 }}>
+            <Input
+              className="inv-search-input"
+              placeholder="Search quotations, customer..."
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onPressEnter={() => fetchData(1, pageSize)}
+              allowClear
+            />
           </div>
 
-          <div className="inv-filter-boxes-grid">
-            {/* Box 1: CURRENCY */}
-            <div className="inv-filter-box-item">
-              <div className="inv-filter-box-label">
-                <DollarOutlined /> CURRENCY
-              </div>
-              <Select
-                placeholder="All currencies"
-                allowClear
-                className="inv-filter-box-select"
-                value={filterCurrency}
-                onChange={(val) => setFilterCurrency(val)}
-              >
-                {availableCurrencies.map((c) => (
-                  <Select.Option key={c} value={c}>
-                    {c}
-                  </Select.Option>
-                ))}
-              </Select>
-            </div>
-
-            {/* Box 2: CUSTOMER */}
-            <div className="inv-filter-box-item">
-              <div className="inv-filter-box-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span><UserOutlined /> CUSTOMER</span>
-                {filterCustomer && (
-                  <span
-                    style={{ fontSize: 11, color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}
-                    onClick={() => handleOpenCustomerSummary(filterCustomer)}
-                  >
-                    View History
-                  </span>
-                )}
-              </div>
-              <Select
-                placeholder="All customers"
-                allowClear
-                showSearch
-                optionFilterProp="children"
-                className="inv-filter-box-select"
-                value={filterCustomer}
-                onChange={(val) => setFilterCustomer(val)}
-              >
-                {customers.map((c) => (
-                  <Select.Option key={c.id} value={c.id}>
-                    {c.customerCode ? `[${c.customerCode}] ` : ''}{c.companyName || c.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </div>
-
-            {/* Box 3: STATUS */}
-            <div className="inv-filter-box-item">
-              <div className="inv-filter-box-label">
-                <CheckOutlined /> STATUS
-              </div>
-              <Select
-                placeholder="All statuses"
-                allowClear
-                className="inv-filter-box-select"
-                value={filterStatus}
-                onChange={(val) => setFilterStatus(val)}
-              >
-                {STATUS_OPTIONS.map((s) => (
-                  <Select.Option key={s} value={s}>
-                    {s}
-                  </Select.Option>
-                ))}
-              </Select>
-            </div>
-
-            {/* Box 4: DATE FROM */}
-            <div className="inv-filter-box-item">
-              <div className="inv-filter-box-label">
-                <CalendarOutlined /> DATE FROM
-              </div>
-              <Input
-                type="date"
-                className="inv-filter-date"
-                value={filterDateFrom || ''}
-                onChange={(e) => setFilterDateFrom(e.target.value || undefined)}
+          {/* Single Unified "Filters" Button */}
+          <Button
+            icon={<FilterOutlined />}
+            onClick={() => setShowFilters((prev) => !prev)}
+            type={showFilters ? 'primary' : 'default'}
+            style={{ fontWeight: 600 }}
+          >
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge
+                count={activeFilterCount}
+                style={{
+                  marginLeft: 6,
+                  backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                  color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                }}
               />
-            </div>
+            )}
+          </Button>
 
-            {/* Box 5: DATE TO */}
-            <div className="inv-filter-box-item">
-              <div className="inv-filter-box-label">
-                <CalendarOutlined /> DATE TO
-              </div>
-              <Input
-                type="date"
-                className="inv-filter-date"
-                value={filterDateTo || ''}
-                onChange={(e) => setFilterDateTo(e.target.value || undefined)}
-              />
-            </div>
-          </div>
-        </div>
+          <div style={{ flex: 1 }} />
 
-        {/* Controls Row: Show Entries & Search Bar */}
-        <div className="inv-controls-row">
           <div className="inv-entries-control">
             <span>Show</span>
             <Select
@@ -1130,20 +1060,186 @@ const SalesQuotationManagement: React.FC = () => {
             </Select>
             <span>entries</span>
           </div>
-
-          <div className="inv-search-control">
-            <span className="inv-search-label">Search:</span>
-            <Input
-              className="inv-search-input"
-              placeholder="Search quotations, customer..."
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onPressEnter={() => fetchData(1, pageSize)}
-              allowClear
-            />
-          </div>
         </div>
+
+        {/* Collapsible Panel with ALL Filters */}
+        {showFilters && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+              marginBottom: 14,
+            }}
+          >
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Quotations
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid of the 5 Filter Boxes */}
+            <div className="inv-filter-boxes-grid">
+              {/* Box 1: CURRENCY */}
+              <div className="inv-filter-box-item">
+                <div className="inv-filter-box-label">
+                  <DollarOutlined /> CURRENCY
+                </div>
+                <Select
+                  placeholder="All currencies"
+                  allowClear
+                  className="inv-filter-box-select"
+                  value={filterCurrency}
+                  onChange={(val) => setFilterCurrency(val)}
+                >
+                  {availableCurrencies.map((c) => (
+                    <Select.Option key={c} value={c}>
+                      {c}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Box 2: CUSTOMER */}
+              <div className="inv-filter-box-item">
+                <div className="inv-filter-box-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span><UserOutlined /> CUSTOMER</span>
+                  {filterCustomer && (
+                    <span
+                      style={{ fontSize: 11, color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}
+                      onClick={() => handleOpenCustomerSummary(filterCustomer)}
+                    >
+                      View History
+                    </span>
+                  )}
+                </div>
+                <Select
+                  placeholder="All customers"
+                  allowClear
+                  showSearch
+                  optionFilterProp="children"
+                  className="inv-filter-box-select"
+                  value={filterCustomer}
+                  onChange={(val) => setFilterCustomer(val)}
+                >
+                  {customers.map((c) => (
+                    <Select.Option key={c.id} value={c.id}>
+                      {c.customerCode ? `[${c.customerCode}] ` : ''}{c.companyName || c.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Box 3: STATUS */}
+              <div className="inv-filter-box-item">
+                <div className="inv-filter-box-label">
+                  <CheckOutlined /> STATUS
+                </div>
+                <Select
+                  placeholder="All statuses"
+                  allowClear
+                  className="inv-filter-box-select"
+                  value={filterStatus}
+                  onChange={(val) => setFilterStatus(val)}
+                >
+                  {STATUS_OPTIONS.map((s) => (
+                    <Select.Option key={s} value={s}>
+                      {s}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Box 4: DATE FROM */}
+              <div className="inv-filter-box-item">
+                <div className="inv-filter-box-label">
+                  <CalendarOutlined /> DATE FROM
+                </div>
+                <Input
+                  type="date"
+                  className="inv-filter-date"
+                  value={filterDateFrom || ''}
+                  onChange={(e) => setFilterDateFrom(e.target.value || undefined)}
+                />
+              </div>
+
+              {/* Box 5: DATE TO */}
+              <div className="inv-filter-box-item">
+                <div className="inv-filter-box-label">
+                  <CalendarOutlined /> DATE TO
+                </div>
+                <Input
+                  type="date"
+                  className="inv-filter-date"
+                  value={filterDateTo || ''}
+                  onChange={(e) => setFilterDateTo(e.target.value || undefined)}
+                />
+              </div>
+            </div>
+
+            {/* Footer with Clear Filters and Close inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleClearAll}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={() => {
+                    fetchData(1, pageSize);
+                    setShowFilters(false);
+                  }}
+                  loading={loading}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Custom ERP Table */}
         <Table

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { App, Table, Button, Space, Tag, Form, Input, Select, Card, Tree, Tooltip, Dropdown, Checkbox } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, CheckCircleOutlined, ApartmentOutlined, ReloadOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { App, Table, Button, Space, Tag, Form, Input, Select, Card, Tree, Tooltip, Dropdown, Checkbox, Badge } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, CheckCircleOutlined, ApartmentOutlined, ReloadOutlined, AppstoreOutlined, FilterOutlined, CloseOutlined, ClearOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
@@ -110,6 +110,22 @@ const DepartmentManagement: React.FC = () => {
   const [filterDivisionId, setFilterDivisionId] = useState<string | undefined>(() => cachedMaster?.filters?.filterDivisionId);
   const [filterSectionId, setFilterSectionId] = useState<string | undefined>(() => cachedMaster?.filters?.filterSectionId);
   const [filterType, setFilterType] = useState<'all' | 'centralized' | 'production'>(() => cachedMaster?.filters?.filterType ?? 'all');
+  const [showFilters, setShowFilters] = useState(false);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filterDivisionId) count++;
+    if (filterSectionId) count++;
+    if (filterType && filterType !== 'all') count++;
+    return count;
+  }, [filterDivisionId, filterSectionId, filterType]);
+
+  const handleClearFilters = useCallback(() => {
+    setFilterDivisionId(undefined);
+    setFilterSectionId(undefined);
+    setFilterType('all');
+    setPage(1);
+  }, []);
   const [loading, setLoading] = useState<boolean>(() => !cachedMaster || !cachedMaster.departments || cachedMaster.departments.length === 0);
   const [total, setTotal] = useState<number>(() => cachedMaster?.total ?? 0);
   const [page, setPage] = useState<number>(() => cachedMaster?.page ?? 1);
@@ -650,46 +666,26 @@ return (
       <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, padding: '8px 0' }}>Department Management</h2>
 
       <Card title="Department Management" bodyStyle={{ padding: 0 }}>
-        <div className="erp-table-toolbar-grid" style={{ marginBottom: 12, gap: 8, padding: '8px 16px' }}>
-          <Select
-            placeholder="Filter by division"
-            allowClear
-            style={{ width: 180 }}
-            value={filterDivisionId}
-            onChange={setFilterDivisionId}
-            disabled={!filterCompanyId}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', flexWrap: 'wrap' }}>
+          <Button
+            type={showFilters ? 'primary' : 'default'}
+            icon={<FilterOutlined />}
+            onClick={() => setShowFilters((prev) => !prev)}
+            style={{ fontWeight: 600 }}
           >
-            {divisions.map((division) => (
-              <Select.Option key={division.id} value={division.id}>
-                {division.divisionCode} - {division.name}
-              </Select.Option>
-            ))}
-          </Select>
-          <Select
-            placeholder="Filter by section"
-            allowClear
-            style={{ width: 180 }}
-            value={filterSectionId}
-            onChange={setFilterSectionId}
-            disabled={!filterDivisionId}
-          >
-            {sections.map((section) => (
-              <Select.Option key={section.id} value={section.id}>
-                {section.sectionCode} - {section.name}
-              </Select.Option>
-            ))}
-          </Select>
-          <Select
-            placeholder="Types"
-            allowClear
-            style={{ width: 150 }}
-            value={filterType}
-            onChange={(v) => setFilterType(v || 'all')}
-          >
-            <Select.Option value="all">All Types</Select.Option>
-            <Select.Option value="centralized">Centralized</Select.Option>
-            <Select.Option value="production">Production</Select.Option>
-          </Select>
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge
+                count={activeFilterCount}
+                style={{
+                  marginLeft: 6,
+                  backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                  color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                }}
+              />
+            )}
+          </Button>
+
           <Dropdown
             overlay={
               <div style={{ padding: '8px 4px', minWidth: 180 }}>
@@ -713,6 +709,145 @@ return (
             <Button icon={<AppstoreOutlined />}>Columns</Button>
           </Dropdown>
         </div>
+
+        {/* Collapsible Panel with ALL Filters */}
+        {showFilters && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              margin: '0 16px 14px 16px',
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+            }}
+          >
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Departments
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid of the Filter Boxes */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  DIVISION
+                </div>
+                <Select
+                  placeholder="Filter by division"
+                  allowClear
+                  style={{ width: '100%' }}
+                  value={filterDivisionId}
+                  onChange={setFilterDivisionId}
+                  disabled={!filterCompanyId}
+                >
+                  {divisions.map((division) => (
+                    <Select.Option key={division.id} value={division.id}>
+                      {division.divisionCode} - {division.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  SECTION
+                </div>
+                <Select
+                  placeholder="Filter by section"
+                  allowClear
+                  style={{ width: '100%' }}
+                  value={filterSectionId}
+                  onChange={setFilterSectionId}
+                  disabled={!filterDivisionId}
+                >
+                  {sections.map((section) => (
+                    <Select.Option key={section.id} value={section.id}>
+                      {section.sectionCode} - {section.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  TYPE
+                </div>
+                <Select
+                  placeholder="Types"
+                  allowClear
+                  style={{ width: '100%' }}
+                  value={filterType}
+                  onChange={(v) => setFilterType(v || 'all')}
+                >
+                  <Select.Option value="all">All Types</Select.Option>
+                  <Select.Option value="centralized">Centralized</Select.Option>
+                  <Select.Option value="production">Production</Select.Option>
+                </Select>
+              </div>
+            </div>
+
+            {/* Footer with Clear Filters and Close inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleClearFilters}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={() => {
+                    fetchDepartmentsRef.current(1);
+                    setShowFilters(false);
+                  }}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {viewMode === 'table' ? (
           loading && departments.length === 0 ? (

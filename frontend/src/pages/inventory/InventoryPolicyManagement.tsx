@@ -12,7 +12,7 @@ import {
   AppstoreOutlined, BarcodeOutlined, BankOutlined,
   ClusterOutlined, ApartmentOutlined, HomeOutlined, EnvironmentOutlined,
   DownCircleOutlined, UpCircleOutlined, ClockCircleOutlined, ScanOutlined,
-  LineChartOutlined, ThunderboltOutlined, SettingOutlined,
+  LineChartOutlined, ThunderboltOutlined, SettingOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -1135,19 +1135,46 @@ const InventoryPolicyManagement: React.FC = () => {
 
       {/* Filter Panel — Opens downwards directly below toolbar in a single clean line */}
       {filterPanelOpen && (
-        <Card
-          size="small"
+        <div
           style={{
-            marginBottom: 14,
-            borderRadius: 8,
-            background: 'var(--theme-surface, #ffffff)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            padding: '12px 14px',
+            background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
             border: '1px solid var(--theme-border, #e2e8f0)',
+            borderRadius: 8,
+            marginBottom: 14,
           }}
-          styles={{ body: { padding: '12px 14px' } }}
         >
-          <Row gutter={[12, 12]} align="bottom">
-            <Col xs={24} sm={12} md={5}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-muted)', marginBottom: 4 }}>Division</div>
+          {/* Header: Title + Active Count + Close */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                Filter Inventory Policies
+              </span>
+              {activeFilterCount > 0 && (
+                <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                  {activeFilterCount} Active
+                </Tag>
+              )}
+            </div>
+            <Button
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              onClick={() => setFilterPanelOpen(false)}
+              style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+              title="Close Filters"
+            >
+              Close
+            </Button>
+          </div>
+
+          <Row gutter={[12, 12]}>
+            <Col xs={24} sm={12} md={6}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>DIVISION</div>
               <Select
                 placeholder="All Divisions"
                 value={filterDivision}
@@ -1159,8 +1186,8 @@ const InventoryPolicyManagement: React.FC = () => {
                 options={divisions.map((d) => ({ value: d.id, label: d.name }))}
               />
             </Col>
-            <Col xs={24} sm={12} md={5}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-muted)', marginBottom: 4 }}>Section</div>
+            <Col xs={24} sm={12} md={6}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>SECTION</div>
               <Select
                 placeholder="All Sections"
                 value={filterSection}
@@ -1172,8 +1199,8 @@ const InventoryPolicyManagement: React.FC = () => {
                 options={sections.map((s) => ({ value: s.id, label: s.name }))}
               />
             </Col>
-            <Col xs={24} sm={12} md={5}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-muted)', marginBottom: 4 }}>Department</div>
+            <Col xs={24} sm={12} md={6}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>DEPARTMENT</div>
               <Select
                 placeholder="All Departments"
                 value={filterDepartment}
@@ -1185,8 +1212,8 @@ const InventoryPolicyManagement: React.FC = () => {
                 options={departments.map((d) => ({ value: d.id, label: d.name }))}
               />
             </Col>
-            <Col xs={24} sm={12} md={4}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-muted)', marginBottom: 4 }}>Stock Status</div>
+            <Col xs={24} sm={12} md={6}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>STOCK STATUS</div>
               <Select
                 placeholder="All Stock Statuses"
                 value={filterStockStatus}
@@ -1196,29 +1223,47 @@ const InventoryPolicyManagement: React.FC = () => {
                 options={Object.entries(STOCK_STATUS_CONFIG).map(([key, cfg]) => ({ value: key, label: cfg.label }))}
               />
             </Col>
-            <Col xs={24} sm={12} md={5}>
-              <Space style={{ width: '100%' }}>
-                <Button
-                  type="primary"
-                  icon={<FilterOutlined />}
-                  onClick={() => fetchPolicies(1)}
-                  loading={loading}
-                  style={{ flex: 1 }}
-                >
-                  Apply
-                </Button>
-                <Button
-                  icon={<ClearOutlined />}
-                  onClick={resetFilters}
-                  disabled={activeFilterCount === 0 && !search}
-                  style={{ flex: 1 }}
-                >
-                  Reset
-                </Button>
-              </Space>
-            </Col>
           </Row>
-        </Card>
+
+          {/* Footer with Clear Filters and Apply Filters inside */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 8,
+              paddingTop: 8,
+              borderTop: '1px solid var(--theme-border, #e2e8f0)',
+            }}
+          >
+            <Button
+              icon={<ClearOutlined />}
+              onClick={resetFilters}
+              danger={activeFilterCount > 0}
+            >
+              Clear Filters
+            </Button>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button onClick={() => setFilterPanelOpen(false)}>
+                Close
+              </Button>
+              <Button
+                type="primary"
+                icon={<FilterOutlined />}
+                onClick={() => {
+                  fetchPolicies(1);
+                  setFilterPanelOpen(false);
+                }}
+                loading={loading}
+                style={{ fontWeight: 600 }}
+              >
+                Apply Filters
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Table */}

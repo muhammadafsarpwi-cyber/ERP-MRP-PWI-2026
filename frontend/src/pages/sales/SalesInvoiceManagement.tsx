@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Form, Input, Select, App,
   InputNumber, Descriptions, DatePicker, Tooltip,
-  Modal, Tag,
+  Modal, Tag, Badge,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, EyeOutlined, DollarOutlined,
@@ -13,7 +13,7 @@ import {
   WalletOutlined, MailOutlined, WhatsAppOutlined, StopOutlined,
   DeleteOutlined, BranchesOutlined, ShopOutlined,
   ThunderboltOutlined, BarcodeOutlined, CameraOutlined, SoundOutlined,
-  SaveOutlined, ClearOutlined,
+  SaveOutlined, ClearOutlined, CloseOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -117,7 +117,13 @@ const SalesInvoiceManagement: React.FC = () => {
   const [filterOverdue, setFilterOverdue] = useState<string | undefined>(undefined);
   const [filterDateFrom, setFilterDateFrom] = useState<string | undefined>(undefined);
   const [filterDateTo, setFilterDateTo] = useState<string | undefined>(undefined);
+  const [showFilters, setShowFilters] = useState<boolean>(false);
   const [search, setSearch] = useState('');
+
+  const activeFilterCount = useMemo(
+    () => [filterDocType, filterCustomer, filterOverdue, filterDateFrom, filterDateTo].filter(Boolean).length,
+    [filterDocType, filterCustomer, filterOverdue, filterDateFrom, filterDateTo],
+  );
 
   // View Mode: 'list' | 'create' | 'edit' (Eliminating all 1965 cramped modals)
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'edit'>('list');
@@ -1487,106 +1493,44 @@ const SalesInvoiceManagement: React.FC = () => {
           {/* Distinctive Mint Green Accent Line */}
           <div className="inv-mint-accent-line" />
 
-          {/* 5 Filters Grid */}
-          <div className="inv-filter-section">
-            <div className="inv-filter-header">
-              <div className="inv-filter-title">
-                <FilterOutlined style={{ color: '#2ecc71' }} />
-                <span>Filters</span>
-              </div>
-              <button className="inv-btn-clear-all" onClick={handleClearAll}>
-                <CloseCircleOutlined /> Clear All
-              </button>
+          {/* Controls Row: Search Bar & Unified Filters Button & Show Entries */}
+          <div className="inv-table-controls" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div className="inv-search-control" style={{ flex: '1 1 240px', maxWidth: 360 }}>
+              <Input
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search invoices, customer..."
+                className="inv-search-input"
+                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                allowClear
+              />
             </div>
 
-            <div className="inv-filter-boxes-grid">
-              {/* Box 1: DOCUMENT TYPE */}
-              <div className="inv-filter-box-item">
-                <div className="inv-filter-box-label">
-                  <FileTextOutlined /> DOCUMENT TYPE
-                </div>
-                <Select
-                  placeholder="All types"
-                  allowClear
-                  className="inv-filter-box-select"
-                  value={filterDocType}
-                  onChange={(val) => setFilterDocType(val)}
-                >
-                  {DOCUMENT_TYPES.map(t => (
-                    <Select.Option key={t} value={t}>{t}</Select.Option>
-                  ))}
-                </Select>
-              </div>
-
-              {/* Box 2: CUSTOMER */}
-              <div className="inv-filter-box-item">
-                <div className="inv-filter-box-label">
-                  <UserOutlined /> CUSTOMER
-                </div>
-                <Select
-                  placeholder="All customers"
-                  allowClear
-                  showSearch
-                  optionFilterProp="children"
-                  className="inv-filter-box-select"
-                  value={filterCustomer}
-                  onChange={(val) => setFilterCustomer(val)}
-                >
-                  {customers.map(c => (
-                    <Select.Option key={c.id} value={c.id}>
-                      {c.customerCode ? `[${c.customerCode}] ` : ''}{c.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </div>
-
-              {/* Box 3: OVERDUE */}
-              <div className="inv-filter-box-item">
-                <div className="inv-filter-box-label">
-                  <ClockCircleOutlined /> OVERDUE
-                </div>
-                <Select
-                  placeholder="Any"
-                  allowClear
-                  className="inv-filter-box-select"
-                  value={filterOverdue}
-                  onChange={(val) => setFilterOverdue(val)}
-                >
-                  <Select.Option value="OVERDUE">Overdue Only (▲)</Select.Option>
-                  <Select.Option value="NOT_OVERDUE">Current / On Time</Select.Option>
-                </Select>
-              </div>
-
-              {/* Box 4: DATE FROM */}
-              <div className="inv-filter-box-item">
-                <div className="inv-filter-box-label">
-                  <CalendarOutlined /> DATE FROM
-                </div>
-                <DatePicker
-                  placeholder="mm/dd/yyyy"
-                  className="inv-filter-box-date"
-                  value={filterDateFrom ? dayjs(filterDateFrom) : null}
-                  onChange={(d) => setFilterDateFrom(d ? d.format('YYYY-MM-DD') : undefined)}
+            {/* Single Unified "Filters" Button */}
+            <Button
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((prev) => !prev)}
+              type={showFilters ? 'primary' : 'default'}
+              style={{ fontWeight: 600 }}
+            >
+              Filters
+              {activeFilterCount > 0 && (
+                <Badge
+                  count={activeFilterCount}
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                  }}
                 />
-              </div>
+              )}
+            </Button>
 
-              {/* Box 5: DATE TO */}
-              <div className="inv-filter-box-item">
-                <div className="inv-filter-box-label">
-                  <CalendarOutlined /> DATE TO
-                </div>
-                <DatePicker
-                  placeholder="mm/dd/yyyy"
-                  className="inv-filter-box-date"
-                  value={filterDateTo ? dayjs(filterDateTo) : null}
-                  onChange={(d) => setFilterDateTo(d ? d.format('YYYY-MM-DD') : undefined)}
-                />
-              </div>
-            </div>
-          </div>
+            <div style={{ flex: 1 }} />
 
-          {/* Table Controls Bar (Show entries & Search) */}
-          <div className="inv-table-controls">
             <div className="inv-entries-control">
               <span>Show</span>
               <Select
@@ -1604,21 +1548,161 @@ const SalesInvoiceManagement: React.FC = () => {
               </Select>
               <span>entries</span>
             </div>
-
-            <div className="inv-search-control">
-              <span>Search:</span>
-              <Input
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                placeholder="Search invoices, customer..."
-                className="inv-search-input"
-                allowClear
-              />
-            </div>
           </div>
+
+          {/* Collapsible Panel with ALL Filters */}
+          {showFilters && (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                padding: '12px 14px',
+                background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+                border: '1px solid var(--theme-border, #e2e8f0)',
+                borderRadius: 8,
+                marginBottom: 14,
+              }}
+            >
+              {/* Header: Title + Active Count + Close */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                    Filter Invoices
+                  </span>
+                  {activeFilterCount > 0 && (
+                    <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                      {activeFilterCount} Active
+                    </Tag>
+                  )}
+                </div>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  onClick={() => setShowFilters(false)}
+                  style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                  title="Close Filters"
+                >
+                  Close
+                </Button>
+              </div>
+
+              {/* Grid of the 5 Filter Boxes */}
+              <div className="inv-filter-boxes-grid">
+                {/* Box 1: DOCUMENT TYPE */}
+                <div className="inv-filter-box-item">
+                  <div className="inv-filter-box-label">
+                    <FileTextOutlined /> DOCUMENT TYPE
+                  </div>
+                  <Select
+                    placeholder="All types"
+                    allowClear
+                    className="inv-filter-box-select"
+                    value={filterDocType}
+                    onChange={(val) => setFilterDocType(val)}
+                  >
+                    {DOCUMENT_TYPES.map(t => (
+                      <Select.Option key={t} value={t}>{t}</Select.Option>
+                    ))}
+                  </Select>
+                </div>
+
+                {/* Box 2: CUSTOMER */}
+                <div className="inv-filter-box-item">
+                  <div className="inv-filter-box-label">
+                    <UserOutlined /> CUSTOMER
+                  </div>
+                  <Select
+                    placeholder="All customers"
+                    allowClear
+                    showSearch
+                    optionFilterProp="children"
+                    className="inv-filter-box-select"
+                    value={filterCustomer}
+                    onChange={(val) => setFilterCustomer(val)}
+                  >
+                    {customers.map(c => (
+                      <Select.Option key={c.id} value={c.id}>
+                        {c.customerCode ? `[${c.customerCode}] ` : ''}{c.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </div>
+
+                {/* Box 3: OVERDUE */}
+                <div className="inv-filter-box-item">
+                  <div className="inv-filter-box-label">
+                    <ClockCircleOutlined /> OVERDUE
+                  </div>
+                  <Select
+                    placeholder="Any"
+                    allowClear
+                    className="inv-filter-box-select"
+                    value={filterOverdue}
+                    onChange={(val) => setFilterOverdue(val)}
+                  >
+                    <Select.Option value="OVERDUE">Overdue Only (▲)</Select.Option>
+                    <Select.Option value="NOT_OVERDUE">Current / On Time</Select.Option>
+                  </Select>
+                </div>
+
+                {/* Box 4: DATE FROM */}
+                <div className="inv-filter-box-item">
+                  <div className="inv-filter-box-label">
+                    <CalendarOutlined /> DATE FROM
+                  </div>
+                  <DatePicker
+                    placeholder="mm/dd/yyyy"
+                    className="inv-filter-box-date"
+                    value={filterDateFrom ? dayjs(filterDateFrom) : null}
+                    onChange={(d) => setFilterDateFrom(d ? d.format('YYYY-MM-DD') : undefined)}
+                  />
+                </div>
+
+                {/* Box 5: DATE TO */}
+                <div className="inv-filter-box-item">
+                  <div className="inv-filter-box-label">
+                    <CalendarOutlined /> DATE TO
+                  </div>
+                  <DatePicker
+                    placeholder="mm/dd/yyyy"
+                    className="inv-filter-box-date"
+                    value={filterDateTo ? dayjs(filterDateTo) : null}
+                    onChange={(d) => setFilterDateTo(d ? d.format('YYYY-MM-DD') : undefined)}
+                  />
+                </div>
+              </div>
+
+              {/* Footer with Clear Filters and Close inside */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  paddingTop: 8,
+                  borderTop: '1px solid var(--theme-border, #e2e8f0)',
+                }}
+              >
+                <Button
+                  icon={<ClearOutlined />}
+                  onClick={handleClearAll}
+                  danger={activeFilterCount > 0}
+                >
+                  Clear Filters
+                </Button>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button onClick={() => setShowFilters(false)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Pixel-Perfect Table */}
           {loading && data.length === 0 ? (

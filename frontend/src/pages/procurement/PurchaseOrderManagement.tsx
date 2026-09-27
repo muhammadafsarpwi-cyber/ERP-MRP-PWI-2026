@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Input, Select, DatePicker, App, Modal, Tooltip,
-  Row, Col, Form, InputNumber, Tag,
+  Row, Col, Form, InputNumber, Tag, Badge,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, FileTextOutlined, PrinterOutlined,
@@ -124,10 +124,20 @@ const PurchaseOrderManagement: React.FC = () => {
   const [activeChevron, setActiveChevron] = useState<'ALL' | 'PENDING' | 'PARTIAL' | 'RECEIVED' | 'CANCELLED'>('ALL');
 
   // Filters state
+  const [showFilters, setShowFilters] = useState(false);
   const [filterSupplier, setFilterSupplier] = useState<string | undefined>(undefined);
   const [filterPayment, setFilterPayment] = useState<string | undefined>(undefined);
   const [filterDateFrom, setFilterDateFrom] = useState<dayjs.Dayjs | null>(null);
   const [filterDateTo, setFilterDateTo] = useState<dayjs.Dayjs | null>(null);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filterSupplier) count++;
+    if (filterPayment) count++;
+    if (filterDateFrom) count++;
+    if (filterDateTo) count++;
+    return count;
+  }, [filterSupplier, filterPayment, filterDateFrom, filterDateTo]);
 
   // Reference data
   const [suppliers, setSuppliers] = useState<Array<{ id: string; supplierCode: string; name: string }>>([]);
@@ -1099,89 +1109,43 @@ const PurchaseOrderManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Filters Card with Green Top Accent Line */}
-      <div className="po-filters-card">
-        <div className="po-filters-header">
-          <div className="po-filters-title">
-            <FilterOutlined style={{ color: '#10b981' }} /> Filters
-          </div>
-          <Button
-            className="btn-clear-filters"
-            icon={<CloseOutlined style={{ fontSize: 10 }} />}
-            onClick={handleClearFilters}
-          >
-            Clear All
-          </Button>
-        </div>
-
-        <div className="po-filters-grid">
-          <div className="po-filter-item">
-            <label className="po-filter-label">
-              <CarOutlined style={{ color: '#0284c7' }} /> SUPPLIER
-            </label>
-            <Select
-              allowClear
-              placeholder="All suppliers"
-              className="po-filter-select"
-              value={filterSupplier}
-              onChange={setFilterSupplier}
-              options={[
-                { value: undefined as any, label: 'All suppliers' },
-                ...suppliers.map((s) => ({ value: s.id, label: s.name })),
-              ]}
-            />
-          </div>
-
-          <div className="po-filter-item">
-            <label className="po-filter-label">
-              <WalletOutlined style={{ color: '#10b981' }} /> PAYMENT
-            </label>
-            <Select
-              allowClear
-              placeholder="Any"
-              className="po-filter-select"
-              value={filterPayment}
-              onChange={setFilterPayment}
-              options={[
-                { value: undefined as any, label: 'Any' },
-                { value: 'Paid', label: 'Paid' },
-                { value: 'Due', label: 'Due' },
-                { value: 'Partial', label: 'Partially Paid' },
-              ]}
-            />
-          </div>
-
-          <div className="po-filter-item">
-            <label className="po-filter-label">
-              <CalendarOutlined style={{ color: '#6366f1' }} /> DATE FROM
-            </label>
-            <DatePicker
-              format="MM/DD/YYYY"
-              placeholder="mm/dd/yyyy"
-              className="po-filter-input"
-              value={filterDateFrom}
-              onChange={setFilterDateFrom}
-            />
-          </div>
-
-          <div className="po-filter-item">
-            <label className="po-filter-label">
-              <CalendarOutlined style={{ color: '#6366f1' }} /> DATE TO
-            </label>
-            <DatePicker
-              format="MM/DD/YYYY"
-              placeholder="mm/dd/yyyy"
-              className="po-filter-input"
-              value={filterDateTo}
-              onChange={setFilterDateTo}
-            />
-          </div>
-        </div>
-      </div>
-
       {/* 4. Table Section Container */}
       <div className="po-table-card">
         <div className="po-table-toolbar">
+          <div className="po-search-control">
+            <span>Search:</span>
+            <Input
+              className="po-search-input"
+              placeholder="Search purchase orders..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onPressEnter={() => fetchData(1)}
+              allowClear
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+            />
+          </div>
+
+          <Button
+            icon={<FilterOutlined />}
+            onClick={() => setShowFilters((prev) => !prev)}
+            type={showFilters ? 'primary' : 'default'}
+            style={{ fontWeight: 600 }}
+          >
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge
+                count={activeFilterCount}
+                style={{
+                  marginLeft: 6,
+                  backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                  color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                }}
+              />
+            )}
+          </Button>
+
+          <div style={{ flex: 1 }} />
+
           <div className="po-entries-control">
             <span>Show</span>
             <Select
@@ -1197,19 +1161,152 @@ const PurchaseOrderManagement: React.FC = () => {
             />
             <span>entries</span>
           </div>
-
-          <div className="po-search-control">
-            <span>Search:</span>
-            <Input
-              className="po-search-input"
-              placeholder=""
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onPressEnter={() => fetchData(1)}
-              allowClear
-            />
-          </div>
         </div>
+
+        {/* Collapsible Panel with ALL Filters */}
+        {showFilters && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+              margin: '0 16px 14px 16px',
+            }}
+          >
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Purchase Orders
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid of the 4 Filter Items */}
+            <div className="po-filters-grid">
+              <div className="po-filter-item">
+                <label className="po-filter-label">
+                  <CarOutlined style={{ color: '#0284c7' }} /> SUPPLIER
+                </label>
+                <Select
+                  allowClear
+                  placeholder="All suppliers"
+                  className="po-filter-select"
+                  value={filterSupplier}
+                  onChange={setFilterSupplier}
+                  options={[
+                    { value: undefined as any, label: 'All suppliers' },
+                    ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+                  ]}
+                />
+              </div>
+
+              <div className="po-filter-item">
+                <label className="po-filter-label">
+                  <WalletOutlined style={{ color: '#10b981' }} /> PAYMENT
+                </label>
+                <Select
+                  allowClear
+                  placeholder="Any"
+                  className="po-filter-select"
+                  value={filterPayment}
+                  onChange={setFilterPayment}
+                  options={[
+                    { value: undefined as any, label: 'Any' },
+                    { value: 'Paid', label: 'Paid' },
+                    { value: 'Due', label: 'Due' },
+                    { value: 'Partial', label: 'Partially Paid' },
+                  ]}
+                />
+              </div>
+
+              <div className="po-filter-item">
+                <label className="po-filter-label">
+                  <CalendarOutlined style={{ color: '#6366f1' }} /> DATE FROM
+                </label>
+                <DatePicker
+                  format="MM/DD/YYYY"
+                  placeholder="mm/dd/yyyy"
+                  className="po-filter-input"
+                  value={filterDateFrom}
+                  onChange={setFilterDateFrom}
+                />
+              </div>
+
+              <div className="po-filter-item">
+                <label className="po-filter-label">
+                  <CalendarOutlined style={{ color: '#6366f1' }} /> DATE TO
+                </label>
+                <DatePicker
+                  format="MM/DD/YYYY"
+                  placeholder="mm/dd/yyyy"
+                  className="po-filter-input"
+                  value={filterDateTo}
+                  onChange={setFilterDateTo}
+                />
+              </div>
+            </div>
+
+            {/* Footer with Clear Filters and Apply Filters inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleClearFilters}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={() => {
+                    fetchData(1);
+                    setShowFilters(false);
+                  }}
+                  loading={loading}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <Table
           columns={columns}

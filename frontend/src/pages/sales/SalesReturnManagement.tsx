@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Form, Input, Select, App, InputNumber, Row, Col,
   Descriptions, Divider, Tooltip, Tag, Modal, Card, Popconfirm,
-  Alert,
+  Alert, Badge,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, CheckOutlined,
@@ -10,6 +10,7 @@ import {
   FilterOutlined, CloseCircleOutlined, UserOutlined, CalendarOutlined,
   RollbackOutlined, DollarOutlined, SolutionOutlined, SendOutlined,
   InboxOutlined, ArrowRightOutlined, FileTextOutlined,
+  CloseOutlined, ClearOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -129,12 +130,24 @@ const SalesReturnManagement: React.FC = () => {
   const [activeChevron, setActiveChevron] = useState<string>('ALL');
 
   // Filter States
+  const [filtersCollapsed, setFiltersCollapsed] = useState(true);
   const [filterReason, setFilterReason] = useState<string | undefined>(undefined);
   const [filterCustomer, setFilterCustomer] = useState<string | undefined>(undefined);
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [filterDateFrom, setFilterDateFrom] = useState<string | undefined>(undefined);
   const [filterDateTo, setFilterDateTo] = useState<string | undefined>(undefined);
   const [search, setSearch] = useState('');
+
+  // Active filter count for badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filterCustomer) count++;
+    if (filterReason) count++;
+    if (filterStatus) count++;
+    if (filterDateFrom) count++;
+    if (filterDateTo) count++;
+    return count;
+  }, [filterCustomer, filterReason, filterStatus, filterDateFrom, filterDateTo]);
 
   // Modals & Drawers
   const [modalVisible, setModalVisible] = useState(false);
@@ -1041,91 +1054,188 @@ const SalesReturnManagement: React.FC = () => {
         </button>
       </div>
 
-      {/* 2. FILTER TOOLBAR */}
-      <div className="inv-filter-panel">
-        <Row gutter={[12, 12]} align="middle">
-          <Col xs={24} sm={12} md={6} lg={4}>
-            <div className="inv-search-input-wrap">
-              <SearchOutlined className="inv-search-icon" />
-              <input
-                className="inv-search-input"
-                placeholder="Search return # or customer..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-          </Col>
+      {/* 2. FILTER CONTROLS & COLLAPSIBLE PANEL */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ width: 320, maxWidth: '100%' }}>
+          <Input
+            placeholder="Search return # or customer..."
+            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            allowClear
+          />
+        </div>
 
-          <Col xs={12} sm={6} md={4} lg={4}>
-            <Select
-              allowClear
-              placeholder="All Customers"
-              className="inv-select"
-              style={{ width: '100%' }}
-              value={filterCustomer}
-              onChange={val => setFilterCustomer(val)}
-              showSearch
-              filterOption={(input, option) =>
-                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-              options={customers.map(c => ({ value: c.id, label: `${c.customerCode ? `[${c.customerCode}] ` : ''}${c.name}` }))}
+        <Button
+          icon={<FilterOutlined />}
+          onClick={() => setFiltersCollapsed(prev => !prev)}
+          type={!filtersCollapsed ? 'primary' : 'default'}
+          style={{ fontWeight: 600 }}
+        >
+          Filters
+          {activeFilterCount > 0 && (
+            <Badge
+              count={activeFilterCount}
+              style={{
+                marginLeft: 6,
+                backgroundColor: !filtersCollapsed ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                color: !filtersCollapsed ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+              }}
             />
-          </Col>
-
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Select
-              allowClear
-              placeholder="All Reasons"
-              className="inv-select"
-              style={{ width: '100%' }}
-              value={filterReason}
-              onChange={val => setFilterReason(val)}
-              options={availableReasons.map(r => ({ value: r, label: r }))}
-            />
-          </Col>
-
-          <Col xs={12} sm={6} md={4} lg={3}>
-            <Select
-              allowClear
-              placeholder="All Statuses"
-              className="inv-select"
-              style={{ width: '100%' }}
-              value={filterStatus}
-              onChange={val => setFilterStatus(val)}
-              options={Object.keys(STATUS_CONFIG).map(s => ({ value: s, label: STATUS_CONFIG[s].label }))}
-            />
-          </Col>
-
-          <Col xs={12} sm={6} md={3} lg={3}>
-            <input
-              type="date"
-              className="inv-native-date-input"
-              value={filterDateFrom || ''}
-              onChange={e => setFilterDateFrom(e.target.value || undefined)}
-            />
-          </Col>
-
-          <Col xs={12} sm={6} md={3} lg={3}>
-            <input
-              type="date"
-              className="inv-native-date-input"
-              value={filterDateTo || ''}
-              onChange={e => setFilterDateTo(e.target.value || undefined)}
-            />
-          </Col>
-
-          <Col xs={12} sm={6} md={4} lg={4} style={{ display: 'flex', gap: 6 }}>
-            <Button
-              className="btn-inv-white"
-              icon={<FilterOutlined />}
-              onClick={handleClearAll}
-              style={{ flex: 1 }}
-            >
-              Clear All
-            </Button>
-          </Col>
-        </Row>
+          )}
+        </Button>
       </div>
+
+      {/* Collapsible Panel with ALL Filters */}
+      {!filtersCollapsed && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            padding: '12px 14px',
+            background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+            border: '1px solid var(--theme-border, #e2e8f0)',
+            borderRadius: 8,
+            marginBottom: 14,
+          }}
+        >
+          {/* Header: Title + Active Count + Close */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                Filter Sales Returns
+              </span>
+              {activeFilterCount > 0 && (
+                <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                  {activeFilterCount} Active
+                </Tag>
+              )}
+            </div>
+            <Button
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              onClick={() => setFiltersCollapsed(true)}
+              style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+              title="Close Filters"
+            >
+              Close
+            </Button>
+          </div>
+
+          {/* Grid of the Filter Boxes */}
+          <Row gutter={[12, 12]}>
+            <Col xs={24} sm={12} md={6}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                <UserOutlined /> CUSTOMER
+              </div>
+              <Select
+                allowClear
+                placeholder="All Customers"
+                style={{ width: '100%' }}
+                value={filterCustomer}
+                onChange={val => setFilterCustomer(val)}
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+                options={customers.map(c => ({ value: c.id, label: `${c.customerCode ? `[${c.customerCode}] ` : ''}${c.name}` }))}
+              />
+            </Col>
+
+            <Col xs={24} sm={12} md={6}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                REASON
+              </div>
+              <Select
+                allowClear
+                placeholder="All Reasons"
+                style={{ width: '100%' }}
+                value={filterReason}
+                onChange={val => setFilterReason(val)}
+                options={availableReasons.map(r => ({ value: r, label: r }))}
+              />
+            </Col>
+
+            <Col xs={24} sm={12} md={4}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                STATUS
+              </div>
+              <Select
+                allowClear
+                placeholder="All Statuses"
+                style={{ width: '100%' }}
+                value={filterStatus}
+                onChange={val => setFilterStatus(val)}
+                options={Object.keys(STATUS_CONFIG).map(s => ({ value: s, label: STATUS_CONFIG[s].label }))}
+              />
+            </Col>
+
+            <Col xs={24} sm={12} md={4}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                <CalendarOutlined /> DATE FROM
+              </div>
+              <Input
+                type="date"
+                value={filterDateFrom || ''}
+                onChange={e => setFilterDateFrom(e.target.value || undefined)}
+              />
+            </Col>
+
+            <Col xs={24} sm={12} md={4}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                <CalendarOutlined /> DATE TO
+              </div>
+              <Input
+                type="date"
+                value={filterDateTo || ''}
+                onChange={e => setFilterDateTo(e.target.value || undefined)}
+              />
+            </Col>
+          </Row>
+
+          {/* Footer with Clear Filters and Apply Filters inside */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 8,
+              paddingTop: 8,
+              borderTop: '1px solid var(--theme-border, #e2e8f0)',
+            }}
+          >
+            <Button
+              icon={<ClearOutlined />}
+              onClick={handleClearAll}
+              danger={activeFilterCount > 0}
+            >
+              Clear Filters
+            </Button>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button onClick={() => setFiltersCollapsed(true)}>
+                Close
+              </Button>
+              <Button
+                type="primary"
+                icon={<FilterOutlined />}
+                onClick={() => {
+                  fetchData(1, pageSize);
+                  setFiltersCollapsed(true);
+                }}
+                loading={loading}
+                style={{ fontWeight: 600 }}
+              >
+                Apply Filters
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 3. MAIN TABLE */}
       <div className="inv-table-wrapper">

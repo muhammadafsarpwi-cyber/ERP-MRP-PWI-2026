@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Alert, App, Badge, Button, Card, Checkbox, DatePicker, Descriptions, Dropdown, Form, Grid, Input, InputNumber,
-  Modal, Popover, Segmented, Select, Space, Table, Tooltip, Typography, Upload,
+  Modal, Popover, Segmented, Select, Space, Table, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -13,7 +13,7 @@ import {
   DownloadOutlined, FilePdfOutlined, ImportOutlined, InboxOutlined,
   HistoryOutlined, BarChartOutlined, ScheduleOutlined,
   ArrowUpOutlined, ArrowDownOutlined, MinusOutlined, AppstoreOutlined,
-  ThunderboltOutlined, ClockCircleOutlined, FileTextOutlined,
+  ThunderboltOutlined, ClockCircleOutlined, FileTextOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -2669,32 +2669,38 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           onSelect={handleStatusRibbonSelect}
         />
 
-        {/* 2-Row Compact Filter Toolbar matching User Specifications */}
+        {/* Enterprise Unified Filter Toolbar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8, borderTop: '1px solid var(--theme-border, #f0f0f0)' }}>
-          {/* Row 1: Search Bar + More Filters + Columns + Reset */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <Input
               allowClear
               prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
               placeholder="Search Machine Register..."
-              style={{ flex: '1 1 200px', minWidth: 160 }}
+              style={{ flex: '1 1 240px', maxWidth: 360 }}
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             />
-            <Badge count={activeFilterCount} size="small">
-              <Button
-                icon={<FilterOutlined />}
-                onClick={() => setShowFilters((v) => !v)}
-                style={{
-                  background: showFilters ? 'var(--theme-accent-soft, #eff6ff)' : undefined,
-                  borderColor: showFilters ? 'var(--theme-accent, #3b82f6)' : undefined,
-                  color: showFilters ? 'var(--theme-accent, #1d4ed8)' : undefined,
-                  fontWeight: 600,
-                }}
-              >
-                More Filters
-              </Button>
-            </Badge>
+
+            {/* Single Unified "Filters" Button */}
+            <Button
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((v) => !v)}
+              type={showFilters ? 'primary' : 'default'}
+              data-testid="toggle-filters-btn"
+              style={{ fontWeight: 600 }}
+            >
+              Filters
+              {activeFilterCount > 0 && (
+                <Badge
+                  count={activeFilterCount}
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                  }}
+                />
+              )}
+            </Button>
 
             {/* Columns Toggle Dropdown */}
             <Dropdown
@@ -2761,72 +2767,193 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               </Button>
             </Dropdown>
 
-            <Button icon={<ClearOutlined />} onClick={resetFilters}>
-              Reset
-            </Button>
+            <div style={{ flex: 1 }} />
             {sortInfo && <Text type="secondary" style={{ fontSize: 12 }}>{sortInfo}</Text>}
-          </div>
-
-          {/* Row 2: Division & Department side-by-side */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder="All Divisions"
-              style={{ flex: '1 1 140px', minWidth: 130 }}
-              value={fDivision}
-              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-              onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
-            />
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder="All Departments"
-              style={{ flex: '1 1 140px', minWidth: 130 }}
-              value={fDepartment}
-              options={(fSection ? departmentsForSection(fSection) : fDivision
-                ? departments.filter((d) => d.divisionId === fDivision)
-                : departments).map((d) => ({ value: d.id, label: d.name }))}
-              onChange={(v) => { setFDepartment(v); setPage(1); }}
-            />
           </div>
         </div>
 
+        {/* Collapsible Panel with ALL Filters */}
         {showFilters && (
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: 12, padding: '14px 0 6px', marginTop: 12, borderTop: '1px solid #f0f0f0',
-          }}>
-            <Input
-              allowClear prefix={<SearchOutlined style={{ color: '#bbb' }} />}
-              placeholder="Machine ID (e.g. MCH001)"
-              value={fMachineId}
-              onChange={(e) => { setFMachineId(e.target.value); setPage(1); }}
-            />
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Section"
-              style={{ width: '100%' }}
-              value={fSection}
-              options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
-              onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
-              disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
-            />
-            <Select
-              allowClear placeholder="Status"
-              style={{ width: '100%' }}
-              value={fStatus}
-              options={['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))}
-              onChange={(v) => { setFStatus(v); setPage(1); }}
-            />
-            <Select
-              allowClear placeholder="Criticality"
-              style={{ width: '100%' }}
-              value={fCriticality}
-              options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((c) => ({ value: c, label: c.charAt(0) + c.slice(1).toLowerCase() }))}
-              onChange={(v) => { setFCriticality(v); setPage(1); }}
-            />
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+              marginTop: 12,
+            }}
+          >
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Machines
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid of ALL Filters */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: screens.lg
+                  ? 'repeat(3, 1fr)'
+                  : screens.md
+                  ? 'repeat(2, 1fr)'
+                  : '1fr',
+                gap: 10,
+              }}
+            >
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Division
+                </label>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Divisions"
+                  style={{ width: '100%' }}
+                  value={fDivision}
+                  options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Department
+                </label>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Departments"
+                  style={{ width: '100%' }}
+                  value={fDepartment}
+                  options={(fSection ? departmentsForSection(fSection) : fDivision
+                    ? departments.filter((d) => d.divisionId === fDivision)
+                    : departments).map((d) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => { setFDepartment(v); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Section
+                </label>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Sections"
+                  style={{ width: '100%' }}
+                  value={fSection}
+                  options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
+                  onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
+                  disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Machine ID / Number
+                </label>
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+                  placeholder="Machine ID (e.g. MCH001)"
+                  value={fMachineId}
+                  onChange={(e) => { setFMachineId(e.target.value); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Status
+                </label>
+                <Select
+                  allowClear
+                  placeholder="All Statuses"
+                  style={{ width: '100%' }}
+                  value={fStatus}
+                  options={['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))}
+                  onChange={(v) => { setFStatus(v); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Criticality
+                </label>
+                <Select
+                  allowClear
+                  placeholder="All Criticalities"
+                  style={{ width: '100%' }}
+                  value={fCriticality}
+                  options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((c) => ({ value: c, label: c.charAt(0) + c.slice(1).toLowerCase() }))}
+                  onChange={(v) => { setFCriticality(v); setPage(1); }}
+                />
+              </div>
+            </div>
+
+            {/* Footer with Clear Filters and Apply Filters inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={resetFilters}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={() => {
+                    fetchMachines();
+                    setShowFilters(false);
+                  }}
+                  loading={loading}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </Card>

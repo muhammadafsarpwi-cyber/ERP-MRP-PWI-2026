@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Form, Input, Select, App,
-  InputNumber, Row, Col, Descriptions, Divider, Tooltip, Tag, Modal,
+  InputNumber, Row, Col, Descriptions, Divider, Tooltip, Tag, Modal, Badge,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, CheckOutlined,
@@ -10,7 +10,7 @@ import {
   PrinterOutlined, FilterOutlined, CloseCircleOutlined, UserOutlined,
   CalendarOutlined, ShoppingCartOutlined, DollarOutlined, CheckCircleOutlined,
   BuildOutlined, BranchesOutlined, SendOutlined, DownOutlined, UpOutlined, ApartmentOutlined,
-  DatabaseOutlined, SaveOutlined,
+  DatabaseOutlined, SaveOutlined, CloseOutlined, ClearOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -140,7 +140,7 @@ const SalesOrderManagement: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [filterDateFrom, setFilterDateFrom] = useState<string | undefined>(undefined);
   const [filterDateTo, setFilterDateTo] = useState<string | undefined>(undefined);
-  const [filtersCollapsed, setFiltersCollapsed] = useState<boolean>(false);
+  const [filtersCollapsed, setFiltersCollapsed] = useState<boolean>(true);
   const [search, setSearch] = useState('');
 
   // Modals
@@ -1051,48 +1051,98 @@ const SalesOrderManagement: React.FC = () => {
         {/* Distinctive Mint Green Accent Line */}
         <div className="inv-mint-accent-line" />
 
-        {/* 6 Filters Grid (Collapsible) */}
-        <div className="inv-filter-section">
-          <div
-            className="inv-filter-header"
-            style={{ cursor: 'pointer', userSelect: 'none' }}
-            onClick={() => setFiltersCollapsed(prev => !prev)}
-          >
-            <div className="inv-filter-title">
-              <FilterOutlined style={{ color: '#2ecc71' }} />
-              <span>Filters</span>
-              {filtersCollapsed ? (
-                <Tag color="blue" style={{ marginLeft: 8, fontSize: 11, cursor: 'pointer' }}>
-                  Click to Expand Filters {activeFilterCount > 0 ? `(${activeFilterCount} Active)` : ''}
-                </Tag>
-              ) : (
-                activeFilterCount > 0 ? (
-                  <Tag color="cyan" style={{ marginLeft: 8, fontSize: 11 }}>
-                    {activeFilterCount} Active Filter{activeFilterCount > 1 ? 's' : ''}
-                  </Tag>
-                ) : null
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                type="button"
-                className="inv-btn-clear-all"
-                onClick={(e) => { e.stopPropagation(); setFiltersCollapsed(prev => !prev); }}
-                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-              >
-                {filtersCollapsed ? <DownOutlined /> : <UpOutlined />} {filtersCollapsed ? 'Show Filters' : 'Collapse Filters'}
-              </button>
-              <button
-                type="button"
-                className="inv-btn-clear-all"
-                onClick={(e) => { e.stopPropagation(); handleClearAll(); }}
-              >
-                <CloseCircleOutlined /> Clear All
-              </button>
-            </div>
+        {/* Controls Row: Search Bar & Unified Filters Button & Show Entries */}
+        <div className="inv-controls-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div className="inv-search-control" style={{ flex: '1 1 240px', maxWidth: 360 }}>
+            <Input
+              className="inv-search-input"
+              placeholder="Search orders, customer..."
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onPressEnter={() => fetchData(1, pageSize)}
+              allowClear
+            />
           </div>
 
-          {!filtersCollapsed && (
+          {/* Single Unified "Filters" Button */}
+          <Button
+            icon={<FilterOutlined />}
+            onClick={() => setFiltersCollapsed((prev) => !prev)}
+            type={!filtersCollapsed ? 'primary' : 'default'}
+            style={{ fontWeight: 600 }}
+          >
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge
+                count={activeFilterCount}
+                style={{
+                  marginLeft: 6,
+                  backgroundColor: !filtersCollapsed ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                  color: !filtersCollapsed ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                }}
+              />
+            )}
+          </Button>
+
+          <div style={{ flex: 1 }} />
+
+          <div className="inv-entries-control">
+            <span>Show</span>
+            <Select
+              className="inv-entries-select"
+              value={pageSize}
+              onChange={(val) => { setPageSize(val); setPage(1); }}
+            >
+              <Select.Option value={10}>10</Select.Option>
+              <Select.Option value={25}>25</Select.Option>
+              <Select.Option value={50}>50</Select.Option>
+              <Select.Option value={100}>100</Select.Option>
+            </Select>
+            <span>entries</span>
+          </div>
+        </div>
+
+        {/* Collapsible Panel with ALL Filters */}
+        {!filtersCollapsed && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+              marginBottom: 14,
+            }}
+          >
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Sales Orders
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setFiltersCollapsed(true)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid of the 6 Filter Boxes */}
             <div className="inv-filter-boxes-grid">
               {/* Box 1: DIVISION */}
               <div className="inv-filter-box-item">
@@ -1196,39 +1246,47 @@ const SalesOrderManagement: React.FC = () => {
                 />
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Controls Row: Show Entries & Search Bar */}
-        <div className="inv-controls-row">
-          <div className="inv-entries-control">
-            <span>Show</span>
-            <Select
-              className="inv-entries-select"
-              value={pageSize}
-              onChange={(val) => { setPageSize(val); setPage(1); }}
+            {/* Footer with Clear Filters and Apply Filters inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
             >
-              <Select.Option value={10}>10</Select.Option>
-              <Select.Option value={25}>25</Select.Option>
-              <Select.Option value={50}>50</Select.Option>
-              <Select.Option value={100}>100</Select.Option>
-            </Select>
-            <span>entries</span>
-          </div>
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleClearAll}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
 
-          <div className="inv-search-control">
-            <span className="inv-search-label">Search:</span>
-            <Input
-              className="inv-search-input"
-              placeholder="Search orders, customer..."
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onPressEnter={() => fetchData(1, pageSize)}
-              allowClear
-            />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setFiltersCollapsed(true)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={() => {
+                    fetchData(1, pageSize);
+                    setFiltersCollapsed(true);
+                  }}
+                  loading={loading}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Custom ERP Table */}
         <Table

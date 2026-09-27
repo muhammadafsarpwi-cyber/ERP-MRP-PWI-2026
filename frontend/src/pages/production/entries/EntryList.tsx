@@ -17,6 +17,7 @@ import {
   Modal,
   Tag,
   Grid,
+  Badge,
 } from 'antd';
 import PageHeader from '../../../components/shared/PageHeader';
 import LargeLoadingBuffer from '../../../components/shared/LargeLoadingBuffer';
@@ -49,6 +50,7 @@ import {
   DeleteOutlined,
   SyncOutlined,
   MinusOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -599,6 +601,18 @@ const EntryList: React.FC = () => {
     if (dateRange[0] || dateRange[1]) count++;
     return count;
   }, [fSearch, fDivision, fSection, fDepartment, fShift, fMachineNo, fStatus, dateRange]);
+
+  const panelFilterCount = useMemo(() => {
+    let count = 0;
+    if (fDivision) count++;
+    if (fSection) count++;
+    if (fDepartment) count++;
+    if (fShift) count++;
+    if (fMachineNo.trim()) count++;
+    if (fStatus) count++;
+    if (dateRange[0] || dateRange[1]) count++;
+    return count;
+  }, [fDivision, fSection, fDepartment, fShift, fMachineNo, fStatus, dateRange]);
 
   const handleRefresh = useCallback(() => {
     tabSessionCache.remove(tabKey);
@@ -1559,81 +1573,103 @@ const EntryList: React.FC = () => {
           onSelect={(key) => setActiveChevronKey(key)}
         />
 
-        <div className="entry-filter-toolbar">
-          <Input
-            allowClear
-            placeholder="Search entries..."
-            prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
-            value={fSearch}
-            onChange={(e) => setFSearch(e.target.value)}
-            onPressEnter={handleSearch}
-            style={{ minWidth: 240, flex: '1 1 240px' }}
-          />
+        {/* Enterprise Unified Filter Toolbar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8, borderTop: '1px solid var(--theme-border, #f0f0f0)' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Input
+              allowClear
+              placeholder="Search entries..."
+              prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+              value={fSearch}
+              onChange={(e) => setFSearch(e.target.value)}
+              onPressEnter={handleSearch}
+              style={{ flex: '1 1 240px', maxWidth: 360 }}
+            />
 
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder="All Divisions"
-            style={{ width: 160 }}
-            value={fDivision}
-            options={lookups.divisions.map((d) => ({ value: d.id, label: d.name }))}
-            onChange={(v) => {
-              setFDivision(v);
-              setFSection(undefined);
-              setFDepartment(undefined);
-            }}
-          />
+            {/* Single Unified "Filters" Button */}
+            <Button
+              icon={<FilterOutlined />}
+              onClick={() => setMoreFiltersOpen((prev) => !prev)}
+              type={moreFiltersOpen ? 'primary' : 'default'}
+              data-testid="toggle-filters-btn"
+              style={{ fontWeight: 600 }}
+            >
+              Filters
+              {panelFilterCount > 0 && (
+                <Badge
+                  count={panelFilterCount}
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: moreFiltersOpen ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: moreFiltersOpen ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                  }}
+                />
+              )}
+            </Button>
 
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder="All Departments"
-            style={{ width: 170 }}
-            value={fDepartment}
-            options={lookups.departments.map((d: Department) => ({ value: d.id, label: d.name }))}
-            onChange={(v) => setFDepartment(v)}
-          />
+            <div style={{ flex: 1 }} />
 
-          <Select
-            allowClear
-            placeholder="All Shifts"
-            style={{ width: 140 }}
-            value={fShift}
-            options={(lookups.shifts || []).map((s) => ({ value: s.id, label: s.name }))}
-            onChange={(v) => setFShift(v)}
-          />
-
-          <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-            Search
-          </Button>
-
-          <Button
-            icon={<FilterOutlined />}
-            onClick={() => setMoreFiltersOpen((prev) => !prev)}
-            type={moreFiltersOpen || activeFilterCount > 0 ? 'primary' : 'default'}
-            ghost={moreFiltersOpen || activeFilterCount > 0}
-          >
-            More Filters {activeFilterCount > 0 && `(${activeFilterCount})`}
-          </Button>
-
-          <Button icon={<ReloadOutlined />} onClick={handleReset}>
-            Reset
-          </Button>
-
-          <div className="entry-filter-toolbar__right">
-            <strong>{displayedRows.length}</strong> entries · Sorted by Date
+            <div className="entry-filter-toolbar__right" style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
+              <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{displayedRows.length}</strong> entries · Sorted by Date
+            </div>
           </div>
         </div>
 
+        {/* Collapsible Panel with ALL Filters */}
         {moreFiltersOpen && (
-          <div className="entry-more-filters-panel">
-            <Row gutter={[10, 10]} align="middle">
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+              marginTop: 12,
+            }}
+          >
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Production Entries
+                </span>
+                {panelFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {panelFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setMoreFiltersOpen(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid of ALL Filters */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: screens.lg
+                  ? 'repeat(4, 1fr)'
+                  : screens.md
+                  ? 'repeat(2, 1fr)'
+                  : '1fr',
+                gap: 10,
+              }}
+            >
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Date Range
-                </Text>
+                </label>
                 <RangePicker
                   style={{ width: '100%' }}
                   value={dateRange as never}
@@ -1644,12 +1680,48 @@ const EntryList: React.FC = () => {
                     ])
                   }
                 />
-              </Col>
+              </div>
 
-              <Col xs={12} sm={6} md={4} lg={4}>
-                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Division
+                </label>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Divisions"
+                  style={{ width: '100%' }}
+                  value={fDivision}
+                  options={lookups.divisions.map((d) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => {
+                    setFDivision(v);
+                    setFSection(undefined);
+                    setFDepartment(undefined);
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Department
+                </label>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Departments"
+                  style={{ width: '100%' }}
+                  value={fDepartment}
+                  options={lookups.departments.map((d: Department) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => setFDepartment(v)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Section
-                </Text>
+                </label>
                 <Select
                   allowClear
                   showSearch
@@ -1660,12 +1732,26 @@ const EntryList: React.FC = () => {
                   options={lookups.sections.map((s) => ({ value: s.id, label: s.name }))}
                   onChange={(v) => setFSection(v)}
                 />
-              </Col>
+              </div>
 
-              <Col xs={12} sm={6} md={4} lg={3}>
-                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
-                  Machine
-                </Text>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Shift
+                </label>
+                <Select
+                  allowClear
+                  placeholder="All Shifts"
+                  style={{ width: '100%' }}
+                  value={fShift}
+                  options={(lookups.shifts || []).map((s) => ({ value: s.id, label: s.name }))}
+                  onChange={(v) => setFShift(v)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Machine No
+                </label>
                 <Input
                   allowClear
                   placeholder="e.g. FT-04"
@@ -1673,12 +1759,12 @@ const EntryList: React.FC = () => {
                   onChange={(e) => setFMachineNo(e.target.value)}
                   onPressEnter={handleSearch}
                 />
-              </Col>
+              </div>
 
-              <Col xs={12} sm={6} md={4} lg={3}>
-                <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 2 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Status
-                </Text>
+                </label>
                 <Select
                   allowClear
                   placeholder="All Statuses"
@@ -1692,14 +1778,47 @@ const EntryList: React.FC = () => {
                   ]}
                   onChange={(v) => setFStatus(v)}
                 />
-              </Col>
+              </div>
+            </div>
 
-              <Col xs={24} sm={12} md={4} lg={3}>
-                <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} style={{ marginTop: 18 }}>
-                  Apply
+            {/* Footer with Clear Filters and Apply Filters inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleReset}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setMoreFiltersOpen(false)}>
+                  Close
                 </Button>
-              </Col>
-            </Row>
+                <Button
+                  type="primary"
+                  icon={<SearchOutlined />}
+                  onClick={() => {
+                    handleSearch();
+                    setMoreFiltersOpen(false);
+                  }}
+                  loading={loading}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </Card>

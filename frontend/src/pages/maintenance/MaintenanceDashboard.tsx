@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Col, Input, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography,
+  Alert, Button, Card, Col, Input, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography, Badge,
 } from 'antd';
 import {
   BarChartOutlined,
@@ -10,6 +10,7 @@ import {
   ClearOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
+  CloseOutlined,
   DollarOutlined,
   ExclamationCircleOutlined,
   FilterOutlined,
@@ -360,6 +361,15 @@ const MaintenanceDashboard: React.FC = () => {
 
   const hasActiveFilters = !!(divisionId || sectionId || departmentId || machineId || search);
 
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (divisionId) count++;
+    if (sectionId) count++;
+    if (departmentId) count++;
+    if (machineId) count++;
+    return count;
+  }, [divisionId, sectionId, departmentId, machineId]);
+
   const goStatus = (status: string | null) => {
     const params = new URLSearchParams();
     if (status !== null) params.set('status', status);
@@ -528,24 +538,71 @@ const MaintenanceDashboard: React.FC = () => {
             />
           </Col>
           <Col>
-            <Button icon={<FilterOutlined />} onClick={() => setShowFilters(v => !v)} type={showFilters ? 'primary' : 'default'}>
-              <Text style={{ color: showFilters ? 'var(--theme-on-accent)' : undefined }}>Filters</Text>
+            <Button
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters(v => !v)}
+              type={showFilters ? 'primary' : 'default'}
+              style={{ fontWeight: 600 }}
+            >
+              Filters
+              {activeFilterCount > 0 && (
+                <Badge
+                  count={activeFilterCount}
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                  }}
+                />
+              )}
             </Button>
           </Col>
-          {hasActiveFilters && (
-            <Col>
-              <Button type="text" icon={<ClearOutlined />} onClick={() => { clearAllFilters(); setSearchInput(''); setSearch(''); }}>
-                Clear
-              </Button>
-            </Col>
-          )}
           <Col flex="auto" />
         </Row>
 
         {showFilters && (
-          <div style={{ marginTop: 12, borderTop: '1px solid var(--theme-border, #e2e8f0)', paddingTop: 16 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              marginTop: 12,
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+            }}
+          >
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Maintenance Dashboard
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
             <Row gutter={[12, 12]}>
               <Col xs={24} sm={12} md={8} lg={6}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  DIVISION
+                </div>
                 <Select
                   showSearch
                   aria-label="Dashboard Filter Division"
@@ -559,6 +616,9 @@ const MaintenanceDashboard: React.FC = () => {
                 />
               </Col>
               <Col xs={24} sm={12} md={8} lg={6}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  SECTION
+                </div>
                 <Select
                   showSearch
                   aria-label="Dashboard Filter Section"
@@ -573,6 +633,9 @@ const MaintenanceDashboard: React.FC = () => {
                 />
               </Col>
               <Col xs={24} sm={12} md={8} lg={6}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  DEPARTMENT
+                </div>
                 <Select
                   showSearch
                   aria-label="Dashboard Filter Department"
@@ -587,6 +650,9 @@ const MaintenanceDashboard: React.FC = () => {
                 />
               </Col>
               <Col xs={24} sm={12} md={8} lg={6}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  MACHINE NUMBER
+                </div>
                 <Select
                   showSearch
                   aria-label="Dashboard Filter Machine Number"
@@ -601,11 +667,41 @@ const MaintenanceDashboard: React.FC = () => {
                 />
               </Col>
             </Row>
-            <Row justify="end" style={{ marginTop: 12 }}>
-              <Col>
-                <Button type="text" icon={<ClearOutlined />} onClick={clearAllFilters}>Clear Filters</Button>
-              </Col>
-            </Row>
+
+            {/* Footer with Clear Filters and Close inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={clearAllFilters}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={() => setShowFilters(false)}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </Card>

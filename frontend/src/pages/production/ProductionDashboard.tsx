@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Select, Space } from 'antd';
-import { ReloadOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, PlayCircleOutlined, FileDoneOutlined, AimOutlined, BarChartOutlined, NumberOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, DatePicker, Select, Space, Badge, Tag, Grid } from 'antd';
+import { ReloadOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, PlayCircleOutlined, FileDoneOutlined, AimOutlined, BarChartOutlined, NumberOutlined, FilterOutlined, CloseOutlined, ClearOutlined } from '@ant-design/icons';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
@@ -13,6 +13,7 @@ import dashboardService, {
 import './productionDashboard.css';
 
 const { RangePicker } = DatePicker;
+const { useBreakpoint } = Grid;
 
 const PRODUCTION_DASHBOARD_TAB_ID = '/production/dashboard';
 
@@ -189,6 +190,10 @@ const ProductionDashboard: React.FC = () => {
     actual: Number(d.actualQuantity ?? 0),
   })), [prod]);
 
+  const screens = useBreakpoint();
+  const [showFilters, setShowFilters] = useState(false);
+  const activeFilterCount = [filters.divisionId, filters.departmentId, filters.dateFrom].filter(Boolean).length;
+
   return (
     <TabKeepAlive
       tabId={PRODUCTION_DASHBOARD_TAB_ID}
@@ -196,25 +201,195 @@ const ProductionDashboard: React.FC = () => {
       serialize={() => ({ orderSummary, prod, trend, machines, filters })}
     >
       <div className="erp-dashboard erp-pd">
-      {/* Filters */}
-      <div className="erp-pd__toolbar">
-        <Space wrap size={10}>
-          <RangePicker onChange={onDate as never} allowClear />
-          <Select
-            allowClear placeholder="Division" style={{ minWidth: 160 }}
-            value={filters.divisionId}
-            onChange={(v) => setFilters((p) => ({ ...p, divisionId: v, sectionId: undefined, departmentId: undefined }))}
-            options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-          />
-          <Select
-            allowClear placeholder="Department" style={{ minWidth: 160 }}
-            value={filters.departmentId}
-            onChange={(v) => setFilters((p) => ({ ...p, departmentId: v }))}
-            options={departments.map((d) => ({ value: d.id, label: d.name }))}
-            disabled={!filters.divisionId}
-          />
-          <Button icon={<ReloadOutlined />} onClick={() => load()} loading={loading}>Refresh</Button>
-        </Space>
+      {/* Unified Filters Toolbar */}
+      <div
+        style={{
+          background: 'var(--theme-surface, #ffffff)',
+          border: '1px solid var(--theme-border, #e2e8f0)',
+          borderRadius: 8,
+          padding: '10px 14px',
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <Button
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((prev) => !prev)}
+              type={showFilters ? 'primary' : 'default'}
+              style={{ fontWeight: 600, borderRadius: 6, display: 'inline-flex', alignItems: 'center' }}
+            >
+              <span>Filters</span>
+              {activeFilterCount > 0 && (
+                <Badge
+                  count={activeFilterCount}
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                  }}
+                />
+              )}
+            </Button>
+
+            <Button icon={<ReloadOutlined />} onClick={() => load()} loading={loading}>
+              Refresh
+            </Button>
+
+            {activeFilterCount > 0 && (
+              <Button
+                type="link"
+                size="small"
+                onClick={() => {
+                  const empty = {};
+                  setFilters(empty);
+                  load(empty);
+                }}
+                style={{ fontSize: 12, padding: '0 4px', color: 'var(--theme-danger, #ef4444)' }}
+              >
+                Clear Filters ({activeFilterCount})
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Collapsible Panel */}
+        {showFilters && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+              marginTop: 12,
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Production Dashboard
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid of ALL Filters */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: screens.md ? 'repeat(3, 1fr)' : '1fr',
+                gap: 10,
+              }}
+            >
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Date Range
+                </label>
+                <RangePicker
+                  style={{ width: '100%' }}
+                  onChange={onDate as never}
+                  allowClear
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Division
+                </label>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Divisions"
+                  style={{ width: '100%' }}
+                  value={filters.divisionId}
+                  onChange={(v) => setFilters((p) => ({ ...p, divisionId: v, sectionId: undefined, departmentId: undefined }))}
+                  options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Department
+                </label>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Departments"
+                  style={{ width: '100%' }}
+                  value={filters.departmentId}
+                  onChange={(v) => setFilters((p) => ({ ...p, departmentId: v }))}
+                  options={departments.map((d) => ({ value: d.id, label: d.name }))}
+                  disabled={!filters.divisionId}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={() => {
+                  const empty = {};
+                  setFilters(empty);
+                  load(empty);
+                }}
+                disabled={activeFilterCount === 0}
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={() => {
+                    load();
+                    setShowFilters(false);
+                  }}
+                  loading={loading}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && <Alert message={error} type="warning" showIcon closable className="erp-alert-bar" onClose={() => setError(null)} />}

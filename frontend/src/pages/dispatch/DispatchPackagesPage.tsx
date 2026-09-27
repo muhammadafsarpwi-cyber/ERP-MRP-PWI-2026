@@ -33,6 +33,9 @@ import {
   QrcodeOutlined,
   HistoryOutlined,
   CloseCircleOutlined,
+  FilterOutlined,
+  CloseOutlined,
+  ClearOutlined,
 } from '@ant-design/icons';
 import {
   DispatchPackage,
@@ -57,6 +60,7 @@ export const DispatchPackagesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<DispatchPackageStatus | undefined>(undefined);
   const [searchText, setSearchText] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Modals & Drawers state
   const [selectedPkgId, setSelectedPkgId] = useState<string | null>(null);
@@ -444,45 +448,159 @@ export const DispatchPackagesPage: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 3. Filters & Search */}
+      {/* 3. Enterprise Unified Filters & Search */}
       <div
         style={{
           display: 'flex',
-          flexWrap: 'wrap',
-          gap: 12,
-          justifyContent: 'space-between',
+          flexDirection: 'column',
+          gap: 8,
           marginBottom: 14,
         }}
       >
-        <Space wrap>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <Input
             placeholder="Search Package #, Customer, SO, Vehicle, Coil, Serial..."
-            prefix={<SearchOutlined />}
+            prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             onPressEnter={() => {
               setPage(1);
               loadPackages();
             }}
-            style={{ width: 320 }}
+            style={{ flex: '1 1 260px', maxWidth: 420 }}
             allowClear
           />
-          <Select
-            placeholder="Filter by Status"
-            allowClear
-            value={statusFilter}
-            onChange={(val) => {
-              setStatusFilter(val);
-              setPage(1);
-            }}
-            style={{ width: 180 }}
+
+          {/* Single Unified "Filters" Button */}
+          <Button
+            icon={<FilterOutlined />}
+            onClick={() => setShowFilters((prev) => !prev)}
+            type={showFilters ? 'primary' : 'default'}
+            style={{ fontWeight: 600 }}
           >
-            <Select.Option value={DispatchPackageStatus.OPEN}>OPEN (Scanning)</Select.Option>
-            <Select.Option value={DispatchPackageStatus.FINALIZED}>FINALIZED (Locked)</Select.Option>
-            <Select.Option value={DispatchPackageStatus.DISPATCHED}>DISPATCHED (Exited)</Select.Option>
-            <Select.Option value={DispatchPackageStatus.CANCELLED}>CANCELLED</Select.Option>
-          </Select>
-        </Space>
+            Filters
+            {statusFilter ? (
+              <Badge
+                count={1}
+                style={{
+                  marginLeft: 6,
+                  backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                  color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                }}
+              />
+            ) : null}
+          </Button>
+
+          <Button icon={<ReloadOutlined />} onClick={() => loadPackages()}>
+            Refresh
+          </Button>
+        </div>
+
+        {/* Collapsible Panel with Filters */}
+        {showFilters && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px',
+              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 8,
+              marginTop: 4,
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Dispatch Packages
+                </span>
+                {statusFilter && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    1 Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid */}
+            <div style={{ maxWidth: 320 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                Package Status
+              </label>
+              <Select
+                placeholder="All Statuses"
+                allowClear
+                value={statusFilter}
+                onChange={(val) => {
+                  setStatusFilter(val);
+                  setPage(1);
+                }}
+                style={{ width: '100%' }}
+              >
+                <Select.Option value={DispatchPackageStatus.OPEN}>OPEN (Scanning)</Select.Option>
+                <Select.Option value={DispatchPackageStatus.FINALIZED}>FINALIZED (Locked)</Select.Option>
+                <Select.Option value={DispatchPackageStatus.DISPATCHED}>DISPATCHED (Exited)</Select.Option>
+                <Select.Option value={DispatchPackageStatus.CANCELLED}>CANCELLED</Select.Option>
+              </Select>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={() => {
+                  setStatusFilter(undefined);
+                  setPage(1);
+                }}
+                disabled={!statusFilter}
+                danger={!!statusFilter}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={() => {
+                    setPage(1);
+                    loadPackages();
+                    setShowFilters(false);
+                  }}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 4. Table */}

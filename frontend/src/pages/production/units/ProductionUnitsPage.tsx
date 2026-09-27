@@ -34,6 +34,8 @@ import {
   SaveOutlined,
   ClearOutlined,
   CheckSquareOutlined,
+  FilterOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
@@ -79,6 +81,7 @@ export const ProductionUnitsPage: React.FC<ProductionUnitsPageProps> = ({
   const [pageSize, setPageSize] = useState<number>(50);
   const [search, setSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [stats, setStats] = useState<Record<string, number>>({});
 
@@ -462,38 +465,144 @@ export const ProductionUnitsPage: React.FC<ProductionUnitsPageProps> = ({
         </div>
 
         {/* Search & Filter Toolbar */}
-        <Row gutter={[12, 12]} style={{ marginBottom: 14 }}>
-          <Col xs={24} sm={10} md={12}>
+        {/* Enterprise Unified Filter Toolbar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <Input
               placeholder="Search by serial #, coil # (CN-001), batch #, or operator..."
-              prefix={<SearchOutlined />}
+              prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onPressEnter={() => loadData()}
               allowClear
+              style={{ flex: '1 1 240px', maxWidth: 420 }}
             />
-          </Col>
-          <Col xs={12} sm={8} md={6}>
-            <Select
-              style={{ width: '100%' }}
-              placeholder="Filter by Status"
-              allowClear
-              value={statusFilter || undefined}
-              onChange={(v) => setStatusFilter(v || '')}
-              options={[
-                { value: '', label: 'All Statuses' },
-                { value: 'GENERATED', label: 'Generated (Unprinted)' },
-                { value: 'PRINTED', label: 'Printed' },
-                { value: 'VOID', label: 'Void / Cancelled' },
-              ]}
-            />
-          </Col>
-          <Col xs={12} sm={6} md={6} style={{ textAlign: 'right' }}>
+
+            {/* Single Unified "Filters" Button */}
+            <Button
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((prev) => !prev)}
+              type={showFilters ? 'primary' : 'default'}
+              style={{ fontWeight: 600 }}
+            >
+              Filters
+              {statusFilter ? (
+                <Badge
+                  count={1}
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                  }}
+                />
+              ) : null}
+            </Button>
+
             <Button icon={<ReloadOutlined />} onClick={() => loadData()}>
               Refresh
             </Button>
-          </Col>
-        </Row>
+          </div>
+
+          {/* Collapsible Panel with Filters */}
+          {showFilters && (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                padding: '12px 14px',
+                background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
+                border: '1px solid var(--theme-border, #e2e8f0)',
+                borderRadius: 8,
+                marginTop: 4,
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                    Filter Production Units
+                  </span>
+                  {statusFilter && (
+                    <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                      1 Active
+                    </Tag>
+                  )}
+                </div>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  onClick={() => setShowFilters(false)}
+                  style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                  title="Close Filters"
+                >
+                  Close
+                </Button>
+              </div>
+
+              {/* Grid */}
+              <div style={{ maxWidth: 320 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Unit Status
+                </label>
+                <Select
+                  style={{ width: '100%' }}
+                  placeholder="All Statuses"
+                  allowClear
+                  value={statusFilter || undefined}
+                  onChange={(v) => setStatusFilter(v || '')}
+                  options={[
+                    { value: '', label: 'All Statuses' },
+                    { value: 'GENERATED', label: 'Generated (Unprinted)' },
+                    { value: 'PRINTED', label: 'Printed' },
+                    { value: 'VOID', label: 'Void / Cancelled' },
+                  ]}
+                />
+              </div>
+
+              {/* Footer */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  paddingTop: 8,
+                  borderTop: '1px solid var(--theme-border, #e2e8f0)',
+                }}
+              >
+                <Button
+                  icon={<ClearOutlined />}
+                  onClick={() => setStatusFilter('')}
+                  disabled={!statusFilter}
+                  danger={!!statusFilter}
+                >
+                  Clear Filters
+                </Button>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button onClick={() => setShowFilters(false)}>
+                    Close
+                  </Button>
+                  <Button
+                    type="primary"
+                    icon={<FilterOutlined />}
+                    onClick={() => {
+                      loadData();
+                      setShowFilters(false);
+                    }}
+                    style={{ fontWeight: 600 }}
+                  >
+                    Apply Filters
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Data Table with exact 10 columns: #, Coil No, Serial No, Weight, Joint, S.T., QR, Barcode, Status, Actions */}
         <Table
