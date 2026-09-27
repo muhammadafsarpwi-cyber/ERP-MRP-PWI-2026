@@ -441,6 +441,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 flexShrink: 0,
                 height: effectivelyCollapsed ? 28 : 32,
                 width: effectivelyCollapsed ? 28 : 32,
+                borderRadius: 6,
                 objectFit: 'contain',
               }}
             />
@@ -515,7 +516,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 className="pwi-app-logo"
                 src={`${process.env.PUBLIC_URL}/logo.png`}
                 alt="Company logo"
-                style={{ height: 26, width: 26, objectFit: 'contain' }}
+                style={{ height: 26, width: 26, borderRadius: 6, objectFit: 'contain' }}
               />
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <span style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.2, color: 'var(--theme-text, #0f172a)' }}>
@@ -574,19 +575,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           <div className="pwi-company-marquee-banner" role="marquee" aria-label="Company Announcement">
             <div className="pwi-marquee-track">
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
                 <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
                 <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
                 <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
                 <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
             </div>
