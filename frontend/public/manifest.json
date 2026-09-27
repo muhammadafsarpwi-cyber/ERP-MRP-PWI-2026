@@ -1,0 +1,22 @@
+{
+  "short_name": "PWI ERP",
+  "name": "Pakistan Wire Industries - ERP & MRP",
+  "icons": [
+    {
+      "src": "logo-mark.png",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/png"
+    },
+    {
+      "src": "logo.png",
+      "type": "image/png",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0d1022",
+  "background_color": "#0a0c1a",
+  "orientation": "portrait"
+}
