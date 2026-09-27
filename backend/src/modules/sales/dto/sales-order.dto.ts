@@ -125,6 +125,16 @@ export class CreateSalesOrderDto {
   @IsOptional()
   notes?: string;
 
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Section ID' })
+  @IsUUID()
+  @IsOptional()
+  sectionId?: string;
+
   @ApiPropertyOptional({ description: 'Sales order items' })
   @IsArray()
   @IsOptional()
@@ -160,6 +170,11 @@ export class SalesOrderFilterDto {
   @IsUUID()
   @IsOptional()
   companyId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by division ID' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Sort field' })
   @IsString()

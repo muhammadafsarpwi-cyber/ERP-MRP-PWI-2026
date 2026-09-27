@@ -15,6 +15,7 @@ import {
   BuildOutlined,
   CalculatorOutlined,
   CalendarOutlined,
+  CarOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   ClusterOutlined,
@@ -32,6 +33,7 @@ import {
   MessageOutlined,
   PlayCircleOutlined,
   PlusOutlined,
+  QrcodeOutlined,
   RobotOutlined,
   RollbackOutlined,
   SafetyCertificateOutlined,
@@ -148,6 +150,7 @@ export type MaintenanceQueueNavKey = (typeof MAINTENANCE_QUEUE_NAV_KEYS)[keyof t
 
 export const NAV_ENTRIES: NavEntry[] = [
   { key: '/dashboard', label: 'Dashboard', icon: DashboardOutlined, color: 'primary' },
+  { key: '/reports', label: 'Reports', icon: BarChartOutlined, color: 'success' },
   { key: '/ai-assistant', label: 'AI Assistant', icon: RobotOutlined, color: 'cyan' },
 
   {
@@ -213,6 +216,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/barcode-management/employees', label: 'Employee Barcodes', icon: TeamOutlined, color: 'success', permissions: ['hr.employee.view'] },
       { key: '/barcode-management/production', label: 'Production Barcodes', icon: BuildOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
       { key: '/barcode-management/job-cards', label: 'Job Card Barcodes', icon: ToolOutlined, color: 'success', permissions: ['maintenance.job_card.view'] },
+      { key: '/barcode-management/gate-passes', label: 'Gate Pass Barcodes', icon: CarOutlined, color: 'success', permissions: ['sales.deliveries.view', 'item.view'] },
     ],
   },
 
@@ -232,9 +236,12 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: ShoppingCartOutlined,
     color: 'purple',
     children: [
+      { key: '/sales/analytics', label: 'Sales Intelligence', icon: DashboardOutlined, color: 'purple', permissions: ['sales.orders.view'] },
+      { key: '/sales/finished-goods', label: 'Finished Goods Inventory', icon: DatabaseOutlined, color: 'purple', permissions: ['sales.orders.view'] },
       { key: '/sales/quotations', label: 'Quotations', icon: AppstoreOutlined, color: 'purple', permissions: ['sales.quotations.view'] },
       { key: '/sales/orders', label: 'Sales Orders', icon: ShoppingCartOutlined, color: 'purple', permissions: ['sales.orders.view'] },
       { key: '/sales/deliveries', label: 'Deliveries', icon: InboxOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
+      { key: '/dispatch/packages', label: 'Dispatch Packages', icon: QrcodeOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
       { key: '/sales/invoices', label: 'Invoices', icon: CalculatorOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
       { key: '/sales/returns', label: 'Sales Returns', icon: SwapOutlined, color: 'purple', permissions: ['sales.returns.view'] },
     ],
@@ -319,6 +326,8 @@ export const NAV_ENTRIES: NavEntry[] = [
     children: [
       { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.production.orders.view'] },
       { key: '/production/entries', label: 'Daily Production Entry', icon: EditOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/units', label: 'Unit Serialization & Labels', icon: BarcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: 'production:dispatch:packages', path: '/dispatch/packages', label: 'Dispatch Packages & QR Scan', icon: QrcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
       { key: '/production/receiving', label: 'Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.material_receiving.view'] },
       { key: '/production/returns', label: 'Raw Material Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.material_return.view'] },
       { key: '/production/receiving-report', label: 'Receiving & Return Report', icon: BarChartOutlined, color: 'violet', permissions: ['manufacturing.material_receiving.report'] },

@@ -43,6 +43,8 @@ import {
   SalesDeliveryManagement,
   SalesInvoiceManagement,
   SalesReturnManagement,
+  SalesAnalyticsDashboard,
+  FinishedGoodsInventory,
 } from './pages/sales';
 import {
   Inventory,
@@ -56,6 +58,7 @@ import {
   SerialNumberManagement,
 } from './pages/inventory';
 import Production from './pages/production/Production';
+import { DispatchPackagesPage } from './pages/dispatch';
 import {
   CompanyManagement,
   BranchManagement,
@@ -92,6 +95,7 @@ import {
   EmployeeBarcodes,
   ProductionBarcodes,
   JobCardBarcodes,
+  GatePassBarcodes,
 } from './pages/barcode-management';
 import {
   SupplierManagement,
@@ -130,6 +134,7 @@ import {
   StoreItemLifecycle,
 } from './pages/store';
 import AiAssistantPage from './pages/ai-assistant/AiAssistantPage';
+import GeneralReports from './pages/reports/GeneralReports';
 import './App.css';
 
 const App: React.FC = () => {
@@ -146,16 +151,23 @@ const App: React.FC = () => {
             <MainLayout>
               <Routes>
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/reports" element={<GeneralReports />} />
                   <Route path="/ai-assistant" element={<AiAssistantPage />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/change-password" element={<ChangePassword />} />
                   <Route path="/products/*" element={<Products />} />
                   <Route path="/customers" element={<CustomerManagement />} />
+                  <Route path="/sales/analytics" element={<SalesAnalyticsDashboard />} />
+                  <Route path="/sales/dashboard" element={<Navigate to="/sales/analytics" replace />} />
+                  <Route path="/sales/finished-goods" element={<FinishedGoodsInventory />} />
                   <Route path="/sales/quotations" element={<SalesQuotationManagement />} />
                   <Route path="/sales/orders" element={<SalesOrderManagement />} />
                   <Route path="/sales/deliveries" element={<SalesDeliveryManagement />} />
+                  <Route path="/sales/packages" element={<DispatchPackagesPage />} />
+                  <Route path="/dispatch/packages" element={<DispatchPackagesPage />} />
                   <Route path="/sales/invoices" element={<SalesInvoiceManagement />} />
+                  <Route path="/invoices" element={<SalesInvoiceManagement />} />
                   <Route path="/sales/returns" element={<SalesReturnManagement />} />
                   <Route path="/inventory" element={<Inventory />} />
                 <Route path="/inventory/receiving" element={<Navigate to="/production/receiving" replace />} />
@@ -175,6 +187,7 @@ const App: React.FC = () => {
                   <Route path="/inventory/ledger" element={<StockLedgerView />} />
                   <Route path="/inventory/reports" element={<InventoryReports />} />
                   <Route path="/procurement/suppliers" element={<SupplierManagement />} />
+                  <Route path="/suppliers" element={<Navigate to="/procurement/suppliers" replace />} />
                   <Route path="/procurement/requisitions" element={<PurchaseRequisitionManagement />} />
                   <Route path="/procurement/rfqs" element={<RfqManagement />} />
                   <Route path="/procurement/quotations" element={<QuotationManagement />} />
@@ -262,6 +275,7 @@ const App: React.FC = () => {
                   <Route path="/barcode-management/employees" element={<EmployeeBarcodes />} />
                   <Route path="/barcode-management/production" element={<ProductionBarcodes />} />
                   <Route path="/barcode-management/job-cards" element={<JobCardBarcodes />} />
+                  <Route path="/barcode-management/gate-passes" element={<GatePassBarcodes />} />
                   <Route path="/store/dashboard" element={<StoreDashboard />} />
                   <Route path="/store/master" element={<StoreManagement />} />
                   <Route path="/store/items" element={<StoreItems />} />

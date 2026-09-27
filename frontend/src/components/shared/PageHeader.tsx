@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { resolveNavMeta } from '../layout/navigationConfig';
-import { useHeaderActions } from '../layout/headerActionsStore';
+import { useHeaderActions, areReactNodesEqual } from '../layout/headerActionsStore';
 
 interface PageHeaderProps {
   icon: React.ReactNode;
@@ -29,18 +29,18 @@ const PageHeader: React.FC<PageHeaderProps> = ({ icon, title, subtitle, extra })
   const location = useLocation();
   const navMeta = React.useMemo(() => resolveNavMeta(location.pathname), [location.pathname]);
   const HeaderIcon = navMeta?.icon;
+  const renderedIcon = React.useMemo(() => (HeaderIcon ? React.createElement(HeaderIcon) : icon), [HeaderIcon, icon]);
+  const tabId = location.pathname;
 
   useEffect(() => {
     useHeaderActions.getState().setHeaderMeta(
       title,
       subtitle,
-      HeaderIcon ? React.createElement(HeaderIcon) : icon,
-      extra
+      renderedIcon,
+      extra,
+      tabId
     );
-    return () => {
-      useHeaderActions.getState().clearHeaderMeta();
-    };
-  }, [title, subtitle, HeaderIcon, icon, extra]);
+  }, [title, subtitle, renderedIcon, extra, tabId]);
 
   return null;
 };

@@ -10,6 +10,7 @@ import { MaintenanceRootCauseCategory } from './maintenance-root-cause-category.
 import { MaintenanceFailureCategory } from './maintenance-failure-category.entity';
 import { MaintenanceTeam } from './maintenance-team.entity';
 import { MaintenanceJobCardTechnician } from './maintenance-job-card-technician.entity';
+import { MaintenanceJobCardPart } from './maintenance-job-card-part.entity';
 import { ErpUser } from '../../user/entities/erp-user.entity';
 import { JobCardStatus, MaintenancePriority, MaintenanceType } from '../enums';
 
@@ -188,4 +189,7 @@ export class MaintenanceJobCard extends BaseEntity {
 
   @OneToMany(() => MaintenanceJobCardTechnician, (technician) => technician.jobCard)
   technicians: MaintenanceJobCardTechnician[];
+
+  @OneToMany(() => MaintenanceJobCardPart, (part) => part.jobCard)
+  parts: MaintenanceJobCardPart[];
 }

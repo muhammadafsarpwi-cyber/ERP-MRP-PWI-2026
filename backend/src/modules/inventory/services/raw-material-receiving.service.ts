@@ -27,6 +27,7 @@ import {
   UpdateRawMaterialReceiptDto, UpdateRawMaterialReturnDto,
   RawMaterialReceivingReportQuery, WhatsAppReceiptShareDto,
 } from '../dto/raw-material-receiving.dto';
+import { populateAuditNames } from '../../organization/helpers/audit-names';
 
 interface LineArg {
   itemId: string;
@@ -1022,6 +1023,7 @@ export class RawMaterialReceivingService {
 
     qb.orderBy('r.receiptDate', 'DESC').addOrderBy('r.createdAt', 'DESC');
     const [data, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
+    await populateAuditNames(this.receiptRepo.manager.connection, data);
 
     const ids = data.map((h) => h.id);
     const totals: Record<string, { gatePassTotal: number; receivedTotal: number; differenceTotal: number }> = {};
@@ -1213,6 +1215,7 @@ export class RawMaterialReceivingService {
 
     qb.orderBy('r.returnDate', 'DESC').addOrderBy('r.createdAt', 'DESC');
     const [data, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
+    await populateAuditNames(this.returnRepo.manager.connection, data);
 
     const ids = data.map((h) => h.id);
     const totals: Record<string, { quantityTotal: number }> = {};

@@ -10,6 +10,8 @@ import {
   Machine,
   Shift,
   DowntimeReason,
+  ProductionUnit,
+  ProductionUnitPrintLog,
 } from './entities';
 import { ProductionRouting, RoutingOperation } from '../production-routing/entities';
 import { BillOfMaterials, BomLine } from '../bom/entities';
@@ -22,8 +24,14 @@ import {
   ProductionPlanningService,
   ProductionEntryService,
   ProductionInventoryReportService,
+  ProductionUnitService,
 } from './services';
-import { ProductionOrderController, ProductionEntryController, ProductionInventoryReportController } from './controllers';
+import {
+  ProductionOrderController,
+  ProductionEntryController,
+  ProductionInventoryReportController,
+  ProductionUnitController,
+} from './controllers';
 import { InventoryModule } from '../inventory/inventory.module';
 import { MachineTargetModule } from '../machine-target/machine-target.module';
 import { ProductionRoutingModule } from '../production-routing/production-routing.module';
@@ -60,6 +68,8 @@ import { BarcodeModule } from '../barcode/barcode.module';
       SalesOrderItem,
       StockLedger,
       InventoryBalance,
+      ProductionUnit,
+      ProductionUnitPrintLog,
     ]),
     InventoryModule,
     MachineTargetModule,
@@ -69,8 +79,20 @@ import { BarcodeModule } from '../barcode/barcode.module';
     forwardRef(() => UserModule),
     forwardRef(() => BarcodeModule),
   ],
-  controllers: [ProductionOrderController, ProductionEntryController, ProductionInventoryReportController],
-  providers: [ProductionOrderService, ProductionPlanningService, ProductionEntryService, ProductionInventoryReportService],
-  exports: [ProductionOrderService, ProductionPlanningService, ProductionEntryService],
+  controllers: [
+    ProductionOrderController,
+    ProductionEntryController,
+    ProductionInventoryReportController,
+    ProductionUnitController,
+  ],
+  providers: [
+    ProductionOrderService,
+    ProductionPlanningService,
+    ProductionEntryService,
+    ProductionInventoryReportService,
+    ProductionUnitService,
+  ],
+  exports: [ProductionOrderService, ProductionPlanningService, ProductionEntryService, ProductionUnitService],
 })
 export class ProductionModule {}
+

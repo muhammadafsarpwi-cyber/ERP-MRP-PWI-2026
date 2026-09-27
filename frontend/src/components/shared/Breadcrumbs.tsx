@@ -47,7 +47,8 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/sales\/quotations/, label: 'Sales Quotations' },
   { pattern: /^\/sales\/orders/, label: 'Sales Orders' },
   { pattern: /^\/sales\/deliveries/, label: 'Sales Deliveries' },
-  { pattern: /^\/sales\/invoices/, label: 'Sales Invoices' },
+  { pattern: /^\/sales\/invoices/, label: 'Invoices' },
+  { pattern: /^\/invoices/, label: 'Invoices' },
   { pattern: /^\/sales\/returns/, label: 'Sales Returns' },
   { pattern: /^\/products/, label: 'Products' },
   { pattern: /^\/production\/inventory-report/, label: 'Inventory Report' },
@@ -63,6 +64,7 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/hr\/my-attendance/, label: 'My Attendance' },
   { pattern: /^\/hr\/attendance-register/, label: 'Attendance Register' },
   { pattern: /^\/settings$/, label: 'Settings' },
+  { pattern: /^\/reports/, label: 'Reports' },
 ];
 
 const PARENT_LABELS: Record<string, string> = {

@@ -27,6 +27,8 @@
   --theme-danger-soft: #ffecec;
   --theme-info-soft: #e9eafd;
   --theme-surface-elevated: #ffffff;
+  --theme-bg-card: var(--theme-surface-elevated, #ffffff);
+  --theme-bg-secondary: var(--theme-surface-alt, #f7f8fd);
   --theme-chart-grid: rgba(15, 23, 42, 0.08);
   --theme-chart-axis: rgba(15, 23, 42, 0.5);
   --theme-icon-primary: #58a6ff;
@@ -73,6 +75,8 @@ html[data-theme='dark'] {
   --theme-danger-soft: rgba(229, 72, 77, 0.16);
   --theme-info-soft: rgba(129, 140, 248, 0.16);
   --theme-surface-elevated: #202544;
+  --theme-bg-card: var(--theme-surface-elevated, #202544);
+  --theme-bg-secondary: var(--theme-surface-alt, #202544);
   --theme-chart-grid: rgba(226, 232, 255, 0.09);
   --theme-chart-axis: rgba(199, 204, 235, 0.5);
   --theme-icon-primary: #7cc4ff;
@@ -674,6 +678,117 @@ html, body {
     max-width: 96vw !important;
     margin: 8px auto !important;
   }
+}
+
+/* Barcode & QR Code Label Modal Stacking and Dark Theme Styling */
+.erp-barcode-modal-wrap {
+  z-index: 1300 !important;
+}
+
+.erp-barcode-modal-wrap .ant-modal-wrap {
+  z-index: 1300 !important;
+}
+
+.erp-barcode-modal-wrap .ant-modal-mask {
+  z-index: 1290 !important;
+}
+
+[data-theme='dark'] .erp-barcode-modal-wrap .ant-modal-content {
+  background: #181c33 !important;
+  border: 1px solid #2a3158 !important;
+  color: #f1f5f9 !important;
+}
+
+[data-theme='dark'] .erp-barcode-modal-wrap .ant-modal-header {
+  background: #181c33 !important;
+  border-bottom: 1px solid #2a3158 !important;
+}
+
+[data-theme='dark'] .erp-barcode-modal-wrap .ant-modal-title {
+  color: #f1f5f9 !important;
+}
+
+[data-theme='dark'] .erp-barcode-modal-wrap .ant-modal-footer {
+  background: #181c33 !important;
+  border-top: 1px solid #2a3158 !important;
+}
+
+[data-theme='dark'] .erp-barcode-modal-wrap .ant-modal-close {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .erp-barcode-modal-wrap .ant-segmented {
+  background: #202544 !important;
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .erp-barcode-modal-wrap .ant-segmented-item-selected {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+/* ===================================================
+   GLOBAL INTERACTIVE ROTATING RED CROSS (X) BUTTONS
+   On hover: smoothly spins 90deg, turns vivid red with soft glow
+   =================================================== */
+.ant-modal-close,
+.ant-modal-close-x,
+.reference-modal-header .anticon-close,
+.reference-modal-close-btn,
+.c360-header .anticon-close,
+.modal-close-btn,
+.btn-modal-close,
+.ant-drawer-close,
+.ant-notification-notice-close,
+.ant-message-notice .anticon-close,
+.ant-alert-close-icon,
+.ant-tag-close-icon,
+[aria-label="Close"],
+[aria-label="close"],
+.action-btn-close,
+.btn-close-modal,
+button[aria-label="Close"],
+span.anticon-close {
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+}
+
+.ant-modal-close:hover,
+.ant-modal-close-x:hover,
+.reference-modal-header .anticon-close:hover,
+.reference-modal-close-btn:hover,
+.c360-header .anticon-close:hover,
+.modal-close-btn:hover,
+.btn-modal-close:hover,
+.ant-drawer-close:hover,
+.ant-notification-notice-close:hover,
+.ant-alert-close-icon:hover,
+.ant-tag-close-icon:hover,
+[aria-label="Close"]:hover,
+[aria-label="close"]:hover,
+.action-btn-close:hover,
+.btn-close-modal:hover,
+button[aria-label="Close"]:hover,
+span.anticon-close:hover,
+.reference-modal-header-actions .anticon-close:hover {
+  color: #ef4444 !important;
+  background-color: rgba(239, 68, 68, 0.22) !important;
+  transform: rotate(90deg) scale(1.18) !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.38) !important;
+}
+
+.ant-modal-close:hover svg,
+.ant-modal-close-x:hover svg,
+.reference-modal-close-btn:hover svg,
+.reference-modal-header-actions .anticon-close:hover svg,
+.c360-header .anticon-close:hover svg,
+span.anticon-close:hover svg {
+  fill: #ef4444 !important;
+  color: #ef4444 !important;
 }
 
 

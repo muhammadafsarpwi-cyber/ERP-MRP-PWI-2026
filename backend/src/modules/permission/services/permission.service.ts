@@ -79,6 +79,25 @@ export class PermissionService {
   }
 
   async checkUserPermission(userId: string, permissionCode: string): Promise<boolean> {
+    // 1. Check if user has an active Admin or Super Admin role
+    try {
+      const adminCheck = await this.permissionRepository.manager.query(
+        `SELECT 1 FROM user_roles ur
+         INNER JOIN roles r ON r.id = ur.role_id
+         INNER JOIN erp_users u ON u.id = ur.user_id
+         WHERE u.id = $1 AND u.status = 'ACTIVE' AND ur.status = 'ACTIVE'
+           AND (r.role_code IN ('SUPER_ADMIN', 'ADMIN', 'SYSTEM_ADMIN') OR r.name ILIKE '%admin%')
+         LIMIT 1`,
+        [userId],
+      );
+      if (adminCheck && adminCheck.length > 0) {
+        return true;
+      }
+    } catch {
+      // Fallback to regular permission query if raw query fails
+    }
+
+    // 2. Standard permission lookup
     const result = await this.permissionRepository
       .createQueryBuilder('perm')
       .innerJoin('role_permissions', 'rp', 'rp.permission_id = perm.id')

@@ -2,7 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesOrderService } from './sales-order.service';
-import { SalesOrder, SalesOrderItem, SalesCustomer } from '../entities';
+import { SalesOrder, SalesOrderItem, SalesCustomer, SalesQuotation, SalesDelivery, SalesDeliveryLine, SalesInvoice } from '../entities';
+import { ProductionOrder } from '../../production/entities/production-order.entity';
+import { ProductionOrderService } from '../../production/services/production-order.service';
+import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { NotificationsService } from '../../notification/notifications.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
@@ -29,11 +32,13 @@ describe('SalesOrderService', () => {
   const mockOrder: SalesOrder = {
     id: UUID_SO, companyId: UUID_COMPANY, customerId: UUID_CUST, orderNumber: 'SO-2026-00001',
     quotationId: null, orderDate: '2026-08-20', deliveryDate: null,
+    customerPo: null,
     shipToAddress: null, billToAddress: null, currency: 'USD',
     subtotal: 5000, discountAmount: 0, taxAmount: 500, freightAmount: 0,
     totalAmount: 5500, notes: null, status: 'Draft', createdBy: UUID_USER,
     updatedBy: UUID_USER, createdAt: new Date(), updatedAt: new Date(),
     paymentTermId: null, salesRepId: null,
+    divisionId: null, division: null as never, sectionId: null, section: null as never,
     customer: null as never, items: [],
   };
 
@@ -59,6 +64,13 @@ describe('SalesOrderService', () => {
         { provide: getRepositoryToken(SalesOrder), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesOrderItem), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesCustomer), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesQuotation), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesDelivery), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesDeliveryLine), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesInvoice), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(ProductionOrder), useValue: makeMockRepo() },
+        { provide: ProductionOrderService, useValue: { create: jest.fn() } },
+        { provide: InventoryBalanceService, useValue: { getAvailableStock: jest.fn().mockResolvedValue(100) } },
         { provide: NotificationsService, useValue: { notifyActiveUsers: jest.fn() } },
       ],
     }).compile();

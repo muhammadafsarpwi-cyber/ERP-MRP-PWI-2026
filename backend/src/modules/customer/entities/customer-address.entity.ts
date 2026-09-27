@@ -12,7 +12,7 @@ export class CustomerAddress extends BaseEntity {
   customer: Customer;
 
   @Column({ name: 'address_type', type: 'varchar', length: 20, default: 'SHIPPING' })
-  addressType: string;
+  addressType: string; // BILLING, SHIPPING, OFFICE, BOTH
 
   @Column({ name: 'address_line1', type: 'varchar', length: 255 })
   addressLine1: string;
@@ -24,6 +24,9 @@ export class CustomerAddress extends BaseEntity {
   city: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
+  area: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
   state: string | null;
 
   @Column({ name: 'postal_code', type: 'varchar', length: 20, nullable: true })
@@ -31,6 +34,12 @@ export class CustomerAddress extends BaseEntity {
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   country: string | null;
+
+  @Column({ name: 'contact_person', type: 'varchar', length: 150, nullable: true })
+  contactPerson: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  phone: string | null;
 
   @Column({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean;

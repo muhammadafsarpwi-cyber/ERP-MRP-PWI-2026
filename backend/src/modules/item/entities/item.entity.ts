@@ -247,6 +247,15 @@ export class Item extends BaseEntity {
   @Column({ name: 'packing_next_step', type: 'varchar', length: 255, nullable: true })
   packingNextStep: string | null;
 
+  @Column({ name: 'packaging_type', type: 'varchar', length: 50, nullable: true })
+  packagingType?: string | null;
+
+  @Column({ name: 'packaging_size', type: 'decimal', precision: 12, scale: 3, nullable: true })
+  packagingSize?: number | null;
+
+  @Column({ name: 'packaging_unit', type: 'varchar', length: 50, nullable: true })
+  packagingUnit?: string | null;
+
   @Column({ name: 'weight_per_piece', type: 'decimal', precision: 15, scale: 6, nullable: true })
   weightPerPiece: number | null;
 

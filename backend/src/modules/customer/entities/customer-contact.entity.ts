@@ -20,6 +20,9 @@ export class CustomerContact extends BaseEntity {
   @Column({ name: 'job_title', type: 'varchar', length: 100, nullable: true })
   jobTitle: string | null;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  designation: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   email: string | null;
 
@@ -28,6 +31,12 @@ export class CustomerContact extends BaseEntity {
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   mobile: string | null;
+
+  @Column({ name: 'alternate_contact', type: 'varchar', length: 150, nullable: true })
+  alternateContact: string | null;
+
+  @Column({ name: 'alternate_phone', type: 'varchar', length: 50, nullable: true })
+  alternatePhone: string | null;
 
   @Column({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean;

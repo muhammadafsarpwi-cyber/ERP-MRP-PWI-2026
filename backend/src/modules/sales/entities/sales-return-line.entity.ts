@@ -47,6 +47,15 @@ export class SalesReturnLine {
   @Column({ name: 'line_total', type: 'decimal', precision: 15, scale: 4, default: 0 })
   lineTotal: number;
 
+  @Column({ name: 'discount_amount', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  discountAmount: number;
+
+  @Column({ type: 'varchar', length: 50, default: 'GOOD' })
+  condition: string;
+
+  @Column({ name: 'sales_delivery_line_id', type: 'uuid', nullable: true })
+  salesDeliveryLineId: string | null;
+
   @Column({ type: 'text', nullable: true })
   reason: string | null;
 

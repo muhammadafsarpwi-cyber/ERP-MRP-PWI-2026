@@ -1,7 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { SalesOrder, SalesOrderItem, SalesCustomer } from '../entities';
+import { Repository, In } from 'typeorm';
+import {
+  SalesOrder,
+  SalesOrderItem,
+  SalesCustomer,
+  SalesQuotation,
+  SalesDelivery,
+  SalesDeliveryLine,
+  SalesInvoice,
+} from '../entities';
+import { ProductionOrder, ProductionDemandSource } from '../../production/entities';
+import { ProductionOrderService } from '../../production/services/production-order.service';
+import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { NotificationsService } from '../../notification/notifications.service';
 
 @Injectable()
@@ -15,6 +26,19 @@ export class SalesOrderService {
     private readonly itemRepo: Repository<SalesOrderItem>,
     @InjectRepository(SalesCustomer)
     private readonly customerRepo: Repository<SalesCustomer>,
+    @InjectRepository(SalesQuotation)
+    private readonly quotationRepo: Repository<SalesQuotation>,
+    @InjectRepository(SalesDelivery)
+    private readonly deliveryRepo: Repository<SalesDelivery>,
+    @InjectRepository(SalesDeliveryLine)
+    private readonly deliveryLineRepo: Repository<SalesDeliveryLine>,
+    @InjectRepository(SalesInvoice)
+    private readonly invoiceRepo: Repository<SalesInvoice>,
+    @InjectRepository(ProductionOrder)
+    private readonly productionOrderRepo: Repository<ProductionOrder>,
+    @Inject(forwardRef(() => ProductionOrderService))
+    private readonly productionOrderService: ProductionOrderService,
+    private readonly balanceService: InventoryBalanceService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -31,12 +55,15 @@ export class SalesOrderService {
     const order = this.repo.create({
       companyId: dto.companyId,
       customerId: dto.customerId,
+      customerPo: dto.customerPo || null,
       quotationId: dto.quotationId || null,
       orderNumber,
       orderDate: dto.orderDate || new Date().toISOString().split('T')[0],
       deliveryDate: dto.deliveryDate || null,
       shipToAddress: dto.shipToAddress || null,
       billToAddress: dto.billToAddress || null,
+      divisionId: dto.divisionId || null,
+      sectionId: dto.sectionId || null,
       currency: dto.currency || 'USD',
       subtotal: dto.subtotal || 0,
       discountAmount: dto.discountAmount || 0,
@@ -90,14 +117,21 @@ export class SalesOrderService {
 
   async findAll(filter: any): Promise<{ data: SalesOrder[]; total: number }> {
     const page = Number(filter.page) || 1;
-    const limit = Number(filter.limit) || 20;
-    const { companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const limit = Number(filter.limit) || 50;
+    const { companyId, customerId, status, search, divisionId, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
     const qb = this.repo.createQueryBuilder('so')
-      .leftJoinAndSelect('so.customer', 'customer');
+      .leftJoinAndSelect('so.customer', 'customer')
+      .leftJoinAndSelect('so.division', 'division')
+      .leftJoinAndSelect('so.section', 'section')
+      .leftJoinAndSelect('so.items', 'items')
+      .leftJoinAndSelect('items.item', 'item')
+      .leftJoinAndSelect('items.uom', 'uom');
     let hasWhere = false;
     if (companyId) { qb.where('so.companyId = :companyId', { companyId }); hasWhere = true; }
+    if (customerId) { qb[hasWhere ? 'andWhere' : 'where']('so.customerId = :customerId', { customerId }); hasWhere = true; }
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('so.status = :status', { status }); hasWhere = true; }
-    if (search) { qb[hasWhere ? 'andWhere' : 'where']('so.orderNumber ILIKE :search', { search: `%${search}%` }); hasWhere = true; }
+    if (divisionId) { qb[hasWhere ? 'andWhere' : 'where']('so.divisionId = :divisionId', { divisionId }); hasWhere = true; }
+    if (search) { qb[hasWhere ? 'andWhere' : 'where']('(so.orderNumber ILIKE :search OR customer.companyName ILIKE :search OR so.customerPo ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     const validSortFields = ['createdAt', 'orderNumber', 'orderDate', 'status', 'totalAmount'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -107,7 +141,16 @@ export class SalesOrderService {
     return { data, total };
   }
 
-  async findOne(id: string, companyId?: string): Promise<SalesOrder> {
+  async getCustomers(companyId?: string): Promise<SalesCustomer[]> {
+    const where: any = {};
+    if (companyId) where.companyId = companyId;
+    return this.customerRepo.find({
+      where,
+      order: { customerCode: 'ASC' },
+    });
+  }
+
+  async findOne(id: string, companyId?: string): Promise<any> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       throw new BadRequestException(`Invalid ID format: ${id}`);
     }
@@ -115,10 +158,114 @@ export class SalesOrderService {
     if (companyId) where.companyId = companyId;
     const order = await this.repo.findOne({
       where,
-      relations: ['customer', 'items', 'items.item', 'items.uom'],
+      relations: ['customer', 'division', 'section', 'items', 'items.item', 'items.uom'],
     });
     if (!order) throw new NotFoundException(`Sales order with ID '${id}' not found`);
-    return order;
+
+    let relatedQuotation = null;
+    if (order.quotationId) {
+      try {
+        relatedQuotation = await this.quotationRepo.findOne({
+          where: { id: order.quotationId, companyId: order.companyId },
+          select: ['id', 'quotationNumber', 'quotationDate', 'status', 'totalAmount'],
+        });
+      } catch {
+        relatedQuotation = null;
+      }
+    }
+
+    let linkedDeliveries: any[] = [];
+    try {
+      linkedDeliveries = await this.deliveryRepo.find({
+        where: { salesOrderId: order.id, companyId: order.companyId },
+        relations: ['lines'],
+        order: { createdAt: 'DESC' },
+      });
+    } catch {
+      linkedDeliveries = [];
+    }
+
+    let linkedInvoices: any[] = [];
+    try {
+      linkedInvoices = await this.invoiceRepo.find({
+        where: { salesOrderId: order.id, companyId: order.companyId },
+        order: { createdAt: 'DESC' },
+      });
+    } catch {
+      linkedInvoices = [];
+    }
+
+    let linkedProductionOrders: any[] = [];
+    try {
+      const orderItemIds = (order.items || []).map((it) => it.id);
+      const productIds = (order.items || []).map((it) => it.itemId).filter(Boolean) as string[];
+      if (orderItemIds.length > 0 || productIds.length > 0) {
+        linkedProductionOrders = await this.productionOrderRepo.find({
+          where: [
+            ...(orderItemIds.length > 0 ? [{ salesOrderItemId: In(orderItemIds), companyId: order.companyId }] : []),
+            ...(productIds.length > 0 ? [{ productId: In(productIds), demandSource: ProductionDemandSource.CUSTOMER_ORDER, companyId: order.companyId }] : []),
+          ],
+          select: ['id', 'orderNumber', 'productId', 'salesOrderItemId', 'plannedQuantity', 'completedQuantity', 'scrappedQuantity', 'status', 'dueDate', 'createdAt'],
+          order: { createdAt: 'DESC' },
+        });
+      }
+    } catch {
+      linkedProductionOrders = [];
+    }
+
+    // Compute item fulfillment breakdown
+    const itemFulfillment = await Promise.all(
+      (order.items || []).map(async (item) => {
+        const ordered = Number(item.quantity) || 0;
+
+        // Produced from matching production orders
+        const matchingPOs = linkedProductionOrders.filter(
+          (po) => po.salesOrderItemId === item.id || (po.productId === item.itemId && !po.salesOrderItemId),
+        );
+        const produced = matchingPOs.reduce((acc, po) => acc + Number(po.completedQuantity || 0), 0);
+
+        // Delivered from confirmed deliveries
+        const delivered = linkedDeliveries
+          .filter((d) => d.status === 'DELIVERED' || d.status === 'CONFIRMED' || d.status === 'SHIPPED')
+          .reduce((acc, d) => {
+            const line = (d.lines || []).find((l: any) => l.itemId === item.itemId);
+            return acc + (line ? Number(line.quantity) : 0);
+          }, 0);
+
+        // Real FG stock available
+        let availableStock = 0;
+        if (item.itemId) {
+          try {
+            availableStock = await this.balanceService.getAvailableStock(order.companyId, item.itemId);
+          } catch {
+            availableStock = 0;
+          }
+        }
+
+        const remainingDelivery = Math.max(0, ordered - delivered);
+
+        return {
+          orderItemId: item.id,
+          itemId: item.itemId,
+          itemCode: item.item?.itemCode,
+          itemName: item.item?.name,
+          uomCode: item.uom?.code,
+          orderedQuantity: ordered,
+          producedQuantity: produced,
+          deliveredQuantity: delivered,
+          availableStock: Math.max(0, availableStock),
+          remainingDeliveryQuantity: remainingDelivery,
+        };
+      }),
+    );
+
+    return Object.assign(order, {
+      relatedQuotation,
+      linkedProductionOrders,
+      linkedDeliveries,
+      linkedInvoices,
+      itemFulfillment,
+    });
   }
 
   async update(id: string, dto: any, userId?: string, companyId?: string): Promise<SalesOrder> {
@@ -134,6 +281,8 @@ export class SalesOrderService {
       deliveryDate: dto.deliveryDate ?? order.deliveryDate,
       shipToAddress: dto.shipToAddress ?? order.shipToAddress,
       billToAddress: dto.billToAddress ?? order.billToAddress,
+      divisionId: dto.divisionId !== undefined ? (dto.divisionId || null) : order.divisionId,
+      sectionId: dto.sectionId !== undefined ? (dto.sectionId || null) : order.sectionId,
       currency: dto.currency ?? order.currency,
       discountAmount: dto.discountAmount ?? order.discountAmount,
       taxAmount: dto.taxAmount ?? order.taxAmount,
@@ -195,6 +344,206 @@ export class SalesOrderService {
     return this.repo.save(order);
   }
 
+  async convertToDelivery(
+    id: string,
+    dto?: { warehouseId?: string; deliveryDate?: string; carrier?: string; trackingNumber?: string; notes?: string; lines?: Array<{ itemId: string; quantity: number }> },
+    userId?: string,
+    companyId?: string,
+  ): Promise<SalesDelivery> {
+    const order = await this.findOne(id, companyId);
+    if (order.status !== 'Confirmed' && order.status !== 'Processing') {
+      throw new BadRequestException(
+        `Sales order must be in 'Confirmed' or 'Processing' status to create a delivery. Current status: ${order.status}`,
+      );
+    }
+
+    if (!order.items || order.items.length === 0) {
+      throw new BadRequestException('Sales order has no line items to deliver');
+    }
+
+    const deliveryLinesToCreate: Array<{
+      itemId: string;
+      quantity: number;
+      uomId: string | null;
+      unitPrice: number;
+      taxAmount: number;
+      lineTotal: number;
+      description: string | null;
+    }> = [];
+
+    let totalSubtotal = 0;
+    let totalTax = 0;
+
+    for (const item of order.items) {
+      const fulfillment = (order.itemFulfillment || []).find((f: any) => f.orderItemId === item.id);
+      const remaining = fulfillment ? fulfillment.remainingDeliveryQuantity : Number(item.quantity);
+
+      if (remaining <= 0) continue;
+
+      let deliveryQty = remaining;
+      if (dto?.lines && dto.lines.length > 0) {
+        const customLine = dto.lines.find((l) => l.itemId === item.itemId);
+        if (customLine) {
+          if (customLine.quantity > remaining) {
+            throw new BadRequestException(
+              `Requested delivery quantity (${customLine.quantity}) exceeds remaining undelivered quantity (${remaining}) for item ${item.item?.name || item.itemId}`,
+            );
+          }
+          deliveryQty = customLine.quantity;
+        } else {
+          continue; // omitted from partial delivery
+        }
+      }
+
+      if (deliveryQty <= 0) continue;
+
+      const unitPrice = Number(item.unitPrice) || 0;
+      const lineSubtotal = deliveryQty * unitPrice;
+      const taxRate = Number(item.taxAmount || 0) / (Number(item.lineTotal || 1) || 1);
+      const lineTax = lineSubtotal * taxRate;
+      const lineTotal = lineSubtotal + lineTax;
+
+      deliveryLinesToCreate.push({
+        itemId: item.itemId,
+        quantity: deliveryQty,
+        uomId: item.uomId,
+        unitPrice,
+        taxAmount: lineTax,
+        lineTotal,
+        description: item.description,
+      });
+
+      totalSubtotal += lineSubtotal;
+      totalTax += lineTax;
+    }
+
+    if (deliveryLinesToCreate.length === 0) {
+      throw new BadRequestException('All items in this sales order have already been delivered or delivery quantity is zero');
+    }
+
+    const deliveryNumber = await this.generateDeliveryNumber(order.companyId);
+
+    const delivery = this.deliveryRepo.create({
+      companyId: order.companyId,
+      salesOrderId: order.id,
+      customerId: order.customerId,
+      deliveryNumber,
+      deliveryDate: dto?.deliveryDate || new Date().toISOString().split('T')[0],
+      warehouseId: dto?.warehouseId || null,
+      shipToAddress: order.shipToAddress || null,
+      carrier: dto?.carrier || null,
+      trackingNumber: dto?.trackingNumber || null,
+      subtotal: totalSubtotal,
+      taxAmount: totalTax,
+      totalAmount: totalSubtotal + totalTax,
+      status: 'DRAFT',
+      notes: dto?.notes || `Created from Sales Order ${order.orderNumber}`,
+      createdBy: userId || null,
+      updatedBy: userId || null,
+    });
+    const savedDelivery = await this.deliveryRepo.save(delivery);
+
+    let lineNum = 1;
+    for (const dLine of deliveryLinesToCreate) {
+      const line = this.deliveryLineRepo.create({
+        deliveryId: savedDelivery.id,
+        lineNumber: lineNum++,
+        itemId: dLine.itemId,
+        quantity: dLine.quantity,
+        uomId: dLine.uomId,
+        unitPrice: dLine.unitPrice,
+        taxAmount: dLine.taxAmount,
+        lineTotal: dLine.lineTotal,
+        description: dLine.description,
+      });
+      await this.deliveryLineRepo.save(line);
+    }
+
+    if (order.status === 'Confirmed') {
+      order.status = 'Processing';
+      await this.repo.save(order);
+    }
+
+    return this.deliveryRepo.findOne({
+      where: { id: savedDelivery.id },
+      relations: ['lines', 'lines.item', 'lines.uom', 'customer', 'salesOrder'],
+    }) as Promise<SalesDelivery>;
+  }
+
+  async createProductionOrder(
+    id: string,
+    dto: {
+      orderItemId: string;
+      routingId: string;
+      bomId?: string;
+      plannedQuantity?: number;
+      rawMaterialWarehouseId?: string;
+      finishedGoodsWarehouseId?: string;
+      dueDate?: string;
+      priority?: any;
+      remarks?: string;
+    },
+    userId?: string,
+    companyId?: string,
+  ): Promise<ProductionOrder> {
+    const order = await this.findOne(id, companyId);
+    const orderItem = (order.items || []).find((it: any) => it.id === dto.orderItemId);
+    if (!orderItem) {
+      throw new BadRequestException(`Order line item with ID '${dto.orderItemId}' not found on order ${order.orderNumber}`);
+    }
+
+    const plannedQuantity = Number(dto.plannedQuantity || orderItem.quantity);
+    if (plannedQuantity <= 0) {
+      throw new BadRequestException('Planned quantity must be greater than zero');
+    }
+
+    const poDto: any = {
+      productId: orderItem.itemId,
+      routingId: dto.routingId,
+      bomId: dto.bomId || null,
+      plannedQuantity,
+      uomId: orderItem.uomId,
+      salesOrderItemId: orderItem.id,
+      demandSource: ProductionDemandSource.CUSTOMER_ORDER,
+      rawMaterialWarehouseId: dto.rawMaterialWarehouseId || null,
+      finishedGoodsWarehouseId: dto.finishedGoodsWarehouseId || null,
+      dueDate: dto.dueDate || order.deliveryDate || null,
+      priority: dto.priority || 'NORMAL',
+      remarks: dto.remarks
+        ? `Order ${order.orderNumber}: ${dto.remarks}`
+        : `Production for Sales Order ${order.orderNumber} (Line #${orderItem.lineNumber || 1})`,
+    };
+
+    const newPO = await this.productionOrderService.create(poDto, order.companyId, userId);
+
+    if (order.status === 'Confirmed') {
+      order.status = 'Processing';
+      await this.repo.save(order);
+    }
+
+    return newPO;
+  }
+
+  async getOrderTraceability(id: string, companyId?: string) {
+    const order = await this.findOne(id, companyId);
+    return {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      orderDate: order.orderDate,
+      orderStatus: order.status,
+      customer: {
+        id: order.customerId,
+        code: order.customer?.customerCode,
+        name: order.customer?.name || order.customer?.companyName,
+      },
+      quotation: order.relatedQuotation || null,
+      productionOrders: order.linkedProductionOrders || [],
+      deliveries: order.linkedDeliveries || [],
+      invoices: order.linkedInvoices || [],
+      itemFulfillment: order.itemFulfillment || [],
+    };
+  }
+
   private async generateOrderNumber(companyId: string): Promise<string> {
     const year = new Date().getFullYear();
     const prefix = `SO-${year}-`;
@@ -203,6 +552,20 @@ export class SalesOrderService {
       .select("MAX(CAST(SUBSTRING(so.orderNumber FROM 'SO-[0-9]{4}-([0-9]+)') AS INT))", 'maxNum')
       .where('so.companyId = :companyId', { companyId })
       .andWhere('so.orderNumber LIKE :prefix', { prefix: `${prefix}%` })
+      .getRawOne();
+    const maxNum = result?.maxNum || 0;
+    const nextNum = maxNum + 1;
+    return `${prefix}${String(nextNum).padStart(5, '0')}`;
+  }
+
+  private async generateDeliveryNumber(companyId: string): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `DN-${year}-`;
+    const result = await this.deliveryRepo
+      .createQueryBuilder('sd')
+      .select("MAX(CAST(SUBSTRING(sd.deliveryNumber FROM 'DN-[0-9]{4}-([0-9]+)') AS INT))", 'maxNum')
+      .where('sd.companyId = :companyId', { companyId })
+      .andWhere('sd.deliveryNumber LIKE :prefix', { prefix: `${prefix}%` })
       .getRawOne();
     const maxNum = result?.maxNum || 0;
     const nextNum = maxNum + 1;

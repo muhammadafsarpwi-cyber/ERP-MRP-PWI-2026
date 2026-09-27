@@ -219,11 +219,15 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             </Button>
           </Space>
           <Space wrap>
-            {!scanning && !error && (
+            {error ? (
+              <Button type="primary" onClick={() => startScanner()} icon={<SyncOutlined />}>
+                Retry Live Camera
+              </Button>
+            ) : !scanning ? (
               <Button type="primary" onClick={() => startScanner()} icon={<ScanOutlined />}>
                 Start Live Camera
               </Button>
-            )}
+            ) : null}
             <Button onClick={handleClose} icon={<CloseOutlined />}>Close</Button>
           </Space>
         </div>
@@ -303,20 +307,34 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       {error && (
         <div style={{ padding: '12px 14px' }}>
           <Alert
-            type="error"
+            type="info"
             showIcon
-            message="Camera Notice"
+            message="Camera Access / Mobile Camera Option"
             description={
               <div>
-                <p style={{ margin: '0 0 8px' }}>{error}</p>
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<CameraOutlined />}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  Snap / Upload Photo to Scan
-                </Button>
+                <p style={{ margin: '0 0 10px', fontSize: 13 }}>
+                  {error.includes('denied') || error.includes('Permission')
+                    ? '1. If Chrome or your browser asked "Chrome needs permission to access your camera", tap "Continue / Allow" in Chrome, then click "Retry Live Camera" below.'
+                    : error}
+                </p>
+                <Space wrap size="small">
+                  <Button
+                    type="primary"
+                    icon={<CameraOutlined />}
+                    style={{ background: '#722ed1', borderColor: '#722ed1', fontWeight: 600 }}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Take Photo with Mobile Camera
+                  </Button>
+                  <Button
+                    type="default"
+                    icon={<SyncOutlined />}
+                    onClick={() => startScanner()}
+                    style={{ fontWeight: 600 }}
+                  >
+                    Retry Live Camera
+                  </Button>
+                </Space>
               </div>
             }
           />

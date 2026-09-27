@@ -22,6 +22,7 @@ import {
   calculateProratedTarget,
 } from '../../machine-target/services/machine-target.service';
 import { ProductionRoutingService } from '../../production-routing/services/production-routing.service';
+import { populateAuditNames } from '../../organization/helpers/audit-names';
 import {
   familyOf,
   supportedConversions,
@@ -191,6 +192,7 @@ export class ProductionEntryService {
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
+    await populateAuditNames(this.entryRepo.manager.connection, data);
     return { data, total, page, limit };
   }
 

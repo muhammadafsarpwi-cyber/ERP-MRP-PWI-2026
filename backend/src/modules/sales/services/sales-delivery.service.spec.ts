@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesDeliveryService } from './sales-delivery.service';
-import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder } from '../entities';
+import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder, SalesOrderItem, SalesInvoice } from '../entities';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
@@ -36,6 +36,7 @@ describe('SalesDeliveryService', () => {
     id: UUID_DN, companyId: UUID_COMPANY, customerId: UUID_CUST, salesOrderId: null,
     deliveryNumber: 'DN-2026-00001', deliveryDate: '2026-08-20', expectedDate: null,
     warehouseId: UUID_WH, shipToAddress: null, carrier: null, trackingNumber: null,
+    customerPo: null,
     notes: null, subtotal: 1000, taxAmount: 0, totalAmount: 1000, status: 'DRAFT',
     createdBy: UUID_USER, updatedBy: UUID_USER, receivedBy: null, receivedAt: null,
     createdAt: new Date(), updatedAt: new Date(),
@@ -79,6 +80,8 @@ describe('SalesDeliveryService', () => {
         { provide: getRepositoryToken(SalesDeliveryLine), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesCustomer), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesOrder), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesOrderItem), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesInvoice), useValue: makeMockRepo() },
         { provide: InventoryBalanceService, useValue: balanceService },
         { provide: StockLedgerService, useValue: ledgerService },
       ],

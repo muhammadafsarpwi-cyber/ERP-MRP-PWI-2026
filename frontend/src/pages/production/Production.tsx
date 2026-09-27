@@ -12,6 +12,7 @@ import ProductionInventoryReport from './ProductionInventoryReport';
 import RawMaterialReceiving from './receiving/RawMaterialReceiving';
 import RawMaterialReturn from './returns/RawMaterialReturn';
 import ReceivingReport from './receiving/ReceivingReport';
+import { ProductionUnitsPage } from './units';
 import { MachineManagement } from '../master-data';
 
 const MachineMasterDeepLink: React.FC = () => {
@@ -26,6 +27,7 @@ const Production: React.FC = () => (
     <Route path="orders" element={<ProductionOrders />} />
     <Route path="reports" element={<ProductionReports />} />
     <Route path="entries/*" element={<ProductionEntries />} />
+    <Route path="units" element={<ProductionUnitsPage />} />
     <Route path="receiving" element={<RawMaterialReceiving />} />
     <Route path="returns" element={<RawMaterialReturn />} />
     <Route path="receiving-report" element={<ReceivingReport />} />

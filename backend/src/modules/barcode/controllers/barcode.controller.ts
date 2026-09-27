@@ -13,12 +13,16 @@ import { PermissionGuard, RequirePermission } from '../../auth/guards/permission
 export class BarcodeController {
   constructor(private readonly barcodeService: BarcodeService) {}
 
+  private getCompanyId(req: any): string | undefined {
+    return req.erpUser?.defaultCompanyId || req.user?.defaultCompanyId || req.orgScopes?.[0]?.companyId;
+  }
+
   @Post()
   @UseGuards(PermissionGuard)
   @RequirePermission('item_barcode.create')
   @ApiOperation({ summary: 'Create a barcode' })
   async create(@Body() dto: CreateBarcodeDto, @Req() req: any) {
-    const companyId = req.user?.defaultCompanyId;
+    const companyId = this.getCompanyId(req);
     const barcode = await this.barcodeService.create(dto, companyId, req.user?.id);
     return { success: true, data: barcode, message: 'Barcode created' };
   }
@@ -38,7 +42,7 @@ export class BarcodeController {
     @Query('limit') limit?: number,
     @Query('search') search?: string,
   ) {
-    const companyId = req.user?.defaultCompanyId;
+    const companyId = this.getCompanyId(req);
     const result = await this.barcodeService.findAll(companyId, entityType, Number(page) || 1, Number(limit) || 50, search);
     return { success: true, ...result };
   }
@@ -48,7 +52,7 @@ export class BarcodeController {
   @RequirePermission('item_barcode.view')
   @ApiOperation({ summary: 'Get barcode statistics by entity type' })
   async getStats(@Req() req: any) {
-    const companyId = req.user?.defaultCompanyId;
+    const companyId = this.getCompanyId(req);
     const stats = await this.barcodeService.getStats(companyId);
     return { success: true, data: stats };
   }
@@ -59,7 +63,7 @@ export class BarcodeController {
   @ApiOperation({ summary: 'Look up a barcode value and resolve to entity' })
   @ApiParam({ name: 'barcodeValue' })
   async lookup(@Req() req: any, @Param('barcodeValue') barcodeValue: string) {
-    const companyId = req.user?.defaultCompanyId;
+    const companyId = this.getCompanyId(req);
     const barcode = await this.barcodeService.findByValue(companyId, barcodeValue);
     return { success: true, data: barcode };
   }
@@ -105,7 +109,7 @@ export class BarcodeController {
     @Req() req: any,
     @Query('entityType') entityType?: BarcodeEntityType,
   ) {
-    const companyId = req.user?.defaultCompanyId;
+    const companyId = this.getCompanyId(req);
     const result = await this.barcodeService.backfill(companyId, entityType);
     return { success: true, data: result, message: 'Backfill completed' };
   }

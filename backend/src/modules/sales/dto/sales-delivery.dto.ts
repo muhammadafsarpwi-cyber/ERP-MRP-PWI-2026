@@ -54,10 +54,16 @@ export class CreateSalesDeliveryDto {
   @IsOptional()
   companyId?: string;
 
-  @ApiProperty({ description: 'Sales Order ID' })
+  @ApiPropertyOptional({ description: 'Sales Order ID' })
   @IsUUID()
-  @IsNotEmpty()
-  salesOrderId: string;
+  @IsOptional()
+  salesOrderId?: string;
+
+  @ApiPropertyOptional({ description: 'Customer PO #' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  customerPo?: string;
 
   @ApiProperty({ description: 'Customer ID' })
   @IsUUID()

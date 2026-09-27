@@ -101,6 +101,11 @@ interface ReceiptHeader {
   documents?: ReceiptDocument[];
   ledgerEntries?: Array<{ id: string; transactionType: string; direction: string; quantity: number; transactionDate: string; referenceNumber?: string | null }>;
   createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
 }
 
 interface ReceiptDocument {
@@ -1516,6 +1521,36 @@ const RawMaterialReceiving: React.FC = () => {
     },
     { title: 'Status', dataIndex: 'status', key: 'status', width: 105, render: (v: string) => <Tag color={v === 'CONFIRMED' ? 'green' : v === 'DRAFT' ? 'gold' : 'red'}>{v}</Tag> },
     {
+      title: 'Created By',
+      key: 'createdByNameDate',
+      width: 155,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+            {r.createdByName || (r.createdBy ? 'Admin' : '-')}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+            {r.createdAt ? dayjs(r.createdAt).format('DD-MMM-YYYY HH:mm') : '-'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      title: 'Updated By',
+      key: 'updatedByNameDate',
+      width: 155,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+            {r.updatedByName || (r.updatedBy ? 'Admin' : '-')}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+            {r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM-YYYY HH:mm') : '-'}
+          </span>
+        </div>
+      ),
+    },
+    {
       title: 'Actions', key: 'actions', width: 160,
       render: (_, r) => (
         <Space size={6} className="erp-table-actions">
@@ -1744,7 +1779,7 @@ const RawMaterialReceiving: React.FC = () => {
             }
           />
         ) : (
-          <Table columns={columns} dataSource={list} rowKey="id" loading={listLoading} scroll={{ x: 1500 }}
+          <Table columns={columns} dataSource={list} rowKey="id" loading={listLoading} scroll={{ x: 1810 }}
             locale={{ emptyText: listLoading ? 'Loading receipts...' : 'No receipts found.' }}
             pagination={{ current: page, total, pageSize, showSizeChanger: false, onChange: (p) => { setPage(p); void loadList(p); } }} />
         )}

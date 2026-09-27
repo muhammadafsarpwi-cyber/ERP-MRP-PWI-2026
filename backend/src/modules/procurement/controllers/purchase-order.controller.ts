@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { PurchaseOrderService } from '../services/purchase-order.service';
-import { CreatePurchaseOrderDto } from '../dto';
+import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 
@@ -43,6 +43,16 @@ export class PurchaseOrderController {
   async findOne(@Param('id') id: string) {
     const po = await this.service.findOne(id);
     return { success: true, data: po };
+  }
+
+  @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.order.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update purchase order' })
+  async update(@Param('id') id: string, @Body() dto: UpdatePurchaseOrderDto) {
+    const po = await this.service.update(id, dto);
+    return { success: true, data: po, message: 'Purchase order updated successfully' };
   }
 
   @Patch(':id/submit')
@@ -102,5 +112,15 @@ export class PurchaseOrderController {
   async removeLine(@Param('id') id: string, @Param('lineId') lineId: string) {
     await this.service.removeLine(id, lineId);
     return { success: true, message: 'PO line removed' };
+  }
+
+  @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.order.cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete purchase order' })
+  async remove(@Param('id') id: string) {
+    await this.service.remove(id);
+    return { success: true, message: 'Purchase order deleted successfully' };
   }
 }

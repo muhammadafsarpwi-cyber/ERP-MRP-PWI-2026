@@ -47,7 +47,7 @@ const BarcodePrint: React.FC<BarcodePrintProps> = ({
   itemName,
   sku,
   barcode,
-  companyName = 'PWI ERP',
+  companyName = 'Pakistan Wire Industries (Pvt) Ltd',
   initialFormat = 'BOTH',
 }) => {
   const printRef = useRef<HTMLDivElement>(null);
@@ -57,6 +57,9 @@ const BarcodePrint: React.FC<BarcodePrintProps> = ({
   const [format, setFormat] = useState<BarcodePrintFormat>(initialFormat);
   const renderAttempted = useRef(false);
 
+  // Fallback to itemCode if barcode prop is empty/null
+  const effectiveBarcode = barcode || itemCode || '';
+
   useEffect(() => {
     if (open && initialFormat) {
       setFormat(initialFormat);
@@ -64,18 +67,18 @@ const BarcodePrint: React.FC<BarcodePrintProps> = ({
   }, [open, initialFormat]);
 
   const attemptRender = useCallback(() => {
-    if (!barcode) return;
+    if (!effectiveBarcode) return;
     const svg = svgRef.current;
     if (!svg) return;
-    const ok = renderBarcode(svg, barcode);
-    setRenderError(ok ? null : `Failed to render barcode: ${barcode}`);
+    const ok = renderBarcode(svg, effectiveBarcode);
+    setRenderError(ok ? null : `Failed to render barcode: ${effectiveBarcode}`);
     renderAttempted.current = true;
-  }, [barcode]);
+  }, [effectiveBarcode]);
 
   useEffect(() => {
     renderAttempted.current = false;
     setRenderError(null);
-    if (!open || !barcode) return;
+    if (!open || !effectiveBarcode) return;
 
     if (format === 'BARCODE' || format === 'BOTH') {
       const timers: NodeJS.Timeout[] = [];
@@ -88,19 +91,19 @@ const BarcodePrint: React.FC<BarcodePrintProps> = ({
       });
       return () => timers.forEach(clearTimeout);
     }
-  }, [open, barcode, format, attemptRender]);
+  }, [open, effectiveBarcode, format, attemptRender]);
 
   const svgCallbackRef = useCallback((node: SVGSVGElement | null) => {
     (svgRef as React.MutableRefObject<SVGSVGElement | null>).current = node;
-    if (node && open && barcode && !renderAttempted.current) {
+    if (node && open && effectiveBarcode && !renderAttempted.current) {
       requestAnimationFrame(() => {
         attemptRender();
       });
     }
-  }, [open, barcode, attemptRender]);
+  }, [open, effectiveBarcode, attemptRender]);
 
   const handlePrint = useCallback(() => {
-    if (!barcode) return;
+    if (!effectiveBarcode) return;
 
     // Get QR SVG markup if needed
     let qrSvgMarkup = '';
@@ -134,8 +137,8 @@ const BarcodePrint: React.FC<BarcodePrintProps> = ({
   <div class="item-name">${itemName}</div>
   <div class="codes">
     <div>Code: <strong>${itemCode}</strong></div>
-    ${sku ? `<div>SKU: <strong>${sku}</strong></div>` : ''}
-    <div>Value: <strong>${barcode}</strong></div>
+    ${sku ? `<div>SKU / Cat: <strong>${sku}</strong></div>` : ''}
+    <div>Value: <strong>${effectiveBarcode}</strong></div>
   </div>
 
   ${format === 'QR' ? `
@@ -162,39 +165,41 @@ const BarcodePrint: React.FC<BarcodePrintProps> = ({
 
     if (format === 'BARCODE' || format === 'BOTH') {
       const svgInPrint = w.document.getElementById('print-barcode') as SVGSVGElement | null;
-      if (svgInPrint && barcode) {
-        renderBarcode(svgInPrint, barcode);
+      if (svgInPrint && effectiveBarcode) {
+        renderBarcode(svgInPrint, effectiveBarcode);
       }
     }
 
     setTimeout(() => {
       w.print();
     }, 300);
-  }, [itemCode, itemName, sku, barcode, companyName, format]);
+  }, [itemCode, itemName, sku, effectiveBarcode, companyName, format]);
 
   return (
     <Modal
       open={open}
       onCancel={onClose}
+      zIndex={1300}
+      wrapClassName="erp-barcode-modal-wrap"
       footer={
         <Space>
           <Button onClick={onClose}>Close</Button>
-          <Button type="primary" icon={<PrinterOutlined />} onClick={handlePrint} disabled={!barcode}>
+          <Button type="primary" icon={<PrinterOutlined />} onClick={handlePrint} disabled={!effectiveBarcode}>
             Print Label
           </Button>
         </Space>
       }
       title={
         <Space>
-          <QrcodeOutlined style={{ color: '#1677ff' }} />
-          <BarcodeOutlined />
-          Print Barcode & QR Code Label
+          <QrcodeOutlined style={{ color: '#38bdf8' }} />
+          <BarcodeOutlined style={{ color: '#60a5fa' }} />
+          <span>Print Barcode & QR Code Label</span>
         </Space>
       }
       width={460}
       destroyOnHidden
     >
-      <div style={{ marginBottom: 12, textAlign: 'center' }}>
+      <div style={{ marginBottom: 14, textAlign: 'center' }}>
         <Segmented
           value={format}
           onChange={(val) => {
@@ -212,97 +217,115 @@ const BarcodePrint: React.FC<BarcodePrintProps> = ({
       <div ref={printRef}>
         <div
           style={{
-            border: '1px solid var(--theme-border, #d9d9d9)',
-            padding: 14,
+            background: 'var(--theme-surface-alt, #15182e)',
+            padding: 16,
             borderRadius: 8,
-            background: 'var(--theme-bg, #ffffff)',
+            border: '1px solid var(--theme-border, rgba(255,255,255,0.12))',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
           }}
         >
+          {/* Authentic Physical Thermal Sticker Label Preview */}
           <div
             style={{
-              fontSize: 10,
-              fontWeight: 'bold',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              marginBottom: 4,
-              textAlign: 'center',
-              color: 'var(--theme-text, #000000)',
+              width: '100%',
+              maxWidth: 320,
+              background: '#ffffff',
+              color: '#0f172a',
+              borderRadius: 6,
+              padding: '14px 12px',
+              border: '1px solid #cbd5e1',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.35)',
             }}
           >
-            {companyName}
-          </div>
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 'bold',
-              margin: '4px 0',
-              textAlign: 'center',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              color: 'var(--theme-text, #000000)',
-            }}
-          >
-            {itemName}
-          </div>
-          <div
-            style={{
-              fontSize: 11,
-              margin: '2px 0',
-              textAlign: 'center',
-              color: 'var(--theme-text, #000000)',
-            }}
-          >
-            <div>Code: <strong>{itemCode}</strong></div>
-            {sku && <div>SKU: <strong>{sku}</strong></div>}
-            <div style={{ fontSize: 10, color: 'var(--theme-text-secondary, #666)' }}>
-              Value: <Text code>{barcode}</Text>
+            <div
+              style={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                marginBottom: 3,
+                textAlign: 'center',
+                color: '#475569',
+              }}
+            >
+              {companyName}
             </div>
-          </div>
-
-          {/* Hidden reference for QR SVG in ALL formats so print can extract SVG */}
-          <div style={{ display: 'none' }}>
-            {barcode && (
-              <div ref={qrRef}>
-                <QRCode value={barcode} type="svg" size={90} bordered={false} />
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 800,
+                margin: '3px 0',
+                textAlign: 'center',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: '#0f172a',
+              }}
+            >
+              {itemName}
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                margin: '4px 0',
+                textAlign: 'center',
+                color: '#334155',
+                lineHeight: 1.4,
+              }}
+            >
+              <div>Code: <strong style={{ color: '#0f172a' }}>{itemCode}</strong></div>
+              {sku && <div>Category / SKU: <strong style={{ color: '#0f172a' }}>{sku}</strong></div>}
+              <div style={{ marginTop: 2 }}>
+                Value: <span style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '1px 6px', borderRadius: 4, color: '#0f172a', fontWeight: 600, border: '1px solid #e2e8f0', fontSize: 10.5 }}>{effectiveBarcode || 'N/A'}</span>
               </div>
-            )}
-          </div>
+            </div>
 
-          {barcode ? (
-            <div style={{ marginTop: 12 }}>
-              {format === 'QR' && (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: 8 }}>
-                  <QRCode value={barcode} type="svg" size={130} />
+            {/* Hidden reference for QR SVG in ALL formats so print can extract SVG */}
+            <div style={{ display: 'none' }}>
+              {effectiveBarcode && (
+                <div ref={qrRef}>
+                  <QRCode value={effectiveBarcode} type="svg" size={90} bordered={false} color="#000000" bgColor="#ffffff" />
                 </div>
               )}
+            </div>
 
-              {format === 'BARCODE' && (
-                <div style={{ margin: '8px 0', display: 'flex', justifyContent: 'center' }}>
-                  <svg ref={svgCallbackRef} style={{ maxWidth: '100%' }} />
-                </div>
-              )}
-
-              {format === 'BOTH' && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                  <div style={{ padding: 4 }}>
-                    <QRCode value={barcode} type="svg" size={100} />
+            {effectiveBarcode ? (
+              <div style={{ marginTop: 10 }}>
+                {format === 'QR' && (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 4 }}>
+                    <QRCode value={effectiveBarcode} type="svg" size={130} color="#000000" bgColor="#ffffff" />
                   </div>
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                )}
+
+                {format === 'BARCODE' && (
+                  <div style={{ margin: '6px 0', display: 'flex', justifyContent: 'center', overflow: 'hidden' }}>
                     <svg ref={svgCallbackRef} style={{ maxWidth: '100%' }} />
                   </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{ padding: '12px 0', textAlign: 'center' }}>
-              <Text type="secondary" style={{ fontSize: 11 }}>No barcode / QR code assigned</Text>
-            </div>
-          )}
+                )}
 
-          {renderError && (
-            <Alert type="error" showIcon message="Barcode Render Error" description={renderError} style={{ marginTop: 8 }} />
-          )}
+                {format === 'BOTH' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                    <div style={{ padding: 4, background: '#ffffff', borderRadius: 4 }}>
+                      <QRCode value={effectiveBarcode} type="svg" size={90} color="#000000" bgColor="#ffffff" />
+                    </div>
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', overflow: 'hidden' }}>
+                      <svg ref={svgCallbackRef} style={{ maxWidth: '100%' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ padding: '12px 0', textAlign: 'center', color: '#64748b', fontSize: 11 }}>
+                No barcode / QR code assigned
+              </div>
+            )}
+
+            {renderError && (
+              <Alert type="error" showIcon message="Barcode Render Error" description={renderError} style={{ marginTop: 8 }} />
+            )}
+          </div>
         </div>
       </div>
     </Modal>

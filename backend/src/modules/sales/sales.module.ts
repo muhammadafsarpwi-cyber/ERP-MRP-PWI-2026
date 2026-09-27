@@ -1,4 +1,4 @@
-﻿import { Module, forwardRef } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   SalesCustomer,
@@ -25,6 +25,20 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { NotificationsModule } from '../notification/notification.module';
 import { FinanceModule } from '../finance/finance.module';
 
+import { ProductionOrder } from '../production/entities/production-order.entity';
+import { CustomerLedgerEntry } from '../customer/entities/customer-ledger.entity';
+import { InventoryBalance } from '../inventory/entities/inventory-balance.entity';
+import { StockLedger, InventoryPolicy } from '../inventory/entities';
+import { Warehouse } from '../organization/entities/warehouse.entity';
+import { Item } from '../item/entities/item.entity';
+import { Customer } from '../customer/entities/customer.entity';
+import { CustomerModule } from '../customer/customer.module';
+import { ProductionModule } from '../production/production.module';
+import { SalesAnalyticsService } from './services/sales-analytics.service';
+import { SalesAnalyticsController } from './controllers/sales-analytics.controller';
+import { FinishedGoodsInventoryService } from './services/finished-goods-inventory.service';
+import { FinishedGoodsInventoryController } from './controllers/finished-goods-inventory.controller';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -34,6 +48,14 @@ import { FinanceModule } from '../finance/finance.module';
       SalesDelivery, SalesDeliveryLine,
       SalesInvoice,
       SalesReturn, SalesReturnLine,
+      ProductionOrder,
+      CustomerLedgerEntry,
+      InventoryBalance,
+      InventoryPolicy,
+      StockLedger,
+      Item,
+      Customer,
+      Warehouse,
     ]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
@@ -41,8 +63,12 @@ import { FinanceModule } from '../finance/finance.module';
     forwardRef(() => InventoryModule),
     NotificationsModule,
     forwardRef(() => FinanceModule),
+    forwardRef(() => CustomerModule),
+    forwardRef(() => ProductionModule),
   ],
   controllers: [
+    SalesAnalyticsController,
+    FinishedGoodsInventoryController,
     SalesQuotationController,
     SalesOrderController,
     SalesDeliveryController,
@@ -50,6 +76,8 @@ import { FinanceModule } from '../finance/finance.module';
     SalesReturnController,
   ],
   providers: [
+    SalesAnalyticsService,
+    FinishedGoodsInventoryService,
     SalesQuotationService,
     SalesOrderService,
     SalesDeliveryService,
@@ -57,6 +85,8 @@ import { FinanceModule } from '../finance/finance.module';
     SalesReturnService,
   ],
   exports: [
+    SalesAnalyticsService,
+    FinishedGoodsInventoryService,
     SalesQuotationService,
     SalesOrderService,
     SalesDeliveryService,

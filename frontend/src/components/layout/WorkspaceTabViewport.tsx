@@ -8,7 +8,7 @@ interface WorkspaceTabViewportProps {
   children: React.ReactNode;
 }
 
-export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = ({ children }) => {
+export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.memo(({ children }) => {
   const tabs = useWorkspaceTabStore((state) => state.tabs);
   const activeTabId = useWorkspaceTabStore((state) => state.activeTabId);
   const location = useLocation();
@@ -119,6 +119,6 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = ({ chil
       )}
     </div>
   );
-};
+});
 
 export default WorkspaceTabViewport;

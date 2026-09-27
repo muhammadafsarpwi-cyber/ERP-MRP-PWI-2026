@@ -485,16 +485,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           {/* SCROLLABLE MENU — Scrollbar stays strictly contained beneath fixed brand header */}
           <div
             className="erp-sidebar-menu-scrollable"
-            style={{
-              flex: '1 1 auto',
-              overflowY: 'auto',
-              overflowX: 'hidden',
-            }}
           >
             <Menu
               theme={isLight ? 'light' : 'dark'}
               mode="inline"
-              inlineIndent={16}
+              inlineIndent={14}
               selectedKeys={[activeKeys.selectedKey]}
               {...(effectivelyCollapsed ? {} : { openKeys })}
               items={menuItems}
@@ -746,7 +741,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                     {a.node}
                   </div>
                 ))}
-                {headerExtra}
+                {headerActions.length === 0 && headerExtra}
               </div>
             )}
           </div>

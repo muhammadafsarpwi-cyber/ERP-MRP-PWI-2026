@@ -114,6 +114,9 @@ export interface Item {
   processes?: ProcessStep[] | null;
   finalProduct?: string | null;
   packingNextStep?: string | null;
+  packagingType?: string | null;
+  packagingSize?: number | null;
+  packagingUnit?: string | null;
   weightPerPiece?: number | null;
   piecesPerKg?: number | null;
   weightPerMeter?: number | null;
@@ -138,6 +141,8 @@ export interface Item {
   updatedAt?: string;
   createdBy?: string | null;
   updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
   barcodes?: Array<{ id: string; barcodeType?: string; barcode?: string; status?: string }>;
   // TASK #33: Production Flow Mapping
   productionInItemId?: string | null;

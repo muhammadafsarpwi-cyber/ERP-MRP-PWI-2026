@@ -170,6 +170,11 @@ interface ReturnHeader {
     referenceNumber?: string | null;
   }>;
   createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
 }
 
 interface LineRow {
@@ -1172,6 +1177,36 @@ const RawMaterialReturn: React.FC = () => {
       ),
     },
     {
+      title: 'Created By',
+      key: 'createdByNameDate',
+      width: 155,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+            {r.createdByName || (r.createdBy ? 'Admin' : '-')}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+            {r.createdAt ? dayjs(r.createdAt).format('DD-MMM-YYYY HH:mm') : '-'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      title: 'Updated By',
+      key: 'updatedByNameDate',
+      width: 155,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+            {r.updatedByName || (r.updatedBy ? 'Admin' : '-')}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+            {r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM-YYYY HH:mm') : '-'}
+          </span>
+        </div>
+      ),
+    },
+    {
       title: 'Actions',
       key: 'actions',
       fixed: 'right',
@@ -1419,7 +1454,7 @@ const RawMaterialReturn: React.FC = () => {
             dataSource={list}
             rowKey="id"
             loading={listLoading}
-            scroll={{ x: 1200 }}
+            scroll={{ x: 1510 }}
             locale={{ emptyText: listLoading ? 'Loading returns...' : 'No returns found.' }}
             pagination={{
               current: page,

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Button } from 'antd';
 import { BarChartOutlined, RightOutlined } from '@ant-design/icons';
 import {
@@ -31,7 +31,25 @@ const COLORS = {
   scrap: 'var(--theme-danger)',
 };
 
+const CHART_MARGIN = { top: 4, right: 6, bottom: 0, left: -10 };
+const TOOLTIP_CURSOR = { fill: 'var(--theme-hover)' };
+const XAXIS_TICK = { fontSize: 10, fill: 'var(--theme-chart-axis)' };
+const XAXIS_LINE = { stroke: 'var(--theme-border)' };
+const YAXIS_TICK = { fontSize: 10, fill: 'var(--theme-chart-axis)' };
+const BAR_RADIUS: [number, number, number, number] = [2, 2, 0, 0];
+
 const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({ data, loading, nav }) => {
+  const rows: DeptRow[] = useMemo(() => {
+    return (data?.departments ?? []).map((d) => ({
+      name: d.departmentName.length > 12 ? `${d.departmentName.slice(0, 12)}…` : d.departmentName,
+      fullName: d.departmentName,
+      Target: Math.round(d.targetQuantity),
+      Actual: Math.round(d.actualQuantity),
+      Scrap: Math.round(d.scrapQuantity),
+      Achievement: d.achievementPercentage,
+    }));
+  }, [data]);
+
   if (loading && !data) {
     return (
       <SectionCard icon={<BarChartOutlined />} title="Production Performance" subtitle="Target vs Actual by Department">
@@ -39,15 +57,6 @@ const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({ data, loa
       </SectionCard>
     );
   }
-
-  const rows: DeptRow[] = (data?.departments ?? []).map((d) => ({
-    name: d.departmentName.length > 12 ? `${d.departmentName.slice(0, 12)}…` : d.departmentName,
-    fullName: d.departmentName,
-    Target: Math.round(d.targetQuantity),
-    Actual: Math.round(d.actualQuantity),
-    Scrap: Math.round(d.scrapQuantity),
-    Achievement: d.achievementPercentage,
-  }));
 
   return (
     <SectionCard
@@ -62,27 +71,27 @@ const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({ data, loa
     >
       {rows.length > 0 ? (
         <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={rows} margin={{ top: 4, right: 6, bottom: 0, left: -10 }}>
+          <BarChart data={rows} margin={CHART_MARGIN}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid)" vertical={false} />
             <XAxis
               dataKey="name"
-              tick={{ fontSize: 10, fill: 'var(--theme-chart-axis)' }}
+              tick={XAXIS_TICK}
               interval={0}
               angle={-22}
               textAnchor="end"
               height={52}
-              axisLine={{ stroke: 'var(--theme-border)' }}
+              axisLine={XAXIS_LINE}
               tickLine={false}
             />
             <YAxis
-              tick={{ fontSize: 10, fill: 'var(--theme-chart-axis)' }}
+              tick={YAXIS_TICK}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v: number) => fmtCompact(v)}
               width={52}
             />
             <Tooltip
-              cursor={{ fill: 'var(--theme-hover)' }}
+              cursor={TOOLTIP_CURSOR}
               content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
                 const row = payload[0]?.payload as DeptRow;
@@ -101,9 +110,9 @@ const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({ data, loa
               }}
             />
             <Legend content={<ChartLegend />} />
-            <Bar dataKey="Target" fill={COLORS.target} opacity={0.55} radius={[2, 2, 0, 0]} maxBarSize={26} />
-            <Bar dataKey="Actual" fill={COLORS.actual} radius={[2, 2, 0, 0]} maxBarSize={26} />
-            <Bar dataKey="Scrap" fill={COLORS.scrap} radius={[2, 2, 0, 0]} maxBarSize={26} />
+            <Bar dataKey="Target" fill={COLORS.target} opacity={0.55} radius={BAR_RADIUS} maxBarSize={26} />
+            <Bar dataKey="Actual" fill={COLORS.actual} radius={BAR_RADIUS} maxBarSize={26} />
+            <Bar dataKey="Scrap" fill={COLORS.scrap} radius={BAR_RADIUS} maxBarSize={26} />
           </BarChart>
         </ResponsiveContainer>
       ) : (

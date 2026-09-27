@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Button } from 'antd';
 import { ClockCircleOutlined, RightOutlined } from '@ant-design/icons';
 import {
@@ -25,7 +25,38 @@ interface TrendRow {
   Achievement: number;
 }
 
+const CHART_MARGIN = { top: 4, right: 4, bottom: 0, left: -8 };
+const TOOLTIP_CURSOR = { stroke: 'var(--theme-border-strong)', strokeDasharray: '3 3' };
+const XAXIS_TICK = { fontSize: 10, fill: 'var(--theme-chart-axis)' };
+const XAXIS_LINE = { stroke: 'var(--theme-border)' };
+const YAXIS_TICK = { fontSize: 10, fill: 'var(--theme-chart-axis)' };
+const ACTIVE_DOT_QTY = { r: 4, strokeWidth: 0 };
+const ACTIVE_DOT_PCT = { r: 3, strokeWidth: 0 };
+
 const ProductionTrend: React.FC<ProductionTrendProps> = ({ trend, loading, nav }) => {
+  const rows: TrendRow[] = useMemo(() => {
+    return trend.map((t) => {
+      const d = new Date(t.date);
+      return {
+        date: Number.isNaN(d.getTime())
+          ? t.date
+          : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        fullDate: t.date,
+        Target: t.targetQuantity,
+        Actual: t.actualQuantity,
+        Scrap: t.scrapQuantity,
+        Achievement: t.achievementPercentage,
+      };
+    });
+  }, [trend]);
+
+  const { pctDomain, tickInterval } = useMemo(() => {
+    const achMax = Math.max(100, ...rows.map((r) => r.Achievement));
+    const domain: [number, number] = [0, Math.ceil(achMax / 10) * 10];
+    const interval = Math.max(0, Math.ceil(rows.length / 7) - 1);
+    return { pctDomain: domain, tickInterval: interval };
+  }, [rows]);
+
   if (loading && trend.length === 0) {
     return (
       <SectionCard icon={<ClockCircleOutlined />} title="Production Trend" subtitle="Last 14 Days">
@@ -33,24 +64,6 @@ const ProductionTrend: React.FC<ProductionTrendProps> = ({ trend, loading, nav }
       </SectionCard>
     );
   }
-
-  const rows: TrendRow[] = trend.map((t) => {
-    const d = new Date(t.date);
-    return {
-      date: Number.isNaN(d.getTime())
-        ? t.date
-        : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      fullDate: t.date,
-      Target: t.targetQuantity,
-      Actual: t.actualQuantity,
-      Scrap: t.scrapQuantity,
-      Achievement: t.achievementPercentage,
-    };
-  });
-
-  const achMax = Math.max(100, ...rows.map((r) => r.Achievement));
-  const pctDomain: [number, number] = [0, Math.ceil(achMax / 10) * 10];
-  const tickInterval = Math.max(0, Math.ceil(rows.length / 7) - 1);
 
   return (
     <SectionCard
@@ -66,19 +79,19 @@ const ProductionTrend: React.FC<ProductionTrendProps> = ({ trend, loading, nav }
       {rows.length > 0 ? (
         <div className="erp-trend-wrap">
           <ResponsiveContainer width="100%" height={230}>
-            <LineChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
+            <LineChart data={rows} margin={CHART_MARGIN}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid)" vertical={false} />
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 10, fill: 'var(--theme-chart-axis)' }}
-                axisLine={{ stroke: 'var(--theme-border)' }}
+                tick={XAXIS_TICK}
+                axisLine={XAXIS_LINE}
                 tickLine={false}
                 interval={tickInterval}
                 tickMargin={6}
               />
               <YAxis
                 yAxisId="qty"
-                tick={{ fontSize: 10, fill: 'var(--theme-chart-axis)' }}
+                tick={YAXIS_TICK}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v: number) => fmtCompact(v)}
@@ -88,14 +101,14 @@ const ProductionTrend: React.FC<ProductionTrendProps> = ({ trend, loading, nav }
                 yAxisId="pct"
                 orientation="right"
                 domain={pctDomain}
-                tick={{ fontSize: 10, fill: 'var(--theme-chart-axis)' }}
+                tick={YAXIS_TICK}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v: number) => `${v}%`}
                 width={40}
               />
               <Tooltip
-                cursor={{ stroke: 'var(--theme-border-strong)', strokeDasharray: '3 3' }}
+                cursor={TOOLTIP_CURSOR}
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   const row = payload[0]?.payload as TrendRow;
@@ -122,7 +135,7 @@ const ProductionTrend: React.FC<ProductionTrendProps> = ({ trend, loading, nav }
                 strokeWidth={1.75}
                 strokeDasharray="4 3"
                 dot={false}
-                activeDot={{ r: 4, strokeWidth: 0 }}
+                activeDot={ACTIVE_DOT_QTY}
               />
               <Line
                 yAxisId="qty"
@@ -131,7 +144,7 @@ const ProductionTrend: React.FC<ProductionTrendProps> = ({ trend, loading, nav }
                 stroke="var(--theme-success)"
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 4, strokeWidth: 0 }}
+                activeDot={ACTIVE_DOT_QTY}
               />
               <Line
                 yAxisId="pct"
@@ -141,7 +154,7 @@ const ProductionTrend: React.FC<ProductionTrendProps> = ({ trend, loading, nav }
                 strokeWidth={1.25}
                 strokeDasharray="2 4"
                 dot={false}
-                activeDot={{ r: 3, strokeWidth: 0 }}
+                activeDot={ACTIVE_DOT_PCT}
               />
             </LineChart>
           </ResponsiveContainer>

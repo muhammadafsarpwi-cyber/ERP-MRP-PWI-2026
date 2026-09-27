@@ -2612,6 +2612,40 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     height: isMobile ? 620 : 640,
   };
 
+  const headerExtra = useMemo(
+    () => (
+      <>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} className="erp-toolbar-action-btn" style={{ fontWeight: 600 }}>
+          Add Machine
+        </Button>
+        <Button icon={<ReloadOutlined />} onClick={() => fetchMachines(page)} className="erp-toolbar-action-btn">
+          Refresh
+        </Button>
+        <Button icon={<ScanOutlined />} onClick={() => setScannerOpen(true)} className="erp-toolbar-action-btn">
+          Scan QR / Barcode
+        </Button>
+        <Dropdown menu={{ items: exportMenu, onClick: onExportMenu }}>
+          <Button icon={<DownloadOutlined />} loading={exporting || pdfing || printing} className="erp-toolbar-action-btn">
+            Export
+          </Button>
+        </Dropdown>
+        <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)} className="erp-toolbar-action-btn">
+          Import
+        </Button>
+        <Button icon={<FilePdfOutlined />} loading={pdfing} onClick={handleExportPdf} className="erp-toolbar-action-btn">
+          PDF
+        </Button>
+        <Button icon={<PrinterOutlined />} loading={printing} onClick={handlePrintReport} className="erp-toolbar-action-btn">
+          Print
+        </Button>
+        <Button icon={<ClearOutlined />} onClick={resetFilters} className="erp-toolbar-action-btn">
+          Clear
+        </Button>
+      </>
+    ),
+    [openCreate, fetchMachines, page, setScannerOpen, exportMenu, onExportMenu, exporting, pdfing, printing, setImportOpen, handleExportPdf, handlePrintReport, resetFilters]
+  );
+
   return (
     <TabKeepAlive
       tabId={MASTER_MACHINE_MASTER_TAB_ID}
@@ -2624,36 +2658,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         title="Machine Master"
         subtitle={`Production machines, tools and equipment · ${total} records`}
         showBreadcrumbs
-        extra={
-          <>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} className="erp-toolbar-action-btn" style={{ fontWeight: 600 }}>
-              Add Machine
-            </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => fetchMachines(page)} className="erp-toolbar-action-btn">
-              Refresh
-            </Button>
-            <Button icon={<ScanOutlined />} onClick={() => setScannerOpen(true)} className="erp-toolbar-action-btn">
-              Scan QR / Barcode
-            </Button>
-            <Dropdown menu={{ items: exportMenu, onClick: onExportMenu }}>
-              <Button icon={<DownloadOutlined />} loading={exporting || pdfing || printing} className="erp-toolbar-action-btn">
-                Export
-              </Button>
-            </Dropdown>
-            <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)} className="erp-toolbar-action-btn">
-              Import
-            </Button>
-            <Button icon={<FilePdfOutlined />} loading={pdfing} onClick={handleExportPdf} className="erp-toolbar-action-btn">
-              PDF
-            </Button>
-            <Button icon={<PrinterOutlined />} loading={printing} onClick={handlePrintReport} className="erp-toolbar-action-btn">
-              Print
-            </Button>
-            <Button icon={<ClearOutlined />} onClick={resetFilters} className="erp-toolbar-action-btn">
-              Clear
-            </Button>
-          </>
-        }
+        extra={headerExtra}
       />
 
       <Card styles={{ body: { padding: '12px 14px 14px' } }} style={{ marginBottom: 16 }}>
@@ -2848,7 +2853,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
             columns={filteredColumns}
             dataSource={machines}
             loading={false}
-            scroll={{ x: 1040, y: 'calc(100vh - 360px)' }}
+            scroll={{ x: 1040 }}
             sticky={{ offsetHeader: 0 }}
             size="middle"
             pagination={{

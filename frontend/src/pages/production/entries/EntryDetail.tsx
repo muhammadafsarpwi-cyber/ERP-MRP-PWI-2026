@@ -6,7 +6,7 @@ import {
 import {
   ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined,
   AimOutlined, AppstoreFilled, DeleteFilled, TrophyFilled, ThunderboltFilled, ClockCircleFilled, FieldTimeOutlined,
-  ExclamationCircleOutlined, ArrowDownOutlined, ArrowUpOutlined,
+  ExclamationCircleOutlined, ArrowDownOutlined, ArrowUpOutlined, BarcodeOutlined, PrinterOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -15,6 +15,7 @@ import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeigh
 import { ITEM_TYPES } from '../../master-data/items/itemTypes';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 import { GlobalLoading } from '../../../components/shared';
+import { ProductionUnitsPage } from '../units';
 
 const { Title, Text } = Typography;
 
@@ -1049,6 +1050,23 @@ const EntryDetail: React.FC = () => {
           <Section letter="K" title="Inventory Movements & Reconciliation">
             {sectionMovements}
           </Section>
+
+          <div id="coil-serialization-section">
+            <Section letter="L" title="Coil Serialization & Unique Barcode/QR Labels">
+              <ProductionUnitsPage
+                embedded
+                productionEntryId={entry.id}
+                initialItem={entry.item ? { id: entry.itemId, itemCode: entry.item.itemCode, name: entry.item.name } : null}
+                initialValues={{
+                  shiftName: entry.shift?.name,
+                  operatorName: entry.operatorName,
+                  machineNo: entry.machineNo,
+                  productionDate: entry.entryDate,
+                  lengthMeters: 250,
+                }}
+              />
+            </Section>
+          </div>
         </Col>
 
         <Col xs={24} lg={8}>
@@ -1074,6 +1092,19 @@ const EntryDetail: React.FC = () => {
           <Section letter="J" title="Inventory Posting Summary">{sectionStock}</Section>
 
           <Space direction="vertical" style={{ width: '100%', marginTop: 16 }}>
+            <Button
+              type="primary"
+              icon={<BarcodeOutlined />}
+              block
+              style={{ background: '#0284c7', borderColor: '#0284c7' }}
+              onClick={() => {
+                const el = document.getElementById('coil-serialization-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                else navigate(`/production/units?productionEntryId=${id}`);
+              }}
+            >
+              Coil Serialization & Labels
+            </Button>
             <Button type="primary" icon={<EditOutlined />} block onClick={() => navigate(`/production/entries/${id}/edit`)}>
               Edit Entry
             </Button>

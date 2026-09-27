@@ -428,6 +428,24 @@ export class CreateItemDto {
   @MaxLength(255)
   packingNextStep?: string;
 
+  @ApiPropertyOptional({ description: 'Packaging type (COIL, BOX, CARTON, PACK, GROSS, etc.)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  packagingType?: string;
+
+  @ApiPropertyOptional({ description: 'Packaging size / conversion ratio (e.g. 500 meters per coil, 10 gross per box)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  packagingSize?: number;
+
+  @ApiPropertyOptional({ description: 'Packaging unit label (e.g. Coil, Box, Carton, Gross)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  packagingUnit?: string;
+
   @ApiPropertyOptional({ description: 'Weight per piece in KG' })
   @IsNumber()
   @Min(0)
@@ -888,6 +906,24 @@ export class UpdateItemDto {
   @IsOptional()
   @MaxLength(255)
   packingNextStep?: string;
+
+  @ApiPropertyOptional({ description: 'Packaging type (COIL, BOX, CARTON, PACK, GROSS, etc.)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  packagingType?: string;
+
+  @ApiPropertyOptional({ description: 'Packaging size / conversion ratio (e.g. 500 meters per coil, 10 gross per box)' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  packagingSize?: number;
+
+  @ApiPropertyOptional({ description: 'Packaging unit label (e.g. Coil, Box, Carton, Gross)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  packagingUnit?: string;
 
   @ApiPropertyOptional({ description: 'Weight per piece in KG' })
   @IsNumber()

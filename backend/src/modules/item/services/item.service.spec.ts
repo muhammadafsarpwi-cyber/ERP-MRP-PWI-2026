@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ItemService } from './item.service';
 import { Item, ItemStatus, ItemType } from '../entities';
 import { ItemRouteType } from '../entities/route-type.entity';
@@ -146,6 +146,13 @@ describe('ItemService', () => {
         { provide: getRepositoryToken(InventoryBalance), useValue: { find: jest.fn().mockResolvedValue([]) } },
         { provide: getRepositoryToken(ProductionEntry), useValue: { findAndCount: jest.fn().mockResolvedValue([[], 0]) } },
         { provide: BarcodeService, useValue: { ensureBarcodeForEntity: jest.fn().mockResolvedValue({}), backfill: jest.fn().mockResolvedValue({}), generateBarcodeValue: jest.fn().mockResolvedValue('8901000000001') } },
+        {
+          provide: DataSource,
+          useValue: {
+            query: jest.fn().mockResolvedValue([]),
+            transaction: jest.fn((cb) => cb({ query: jest.fn().mockResolvedValue([]), remove: jest.fn() })),
+          },
+        },
       ],
     }).compile();
 
@@ -462,6 +469,15 @@ describe('ItemService', () => {
       repository.findOne.mockResolvedValue(null);
 
       await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should allow force deletion (admin purge) even when business references exist', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      repository.query = jest.fn().mockResolvedValue([{ c: 5 }]);
+      repository.remove.mockResolvedValue(mockItem);
+
+      await expect(service.remove('item-001', true)).resolves.toBeUndefined();
+      expect(repository.remove).toHaveBeenCalledWith(mockItem);
     });
   });
 

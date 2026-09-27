@@ -31,6 +31,17 @@ export class SalesQuotationController {
     return { success: true, ...result };
   }
 
+  @Get('customer/:customerId/summary')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.quotations.view')
+  @ApiOperation({ summary: 'Get customer quotation statistics & summary' })
+  async getCustomerSummary(@Req() req: any, @Param('customerId') customerId: string) {
+    const companyId = req.erpUser?.defaultCompanyId;
+    const summary = await this.service.getCustomerQuotationSummary(customerId, companyId);
+    return { success: true, data: summary };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
@@ -116,5 +127,33 @@ export class SalesQuotationController {
     const companyId = req.erpUser?.defaultCompanyId;
     const quotation = await this.service.reject(id, userId, companyId);
     return { success: true, data: quotation, message: 'Sales quotation rejected' };
+  }
+
+  @Post(':id/convert-to-order')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.quotations.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Convert sales quotation to sales order' })
+  async convertToOrder(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const result = await this.service.convertToSalesOrder(id, userId, companyId);
+    return {
+      success: true,
+      data: result.salesOrder,
+      isExisting: result.isExisting,
+      message: result.message,
+    };
+  }
+
+  @Post(':id/convert')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.quotations.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Alias: Convert sales quotation to sales order' })
+  async convertAlias(@Req() req: any, @Param('id') id: string) {
+    return this.convertToOrder(req, id);
   }
 }

@@ -29,10 +29,11 @@
   height: calc(100vh - 68px) !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
+  padding: 6px 8px 0 8px !important;
 }
 
 .erp-sidebar-menu-scrollable::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 .erp-sidebar-menu-scrollable::-webkit-scrollbar-track {
   background: transparent;
@@ -43,6 +44,11 @@
 }
 .erp-sidebar-menu-scrollable::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.55);
+}
+
+/* ── Remove default antd menu padding when we handle it ourselves ── */
+.erp-sidebar-menu-scrollable .ant-menu {
+  padding: 0 !important;
 }
 
 /* ── Operation Editor and Workspace Modals (Constrained to Content Area) ── */
@@ -114,30 +120,37 @@
 
 .erp-desktop-sider .ant-menu-item {
   font-size: 13.5px;
-  margin-top: 2px;
-  margin-bottom: 2px;
-  border-radius: 8px;
-  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-top: 1px;
+  margin-bottom: 1px;
+  border-radius: 10px !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Remove antd default active highlight so our gradient shows cleanly */
+  border-left: none !important;
 }
 
-/* Active item: stronger label weight + brighter semantic icon so it stays
-   clearly visible on the active background pill. */
+.erp-desktop-sider .ant-menu-submenu-title {
+  border-radius: 10px !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Active item: stronger label weight */
 .ant-menu-item-selected .ant-menu-title-content,
 .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-title-content {
   font-weight: 700;
 }
 
+/* Selected item icon: scale up + glow */
 .ant-menu-item-selected > .erp-nav-icon,
 .ant-menu-submenu-selected > .ant-menu-submenu-title > .erp-nav-icon {
-  filter: brightness(1.25);
-  transform: scale(1.05);
+  filter: brightness(1.3) drop-shadow(0 0 6px rgba(255,255,255,0.3));
+  transform: scale(1.1);
 }
 
-/* Hover: subtle scale and brightness lift so mouse position is immediately obvious */
+/* Hover: subtle lift */
 .ant-menu-item:not(.ant-menu-item-selected):hover > .erp-nav-icon,
-.ant-menu-submenu-title:not(.ant-menu-submenu-selected-list):hover > .erp-nav-icon {
-  filter: brightness(1.2);
-  transform: scale(1.08);
+.ant-menu-submenu-title:hover > .erp-nav-icon {
+  filter: brightness(1.15);
+  transform: scale(1.07);
 }
 
 /* Fully collapsed (80px) sidebar: drop the gap so the icon stays centered */
@@ -292,172 +305,249 @@
   margin-bottom: 2px !important;
 }
 
-/* ── Light Mode Desktop Sidebar (2027 Enterprise Aesthetic) ─────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   LIGHT MODE SIDEBAR — Premium gradient pill selected state
+   Inspired by modern ERP/inventory sidebar reference design.
+   Selected item: full rounded gradient pill (no border-left strip).
+════════════════════════════════════════════════════════════════════ */
 .theme-light-sider {
-  background: #ffffff !important;
+  background: #f8fafc !important;
   border-right: 1px solid #e2e8f0 !important;
-  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.03);
+  box-shadow: 2px 0 16px rgba(15, 23, 42, 0.06);
 }
 
-/* Light menu container */
+/* Menu container — transparent so sider bg shows */
 .theme-light-sider .ant-menu-light {
   background: transparent !important;
-  color: #334155;
 }
 
-/* Submenu titles / headings in light mode */
+/* ── All normal nav items: slate text ── */
+.theme-light-sider .ant-menu-light .ant-menu-item {
+  color: #475569 !important;
+}
+.theme-light-sider .ant-menu-light .ant-menu-item .erp-nav-label-text {
+  color: #475569 !important;
+}
+
+/* ── Group category headings ── */
 .theme-light-sider .ant-menu-light .ant-menu-submenu-title {
-  color: #0f172a !important;
+  color: #1e293b !important;
+  font-weight: 650 !important;
 }
-
 .theme-light-sider .ant-menu-light .ant-menu-submenu-title .erp-nav-label-text {
-  color: #0f172a !important;
+  color: #1e293b !important;
+  font-weight: 650 !important;
 }
-
 .theme-light-sider .ant-menu-light .ant-menu-submenu-arrow {
-  color: #64748b !important;
+  color: #94a3b8 !important;
 }
 
-/* Parent Category Heading when a child item inside it is selected (e.g. Master Data active tint) */
-.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
-  background: var(--theme-accent-soft, rgba(79, 70, 229, 0.09)) !important;
-  color: var(--theme-primary, #4338ca) !important;
-  font-weight: 750 !important;
-  border-left: 3.5px solid var(--theme-accent, #4f46e5) !important;
-  border-radius: 0 8px 8px 0 !important;
+/* ── Hover state: subtle fill ── */
+.theme-light-sider .ant-menu-light .ant-menu-item:not(.ant-menu-item-selected):hover {
+  background: rgba(99, 102, 241, 0.08) !important;
+  color: var(--theme-accent, #4f46e5) !important;
+  border-radius: 10px !important;
 }
-
-.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .erp-nav-label-text {
-  color: var(--theme-primary, #4338ca) !important;
-  font-weight: 750 !important;
+.theme-light-sider .ant-menu-light .ant-menu-item:not(.ant-menu-item-selected):hover .erp-nav-label-text {
+  color: var(--theme-accent, #4f46e5) !important;
 }
-
-.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+.theme-light-sider .ant-menu-light .ant-menu-submenu-title:hover {
+  background: rgba(99, 102, 241, 0.06) !important;
+  border-radius: 10px !important;
+}
+.theme-light-sider .ant-menu-light .ant-menu-submenu-title:hover .erp-nav-label-text {
   color: var(--theme-accent, #4f46e5) !important;
 }
 
-.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title > .erp-nav-icon {
-  transform: scale(1.08);
-  filter: brightness(1.2);
-}
-
-/* Normal item in light mode */
-.theme-light-sider .ant-menu-light .ant-menu-item {
-  color: #334155 !important;
-}
-
-.theme-light-sider .ant-menu-light .ant-menu-item .erp-nav-label-text {
-  color: #334155 !important;
-}
-
-/* Hover state in light mode - distinct & smooth 2027 interaction */
-.theme-light-sider .ant-menu-light .ant-menu-item:not(.ant-menu-item-selected):hover,
-.theme-light-sider .ant-menu-light .ant-menu-submenu-title:hover {
-  background: #f1f5f9 !important;
-  color: #0f172a !important;
-  border-radius: 8px;
-}
-
-.theme-light-sider .ant-menu-light .ant-menu-item:not(.ant-menu-item-selected):hover .erp-nav-label-text,
-.theme-light-sider .ant-menu-light .ant-menu-submenu-title:hover .erp-nav-label-text {
-  color: #0f172a !important;
-}
-
-/* Selected state in light mode - bold, unmistakable 2027 enterprise active styling */
+/* ══ SELECTED ITEM: Full gradient pill — the key visual upgrade ══ */
 .theme-light-sider .ant-menu-light .ant-menu-item-selected {
-  background: linear-gradient(90deg, var(--theme-accent-soft, #eef2ff) 0%, rgba(255, 255, 255, 0.7) 100%) !important;
-  color: var(--theme-primary, #4338ca) !important;
+  background: linear-gradient(
+    135deg,
+    var(--theme-accent, #4f46e5) 0%,
+    var(--theme-accent-hover, #6467f2) 100%
+  ) !important;
+  color: #ffffff !important;
   font-weight: 700 !important;
-  border-left: 4px solid var(--theme-accent, #4f46e5) !important;
-  border-radius: 0 8px 8px 0 !important;
-  box-shadow: 0 1px 4px var(--theme-accent-soft, rgba(79, 70, 229, 0.12));
+  border-radius: 10px !important;
+  border-left: none !important;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35), 0 1px 4px rgba(79, 70, 229, 0.2);
 }
-
 .theme-light-sider .ant-menu-light .ant-menu-item-selected .erp-nav-label-text {
-  color: var(--theme-primary, #4338ca) !important;
+  color: #ffffff !important;
   font-weight: 700 !important;
 }
-
 .theme-light-sider .ant-menu-light .ant-menu-item-selected > .erp-nav-icon {
-  transform: scale(1.06);
-  filter: drop-shadow(0 1px 2px var(--theme-accent-soft, rgba(79, 70, 229, 0.25)));
+  color: #ffffff !important;
+  transform: scale(1.12);
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
 }
 
-/* Submenu background in light mode */
+/* ── Parent group active: soft accent fill + bold text ── */
+.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  background: rgba(79, 70, 229, 0.1) !important;
+  color: var(--theme-accent, #4338ca) !important;
+  font-weight: 750 !important;
+  border-radius: 10px !important;
+  border-left: none !important;
+}
+.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .erp-nav-label-text {
+  color: var(--theme-accent, #4338ca) !important;
+  font-weight: 750 !important;
+}
+.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: var(--theme-accent, #4f46e5) !important;
+}
+.theme-light-sider .ant-menu-submenu-selected > .ant-menu-submenu-title > .erp-nav-icon {
+  transform: scale(1.1);
+  filter: brightness(1.15);
+}
+
+/* ── Sub-menu panel background ── */
 .theme-light-sider .ant-menu-light .ant-menu-sub.ant-menu-inline {
-  background: rgba(248, 250, 252, 0.75) !important;
-  border-radius: 8px;
-  margin: 2px 4px;
+  background: rgba(241, 245, 249, 0.6) !important;
+  border-radius: 10px;
+  margin: 2px 0;
 }
 
-/* Badge chips in light mode */
+/* ── Badge chips in light mode ── */
 .theme-light-sider .erp-nav-chip:not(.erp-nav-chip--hot) {
-  color: #475569;
+  color: #64748b;
   border-color: #cbd5e1;
   background: #f1f5f9;
 }
-
 .theme-light-sider .ant-menu-item-selected .erp-nav-chip--hot {
-  color: #ffffff;
-  border-color: var(--theme-accent, #4338ca);
-  background: var(--theme-accent, #4f46e5);
+  color: var(--theme-accent, #4f46e5);
+  border-color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.95);
 }
 
-/* Light mode collapse trigger bar at bottom */
+/* ── Collapse trigger bar ── */
 .theme-light-sider .ant-layout-sider-trigger {
-  background: #ffffff !important;
+  background: #f1f5f9 !important;
   color: #64748b !important;
   border-top: 1px solid #e2e8f0 !important;
   border-right: 1px solid #e2e8f0 !important;
   transition: all 0.2s ease;
 }
-
 .theme-light-sider .ant-layout-sider-trigger:hover {
-  background: #f8fafc !important;
+  background: #e2e8f0 !important;
   color: #0f172a !important;
 }
 
-/* ── Dark Mode Desktop Sidebar Enhancements ────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   DARK MODE SIDEBAR — Premium gradient pill selected state
+   Selected item: vibrant gradient pill matching light mode style.
+════════════════════════════════════════════════════════════════════ */
 .theme-dark-sider {
   background: var(--theme-sider-bg, #0b1120) !important;
   border-right: 1px solid var(--theme-border, rgba(255, 255, 255, 0.08)) !important;
 }
 
+/* ── All normal nav items: muted white text ── */
+.theme-dark-sider .ant-menu-dark .ant-menu-item {
+  color: rgba(203, 213, 225, 0.85) !important;
+}
+.theme-dark-sider .ant-menu-dark .ant-menu-item .erp-nav-label-text {
+  color: rgba(203, 213, 225, 0.85) !important;
+}
+
+/* ── Group category headings ── */
+.theme-dark-sider .ant-menu-dark .ant-menu-submenu-title {
+  color: rgba(226, 232, 255, 0.92) !important;
+  font-weight: 650 !important;
+}
+.theme-dark-sider .ant-menu-dark .ant-menu-submenu-title .erp-nav-label-text {
+  color: rgba(226, 232, 255, 0.92) !important;
+  font-weight: 650 !important;
+}
+.theme-dark-sider .ant-menu-dark .ant-menu-submenu-arrow {
+  color: rgba(148, 163, 184, 0.7) !important;
+}
+
+/* ── Hover state: soft glow fill ── */
+.theme-dark-sider .ant-menu-dark .ant-menu-item:not(.ant-menu-item-selected):hover {
+  background: rgba(129, 140, 248, 0.12) !important;
+  color: #c7d2fe !important;
+  border-radius: 10px !important;
+}
+.theme-dark-sider .ant-menu-dark .ant-menu-item:not(.ant-menu-item-selected):hover .erp-nav-label-text {
+  color: #c7d2fe !important;
+}
+.theme-dark-sider .ant-menu-dark .ant-menu-submenu-title:hover {
+  background: rgba(129, 140, 248, 0.1) !important;
+  border-radius: 10px !important;
+}
+.theme-dark-sider .ant-menu-dark .ant-menu-submenu-title:hover .erp-nav-label-text {
+  color: #c7d2fe !important;
+}
+
+/* ══ SELECTED ITEM: Full gradient pill in dark mode ══ */
+.theme-dark-sider .ant-menu-item-selected {
+  background: linear-gradient(
+    135deg,
+    var(--theme-accent, #818cf8) 0%,
+    var(--theme-accent-hover, #93a0fa) 100%
+  ) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 10px !important;
+  border-left: none !important;
+  box-shadow: 0 4px 20px rgba(129, 140, 248, 0.45), 0 1px 6px rgba(129, 140, 248, 0.3);
+}
+.theme-dark-sider .ant-menu-item-selected .ant-menu-title-content,
+.theme-dark-sider .ant-menu-item-selected .erp-nav-label-text {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+.theme-dark-sider .ant-menu-item-selected > .erp-nav-icon {
+  color: #ffffff !important;
+  transform: scale(1.12);
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
+}
+
+/* ── Parent group active: soft translucent accent ── */
+.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  background: rgba(129, 140, 248, 0.18) !important;
+  color: #c7d2fe !important;
+  font-weight: 750 !important;
+  border-radius: 10px !important;
+  border-left: none !important;
+}
+.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .erp-nav-label-text {
+  color: #c7d2fe !important;
+  font-weight: 750 !important;
+}
+.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: var(--theme-accent, #818cf8) !important;
+}
+.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title > .erp-nav-icon {
+  transform: scale(1.1);
+  filter: brightness(1.25) drop-shadow(0 0 4px rgba(129,140,248,0.4));
+}
+
+/* ── Sub-menu panel ── */
+.theme-dark-sider .ant-menu-dark .ant-menu-sub {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* ── Badge chips in dark mode ── */
+.theme-dark-sider .ant-menu-item-selected .erp-nav-chip--hot {
+  color: var(--theme-accent, #818cf8);
+  border-color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.95);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* ── Collapse trigger bar ── */
 .theme-dark-sider .ant-layout-sider-trigger {
-  background: var(--theme-sider-trigger-bg, var(--theme-sider-bg, #0b1120)) !important;
-  color: rgba(255, 255, 255, 0.75) !important;
+  background: var(--theme-sider-bg, #0b1120) !important;
+  color: rgba(255, 255, 255, 0.6) !important;
   border-top: 1px solid var(--theme-border, rgba(255, 255, 255, 0.08)) !important;
   transition: all 0.2s ease;
 }
-
 .theme-dark-sider .ant-layout-sider-trigger:hover {
-  background: var(--theme-hover, rgba(255, 255, 255, 0.1)) !important;
+  background: rgba(129, 140, 248, 0.12) !important;
   color: #ffffff !important;
-}
-
-.theme-dark-sider .ant-menu-item-selected {
-  background: linear-gradient(90deg, var(--theme-accent-soft, rgba(99, 102, 241, 0.24)) 0%, rgba(255, 255, 255, 0.03) 100%) !important;
-  color: #ffffff !important;
-  font-weight: 700 !important;
-  border-left: 4px solid var(--theme-accent, #818cf8) !important;
-  border-radius: 0 8px 8px 0 !important;
-}
-
-.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
-  background: var(--theme-accent-soft, rgba(99, 102, 241, 0.16)) !important;
-  color: var(--theme-accent-hover, #a5b4fc) !important;
-  font-weight: 750 !important;
-  border-left: 3.5px solid var(--theme-accent, #818cf8) !important;
-  border-radius: 0 8px 8px 0 !important;
-}
-
-.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .erp-nav-label-text {
-  color: #ffffff !important;
-  font-weight: 750 !important;
-}
-
-.theme-dark-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
-  color: var(--theme-accent, #a5b4fc) !important;
 }
 
 /* ── Mobile Sidebar Navigation Drawer ────────────────────────────────────────

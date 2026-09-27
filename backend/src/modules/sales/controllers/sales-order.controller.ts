@@ -31,6 +31,17 @@ export class SalesOrderController {
     return { success: true, ...result };
   }
 
+  @Get('meta/customers')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.orders.view')
+  @ApiOperation({ summary: 'List sales customers for dropdowns' })
+  async getCustomers(@Req() req: any) {
+    const companyId = req.erpUser?.defaultCompanyId;
+    const customers = await this.service.getCustomers(companyId);
+    return { success: true, data: customers };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
@@ -142,5 +153,60 @@ export class SalesOrderController {
     const companyId = req.erpUser?.defaultCompanyId;
     const order = await this.service.cancel(id, userId, companyId);
     return { success: true, data: order, message: 'Sales order cancelled' };
+  }
+
+  @Post(':id/convert-to-delivery')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.orders.update')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Convert sales order to delivery' })
+  async convertToDelivery(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: { warehouseId?: string; deliveryDate?: string; carrier?: string; trackingNumber?: string; notes?: string; lines?: Array<{ itemId: string; quantity: number }> },
+  ) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const delivery = await this.service.convertToDelivery(id, dto, userId, companyId);
+    return { success: true, data: delivery, message: `Delivery ${delivery.deliveryNumber} created successfully` };
+  }
+
+  @Post(':id/create-production-order')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.orders.update')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create production order from sales order demand' })
+  async createProductionOrder(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: {
+      orderItemId: string;
+      routingId: string;
+      bomId?: string;
+      plannedQuantity?: number;
+      rawMaterialWarehouseId?: string;
+      finishedGoodsWarehouseId?: string;
+      dueDate?: string;
+      priority?: any;
+      remarks?: string;
+    },
+  ) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const po = await this.service.createProductionOrder(id, dto, userId, companyId);
+    return { success: true, data: po, message: `Production order ${po.orderNumber} created successfully` };
+  }
+
+  @Get(':id/traceability')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.orders.view')
+  @ApiOperation({ summary: 'Get complete sales order traceability chain' })
+  async getTraceability(@Req() req: any, @Param('id') id: string) {
+    const companyId = req.erpUser?.defaultCompanyId;
+    const result = await this.service.getOrderTraceability(id, companyId);
+    return { success: true, data: result };
   }
 }

@@ -1,0 +1,481 @@
+/* ===================================================
+   GENERAL REPORTS PAGE STYLING (Pixel-Perfect)
+   Full Light & Dark Theme Support
+   =================================================== */
+
+.reports-page-container {
+  padding: 24px;
+  background-color: var(--theme-background, #f1f5f9);
+  min-height: calc(100vh - 64px);
+  color: var(--theme-text, #0f172a);
+}
+
+.reports-main-card {
+  background-color: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.reports-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--theme-text, #0f172a);
+  margin-bottom: 20px;
+}
+
+.reports-header-icon {
+  font-size: 22px;
+  color: #10b981;
+}
+
+/* Report Options Box */
+.reports-options-box {
+  background-color: var(--theme-surface-alt, #fafafa);
+  border: 1px solid var(--theme-border, #e5e7eb);
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.reports-options-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--theme-border, #e5e7eb);
+  padding-bottom: 10px;
+}
+
+.reports-options-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--theme-text-muted, #4b5563);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.reports-btn-clear {
+  background-color: #475569 !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border-radius: 4px !important;
+  height: 28px !important;
+  padding: 0 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.reports-btn-clear:hover {
+  background-color: #334155 !important;
+}
+
+.reports-filter-grid {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1.5fr auto;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.reports-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reports-field-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--theme-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reports-btn-generate {
+  background-color: #181f2c !important;
+  color: #ffffff !important;
+  border-color: #181f2c !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  height: 38px !important;
+  padding: 0 24px !important;
+  border-radius: 4px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  transition: all 0.2s ease;
+}
+
+.reports-btn-generate:hover {
+  background-color: #273449 !important;
+  border-color: #273449 !important;
+}
+
+/* Info Banner */
+.reports-info-banner {
+  background-color: #ecfeff;
+  border: 1px solid #a5f3fc;
+  border-radius: 4px;
+  padding: 10px 14px;
+  color: #0e7490;
+  font-size: 12.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* KPI Summary Cards Grid */
+.reports-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.reports-kpi-card {
+  background-color: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-top: 3px solid #10b981;
+  border-radius: 4px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.reports-kpi-title {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--theme-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.reports-kpi-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--theme-text, #0f172a);
+}
+
+/* Table Styling */
+.reports-table .ant-table-thead > tr > th {
+  background-color: #181f2c !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  font-size: 12.5px !important;
+  border-bottom: none !important;
+  padding: 12px 14px !important;
+}
+
+.reports-table .ant-table-tbody > tr > td {
+  padding: 11px 14px !important;
+  font-size: 12.5px !important;
+  color: var(--theme-text, #0f172a) !important;
+  border-bottom: 1px solid var(--theme-border, #f1f5f9) !important;
+  background-color: var(--theme-surface, #ffffff);
+}
+
+.reports-table .ant-table-tbody > tr:hover > td {
+  background-color: var(--theme-surface-alt, #f8fafc) !important;
+}
+
+.reports-table-footer-row {
+  background-color: var(--theme-surface-alt, #f1f5f9) !important;
+  font-weight: 800;
+}
+
+/* Header Action Buttons */
+.reports-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reports-btn-print {
+  background-color: #181f2c !important;
+  color: #ffffff !important;
+  border-color: #181f2c !important;
+  font-weight: 600 !important;
+  border-radius: 4px !important;
+  height: 32px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.reports-btn-print:hover {
+  background-color: #334155 !important;
+}
+
+.reports-btn-csv {
+  background-color: var(--theme-surface, #ffffff) !important;
+  color: var(--theme-text, #0f172a) !important;
+  border: 1px solid var(--theme-border, #cbd5e1) !important;
+  font-weight: 600 !important;
+  border-radius: 4px !important;
+  height: 32px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.reports-btn-csv:hover {
+  background-color: var(--theme-surface-alt, #f8fafc) !important;
+  border-color: #94a3b8 !important;
+}
+
+/* ===================================================
+   PRINT PREVIEW STYLES (MATCHING SCREENSHOT 3)
+   =================================================== */
+.report-print-container {
+  background-color: #ffffff;
+  color: #0f172a;
+  padding: 30px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.report-print-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid #0f172a;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.report-print-logo-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-print-logo-badge {
+  background-color: #181f2c;
+  color: #ffffff;
+  padding: 6px 12px;
+  font-size: 15px;
+  font-weight: 800;
+  border-radius: 4px;
+}
+
+.report-print-company-name {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.report-print-meta {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.report-print-badge-box {
+  text-align: right;
+}
+
+.report-print-type-badge {
+  background-color: #1e3a8a;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 3px;
+  display: inline-block;
+  letter-spacing: 0.5px;
+}
+
+.report-print-summary-box {
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  background-color: #f8fafc;
+  font-size: 12px;
+}
+
+.report-print-summary-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: #475569;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 4px;
+}
+
+.report-print-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 10px;
+}
+
+.report-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  margin-top: 10px;
+}
+
+.report-print-table th {
+  background-color: #181f2c;
+  color: #ffffff;
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 700;
+  border: 1px solid #181f2c;
+}
+
+.report-print-table td {
+  padding: 7px 10px;
+  border: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+
+.report-print-table tr.total-row td {
+  font-weight: 800;
+  background-color: #f1f5f9;
+  border-top: 2px solid #0f172a;
+}
+
+/* ===================================================
+   DARK THEME OVERRIDES ([data-theme='dark'])
+   =================================================== */
+html[data-theme='dark'] .reports-page-container,
+[data-theme='dark'] .reports-page-container {
+  background-color: var(--theme-background, #0b0f19);
+}
+
+html[data-theme='dark'] .reports-main-card,
+[data-theme='dark'] .reports-main-card {
+  background-color: #141d2b !important;
+  border-color: #243248 !important;
+}
+
+html[data-theme='dark'] .reports-options-box,
+[data-theme='dark'] .reports-options-box {
+  background-color: #182234 !important;
+  border-color: #243248 !important;
+}
+
+html[data-theme='dark'] .reports-options-top,
+[data-theme='dark'] .reports-options-top {
+  border-color: #243248 !important;
+}
+
+html[data-theme='dark'] .reports-kpi-card,
+[data-theme='dark'] .reports-kpi-card {
+  background-color: #1a2538 !important;
+  border-color: #2a3b54 !important;
+}
+
+html[data-theme='dark'] .reports-info-banner,
+[data-theme='dark'] .reports-info-banner {
+  background-color: rgba(14, 116, 144, 0.2) !important;
+  border-color: #0e7490 !important;
+  color: #67e8f9 !important;
+}
+
+html[data-theme='dark'] .reports-table .ant-table-tbody > tr > td,
+[data-theme='dark'] .reports-table .ant-table-tbody > tr > td {
+  background-color: #141d2b !important;
+  color: #f8fafc !important;
+  border-bottom: 1px solid #1e293b !important;
+}
+
+html[data-theme='dark'] .reports-table .ant-table-tbody > tr:hover > td,
+[data-theme='dark'] .reports-table .ant-table-tbody > tr:hover > td {
+  background-color: #1a2538 !important;
+}
+
+html[data-theme='dark'] .reports-btn-csv,
+[data-theme='dark'] .reports-btn-csv {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+html[data-theme='dark'] .reports-btn-csv:hover,
+[data-theme='dark'] .reports-btn-csv:hover {
+  background-color: #334155 !important;
+}
+
+/* ===================================================
+   PRINT ISOLATION RULES (@media print)
+   Strictly hides the web page options, form controls,
+   buttons, sidebar, navbar, and background.
+   Ensures ONLY the clean report sheet is printed.
+   =================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  /* Hide everything outside the report area */
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  body > *:not(.ant-modal-root),
+  .reports-options-box,
+  .reports-header-actions,
+  .reports-btn-generate,
+  .reports-info-banner,
+  .reports-kpi-grid,
+  .reports-table,
+  .ant-layout,
+  .ant-layout-header,
+  .ant-layout-sider,
+  .ant-modal-mask,
+  .ant-modal-footer,
+  .ant-modal-close,
+  .ant-modal-header,
+  .no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Make printable report element visible and full width */
+  #printable-report-area,
+  #printable-report-area * {
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #printable-report-area {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    display: block !important;
+    z-index: 9999999 !important;
+  }
+
+  .ant-modal-content {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+}

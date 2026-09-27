@@ -321,8 +321,22 @@ const BomManagement: React.FC = () => {
 
   const fetchUoms = useCallback(async () => {
     try {
-      const response = await apiService.get<{ data: Uom[]; total: number }>('/master-data/uom', { limit: 200 });
-      setUoms(response.data || []);
+      const response = await apiService.get<any>('/master-data/uom', { limit: 200 });
+      let list: Uom[] = [];
+      if (Array.isArray(response)) {
+        list = response;
+      } else if (Array.isArray(response?.data)) {
+        list = response.data;
+      } else if (Array.isArray(response?.data?.data)) {
+        list = response.data.data;
+      }
+      if (list.length > 0) {
+        setUoms((prev) => {
+          const map = new Map(prev.map((u) => [u.id, u]));
+          list.forEach((u) => map.set(u.id, u));
+          return Array.from(map.values());
+        });
+      }
     } catch {}
   }, []);
 
@@ -440,6 +454,16 @@ const BomManagement: React.FC = () => {
     const unitCost = selectedItem.costPrice !== undefined && selectedItem.costPrice !== null
       ? toNum(selectedItem.costPrice)
       : (currentLine.unitCost ?? 0);
+
+    if (selectedItem.baseUom && (selectedItem.baseUom as any).code) {
+      setUoms((prev) => {
+        const targetId = selectedItem.baseUomId || selectedItem.baseUom?.id;
+        if (targetId && !prev.some((u) => u.id === targetId)) {
+          return [...prev, { id: targetId, code: (selectedItem.baseUom as any).code, name: (selectedItem.baseUom as any).name || (selectedItem.baseUom as any).code }];
+        }
+        return prev;
+      });
+    }
 
     const updatedLine = {
       ...currentLine,
@@ -811,14 +835,14 @@ const BomManagement: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <InfoCircleOutlined style={{ color: '#1677ff', fontSize: 14 }} />
                     <span style={{ fontWeight: 700, color: '#003eb3' }}>
-                      {isPcsProduct && 'فلو نمبر 1: را مٹیریل KG میں ➔ پروڈکشن PCS میں ➔ کمرشل سیل GROSS میں (1 Gross = 144 PCS)'}
-                      {isMeterProduct && 'فلو نمبر 2: را مٹیریل KG میں ➔ پروڈکشن اور سیل میٹر (MTR) میں'}
-                      {isKgProduct && 'فلو نمبر 3: را مٹیریل KG میں ➔ پروڈکشن اور سیل دونوں KG میں'}
+                      {isPcsProduct && 'Flow 1: Raw Material (KG) ➔ Production (PCS) ➔ Commercial Sales in GROSS (1 Gross = 144 PCS)'}
+                      {isMeterProduct && 'Flow 2: Raw Material (KG) ➔ Production & Sales in METERS (MTR)'}
+                      {isKgProduct && 'Flow 3: Raw Material (KG) ➔ Production & Sales in KILOGRAMS (KG)'}
                       {!isPcsProduct && !isMeterProduct && !isKgProduct && `Production Flow: Base UOM [${productBaseUomCode}]`}
                     </span>
                   </div>
                   <Tag color="blue" style={{ margin: 0, fontWeight: 600 }}>
-                    بنیادی اکائی: {productBaseUomCode} | تجارتی سیل اکائی: {isPcsProduct ? 'GROSS (144 Pcs)' : productBaseUomCode}
+                    Base Unit: {productBaseUomCode} | Trade Unit: {isPcsProduct ? 'GROSS (144 Pcs)' : productBaseUomCode}
                   </Tag>
                 </div>
                 <Row gutter={12} align="middle">
@@ -826,19 +850,19 @@ const BomManagement: React.FC = () => {
                     <div style={{ color: '#262626', fontSize: 12 }}>
                       {isPcsProduct && (
                         <>
-                          اس وقت بیچ سائز <strong>{toNum(watchedBaseQty || 1)} {productBaseUomCode}</strong>{' '}
-                          {toNum(watchedBaseQty) === 144 ? '(مکمل 1 گروس = 144 پیس)' : toNum(watchedBaseQty) === 1 ? '(1 انفرادی پیس)' : ''} مقرر ہے۔
+                          Current Batch Size: <strong>{toNum(watchedBaseQty || 1)} {productBaseUomCode}</strong>{' '}
+                          {toNum(watchedBaseQty) === 144 ? '(1 Full Commercial Gross = 144 Pieces)' : toNum(watchedBaseQty) === 1 ? '(1 Single Piece Formulation)' : ''}.
                           {selectedProduct.weightPerPiece && selectedProduct.weightPerPiece > 0 ? (
                             <>
                               <br />
-                              ایک پیس کا وزن: <strong>{selectedProduct.weightPerPiece} KG</strong> ({ (selectedProduct.weightPerPiece * 1000).toFixed(2) } گرام) |{' '}
-                              <strong>{toNum(watchedBaseQty || 1)} پیس</strong> کے لیے کل تار درکار: <strong>{ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerPiece).toFixed(5) } KG</strong>
+                              Unit Weight: <strong>{selectedProduct.weightPerPiece} KG</strong> ({ (selectedProduct.weightPerPiece * 1000).toFixed(2) }g) |{' '}
+                              Total Wire Required for <strong>{toNum(watchedBaseQty || 1)} Pieces</strong>: <strong>{ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerPiece).toFixed(5) } KG</strong>
                             </>
                           ) : (
                             <>
                               <br />
                               <span style={{ color: '#595959' }}>
-                                (اگر آپ 1 گروس کا فارمولا بنا رہے ہیں تو بیچ سائز <strong>144</strong> درج کریں اور تار کا وزن 144 پیس کا درج کریں۔ اگر 1 پیس کا فارمولا ہے تو بیچ سائز <strong>1</strong> رکھیں)
+                                (For 1 Gross formulation, set Batch Size to 144 and enter total wire weight for 144 pieces. For 1 single piece, set Batch Size to 1)
                               </span>
                             </>
                           )}
@@ -846,25 +870,25 @@ const BomManagement: React.FC = () => {
                       )}
                       {isMeterProduct && (
                         <>
-                          اس پراڈکٹ کی اکائی <strong>میٹر (MTR)</strong> ہے۔ بیچ سائز: <strong>{toNum(watchedBaseQty || 1)} میٹر</strong>۔
+                          This product is measured and sold in <strong>Meters (MTR)</strong>. Batch Size: <strong>{toNum(watchedBaseQty || 1)} Meters</strong>.
                           {selectedProduct.weightPerMeter && selectedProduct.weightPerMeter > 0 ? (
                             <>
                               <br />
-                              وزن فی میٹر: <strong>{selectedProduct.weightPerMeter} KG/m</strong> | درکار خام مال: <strong>{ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerMeter).toFixed(4) } KG</strong>
+                              Linear Density: <strong>{selectedProduct.weightPerMeter} KG/m</strong> | Total Raw Material Required: <strong>{ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerMeter).toFixed(4) } KG</strong>
                             </>
                           ) : (
                             <>
                               <br />
-                              <span style={{ color: '#595959' }}>(1 میٹر یا 100 میٹر رول کے حساب سے تار کا وزن KG میں درج کریں)</span>
+                              <span style={{ color: '#595959' }}>(Enter raw wire/strip weight in KG for 1 Meter or for 100 Meter coil)</span>
                             </>
                           )}
                         </>
                       )}
                       {isKgProduct && (
                         <>
-                          اس پراڈکٹ کا ان پٹ اور آؤٹ پٹ دونوں <strong>KG</strong> میں ہیں۔ بیچ سائز: <strong>{toNum(watchedBaseQty || 1)} KG</strong>۔
+                          Both input and output for this item are in <strong>Kilograms (KG)</strong>. Batch Size: <strong>{toNum(watchedBaseQty || 1)} KG</strong>.
                           <br />
-                          ڈرائنگ/کٹنگ کے عمل میں اسکریپ فیصد (مثلاً 0.70%) شامل کر کے تار کی کل مقدار درج کریں۔
+                          Enter total raw wire required including drawing/cutting scrap percentage (e.g. 0.70%).
                         </>
                       )}
                     </div>
@@ -883,11 +907,11 @@ const BomManagement: React.FC = () => {
                             const neededWire = Number((toNum(watchedBaseQty || 1) * (selectedProduct.weightPerPiece || 0)).toFixed(7));
                             currentLines[0] = { ...currentLines[0], quantity: neededWire };
                             form.setFieldsValue({ lines: [...currentLines] });
-                            message.success(`پہلی لائن میں وائر کی مقدار ${neededWire} KG سیٹ کر دی گئی`);
+                            message.success(`First line wire quantity set to ${neededWire} KG`);
                           }
                         }}
                       >
-                        وائر مقدار سیٹ کریں ({ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerPiece).toFixed(4) } KG)
+                        Apply Wire Qty ({ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerPiece).toFixed(4) } KG)
                       </Button>
                     )}
                     {isMeterProduct && selectedProduct.weightPerMeter && selectedProduct.weightPerMeter > 0 && (
@@ -903,11 +927,11 @@ const BomManagement: React.FC = () => {
                             const needed = Number((toNum(watchedBaseQty || 1) * (selectedProduct.weightPerMeter || 0)).toFixed(4));
                             currentLines[0] = { ...currentLines[0], quantity: needed };
                             form.setFieldsValue({ lines: [...currentLines] });
-                            message.success(`لائن میں خام مال کی مقدار ${needed} KG سیٹ کر دی گئی`);
+                            message.success(`Line raw material quantity set to ${needed} KG`);
                           }
                         }}
                       >
-                        خام مال سیٹ کریں ({ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerMeter).toFixed(3) } KG)
+                        Apply RM Qty ({ (toNum(watchedBaseQty || 1) * selectedProduct.weightPerMeter).toFixed(3) } KG)
                       </Button>
                     )}
                   </Col>
@@ -1070,6 +1094,8 @@ const BomManagement: React.FC = () => {
                           <Form.Item {...rest} name={[name, 'uomId']} rules={[{ required: true }]} style={{ marginBottom: 0 }}>
                             <Select
                               placeholder="UOM"
+                              showSearch
+                              filterOption={(input, opt) => (opt?.label || '').toLowerCase().includes(input.toLowerCase())}
                               options={uoms.map((u) => ({ value: u.id, label: `${u.code} (${u.name})` }))}
                             />
                           </Form.Item>

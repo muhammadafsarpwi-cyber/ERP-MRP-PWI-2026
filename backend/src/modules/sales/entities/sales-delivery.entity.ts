@@ -18,6 +18,9 @@ export class SalesDelivery {
   @Column({ name: 'sales_order_id', type: 'uuid', nullable: true })
   salesOrderId: string | null;
 
+  @Column({ name: 'customer_po', type: 'varchar', length: 100, nullable: true })
+  customerPo: string | null;
+
   @ManyToOne(() => SalesOrder, { nullable: true })
   @JoinColumn({ name: 'sales_order_id' })
   salesOrder: SalesOrder;

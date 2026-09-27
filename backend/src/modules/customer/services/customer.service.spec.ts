@@ -2,7 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CustomerService } from './customer.service';
-import { Customer, CustomerContact, CustomerAddress } from '../entities';
+import { Customer, CustomerContact, CustomerAddress, CustomerLedgerEntry } from '../entities';
+import { CustomerLedgerService } from './customer-ledger.service';
+import { CustomerDemoSeederService } from './customer-demo-seeder.service';
 import { NotificationsService } from '../../notification/notifications.service';
 import { BarcodeService } from '../../barcode/services/barcode.service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
@@ -18,6 +20,18 @@ describe('CustomerService', () => {
     companyId: 'company-001',
     customerCode: 'CUST-0001',
     name: 'Test Customer',
+    legalName: 'Test Customer Ltd',
+    customerCategory: 'A',
+    customerGroup: 'Standard',
+    customerSince: null,
+    taxStatus: 'REGISTERED',
+    classification: 'A',
+    salesTaxNumber: null,
+    openingBalance: 0,
+    openingBalanceType: 'DEBIT',
+    priceList: 'Standard',
+    creditHold: false,
+    creditHoldReason: null,
     shortName: 'TC',
     customerType: 'WHOLESALE',
     contactPerson: 'John Doe',
@@ -55,6 +69,7 @@ describe('CustomerService', () => {
     company: null as never,
     contacts: [],
     addresses: [],
+    ledgerEntries: [],
   };
 
   const mockContact: CustomerContact = {
@@ -63,9 +78,12 @@ describe('CustomerService', () => {
     firstName: 'Jane',
     lastName: 'Doe',
     jobTitle: 'Manager',
+    designation: 'Manager',
     email: 'jane@test.com',
     phone: '+92-21-87654321',
     mobile: null,
+    alternateContact: null,
+    alternatePhone: null,
     isPrimary: true,
     notes: null,
     status: 'ACTIVE',
@@ -87,6 +105,9 @@ describe('CustomerService', () => {
     state: 'Sindh',
     postalCode: '75500',
     country: 'Pakistan',
+    area: 'SITE Area',
+    contactPerson: 'Jane Doe',
+    phone: '+92-21-87654321',
     isDefault: true,
     notes: null,
     status: 'ACTIVE',
@@ -124,8 +145,11 @@ describe('CustomerService', () => {
         { provide: getRepositoryToken(Customer), useValue: mockRepo },
         { provide: getRepositoryToken(CustomerContact), useValue: { ...mockRepo } },
         { provide: getRepositoryToken(CustomerAddress), useValue: { ...mockRepo } },
+        { provide: getRepositoryToken(CustomerLedgerEntry), useValue: { ...mockRepo } },
         { provide: NotificationsService, useValue: { notifyActiveUsers: jest.fn() } },
         { provide: BarcodeService, useValue: { ensureBarcodeForEntity: jest.fn().mockResolvedValue({}), backfill: jest.fn().mockResolvedValue({}), generateBarcodeValue: jest.fn().mockResolvedValue('8901000000001') } },
+        { provide: CustomerLedgerService, useValue: { recordOpeningBalance: jest.fn().mockResolvedValue({}), getLedger: jest.fn().mockResolvedValue([]), getSummary: jest.fn().mockResolvedValue({ totalDebit: 0, totalCredit: 0, balance: 0, lastTransactionDate: null }) } },
+        { provide: CustomerDemoSeederService, useValue: { seedDemoCustomers: jest.fn().mockResolvedValue([]) } },
       ],
     }).compile();
 

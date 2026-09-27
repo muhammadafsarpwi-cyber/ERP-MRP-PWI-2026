@@ -32,6 +32,11 @@ export class CreateSalesReturnLineDto {
   @IsNotEmpty()
   unitPrice: number;
 
+  @ApiPropertyOptional({ description: 'Discount amount' })
+  @IsNumber()
+  @IsOptional()
+  discountAmount?: number;
+
   @ApiPropertyOptional({ description: 'Tax amount' })
   @IsNumber()
   @IsOptional()
@@ -41,6 +46,16 @@ export class CreateSalesReturnLineDto {
   @IsNumber()
   @IsOptional()
   lineTotal?: number;
+
+  @ApiPropertyOptional({ description: 'Condition (GOOD, DAMAGED, REJECTED, QUARANTINE)', default: 'GOOD' })
+  @IsString()
+  @IsOptional()
+  condition?: string;
+
+  @ApiPropertyOptional({ description: 'Sales Delivery Line ID' })
+  @IsUUID()
+  @IsOptional()
+  salesDeliveryLineId?: string;
 
   @ApiPropertyOptional({ description: 'Reason' })
   @IsString()
@@ -54,20 +69,30 @@ export class CreateSalesReturnDto {
   @IsOptional()
   companyId?: string;
 
-  @ApiProperty({ description: 'Sales Order ID' })
+  @ApiPropertyOptional({ description: 'Sales Order ID' })
   @IsUUID()
-  @IsNotEmpty()
-  salesOrderId: string;
+  @IsOptional()
+  salesOrderId?: string;
 
   @ApiPropertyOptional({ description: 'Sales Invoice ID' })
   @IsUUID()
   @IsOptional()
   salesInvoiceId?: string;
 
+  @ApiPropertyOptional({ description: 'Sales Delivery ID' })
+  @IsUUID()
+  @IsOptional()
+  salesDeliveryId?: string;
+
   @ApiProperty({ description: 'Customer ID' })
   @IsUUID()
   @IsNotEmpty()
   customerId: string;
+
+  @ApiPropertyOptional({ description: 'Warehouse ID for stock return' })
+  @IsUUID()
+  @IsOptional()
+  warehouseId?: string;
 
   @ApiPropertyOptional({ description: 'Return date' })
   @IsDateString()
@@ -78,6 +103,11 @@ export class CreateSalesReturnDto {
   @IsString()
   @IsOptional()
   reason?: string;
+
+  @ApiPropertyOptional({ description: 'Currency', default: 'PKR' })
+  @IsString()
+  @IsOptional()
+  currency?: string;
 
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
@@ -90,6 +120,20 @@ export class CreateSalesReturnDto {
   @ValidateNested({ each: true })
   @Type(() => CreateSalesReturnLineDto)
   lines?: CreateSalesReturnLineDto[];
+}
+
+export class ReceiveSalesReturnDto {
+  @ApiPropertyOptional({ description: 'Target warehouse ID' })
+  @IsUUID()
+  @IsOptional()
+  warehouseId?: string;
+}
+
+export class RejectSalesReturnDto {
+  @ApiProperty({ description: 'Rejection reason' })
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
 }
 
 export class SalesReturnFilterDto {
@@ -109,6 +153,11 @@ export class SalesReturnFilterDto {
   @IsString()
   @IsOptional()
   search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by customer ID' })
+  @IsUUID()
+  @IsOptional()
+  customerId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by status' })
   @IsString()

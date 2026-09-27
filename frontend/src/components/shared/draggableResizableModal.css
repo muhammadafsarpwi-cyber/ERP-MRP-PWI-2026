@@ -47,10 +47,36 @@
 
 .erp-draggable-modal .ant-modal-body {
   flex: 1 1 auto;
-  overflow: auto;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   padding: 16px;
   background: var(--theme-surface, #ffffff) !important;
   color: var(--theme-text) !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+
+.erp-draggable-modal .ant-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.erp-draggable-modal .ant-modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.erp-draggable-modal .ant-modal-body::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+}
+
+.erp-draggable-modal .ant-modal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+/* Prevent double scrollbars on any direct inner child */
+.erp-draggable-modal .ant-modal-body > * {
+  overflow: visible !important;
+  max-height: none !important;
 }
 
 .erp-draggable-modal .ant-modal-header {
@@ -129,6 +155,47 @@
 
 .erp-draggable-modal-resize-handle:hover {
   background: radial-gradient(circle at 100% 100%, transparent 60%, var(--theme-accent, #1677ff) 100%);
+}
+
+.erp-modal-action-btn {
+  background: transparent !important;
+  border: none !important;
+  color: #94a3b8 !important;
+  cursor: pointer;
+  padding: 4px 6px !important;
+  border-radius: 4px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+}
+
+.erp-modal-action-btn:hover {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+.erp-modal-close-btn:hover {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: #ef4444 !important;
+}
+
+/* Dark navy reference header styling for draggable modals */
+.reference-customer-modal .ant-modal-header,
+.po-modal .ant-modal-header,
+.erp-draggable-modal-wrap--navy .ant-modal-header {
+  background-color: #181f2c !important;
+  color: #ffffff !important;
+  border-bottom: 1px solid #334155 !important;
+  padding: 12px 18px !important;
+}
+
+.reference-customer-modal .ant-modal-title,
+.reference-customer-modal .erp-draggable-modal-title-text,
+.po-modal .ant-modal-title,
+.po-modal .erp-draggable-modal-title-text,
+.erp-draggable-modal-wrap--navy .erp-draggable-modal-title-text {
+  color: #ffffff !important;
 }
 
 /* Edit modal left form panel — always-visible scrollbar at center divider */

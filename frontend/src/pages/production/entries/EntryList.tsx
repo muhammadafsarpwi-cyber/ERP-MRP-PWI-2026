@@ -301,6 +301,12 @@ export interface ProductionEntryRow {
   isActive?: boolean;
   inventoryReferenceId?: string | null;
   rawMaterialWarehouseId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdByName?: string | null;
+  updatedByName?: string | null;
 }
 
 interface ReportItemGroup {
@@ -1270,6 +1276,46 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <UserOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Created By</span>
+        </span>
+      ),
+      key: 'createdByNameDate',
+      width: 155,
+      render: (_t, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+            {r.createdByName || (r.createdBy ? 'Admin' : '-')}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+            {r.createdAt ? dayjs(r.createdAt).format('DD-MMM-YYYY HH:mm') : '-'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <UserOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Updated By</span>
+        </span>
+      ),
+      key: 'updatedByNameDate',
+      width: 155,
+      render: (_t, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+            {r.updatedByName || (r.updatedBy ? 'Admin' : '-')}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+            {r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM-YYYY HH:mm') : '-'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <SettingOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
           <span>Actions</span>
         </span>
@@ -1384,6 +1430,66 @@ const EntryList: React.FC = () => {
     },
   ];
 
+  const headerExtra = useMemo(() => (
+    <Space wrap size={8}>
+      <Button
+        type="primary"
+        icon={<PlusOutlined />}
+        onClick={() => {
+          navigate('/production/entries/select');
+        }}
+        style={{ fontWeight: 600 }}
+      >
+        Add Entry
+      </Button>
+
+      <Button
+        icon={<ReloadOutlined spin={loading} />}
+        onClick={handleRefresh}
+        loading={loading}
+        title="Refresh entries data from database"
+      >
+        Refresh
+      </Button>
+
+      <Button
+        icon={<DownloadOutlined />}
+        onClick={exportToCsv}
+        disabled={displayedRows.length === 0}
+        title="Export current entries to CSV"
+      >
+        Export
+      </Button>
+
+      <Button
+        icon={<FilePdfOutlined />}
+        onClick={exportPdf}
+        loading={pdfLoading}
+        disabled={displayedRows.length === 0}
+        title="Export current entries to PDF"
+      >
+        PDF
+      </Button>
+
+      <Button
+        icon={<PrinterOutlined />}
+        onClick={handlePrint}
+        disabled={displayedRows.length === 0}
+        title="Print professional report view"
+      >
+        Print
+      </Button>
+
+      <Button
+        icon={<UploadOutlined />}
+        onClick={() => setImportModalVisible(true)}
+        title="Batch import"
+      >
+        Import
+      </Button>
+    </Space>
+  ), [navigate, handleRefresh, loading, exportToCsv, displayedRows.length, exportPdf, pdfLoading, handlePrint]);
+
   return (
     <div style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       {/* Single Main Page Header Meta with Actions (Image 2 style) */}
@@ -1391,90 +1497,7 @@ const EntryList: React.FC = () => {
         icon={<CarryOutOutlined />}
         title="Daily Production Entry"
         subtitle="Manage daily shift production records, operational outputs, and metrics."
-        extra={
-          <>
-            <span className="entry-model-badge">
-              ENTERPRISE 2027
-            </span>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                const qs = new URLSearchParams();
-                if (fDivision) qs.set('divisionId', fDivision);
-                if (fSection) qs.set('sectionId', fSection);
-                if (fDepartment) qs.set('departmentId', fDepartment);
-                if (dateRange[0]) qs.set('entryDate', dateRange[0].format('YYYY-MM-DD'));
-                if (fShift) qs.set('shiftId', fShift);
-                const s = qs.toString();
-                navigate(`/production/entries/select${s ? `?${s}` : ''}`);
-              }}
-            >
-              Add Entry
-            </Button>
-
-            <Tooltip title="Refresh entries data from database (manual sync)">
-              <Button
-                icon={<ReloadOutlined spin={loading} />}
-                onClick={handleRefresh}
-                loading={loading}
-                className="entry-top-refresh-btn"
-                style={{
-                  fontWeight: 600,
-                  borderRadius: 6,
-                  border: '1.5px solid var(--theme-primary, #2563eb)',
-                  color: 'var(--theme-primary, #2563eb)',
-                  background: 'var(--theme-hover, rgba(37, 99, 235, 0.06))',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                }}
-              >
-                Refresh
-              </Button>
-            </Tooltip>
-
-            <Tooltip title="Export current entries to CSV">
-              <Button
-                icon={<DownloadOutlined />}
-                onClick={exportToCsv}
-                disabled={displayedRows.length === 0}
-              >
-                Export
-              </Button>
-            </Tooltip>
-
-            <Tooltip title="Export current entries to PDF">
-              <Button
-                icon={<FilePdfOutlined />}
-                onClick={exportPdf}
-                loading={pdfLoading}
-                disabled={displayedRows.length === 0}
-              >
-                PDF
-              </Button>
-            </Tooltip>
-
-            <Tooltip title="Print professional report view">
-              <Button
-                icon={<PrinterOutlined />}
-                onClick={handlePrint}
-                disabled={displayedRows.length === 0}
-              >
-                Print
-              </Button>
-            </Tooltip>
-
-            <Tooltip title="Batch import restricted for audit compliance">
-              <Button
-                icon={<UploadOutlined />}
-                onClick={() => setImportModalVisible(true)}
-              >
-                Import
-              </Button>
-            </Tooltip>
-          </>
-        }
+        extra={headerExtra}
       />
 
       {/* ── 5 Crystal KPI Metric Cards (Image 2 style) ─────────────────── */}
@@ -1713,7 +1736,7 @@ const EntryList: React.FC = () => {
                       columns={columns}
                       dataSource={displayedRows}
                       loading={false}
-                      scroll={{ x: 1680 }}
+                      scroll={{ x: 1990 }}
                       dense
                       containerClassName="erp-table-striped"
                   pagination={{

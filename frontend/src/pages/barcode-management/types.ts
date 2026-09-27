@@ -6,6 +6,7 @@ export enum BarcodeEntityType {
   EMPLOYEE = 'EMPLOYEE',
   PRODUCTION_ENTRY = 'PRODUCTION_ENTRY',
   JOB_CARD = 'JOB_CARD',
+  GATE_PASS = 'GATE_PASS',
 }
 
 export enum BarcodeStatus {
@@ -37,6 +38,7 @@ export interface BarcodeStats {
   EMPLOYEE?: number;
   PRODUCTION_ENTRY?: number;
   JOB_CARD?: number;
+  GATE_PASS?: number;
 }
 
 export const ENTITY_TYPE_LABELS: Record<BarcodeEntityType, string> = {
@@ -47,6 +49,7 @@ export const ENTITY_TYPE_LABELS: Record<BarcodeEntityType, string> = {
   [BarcodeEntityType.EMPLOYEE]: 'Employee',
   [BarcodeEntityType.PRODUCTION_ENTRY]: 'Production Entry',
   [BarcodeEntityType.JOB_CARD]: 'Job Card',
+  [BarcodeEntityType.GATE_PASS]: 'Outward Gate Pass',
 };
 
 export const ENTITY_TYPE_ROUTES: Record<BarcodeEntityType, string> = {
@@ -57,4 +60,5 @@ export const ENTITY_TYPE_ROUTES: Record<BarcodeEntityType, string> = {
   [BarcodeEntityType.EMPLOYEE]: '/hr/employees',
   [BarcodeEntityType.PRODUCTION_ENTRY]: '/production/entries',
   [BarcodeEntityType.JOB_CARD]: '/maintenance/job-cards',
+  [BarcodeEntityType.GATE_PASS]: '/sales/deliveries',
 };

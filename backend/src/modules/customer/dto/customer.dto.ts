@@ -1,21 +1,26 @@
 import {
   IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsEmail,
-  MaxLength, Min, IsBoolean, IsDateString, Max,
+  MaxLength, Min, IsBoolean, IsDateString, Max, ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateCustomerDto {
-  @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  @ApiPropertyOptional({ description: 'Active toggle flag' })
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 
-  @ApiProperty({ description: 'Customer code' })
+  @ApiPropertyOptional({ description: 'Company ID' })
+  @IsUUID()
+  @IsOptional()
+  companyId?: string;
+
+  @ApiPropertyOptional({ description: 'Customer code (auto-generated if omitted)' })
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @MaxLength(50)
-  customerCode: string;
+  customerCode?: string;
 
   @ApiProperty({ description: 'Customer name' })
   @IsString()
@@ -23,25 +28,57 @@ export class CreateCustomerDto {
   @MaxLength(255)
   name: string;
 
-  @ApiPropertyOptional({ description: 'Short name' })
+  @ApiPropertyOptional({ description: 'Legal / Registered company name' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  legalName?: string;
+
+  @ApiPropertyOptional({ description: 'Short name / trade alias' })
   @IsString()
   @IsOptional()
   @MaxLength(100)
   shortName?: string;
 
-  @ApiPropertyOptional({ description: 'Customer type', enum: ['RETAIL', 'WHOLESALE', 'DISTRIBUTOR', 'GOVERNMENT', 'CORPORATE'], default: 'WHOLESALE' })
+  @ApiPropertyOptional({ description: 'Customer type', default: 'DOMESTIC' })
   @IsString()
   @IsOptional()
-  @IsIn(['RETAIL', 'WHOLESALE', 'DISTRIBUTOR', 'GOVERNMENT', 'CORPORATE'])
   customerType?: string;
 
-  @ApiPropertyOptional({ description: 'Contact person' })
+  @ApiPropertyOptional({ description: 'Customer category', default: 'STANDARD' })
+  @IsString()
+  @IsOptional()
+  customerCategory?: string;
+
+  @ApiPropertyOptional({ description: 'Customer group', default: 'GENERAL' })
+  @IsString()
+  @IsOptional()
+  customerGroup?: string;
+
+  @ApiPropertyOptional({ description: 'Customer since date' })
+  @ValidateIf((o) => !!o.customerSince)
+  @IsDateString()
+  @IsOptional()
+  customerSince?: string;
+
+  @ApiPropertyOptional({ description: 'Tax status', default: 'REGISTERED' })
+  @IsString()
+  @IsOptional()
+  taxStatus?: string;
+
+  @ApiPropertyOptional({ description: 'Customer classification / priority' })
+  @IsString()
+  @IsOptional()
+  classification?: string;
+
+  @ApiPropertyOptional({ description: 'Primary contact person' })
   @IsString()
   @IsOptional()
   @MaxLength(255)
   contactPerson?: string;
 
   @ApiPropertyOptional({ description: 'Email' })
+  @ValidateIf((o) => !!o.email)
   @IsEmail()
   @IsOptional()
   email?: string;
@@ -64,13 +101,19 @@ export class CreateCustomerDto {
   @MaxLength(255)
   website?: string;
 
-  @ApiPropertyOptional({ description: 'Tax number' })
+  @ApiPropertyOptional({ description: 'Tax number (NTN / Tax ID)' })
   @IsString()
   @IsOptional()
   @MaxLength(100)
   taxNumber?: string;
 
-  @ApiPropertyOptional({ description: 'Registration number' })
+  @ApiPropertyOptional({ description: 'Sales tax number (STRN)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  salesTaxNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Registration / Incorporate number' })
   @IsString()
   @IsOptional()
   @MaxLength(100)
@@ -134,6 +177,32 @@ export class CreateCustomerDto {
   @IsOptional()
   creditDays?: number;
 
+  @ApiPropertyOptional({ description: 'Customer opening balance' })
+  @IsNumber()
+  @IsOptional()
+  openingBalance?: number;
+
+  @ApiPropertyOptional({ description: 'Opening balance type', enum: ['DEBIT', 'CREDIT'], default: 'DEBIT' })
+  @IsString()
+  @IsOptional()
+  @IsIn(['DEBIT', 'CREDIT'])
+  openingBalanceType?: string;
+
+  @ApiPropertyOptional({ description: 'Price list assignment', default: 'STANDARD' })
+  @IsString()
+  @IsOptional()
+  priceList?: string;
+
+  @ApiPropertyOptional({ description: 'Credit hold status', default: false })
+  @IsBoolean()
+  @IsOptional()
+  creditHold?: boolean;
+
+  @ApiPropertyOptional({ description: 'Reason for credit hold' })
+  @IsString()
+  @IsOptional()
+  creditHoldReason?: string;
+
   @ApiPropertyOptional({ description: 'Discount percent' })
   @IsNumber()
   @IsOptional()
@@ -141,16 +210,14 @@ export class CreateCustomerDto {
   @Max(100)
   discountPercent?: number;
 
-  @ApiPropertyOptional({ description: 'Customer tier', enum: ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM'], default: 'BRONZE' })
+  @ApiPropertyOptional({ description: 'Customer tier', default: 'BRONZE' })
   @IsString()
   @IsOptional()
-  @IsIn(['BRONZE', 'SILVER', 'GOLD', 'PLATINUM'])
   customerTier?: string;
 
-  @ApiPropertyOptional({ description: 'Lead source', enum: ['WEBSITE', 'REFERRAL', 'TRADE_SHOW', 'COLD_CALL', 'SOCIAL_MEDIA', 'ADVERTISEMENT', 'OTHER'] })
+  @ApiPropertyOptional({ description: 'Lead source' })
   @IsString()
   @IsOptional()
-  @IsIn(['WEBSITE', 'REFERRAL', 'TRADE_SHOW', 'COLD_CALL', 'SOCIAL_MEDIA', 'ADVERTISEMENT', 'OTHER'])
   leadSource?: string;
 
   @ApiPropertyOptional({ description: 'Assigned to user ID' })
@@ -159,11 +226,13 @@ export class CreateCustomerDto {
   assignedTo?: string;
 
   @ApiPropertyOptional({ description: 'Last contact date' })
+  @ValidateIf((o) => !!o.lastContactDate)
   @IsDateString()
   @IsOptional()
   lastContactDate?: string;
 
   @ApiPropertyOptional({ description: 'Next follow up date' })
+  @ValidateIf((o) => !!o.nextFollowUpDate)
   @IsDateString()
   @IsOptional()
   nextFollowUpDate?: string;
@@ -172,6 +241,11 @@ export class CreateCustomerDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'Status', default: 'ACTIVE' })
+  @IsString()
+  @IsOptional()
+  status?: string;
 }
 
 export class CreateCustomerContactDto {
@@ -193,6 +267,12 @@ export class CreateCustomerContactDto {
   @MaxLength(100)
   jobTitle?: string;
 
+  @ApiPropertyOptional({ description: 'Official designation' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  designation?: string;
+
   @ApiPropertyOptional({ description: 'Email' })
   @IsEmail()
   @IsOptional()
@@ -210,6 +290,18 @@ export class CreateCustomerContactDto {
   @MaxLength(50)
   mobile?: string;
 
+  @ApiPropertyOptional({ description: 'Alternate contact person' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(150)
+  alternateContact?: string;
+
+  @ApiPropertyOptional({ description: 'Alternate phone number' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  alternatePhone?: string;
+
   @ApiPropertyOptional({ description: 'Is primary contact', default: false })
   @IsBoolean()
   @IsOptional()
@@ -222,10 +314,10 @@ export class CreateCustomerContactDto {
 }
 
 export class CreateCustomerAddressDto {
-  @ApiProperty({ description: 'Address type', enum: ['BILLING', 'SHIPPING', 'BOTH'], default: 'SHIPPING' })
+  @ApiProperty({ description: 'Address type', enum: ['BILLING', 'SHIPPING', 'OFFICE', 'BOTH'], default: 'SHIPPING' })
   @IsString()
   @IsNotEmpty()
-  @IsIn(['BILLING', 'SHIPPING', 'BOTH'])
+  @IsIn(['BILLING', 'SHIPPING', 'OFFICE', 'BOTH'])
   addressType: string;
 
   @ApiProperty({ description: 'Address line 1' })
@@ -246,7 +338,13 @@ export class CreateCustomerAddressDto {
   @MaxLength(100)
   city: string;
 
-  @ApiPropertyOptional({ description: 'State' })
+  @ApiPropertyOptional({ description: 'Area / Industrial Estate / Sector' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  area?: string;
+
+  @ApiPropertyOptional({ description: 'State / Province' })
   @IsString()
   @IsOptional()
   @MaxLength(100)
@@ -263,6 +361,18 @@ export class CreateCustomerAddressDto {
   @IsOptional()
   @MaxLength(100)
   country?: string;
+
+  @ApiPropertyOptional({ description: 'Location contact person' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(150)
+  contactPerson?: string;
+
+  @ApiPropertyOptional({ description: 'Location phone' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  phone?: string;
 
   @ApiPropertyOptional({ description: 'Is default address', default: false })
   @IsBoolean()
@@ -288,7 +398,7 @@ export class CustomerFilterDto {
   @Type(() => Number)
   limit?: number = 20;
 
-  @ApiPropertyOptional({ description: 'Search term' })
+  @ApiPropertyOptional({ description: 'Search term (code, name, legal name, phone, email, NTN, STRN)' })
   @IsString()
   @IsOptional()
   search?: string;
@@ -308,10 +418,25 @@ export class CustomerFilterDto {
   @IsOptional()
   customerType?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by customer category' })
+  @IsString()
+  @IsOptional()
+  customerCategory?: string;
+
   @ApiPropertyOptional({ description: 'Filter by customer tier' })
   @IsString()
   @IsOptional()
   customerTier?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by state / province' })
+  @IsString()
+  @IsOptional()
+  state?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by city' })
+  @IsString()
+  @IsOptional()
+  city?: string;
 
   @ApiPropertyOptional({ description: 'Sort field' })
   @IsString()

@@ -16,12 +16,29 @@ export class SalesOrder {
   @Column({ name: 'customer_id', type: 'uuid' })
   customerId: string;
 
+  @Column({ name: 'customer_po', type: 'varchar', length: 100, nullable: true })
+  customerPo: string | null;
+
   @ManyToOne(() => SalesCustomer)
   @JoinColumn({ name: 'customer_id' })
   customer: SalesCustomer;
 
   @Column({ name: 'quotation_id', type: 'uuid', nullable: true })
   quotationId: string | null;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
+  @ManyToOne('Division', { nullable: true })
+  @JoinColumn({ name: 'division_id' })
+  division: any;
+
+  @Column({ name: 'section_id', type: 'uuid', nullable: true })
+  sectionId: string | null;
+
+  @ManyToOne('Section', { nullable: true })
+  @JoinColumn({ name: 'section_id' })
+  section: any;
 
   @Column({ name: 'order_date', type: 'date', nullable: true })
   orderDate: string | null;

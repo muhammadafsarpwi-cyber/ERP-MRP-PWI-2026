@@ -20,12 +20,14 @@ export interface DeleteConfirmModalProps {
   onCancel: () => void;
   onDeactivateInstead?: () => Promise<void>;
   deactivateLabel?: string;
+  onForceDelete?: () => Promise<void>;
+  forceDeleteLabel?: string;
 }
 
 /**
  * Enterprise In-Modal Delete Confirmation & Error Resolution Dialog.
  * Keeps the modal open on foreign-key/business constraint errors, displaying
- * the exact reason and offering friendly resolution options (e.g. Deactivate Instead).
+ * the exact reason and offering friendly resolution options (e.g. Deactivate Instead, Admin Force Purge).
  */
 export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   open,
@@ -38,9 +40,12 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   onCancel,
   onDeactivateInstead,
   deactivateLabel = 'Deactivate Instead',
+  onForceDelete,
+  forceDeleteLabel = 'Force Delete (Admin Purge)',
 }) => {
   const [loading, setLoading] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  const [forceDeleting, setForceDeleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Reset internal state when modal opens or closes
@@ -48,6 +53,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
     if (open) {
       setLoading(false);
       setDeactivating(false);
+      setForceDeleting(false);
       setErrorMsg(null);
     }
   }, [open]);
@@ -87,11 +93,29 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
     }
   };
 
+  const handleForceDelete = async () => {
+    if (!onForceDelete) return;
+    try {
+      setForceDeleting(true);
+      setErrorMsg(null);
+      await onForceDelete();
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Could not force delete the record. Please verify permissions.';
+      setErrorMsg(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    } finally {
+      setForceDeleting(false);
+    }
+  };
+
   const displayTitle = title || `Delete ${itemType}${itemCode ? ` '${itemCode}'` : ''}?`;
 
   return (
     <Modal
       open={open}
+      zIndex={2500}
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div
@@ -127,7 +151,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             borderTop: '1px solid var(--theme-border, #e2e8f0)',
           }}
         >
-          <Button onClick={onCancel} disabled={loading || deactivating}>
+          <Button onClick={onCancel} disabled={loading || deactivating || forceDeleting}>
             Cancel
           </Button>
 
@@ -137,7 +161,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
               icon={<PauseCircleOutlined />}
               onClick={handleDeactivate}
               loading={deactivating}
-              disabled={loading}
+              disabled={loading || forceDeleting}
               style={{
                 borderColor: 'var(--theme-warning, #f59e0b)',
                 color: 'var(--theme-warning, #d97706)',
@@ -148,21 +172,38 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             </Button>
           )}
 
-          <Button
-            type="primary"
-            danger
-            icon={<DeleteOutlined />}
-            loading={loading}
-            disabled={deactivating}
-            onClick={handleConfirm}
-            style={{ fontWeight: 700 }}
-          >
-            Confirm Delete
-          </Button>
+          {/* If deletion was blocked and force delete is enabled for Admin, offer it in footer */}
+          {errorMsg && onForceDelete && (
+            <Button
+              type="primary"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={handleForceDelete}
+              loading={forceDeleting}
+              disabled={loading || deactivating}
+              style={{ fontWeight: 700 }}
+            >
+              {forceDeleteLabel}
+            </Button>
+          )}
+
+          {!errorMsg && (
+            <Button
+              type="primary"
+              danger
+              icon={<DeleteOutlined />}
+              loading={loading}
+              disabled={deactivating || forceDeleting}
+              onClick={handleConfirm}
+              style={{ fontWeight: 700 }}
+            >
+              Confirm Delete
+            </Button>
+          )}
         </div>
       }
       centered
-      width={520}
+      width={540}
       destroyOnHidden
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '12px 0 8px' }}>
@@ -190,7 +231,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
           {description}
         </Paragraph>
 
-        {/* In-Modal Error Box (Shows exact reason why deletion was blocked) */}
+        {/* In-Modal Error Box (Shows exact reason why deletion was blocked + Admin Force Delete option) */}
         {errorMsg && (
           <Alert
             type="error"
@@ -204,6 +245,35 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                     <Text type="secondary" style={{ fontSize: 11.5 }}>
                       Recommendation: Deactivate this item so it remains in historical audit logs without cluttering active operations.
                     </Text>
+                  </div>
+                )}
+                {onForceDelete && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      padding: '10px 12px',
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      borderRadius: 8,
+                      border: '1px dashed #ef4444',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: '#ef4444', fontSize: 13, marginBottom: 4 }}>
+                      Admin Override / Force Purge Dummy Data
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--theme-text)', marginBottom: 8, lineHeight: 1.4 }}>
+                      If this is a dummy, test, or unwanted item that disturbs actual operations, an Administrator can force delete it along with its linked demo logs.
+                    </div>
+                    <Button
+                      type="primary"
+                      danger
+                      icon={<DeleteOutlined />}
+                      loading={forceDeleting}
+                      disabled={loading || deactivating}
+                      onClick={handleForceDelete}
+                      style={{ fontWeight: 700 }}
+                    >
+                      {forceDeleteLabel}
+                    </Button>
                   </div>
                 )}
               </div>

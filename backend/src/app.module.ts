@@ -31,6 +31,7 @@ import { QcModule } from './modules/qc/qc.module';
 import { TraceabilityModule } from './modules/traceability/traceability.module';
 import { BarcodeModule } from './modules/barcode/barcode.module';
 import { StoreModule } from './modules/store/store.module';
+import { DispatchModule } from './modules/dispatch/dispatch.module';
 import * as net from 'net';
 
 function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promise<boolean> {
@@ -109,6 +110,7 @@ function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promis
     TraceabilityModule,
     BarcodeModule,
     StoreModule,
+    DispatchModule,
   ],
   controllers: [AppController],
   providers: [AppService],

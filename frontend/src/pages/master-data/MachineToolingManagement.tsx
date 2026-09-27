@@ -2209,12 +2209,17 @@ const MachineToolingManagement: React.FC = () => {
         />
       </Space>,
     );
-    return () => clearHeaderMeta();
   }, [
     primaryAdd, activeTab, componentsTotal,
     compPage, chgPage, atPage, lifePage, fetchComponents, fetchChanges,
     fetchActiveTools, fetchLifeReport, fetchReport,
   ]);
+
+  useEffect(() => {
+    return () => {
+      useHeaderActions.getState().clearHeaderMeta();
+    };
+  }, []);
 
   return (
     <TabKeepAlive

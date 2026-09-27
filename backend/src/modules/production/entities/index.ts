@@ -7,3 +7,5 @@ export { ProductionEntryDowntime } from './production-entry-downtime.entity';
 export { Machine, MachineStatus, MachineCriticality } from './machine.entity';
 export { Shift, ShiftStatus } from './shift.entity';
 export { DowntimeReason, DowntimeReasonStatus } from './downtime-reason.entity';
+export { ProductionUnit, ProductionUnitStatus, ProductionUnitCodeType } from './production-unit.entity';
+export { ProductionUnitPrintLog, PrintEventType } from './production-unit-print-log.entity';

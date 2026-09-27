@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { isUUID } from 'class-validator';
-import { Repository, DataSource, EntityManager } from 'typeorm';
+import { Repository, DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
 import { MaintenanceJobCard } from '../entities/maintenance-job-card.entity';
 import { MaintenanceJobCardTechnician } from '../entities/maintenance-job-card-technician.entity';
 import { MaintenanceJobCardPart } from '../entities/maintenance-job-card-part.entity';
@@ -1169,7 +1169,15 @@ export class MaintenanceJobCardService {
   async getMachineHistory(machineId: string): Promise<MaintenanceJobCard[]> {
     return this.jobCardRepo.find({
       where: { machineId, isActive: true },
-      relations: ['requestedByUser'],
+      relations: [
+        'requestedByUser',
+        'technicians',
+        'technicians.technicianUser',
+        'technicians.technician',
+        'parts',
+        'parts.item',
+        'parts.uom',
+      ],
       order: { requestedAt: 'DESC' },
       take: 50,
     });
@@ -1183,6 +1191,19 @@ export class MaintenanceJobCardService {
     const approved = await this.jobCardRepo.count({ where: { machineId, isActive: true, currentStatus: JobCardStatus.APPROVED } });
     const inProgress = await this.jobCardRepo.count({ where: { machineId, isActive: true, currentStatus: JobCardStatus.IN_PROGRESS } });
     const completed = await this.jobCardRepo.count({ where: { machineId, isActive: true, currentStatus: JobCardStatus.COMPLETED } });
+
+    // Calculate this month's job cards count
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const thisMonthJobCards = await this.jobCardRepo.count({
+      where: {
+        machineId,
+        isActive: true,
+        requestedAt: MoreThanOrEqual(startOfMonth),
+      },
+    });
 
     const downtimeResult = await this.jobCardRepo
       .createQueryBuilder('jc')
@@ -1208,6 +1229,15 @@ export class MaintenanceJobCardService {
 
     const recentCards = await this.jobCardRepo.find({
       where: { machineId, isActive: true },
+      relations: [
+        'requestedByUser',
+        'technicians',
+        'technicians.technicianUser',
+        'technicians.technician',
+        'parts',
+        'parts.item',
+        'parts.uom',
+      ],
       order: { requestedAt: 'DESC' },
       take: 10,
     });
@@ -1233,6 +1263,7 @@ export class MaintenanceJobCardService {
       approved,
       inProgress,
       completed,
+      thisMonthJobCards,
       totalDowntimeMinutes: parseInt(downtimeResult?.totalDowntimeMinutes || '0', 10),
       avgDowntimeMinutes: Math.round(parseFloat(downtimeResult?.avgDowntimeMinutes || '0')),
       mtbfHours: mtbf,

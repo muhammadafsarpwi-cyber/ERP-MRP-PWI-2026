@@ -45,6 +45,10 @@ const STATUS_COLORS: Record<string, string> = {
   'IN PROGRESS': '#38bdf8',
 };
 
+const AXIS_COLOR = 'var(--theme-text-muted)';
+const TOOLTIP_STYLE = { background: 'var(--theme-surface-alt)', border: '1px solid var(--theme-border)', color: 'var(--theme-text)', borderRadius: 6, fontSize: 12 };
+const CHART_TICK = { fontSize: 11 };
+
 const fmt = (n: number) => Number(n || 0).toLocaleString('en-US');
 const ProductionDashboard: React.FC = () => {
   const cachedTab = useMemo(() => tabSessionCache.get<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID), []);
@@ -185,9 +189,6 @@ const ProductionDashboard: React.FC = () => {
     actual: Number(d.actualQuantity ?? 0),
   })), [prod]);
 
-  const axisColor = 'var(--theme-text-muted)';
-  const tooltipStyle = { background: 'var(--theme-surface-alt)', border: '1px solid var(--theme-border)', color: 'var(--theme-text)', borderRadius: 6, fontSize: 12 };
-
   return (
     <TabKeepAlive
       tabId={PRODUCTION_DASHBOARD_TAB_ID}
@@ -239,9 +240,9 @@ const ProductionDashboard: React.FC = () => {
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={trendData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                  <XAxis dataKey="date" stroke={axisColor} tick={{ fontSize: 11 }} />
-                  <YAxis stroke={axisColor} tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <XAxis dataKey="date" stroke={AXIS_COLOR} tick={CHART_TICK} />
+                  <YAxis stroke={AXIS_COLOR} tick={CHART_TICK} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
                   <Legend />
                   <Line type="monotone" dataKey="target" name="Target" stroke={STATUS_COLORS.DRAFT} strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="actual" name="Actual" stroke={STATUS_COLORS.COMPLETED} strokeWidth={2} dot={false} />
@@ -259,7 +260,7 @@ const ProductionDashboard: React.FC = () => {
                   <Pie data={statusPie} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} innerRadius={45} label>
                     {statusPie.map((e, i) => <Cell key={i} fill={e.color} />)}
                   </Pie>
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -275,9 +276,9 @@ const ProductionDashboard: React.FC = () => {
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={machineData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                  <XAxis dataKey="name" stroke={axisColor} tick={{ fontSize: 11 }} />
-                  <YAxis stroke={axisColor} tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <XAxis dataKey="name" stroke={AXIS_COLOR} tick={CHART_TICK} />
+                  <YAxis stroke={AXIS_COLOR} tick={CHART_TICK} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
                   <Legend />
                   <Bar dataKey="target" name="Target" fill={STATUS_COLORS.DRAFT} />
                   <Bar dataKey="actual" name="Actual" fill={STATUS_COLORS.COMPLETED} />
@@ -293,9 +294,9 @@ const ProductionDashboard: React.FC = () => {
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={deptData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                  <XAxis dataKey="name" stroke={axisColor} tick={{ fontSize: 11 }} />
-                  <YAxis stroke={axisColor} tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <XAxis dataKey="name" stroke={AXIS_COLOR} tick={CHART_TICK} />
+                  <YAxis stroke={AXIS_COLOR} tick={CHART_TICK} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
                   <Legend />
                   <Bar dataKey="target" name="Target" fill={STATUS_COLORS.IN_PROGRESS} />
                   <Bar dataKey="actual" name="Actual" fill={STATUS_COLORS.COMPLETED} />

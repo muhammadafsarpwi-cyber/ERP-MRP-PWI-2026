@@ -3,6 +3,7 @@ import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { CustomerContact } from './customer-contact.entity';
 import { CustomerAddress } from './customer-address.entity';
+import { CustomerLedgerEntry } from './customer-ledger.entity';
 
 @Entity('customers')
 export class Customer extends BaseEntity {
@@ -19,11 +20,29 @@ export class Customer extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
+  @Column({ name: 'legal_name', type: 'varchar', length: 255, nullable: true })
+  legalName: string | null;
+
   @Column({ name: 'short_name', type: 'varchar', length: 100, nullable: true })
   shortName: string | null;
 
-  @Column({ name: 'customer_type', type: 'varchar', length: 20, default: 'WHOLESALE' })
+  @Column({ name: 'customer_type', type: 'varchar', length: 50, default: 'DOMESTIC' })
   customerType: string;
+
+  @Column({ name: 'customer_category', type: 'varchar', length: 50, default: 'STANDARD' })
+  customerCategory: string;
+
+  @Column({ name: 'customer_group', type: 'varchar', length: 50, default: 'GENERAL' })
+  customerGroup: string;
+
+  @Column({ name: 'customer_since', type: 'date', nullable: true })
+  customerSince: Date | null;
+
+  @Column({ name: 'tax_status', type: 'varchar', length: 50, default: 'REGISTERED' })
+  taxStatus: string;
+
+  @Column({ name: 'classification', type: 'varchar', length: 50, nullable: true })
+  classification: string | null;
 
   @Column({ name: 'contact_person', type: 'varchar', length: 255, nullable: true })
   contactPerson: string | null;
@@ -41,7 +60,10 @@ export class Customer extends BaseEntity {
   website: string | null;
 
   @Column({ name: 'tax_number', type: 'varchar', length: 100, nullable: true })
-  taxNumber: string | null;
+  taxNumber: string | null; // NTN
+
+  @Column({ name: 'sales_tax_number', type: 'varchar', length: 100, nullable: true })
+  salesTaxNumber: string | null; // STRN
 
   @Column({ name: 'registration_number', type: 'varchar', length: 100, nullable: true })
   registrationNumber: string | null;
@@ -75,6 +97,21 @@ export class Customer extends BaseEntity {
 
   @Column({ name: 'credit_days', type: 'integer', default: 0 })
   creditDays: number;
+
+  @Column({ name: 'opening_balance', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  openingBalance: number;
+
+  @Column({ name: 'opening_balance_type', type: 'varchar', length: 10, default: 'DEBIT' })
+  openingBalanceType: string;
+
+  @Column({ name: 'price_list', type: 'varchar', length: 100, default: 'STANDARD' })
+  priceList: string;
+
+  @Column({ name: 'credit_hold', type: 'boolean', default: false })
+  creditHold: boolean;
+
+  @Column({ name: 'credit_hold_reason', type: 'text', nullable: true })
+  creditHoldReason: string | null;
 
   @Column({ name: 'discount_percent', type: 'decimal', precision: 5, scale: 2, default: 0 })
   discountPercent: number;
@@ -111,4 +148,7 @@ export class Customer extends BaseEntity {
 
   @OneToMany(() => CustomerAddress, (address) => address.customer)
   addresses: CustomerAddress[];
+
+  @OneToMany(() => CustomerLedgerEntry, (entry) => entry.customer)
+  ledgerEntries: CustomerLedgerEntry[];
 }

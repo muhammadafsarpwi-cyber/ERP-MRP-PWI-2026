@@ -17,6 +17,7 @@ import {
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import dayjs from 'dayjs';
 import apiService, { describeRequestError } from '../../services/api';
 import {
   buildItemQueryParams,
@@ -45,6 +46,7 @@ import InputMaterialSelect from './items/InputMaterialSelect';
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
 import './itemManagement.css';
 
 const { Text } = Typography;
@@ -239,9 +241,9 @@ const ItemTypeCard: React.FC<ItemTypeCardProps> = ({
       </span>
     </span>
     {count !== undefined && (
-      <Text type="secondary" style={{ position: 'relative', zIndex: 1, fontSize: 10.5, lineHeight: 1.2 }}>
+      <span style={{ position: 'relative', zIndex: 1, fontSize: 10.5, lineHeight: 1.2, color: 'var(--theme-text-muted, #64748b)' }}>
         {count} items
-      </Text>
+      </span>
     )}
   </button>
 );
@@ -350,6 +352,8 @@ const DEFAULT_ITEM_VISIBLE_COLUMNS: Record<string, boolean> = {
   routeType: true,
   uom: true,
   status: true,
+  createdByNameDate: false,
+  updatedByNameDate: false,
   actions: true,
 };
 
@@ -365,6 +369,8 @@ const ITEM_COLUMN_LABELS: Record<string, string> = {
   routeType: 'Route Type',
   uom: 'UOM / Conversion',
   status: 'Status',
+  createdByNameDate: 'Created By / Date',
+  updatedByNameDate: 'Updated By / Date',
   actions: 'Actions',
 };
 
@@ -827,6 +833,9 @@ const ItemManagement: React.FC = () => {
   const watchedMaxStock = Form.useWatch('maximumStockLevel', form);
   const watchedReorder = Form.useWatch('reorderLevel', form);
   const watchedSafety = Form.useWatch('safetyStockLevel', form);
+  const watchedPackagingType = Form.useWatch('packagingType', form);
+  const watchedPackagingSize = Form.useWatch('packagingSize', form);
+  const watchedPackagingUnit = Form.useWatch('packagingUnit', form);
   const [selectedInputDetail, setSelectedInputDetail] = useState<Partial<Item> | null>(null);
 
   // TASK 15: resolve output items referenced by route rows so the preview can
@@ -1638,6 +1647,9 @@ const ItemManagement: React.FC = () => {
       processes: initialProcs,
       finalProduct: record.finalProduct ?? undefined,
       packingNextStep: record.packingNextStep ?? undefined,
+      packagingType: record.packagingType ?? undefined,
+      packagingSize: record.packagingSize ?? undefined,
+      packagingUnit: record.packagingUnit ?? undefined,
       weightPerPiece: record.weightPerPiece ?? undefined,
       piecesPerKg: record.piecesPerKg ?? undefined,
       weightPerMeter: record.weightPerMeter ?? undefined,
@@ -1692,6 +1704,9 @@ const ItemManagement: React.FC = () => {
         'productionInItemId',
         'finalProduct',
         'packingNextStep',
+        'packagingType',
+        'packagingSize',
+        'packagingUnit',
         'sku',
         'shortName',
         'description',
@@ -1718,6 +1733,7 @@ const ItemManagement: React.FC = () => {
         'diameterMm',
         'thicknessMm',
         'widthMm',
+        'packagingSize',
         'minimumStockLevel',
         'maximumStockLevel',
         'reorderLevel',
@@ -2794,9 +2810,9 @@ const ItemManagement: React.FC = () => {
               {r.name}
             </div>
             {r.shortName && (
-              <Text type="secondary" style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 135 }}>
+              <span style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 135, color: 'var(--theme-text-muted, #64748b)' }}>
                 {r.shortName}
-              </Text>
+              </span>
             )}
           </div>
         </Tooltip>
@@ -2814,9 +2830,9 @@ const ItemManagement: React.FC = () => {
             <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>
               {d ?? <Text type="secondary">—</Text>}
             </div>
-            <Text type="secondary" style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>
+            <span style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100, color: 'var(--theme-text-muted, #64748b)' }}>
               {s ?? '—'}
-            </Text>
+            </span>
           </div>
         );
       },
@@ -2956,9 +2972,9 @@ const ItemManagement: React.FC = () => {
         <div style={{ lineHeight: 1.25 }}>
           <div style={{ fontSize: 11.5, fontWeight: 600 }}>{r.baseUomName ?? '—'}</div>
           {convChips(r).length > 0 && (
-            <Text type="secondary" style={{ fontSize: 10, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 10, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--theme-text-muted, #64748b)' }}>
               {convChips(r)[0]}
-            </Text>
+            </span>
           )}
         </div>
       ),
@@ -2971,6 +2987,36 @@ const ItemManagement: React.FC = () => {
       sorter: true,
       render: (s: string) => (
         <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 55, fontSize: 10.5, padding: '1px 4px', textAlign: 'center' }} />
+      ),
+    },
+    {
+      title: <HeaderCell icon={<ClockCircleOutlined />} first="Created By" second="/ Date" />,
+      key: 'createdByNameDate',
+      width: 155,
+      render: (_: unknown, r: Item) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', color: 'var(--theme-text, inherit)' }}>
+            {r.createdByName || (r.createdBy ? 'Admin' : '—')}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap' }}>
+            {r.createdAt ? dayjs(r.createdAt).format('DD-MMM-YYYY HH:mm') : '—'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      title: <HeaderCell icon={<SyncOutlined />} first="Updated By" second="/ Date" />,
+      key: 'updatedByNameDate',
+      width: 155,
+      render: (_: unknown, r: Item) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', color: 'var(--theme-text, inherit)' }}>
+            {r.updatedByName || (r.updatedBy ? 'Admin' : '—')}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap' }}>
+            {r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM-YYYY HH:mm') : '—'}
+          </span>
+        </div>
       ),
     },
     {
@@ -3131,6 +3177,149 @@ const ItemManagement: React.FC = () => {
     return [code, name].filter(Boolean).join(' — ') || '(new item)';
   }, [editing, watchedCode, watchedName]);
 
+  const headerTitle = useMemo(
+    () => (
+      <Space align="center" size={10}>
+        <span>Products & Items</span>
+        <span className="item-model-badge">Enterprise 2027</span>
+      </Space>
+    ),
+    []
+  );
+
+  const headerExtra = useMemo(
+    () => (
+      <Space wrap size={8}>
+        {can('item.create') && (
+          <Button
+            size="middle"
+            className="erp-toolbar-action-btn"
+            icon={<PlusOutlined />}
+            onClick={openCreate}
+            style={{ fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
+          >
+            Add Item
+          </Button>
+        )}
+        <Button
+          size="middle"
+          className="erp-toolbar-action-btn"
+          icon={<ReloadOutlined />}
+          onClick={() => fetchItems({ force: true })}
+          title="Refresh"
+        />
+        {can('item.view') && (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
+            Scan Barcode
+          </Button>
+        )}
+        {can('item.view') && (
+          <Dropdown
+            menu={{
+              items: [{ key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' }],
+              onClick: handleExport,
+            }}
+          >
+            <Button size="middle" className="erp-toolbar-action-btn" icon={<DownloadOutlined />} loading={exporting}>Export</Button>
+          </Dropdown>
+        )}
+        {can('item.view') && (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<FilePdfOutlined />} loading={pdfing} onClick={handlePdf}>PDF</Button>
+        )}
+        {can('item.view') && (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
+        )}
+        {can('item.create') && (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<ImportOutlined />} onClick={() => { setImportOpen(true); setImportRows([]); setImportSummary(null); setImportFileName(null); }}>
+            Import
+          </Button>
+        )}
+      </Space>
+    ),
+    [can, openCreate, fetchItems, setScannerOpen, handleExport, exporting, pdfing, handlePdf, printing, handlePrint, setImportOpen, setImportRows, setImportSummary, setImportFileName]
+  );
+
+  useEffect(() => {
+    const { setHeaderActions } = useHeaderActions.getState();
+    const actions: HeaderAction[] = [];
+    if (can('item.create')) {
+      actions.push({
+        key: 'add-item',
+        node: (
+          <Button
+            size="middle"
+            className="erp-toolbar-action-btn"
+            icon={<PlusOutlined />}
+            onClick={openCreate}
+            style={{ fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
+          >
+            Add Item
+          </Button>
+        ),
+      });
+    }
+    actions.push({
+      key: 'refresh',
+      node: (
+        <Button
+          size="middle"
+          className="erp-toolbar-action-btn"
+          icon={<ReloadOutlined />}
+          onClick={() => fetchItems({ force: true })}
+          title="Refresh"
+        />
+      ),
+    });
+    if (can('item.view')) {
+      actions.push({
+        key: 'scan',
+        node: (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
+            Scan Barcode
+          </Button>
+        ),
+      });
+      actions.push({
+        key: 'export',
+        node: (
+          <Dropdown
+            menu={{
+              items: [{ key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' }],
+              onClick: handleExport,
+            }}
+          >
+            <Button size="middle" className="erp-toolbar-action-btn" icon={<DownloadOutlined />} loading={exporting}>Export</Button>
+          </Dropdown>
+        ),
+      });
+      actions.push({
+        key: 'pdf',
+        node: (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<FilePdfOutlined />} loading={pdfing} onClick={handlePdf}>PDF</Button>
+        ),
+      });
+      actions.push({
+        key: 'print',
+        node: (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
+        ),
+      });
+    }
+    if (can('item.create')) {
+      actions.push({
+        key: 'import',
+        node: (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<ImportOutlined />} onClick={() => { setImportOpen(true); setImportRows([]); setImportSummary(null); setImportFileName(null); }}>
+            Import
+          </Button>
+        ),
+      });
+    }
+
+    setHeaderActions(actions, '/master-data/items');
+    setHeaderActions(actions, '/master-data/products-items');
+  }, [can, openCreate, fetchItems, setScannerOpen, handleExport, exporting, pdfing, handlePdf, printing, handlePrint, setImportOpen, setImportRows, setImportSummary, setImportFileName]);
+
   return (
     <TabKeepAlive
       tabId={MASTER_PRODUCTS_ITEMS_TAB_ID}
@@ -3140,59 +3329,11 @@ const ItemManagement: React.FC = () => {
       <div style={{ padding: '4px 6px', width: '100%' }}>
       <PageHeader
         icon={<AppstoreOutlined />}
-        title={
-          <Space align="center" size={10}>
-            <span>Products & Items</span>
-            <span className="item-model-badge">Enterprise 2027</span>
-          </Space>
-        }
+        title={headerTitle}
         subtitle="Manage your item master data — raw materials, finished goods, and production items"
         showBreadcrumbs
         style={{ marginBottom: 8 }}
-        extra={
-          <>
-            {can('item.create') && (
-              <Button
-                size="middle"
-                className="erp-toolbar-action-btn"
-                icon={<PlusOutlined />}
-                onClick={openCreate}
-                style={{ fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
-              >
-                Add Item
-              </Button>
-            )}
-            <Tooltip title="Refresh">
-              <Button size="middle" className="erp-toolbar-action-btn" icon={<ReloadOutlined />} onClick={() => fetchItems({ force: true })} />
-            </Tooltip>
-            {can('item.view') && (
-              <Button size="middle" className="erp-toolbar-action-btn" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
-                Scan Barcode
-              </Button>
-            )}
-            {can('item.view') && (
-              <Dropdown
-                menu={{
-                  items: [{ key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' }],
-                  onClick: handleExport,
-                }}
-              >
-                <Button size="middle" className="erp-toolbar-action-btn" icon={<DownloadOutlined />} loading={exporting}>Export</Button>
-              </Dropdown>
-            )}
-            {can('item.view') && (
-              <Button size="middle" className="erp-toolbar-action-btn" icon={<FilePdfOutlined />} loading={pdfing} onClick={handlePdf}>PDF</Button>
-            )}
-            {can('item.view') && (
-              <Button size="middle" className="erp-toolbar-action-btn" icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
-            )}
-            {can('item.create') && (
-              <Button size="middle" className="erp-toolbar-action-btn" icon={<ImportOutlined />} onClick={() => { setImportOpen(true); setImportRows([]); setImportSummary(null); setImportFileName(null); }}>
-                Import
-              </Button>
-            )}
-          </>
-        }
+        extra={headerExtra}
       />
 
       <div
@@ -3313,12 +3454,12 @@ const ItemManagement: React.FC = () => {
             popupRender={() => (
               <div
                 style={{
-                  background: '#ffffff',
+                  background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
                   padding: '12px 16px',
                   borderRadius: 8,
-                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.25)',
                   minWidth: 200,
-                  border: '1px solid #e2e8f0',
+                  border: '1px solid var(--theme-border, #e2e8f0)',
                 }}
               >
                 <div
@@ -3328,10 +3469,10 @@ const ItemManagement: React.FC = () => {
                     justifyContent: 'space-between',
                     marginBottom: 10,
                     paddingBottom: 8,
-                    borderBottom: '1px solid #f1f5f9',
+                    borderBottom: '1px solid var(--theme-border, #f1f5f9)',
                   }}
                 >
-                  <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
                     Table Columns
                   </span>
                   <Button
@@ -3362,7 +3503,7 @@ const ItemManagement: React.FC = () => {
                           localStorage.setItem('pwi_item_table_columns_v2', JSON.stringify(next));
                         } catch {}
                       }}
-                      style={{ fontSize: 13, color: '#334155' }}
+                      style={{ fontSize: 13, color: 'var(--theme-text, #334155)' }}
                     >
                       {label}
                     </Checkbox>
@@ -3394,9 +3535,9 @@ const ItemManagement: React.FC = () => {
           </Button>
 
           {screens.lg && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
               {total} items · Sorted by {sortField}
-            </Text>
+            </span>
           )}
         </div>
 
@@ -3480,7 +3621,7 @@ const ItemManagement: React.FC = () => {
           // itemManagement.css — opaque theme token, backdrop-filter: none,
           // no antd .ant-spin-blur fade (interaction block stays in place).
           containerClassName="items-loading-surface"
-          scroll={{ x: 1045, y: 'calc(100vh - 350px)' }}
+          scroll={{ x: 1045 }}
           sticky
           size="small"
           pagination={pagination}
@@ -3784,6 +3925,16 @@ const ItemManagement: React.FC = () => {
                         },
                         { label: 'Final Product', children: txt(detailItem.finalProduct) },
                         { label: 'Packing / Next Step', children: txt(detailItem.packingNextStep) },
+                        {
+                          label: 'Packaging Specification',
+                          children: detailItem.packagingSize
+                            ? (
+                              <Tag color="cyan">
+                                1 {detailItem.packagingUnit || detailItem.packagingType || 'Package'} = {Number(detailItem.packagingSize).toLocaleString()} {(detailItem.baseUom as any)?.symbol || detailItem.baseUom?.code || detailItem.baseUom?.name || ''}
+                              </Tag>
+                            )
+                            : (detailItem.packagingType ? txt(detailItem.packagingType) : null),
+                        },
                         {
                           label: 'Input Material',
                           children: detailItem.productionInItem
@@ -4666,6 +4817,71 @@ const ItemManagement: React.FC = () => {
                 </Form.Item>
               </div>
             </div>
+          </Card>
+
+          {/* Packaging Specification & Unit Conversion */}
+          <Card
+            size="small"
+            title={
+              <Space>
+                <InboxOutlined style={{ color: '#52c41a' }} />
+                <span>Packaging Specification & Unit Conversion</span>
+              </Space>
+            }
+            style={{ marginBottom: 12, borderRadius: 8 }}
+          >
+            <div className="erp-form-responsive-grid">
+              <Form.Item
+                name="packagingType"
+                label="Packaging Type"
+                extra="Physical container or handling unit (e.g. Coil, Box / Carton, Gross, Drum)"
+              >
+                <Select
+                  allowClear
+                  placeholder="Select packaging type..."
+                  options={[
+                    { value: 'COIL', label: 'Coil (e.g. 500m / 250m Wire or Cable)' },
+                    { value: 'BOX', label: 'Box / Carton (e.g. Spokes & Nipples)' },
+                    { value: 'GROSS', label: 'Gross (144 Pieces)' },
+                    { value: 'PACK', label: 'Pack' },
+                    { value: 'DRUM', label: 'Drum / Reel' },
+                    { value: 'NONE', label: 'None / Loose Bulk' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item
+                name="packagingUnit"
+                label="Packaging Unit Name"
+                extra="Display label used in orders & deliveries (e.g. Coil, Box, Carton, Gross)"
+              >
+                <Input maxLength={50} placeholder="e.g. Coil, Box, Carton" />
+              </Form.Item>
+              <Form.Item
+                name="packagingSize"
+                label="Packaging Size (Conversion Ratio)"
+                extra="How many base units per package (e.g. 500 Meters per Coil, 144 Pcs per Gross, 10 Gross per Box)"
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={0.001}
+                  step={1}
+                  placeholder="e.g. 500 (Meters/Coil) or 144 (Pcs/Gross)"
+                />
+              </Form.Item>
+            </div>
+            {watchedPackagingSize ? (
+              <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(82, 196, 26, 0.08)', borderRadius: 6, border: '1px solid rgba(82, 196, 26, 0.2)' }}>
+                <Space wrap size="small">
+                  <Tag color="green">Conversion Active</Tag>
+                  <Typography.Text strong>
+                    1 {watchedPackagingUnit || watchedPackagingType || 'Package'} = {Number(watchedPackagingSize).toLocaleString()} {(uoms.find((u) => u.id === watchedBaseUomId) as any)?.symbol || uoms.find((u) => u.id === watchedBaseUomId)?.code || uoms.find((u) => u.id === watchedBaseUomId)?.name || 'Units'}
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    (Entering 20 {watchedPackagingUnit || 'Packages'} in orders/deliveries will auto-calculate {(20 * Number(watchedPackagingSize)).toLocaleString()} units)
+                  </Typography.Text>
+                </Space>
+              </div>
+            ) : null}
           </Card>
 
           {/* SECTION 5D — TASK #45: PRODUCTION FLOW
@@ -6303,6 +6519,15 @@ const ItemManagement: React.FC = () => {
           setDeleteTargetItem(null);
           fetchItems({ force: true });
         }}
+        onForceDelete={async () => {
+          if (!deleteTargetItem) return;
+          await apiService.delete(`/master-data/items/${deleteTargetItem.id}?force=true`);
+          message.success(`Item '${deleteTargetItem.itemCode}' and all linked sample records permanently purged`);
+          setDeleteModalVisible(false);
+          setDeleteTargetItem(null);
+          fetchItems({ force: true });
+        }}
+        forceDeleteLabel="Admin Force Delete (Purge Dummy/Test Data)"
         onCancel={() => {
           setDeleteModalVisible(false);
           setDeleteTargetItem(null);

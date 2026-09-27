@@ -1,6 +1,9 @@
 import React from 'react';
 import { Modal, Button, Space, Typography, Divider, Tag } from 'antd';
-import { CheckCircleFilled, EyeOutlined, PlusOutlined, UndoOutlined, LoadingOutlined, CloseCircleFilled, ExclamationCircleFilled } from '@ant-design/icons';
+import {
+  CheckCircleFilled, EyeOutlined, PlusOutlined, UndoOutlined, LoadingOutlined,
+  CloseCircleFilled, ExclamationCircleFilled, BarcodeOutlined,
+} from '@ant-design/icons';
 
 const { Text, Title } = Typography;
 
@@ -49,7 +52,8 @@ const ProductionSaveSuccessModal: React.FC<{
   onView: () => void;
   onNew: () => void;
   onClose: () => void;
-}> = ({ open, saving = false, error = null, entry, mode = 'create', onView, onNew, onClose }) => {
+  onGenerateLabels?: () => void;
+}> = ({ open, saving = false, error = null, entry, mode = 'create', onView, onNew, onClose, onGenerateLabels }) => {
   if (!open) return null;
   if (!saving && !entry && !error) return null;
 
@@ -292,8 +296,18 @@ const ProductionSaveSuccessModal: React.FC<{
           <Divider style={{ margin: '14px 0 16px' }} />
 
           <Space direction="vertical" style={{ width: '100%', padding: '0 4px' }}>
-            <Button type="primary" block size="large" icon={<EyeOutlined />} onClick={onView}>
-              View Entry
+            <Button
+              type="primary"
+              block
+              size="large"
+              icon={<BarcodeOutlined />}
+              style={{ background: '#0284c7', borderColor: '#0284c7' }}
+              onClick={onGenerateLabels || onView}
+            >
+              Generate Coils & Unit Labels
+            </Button>
+            <Button block icon={<EyeOutlined />} onClick={onView}>
+              View Entry Details
             </Button>
             <Button block icon={<PlusOutlined />} onClick={onNew}>
               {mode === 'edit' ? 'New Entry' : 'Enter Another Entry'}

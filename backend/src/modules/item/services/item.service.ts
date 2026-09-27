@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, In } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, Not, In, DataSource } from 'typeorm';
+import { populateAuditNames } from '../../organization/helpers/audit-names';
 import { randomUUID } from 'crypto';
 import { Item, ItemStatus, ItemType } from '../entities';
 import { CreateItemDto, UpdateItemDto, ItemFilterDto } from '../dto/item.dto';
@@ -37,6 +38,8 @@ export class ItemService implements OnModuleInit {
     @InjectRepository(ProductionEntry)
     private readonly productionEntryRepository: Repository<ProductionEntry>,
     private readonly barcodeService: BarcodeService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async onModuleInit() {
@@ -565,6 +568,12 @@ export class ItemService implements OnModuleInit {
           i.pieces_per_kg AS "piecesPerKg",
           i.weight_per_meter AS "weightPerMeter",
           i.length_per_piece AS "lengthPerPiece",
+          i.selling_price AS "sellingPrice",
+          i.barcode,
+          i.sku,
+          i.packaging_type AS "packagingType",
+          i.packaging_size AS "packagingSize",
+          i.packaging_unit AS "packagingUnit",
           i.production_in_item_id AS "productionInItemId",
           i.production_out_item_id AS "productionOutItemId"
         FROM items i
@@ -671,6 +680,7 @@ export class ItemService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
     data.forEach(item => this.ensureProcessesArray(item));
+    await populateAuditNames(this.dataSource, data);
 
     return { data, total };
   }
@@ -939,54 +949,138 @@ export class ItemService implements OnModuleInit {
   /**
    * Reference guard: never break transactional history. If BOMs, routings,
    * production, stock, targets or balances reference this item, require
-   * deactivation instead of deletion.
+   * deactivation instead of deletion. When force=true (Admin Force Purge),
+   * all related demo/historical transactions and references are safely cleaned up.
    */
-  async remove(id: string): Promise<void> {
+  async remove(id: string, force = false): Promise<void> {
     const item = await this.findOne(id);
 
-    const guards: Array<{ label: string; sql: string }> = [
-      { label: 'BOM line', sql: 'SELECT COUNT(*)::int AS c FROM bom_lines WHERE item_id = $1' },
-      { label: 'bill of materials', sql: 'SELECT COUNT(*)::int AS c FROM bill_of_materials WHERE product_id = $1' },
-      { label: 'production routing', sql: 'SELECT COUNT(*)::int AS c FROM production_routings WHERE product_id = $1' },
-      { label: 'routing operation', sql: 'SELECT COUNT(*)::int AS c FROM routing_operations WHERE input_item_id = $1 OR output_item_id = $1' },
-      { label: 'production entry', sql: 'SELECT COUNT(*)::int AS c FROM production_entries WHERE item_id = $1' },
-      { label: 'machine target', sql: 'SELECT COUNT(*)::int AS c FROM machine_targets WHERE item_id = $1' },
-      { label: 'stock ledger entry', sql: 'SELECT COUNT(*)::int AS c FROM stock_ledger WHERE item_id = $1' },
-      { label: 'inventory balance with stock', sql: 'SELECT COUNT(*)::int AS c FROM inventory_balances WHERE item_id = $1 AND (on_hand > 0 OR reserved > 0)' },
-    ];
+    if (!force) {
+      const guards: Array<{ label: string; sql: string }> = [
+        { label: 'BOM line', sql: 'SELECT COUNT(*)::int AS c FROM bom_lines WHERE item_id = $1' },
+        { label: 'bill of materials', sql: 'SELECT COUNT(*)::int AS c FROM bill_of_materials WHERE product_id = $1' },
+        { label: 'production routing', sql: 'SELECT COUNT(*)::int AS c FROM production_routings WHERE product_id = $1' },
+        { label: 'routing operation', sql: 'SELECT COUNT(*)::int AS c FROM routing_operations WHERE input_item_id = $1 OR output_item_id = $1' },
+        { label: 'production entry', sql: 'SELECT COUNT(*)::int AS c FROM production_entries WHERE item_id = $1' },
+        { label: 'machine target', sql: 'SELECT COUNT(*)::int AS c FROM machine_targets WHERE item_id = $1' },
+        { label: 'stock ledger entry', sql: 'SELECT COUNT(*)::int AS c FROM stock_ledger WHERE item_id = $1' },
+        { label: 'inventory balance with stock', sql: 'SELECT COUNT(*)::int AS c FROM inventory_balances WHERE item_id = $1 AND (on_hand > 0 OR reserved > 0)' },
+      ];
 
-    const refs: string[] = [];
-    for (const guard of guards) {
-      try {
-        const result = await this.itemRepository.query(guard.sql, [id]);
-        const count = Number(result?.[0]?.c ?? 0);
-        if (count > 0) refs.push(`${count} ${guard.label}${count === 1 ? '' : 's'}`);
-      } catch {
-        // Table not present in this environment – skip that check.
+      const refs: string[] = [];
+      for (const guard of guards) {
+        try {
+          const result = await this.itemRepository.query(guard.sql, [id]);
+          const count = Number(result?.[0]?.c ?? 0);
+          if (count > 0) refs.push(`${count} ${guard.label}${count === 1 ? '' : 's'}`);
+        } catch {
+          // Table not present in this environment – skip that check.
+        }
       }
+
+      if (refs.length > 0) {
+        throw new ConflictException(
+          `Item '${item.itemCode}' is referenced by ${refs.join(', ')} and cannot be deleted. Deactivate or discontinue it instead.`,
+        );
+      }
+
+      // Clean up empty zero-balance records and child records if any before deleting item
+      try {
+        await this.itemRepository.query(
+          'DELETE FROM inventory_balances WHERE item_id = $1 AND (on_hand = 0 OR on_hand IS NULL) AND (reserved = 0 OR reserved IS NULL)',
+          [id],
+        );
+        await this.itemRepository.query('DELETE FROM item_barcodes WHERE item_id = $1', [id]);
+        await this.itemRepository.query('DELETE FROM item_attribute_values WHERE item_id = $1', [id]);
+        await this.itemRepository.query('DELETE FROM item_specifications WHERE item_id = $1', [id]);
+        await this.itemRepository.query('DELETE FROM item_documents WHERE item_id = $1', [id]);
+      } catch {
+        // Ignore if table not present
+      }
+
+      await this.itemRepository.remove(item);
+      return;
     }
 
-    if (refs.length > 0) {
-      throw new ConflictException(
-        `Item '${item.itemCode}' is referenced by ${refs.join(', ')} and cannot be deleted. Deactivate or discontinue it instead.`,
-      );
-    }
+    // Force deletion requested (Admin Cascade / Force Purge)
+    const executeCleanup = async (runner: { query: (q: string, p?: any[]) => Promise<any>; remove: (e: any) => Promise<any> }) => {
+      // 1. Unlink self/other item references
+      await runner.query('UPDATE items SET production_in_item_id = NULL WHERE production_in_item_id = $1', [id]).catch(() => {});
+      await runner.query('UPDATE items SET production_out_item_id = NULL WHERE production_out_item_id = $1', [id]).catch(() => {});
 
-    // Clean up empty zero-balance records and child records if any before deleting item
-    try {
-      await this.itemRepository.query(
-        'DELETE FROM inventory_balances WHERE item_id = $1 AND (on_hand = 0 OR on_hand IS NULL) AND (reserved = 0 OR reserved IS NULL)',
-        [id],
-      );
-      await this.itemRepository.query('DELETE FROM item_barcodes WHERE item_id = $1', [id]);
-      await this.itemRepository.query('DELETE FROM item_attribute_values WHERE item_id = $1', [id]);
-      await this.itemRepository.query('DELETE FROM item_specifications WHERE item_id = $1', [id]);
-      await this.itemRepository.query('DELETE FROM item_documents WHERE item_id = $1', [id]);
-    } catch {
-      // Ignore if table not present
-    }
+      // 2. Production entry items & production entries
+      await runner.query('DELETE FROM production_entry_items WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM production_entries WHERE item_id = $1', [id]).catch(() => {});
 
-    await this.itemRepository.remove(item);
+      // 3. Stock ledger, reservations, balances, policies
+      await runner.query('DELETE FROM stock_ledger WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM inventory_reservations WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM inventory_balances WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM inventory_policies WHERE item_id = $1', [id]).catch(() => {});
+
+      // 4. Batches & serial numbers
+      await runner.query('DELETE FROM serial_numbers WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM batches WHERE item_id = $1', [id]).catch(() => {});
+
+      // 5. Routing operations and routings
+      await runner.query('DELETE FROM routing_operation_inputs WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM routing_operation_outputs WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM routing_operations WHERE input_item_id = $1 OR output_item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM production_routings WHERE product_id = $1', [id]).catch(() => {});
+
+      // 6. BOM lines & BOM
+      await runner.query('DELETE FROM bom_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM bill_of_materials WHERE product_id = $1', [id]).catch(() => {});
+
+      // 7. Machine targets & machine components
+      await runner.query('DELETE FROM machine_targets WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM machine_component_items WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM machine_components WHERE item_id = $1', [id]).catch(() => {});
+
+      // 8. Stores & suppliers & maintenance
+      await runner.query('DELETE FROM store_replenishments WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM store_items WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM supplier_items WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM maintenance_job_card_parts WHERE item_id = $1', [id]).catch(() => {});
+
+      // 9. Purchasing / Receiving / Warehouse lines
+      await runner.query('DELETE FROM purchase_order_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM goods_receipt_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM purchase_requisition_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM rfq_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM quotation_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM purchase_return_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM purchase_invoice_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM material_request_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM material_issue_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM material_return_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM raw_material_receipt_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM raw_material_return_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM stock_adjustment_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM stock_transfer_lines WHERE item_id = $1', [id]).catch(() => {});
+
+      // 10. Sales lines
+      await runner.query('DELETE FROM sales_order_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM delivery_note_lines WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM sales_invoice_lines WHERE item_id = $1', [id]).catch(() => {});
+
+      // 11. Child metadata
+      await runner.query('DELETE FROM item_barcodes WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM item_attribute_values WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM item_specifications WHERE item_id = $1', [id]).catch(() => {});
+      await runner.query('DELETE FROM item_documents WHERE item_id = $1', [id]).catch(() => {});
+
+      // 12. Delete item
+      await runner.remove(item);
+    };
+
+    if (this.itemRepository.manager && typeof this.itemRepository.manager.transaction === 'function') {
+      await this.itemRepository.manager.transaction(async (manager) => {
+        await executeCleanup(manager);
+      });
+    } else {
+      await executeCleanup(this.itemRepository);
+    }
   }
 
   private validateTrackingFlags(item: { trackInventory?: boolean; serialTracked?: boolean; batchTracked?: boolean; expiryTracked?: boolean }): void {

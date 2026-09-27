@@ -117,4 +117,17 @@ export class SalesDeliveryController {
     const delivery = await this.service.cancel(id, userId, companyId);
     return { success: true, data: delivery, message: 'Sales delivery cancelled' };
   }
+
+  @Post(':id/convert-to-invoice')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.deliveries.update')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create sales invoice from delivery' })
+  async convertToInvoice(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const invoice = await this.service.convertToInvoice(id, userId, companyId);
+    return { success: true, data: invoice, message: `Invoice ${invoice.invoiceNo} created successfully` };
+  }
 }

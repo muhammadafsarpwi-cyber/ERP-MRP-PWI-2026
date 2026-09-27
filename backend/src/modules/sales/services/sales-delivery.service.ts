@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder } from '../entities';
+import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder, SalesOrderItem, SalesInvoice } from '../entities';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 
@@ -18,6 +18,10 @@ export class SalesDeliveryService {
     private readonly customerRepo: Repository<SalesCustomer>,
     @InjectRepository(SalesOrder)
     private readonly orderRepo: Repository<SalesOrder>,
+    @InjectRepository(SalesOrderItem)
+    private readonly orderItemRepo: Repository<SalesOrderItem>,
+    @InjectRepository(SalesInvoice)
+    private readonly invoiceRepo: Repository<SalesInvoice>,
     private readonly balanceService: InventoryBalanceService,
     private readonly ledgerService: StockLedgerService,
   ) {}
@@ -44,6 +48,7 @@ export class SalesDeliveryService {
     const delivery = this.repo.create({
       companyId: dto.companyId,
       salesOrderId: dto.salesOrderId || null,
+      customerPo: dto.customerPo || null,
       customerId: dto.customerId,
       deliveryNumber,
       deliveryDate: dto.deliveryDate || new Date().toISOString().split('T')[0],
@@ -87,27 +92,35 @@ export class SalesDeliveryService {
     return this.findOne(saved.id);
   }
 
-  async findAll(filter: any): Promise<{ data: SalesDelivery[]; total: number }> {
+  async findAll(filter: any): Promise<{ data: any[]; total: number }> {
     const page = Number(filter.page) || 1;
     const limit = Number(filter.limit) || 20;
     const { companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
     const qb = this.repo.createQueryBuilder('sd')
       .leftJoinAndSelect('sd.customer', 'customer')
-      .leftJoinAndSelect('sd.salesOrder', 'salesOrder');
+      .leftJoinAndSelect('sd.salesOrder', 'salesOrder')
+      .leftJoinAndSelect('salesOrder.division', 'division')
+      .leftJoinAndSelect('salesOrder.section', 'section');
     let hasWhere = false;
     if (companyId) { qb.where('sd.companyId = :companyId', { companyId }); hasWhere = true; }
-    if (status) { qb[hasWhere ? 'andWhere' : 'where']('sd.status = :status', { status }); hasWhere = true; }
-    if (search) { qb[hasWhere ? 'andWhere' : 'where']('sd.deliveryNumber ILIKE :search', { search: `%${search}%` }); hasWhere = true; }
+    if (status) { qb[hasWhere ? 'andWhere' : 'where']('sd.status ILIKE :status', { status }); hasWhere = true; }
+    if (search) { qb[hasWhere ? 'andWhere' : 'where']('(sd.deliveryNumber ILIKE :search OR customer.companyName ILIKE :search OR salesOrder.orderNumber ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     const validSortFields = ['createdAt', 'deliveryNumber', 'deliveryDate', 'status'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     qb.orderBy(`sd.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
-    const [data, total] = await qb.getManyAndCount();
+    const [rawDeliveries, total] = await qb.getManyAndCount();
+    const data = rawDeliveries.map((sd: any) => ({
+      ...sd,
+      salesOrderNumber: sd.salesOrder?.orderNumber || null,
+      divisionName: sd.salesOrder?.division?.name || null,
+      sectionName: sd.salesOrder?.section?.name || null,
+    }));
     return { data, total };
   }
 
-  async findOne(id: string, companyId?: string): Promise<SalesDelivery> {
+  async findOne(id: string, companyId?: string): Promise<any> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       throw new BadRequestException(`Invalid ID format: ${id}`);
     }
@@ -115,10 +128,37 @@ export class SalesDeliveryService {
     if (companyId) where.companyId = companyId;
     const delivery = await this.repo.findOne({
       where,
-      relations: ['customer', 'salesOrder', 'lines', 'lines.item', 'lines.uom', 'warehouse'],
+      relations: [
+        'customer',
+        'salesOrder',
+        'salesOrder.division',
+        'salesOrder.section',
+        'lines',
+        'lines.item',
+        'lines.uom',
+        'warehouse',
+      ],
     });
     if (!delivery) throw new NotFoundException(`Sales delivery with ID '${id}' not found`);
-    return delivery;
+
+    let relatedInvoices: any[] = [];
+    try {
+      if (delivery.salesOrderId) {
+        relatedInvoices = await this.invoiceRepo.find({
+          where: { salesOrderId: delivery.salesOrderId, companyId: delivery.companyId },
+          order: { createdAt: 'DESC' },
+        });
+      }
+    } catch {
+      relatedInvoices = [];
+    }
+
+    return Object.assign(delivery, {
+      relatedInvoices,
+      salesOrderNumber: delivery.salesOrder?.orderNumber || null,
+      divisionName: delivery.salesOrder?.division?.name || null,
+      sectionName: delivery.salesOrder?.section?.name || null,
+    });
   }
 
   async update(id: string, dto: any, userId?: string, companyId?: string): Promise<SalesDelivery> {
@@ -128,15 +168,53 @@ export class SalesDeliveryService {
     }
 
     Object.assign(delivery, {
-      deliveryDate: dto.deliveryDate ?? delivery.deliveryDate,
-      expectedDate: dto.expectedDate ?? delivery.expectedDate,
-      warehouseId: dto.warehouseId ?? delivery.warehouseId,
-      shipToAddress: dto.shipToAddress ?? delivery.shipToAddress,
-      carrier: dto.carrier ?? delivery.carrier,
-      trackingNumber: dto.trackingNumber ?? delivery.trackingNumber,
-      notes: dto.notes ?? delivery.notes,
+      salesOrderId: dto.salesOrderId !== undefined ? (dto.salesOrderId || null) : delivery.salesOrderId,
+      customerPo: dto.customerPo !== undefined ? (dto.customerPo || null) : delivery.customerPo,
+      deliveryDate: dto.deliveryDate ? dto.deliveryDate : delivery.deliveryDate,
+      expectedDate: dto.expectedDate ? dto.expectedDate : null,
+      warehouseId: dto.warehouseId ? dto.warehouseId : delivery.warehouseId,
+      shipToAddress: dto.shipToAddress !== undefined ? (dto.shipToAddress || null) : delivery.shipToAddress,
+      carrier: dto.carrier !== undefined ? (dto.carrier || null) : delivery.carrier,
+      trackingNumber: dto.trackingNumber !== undefined ? (dto.trackingNumber || null) : delivery.trackingNumber,
+      notes: dto.notes !== undefined ? (dto.notes || null) : delivery.notes,
       updatedBy: userId || null,
     });
+
+    if (dto.lines && Array.isArray(dto.lines) && dto.lines.length > 0) {
+      let subtotal = 0;
+      let taxAmount = 0;
+      let totalAmount = 0;
+
+      await this.lineRepo.delete({ deliveryId: id });
+      const newLines = dto.lines.map((l: any, idx: number) => {
+        const qty = Number(l.quantity || 0);
+        const rate = Number(l.unitPrice || l.rate || 0);
+        const lSub = qty * rate;
+        const lTax = Number(l.taxAmount || 0);
+        const lTot = Number(l.lineTotal || (lSub + lTax));
+        subtotal += lSub;
+        taxAmount += lTax;
+        totalAmount += lTot;
+
+        return this.lineRepo.create({
+          deliveryId: id,
+          lineNumber: idx + 1,
+          itemId: l.itemId || null,
+          description: l.description || l.itemName || null,
+          quantity: qty,
+          uomId: l.uomId || null,
+          warehouseId: l.warehouseId || delivery.warehouseId || null,
+          unitPrice: rate,
+          taxAmount: lTax,
+          lineTotal: lTot,
+        });
+      });
+
+      await this.lineRepo.save(newLines);
+      delivery.subtotal = subtotal;
+      delivery.taxAmount = taxAmount;
+      delivery.totalAmount = totalAmount;
+    }
 
     return this.repo.save(delivery);
   }
@@ -217,7 +295,78 @@ export class SalesDeliveryService {
 
     delivery.status = 'CONFIRMED';
     delivery.updatedBy = userId || null;
-    return this.repo.save(delivery);
+    const saved = await this.repo.save(delivery);
+
+    // Update parent Sales Order line items shipped quantities
+    if (delivery.salesOrderId) {
+      try {
+        const orderItems = await this.orderItemRepo.find({ where: { salesOrderId: delivery.salesOrderId } });
+        for (const line of lines) {
+          const matched = orderItems.find((oi) => oi.itemId === line.itemId);
+          if (matched) {
+            matched.shippedQuantity = Number(matched.shippedQuantity || 0) + Number(line.quantity);
+            await this.orderItemRepo.save(matched);
+          }
+        }
+        const parentOrder = await this.orderRepo.findOne({ where: { id: delivery.salesOrderId } });
+        if (parentOrder && parentOrder.status !== 'Closed') {
+          const allDelivered = orderItems.every((oi) => Number(oi.shippedQuantity || 0) >= Number(oi.quantity));
+          parentOrder.status = allDelivered ? 'Delivered' : 'Processing';
+          await this.orderRepo.save(parentOrder);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to update sales order shipment tracking: ${err.message}`);
+      }
+    }
+
+    return saved;
+  }
+
+  async convertToInvoice(id: string, userId?: string, companyId?: string): Promise<SalesInvoice> {
+    const delivery = await this.findOne(id, companyId);
+    const statusUpper = String(delivery.status || '').toUpperCase();
+    if (statusUpper !== 'CONFIRMED' && statusUpper !== 'DELIVERED' && statusUpper !== 'SHIPPED') {
+      throw new BadRequestException('Can only create invoices for DELIVERED or CONFIRMED deliveries');
+    }
+
+    // Duplicate protection
+    const existing = await this.invoiceRepo.findOne({
+      where: { salesOrderId: delivery.salesOrderId, companyId: delivery.companyId, totalAmount: delivery.totalAmount },
+    });
+    if (existing) {
+      return existing;
+    }
+
+    const year = new Date().getFullYear();
+    const prefix = `SI-${year}-`;
+    const result = await this.invoiceRepo
+      .createQueryBuilder('si')
+      .select("MAX(CAST(SUBSTRING(si.invoiceNo FROM 'SI-[0-9]{4}-([0-9]+)') AS INT))", 'maxNum')
+      .where('si.companyId = :companyId', { companyId: delivery.companyId })
+      .andWhere('si.invoiceNo LIKE :prefix', { prefix: `${prefix}%` })
+      .getRawOne();
+    const maxNum = result?.maxNum || 0;
+    const nextNum = maxNum + 1;
+    const invoiceNo = `${prefix}${String(nextNum).padStart(5, '0')}`;
+
+    const invoice = this.invoiceRepo.create({
+      companyId: delivery.companyId,
+      salesOrderId: delivery.salesOrderId || null,
+      customerId: delivery.customerId,
+      invoiceNo,
+      invoiceDate: new Date().toISOString().split('T')[0],
+      dueDate: delivery.expectedDate || null,
+      subtotal: Number(delivery.subtotal || 0),
+      discountAmount: 0,
+      taxAmount: Number(delivery.taxAmount || 0),
+      totalAmount: Number(delivery.totalAmount || 0),
+      paidAmount: 0,
+      balance: Number(delivery.totalAmount || 0),
+      status: 'Pending',
+      createdBy: userId || null,
+    });
+
+    return this.invoiceRepo.save(invoice);
   }
 
   async cancel(id: string, userId?: string, companyId?: string): Promise<SalesDelivery> {

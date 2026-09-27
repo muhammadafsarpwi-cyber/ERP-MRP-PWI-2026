@@ -2,7 +2,8 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException, 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PurchaseOrder, PurchaseOrderLine } from '../entities';
-import { CreatePurchaseOrderDto, PurchaseOrderFilterDto } from '../dto';
+import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto, PurchaseOrderFilterDto } from '../dto';
+import { Item, Uom } from '../../item/entities';
 
 @Injectable()
 export class PurchaseOrderService {
@@ -35,10 +36,20 @@ export class PurchaseOrderService {
     if (dto.lines && dto.lines.length > 0) {
       let subtotal = 0;
       for (const lineDto of dto.lines) {
+        let uomId = lineDto.uomId;
+        if (!uomId || uomId.startsWith('00000000-0000-0000-0000-00000000000')) {
+          const item = await this.repo.manager.findOne(Item, { where: { id: lineDto.itemId } });
+          uomId = item?.purchaseUomId || item?.baseUomId;
+          if (!uomId) {
+            const firstUom = await this.repo.manager.findOne(Uom, { where: {} });
+            uomId = firstUom?.id;
+          }
+        }
         const totalPrice = lineDto.quantity * lineDto.unitPrice * (1 - (lineDto.discountPercent || 0) / 100);
         const line = this.lineRepo.create({
           poId: saved.id,
           ...lineDto,
+          uomId: uomId || undefined,
           totalPrice,
           createdBy: userId || null,
           updatedBy: userId || null,
@@ -56,6 +67,104 @@ export class PurchaseOrderService {
     }
 
     return this.findOne(saved.id);
+  }
+
+  async update(id: string, dto: UpdatePurchaseOrderDto, userId?: string): Promise<PurchaseOrder> {
+    const po = await this.repo.findOne({ where: { id } });
+    if (!po) throw new NotFoundException(`Purchase order with ID '${id}' not found`);
+
+    if (dto.poCode && dto.poCode !== po.poCode) {
+      const existing = await this.repo.findOne({
+        where: { poCode: dto.poCode, companyId: po.companyId },
+      });
+      if (existing && existing.id !== id) {
+        throw new ConflictException(`PO code '${dto.poCode}' already exists`);
+      }
+      po.poCode = dto.poCode;
+    }
+
+    if (dto.supplierId !== undefined) po.supplierId = dto.supplierId;
+    if (dto.orderDate !== undefined) po.orderDate = dto.orderDate;
+    if (dto.expectedDeliveryDate !== undefined) po.expectedDeliveryDate = dto.expectedDeliveryDate;
+    if (dto.deliveryAddress !== undefined) po.deliveryAddress = dto.deliveryAddress;
+    if (dto.paymentTerms !== undefined) po.paymentTerms = dto.paymentTerms;
+    if (dto.currencyCode !== undefined) po.currencyCode = dto.currencyCode;
+    if (dto.taxPercent !== undefined) po.taxPercent = dto.taxPercent;
+    if (dto.discountPercent !== undefined) po.discountPercent = dto.discountPercent;
+    if (dto.shippingCost !== undefined) po.shippingCost = dto.shippingCost;
+    if (dto.notes !== undefined) po.notes = dto.notes;
+    po.updatedBy = userId || null;
+
+    if (dto.lines !== undefined && Array.isArray(dto.lines) && dto.lines.length > 0) {
+      const existingLines = await this.lineRepo.find({ where: { poId: id } });
+      const existingMap = new Map(existingLines.map(l => [l.id, l]));
+      const existingByLineNum = new Map(existingLines.map(l => [l.lineNumber, l]));
+      const processedLineIds = new Set<string>();
+      let subtotal = 0;
+
+      for (let idx = 0; idx < dto.lines.length; idx++) {
+        const lineDto = dto.lines[idx];
+        let uomId = lineDto.uomId;
+        if (!uomId || uomId.startsWith('00000000-0000-0000-0000-00000000000')) {
+          const item = await this.repo.manager.findOne(Item, { where: { id: lineDto.itemId } });
+          uomId = item?.purchaseUomId || item?.baseUomId;
+          if (!uomId) {
+            const firstUom = await this.repo.manager.findOne(Uom, { where: {} });
+            uomId = firstUom?.id;
+          }
+        }
+
+        const totalPrice = Number(lineDto.quantity) * Number(lineDto.unitPrice) * (1 - (Number(lineDto.discountPercent) || 0) / 100);
+        let line = (lineDto.id && existingMap.get(lineDto.id)) || existingByLineNum.get(lineDto.lineNumber || idx + 1);
+
+        if (line) {
+          line.itemId = lineDto.itemId;
+          if (uomId) line.uomId = uomId;
+          line.quantity = lineDto.quantity;
+          line.unitPrice = lineDto.unitPrice;
+          line.discountPercent = lineDto.discountPercent || 0;
+          line.totalPrice = totalPrice;
+          line.lineNumber = lineDto.lineNumber || idx + 1;
+          if (lineDto.warehouseId) line.warehouseId = lineDto.warehouseId;
+          if (lineDto.requiredDate) line.requiredDate = lineDto.requiredDate;
+          if (lineDto.notes !== undefined) line.notes = lineDto.notes;
+          line.updatedBy = userId || null;
+        } else {
+          line = this.lineRepo.create({
+            poId: id,
+            ...lineDto,
+            uomId: uomId || undefined,
+            totalPrice,
+            createdBy: userId || null,
+            updatedBy: userId || null,
+          });
+        }
+
+        const savedLine = await this.lineRepo.save(line);
+        processedLineIds.add(savedLine.id);
+        subtotal += totalPrice;
+      }
+
+      for (const oldLine of existingLines) {
+        if (!processedLineIds.has(oldLine.id)) {
+          try {
+            await this.lineRepo.delete({ id: oldLine.id });
+          } catch {
+            // Keep referenced line intact to prevent constraint violation
+          }
+        }
+      }
+
+      const taxAmount = (subtotal * (po.taxPercent || 0)) / 100;
+      const discountAmount = (subtotal * (po.discountPercent || 0)) / 100;
+      po.subtotal = subtotal;
+      po.taxAmount = taxAmount;
+      po.discountAmount = discountAmount;
+      po.totalAmount = subtotal + taxAmount - discountAmount + (po.shippingCost || 0);
+    }
+
+    await this.repo.save(po);
+    return this.findOne(id);
   }
 
   async findAll(filter: PurchaseOrderFilterDto): Promise<{ data: PurchaseOrder[]; total: number }> {
@@ -175,5 +284,13 @@ export class PurchaseOrderService {
     const line = await this.lineRepo.findOne({ where: { id: lineId, poId } });
     if (!line) throw new NotFoundException(`Line with ID '${lineId}' not found`);
     await this.lineRepo.remove(line);
+  }
+
+  async remove(id: string): Promise<void> {
+    const po = await this.findOne(id);
+    if (po.lines && po.lines.length > 0) {
+      await this.lineRepo.remove(po.lines);
+    }
+    await this.repo.remove(po);
   }
 }

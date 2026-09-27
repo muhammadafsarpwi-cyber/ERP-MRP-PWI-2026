@@ -96,8 +96,32 @@ export class SupabaseAuthService {
           return { sub: payload.sub, email: payload.email, role: payload.role };
         }
       } catch {}
+
+      // Fallback: if Supabase API is down or quota exhausted (402), decode token and verify user in PostgreSQL
+      try {
+        const decoded = jwt.decode(token) as any;
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (decoded && decoded.sub && (!decoded.exp || decoded.exp > nowSec)) {
+          const rows = await this.dataSource.query(
+            `SELECT id, email, role FROM auth.users WHERE id = $1 AND (banned_until IS NULL OR banned_until < NOW()) LIMIT 1`,
+            [decoded.sub],
+          );
+          if (rows && rows.length > 0) {
+            this.logger.log(`Fallback auth: validated user ${decoded.email || decoded.sub} directly against PostgreSQL`);
+            const payload: SupabaseJwtPayload = {
+              sub: rows[0].id,
+              email: rows[0].email,
+              role: rows[0].role || 'authenticated',
+            };
+            this.verifyCache.set(token, { payload, expiresAt: now + SupabaseAuthService.VERIFY_CACHE_TTL_MS });
+            return payload;
+          }
+        }
+      } catch {}
+
       throw error;
     }
+
   }
 
   private validateJwtSecret(): void {
@@ -151,6 +175,9 @@ export class SupabaseAuthService {
         },
       });
 
+      if (response.status === 402 || response.status >= 500) {
+        throw new Error(`Supabase Auth API unavailable (${response.status})`);
+      }
       if (!response.ok) {
         throw new UnauthorizedException('Invalid or expired token');
       }

@@ -84,7 +84,10 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
 const DISCOVERED_ROUTES: string[] = [
   '/dashboard',
   '/settings',
+  '/ai-assistant',
   '/customers',
+  '/sales/analytics',
+  '/sales/finished-goods',
   '/sales/quotations', '/sales/orders', '/sales/deliveries',
   '/sales/invoices', '/sales/returns',
   '/inventory', '/inventory/policies', '/inventory/batches',

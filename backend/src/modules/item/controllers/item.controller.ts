@@ -328,10 +328,17 @@ export class ItemController {
   @Delete(':id')
   @UseGuards(PermissionGuard)
   @RequirePermission('item.delete')
-  @ApiOperation({ summary: 'Delete item (blocked when referenced by BOM/production/stock/routing/target records)' })
+  @ApiOperation({ summary: 'Delete item (supports cascade force purge for admins with ?force=true)' })
   @ApiParam({ name: 'id' })
-  async remove(@Param('id') id: string) {
-    await this.itemService.remove(id);
-    return { success: true, message: 'Item deleted successfully' };
+  @ApiQuery({ name: 'force', required: false, type: Boolean, description: 'Force delete item and cascade clean linked test/dummy transactions' })
+  async remove(@Param('id') id: string, @Query('force') force?: string) {
+    const isForce = force === 'true' || force === '1';
+    await this.itemService.remove(id, isForce);
+    return {
+      success: true,
+      message: isForce
+        ? 'Item and associated records permanently deleted'
+        : 'Item deleted successfully',
+    };
   }
 }

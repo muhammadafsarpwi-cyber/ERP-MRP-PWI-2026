@@ -2,19 +2,25 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesInvoiceService } from './sales-invoice.service';
-import { SalesInvoice, SalesCustomer, SalesOrder } from '../entities';
+import { SalesInvoice, SalesCustomer, SalesOrder, SalesDelivery, SalesQuotation, SalesReturn } from '../entities';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { Customer } from '../../customer/entities/customer.entity';
 import { FinanceAutoPostingService } from '../../finance/services/finance-auto-posting.service';
+import { CustomerLedgerService } from '../../customer/services/customer-ledger.service';
 
 describe('SalesInvoiceService', () => {
   let service: SalesInvoiceService;
   let repo: jest.Mocked<Repository<SalesInvoice>>;
   let customerRepo: jest.Mocked<Repository<SalesCustomer>>;
+  let customerMasterRepo: jest.Mocked<Repository<Customer>>;
   let orderRepo: jest.Mocked<Repository<SalesOrder>>;
+  let returnRepo: jest.Mocked<Repository<SalesReturn>>;
+  let customerLedgerService: jest.Mocked<CustomerLedgerService>;
 
   const UUID_INV = 'e0000000-0000-0000-0000-000000000001';
   const UUID_COMPANY = 'e0000000-0000-0000-0000-000000000010';
   const UUID_CUST = 'e0000000-0000-0000-0000-000000000020';
+  const UUID_MASTER_CUST = 'e0000000-0000-0000-0000-000000000021';
   const UUID_USER = 'e0000000-0000-0000-0000-000000000030';
   const UUID_NOT_FOUND = 'e0000000-0000-0000-0000-000000000099';
 
@@ -37,7 +43,7 @@ describe('SalesInvoiceService', () => {
   };
 
   const makeMockRepo = () => ({
-    find: jest.fn(), findOne: jest.fn(), create: jest.fn(), save: jest.fn(),
+    find: jest.fn().mockResolvedValue([]), findOne: jest.fn(), create: jest.fn(), save: jest.fn(),
     remove: jest.fn(), createQueryBuilder: jest.fn(() => ({
       leftJoinAndSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -58,6 +64,11 @@ describe('SalesInvoiceService', () => {
         { provide: getRepositoryToken(SalesInvoice), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesCustomer), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesOrder), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesDelivery), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesQuotation), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(SalesReturn), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(Customer), useValue: makeMockRepo() },
+        { provide: CustomerLedgerService, useValue: { recordEntry: jest.fn().mockResolvedValue({}) } },
         { provide: FinanceAutoPostingService, useValue: { postSalesInvoice: jest.fn(), postCustomerReceipt: jest.fn() } },
       ],
     }).compile();
@@ -65,7 +76,10 @@ describe('SalesInvoiceService', () => {
     service = module.get<SalesInvoiceService>(SalesInvoiceService);
     repo = module.get(getRepositoryToken(SalesInvoice));
     customerRepo = module.get(getRepositoryToken(SalesCustomer));
+    customerMasterRepo = module.get(getRepositoryToken(Customer));
     orderRepo = module.get(getRepositoryToken(SalesOrder));
+    returnRepo = module.get(getRepositoryToken(SalesReturn));
+    customerLedgerService = module.get(CustomerLedgerService);
   });
 
   it('should be defined', () => {
@@ -149,6 +163,44 @@ describe('SalesInvoiceService', () => {
       repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Cancelled' });
       await expect(service.recordPayment(UUID_INV, 100)).rejects.toThrow(BadRequestException);
     });
+
+    it('should reject a payment that exceeds the balance after posted credit notes', async () => {
+      repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Pending' });
+      // findOne() derives creditNoteAmount from posted returns against this invoice
+      returnRepo.find.mockResolvedValue([
+        { id: 'r1', returnNumber: 'SR-2026-00001', totalAmount: 550, status: 'CREDITED', creditPosted: true },
+      ] as any);
+      // outstanding = 5500 - 0 paid - 550 credits = 4950
+      await expect(service.recordPayment(UUID_INV, 5000)).rejects.toThrow(/exceeds the outstanding balance/);
+    });
+
+    it('should apply posted credit notes when computing the remaining balance', async () => {
+      repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Pending' });
+      returnRepo.find.mockResolvedValue([
+        { id: 'r1', returnNumber: 'SR-2026-00001', totalAmount: 550, status: 'CREDITED', creditPosted: true },
+      ] as any);
+      repo.save.mockImplementation(((e: any) => Promise.resolve(e)) as any);
+
+      const result = await service.recordPayment(UUID_INV, 4950, UUID_USER);
+      expect(result.paidAmount).toBe(4950);
+      expect(result.balance).toBe(0);
+      expect(result.status).toBe('Paid');
+    });
+
+    it('should post the payment Credit to the MASTER customer ledger id', async () => {
+      repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Pending' });
+      repo.save.mockImplementation(((e: any) => Promise.resolve(e)) as any);
+      customerMasterRepo.findOne.mockResolvedValue({ id: UUID_MASTER_CUST, companyId: UUID_COMPANY, name: 'Test Customer' } as any);
+
+      await service.recordPayment(UUID_INV, 1000, UUID_USER);
+
+      expect(customerLedgerService.recordEntry).toHaveBeenCalledWith(
+        UUID_COMPANY,
+        UUID_MASTER_CUST,
+        expect.objectContaining({ documentType: 'CUSTOMER_PAYMENT', credit: 1000, debit: 0 }),
+        UUID_USER,
+      );
+    });
   });
 
   describe('post', () => {
@@ -162,6 +214,26 @@ describe('SalesInvoiceService', () => {
     it('should throw if not Pending', async () => {
       repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Paid' });
       await expect(service.post(UUID_INV)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should post the invoice Debit to the MASTER customer ledger id, not the sales customer id', async () => {
+      repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Pending' });
+      repo.save.mockResolvedValue({ ...mockInvoice, status: 'Posted' });
+      customerMasterRepo.findOne.mockResolvedValue({ id: UUID_MASTER_CUST, companyId: UUID_COMPANY, name: 'Test Customer' } as any);
+
+      const result = await service.post(UUID_INV, UUID_USER);
+      expect(result.status).toBe('Posted');
+      expect(customerLedgerService.recordEntry).toHaveBeenCalledWith(
+        UUID_COMPANY,
+        UUID_MASTER_CUST,
+        expect.objectContaining({
+          documentType: 'SALES_INVOICE',
+          debit: 5500,
+          credit: 0,
+          documentNumber: 'SI-2026-00001',
+        }),
+        UUID_USER,
+      );
     });
   });
 
