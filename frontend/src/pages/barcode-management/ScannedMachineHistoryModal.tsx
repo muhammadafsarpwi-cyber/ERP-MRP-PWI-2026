@@ -17,6 +17,10 @@ import {
   Empty,
   QRCode,
   Tooltip,
+  Progress,
+  Divider,
+  Badge,
+  Radio,
   theme,
 } from 'antd';
 import {
@@ -33,6 +37,13 @@ import {
   UserOutlined,
   ThunderboltOutlined,
   CalendarOutlined,
+  BulbOutlined,
+  TeamOutlined,
+  InboxOutlined,
+  QuestionCircleOutlined,
+  PieChartOutlined,
+  FilterOutlined,
+  RiseOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../../services/api';
 import BarcodePrint from '../../components/shared/BarcodePrint';
@@ -55,6 +66,7 @@ export const MachineLifecycleContent: React.FC<MachineLifecycleContentProps> = (
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>('jobcards');
 
   const [machineData, setMachineData] = useState<any>(null);
   const [jobCards, setJobCards] = useState<any[]>([]);
@@ -62,7 +74,115 @@ export const MachineLifecycleContent: React.FC<MachineLifecycleContentProps> = (
   const [toolingChanges, setToolingChanges] = useState<any[]>([]);
   const [productionEntries, setProductionEntries] = useState<any[]>([]);
   const [printOpen, setPrintOpen] = useState(false);
+  const [downtimeModalOpen, setDowntimeModalOpen] = useState(false);
+  const [downtimePeriod, setDowntimePeriod] = useState<'week' | 'month' | 'year'>('month');
   const { token } = theme.useToken();
+
+  // ── Downtime category definitions ──────────────────────────────────────────
+  const DOWNTIME_CATEGORIES = [
+    { key: 'ELECTRICAL', label: 'Electrical Breakdown', icon: <ThunderboltOutlined />, color: '#fa541c', keywords: ['electrical', 'electric', 'wiring', 'fuse', 'short circuit', 'control panel'] },
+    { key: 'MECHANICAL', label: 'Mechanical Breakdown', icon: <SettingOutlined />, color: '#faad14', keywords: ['mechanical', 'mechanic', 'gear', 'belt', 'bearing', 'shaft', 'breakdown'] },
+    { key: 'POWER', label: 'Power / Utility Failure', icon: <BulbOutlined />, color: '#722ed1', keywords: ['power', 'electricity', 'light', 'load shedding', 'generator', 'bijli', 'uts', 'gas'] },
+    { key: 'MANPOWER', label: 'Manpower Shortage', icon: <TeamOutlined />, color: '#1677ff', keywords: ['manpower', 'man power', 'operator', 'worker', 'labour', 'staff', 'absent', 'shortage of worker'] },
+    { key: 'MATERIAL', label: 'Material Shortage', icon: <InboxOutlined />, color: '#52c41a', keywords: ['material', 'raw material', 'supply', 'stock', 'input'] },
+    { key: 'OTHER', label: 'Other / Uncategorized', icon: <QuestionCircleOutlined />, color: '#8c8c8c', keywords: [] },
+  ];
+
+  const classifyDowntimeEntry = (entry: any): string => {
+    const reason = (
+      entry.downtimeReason?.name ||
+      entry.downtimeReasonText ||
+      entry.downtimeCategory ||
+      ''
+    ).toLowerCase();
+    if (!reason) return 'OTHER';
+    for (const cat of DOWNTIME_CATEGORIES.slice(0, -1)) {
+      if (cat.keywords.some((kw) => reason.includes(kw))) return cat.key;
+    }
+    return 'OTHER';
+  };
+
+  const getDateRangeStart = (period: 'week' | 'month' | 'year'): Date => {
+    const now = new Date();
+    if (period === 'week') {
+      const d = new Date(now);
+      d.setDate(now.getDate() - now.getDay());
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+    if (period === 'month') {
+      return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    }
+    return new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+  };
+
+  const computeDowntimeBreakdown = (period: 'week' | 'month' | 'year') => {
+    const start = getDateRangeStart(period);
+
+    const filteredEntries = productionEntries.filter((e) => {
+      const d = e.entryDate || e.date || e.createdAt;
+      return !d || new Date(d) >= start;
+    });
+
+    const filteredCards = jobCards.filter((j) => {
+      const d = j.requestedAt || j.createdAt;
+      return !d || new Date(d) >= start;
+    });
+
+    // Production downtime per category
+    const catMap: Record<string, { hours: number; count: number; reasons: Set<string> }> = {};
+    DOWNTIME_CATEGORIES.forEach((c) => { catMap[c.key] = { hours: 0, count: 0, reasons: new Set() }; });
+
+    filteredEntries.forEach((e) => {
+      const hrs = Number(e.downtimeHours ?? 0);
+      if (hrs <= 0) return;
+      const cat = classifyDowntimeEntry(e);
+      catMap[cat].hours += hrs;
+      catMap[cat].count += 1;
+      const r = e.downtimeReason?.name || e.downtimeReasonText;
+      if (r) catMap[cat].reasons.add(r);
+    });
+
+    const totalProdDownHrs = Object.values(catMap).reduce((a, v) => a + v.hours, 0);
+
+    // Maintenance job card downtime (minutes → hours)
+    const maintDowntimeMin = filteredCards.reduce((a, j) => a + (Number(j.downtimeMinutes ?? 0)), 0);
+    const maintDowntimeHrs = maintDowntimeMin / 60;
+
+    // Add maintenance breakdown to mechanical/electrical category based on maintenanceType
+    filteredCards.forEach((j) => {
+      const mins = Number(j.downtimeMinutes ?? 0);
+      if (mins <= 0) return;
+      const t = (j.maintenanceType || '').toUpperCase();
+      if (t === 'BREAKDOWN') {
+        // count as mechanical by default from job cards
+        catMap['MECHANICAL'].hours += mins / 60;
+        catMap['MECHANICAL'].count += 1;
+        catMap['MECHANICAL'].reasons.add(`Job Card: ${j.jobCardNo || j.id?.slice(0,8)}`);
+      }
+    });
+
+    const grandTotalHrs = Object.values(catMap).reduce((a, v) => a + v.hours, 0);
+
+    const categories = DOWNTIME_CATEGORIES.map((c) => ({
+      ...c,
+      hours: catMap[c.key].hours,
+      count: catMap[c.key].count,
+      reasons: Array.from(catMap[c.key].reasons),
+      pct: grandTotalHrs > 0 ? (catMap[c.key].hours / grandTotalHrs) * 100 : 0,
+    })).filter((c) => c.hours > 0 || c.key !== 'OTHER');
+
+    return { categories, grandTotalHrs, maintDowntimeMin, filteredEntries, filteredCards };
+  };
+
+  /** Remove trailing zeros: 5.000 → 5, 5.50 → 5.5, 5.123 → 5.12 */
+  const formatVal = (val: number | string | null | undefined, decimals = 2): string => {
+    if (val === null || val === undefined || val === '') return '0';
+    const n = Number(val);
+    if (!Number.isFinite(n)) return String(val);
+    if (Number.isInteger(n)) return String(n);
+    return parseFloat(n.toFixed(decimals)).toString();
+  };
 
   const loadAllHistory = async () => {
     if (!machineId) return;
@@ -155,6 +275,59 @@ export const MachineLifecycleContent: React.FC<MachineLifecycleContentProps> = (
     const type = (tc.type || tc.componentType || tc.component?.componentType || '').toLowerCase();
     return name.includes('motor') || type.includes('motor');
   }).length;
+
+  // ── Production KPI aggregates ─────────────────────────────────────────────
+  const totalProdQty = productionEntries.reduce((acc, e) => acc + (Number(e.actualQuantity ?? e.producedQty ?? e.quantity ?? 0)), 0);
+  const totalTargetQty = productionEntries.reduce((acc, e) => acc + (Number(e.targetQuantity ?? 0)), 0);
+  const totalRunningHrs = productionEntries.reduce((acc, e) => acc + (Number(e.runningHours ?? 0)), 0);
+  const totalDowntimeHrs = productionEntries.reduce((acc, e) => acc + (Number(e.downtimeHours ?? 0)), 0);
+  const totalScrap = productionEntries.reduce((acc, e) => acc + (Number(e.scrapQuantity ?? e.scrapQty ?? e.rejectedQty ?? 0)), 0);
+
+  // ── Dynamic KPI config per tab ────────────────────────────────────────────
+  const kpiConfig: Record<string, Array<{
+    label: string;
+    value: number | string;
+    suffix?: string;
+    icon: React.ReactNode;
+    color: string;
+    borderColor: string;
+    onClick?: () => void;
+  }>> = {
+    jobcards: [
+      { label: 'Total Job Cards', value: machineStats?.total ?? jobCards.length, icon: <HistoryOutlined style={{ color: '#1677ff' }} />, color: token.colorTextHeading, borderColor: '#1677ff' },
+      { label: 'This Month', value: machineStats?.thisMonthJobCards ?? 0, icon: <CalendarOutlined style={{ color: '#52c41a' }} />, color: '#52c41a', borderColor: '#52c41a' },
+      { label: 'Breakdowns', value: machineStats?.byType?.breakdown ?? jobCards.filter((j) => j.maintenanceType === 'BREAKDOWN').length, icon: <ExclamationCircleOutlined style={{ color: '#cf1322' }} />, color: '#cf1322', borderColor: '#cf1322' },
+      { label: 'Preventive', value: machineStats?.byType?.preventive ?? jobCards.filter((j) => j.maintenanceType === 'PREVENTIVE').length, icon: <CheckCircleOutlined style={{ color: '#1677ff' }} />, color: '#1677ff', borderColor: '#1677ff' },
+      { label: 'Total Downtime', value: machineStats?.totalDowntimeMinutes ? Math.round(machineStats.totalDowntimeMinutes) : 0, suffix: 'min', icon: <ClockCircleOutlined style={{ color: '#722ed1' }} />, color: '#722ed1', borderColor: '#722ed1', onClick: () => setDowntimeModalOpen(true) },
+      { label: 'Completed', value: machineStats?.byStatus?.completed ?? jobCards.filter((j) => j.currentStatus === 'COMPLETED').length, icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />, color: '#52c41a', borderColor: '#52c41a' },
+    ],
+    tooling: [
+      { label: 'Total Changes', value: toolingChanges.length, icon: <SettingOutlined style={{ color: '#fa8c16' }} />, color: token.colorTextHeading, borderColor: '#fa8c16' },
+      { label: 'Motor Changes', value: motorChangesCount, icon: <ThunderboltOutlined style={{ color: '#eb2f96' }} />, color: '#eb2f96', borderColor: '#eb2f96' },
+      { label: 'Dies / Blades', value: toolingChanges.filter((tc) => { const t = (tc.type || tc.componentType || '').toLowerCase(); return t.includes('die') || t.includes('blade'); }).length, icon: <ToolOutlined style={{ color: '#1677ff' }} />, color: '#1677ff', borderColor: '#1677ff' },
+      { label: 'Worn Parts', value: toolingChanges.filter((tc) => tc.conditionStatus === 'WORN').length, icon: <ExclamationCircleOutlined style={{ color: '#fa8c16' }} />, color: '#fa8c16', borderColor: '#fa8c16' },
+      { label: 'Broken Parts', value: toolingChanges.filter((tc) => tc.conditionStatus === 'BROKEN').length, icon: <ExclamationCircleOutlined style={{ color: '#cf1322' }} />, color: '#cf1322', borderColor: '#cf1322' },
+      { label: 'This Month', value: toolingChanges.filter((tc) => { const d = tc.changeDate || tc.installedAt || tc.createdAt; if (!d) return false; const now = new Date(); const dd = new Date(d); return dd.getMonth() === now.getMonth() && dd.getFullYear() === now.getFullYear(); }).length, icon: <CalendarOutlined style={{ color: '#52c41a' }} />, color: '#52c41a', borderColor: '#52c41a' },
+    ],
+    production: [
+      { label: 'Total Entries', value: productionEntries.length, icon: <HistoryOutlined style={{ color: '#1677ff' }} />, color: token.colorTextHeading, borderColor: '#1677ff' },
+      { label: 'Total Produced', value: formatVal(totalProdQty), icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />, color: '#52c41a', borderColor: '#52c41a' },
+      { label: 'Total Target', value: formatVal(totalTargetQty), icon: <CalendarOutlined style={{ color: '#1677ff' }} />, color: '#1677ff', borderColor: '#1677ff' },
+      { label: 'Running Hrs', value: formatVal(totalRunningHrs), suffix: 'h', icon: <ClockCircleOutlined style={{ color: '#722ed1' }} />, color: '#722ed1', borderColor: '#722ed1' },
+      { label: 'Downtime Hrs', value: formatVal(totalDowntimeHrs), suffix: 'h', icon: <PieChartOutlined style={{ color: '#cf1322' }} />, color: '#cf1322', borderColor: '#cf1322', onClick: () => setDowntimeModalOpen(true) },
+      { label: 'Total Scrap', value: formatVal(totalScrap), icon: <ExclamationCircleOutlined style={{ color: '#fa8c16' }} />, color: '#fa8c16', borderColor: '#fa8c16' },
+    ],
+    specs: [
+      { label: 'Total Job Cards', value: machineStats?.total ?? jobCards.length, icon: <HistoryOutlined style={{ color: '#1677ff' }} />, color: token.colorTextHeading, borderColor: '#1677ff' },
+      { label: 'Parts Changed', value: toolingChanges.length, icon: <SettingOutlined style={{ color: '#fa8c16' }} />, color: token.colorTextHeading, borderColor: '#fa8c16' },
+      { label: 'Motor Changes', value: motorChangesCount, icon: <ThunderboltOutlined style={{ color: '#eb2f96' }} />, color: '#eb2f96', borderColor: '#eb2f96' },
+      { label: 'Prod. Entries', value: productionEntries.length, icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />, color: '#52c41a', borderColor: '#52c41a' },
+      { label: 'Breakdowns', value: machineStats?.byType?.breakdown ?? jobCards.filter((j) => j.maintenanceType === 'BREAKDOWN').length, icon: <ExclamationCircleOutlined style={{ color: '#cf1322' }} />, color: '#cf1322', borderColor: '#cf1322' },
+      { label: 'Total Downtime', value: machineStats?.totalDowntimeMinutes ? Math.round(machineStats.totalDowntimeMinutes) : 0, suffix: 'min', icon: <ClockCircleOutlined style={{ color: '#722ed1' }} />, color: '#722ed1', borderColor: '#722ed1', onClick: () => setDowntimeModalOpen(true) },
+    ],
+  };
+
+  const activeKPIs = kpiConfig[activeTab] ?? kpiConfig.jobcards;
 
   // Maintenance Job Cards Columns
   const jobCardColumns = [
@@ -385,28 +558,38 @@ export const MachineLifecycleContent: React.FC<MachineLifecycleContentProps> = (
       render: (val: string) => val || '-',
     },
     {
-      title: 'Produced Qty',
-      key: 'quantity',
-      width: 130,
+      title: 'Target Qty',
+      key: 'targetQuantity',
+      width: 110,
       render: (_: any, r: any) => {
-        const qty = r.actualQuantity ?? r.producedQty ?? r.quantity ?? r.outputQty;
+        const tgt = r.targetQuantity ?? r.targetQty;
         const uom = r.uom?.symbol || r.uomName || '';
-        return qty != null ? <Text strong style={{ color: '#52c41a' }}>{qty} {uom}</Text> : '-';
+        return tgt != null ? <Text strong style={{ color: '#1677ff' }}>{formatVal(tgt)} {uom}</Text> : <Text type="secondary">—</Text>;
       },
     },
     {
-      title: 'Running Hours',
-      dataIndex: 'runningHours',
-      key: 'runningHours',
-      width: 110,
-      render: (val: number) => (val != null ? `${val} hrs` : '-'),
+      title: 'Produced Qty',
+      key: 'quantity',
+      width: 120,
+      render: (_: any, r: any) => {
+        const qty = r.actualQuantity ?? r.producedQty ?? r.quantity ?? r.outputQty;
+        const uom = r.uom?.symbol || r.uomName || '';
+        return qty != null ? <Text strong style={{ color: '#52c41a' }}>{formatVal(qty)} {uom}</Text> : '-';
+      },
     },
     {
-      title: 'Downtime',
+      title: 'Running Hrs',
+      dataIndex: 'runningHours',
+      key: 'runningHours',
+      width: 100,
+      render: (val: number) => (val != null ? <Text style={{ color: '#722ed1' }}>{formatVal(val)} h</Text> : '-'),
+    },
+    {
+      title: 'Downtime Hrs',
       dataIndex: 'downtimeHours',
       key: 'downtimeHours',
-      width: 100,
-      render: (val: number) => (val > 0 ? <Text type="danger">{val} hrs</Text> : '0 hrs'),
+      width: 110,
+      render: (val: number) => (val > 0 ? <Text type="danger">{formatVal(val)} h</Text> : <Text type="secondary">0 h</Text>),
     },
     {
       title: 'Scrap / Reject',
@@ -414,7 +597,7 @@ export const MachineLifecycleContent: React.FC<MachineLifecycleContentProps> = (
       width: 110,
       render: (_: any, r: any) => {
         const scrap = r.scrapQuantity ?? r.scrapQty ?? r.rejectedQty ?? 0;
-        return scrap > 0 ? <Text type="danger">{scrap}</Text> : '0';
+        return scrap > 0 ? <Text type="danger">{formatVal(scrap)}</Text> : <Text type="secondary">0</Text>;
       },
     },
     {
@@ -483,134 +666,47 @@ export const MachineLifecycleContent: React.FC<MachineLifecycleContentProps> = (
         {error && <Alert type="warning" message={error} showIcon style={{ marginBottom: 16 }} />}
 
         <Spin spinning={loading}>
-          {/* Machine Lifecycle KPI Metrics Bar */}
+          {/* Machine Lifecycle KPI Metrics Bar — context-aware per tab */}
           <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-            <Col xs={12} sm={8} md={4}>
-              <Card
-                size="small"
-                style={{
-                  background: token.colorBgContainer,
-                  borderColor: token.colorBorderSecondary,
-                  textAlign: 'center',
-                  borderTop: '3px solid #1677ff',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
-                  borderRadius: 8,
-                }}
-              >
-                <Statistic
-                  title={<span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>Total Job Cards</span>}
-                  value={machineStats?.total ?? jobCards.length}
-                  prefix={<HistoryOutlined style={{ color: '#1677ff' }} />}
-                  valueStyle={{ color: token.colorTextHeading, fontWeight: 700 }}
-                />
-              </Card>
-            </Col>
-            <Col xs={12} sm={8} md={4}>
-              <Card
-                size="small"
-                style={{
-                  background: token.colorBgContainer,
-                  borderColor: token.colorBorderSecondary,
-                  textAlign: 'center',
-                  borderTop: '3px solid #52c41a',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
-                  borderRadius: 8,
-                }}
-              >
-                <Statistic
-                  title={<span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>This Month Jobs</span>}
-                  value={machineStats?.thisMonthJobCards ?? 0}
-                  prefix={<CalendarOutlined style={{ color: '#52c41a' }} />}
-                  valueStyle={{ color: '#52c41a', fontWeight: 700 }}
-                />
-              </Card>
-            </Col>
-            <Col xs={12} sm={8} md={4}>
-              <Card
-                size="small"
-                style={{
-                  background: token.colorBgContainer,
-                  borderColor: token.colorBorderSecondary,
-                  textAlign: 'center',
-                  borderTop: '3px solid #eb2f96',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
-                  borderRadius: 8,
-                }}
-              >
-                <Statistic
-                  title={<span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>Motor Changes</span>}
-                  value={motorChangesCount}
-                  prefix={<ThunderboltOutlined style={{ color: '#eb2f96' }} />}
-                  valueStyle={{ color: '#eb2f96', fontWeight: 700 }}
-                />
-              </Card>
-            </Col>
-            <Col xs={12} sm={8} md={4}>
-              <Card
-                size="small"
-                style={{
-                  background: token.colorBgContainer,
-                  borderColor: token.colorBorderSecondary,
-                  textAlign: 'center',
-                  borderTop: '3px solid #fa8c16',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
-                  borderRadius: 8,
-                }}
-              >
-                <Statistic
-                  title={<span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>Parts Changed</span>}
-                  value={toolingChanges.length}
-                  prefix={<SettingOutlined style={{ color: '#fa8c16' }} />}
-                  valueStyle={{ color: token.colorTextHeading, fontWeight: 700 }}
-                />
-              </Card>
-            </Col>
-            <Col xs={12} sm={8} md={4}>
-              <Card
-                size="small"
-                style={{
-                  background: token.colorBgContainer,
-                  borderColor: token.colorBorderSecondary,
-                  textAlign: 'center',
-                  borderTop: '3px solid #cf1322',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
-                  borderRadius: 8,
-                }}
-              >
-                <Statistic
-                  title={<span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>Breakdowns</span>}
-                  value={machineStats?.byType?.breakdown ?? jobCards.filter((j) => j.maintenanceType === 'BREAKDOWN').length}
-                  valueStyle={{ color: '#cf1322', fontWeight: 700 }}
-                  prefix={<ExclamationCircleOutlined />}
-                />
-              </Card>
-            </Col>
-            <Col xs={12} sm={8} md={4}>
-              <Card
-                size="small"
-                style={{
-                  background: token.colorBgContainer,
-                  borderColor: token.colorBorderSecondary,
-                  textAlign: 'center',
-                  borderTop: '3px solid #722ed1',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
-                  borderRadius: 8,
-                }}
-              >
-                <Statistic
-                  title={<span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>Total Downtime</span>}
-                  value={machineStats?.totalDowntimeMinutes ? Math.round(machineStats.totalDowntimeMinutes) : 0}
-                  suffix="min"
-                  prefix={<ClockCircleOutlined style={{ color: '#722ed1' }} />}
-                  valueStyle={{ color: token.colorTextHeading, fontWeight: 700 }}
-                />
-              </Card>
-            </Col>
+            {activeKPIs.map((kpi, idx) => (
+              <Col xs={12} sm={8} md={4} key={idx}>
+                <Tooltip title={kpi.onClick ? 'Click to view downtime breakdown by category' : undefined}>
+                  <Card
+                    size="small"
+                    onClick={kpi.onClick}
+                    style={{
+                      background: token.colorBgContainer,
+                      borderColor: kpi.onClick ? kpi.borderColor : token.colorBorderSecondary,
+                      textAlign: 'center',
+                      borderTop: `3px solid ${kpi.borderColor}`,
+                      boxShadow: kpi.onClick ? `0 4px 14px ${kpi.borderColor}33` : '0 2px 8px rgba(0,0,0,0.1)',
+                      borderRadius: 8,
+                      cursor: kpi.onClick ? 'pointer' : 'default',
+                      transition: 'all 0.25s ease',
+                    }}
+                    hoverable={!!kpi.onClick}
+                  >
+                    <Statistic
+                      title={
+                        <span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>
+                          {kpi.label}{kpi.onClick && <FilterOutlined style={{ marginLeft: 4, fontSize: 10, color: kpi.borderColor }} />}
+                        </span>
+                      }
+                      value={kpi.value}
+                      suffix={kpi.suffix}
+                      prefix={kpi.icon}
+                      valueStyle={{ color: kpi.color, fontWeight: 800, fontSize: 22 }}
+                    />
+                  </Card>
+                </Tooltip>
+              </Col>
+            ))}
           </Row>
 
           {/* Machine Lifecycle Detail Tabs */}
           <Tabs
-            defaultActiveKey="jobcards"
+            activeKey={activeTab}
+            onChange={(key) => setActiveTab(key)}
             type="card"
             items={[
               {
@@ -875,6 +971,231 @@ export const MachineLifecycleContent: React.FC<MachineLifecycleContentProps> = (
           initialFormat="BOTH"
         />
       )}
+
+      {/* ── Downtime Breakdown Modal ─────────────────────────────────────── */}
+      <Modal
+        open={downtimeModalOpen}
+        onCancel={() => setDowntimeModalOpen(false)}
+        width={820}
+        centered
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button type="primary" onClick={() => setDowntimeModalOpen(false)}>Close</Button>
+          </div>
+        }
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <PieChartOutlined style={{ fontSize: 18, color: '#cf1322' }} />
+            <span>Downtime Analysis — {effectiveName}</span>
+            <Tag color="red" style={{ marginLeft: 4 }}>{machineCode || machineData?.machineCode || ''}</Tag>
+          </div>
+        }
+      >
+        {/* Period Filter */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <Text strong style={{ fontSize: 13 }}>
+            <FilterOutlined style={{ marginRight: 6 }} />
+            Select Time Period:
+          </Text>
+          <Radio.Group
+            value={downtimePeriod}
+            onChange={(e) => setDowntimePeriod(e.target.value)}
+            optionType="button"
+            buttonStyle="solid"
+            size="middle"
+          >
+            <Radio.Button value="week">Current Week</Radio.Button>
+            <Radio.Button value="month">Current Month</Radio.Button>
+            <Radio.Button value="year">Current Year</Radio.Button>
+          </Radio.Group>
+        </div>
+
+        {(() => {
+          const { categories, grandTotalHrs, maintDowntimeMin, filteredEntries } = computeDowntimeBreakdown(downtimePeriod);
+          const periodLabel = downtimePeriod === 'week' ? 'This Week' : downtimePeriod === 'month' ? 'This Month' : 'This Year';
+          const hasData = grandTotalHrs > 0;
+
+          return (
+            <>
+              {/* Summary KPI row */}
+              <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                <Col span={8}>
+                  <Card size="small" style={{ textAlign: 'center', borderTop: '3px solid #cf1322', borderRadius: 8, background: token.colorFillAlter }}>
+                    <Statistic
+                      title={<span style={{ fontSize: 11, fontWeight: 600 }}>Production Downtime ({periodLabel})</span>}
+                      value={formatVal(grandTotalHrs)}
+                      suffix="hrs"
+                      prefix={<ClockCircleOutlined style={{ color: '#cf1322' }} />}
+                      valueStyle={{ color: '#cf1322', fontWeight: 800, fontSize: 20 }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={8}>
+                  <Card size="small" style={{ textAlign: 'center', borderTop: '3px solid #faad14', borderRadius: 8, background: token.colorFillAlter }}>
+                    <Statistic
+                      title={<span style={{ fontSize: 11, fontWeight: 600 }}>Maintenance Downtime ({periodLabel})</span>}
+                      value={Math.round(maintDowntimeMin)}
+                      suffix="min"
+                      prefix={<SettingOutlined style={{ color: '#faad14' }} />}
+                      valueStyle={{ color: '#faad14', fontWeight: 800, fontSize: 20 }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={8}>
+                  <Card size="small" style={{ textAlign: 'center', borderTop: '3px solid #1677ff', borderRadius: 8, background: token.colorFillAlter }}>
+                    <Statistic
+                      title={<span style={{ fontSize: 11, fontWeight: 600 }}>Production Entries ({periodLabel})</span>}
+                      value={filteredEntries.length}
+                      prefix={<HistoryOutlined style={{ color: '#1677ff' }} />}
+                      valueStyle={{ color: '#1677ff', fontWeight: 800, fontSize: 20 }}
+                    />
+                  </Card>
+                </Col>
+              </Row>
+
+              <Divider style={{ margin: '12px 0' }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>Downtime Breakdown by Category</Text>
+              </Divider>
+
+              {!hasData ? (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={
+                    <span>
+                      <Text type="secondary">No downtime recorded for {periodLabel.toLowerCase()}.</Text>
+                      <br />
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        Downtime is captured from Production Entries (Downtime Reason field) and Maintenance Job Cards.
+                      </Text>
+                    </span>
+                  }
+                  style={{ padding: '24px 0' }}
+                />
+              ) : (
+                <>
+                  {/* Category breakdown cards with progress bars */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                    {categories.map((cat) => (
+                      <Card
+                        key={cat.key}
+                        size="small"
+                        style={{
+                          borderRadius: 8,
+                          borderLeft: `4px solid ${cat.color}`,
+                          background: token.colorFillAlter,
+                          opacity: cat.hours > 0 ? 1 : 0.45,
+                        }}
+                      >
+                        <Row align="middle" gutter={[12, 0]}>
+                          <Col style={{ width: 32, textAlign: 'center' }}>
+                            <span style={{ color: cat.color, fontSize: 18 }}>{cat.icon}</span>
+                          </Col>
+                          <Col flex="1">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                              <Space size={6}>
+                                <Text strong style={{ fontSize: 13 }}>{cat.label}</Text>
+                                {cat.count > 0 && (
+                                  <Badge
+                                    count={`${cat.count} entr${cat.count === 1 ? 'y' : 'ies'}`}
+                                    style={{ backgroundColor: cat.color, fontSize: 10 }}
+                                  />
+                                )}
+                              </Space>
+                              <Space size={8}>
+                                <Text strong style={{ color: cat.color, fontSize: 14 }}>
+                                  {formatVal(cat.hours)} h
+                                </Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  ({cat.pct.toFixed(1)}%)
+                                </Text>
+                              </Space>
+                            </div>
+                            <Progress
+                              percent={parseFloat(cat.pct.toFixed(1))}
+                              strokeColor={cat.color}
+                              trailColor={token.colorFillSecondary}
+                              showInfo={false}
+                              size="small"
+                              style={{ margin: 0 }}
+                            />
+                            {cat.reasons.length > 0 && (
+                              <div style={{ marginTop: 4 }}>
+                                {cat.reasons.slice(0, 3).map((r, i) => (
+                                  <Tag key={i} style={{ fontSize: 10, margin: '2px 2px 0 0' }}>{r}</Tag>
+                                ))}
+                                {cat.reasons.length > 3 && (
+                                  <Text type="secondary" style={{ fontSize: 10 }}>+{cat.reasons.length - 3} more</Text>
+                                )}
+                              </div>
+                            )}
+                          </Col>
+                        </Row>
+                      </Card>
+                    ))}
+                  </div>
+
+                  {/* Detail table */}
+                  <Divider style={{ margin: '8px 0 12px' }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>Production Entries with Downtime</Text>
+                  </Divider>
+                  <Table
+                    size="small"
+                    pagination={{ pageSize: 6, size: 'small' }}
+                    scroll={{ x: 650 }}
+                    dataSource={filteredEntries.filter((e) => Number(e.downtimeHours ?? 0) > 0)}
+                    rowKey="id"
+                    columns={[
+                      {
+                        title: 'Date',
+                        width: 95,
+                        render: (_: any, r: any) => {
+                          const d = r.entryDate || r.date || r.createdAt;
+                          return d ? new Date(d).toLocaleDateString() : '-';
+                        },
+                      },
+                      {
+                        title: 'Shift',
+                        width: 80,
+                        render: (_: any, r: any) => r.shift?.name || r.shift?.shiftCode || '-',
+                      },
+                      {
+                        title: 'Category',
+                        width: 160,
+                        render: (_: any, r: any) => {
+                          const key = classifyDowntimeEntry(r);
+                          const cat = DOWNTIME_CATEGORIES.find((c) => c.key === key) || DOWNTIME_CATEGORIES[DOWNTIME_CATEGORIES.length - 1];
+                          return <Tag color={cat.color} icon={cat.icon}>{cat.label}</Tag>;
+                        },
+                      },
+                      {
+                        title: 'Downtime Reason',
+                        render: (_: any, r: any) => (
+                          <Text style={{ fontSize: 12 }}>
+                            {r.downtimeReason?.name || r.downtimeReasonText || <Text type="secondary">—</Text>}
+                          </Text>
+                        ),
+                      },
+                      {
+                        title: 'Hours',
+                        width: 80,
+                        render: (_: any, r: any) => (
+                          <Text strong type="danger">{formatVal(r.downtimeHours)} h</Text>
+                        ),
+                      },
+                      {
+                        title: 'Operator',
+                        width: 120,
+                        render: (_: any, r: any) => r.operatorName || r.operator?.fullName || <Text type="secondary">—</Text>,
+                      },
+                    ]}
+                    locale={{ emptyText: <Empty description="No downtime records" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                  />
+                </>
+              )}
+            </>
+          );
+        })()}
+      </Modal>
     </div>
   );
 };
