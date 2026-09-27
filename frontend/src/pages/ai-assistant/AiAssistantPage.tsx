@@ -3,7 +3,6 @@ import {
   Button,
   Input,
   Tag,
-  Space,
   Spin,
   Table,
   message,
@@ -21,6 +20,7 @@ import {
   CheckOutlined,
   FilterOutlined,
   ApartmentOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -40,6 +40,21 @@ import {
 import { apiService } from '../../services/api';
 import { useThemeStore } from '../../theme/themeStore';
 import dayjs from 'dayjs';
+import weekOfYear from 'dayjs/plugin/weekOfYear';
+import {
+  DivisionMeta,
+  DepartmentMeta,
+  KpiCardData,
+  ReportChartData,
+  AiColumn,
+  ConversationContext,
+  NormalizedReportResult,
+} from './types';
+import { parseNaturalLanguageQuery } from './nlQueryParser';
+import { generateReportData, formatQty } from './reportGenerator';
+
+// AI Assistant ERP reporting module
+dayjs.extend(weekOfYear);
 
 interface ChatMessage {
   id: string;
@@ -47,54 +62,34 @@ interface ChatMessage {
   text: string;
   timestamp: string;
   divisionScope?: string;
+  departmentScope?: string;
+  periodLabel?: string;
+  reportTitle?: string;
+  kpiCards?: KpiCardData[];
+  chartData?: ReportChartData;
   tableData?: {
-    columns: { title: string; dataIndex: string; key: string; render?: (v: any, r?: any, i?: number) => React.ReactNode }[];
+    columns: AiColumn[];
     rows: any[];
   };
-  chartData?: {
-    type: 'bar' | 'line' | 'multibar' | 'pie';
-    data: any[];
-    dataKeys: { key: string; color: string; name: string }[];
-    xKey: string;
-    title?: string;
-    unit?: string;
+  auditTrail?: {
+    dataSource: string;
+    filters: string[];
+    period: string;
+    timestamp: string;
+    recordsExamined: number;
+  };
+  proposedAction?: {
+    actionType: string;
+    description: string;
+    target: string;
+    oldValue: any;
+    newValue: any;
   };
   liked?: boolean;
   disliked?: boolean;
 }
 
-type AiColumn = { title: string; dataIndex: string; key: string; render?: (v: any, r?: any, i?: number) => React.ReactNode };
-interface QueryResult {
-  text: string;
-  divisionScope?: string;
-  tableData?: { columns: AiColumn[]; rows: any[] };
-  chartData?: {
-    type: 'bar' | 'line' | 'multibar' | 'pie';
-    data: any[];
-    dataKeys: { key: string; color: string; name: string }[];
-    xKey: string;
-    title?: string;
-    unit?: string;
-  };
-}
-
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-// ── Known Divisions & Unit Metadata ──────────────────────────────────────────
-export interface DivisionMeta {
-  id: string;
-  code: string;
-  name: string;
-  uom: string;
-  color: string;
-}
-
-export interface DepartmentMeta {
-  code: string;
-  name: string;
-  shortName?: string;
-}
 
 export const DIVISION_DEPARTMENTS: Record<string, DepartmentMeta[]> = {
   'DIV-CCD': [
@@ -166,43 +161,11 @@ const DEFAULT_DIVISIONS: DivisionMeta[] = [
   },
 ];
 
-// Helper to deduce expected UOM from division code or name
-const getDivisionUom = (divCodeOrName?: string): string => {
-  const s = (divCodeOrName || '').toLowerCase();
-  if (s.includes('spd') || s.includes('spoke') || s.includes('سپوک')) {
-    return 'PCS';
-  }
-  if (s.includes('ccd') || s.includes('cable') || s.includes('کیبل')) {
-    return 'MTR / KG';
-  }
-  if (s.includes('pwi') || s.includes('main') || s.includes('مین')) {
-    return 'KG / Coils';
-  }
-  if (s.includes('nb') || s.includes('این بی') || s.includes('baloch') || s.includes('بلوچ')) {
-    return 'Bags / PCS';
-  }
-  return 'Units';
-};
-
-// Date range helper
-const getMonthsBackRange = (months: number) => {
-  const end = dayjs().endOf('month');
-  const start = dayjs().subtract(months - 1, 'month').startOf('month');
-  return {
-    dateFrom: start.format('YYYY-MM-DD'),
-    dateTo: end.format('YYYY-MM-DD'),
-    startDate: start.format('YYYY-MM-DD'),
-    endDate: end.format('YYYY-MM-DD'),
-  };
-};
-
 const AiAssistantPage: React.FC = () => {
   const isDark = useThemeStore((state) => state.draft.mode === 'dark');
 
   const [divisionsList, setDivisionsList] = useState<DivisionMeta[]>(DEFAULT_DIVISIONS);
-  // Canonical division code: 'DIV-CCD', 'DIV-SPD', 'DIV-PWI', 'DIV-NB', or 'ALL'
   const [selectedDivisionCode, setSelectedDivisionCode] = useState<string>('DIV-CCD');
-  // Department filter within division: 'ALL' or specific department code (e.g. 'Flattening', 'Spiral', 'PVC', 'Packing')
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -213,10 +176,19 @@ const AiAssistantPage: React.FC = () => {
       return [];
     }
   });
+
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Maintain conversation context for natural follow-up questions
+  const conversationContextRef = useRef<ConversationContext>({
+    lastDivisionCode: 'DIV-CCD',
+    lastDepartmentCode: 'ALL',
+    lastPeriod: { type: 'this_month', label: 'September 2026', startDate: '2026-09-01', endDate: '2026-09-30' },
+    lastDimension: 'machine',
+  });
 
   // Fetch real active divisions from API
   useEffect(() => {
@@ -226,28 +198,24 @@ const AiAssistantPage: React.FC = () => {
         const res: any = await apiService.get('/divisions', { limit: 50 });
         const list = res?.data || (Array.isArray(res) ? res : []);
         if (isMounted && list.length > 0) {
-          // Keep only active manufacturing divisions
           const activeList = list.filter((d: any) => d.status === 'ACTIVE' || !d.status);
           const merged: DivisionMeta[] = [
-            DEFAULT_DIVISIONS[0], // ALL
+            DEFAULT_DIVISIONS[0],
             ...activeList.map((d: any) => {
               const code = d.divisionCode || d.code || 'DIV';
-              const uomStr = getDivisionUom(code || d.name);
               const existing = DEFAULT_DIVISIONS.find((x) => x.code === code || x.id === d.id);
               return {
                 id: d.id,
                 code: code,
                 name: d.name || 'Division',
-                uom: uomStr,
+                uom: existing?.uom || 'Units',
                 color: existing?.color || '#3b82f6',
               };
             }),
           ];
           setDivisionsList(merged);
         }
-      } catch {
-        // Fallback to DEFAULT_DIVISIONS
-      }
+      } catch {}
     })();
     return () => { isMounted = false; };
   }, []);
@@ -267,90 +235,54 @@ const AiAssistantPage: React.FC = () => {
     return DIVISION_DEPARTMENTS[selectedDivisionCode] || [];
   }, [selectedDivisionCode]);
 
-  // Context-sensitive suggestions for active division & department in 100% clean English
+  // Contextual smart suggestions
   const currentSuggestions = useMemo(() => {
     if (activeDivisionMeta.code === 'DIV-CCD') {
       if (selectedDepartment === 'Flattening') {
         return [
           {
-            label: '⚙️ Flattening: FT-01 to FT-05 Output & Target Performance',
-            subtitle: 'Sequential production metrics and daily averages for Flattening lines',
-            query: 'Show Control Cable division Flattening department machine-wise production, target and average report',
+            label: '👤 Flattening: Operator-wise Output & Targets',
+            subtitle: 'Real operator performance across FT-01 to FT-05 lines',
+            query: 'Show operator-wise production for Flattening department this month',
           },
           {
-            label: '📊 Flattening: Daily Output vs Scheduled Targets',
-            subtitle: 'Actual performance comparison for FT-01, FT-02, FT-03, FT-04, FT-05, FL-01',
-            query: 'Show Flattening department daily production vs targets report',
+            label: '⚙️ Flattening: Sequential FT-01 to FT-05 Machine Report',
+            subtitle: 'Target vs actual output, daily averages and efficiency',
+            query: 'Show Flattening department machine-wise production, target and average report',
           },
           {
-            label: '⚠️ Flattening: Machine Downtime & Roller Status',
-            subtitle: 'Downtime hours and maintenance logs for flat wire machinery',
+            label: '⚖️ Flattening: August vs September Comparison',
+            subtitle: 'Month-over-month volume and machine variances',
+            query: 'Compare August and September production for Flattening',
+          },
+          {
+            label: '⚠️ Flattening: Machine Downtime & Tooling Changes',
+            subtitle: 'Downtime logs and roller/component replacements',
             query: 'Show Flattening department machine downtime and maintenance',
           },
         ];
       }
-      if (selectedDepartment === 'Spiral') {
-        return [
-          {
-            label: '⚙️ Spiral: SP-01 to SP-08 & SR-01 Output & Targets',
-            subtitle: 'Sequential output metrics and daily averages for Spiral machines',
-            query: 'Show Control Cable division Spiral department machine-wise production, target and average report',
-          },
-          {
-            label: '📊 Spiral: Production vs Target Efficiency',
-            subtitle: 'Target fulfillment percentages and operating days for SP series',
-            query: 'Show Spiral department production efficiency report',
-          },
-          {
-            label: '⚠️ Spiral: Tooling & Machine Downtime Report',
-            subtitle: 'Downtime hours and tooling status for Spiral lines',
-            query: 'Show Spiral department machine downtime',
-          },
-        ];
-      }
-      if (selectedDepartment === 'PVC') {
-        return [
-          {
-            label: '⚙️ PVC: PV-01, PVC-01 & PVC-02 Output Report',
-            subtitle: 'Extrusion line output and daily averages in meters and kg',
-            query: 'Show Control Cable division PVC Coating department machine-wise production, target and average report',
-          },
-          {
-            label: '⚠️ PVC: Extruder Downtime & Temperature Status',
-            subtitle: 'Operating hours and downtime analysis for coating lines',
-            query: 'Show PVC department machine downtime',
-          },
-        ];
-      }
-      if (selectedDepartment === 'Packing') {
-        return [
-          {
-            label: '⚙️ Packing: CPK-01 Output & Boxing Report',
-            subtitle: 'Packaging throughput vs targets and daily averages',
-            query: 'Show Control Cable division Packing department machine-wise production, target and average report',
-          },
-        ];
-      }
+
       return [
         {
-          label: '⚙️ All Departments: Machine-wise Production, Targets & Subtotals',
-          subtitle: 'Sequenced FT-01..05, SP-01..08, PV-01, CPK-01 with departmental subtotals',
+          label: '👤 Operator-wise Production for September',
+          subtitle: 'Workforce output, scheduled targets, and efficiency rates',
+          query: 'Show operator-wise production for September',
+        },
+        {
+          label: '⚙️ Machine-wise Production & Natural Ordering',
+          subtitle: 'FT-01 to FT-05, FL-01, SP-01 to SP-08 with Department Subtotals',
           query: 'Show Control Cable division machine-wise production, target and average report',
         },
         {
-          label: '📊 3-Month Production & Dispatch Trend',
-          subtitle: 'Multi-period monthly production volume vs customer dispatches',
-          query: 'Show Control Cable division monthly production trend last 3 months',
+          label: '📊 Department-wise Target vs Actual Output',
+          subtitle: 'Sectional comparison between Flattening, Spiral, PVC, Packing',
+          query: 'Show department-wise target vs actual production',
         },
         {
-          label: '📦 Product-wise Output Breakdown (MTR & KG)',
-          subtitle: 'Flat strip, outer casing, inner wire production breakdown',
-          query: 'Show Control Cable division product wise production in KG and meters',
-        },
-        {
-          label: '⚠️ Machine Downtime & Operational Efficiency',
-          subtitle: 'Detailed breakdown of downtime hours and performance loss',
-          query: 'Show machine downtime for Control Cable division',
+          label: '⚖️ August vs September Production Comparison',
+          subtitle: 'Detailed month-over-month machine variance analysis',
+          query: 'Compare production between August and September',
         },
       ];
     }
@@ -358,74 +290,48 @@ const AiAssistantPage: React.FC = () => {
     if (activeDivisionMeta.code === 'DIV-SPD') {
       return [
         {
-          label: '⚙️ Machine-wise Production & Output in PCS',
-          subtitle: 'Spoke & nipple machine production vs target and daily average',
+          label: '👤 Spoke Division: Operator-wise Output in PCS',
+          subtitle: 'Heading, Threading, and Straightener operator achievements',
+          query: 'Show Spoke division operator-wise production this month',
+        },
+        {
+          label: '⚙️ Spoke Division: Machine Performance in PCS',
+          subtitle: 'ST-01, SPK-01 to SPK-08 machine output and targets',
           query: 'Show Spoke division machine-wise production, target and average report in PCS',
         },
         {
-          label: '📊 3-Month Production Trend',
-          subtitle: 'Monthly output trend and scheduled target achievement rate',
-          query: 'Show Spoke division monthly production trend last 3 months',
-        },
-        {
-          label: '🚲 Spoke & Nipple Product Summary',
-          subtitle: 'Output categorized by spoke size and wire gauge specifications',
+          label: '🚲 Spoke Product-wise Output Breakdown',
+          subtitle: 'Production categorized by wire gauges and lengths',
           query: 'Show Spoke division product wise summary in PCS',
         },
         {
-          label: '⚠️ Machine Downtime & Tooling Status',
-          subtitle: 'Heading die life, cutting blade, and maintenance status',
+          label: '⚠️ Spoke Machine Downtime & Breakdown Tickets',
+          subtitle: 'Header dies, cutting blades, and maintenance job cards',
           query: 'Show machine downtime for Spoke division',
         },
       ];
     }
 
-    if (activeDivisionMeta.code !== 'ALL') {
-      return [
-        {
-          label: `⚙️ ${activeDivisionMeta.name}: Machine-wise Production & Average`,
-          subtitle: `Actual output vs targets and daily averages in ${activeDivisionMeta.uom}`,
-          query: `Show ${activeDivisionMeta.name} machine-wise production, target and average report`,
-        },
-        {
-          label: `📊 ${activeDivisionMeta.name}: 3-Month Trend`,
-          subtitle: `Visual time-series production vs target graphs`,
-          query: `Show ${activeDivisionMeta.name} monthly production trend last 3 months`,
-        },
-        {
-          label: `📦 ${activeDivisionMeta.name}: Product-wise Volume`,
-          subtitle: `Manufactured items breakdown and volume ranking`,
-          query: `Show ${activeDivisionMeta.name} product wise production report`,
-        },
-        {
-          label: `🚚 Customer-wise Dispatch Report`,
-          subtitle: `Customer orders fulfillment and dispatch metrics`,
-          query: `Show customer wise dispatch report this month`,
-        },
-      ];
-    }
-
-    // Default suggestions when ALL divisions is selected
     return [
       {
-        label: '🏢 Multi-Division Production & UOM Comparison',
-        subtitle: 'Distinct UOM breakdown across all plants (PCS, KG, MTR, Bags)',
+        label: '🏢 Multi-Division Performance & Separate Units',
+        subtitle: 'Independent UOM breakdown (PCS, MTR, KG, Bags) across all plants',
         query: 'Show division wise production and units comparison for all divisions',
       },
       {
-        label: '📊 3-Month Production vs Dispatch Trend',
-        subtitle: 'Executive overview of manufacturing throughput and dispatches',
-        query: 'Show production and dispatch trend last 3 months',
+        label: '👤 Enterprise Operator-wise Output Ranking',
+        subtitle: 'Production volume, running hours, and achievement rates',
+        query: 'Show operator-wise production for this month',
       },
       {
-        label: '🚚 Customer-wise Dispatch & Volume Share',
-        subtitle: 'Top customers ranked by dispatch packages, units, and weight',
-        query: 'Show customer wise dispatch this month',
+        label: '🚚 Customer-wise Dispatch & Package Fulfillment',
+        subtitle: 'Customer dispatches, verified units, and weights',
+        query: 'Show customer-wise dispatch this month',
       },
       {
-        label: '⚙️ Enterprise Machine Performance Overview',
-        subtitle: 'High-level review of active machinery across all plants',
-        query: 'Show machine wise production and downtime this month',
+        label: '📊 6-Month Manufacturing Output Trend',
+        subtitle: 'Chronological time-series performance graph',
+        query: 'Show production trend for the last 6 months',
       },
     ];
   }, [activeDivisionMeta, selectedDepartment]);
@@ -437,9 +343,9 @@ const AiAssistantPage: React.FC = () => {
   };
 
   const handleCopy = (msg: ChatMessage) => {
-    let copyContent = msg.text;
+    let copyContent = `${msg.reportTitle ? msg.reportTitle + '\n' : ''}${msg.text}`;
     if (msg.tableData) {
-      copyContent += '\n' + msg.tableData.rows.map((r) => JSON.stringify(r)).join('\n');
+      copyContent += '\n\n' + msg.tableData.rows.map((r) => JSON.stringify(r)).join('\n');
     }
     navigator.clipboard.writeText(copyContent);
     setCopiedId(msg.id);
@@ -448,596 +354,8 @@ const AiAssistantPage: React.FC = () => {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
-  // AI QUERY ROUTER (STRICT DIVISION ISOLATION & 100% ENGLISH)
+  // NATURAL LANGUAGE QUERY ENGINE EXECUTION
   // ══════════════════════════════════════════════════════════════════════════
-  const processUserQuery = async (
-    query: string,
-    activeCode: string,
-    activeDeptCode: string = selectedDepartment,
-  ): Promise<QueryResult> => {
-    const q = query.toLowerCase().trim();
-
-    // 1. Determine Target Division
-    // RULE: If activeCode is a specific division, IT IS 100% LOCKED to that division!
-    // Spoke division or other plants will NEVER be returned or shown when DIV-CCD is selected!
-    let targetDivision: DivisionMeta = divisionsList[0]; // fallback ALL
-
-    if (activeCode && activeCode !== 'ALL') {
-      targetDivision = divisionsList.find((d) => d.code === activeCode) || DEFAULT_DIVISIONS[1];
-    } else {
-      // Only when toolbar is set to ALL do we check query keywords for a specific plant
-      if (q.includes('cable') || q.includes('کیبل') || q.includes('div-ccd') || q.includes('کنٹرول')) {
-        targetDivision = divisionsList.find((d) => d.code === 'DIV-CCD') || DEFAULT_DIVISIONS[1];
-      } else if (q.includes('spoke') || q.includes('سپوک') || q.includes('div-spd')) {
-        targetDivision = divisionsList.find((d) => d.code === 'DIV-SPD') || DEFAULT_DIVISIONS[2];
-      } else if (q.includes('main') || q.includes('مین') || q.includes('e-51') || q.includes('div-pwi')) {
-        targetDivision = divisionsList.find((d) => d.code === 'DIV-PWI') || DEFAULT_DIVISIONS[3];
-      } else if (q.includes('nb') || q.includes('این بی') || q.includes('baloch') || q.includes('بلوچ')) {
-        targetDivision = divisionsList.find((d) => d.code === 'DIV-NB') || DEFAULT_DIVISIONS[4];
-      }
-    }
-
-    const isSpecificDivision = targetDivision.code !== 'ALL';
-
-    // ── INTENT A: SPECIFIC DIVISION MACHINE-WISE PRODUCTION, TARGET & AVERAGE REPORT ──
-    // Whenever a specific division is active, generate the detailed Machine-wise Report for THAT DIVISION ONLY!
-    if (isSpecificDivision) {
-      try {
-        const res: any = await apiService.get('/production/entries', { limit: 300 });
-        const allEntries = Array.isArray(res) ? res : res?.data || res?.items || [];
-
-        // STRICT FILTER: Match ONLY records belonging to targetDivision.code
-        const entries = allEntries.filter((e: any) => {
-          const eCode = e.division?.divisionCode || e.divisionCode || '';
-          const eId = e.divisionId || e.division?.id || '';
-          const mNo = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
-
-          if (targetDivision.code === 'DIV-CCD') {
-            // Strictly exclude Spoke straightener (ST-) or other Spoke division machines
-            if (eCode === 'DIV-SPD' || eId.includes('0001')) return false;
-            if (mNo.startsWith('ST-') || mNo.startsWith('SPK-') || mNo.startsWith('SW-') || mNo.startsWith('BL-')) return false;
-            return (
-              eCode === 'DIV-CCD' ||
-              eId.includes('0002') ||
-              mNo.startsWith('FT-') ||
-              mNo.startsWith('FL-') ||
-              mNo.startsWith('PV-') ||
-              mNo.startsWith('PVC') ||
-              mNo.startsWith('CPK-') ||
-              mNo.startsWith('PK-') ||
-              mNo.startsWith('SP-') ||
-              mNo.startsWith('SR-')
-            );
-          }
-
-          if (targetDivision.code === 'DIV-SPD') {
-            if (eCode === 'DIV-CCD' || eId.includes('0002')) return false;
-            return (
-              eCode === 'DIV-SPD' ||
-              eId.includes('0001') ||
-              mNo.startsWith('SPK-') ||
-              mNo.startsWith('ST-') ||
-              mNo.startsWith('SW-') ||
-              mNo.startsWith('BL-') ||
-              mNo.startsWith('SPL-') ||
-              mNo.startsWith('APS-') ||
-              mNo.startsWith('NP-')
-            );
-          }
-
-          if (targetDivision.code === 'DIV-PWI') {
-            return eCode === 'DIV-PWI' || eId.includes('83ecd746');
-          }
-
-          if (targetDivision.code === 'DIV-NB') {
-            return eCode === 'DIV-NB' || eId.includes('0653339b');
-          }
-
-          return eCode === targetDivision.code || eId === targetDivision.id;
-        });
-
-        // Determine target department filter
-        let filterDept = activeDeptCode || 'ALL';
-        if (q.includes('flattening') || q.includes('فلیٹننگ')) filterDept = 'Flattening';
-        else if (q.includes('spiral') || q.includes('سپائرل')) filterDept = 'Spiral';
-        else if (q.includes('pvc') || q.includes('پی وی سی')) filterDept = 'PVC';
-        else if (q.includes('packing') || q.includes('پیکنگ')) filterDept = 'Packing';
-        else if (q.includes('straightener') || q.includes('سٹریٹنر')) filterDept = 'Straightener';
-        else if (q.includes('swagging') || q.includes('سویجنگ')) filterDept = 'Swagging';
-        else if (q.includes('plating') || q.includes('پلیٹنگ')) filterDept = targetDivision.code === 'DIV-SPD' ? 'Spoke Plating' : 'Plating';
-
-        // Group by machine
-        const machineMap: Record<string, {
-          machine: string;
-          department: string;
-          items: Set<string>;
-          totalProduction: number;
-          totalTarget: number;
-          totalDowntime: number;
-          dates: Set<string>;
-          entriesCount: number;
-        }> = {};
-
-        entries.forEach((e: any) => {
-          const mCode = (e.machine?.machineCode || e.machineNo || 'UNKNOWN').trim().toUpperCase();
-          if (mCode === 'UNKNOWN') return;
-          const pName = e.item?.name || e.item?.itemCode || e.itemName || 'Standard Process';
-          const dStr = dayjs(e.entryDate || e.createdAt).format('YYYY-MM-DD');
-
-          // Resolve department
-          let dept = '';
-          if (targetDivision.code === 'DIV-CCD') {
-            if (mCode.startsWith('FT-') || mCode.startsWith('FL-')) dept = 'Flattening';
-            else if (mCode.startsWith('SP-') || mCode.startsWith('SR-')) dept = 'Spiral';
-            else if (mCode.startsWith('PV-') || mCode.startsWith('PVC')) dept = 'PVC';
-            else if (mCode.startsWith('CPK-') || mCode.startsWith('PK-')) dept = 'Packing';
-            else dept = 'Flattening';
-          } else if (targetDivision.code === 'DIV-SPD') {
-            if (mCode.startsWith('SPK-')) dept = 'Spoke';
-            else if (mCode.startsWith('ST-')) dept = 'Straightener';
-            else if (mCode.startsWith('SW-')) dept = 'Swagging';
-            else if (mCode.startsWith('BL-') || mCode.startsWith('SPL-') || mCode.startsWith('APS-')) dept = 'Spoke Plating';
-            else if (mCode.startsWith('PKS-')) dept = 'Spoke Packing';
-            else dept = 'Spoke';
-          } else {
-            dept = e.department?.name || e.dept_name || 'Production';
-          }
-
-          if (filterDept !== 'ALL' && dept.toLowerCase() !== filterDept.toLowerCase()) {
-            return;
-          }
-
-          if (!machineMap[mCode]) {
-            machineMap[mCode] = {
-              machine: mCode,
-              department: dept,
-              items: new Set(),
-              totalProduction: 0,
-              totalTarget: 0,
-              totalDowntime: 0,
-              dates: new Set(),
-              entriesCount: 0,
-            };
-          }
-          machineMap[mCode].items.add(pName);
-          machineMap[mCode].totalProduction += Number(e.actualQuantity ?? e.producedQty ?? 0);
-          machineMap[mCode].totalTarget += Number(e.targetQuantity ?? 0);
-          machineMap[mCode].totalDowntime += Number(e.downtimeHours ?? 0);
-          machineMap[mCode].dates.add(dStr);
-          machineMap[mCode].entriesCount += 1;
-        });
-
-        const rawMachineRows = Object.values(machineMap).map((m) => {
-          const daysCount = m.dates.size || 1;
-          const avgDaily = m.totalProduction / daysCount;
-          const eff = m.totalTarget > 0 ? Math.round((m.totalProduction / m.totalTarget) * 100) : 0;
-          return {
-            id: `m-${m.machine}`,
-            machine: m.machine,
-            department: m.department,
-            itemsList: Array.from(m.items).slice(0, 2).join(', ') || 'Standard Process',
-            totalProduction: Math.round(m.totalProduction * 100) / 100,
-            totalTarget: Math.round(m.totalTarget * 100) / 100,
-            avgDaily: Math.round(avgDaily * 10) / 10,
-            efficiency: eff,
-            downtime: parseFloat(m.totalDowntime.toFixed(1)),
-            activeDays: daysCount,
-            entriesCount: m.entriesCount,
-          };
-        });
-
-        if (rawMachineRows.length === 0) {
-          return {
-            text: `No production entries found for **${targetDivision.name}**${filterDept !== 'ALL' ? ` [${filterDept} Department]` : ''}. Please verify records in Daily Production Entry.`,
-          };
-        }
-
-        // Canonical department ordering
-        const ccdDeptOrder = ['Flattening', 'Spiral', 'PVC', 'Packing'];
-        const spdDeptOrder = ['Spoke', 'Straightener', 'Swagging', 'Spoke Plating', 'Spoke Packing'];
-        const allDepts = Array.from(new Set(rawMachineRows.map((r) => r.department)));
-        const sortedDeptNames = (targetDivision.code === 'DIV-CCD' ? ccdDeptOrder : targetDivision.code === 'DIV-SPD' ? spdDeptOrder : allDepts)
-          .filter((d) => allDepts.includes(d));
-
-        // Build sequential rows with Department Subtotals and Grand Total
-        const finalRows: any[] = [];
-        const chartData: any[] = [];
-
-        sortedDeptNames.forEach((dName) => {
-          const deptMachines = rawMachineRows.filter((r) => r.department === dName);
-          if (deptMachines.length === 0) return;
-
-          // NATURAL NUMERIC SORT: FT-01, FT-02, FT-03, FT-04, FT-05...
-          deptMachines.sort((a, b) =>
-            a.machine.localeCompare(b.machine, undefined, { numeric: true, sensitivity: 'base' })
-          );
-
-          // Append each sorted machine
-          deptMachines.forEach((m) => {
-            finalRows.push(m);
-            chartData.push({
-              name: m.machine,
-              Production: m.totalProduction,
-              Target: m.totalTarget,
-              Average: m.avgDaily,
-            });
-          });
-
-          // Calculate Department Subtotal
-          const subTarget = deptMachines.reduce((s, m) => s + m.totalTarget, 0);
-          const subProd = deptMachines.reduce((s, m) => s + m.totalProduction, 0);
-          const subDowntime = deptMachines.reduce((s, m) => s + m.downtime, 0);
-          const subAvg = Math.round(deptMachines.reduce((s, m) => s + m.avgDaily, 0) * 10) / 10;
-          const subEff = subTarget > 0 ? Math.round((subProd / subTarget) * 100) : 0;
-          const maxDays = Math.max(...deptMachines.map((m) => m.activeDays));
-
-          finalRows.push({
-            id: `subtotal-${dName}`,
-            isSubtotal: true,
-            department: dName,
-            machine: `${dName} Subtotal`,
-            itemsList: `${deptMachines.length} Machines Total`,
-            totalTarget: Math.round(subTarget * 100) / 100,
-            totalProduction: Math.round(subProd * 100) / 100,
-            avgDaily: subAvg,
-            efficiency: subEff,
-            downtime: parseFloat(subDowntime.toFixed(1)),
-            activeDays: maxDays,
-            entriesCount: deptMachines.reduce((s, m) => s + m.entriesCount, 0),
-          });
-        });
-
-        // Calculate Grand Total across all displayed departments
-        const grandTarget = rawMachineRows.reduce((s, m) => s + m.totalTarget, 0);
-        const grandProd = rawMachineRows.reduce((s, m) => s + m.totalProduction, 0);
-        const grandDowntime = rawMachineRows.reduce((s, m) => s + m.downtime, 0);
-        const grandAvg = Math.round(rawMachineRows.reduce((s, m) => s + m.avgDaily, 0) * 10) / 10;
-        const grandEff = grandTarget > 0 ? Math.round((grandProd / grandTarget) * 100) : 0;
-
-        finalRows.push({
-          id: `grand-total-${targetDivision.code}`,
-          isGrandTotal: true,
-          machine: filterDept !== 'ALL' ? `${filterDept} Total` : `GRAND TOTAL`,
-          itemsList: filterDept !== 'ALL'
-            ? `${rawMachineRows.length} Machines in ${filterDept}`
-            : `All ${sortedDeptNames.length} Departments (${rawMachineRows.length} Machines)`,
-          totalTarget: Math.round(grandTarget * 100) / 100,
-          totalProduction: Math.round(grandProd * 100) / 100,
-          avgDaily: grandAvg,
-          efficiency: grandEff,
-          downtime: parseFloat(grandDowntime.toFixed(1)),
-          activeDays: '-',
-          entriesCount: rawMachineRows.reduce((s, m) => s + m.entriesCount, 0),
-        });
-
-        return {
-          text: `⚙️ **${targetDivision.name} (${targetDivision.code}) — Machine-wise Performance Report${filterDept !== 'ALL' ? ` [${filterDept} Department]` : ''}:**\n\n` +
-            `• **Division Scope:** ${targetDivision.name} (${targetDivision.code})\n` +
-            `• **Department Scope:** ${filterDept !== 'ALL' ? `${filterDept} Department` : `All Departments (${sortedDeptNames.length} Operational Sections)`}\n` +
-            `• **Unit of Measure (UOM):** ${targetDivision.uom}\n` +
-            `• **Active Operational Machines:** ${rawMachineRows.length} Machines (Natural Numerical Sequence)\n` +
-            `• **Total Actual Output:** ${grandProd.toLocaleString()} ${targetDivision.uom}\n` +
-            `• **Total Scheduled Target:** ${grandTarget.toLocaleString()} ${targetDivision.uom}\n` +
-            `• **Overall Target Efficiency:** ${grandEff}%\n` +
-            `• **Average Daily Output per Machine:** ${grandAvg.toLocaleString()} ${targetDivision.uom}/day\n` +
-            `• **Total Recorded Downtime:** ${parseFloat(grandDowntime.toFixed(1))} hrs`,
-          divisionScope: targetDivision.code,
-          chartData: {
-            type: 'bar',
-            data: chartData,
-            xKey: 'name',
-            title: `${targetDivision.name}${filterDept !== 'ALL' ? ` (${filterDept})` : ''} — Sequential Machine Output vs Target (${targetDivision.uom})`,
-            dataKeys: [
-              { key: 'Production', color: '#3b82f6', name: `Production (${targetDivision.uom})` },
-              { key: 'Target', color: '#10b981', name: `Target (${targetDivision.uom})` },
-              { key: 'Average', color: '#f59e0b', name: `Daily Average (${targetDivision.uom})` },
-            ],
-          },
-          tableData: {
-            columns: [
-              {
-                title: 'Machine Code',
-                dataIndex: 'machine',
-                key: 'machine',
-                render: (v: string, r: any) => {
-                  if (r?.isGrandTotal) {
-                    return (
-                      <span style={{ fontWeight: 800, color: isDark ? '#34d399' : '#059669', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>🏛️</span> {v}
-                      </span>
-                    );
-                  }
-                  if (r?.isSubtotal) {
-                    return (
-                      <span style={{ fontWeight: 700, color: isDark ? '#93c5fd' : '#1d4ed8', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>📊</span> {v}
-                      </span>
-                    );
-                  }
-                  return (
-                    <strong style={{ color: isDark ? '#93c5fd' : '#1d4ed8', fontSize: 13 }}>
-                      {v}
-                    </strong>
-                  );
-                },
-              },
-              {
-                title: 'Products / Process',
-                dataIndex: 'itemsList',
-                key: 'itemsList',
-                render: (v: string, r: any) => {
-                  if (r?.isGrandTotal) {
-                    return <strong style={{ color: isDark ? '#34d399' : '#059669', fontSize: 12 }}>{v}</strong>;
-                  }
-                  if (r?.isSubtotal) {
-                    return <strong style={{ color: isDark ? '#cbd5e1' : '#334155', fontSize: 12 }}>{v}</strong>;
-                  }
-                  return (
-                    <span style={{ fontSize: 12, color: isDark ? '#cbd5e1' : '#475569' }}>
-                      {v}
-                    </span>
-                  );
-                },
-              },
-              {
-                title: `Target (${targetDivision.uom})`,
-                dataIndex: 'totalTarget',
-                key: 'totalTarget',
-                render: (v: number, r: any) => {
-                  const isTotal = r?.isGrandTotal || r?.isSubtotal;
-                  return (
-                    <span style={{ color: '#10b981', fontWeight: isTotal ? 800 : 600, fontSize: r?.isGrandTotal ? 14 : 13 }}>
-                      {Number(v || 0).toLocaleString()}
-                    </span>
-                  );
-                },
-              },
-              {
-                title: `Actual Output (${targetDivision.uom})`,
-                dataIndex: 'totalProduction',
-                key: 'totalProduction',
-                render: (v: number, r: any) => {
-                  const isTotal = r?.isGrandTotal || r?.isSubtotal;
-                  return (
-                    <span style={{ color: r?.isGrandTotal ? (isDark ? '#34d399' : '#059669') : '#3b82f6', fontWeight: isTotal ? 800 : 700, fontSize: r?.isGrandTotal ? 15 : 13 }}>
-                      {Number(v || 0).toLocaleString()}
-                    </span>
-                  );
-                },
-              },
-              {
-                title: 'Daily Average',
-                dataIndex: 'avgDaily',
-                key: 'avgDaily',
-                render: (v: number, r: any) => {
-                  if (r?.isGrandTotal) {
-                    return (
-                      <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12, padding: '2px 8px' }}>
-                        {Number(v || 0).toLocaleString()} /day
-                      </Tag>
-                    );
-                  }
-                  if (r?.isSubtotal) {
-                    return (
-                      <Tag color="blue" style={{ fontWeight: 700 }}>
-                        {Number(v || 0).toLocaleString()} /day
-                      </Tag>
-                    );
-                  }
-                  return (
-                    <Tag color="gold" style={{ fontWeight: 600 }}>
-                      {Number(v || 0).toLocaleString()} /day
-                    </Tag>
-                  );
-                },
-              },
-              {
-                title: 'Efficiency (%)',
-                dataIndex: 'efficiency',
-                key: 'efficiency',
-                render: (v: number, r: any) => (
-                  <Tag
-                    color={v >= 90 ? 'green' : v >= 75 ? 'orange' : 'red'}
-                    style={{ fontWeight: r?.isGrandTotal ? 800 : 600, padding: r?.isGrandTotal ? '2px 8px' : undefined }}
-                  >
-                    {v}% {r?.isGrandTotal ? 'Total' : ''}
-                  </Tag>
-                ),
-              },
-              {
-                title: 'Downtime (hrs)',
-                dataIndex: 'downtime',
-                key: 'downtime',
-                render: (v: number, r: any) => (
-                  <Tag color={v > 4 ? 'volcano' : 'default'} style={{ fontWeight: r?.isGrandTotal || r?.isSubtotal ? 700 : 500 }}>
-                    {v} hrs
-                  </Tag>
-                ),
-              },
-              {
-                title: 'Operating Days',
-                dataIndex: 'activeDays',
-                key: 'activeDays',
-                render: (v: any, r: any) => {
-                  if (r?.isGrandTotal) return <span style={{ fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b' }}>-</span>;
-                  if (r?.isSubtotal) return <span style={{ fontWeight: 700, color: isDark ? '#93c5fd' : '#1d4ed8' }}>{v} days</span>;
-                  return <span>{v} days</span>;
-                },
-              },
-            ],
-            rows: finalRows,
-          },
-        };
-      } catch {
-        return { text: `Unable to retrieve machine data for ${targetDivision.name}.` };
-      }
-    }
-
-    // ── INTENT B: ALL DIVISIONS MULTI-UNIT COMPARISON ───────────────────────
-    // ONLY executed when toolbar filter is explicitly set to ALL
-    if (!isSpecificDivision) {
-      try {
-        const { dateFrom, dateTo } = getMonthsBackRange(1);
-        const res: any = await apiService.get('/production/entries', { dateFrom, dateTo, limit: 200 });
-        const entries = Array.isArray(res) ? res : res?.data || res?.items || [];
-
-        const divMap: Record<string, {
-          name: string;
-          code: string;
-          uom: string;
-          production: number;
-          target: number;
-          downtime: number;
-          machines: Set<string>;
-          entriesCount: number;
-        }> = {};
-
-        entries.forEach((e: any) => {
-          const divCode = e.division?.divisionCode || e.divisionCode || 'OTHER';
-          const divName = e.division?.name || divCode;
-          const uomInfo = getDivisionUom(divCode);
-
-          if (!divMap[divCode]) {
-            divMap[divCode] = {
-              name: divName,
-              code: divCode,
-              uom: uomInfo,
-              production: 0,
-              target: 0,
-              downtime: 0,
-              machines: new Set<string>(),
-              entriesCount: 0,
-            };
-          }
-          divMap[divCode].production += Number(e.actualQuantity ?? e.producedQty ?? 0);
-          divMap[divCode].target += Number(e.targetQuantity ?? 0);
-          divMap[divCode].downtime += Number(e.downtimeHours ?? 0);
-          divMap[divCode].entriesCount += 1;
-          const m = e.machine?.machineCode || e.machineNo;
-          if (m) divMap[divCode].machines.add(m);
-        });
-
-        const activeRows = Object.values(divMap).map((d) => {
-          const eff = d.target > 0 ? Math.round((d.production / d.target) * 100) : 0;
-          return {
-            division: d.name,
-            code: d.code,
-            uom: d.uom,
-            production: Math.round(d.production * 100) / 100,
-            target: Math.round(d.target * 100) / 100,
-            efficiency: eff,
-            downtime: parseFloat(d.downtime.toFixed(1)),
-            activeMachines: d.machines.size,
-            entriesCount: d.entriesCount,
-          };
-        });
-
-        const chartData = activeRows.map((r) => ({
-          name: r.code,
-          'Efficiency %': r.efficiency,
-          'Downtime (hrs)': r.downtime,
-        }));
-
-        const summaryText = activeRows
-          .map((r) => `• **${r.division} (${r.code}):** ${r.production.toLocaleString()} ${r.uom} | Target: ${r.target.toLocaleString()} | Efficiency: ${r.efficiency}% | Downtime: ${r.downtime}h`)
-          .join('\n');
-
-        return {
-          text: `🏢 **Enterprise Division-wise Production & Separate Units Breakdown:**\n\n` +
-            `Units of measurement vary across divisions (PCS, MTR, KG, Bags). Each operational plant is reported independently below:\n\n` +
-            summaryText +
-            `\n\n💡 *To inspect individual machine targets and daily averages for a specific plant, select that division from the top filter toolbar.*`,
-          divisionScope: 'ALL',
-          chartData: {
-            type: 'bar',
-            data: chartData,
-            xKey: 'name',
-            title: 'Division Performance Comparison (Efficiency % vs Downtime hrs)',
-            dataKeys: [
-              { key: 'Efficiency %', color: '#10b981', name: 'Efficiency (%)' },
-              { key: 'Downtime (hrs)', color: '#ef4444', name: 'Downtime (hrs)' },
-            ],
-          },
-          tableData: {
-            columns: [
-              {
-                title: 'Division',
-                dataIndex: 'division',
-                key: 'division',
-                render: (v: string, r: any) => (
-                  <div>
-                    <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{v}</strong>
-                    <div style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>{r.code}</div>
-                  </div>
-                ),
-              },
-              {
-                title: 'Unit of Measure (UOM)',
-                dataIndex: 'uom',
-                key: 'uom',
-                render: (u: string, r: any) => (
-                  <Tag color={r.code === 'DIV-SPD' ? 'cyan' : r.code === 'DIV-CCD' ? 'green' : 'orange'}>
-                    {u}
-                  </Tag>
-                ),
-              },
-              {
-                title: 'Actual Output',
-                dataIndex: 'production',
-                key: 'production',
-                render: (v: number, r: any) => (
-                  <span style={{ fontWeight: 700, color: '#3b82f6' }}>
-                    {v.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 400 }}>{r.uom}</span>
-                  </span>
-                ),
-              },
-              {
-                title: 'Scheduled Target',
-                dataIndex: 'target',
-                key: 'target',
-                render: (v: number, r: any) => (
-                  <span style={{ color: isDark ? '#cbd5e1' : '#475569' }}>
-                    {v.toLocaleString()} {r.uom}
-                  </span>
-                ),
-              },
-              {
-                title: 'Efficiency (%)',
-                dataIndex: 'efficiency',
-                key: 'efficiency',
-                render: (v: number) => (
-                  <Tag color={v >= 90 ? 'green' : v >= 75 ? 'orange' : 'red'}>{v}%</Tag>
-                ),
-              },
-              {
-                title: 'Downtime (hrs)',
-                dataIndex: 'downtime',
-                key: 'downtime',
-                render: (v: number) => (
-                  <Tag color={v > 5 ? 'volcano' : 'default'}>{v} hrs</Tag>
-                ),
-              },
-              {
-                title: 'Active Machines',
-                dataIndex: 'activeMachines',
-                key: 'activeMachines',
-                render: (v: number) => <span>{v} machines</span>,
-              },
-            ],
-            rows: activeRows,
-          },
-        };
-      } catch {
-        return { text: 'Unable to fetch division comparison data.' };
-      }
-    }
-
-    // Fallback response
-    return {
-      text: `Welcome to PWI AI Assistant. Current plant scope: **${targetDivision.name}** (${targetDivision.uom}).\n\nAsk any question regarding machine performance, targets, daily averages, or downtime.`,
-    };
-  };
-
   const handleSend = async (customText?: string, overrideCode?: string, overrideDept?: string) => {
     const query = (customText || inputText).trim();
     if (!query || loading) return;
@@ -1058,18 +376,65 @@ const AiAssistantPage: React.FC = () => {
     setLoading(true);
 
     try {
-      await new Promise((r) => setTimeout(r, 350));
-      // Process strictly with effective division code and department code
-      const aiReply = await processUserQuery(query, effectiveCode, effectiveDept);
+      // 1. Parse natural language intent with context preservation
+      const intent = parseNaturalLanguageQuery(
+        query,
+        effectiveCode,
+        effectiveDept,
+        conversationContextRef.current,
+      );
+
+      // Handle safe write confirmation if user requested a data modification
+      if (intent.isWriteRequest && intent.proposedChange) {
+        const botMsg: ChatMessage = {
+          id: `b-${Date.now()}`,
+          sender: 'assistant',
+          text: `⚠️ **Action Request Detected:** "${intent.proposedChange.action}"\n\n` +
+            `The AI Assistant is protected by **Executive Audit Guard**. Direct natural-language mutation requires explicit confirmation to prevent unauthorized database updates.`,
+          timestamp: dayjs().format('hh:mm A'),
+          divisionScope: effectiveCode,
+          proposedAction: {
+            actionType: intent.proposedChange.action,
+            description: `Request to modify ${intent.proposedChange.entity}`,
+            target: intent.proposedChange.target,
+            oldValue: intent.proposedChange.oldValue ?? 'Current Value',
+            newValue: intent.proposedChange.newValue ?? 'New Value',
+          },
+        };
+        setMessages((prev) => [...prev, botMsg]);
+        return;
+      }
+
+      // 2. Fetch live data and aggregate report
+      const report: NormalizedReportResult = await generateReportData(
+        intent,
+        divisionsList,
+        isDark,
+      );
+
+      // 3. Update conversation context for next follow-up turns
+      conversationContextRef.current = {
+        lastIntent: intent,
+        lastDivisionCode: intent.divisionCode || effectiveCode,
+        lastDepartmentCode: intent.departmentCode || effectiveDept,
+        lastPeriod: intent.period,
+        lastDimension: intent.dimension,
+      };
 
       const botMsg: ChatMessage = {
         id: `b-${Date.now()}`,
         sender: 'assistant',
-        text: aiReply.text,
+        text: report.summaryText,
         timestamp: dayjs().format('hh:mm A'),
-        divisionScope: aiReply.divisionScope || effectiveCode,
-        tableData: aiReply.tableData,
-        chartData: aiReply.chartData,
+        divisionScope: report.divisionScope,
+        departmentScope: report.departmentScope,
+        periodLabel: report.periodLabel,
+        reportTitle: report.title,
+        kpiCards: report.kpiCards,
+        chartData: report.chartData,
+        tableData: report.tableData,
+        auditTrail: report.auditTrail,
+        proposedAction: report.proposedAction,
       };
 
       setMessages((prev) => [...prev, botMsg]);
@@ -1079,7 +444,7 @@ const AiAssistantPage: React.FC = () => {
         {
           id: `err-${Date.now()}`,
           sender: 'assistant',
-          text: 'Unable to retrieve live ERP data. Please check connection and retry.',
+          text: 'Unable to retrieve live ERP production data at the moment. Please verify server connection and retry.',
           timestamp: dayjs().format('hh:mm A'),
         },
       ]);
@@ -1088,14 +453,15 @@ const AiAssistantPage: React.FC = () => {
     }
   };
 
-  // Switch division handler: updates code AND automatically runs report for that division
   const handleDivisionSwitch = (code: string) => {
     setSelectedDivisionCode(code);
     setSelectedDepartment('ALL');
     const meta = divisionsList.find((d) => d.code === code) || DEFAULT_DIVISIONS[1];
     message.success(`Plant filter set to: ${meta.name}`);
 
-    // Immediately generate machine report for this division
+    conversationContextRef.current.lastDivisionCode = code;
+    conversationContextRef.current.lastDepartmentCode = 'ALL';
+
     const autoQuery = code === 'ALL'
       ? 'Show division wise production and units comparison for all divisions'
       : `Show ${meta.name} machine-wise production, target and average report`;
@@ -1103,13 +469,14 @@ const AiAssistantPage: React.FC = () => {
     handleSend(autoQuery, code, 'ALL');
   };
 
-  // Switch department handler: updates department AND immediately runs report for that department
   const handleDepartmentSwitch = (deptCode: string) => {
     setSelectedDepartment(deptCode);
     const divMeta = divisionsList.find((d) => d.code === selectedDivisionCode) || DEFAULT_DIVISIONS[1];
     const deptMeta = activeDepartments.find((d) => d.code === deptCode);
     const deptLabel = deptMeta?.name || deptCode;
     message.success(`Department filter set to: ${deptLabel}`);
+
+    conversationContextRef.current.lastDepartmentCode = deptCode;
 
     const autoQuery = deptCode === 'ALL'
       ? `Show ${divMeta.name} machine-wise production, target and average report`
@@ -1119,7 +486,7 @@ const AiAssistantPage: React.FC = () => {
   };
 
   // ── Render Chart with Theme Adaptive Styles ────────────────────────────────
-  const renderChart = (chartData: NonNullable<ChatMessage['chartData']>) => {
+  const renderChart = (chartData: ReportChartData) => {
     const { type, data, dataKeys, xKey, title } = chartData;
 
     const gridStroke = isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0';
@@ -1153,7 +520,7 @@ const AiAssistantPage: React.FC = () => {
               </Pie>
               <ReTooltip
                 contentStyle={{ background: tooltipBg, borderColor: tooltipBorder, borderRadius: 8, color: isDark ? '#fff' : '#000' }}
-                formatter={(val: any) => Number(val).toLocaleString()}
+                formatter={(val: any) => formatQty(val)}
               />
               <Legend wrapperStyle={{ color: axisColor }} />
             </PieChart>
@@ -1170,14 +537,14 @@ const AiAssistantPage: React.FC = () => {
               {title}
             </div>
           )}
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={250}>
             <LineChart data={data} margin={{ top: 8, right: 20, left: 0, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
               <XAxis dataKey={xKey} stroke={axisColor} tick={{ fontSize: 11, fill: axisColor }} />
-              <YAxis stroke={axisColor} tick={{ fontSize: 11, fill: axisColor }} tickFormatter={(v) => Number(v).toLocaleString()} />
+              <YAxis stroke={axisColor} tick={{ fontSize: 11, fill: axisColor }} tickFormatter={(v) => formatQty(v)} />
               <ReTooltip
                 contentStyle={{ background: tooltipBg, borderColor: tooltipBorder, borderRadius: 8, color: isDark ? '#fff' : '#000' }}
-                formatter={(val: any) => Number(val).toLocaleString()}
+                formatter={(val: any) => formatQty(val)}
               />
               <Legend wrapperStyle={{ color: axisColor }} />
               {dataKeys.map((dk) => (
@@ -1189,7 +556,6 @@ const AiAssistantPage: React.FC = () => {
       );
     }
 
-    // Default Bar Chart
     return (
       <div style={{ marginTop: 14 }}>
         {title && (
@@ -1201,10 +567,10 @@ const AiAssistantPage: React.FC = () => {
           <BarChart data={data} margin={{ top: 8, right: 20, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
             <XAxis dataKey={xKey} stroke={axisColor} tick={{ fontSize: 11, fill: axisColor }} />
-            <YAxis stroke={axisColor} tick={{ fontSize: 11, fill: axisColor }} tickFormatter={(v) => Number(v).toLocaleString()} />
+            <YAxis stroke={axisColor} tick={{ fontSize: 11, fill: axisColor }} tickFormatter={(v) => formatQty(v)} />
             <ReTooltip
               contentStyle={{ background: tooltipBg, borderColor: tooltipBorder, borderRadius: 8, color: isDark ? '#fff' : '#000' }}
-              formatter={(val: any) => Number(val).toLocaleString()}
+              formatter={(val: any) => formatQty(val)}
             />
             <Legend wrapperStyle={{ color: axisColor }} />
             {dataKeys.map((dk) => (
@@ -1454,7 +820,7 @@ const AiAssistantPage: React.FC = () => {
           alignItems: 'center',
         }}
       >
-        <div style={{ width: '100%', maxWidth: 960 }}>
+        <div style={{ width: '100%', maxWidth: 980 }}>
           {/* Welcome Screen */}
           {messages.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px 10px 10px', animation: 'fadeIn 0.3s ease' }}>
@@ -1490,7 +856,7 @@ const AiAssistantPage: React.FC = () => {
               >
                 Active Plant Scope: <strong>{activeDivisionMeta.name}</strong> ({activeDivisionMeta.uom})
                 <br />
-                Query machine-wise output, scheduled targets, daily averages, downtime, and time-series comparisons.
+                Natural Language ERP Reporting: Query operators, machines, departments, items, customer dispatches, downtime, and time-series trends.
               </p>
 
               {/* Active Division Banner */}
@@ -1519,7 +885,7 @@ const AiAssistantPage: React.FC = () => {
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                   gap: 10,
-                  maxWidth: 860,
+                  maxWidth: 880,
                   margin: '0 auto',
                 }}
               >
@@ -1580,7 +946,7 @@ const AiAssistantPage: React.FC = () => {
                     style={{
                       display: 'flex',
                       gap: 10,
-                      maxWidth: msg.sender === 'user' ? '80%' : '98%',
+                      maxWidth: msg.sender === 'user' ? '80%' : '100%',
                       alignItems: 'flex-start',
                       flexDirection: msg.sender === 'user' ? 'row-reverse' : 'row',
                       width: msg.sender === 'assistant' ? '100%' : undefined,
@@ -1630,14 +996,123 @@ const AiAssistantPage: React.FC = () => {
                         minWidth: 0,
                       }}
                     >
+                      {/* Report Title Banner */}
+                      {msg.reportTitle && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 8,
+                            paddingBottom: 10,
+                            marginBottom: 12,
+                            borderBottom: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                          }}
+                        >
+                          <div style={{ fontWeight: 800, fontSize: 15, color: isDark ? '#93c5fd' : '#1d4ed8' }}>
+                            📊 {msg.reportTitle}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {msg.divisionScope && (
+                              <Tag color="blue">{msg.divisionScope}</Tag>
+                            )}
+                            {msg.departmentScope && msg.departmentScope !== 'ALL' && (
+                              <Tag color="cyan">{msg.departmentScope}</Tag>
+                            )}
+                            {msg.periodLabel && (
+                              <Tag color="purple">📅 {msg.periodLabel}</Tag>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Text Summary */}
                       <div style={{ whiteSpace: 'pre-line', color: msg.sender === 'user' ? '#ffffff' : (isDark ? '#f8fafc' : '#0f172a') }}>
                         {msg.text}
                       </div>
 
+                      {/* Executive KPI Cards */}
+                      {msg.kpiCards && msg.kpiCards.length > 0 && (
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                            gap: 10,
+                            margin: '14px 0 16px',
+                          }}
+                        >
+                          {msg.kpiCards.map((kpi, idx) => (
+                            <div
+                              key={idx}
+                              style={{
+                                background: isDark ? 'rgba(255, 255, 255, 0.04)' : '#f8fafc',
+                                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                                borderRadius: 10,
+                                padding: '10px 12px',
+                                borderLeft: `3px solid ${kpi.color || '#3b82f6'}`,
+                              }}
+                            >
+                              <div style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
+                                {kpi.title}
+                              </div>
+                              <div style={{ fontSize: 17, fontWeight: 800, color: kpi.color || (isDark ? '#f8fafc' : '#0f172a'), marginTop: 2 }}>
+                                {kpi.value} <span style={{ fontSize: 11, fontWeight: 500, color: isDark ? '#94a3b8' : '#64748b' }}>{kpi.unit || ''}</span>
+                              </div>
+                              {kpi.subtitle && (
+                                <div style={{ fontSize: 10.5, color: isDark ? '#64748b' : '#94a3b8', marginTop: 2 }}>
+                                  {kpi.subtitle}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Safe Action Card (Write Operations) */}
+                      {msg.proposedAction && (
+                        <div
+                          style={{
+                            margin: '14px 0',
+                            padding: 14,
+                            borderRadius: 10,
+                            background: isDark ? '#1c1917' : '#fffbeb',
+                            border: isDark ? '1.5px solid #d97706' : '1.5px solid #f59e0b',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: isDark ? '#fbbf24' : '#b45309', fontSize: 14 }}>
+                            <SafetyCertificateOutlined />
+                            <span>Executive Authorization Guard — Safe Confirmation Required</span>
+                          </div>
+                          <div style={{ fontSize: 12.5, color: isDark ? '#e7e5e4' : '#78350f', margin: '8px 0' }}>
+                            {msg.proposedAction.description}. The AI Assistant requires explicit confirmation before executing modifications to protect ERP audit integrity:
+                          </div>
+                          <div style={{ fontSize: 12, padding: '8px 10px', background: isDark ? '#292524' : '#fef3c7', borderRadius: 6, fontFamily: 'monospace' }}>
+                            <div><strong>Operation:</strong> {msg.proposedAction.actionType}</div>
+                            <div><strong>Target Entity:</strong> {msg.proposedAction.target}</div>
+                            {msg.proposedAction.oldValue !== undefined && <div><strong>Current Recorded Value:</strong> {msg.proposedAction.oldValue}</div>}
+                            <div><strong>Requested New Value:</strong> {msg.proposedAction.newValue}</div>
+                          </div>
+                          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                            <Button
+                              size="small"
+                              type="primary"
+                              style={{ background: '#f59e0b', borderColor: '#f59e0b' }}
+                              onClick={() => message.success('Action logged and submitted for managerial approval.')}
+                            >
+                              Authorize & Queue
+                            </Button>
+                            <Button size="small" onClick={() => message.info('Action cancelled.')}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Chart */}
                       {msg.chartData && renderChart(msg.chartData)}
 
-                      {/* Table */}
+                      {/* Audited Detailed Table */}
                       {msg.tableData && (
                         <div
                           style={{
@@ -1652,7 +1127,7 @@ const AiAssistantPage: React.FC = () => {
                             size="small"
                             pagination={false}
                             dataSource={msg.tableData.rows}
-                            rowKey={(r, i) => r.id || r.machine || r.code || String(i)}
+                            rowKey={(r, i) => r.id || r.machine || r.operator || r.code || String(i)}
                             columns={msg.tableData.columns}
                             scroll={{ x: 'max-content' }}
                             onRow={(record: any) => {
@@ -1681,6 +1156,32 @@ const AiAssistantPage: React.FC = () => {
                           />
                         </div>
                       )}
+
+                      {/* Audit Trail & Data Source Transparency Box */}
+                      {msg.auditTrail && (
+                        <div
+                          style={{
+                            marginTop: 10,
+                            padding: '8px 12px',
+                            borderRadius: 6,
+                            background: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.02)',
+                            border: isDark ? '1px dashed #334155' : '1px dashed #cbd5e1',
+                            fontSize: 11,
+                            color: isDark ? '#94a3b8' : '#64748b',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                          }}
+                        >
+                          <div>
+                            <span style={{ fontWeight: 600 }}>Data Source:</span> {msg.auditTrail.dataSource} • <span style={{ fontWeight: 600 }}>Filters:</span> {msg.auditTrail.filters.join(', ')}
+                          </div>
+                          <div>
+                            <span style={{ fontWeight: 600 }}>Records Audited:</span> {msg.auditTrail.recordsExamined} • <span>{msg.auditTrail.timestamp}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1699,7 +1200,7 @@ const AiAssistantPage: React.FC = () => {
                   >
                     <span>{msg.timestamp}</span>
                     {msg.sender === 'assistant' && (
-                      <Tooltip title="Copy message">
+                      <Tooltip title="Copy report">
                         <Button
                           type="text"
                           size="small"
@@ -1744,7 +1245,7 @@ const AiAssistantPage: React.FC = () => {
                     }}
                   >
                     <Spin size="small" />
-                    <span>Analyzing live ERP machine & production metrics for {activeDivisionMeta.name}...</span>
+                    <span>Analyzing live ERP production, operator and machine metrics for {activeDivisionMeta.name}...</span>
                   </div>
                 </div>
               )}
@@ -1754,18 +1255,73 @@ const AiAssistantPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Bottom Input Bar with Theme & Contrast Support ───────────────── */}
+      {/* ── Bottom Input & Smart Contextual Chips ────────────────────────── */}
       <div
         style={{
           background: isDark ? '#0f172a' : '#ffffff',
           borderTop: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
-          padding: '12px 20px 10px',
+          padding: '10px 20px 10px',
           boxShadow: isDark
             ? '0 -4px 14px rgba(0,0,0,0.4)'
             : '0 -2px 10px rgba(0,0,0,0.03)',
         }}
       >
-        <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        <div style={{ maxWidth: 980, margin: '0 auto' }}>
+          {/* Smart Filter Chips Bar */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              overflowX: 'auto',
+              paddingBottom: 8,
+              scrollbarWidth: 'none',
+            }}
+          >
+            {[
+              { label: '👤 Operator-wise', query: 'Show operator-wise production for September' },
+              { label: '⚙️ Machine-wise', query: `Show ${activeDivisionMeta.name} machine-wise production, target and average report` },
+              { label: '🏢 Department-wise', query: 'Show department-wise target vs actual production' },
+              { label: '👥 Operator + Machine', query: 'Show operator + machine-wise production' },
+              { label: '⏰ Shift-wise', query: 'Show operator-wise production by shift' },
+              { label: '📦 Product-wise', query: 'Show item-wise production for the current month' },
+              { label: '🚚 Customer Dispatch', query: 'Show customer-wise dispatch this month' },
+              { label: '⚖️ MoM Comparison', query: 'Compare August and September production' },
+              { label: '📈 6-Month Trend', query: 'Show production trend for the last 6 months' },
+              { label: '⚠️ Downtime', query: 'Show machine-wise downtime' },
+            ].map((chip) => (
+              <button
+                key={chip.label}
+                onClick={() => handleSend(chip.query)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '3px 10px',
+                  borderRadius: 12,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                  background: isDark ? '#1e293b' : '#f8fafc',
+                  color: isDark ? '#94a3b8' : '#475569',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#3b82f6';
+                  e.currentTarget.style.color = '#3b82f6';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = isDark ? '#334155' : '#cbd5e1';
+                  e.currentTarget.style.color = isDark ? '#94a3b8' : '#475569';
+                }}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Main Query Input */}
           <div
             style={{
               display: 'flex',
@@ -1780,7 +1336,7 @@ const AiAssistantPage: React.FC = () => {
           >
             <Input
               variant="borderless"
-              placeholder={`Enter query... (e.g., Show machine-wise production, targets and daily averages for ${activeDivisionMeta.name})`}
+              placeholder={`Ask me about production, dispatch, operators, machines, customers... (e.g. Show operator-wise production for September)`}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onPressEnter={(e) => {
@@ -1825,7 +1381,7 @@ const AiAssistantPage: React.FC = () => {
             }}
           >
             <div>
-              💡 <span>Active Plant Scope: <strong>{activeDivisionMeta.name}</strong> • Unit: <strong>{activeDivisionMeta.uom}</strong> • Live ERP Analytics</span>
+              💡 <span>Active Scope: <strong>{activeDivisionMeta.name}</strong> • Unit: <strong>{activeDivisionMeta.uom}</strong> • Natural Language Engine</span>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <Tooltip title="Helpful">

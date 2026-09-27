@@ -93,7 +93,7 @@ export class ProductionEntryController {
     const companyId = this.getCompanyId(req);
     const result = await this.entryService.findAll(companyId, {
       page: Number(page) || 1,
-      limit: Math.min(Number(limit) || 50, 200),
+      limit: Math.min(Number(limit) || 50, 1000),
       divisionId,
       sectionId,
       departmentId,
