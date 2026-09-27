@@ -3394,7 +3394,7 @@ const ItemManagement: React.FC = () => {
           onSelect={handleItemChevronSelect}
         />
 
-        {/* Main Filter Toolbar matching Machine Master */}
+        {/* Main Filter Toolbar: Search + Single Unified Filters Button + Columns */}
         <div
           style={{
             display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
@@ -3406,46 +3406,29 @@ const ItemManagement: React.FC = () => {
             prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
             placeholder="Search Item Register (code, name, SKU, barcode)..."
             style={{
-              flex: screens.md ? '1 1 280px' : '1 1 100%',
-              flexBasis: screens.md ? '280px' : '100%',
-              maxWidth: screens.md ? 450 : '100%',
+              flex: screens.md ? '1 1 320px' : '1 1 100%',
+              flexBasis: screens.md ? '320px' : '100%',
+              maxWidth: screens.md ? 520 : '100%',
             }}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
 
-          <Select
-            allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
-            style={{ width: 160 }}
-            value={fDivision}
-            options={toUnique(divisions, (d) => d.name)}
-            onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
-          />
-
-          <Select
-            allowClear showSearch optionFilterProp="label" placeholder="All Categories"
-            style={{ width: 160 }}
-            value={fCategory}
-            options={toUnique(flatCategories, (c) => c.name)}
-            onChange={(v) => { setFCategory(v); setPage(1); }}
-          />
-
-          <Badge count={activeFilterCount} size="small">
+          <Badge count={activeFilterCount} size="small" offset={[-2, 2]}>
             <Button
               icon={<FilterOutlined />}
               onClick={() => setShowFilters((v) => !v)}
+              aria-label="Filters"
               style={{
-                background: showFilters ? '#eff6ff' : undefined,
-                borderColor: showFilters ? '#3b82f6' : undefined,
-                color: showFilters ? '#1d4ed8' : undefined,
+                background: showFilters ? 'var(--theme-accent-soft, #eff6ff)' : activeFilterCount > 0 ? '#eff6ff' : undefined,
+                borderColor: showFilters || activeFilterCount > 0 ? 'var(--theme-primary, #3b82f6)' : undefined,
+                color: showFilters || activeFilterCount > 0 ? 'var(--theme-primary, #1d4ed8)' : undefined,
                 fontWeight: 600,
               }}
             >
-              More Filters
+              Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ''}
             </Button>
           </Badge>
-
-          <div style={{ flex: 1 }} />
 
           {/* Columns Toggle Dropdown (Machine Master 2027 style) */}
           <Dropdown
@@ -3517,22 +3500,7 @@ const ItemManagement: React.FC = () => {
             </Button>
           </Dropdown>
 
-          <Button
-            icon={<ClearOutlined />}
-            onClick={resetFilters}
-            data-testid="clear-filters"
-          >
-            Clear Filters
-          </Button>
-          <Button
-            type="primary"
-            icon={<FilterOutlined />}
-            onClick={applyFilters}
-            data-testid="apply-filters"
-            loading={loading}
-          >
-            Apply Filters
-          </Button>
+          <div style={{ flex: 1 }} />
 
           {screens.lg && (
             <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
@@ -3541,47 +3509,189 @@ const ItemManagement: React.FC = () => {
           )}
         </div>
 
+        {/* Unified Collapsible Filters Panel — Contains ALL filter dropdowns and filter actions */}
         {showFilters && (
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: screens.md ? 'repeat(auto-fit, minmax(160px, 1fr))' : '1fr',
-              gap: 8, padding: '10px 0 2px', borderTop: '1px solid var(--theme-border)',
               marginTop: 10,
+              padding: '12px 14px',
+              borderRadius: 8,
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              background: 'var(--theme-surface-subtle, rgba(248, 250, 252, 0.6))',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
             }}
           >
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Section"
-              value={fSection}
-              options={toUnique(sectionsForDivision(fDivision), (s) => s.name)}
-              onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
-            />
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Department"
-              value={fDepartment}
-              options={toUnique(departmentsForSection(fDivision, fSection), (d) => d.name)}
-              onChange={(v) => { setFDepartment(v); setPage(1); }}
-            />
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Route Type"
-              value={fRouteType}
-              loading={routeTypesState === 'loading'}
-              options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
-              onChange={(v) => { setFRouteType(v); setPage(1); }}
-            />
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="Material Role / Usage"
-              value={fRoleUsage}
-              options={[
-                { value: 'Process Component Materials', label: 'Process Component Materials' },
-              ]}
-              onChange={(v) => { setFRoleUsage(v); setPage(1); }}
-            />
-            <Select
-              allowClear placeholder="Status" options={STATUS_OPTIONS.map((status) => ({ value: status, label: status }))}
-              value={fStatus}
-              onChange={(v) => { setFStatus(v); setPage(1); }}
-            />
+            {/* Header: Title + Active Count + Close */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                  Filter Items
+                </span>
+                {activeFilterCount > 0 && (
+                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                    {activeFilterCount} Active
+                  </Tag>
+                )}
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
+                title="Close Filters"
+              >
+                Close
+              </Button>
+            </div>
+
+            {/* Grid of ALL Filters */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: screens.lg
+                  ? 'repeat(4, 1fr)'
+                  : screens.md
+                  ? 'repeat(2, 1fr)'
+                  : '1fr',
+                gap: 10,
+              }}
+            >
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Division
+                </label>
+                <Select
+                  allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
+                  style={{ width: '100%' }}
+                  value={fDivision}
+                  options={toUnique(divisions, (d) => d.name)}
+                  onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Category
+                </label>
+                <Select
+                  allowClear showSearch optionFilterProp="label" placeholder="All Categories"
+                  style={{ width: '100%' }}
+                  value={fCategory}
+                  options={toUnique(flatCategories, (c) => c.name)}
+                  onChange={(v) => { setFCategory(v); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Section
+                </label>
+                <Select
+                  allowClear showSearch optionFilterProp="label" placeholder="All Sections"
+                  style={{ width: '100%' }}
+                  value={fSection}
+                  options={toUnique(sectionsForDivision(fDivision), (s) => s.name)}
+                  onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Department
+                </label>
+                <Select
+                  allowClear showSearch optionFilterProp="label" placeholder="All Departments"
+                  style={{ width: '100%' }}
+                  value={fDepartment}
+                  options={toUnique(departmentsForSection(fDivision, fSection), (d) => d.name)}
+                  onChange={(v) => { setFDepartment(v); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Route Type
+                </label>
+                <Select
+                  allowClear showSearch optionFilterProp="label" placeholder="All Route Types"
+                  style={{ width: '100%' }}
+                  value={fRouteType}
+                  loading={routeTypesState === 'loading'}
+                  options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
+                  onChange={(v) => { setFRouteType(v); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Status
+                </label>
+                <Select
+                  allowClear placeholder="All Statuses"
+                  style={{ width: '100%' }}
+                  options={STATUS_OPTIONS.map((status) => ({ value: status, label: status }))}
+                  value={fStatus}
+                  onChange={(v) => { setFStatus(v); setPage(1); }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Material Role / Usage
+                </label>
+                <Select
+                  allowClear showSearch optionFilterProp="label" placeholder="All Roles"
+                  style={{ width: '100%' }}
+                  value={fRoleUsage}
+                  options={[
+                    { value: 'Process Component Materials', label: 'Process Component Materials' },
+                  ]}
+                  onChange={(v) => { setFRoleUsage(v); setPage(1); }}
+                />
+              </div>
+            </div>
+
+            {/* Footer with Clear Filters and Apply Filters inside */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <Button
+                icon={<ClearOutlined />}
+                onClick={resetFilters}
+                data-testid="clear-filters"
+                danger={activeFilterCount > 0}
+              >
+                Clear Filters
+              </Button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<FilterOutlined />}
+                  onClick={applyFilters}
+                  data-testid="apply-filters"
+                  loading={loading}
+                  style={{ fontWeight: 600 }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </Card>
