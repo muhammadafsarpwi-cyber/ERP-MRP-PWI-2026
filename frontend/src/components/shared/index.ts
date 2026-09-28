@@ -49,6 +49,7 @@ export { default as DeleteConfirmModal, type DeleteConfirmModalProps } from './D
 export { default as ItemStockLedgerModal, type ItemStockLedgerData, type StockLedgerMovement } from './ItemStockLedgerModal';
 export { default as DivisionSelect, type DivisionSelectProps, type DivisionOption } from './DivisionSelect';
 export { default as PhotoCapture, type PhotoCaptureProps } from './PhotoCapture';
+export { default as SignaturePad, type SignaturePadProps } from './SignaturePad';
 export {
   default as DivisionAccessModal,
   DivisionScopeTags,

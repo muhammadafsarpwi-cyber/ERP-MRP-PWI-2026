@@ -1,7 +1,12 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidationError } from 'class-validator';
-import { CreateVisitorEntryDto, ListVisitorEntriesQueryDto } from './visitor-entry.dto';
+import {
+  ConfirmHostVisitDto,
+  CreateVisitorEntryDto,
+  ListVisitorEntriesQueryDto,
+  MAX_SIGNATURE_DATA_URL_CHARS,
+} from './visitor-entry.dto';
 import type { ExitVisitorEntryBody } from './visitor-entry.dto';
 import { normalizeCnic, maskCnic, normalizeMobile } from '../../../common/validators';
 
@@ -185,5 +190,85 @@ describe('CNIC / mobile helpers', () => {
 
   it('strips display separators from a mobile number', () => {
     expect(normalizeMobile('0300-123 4567')).toBe('03001234567');
+  });
+});
+
+/**
+ * Prompt #19 §14 / §22 — the host-confirmation payload.
+ *
+ * Two guarantees are asserted with the app's own pipe options:
+ *   1. the client may send ONLY the optional signature and note — every
+ *      server-owned column is a 400, not a silently trusted value;
+ *   2. the signature has to be a PNG data URL inside a size budget that keeps
+ *      the request below the platform's default JSON body limit, so an oversized
+ *      signature fails with an explained 400 instead of an opaque 413.
+ */
+describe('ConfirmHostVisitDto', () => {
+  const PNG_1PX =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  const run = async (payload: Record<string, unknown>) =>
+    validate(plainToInstance(ConfirmHostVisitDto, payload, { enableImplicitConversion: true }), PIPE_OPTIONS);
+
+  it('accepts an empty body — the host may sign the physical slip instead', async () => {
+    expect(await run({})).toHaveLength(0);
+  });
+
+  it('accepts a PNG data URL signature and a note', async () => {
+    const errors = await run({
+      signature: `data:image/png;base64,${PNG_1PX}`,
+      note: 'Host received the visitor at the gate',
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it.each([
+    ['a bare base64 string with no data URL', PNG_1PX],
+    ['a JPEG data URL', 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='],
+    ['an SVG data URL', 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='],
+    ['a non-image data URL', 'data:text/plain;base64,aGVsbG8='],
+    ['an http URL', 'https://example.com/sig.png'],
+  ])('rejects %s — a signature may only be a PNG data URL', async (_label, signature) => {
+    const errors = await run({ signature });
+    expect(errors.length).toBeGreaterThan(0);
+    expect(messages(errors)).toMatch(/Signature must be a PNG data URL/);
+  });
+
+  it('rejects a signature larger than the documented budget (§14/§22)', async () => {
+    const errors = await run({ signature: 'x'.repeat(MAX_SIGNATURE_DATA_URL_CHARS + 1) });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the data-URL cap inside the platform JSON body limit', () => {
+    // The cap has to be a 400 from validation, never a 413 from the body parser.
+    expect(MAX_SIGNATURE_DATA_URL_CHARS).toBeLessThan(100 * 1024);
+  });
+
+  it.each([
+    ['hostConfirmed'],
+    ['host_confirmed'],
+    ['hostConfirmedAt'],
+    ['hostConfirmedBy'],
+    ['signaturePath'],
+    ['signatureMime'],
+    ['signatureCapturedAt'],
+    ['signatureCapturedBy'],
+    ['visitorReference'],
+    ['timeOut'],
+    ['time_out'],
+    ['status'],
+    ['exitedBy'],
+    ['timeIn'],
+    ['divisionId'],
+    ['locationId'],
+    ['updatedBy'],
+  ])('rejects %s — that column is the server’s to write', async (key) => {
+    const errors = await run({ [key]: 'anything' });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('rejects a note longer than 200 characters', async () => {
+    const errors = await run({ note: 'x'.repeat(201) });
+    expect(errors.length).toBeGreaterThan(0);
   });
 });

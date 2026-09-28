@@ -45,6 +45,11 @@ describe('VisitorEntryController authorization', () => {
     ['findOne', 'visitor.entry.view'],
     ['uploadPhoto', 'visitor.entry.create'],
     ['getPhoto', 'visitor.entry.view'],
+    // Prompt #19 §19 — printing is its own capability; host confirmation reuses
+    // `visitor.entry.update` because it is literally an update of the entry.
+    ['getSlip', 'visitor.slip.print'],
+    ['getSignature', 'visitor.entry.view'],
+    ['confirmHostVisit', 'visitor.entry.update'],
   ])('%s is protected by %s', (method, permission) => {
     const handler = (VisitorEntryController.prototype as any)[method];
     expect(handler).toBeDefined();
@@ -149,6 +154,150 @@ describe('VisitorEntryController — exit / Time-Out', () => {
     await expect(controller.checkOut(ENTRY, {} as any, req)).resolves.toBeDefined();
     await expect(controller.checkOut(ENTRY, undefined as any, req)).resolves.toBeDefined();
     expect(service.checkOut).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * Prompt #19 §21 / §23 / §24 — the slip and host-confirmation endpoints.
+ *
+ * Two properties are asserted here: the endpoints exist on the existing REST
+ * convention and guard chain, and the client can never state the outcome of a
+ * confirmation — the server-owned columns are refused with a 400 before the
+ * service is reached, so a forged "confirmed at" or a forged Time-Out can never
+ * touch the state transition.
+ */
+describe('VisitorEntryController — visitor slip (Prompt #19)', () => {
+  const req = {
+    erpUser: { id: 'u1', defaultCompanyId: COMPANY },
+    allowedDivisionIds: [CCD],
+  };
+
+  it('is declared as GET entries/:id/slip and forwards the caller scope', async () => {
+    const handler: any = VisitorEntryController.prototype.getSlip;
+    expect(meta(PATH_METADATA, handler)).toBe('entries/:id/slip');
+    expect(meta(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
+  });
+
+  it('forwards the company and the effective division set to the service', async () => {
+    const slip = { visitorReference: 'VIS-2026-000042', status: 'PENDING' };
+    const service = { getSlip: jest.fn().mockResolvedValue(slip) };
+    const controller = new VisitorEntryController(service as any);
+
+    const res = await controller.getSlip(ENTRY, req);
+
+    expect(service.getSlip).toHaveBeenCalledWith(ENTRY, COMPANY, [CCD]);
+    expect(res).toEqual({ success: true, data: slip });
+  });
+
+  it('answers 404 for a visitor with no signature instead of a broken image', async () => {
+    const service = { resolveSignature: jest.fn().mockResolvedValue(null) };
+    const controller = new VisitorEntryController(service as any);
+
+    await expect(
+      controller.getSignature(ENTRY, req, {} as any),
+    ).rejects.toThrow(/no signature/i);
+  });
+
+  it('streams the signature with private, no-store headers (§22)', async () => {
+    const headers: Record<string, string> = {};
+    const res: any = { set: jest.fn((h: Record<string, string>) => Object.assign(headers, h)) };
+    // `createReadStream(...).pipe(res)` needs a writable stub.
+    res.on = jest.fn();
+    res.emit = jest.fn();
+    res.write = jest.fn();
+    res.end = jest.fn();
+    res.once = jest.fn();
+    res.removeListener = jest.fn();
+
+    const service = {
+      resolveSignature: jest.fn().mockResolvedValue({ absolutePath: __filename, mime: 'image/png' }),
+    };
+    const controller = new VisitorEntryController(service as any);
+
+    // Pipe into the stub — the assertion is on the security headers.
+    await controller.getSignature(ENTRY, req, res);
+
+    expect(headers).toMatchObject({
+      'Content-Type': 'image/png',
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+  });
+});
+
+describe('VisitorEntryController — host confirmation (Prompt #19)', () => {
+  const req = {
+    erpUser: { id: 'u1', defaultCompanyId: COMPANY },
+    allowedDivisionIds: [CCD],
+  };
+  const PNG_1PX =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  it('is declared as POST entries/:id/host-confirmation', () => {
+    const handler: any = VisitorEntryController.prototype.confirmHostVisit;
+    expect(meta(PATH_METADATA, handler)).toBe('entries/:id/host-confirmation');
+    expect(meta(METHOD_METADATA, handler)).toBe(RequestMethod.POST);
+  });
+
+  it('forwards the actor, the division set and the validated body to the service', async () => {
+    const service = { confirmHostVisit: jest.fn().mockResolvedValue({ id: ENTRY, hostConfirmed: true }) };
+    const controller = new VisitorEntryController(service as any);
+    const body = { signature: `data:image/png;base64,${PNG_1PX}`, note: 'Host received the visitor' };
+
+    const res = await controller.confirmHostVisit(ENTRY, body as any, req);
+
+    expect(service.confirmHostVisit).toHaveBeenCalledWith(ENTRY, COMPANY, 'u1', [CCD], body);
+    expect(res).toEqual({
+      success: true,
+      data: { id: ENTRY, hostConfirmed: true },
+      message: 'Host visit confirmed successfully',
+    });
+  });
+
+  it('accepts a body with no signature — the host may sign the printed slip instead', async () => {
+    const service = { confirmHostVisit: jest.fn().mockResolvedValue({ id: ENTRY }) };
+    const controller = new VisitorEntryController(service as any);
+
+    await expect(controller.confirmHostVisit(ENTRY, {} as any, req)).resolves.toBeDefined();
+    expect(service.confirmHostVisit).toHaveBeenCalledWith(ENTRY, COMPANY, 'u1', [CCD], {});
+  });
+
+  it.each([
+    // The exit-owned columns: a confirmation must never close a visit.
+    ['timeOut'],
+    ['time_out'],
+    ['status'],
+    ['exitedBy'],
+    ['divisionId'],
+    ['locationId'],
+    ['timeIn'],
+    // The confirmation-owned columns: the server records who and when.
+    ['hostConfirmed'],
+    ['host_confirmed'],
+    ['hostConfirmedAt'],
+    ['host_confirmed_by'],
+    ['hostEmployeeId'],
+    ['signaturePath'],
+    ['signature_captured_at'],
+    ['visitorReference'],
+  ])('400s when the client sends %s', async (key) => {
+    const service = { confirmHostVisit: jest.fn() };
+    const controller = new VisitorEntryController(service as any);
+
+    await expect(
+      controller.confirmHostVisit(ENTRY, { [key]: 'x' } as any, req),
+    ).rejects.toThrow(BadRequestException);
+    // Rejected before the state transition is even attempted.
+    expect(service.confirmHostVisit).not.toHaveBeenCalled();
+  });
+
+  it('names the rule the client broke, so the 400 is actionable', async () => {
+    const service = { confirmHostVisit: jest.fn() };
+    const controller = new VisitorEntryController(service as any);
+
+    await expect(
+      controller.confirmHostVisit(ENTRY, { hostConfirmedAt: 'x' } as any, req),
+    ).rejects.toThrow(/host confirmation is recorded by the server/i);
   });
 });
 

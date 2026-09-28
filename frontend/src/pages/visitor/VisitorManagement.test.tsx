@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import { App as AntApp } from 'antd';
+import dayjs from 'dayjs';
 import VisitorManagement from './VisitorManagement';
 import apiService from '../../services/api';
 
@@ -34,6 +35,63 @@ beforeAll(() => {
     unobserve() {}
     disconnect() {}
   };
+  // jsdom has no 2D canvas and never loads an <img>; the signature pad and the
+  // slip's image inlining both rely on both, so both are stubbed here. The
+  // stubs are deliberately faithful about *shape* (a context with the drawing
+  // calls, an export that returns a PNG data URL) without pretending to render.
+  //
+  // These are PLAIN functions, not `jest.fn()`: Create React App configures
+  // `resetMocks: true`, which would strip every mock implementation before each
+  // test and silently turn the canvas into `undefined`.
+  (HTMLCanvasElement.prototype as any).getContext = function getContext() {
+    return {
+      lineWidth: 1,
+      lineCap: 'butt',
+      lineJoin: 'miter',
+      strokeStyle: '#000',
+      fillStyle: '#000',
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      stroke: () => {},
+      clearRect: () => {},
+      fillRect: () => {},
+      drawImage: () => {},
+    };
+  };
+  (HTMLCanvasElement.prototype as any).toDataURL = () =>
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  // jsdom reports a zero-sized rect for every element, which the pad's
+  // coordinate mapping would treat as "not drawable".
+  (HTMLCanvasElement.prototype as any).getBoundingClientRect = () =>
+    ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 460,
+      bottom: 160,
+      width: 460,
+      height: 160,
+      toJSON: () => ({}),
+    }) as DOMRect;
+  class StubImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    naturalWidth = 0;
+    naturalHeight = 0;
+    width = 0;
+    height = 0;
+    private _src = '';
+    get src() {
+      return this._src;
+    }
+    set src(value: string) {
+      this._src = value;
+      setTimeout(() => this.onload?.(), 0);
+    }
+  }
+  (global as any).Image = StubImage;
 });
 
 // ── Fixtures (ids are real-shaped; nothing is hard-coded into the page) ─────
@@ -74,6 +132,7 @@ const LIST_ROW = {
   companyId: COMPANY,
   divisionId: CCD,
   locationId: LOC_CCD,
+  visitorReference: 'VIS-2026-000001',
   visitorName: 'Muhammad Test',
   cnic: '12345-*******-1',
   mobile: '0300-1234567',
@@ -100,11 +159,83 @@ const DETAIL_ROW = {
 
 const CREATED_ROW = { ...LIST_ROW, cnic: '12345-1234567-1' };
 
+/**
+ * Prompt #19 — what `GET /visitor/entries/:id/slip` returns.
+ *
+ * A purpose-built VIEW, deliberately shaped differently from the detail row:
+ * a masked CNIC (§6), a real company name, host department, and a
+ * `hostConfirmation` block. Crucially it carries NO `photoPath` /
+ * `signaturePath` — only the authorised endpoint URLs, so a storage path can
+ * never reach the print surface (§6/§22).
+ */
+const SLIP_PENDING = {
+  visitorReference: 'VIS-2026-000001',
+  companyName: 'PAKISTAN WIRE INDUSTRIES (PVT) LTD.',
+  visitorName: 'Muhammad Test',
+  cnic: '12345-*******-1',
+  mobile: '0300-1234567',
+  visitorCompany: 'PakWiz Trading',
+  hostName: 'Muhammad Zeeshan',
+  hostDepartment: 'Cutting & Packing',
+  division: { code: 'DIV-CCD', name: 'Control Cable Division' },
+  location: { code: 'GATE-01', name: 'Main Gate' },
+  timeIn: '2026-09-28 10:30',
+  timeOut: null,
+  status: 'PENDING',
+  hostConfirmation: {
+    confirmed: false,
+    confirmedAt: null,
+    confirmedBy: null,
+    signatureCapturedAt: null,
+    signatureCapturedBy: null,
+    hostIdentityVerified: false,
+  },
+  hasPhoto: true,
+  photoUrl: `/visitor/entries/${ENTRY}/photo`,
+  hasSignature: false,
+  signatureUrl: null,
+  createdBy: 'u1000000-0000-0000-0000-000000000001',
+  createdAt: '2026-09-28 10:30',
+};
+
+/** The same slip after the host confirmed and the visit was closed. */
+const SLIP_CONFIRMED = {
+  ...SLIP_PENDING,
+  status: 'COMPLETED',
+  timeOut: '2026-09-28 13:40',
+  hostConfirmation: {
+    confirmed: true,
+    confirmedAt: '2026-09-28 11:05',
+    confirmedBy: 'u1000000-0000-0000-0000-000000000001',
+    signatureCapturedAt: '2026-09-28 11:05',
+    signatureCapturedBy: 'u1000000-0000-0000-0000-000000000001',
+    hostIdentityVerified: false,
+  },
+  hasSignature: true,
+  signatureUrl: `/visitor/entries/${ENTRY}/signature`,
+};
+
+/** A visitor record after the host confirmed — still PENDING, still on site. */
+const HOST_CONFIRMED_ROW = {
+  ...LIST_ROW,
+  hostConfirmed: true,
+  hostConfirmedAt: '2026-09-28T11:05:00.000Z',
+  hostConfirmedBy: 'u1000000-0000-0000-0000-000000000001',
+  hasSignature: true,
+  signatureUrl: `/visitor/entries/${ENTRY}/signature`,
+  // §28 — the confirmation changed NONE of these.
+  timeOut: null,
+  status: 'PENDING',
+  onSite: true,
+};
+
 const ALL_PERMISSIONS = [
   'visitor.entry.view',
   'visitor.entry.create',
   // Prompt #18 §21 — the exit is its own permission, in the same family.
   'visitor.entry.update',
+  // Prompt #19 §19 — printing the physical document is a separate capability.
+  'visitor.slip.print',
   'location.view',
   'location.create',
   'location.update',
@@ -142,6 +273,8 @@ function mockApi({ listReject }: { listReject?: any } = {}) {
         ? Promise.reject(listReject)
         : Promise.resolve({ data: [LIST_ROW], total: 1 });
     }
+    // Slip first: it also starts with '/visitor/entries/'.
+    if (u.endsWith('/slip')) return Promise.resolve({ data: SLIP_PENDING });
     if (u.startsWith('/visitor/entries/')) return Promise.resolve({ data: DETAIL_ROW });
     if (u === '/divisions') return Promise.resolve({ data: ALL_DIVISIONS });
     if (u === '/locations') {
@@ -169,6 +302,13 @@ async function renderPage() {
 }
 
 const form = () => screen.getByTestId('visitor-form');
+
+/**
+ * The page renders stored ISO timestamps in the browser's local zone, so an
+ * assertion about a *time* has to be computed the same way instead of hard-coded
+ * — otherwise the test only passes on a UTC machine.
+ */
+const asDisplayed = (iso: string) => dayjs(iso).format('DD-MMM-YYYY HH:mm');
 
 /**
  * Resolve a Form.Item by its label text — tolerant of the required asterisk
@@ -389,7 +529,7 @@ describe('VisitorManagement', () => {
     expect(within(created).queryByRole('combobox')).toBeNull();
     expect(within(created).queryByRole('spinbutton')).toBeNull();
     expect(within(created).getByText('Time-Out')).toBeInTheDocument();
-    expect(within(created).getByText('—')).toBeInTheDocument();
+    expect(within(created).getByTestId('created-time-out')).toHaveTextContent('—');
     // The list is refreshed with the new entry.
     await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith('/visitor/entries', expect.anything()));
   });
@@ -906,6 +1046,415 @@ describe('VisitorManagement', () => {
       // §20 — a closed visit offers no Time Out action anywhere, detail included.
       expect(screen.queryByTestId('visitor-detail-exit')).not.toBeInTheDocument();
       expect(screen.queryByTestId(`visitor-exit-${EXITED_ID}`)).not.toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // PROMPT #19 — VISITOR SLIP, PRINT & HOST CONFIRMATION / SIGNATURE
+  // ==========================================================================
+  //   1  the Print Slip action is offered to a holder of visitor.slip.print
+  //   2  it is hidden from a user without it (UX only — the API is the gate)
+  //   3  the preview shows the visitor information the slip is required to carry
+  //   4  the preview is built from the authorised slip view, not the list row
+  //   5  opening/printing the preview mutates nothing (§9 / §25)
+  //   6  the photo is inlined from the authorised endpoint, never a public URL
+  //   7  a photo that cannot be loaded never blocks the printout (§26)
+  //   8  a hostile visitor name cannot inject markup into the slip (§30)
+  //   9  the physical signature area is ALWAYS on the printed slip (§13)
+  //  10  the digital signature is shown on the slip when one was captured
+  //  11  the host confirmation action is offered from the detail (§15)
+  //  12  the confirmation dialog sends only the signature and the note (§17)
+  //  13  the UI reflects the confirmation, with actor and moment (§16/§24)
+  //  14  the confirmation does NOT check the visitor out (§28)
+  //  15  a completed visitor stays printable and shows the real Time-Out (§29)
+  //  16  the created-visitor success offers the slip (re-print path, §25)
+  //  17  a rejected confirmation is reported without a false success
+  // ==========================================================================
+  describe('Prompt #19 — slip, print & host confirmation', () => {
+    /** Every write the page can possibly make, so "mutates nothing" is provable. */
+    const writeCalls = () =>
+      [
+        ...apiMock.post.mock.calls,
+        ...apiMock.patch.mock.calls,
+        ...apiMock.put.mock.calls,
+        ...apiMock.upload.mock.calls,
+        ...apiMock.delete.mock.calls,
+      ] as any[];
+
+    const listRows = (rows: any[]) => (url: any, params?: any) => {
+      const u = String(url);
+      if (u === '/visitor/entries') return Promise.resolve({ data: rows, total: rows.length });
+      if (u.endsWith('/slip')) return Promise.resolve({ data: SLIP_PENDING });
+      if (u.startsWith('/visitor/entries/')) return Promise.resolve({ data: rows[0] ?? DETAIL_ROW });
+      if (u === '/divisions') return Promise.resolve({ data: ALL_DIVISIONS });
+      if (u === '/locations') {
+        const key = String(params?.divisionId || '');
+        return Promise.resolve({ data: LOCATIONS[key] ?? [] });
+      }
+      if (u === '/visitor/hosts') return Promise.resolve({ data: HOSTS });
+      return Promise.resolve({ data: [] });
+    };
+
+    const COMPLETED_ROW = {
+      ...LIST_ROW,
+      status: 'COMPLETED',
+      timeOut: '2026-09-28T13:40:00.000Z',
+      onSite: false,
+      hostConfirmed: true,
+      hostConfirmedAt: '2026-09-28T11:05:00.000Z',
+      hostConfirmedBy: 'u1000000-0000-0000-0000-000000000001',
+      exitedBy: 'u1000000-0000-0000-0000-000000000001',
+    };
+
+    async function openSlipPreview(rowId: string = ENTRY) {
+      fireEvent.click(await screen.findByTestId(`visitor-slip-${rowId}`, {}, { timeout: 15000 }));
+      const canvas = await screen.findByTestId(
+        'visitor-slip-preview-canvas',
+        {},
+        { timeout: 15000 },
+      );
+      return canvas;
+    }
+
+    beforeEach(() => {
+      seedUser(); // ALL_PERMISSIONS now includes visitor.slip.print
+      apiMock.get.mockImplementation(listRows([{ ...LIST_ROW, onSite: true }]));
+      apiMock.getFile.mockResolvedValue(new Blob(['photo'], { type: 'image/jpeg' }));
+      apiMock.post.mockReset();
+      apiMock.post.mockResolvedValue({ data: HOST_CONFIRMED_ROW });
+      apiMock.put.mockReset();
+      apiMock.delete.mockReset();
+    });
+
+    // ── 1 / 2 ──────────────────────────────────────────────────────────────
+    it('1. offers Print Slip to a holder of visitor.slip.print', async () => {
+      await renderPage();
+      expect(await screen.findByTestId(`visitor-slip-${ENTRY}`, {}, { timeout: 15000 })).toBeInTheDocument();
+    });
+
+    it('2. hides Print Slip from a user without visitor.slip.print, keeping view/exit', async () => {
+      seedUser(['visitor.entry.view', 'visitor.entry.update']);
+      apiMock.get.mockImplementation(listRows([{ ...LIST_ROW, onSite: true }]));
+
+      await renderPage();
+      expect(await screen.findByTestId(`visitor-view-${ENTRY}`, {}, { timeout: 15000 })).toBeInTheDocument();
+      // §19/§23 — UX only; the slip endpoint stays server-guarded.
+      expect(screen.queryByTestId(`visitor-slip-${ENTRY}`)).not.toBeInTheDocument();
+      expect(screen.getByTestId(`visitor-exit-${ENTRY}`)).toBeInTheDocument();
+    });
+
+    // ── 3 / 4 ──────────────────────────────────────────────────────────────
+    it('3. previews the visitor information the slip has to carry, by reference', async () => {
+      await renderPage();
+      const slip = await openSlipPreview();
+
+      // §3/§4 — every fact the brief requires is on the document.
+      for (const text of [
+        'VIS-2026-000001', // server-generated reference, not a raw UUID
+        'Muhammad Test',
+        '12345-*******-1', // masked CNIC (§6)
+        '0300-1234567',
+        'PakWiz Trading',
+        'Muhammad Zeeshan',
+        'Cutting & Packing',
+        'Control Cable Division',
+        'Main Gate',
+        asDisplayed(SLIP_PENDING.timeIn), // Time-In, as the slip prints it
+        'PAKISTAN WIRE INDUSTRIES (PVT) LTD.',
+      ]) {
+        expect(within(slip).getByText(text)).toBeInTheDocument();
+      }
+      // §27 — a pending visit prints "Pending" for the Time-Out, never a blank.
+      expect(within(slip).getByText('Time-Out')).toBeInTheDocument();
+      expect(within(slip).getByText('Pending')).toBeInTheDocument();
+      // The status is shown twice (reference bar + visit block) — both real.
+      expect(within(slip).getAllByText('PENDING').length).toBeGreaterThanOrEqual(2);
+      // The raw record id is never the human identifier on the document.
+      expect(slip.textContent).not.toContain(ENTRY);
+    });
+
+    it('4. builds the slip from the authorised slip endpoint, never the list row', async () => {
+      await renderPage();
+      const slip = await openSlipPreview();
+
+      expect(apiMock.get).toHaveBeenCalledWith(`/visitor/entries/${ENTRY}/slip`);
+      // The list row is masked and carries no host department; the slip does.
+      expect(within(slip).getByText('Cutting & Packing')).toBeInTheDocument();
+      // §6/§22 — the payload must never expose a storage path.
+      expect(JSON.stringify(SLIP_PENDING)).not.toMatch(/photoPath|signaturePath/);
+    });
+
+    // ── 5 ─────────────────────────────────────────────────────────────────
+    it('5. opening, previewing and printing the slip send no write at all', async () => {
+      await renderPage();
+      await openSlipPreview();
+
+      // §9/§25 — a print is a read.
+      expect(writeCalls()).toHaveLength(0);
+
+      // The Print button hands the SAME payload to the existing print pipeline.
+      fireEvent.click(screen.getByTestId('visitor-slip-preview-print'));
+      expect(writeCalls()).toHaveLength(0);
+
+      // And cancelling the preview writes nothing either.
+      fireEvent.click(screen.getByTestId('visitor-slip-preview-cancel'));
+      await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith('/visitor/entries', expect.anything()));
+      expect(writeCalls()).toHaveLength(0);
+    });
+
+    // ── 6 / 7 ──────────────────────────────────────────────────────────────
+    it('6. inlines the photo from the authorised endpoint instead of linking a URL', async () => {
+      await renderPage();
+      const slip = await openSlipPreview();
+
+      // The image only exists once the authorised fetch has been inlined.
+      const image = (await within(slip).findByAltText('Visitor photo')) as HTMLImageElement;
+      expect(apiMock.getFile).toHaveBeenCalledWith(`/visitor/entries/${ENTRY}/photo`);
+      // A data URL, so the private storage path never becomes a fetchable URL.
+      expect(image.getAttribute('src')).toMatch(/^data:image\//);
+      expect(image.getAttribute('src')).not.toContain(ENTRY);
+    });
+
+    it('7. prints the slip anyway when the photo cannot be loaded', async () => {
+      apiMock.getFile.mockRejectedValue({ response: { status: 403 } });
+      await renderPage();
+
+      const slip = await openSlipPreview();
+      await screen.findByTestId('visitor-slip-preview-image-warning', {}, { timeout: 15000 });
+      // §26 — the failure is reported, never hidden, and never fatal.
+      expect(within(slip).queryByAltText('Visitor photo')).not.toBeInTheDocument();
+      expect(within(slip).getByTestId('visitor-slip-photo-placeholder')).toBeInTheDocument();
+      // The document is still complete and still printable.
+      expect(within(slip).getByText('VIS-2026-000001')).toBeInTheDocument();
+      expect(screen.getByTestId('visitor-slip-preview-print')).not.toBeDisabled();
+    });
+
+    // ── 8 ─────────────────────────────────────────────────────────────────
+    it('8. escapes a hostile visitor name instead of injecting markup into the slip', async () => {
+      const hostile = '<img src=x onerror="window.__pwned=1">';
+      apiMock.get.mockImplementation((url: any, params?: any) => {
+        const u = String(url);
+        if (u.endsWith('/slip')) {
+          return Promise.resolve({ data: { ...SLIP_PENDING, visitorName: hostile } });
+        }
+        return listRows([{ ...LIST_ROW, visitorName: hostile, onSite: true }])(url, params);
+      });
+
+      await renderPage();
+      const slip = await openSlipPreview();
+
+      // §30 — the value is shown as text; no element is created from it.
+      expect(within(slip).getByText(hostile)).toBeInTheDocument();
+      expect((window as any).__pwned).toBeUndefined();
+      // The only image on the slip is the real photo, not an injected one.
+      expect(within(slip).getAllByAltText('Visitor photo')).toHaveLength(1);
+    });
+
+    // ── 9 / 10 ─────────────────────────────────────────────────────────────
+    it('9. always prints a physical signature area, digital signature or not', async () => {
+      await renderPage();
+      const slip = await openSlipPreview();
+
+      // §13 — the physical box exists on an unconfirmed, unsigned slip.
+      expect(within(slip).getByText('Host Signature')).toBeInTheDocument();
+      expect(within(slip).getByText('HOST CONFIRMATION')).toBeInTheDocument();
+      expect(within(slip).getAllByText('Host Name').length).toBeGreaterThanOrEqual(1);
+      expect(within(slip).getByText('Date / Time')).toBeInTheDocument();
+      expect(within(slip).getByText('Security / Reception Use')).toBeInTheDocument();
+      expect(within(slip).getAllByText('PENDING').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('10. shows the captured digital signature on the slip when one exists', async () => {
+      apiMock.get.mockImplementation((url: any, params?: any) => {
+        const u = String(url);
+        if (u.endsWith('/slip')) return Promise.resolve({ data: SLIP_CONFIRMED });
+        return listRows([{ ...COMPLETED_ROW }])(url, params);
+      });
+      await renderPage();
+      const slip = await openSlipPreview();
+
+      await waitFor(() => expect(apiMock.getFile).toHaveBeenCalledWith(`/visitor/entries/${ENTRY}/signature`));
+      const signature = within(slip).getByAltText('Host signature') as HTMLImageElement;
+      expect(signature.getAttribute('src')).toMatch(/^data:image\//);
+      // §17 — the slip states that the host's identity was NOT verified.
+      expect(within(slip).getByText(/host identity not verified/)).toBeInTheDocument();
+      // The physical area is still there alongside the digital one.
+      expect(within(slip).getAllByText('Host Name').length).toBeGreaterThanOrEqual(2);
+    });
+
+    // ── 11 / 12 ────────────────────────────────────────────────────────────
+    it('11. offers Confirm Host Visit from the detail, with an optional signature pad', async () => {
+      await renderPage();
+      fireEvent.click(await screen.findByTestId(`visitor-view-${ENTRY}`, {}, { timeout: 15000 }));
+      const detail = await screen.findByTestId('visitor-detail', {}, { timeout: 15000 });
+
+      expect(within(detail).getByTestId('detail-visitor-reference')).toHaveTextContent('VIS-2026-000001');
+      expect(within(detail).getByTestId('detail-host-pending')).toHaveTextContent('Pending');
+      expect(within(detail).getByTestId('detail-host-identity-note')).toHaveTextContent(
+        'The system does not verify that this user is the selected host.',
+      );
+
+      fireEvent.click(screen.getByTestId('visitor-detail-confirm-host'));
+      const body = await screen.findByTestId('visitor-host-body', {}, { timeout: 15000 });
+      expect(within(body).getByTestId('visitor-host-signature')).toBeInTheDocument();
+      // §14 — the pad offers draw / clear / save and is explicitly optional.
+      expect(within(body).getByTestId('visitor-host-signature-canvas')).toBeInTheDocument();
+      expect(within(body).getByTestId('visitor-host-signature-clear')).toBeInTheDocument();
+      expect(within(body).getByTestId('visitor-host-signature-save')).toBeInTheDocument();
+      expect(within(body).getByTestId('visitor-host-signature-status')).toHaveTextContent('No signature captured');
+      // §28 — the dialog says out loud that this is not a departure.
+      expect(screen.getByTestId('visitor-host-exit-note')).toHaveTextContent(
+        'does NOT record the visitor',
+      );
+      // Opening the dialog alone sends nothing.
+      expect(apiMock.post).not.toHaveBeenCalled();
+    });
+
+    it('12. sends only the optional signature and note to the confirmation endpoint', async () => {
+      await renderPage();
+      fireEvent.click(await screen.findByTestId(`visitor-view-${ENTRY}`, {}, { timeout: 15000 }));
+      await screen.findByTestId('visitor-detail', {}, { timeout: 15000 });
+      fireEvent.click(screen.getByTestId('visitor-detail-confirm-host'));
+      const body = await screen.findByTestId('visitor-host-body', {}, { timeout: 15000 });
+
+      // Sign on the pad, then add a note.
+      const pad = within(body).getByTestId('visitor-host-signature-canvas');
+      fireEvent.pointerDown(pad, { clientX: 20, clientY: 40, pointerId: 1 });
+      fireEvent.pointerMove(pad, { clientX: 140, clientY: 90, pointerId: 1 });
+      fireEvent.pointerUp(pad, { clientX: 220, clientY: 60, pointerId: 1 });
+      fireEvent.change(within(body).getByTestId('visitor-host-note'), {
+        target: { value: 'Host received the visitor' },
+      });
+
+      fireEvent.click(screen.getByTestId('visitor-host-confirm'));
+
+      await waitFor(() => expect(apiMock.post).toHaveBeenCalledTimes(1), { timeout: 15000 });
+      const [url, payload] = apiMock.post.mock.calls[0] as [string, any];
+      expect(url).toBe(`/visitor/entries/${ENTRY}/host-confirmation`);
+      expect(payload.signature).toMatch(/^data:image\/png;base64,/);
+      expect(payload.note).toBe('Host received the visitor');
+      // §17/§28 — nothing the client is not allowed to state (§ backend 400s).
+      for (const key of [
+        'hostConfirmed',
+        'host_confirmed',
+        'hostConfirmedAt',
+        'host_confirmed_at',
+        'hostConfirmedBy',
+        'host_confirmed_by',
+        'timeOut',
+        'time_out',
+        'status',
+        'timeIn',
+        'divisionId',
+        'locationId',
+        'signaturePath',
+      ]) {
+        expect(payload).not.toHaveProperty(key);
+      }
+    });
+
+    // ── 13 / 14 ────────────────────────────────────────────────────────────
+    it('13+14. shows the confirmation with its actor while the visit stays PENDING and on site', async () => {
+      await renderPage();
+      fireEvent.click(await screen.findByTestId(`visitor-view-${ENTRY}`, {}, { timeout: 15000 }));
+      const detail = await screen.findByTestId('visitor-detail', {}, { timeout: 15000 });
+      fireEvent.click(screen.getByTestId('visitor-detail-confirm-host'));
+      await screen.findByTestId('visitor-host-body', {}, { timeout: 15000 });
+      fireEvent.click(screen.getByTestId('visitor-host-confirm'));
+
+      await waitFor(() => expect(apiMock.post).toHaveBeenCalled(), { timeout: 15000 });
+      expect(await screen.findByText('Host visit confirmed', {}, { timeout: 15000 })).toBeInTheDocument();
+
+      // §16 — the confirmation is now visible in the list, with actor and moment.
+      await waitFor(() =>
+        expect(screen.getByTestId(`visitor-host-confirmed-${ENTRY}`)).toHaveTextContent('Confirmed'),
+      );
+      // §28 — and it changed NONE of the departure facts.
+      expect(screen.getByTestId('visitor-status-PENDING')).toHaveTextContent('PENDING');
+      expect(screen.getByTestId(`visitor-timeout-pending-${ENTRY}`)).toHaveTextContent('Pending');
+      expect(within(detail).getByTestId('detail-host-confirmed')).toBeInTheDocument();
+      expect(within(detail).getByTestId('detail-host-confirmed-by')).toHaveTextContent(
+        'u1000000-0000-0000-0000-000000000001',
+      );
+      expect(within(detail).getByTestId('detail-host-confirmed-at')).toHaveTextContent(
+        asDisplayed(HOST_CONFIRMED_ROW.hostConfirmedAt),
+      );
+      expect(within(detail).getByTestId('detail-signature-status')).toHaveTextContent('Captured');
+      expect(within(detail).getByTestId('detail-time-out-pending')).toHaveTextContent('Pending');
+      expect(within(detail).getByText('PENDING')).toBeInTheDocument();
+      // The action is gone: a second confirmation would overwrite the first.
+      expect(screen.queryByTestId('visitor-detail-confirm-host')).not.toBeInTheDocument();
+    });
+
+    // ── 15 ────────────────────────────────────────────────────────────────
+    it('15. keeps a completed visitor printable and re-printable from the detail', async () => {
+      apiMock.get.mockImplementation((url: any, params?: any) => {
+        const u = String(url);
+        if (u.endsWith('/slip')) return Promise.resolve({ data: SLIP_CONFIRMED });
+        return listRows([{ ...COMPLETED_ROW }])(url, params);
+      });
+
+      await renderPage();
+      // §29 — a closed visit is still printable from the list…
+      const slip = await openSlipPreview();
+      expect(within(slip).getAllByText('COMPLETED').length).toBeGreaterThanOrEqual(1);
+      expect(within(slip).getByText(asDisplayed(SLIP_CONFIRMED.timeOut))).toBeInTheDocument();
+      expect(within(slip).getByText('CONFIRMED')).toBeInTheDocument();
+      // No blank/placeholder state: the Time-Out is the real one, not "Pending".
+      expect(within(slip).queryByText('Pending')).not.toBeInTheDocument();
+
+      // …and from the detail, which is where a re-print normally happens.
+      fireEvent.click(screen.getByTestId('visitor-slip-preview-cancel'));
+      fireEvent.click(await screen.findByTestId(`visitor-view-${ENTRY}`, {}, { timeout: 15000 }));
+      const detail = await screen.findByTestId('visitor-detail', {}, { timeout: 15000 });
+      expect(within(detail).getByTestId('detail-time-out')).toHaveTextContent(
+        asDisplayed(COMPLETED_ROW.timeOut),
+      );
+      expect(screen.getByTestId('visitor-detail-print')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('visitor-detail-print'));
+      expect(await screen.findByTestId('visitor-slip-preview-canvas', {}, { timeout: 15000 })).toBeInTheDocument();
+      expect(writeCalls()).toHaveLength(0);
+    });
+
+    // ── 16 ────────────────────────────────────────────────────────────────
+    it('16. offers the slip right after registration, without creating a second record', async () => {
+      await renderPage();
+      await openCreate();
+      await fillCreateForm();
+      fireEvent.click(screen.getByTestId('new-visitor-submit'));
+
+      const created = await screen.findByTestId('visitor-created', {}, { timeout: 15000 });
+      // §5 — the reference is shown to the officer who just issued the slip.
+      expect(within(created).getByTestId('created-visitor-reference')).toHaveTextContent('VIS-2026-000001');
+      expect(within(created).getByTestId('created-status')).toHaveTextContent('PENDING');
+      expect(within(created).getByTestId('created-time-out')).toHaveTextContent('—');
+
+      fireEvent.click(within(created).getByTestId('created-print-slip'));
+      expect(await screen.findByTestId('visitor-slip-preview-canvas', {}, { timeout: 15000 })).toBeInTheDocument();
+      // §10 — re-printing is never a create.
+      expect(apiMock.post).toHaveBeenCalledTimes(1);
+    });
+
+    // ── 17 ────────────────────────────────────────────────────────────────
+    it('17. reports a rejected confirmation without claiming the visit was confirmed', async () => {
+      apiMock.post.mockRejectedValue({
+        response: { status: 409, data: { message: 'Host visit has already been confirmed.' } },
+      });
+      await renderPage();
+      fireEvent.click(await screen.findByTestId(`visitor-view-${ENTRY}`, {}, { timeout: 15000 }));
+      await screen.findByTestId('visitor-detail', {}, { timeout: 15000 });
+      fireEvent.click(screen.getByTestId('visitor-detail-confirm-host'));
+      await screen.findByTestId('visitor-host-body', {}, { timeout: 15000 });
+      fireEvent.click(screen.getByTestId('visitor-host-confirm'));
+
+      expect(
+        await screen.findByText('Host visit has already been confirmed.', {}, { timeout: 15000 }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/^Host visit confirmed$/)).not.toBeInTheDocument();
+      // The truth is re-read instead of guessed.
+      await waitFor(() =>
+        expect(apiMock.get).toHaveBeenCalledWith('/visitor/entries', expect.anything()),
+      );
     });
   });
 });

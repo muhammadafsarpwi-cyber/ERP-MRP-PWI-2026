@@ -89,6 +89,61 @@ export class CreateVisitorEntryDto {
  */
 export type ExitVisitorEntryBody = Record<string, unknown>;
 
+/**
+ * Host-signature size budget (Prompt #19 §14/§22).
+ *
+ * WHY THE CAP IS SMALL
+ *   A signature is a thin line drawing, never a photograph: a signature-pad PNG
+ *   is normally 5–20 KB. `MAX_SIGNATURE_BYTES` is the decoded byte cap and
+ *   `MAX_SIGNATURE_DATA_URL_CHARS` the cap on the data URL the client may send.
+ *
+ *   The cap is deliberately below the platform's default JSON body limit
+ *   (Express `json()` = 100 KB), so an oversized signature is refused with a
+ *   clean, explained 400 from validation instead of an opaque 413 from the body
+ *   parser — and the global parser limit never has to be widened for the whole
+ *   ERP just to accept a signature.
+ */
+export const MAX_SIGNATURE_BYTES = 60 * 1024;
+export const MAX_SIGNATURE_DATA_URL_CHARS = 85_000;
+
+/**
+ * Host confirmation payload (Prompt #19 §12/§14).
+ *
+ * Deliberately ABSENT — the same server-owned rule as the exit endpoint:
+ *   hostConfirmed / hostConfirmedAt / hostConfirmedBy  always written server-side
+ *   timeOut / status / timeIn / exitedBy               never touched here (§28)
+ *   signaturePath / signatureMime / signatureCapturedAt/By  derived server-side
+ *   companyId / divisionId / locationId / hostEmployeeId    never changed
+ *
+ * `signature` is OPTIONAL because the host may sign the physical slip instead
+ * (§13/§14). When present it must be a PNG data URL produced by the frontend
+ * signature pad; the service decodes it, checks the size and stores it as a
+ * PRIVATE file under STORAGE_PATH — the base64 string itself is never persisted
+ * in the visitor row (§22).
+ */
+export class ConfirmHostVisitDto {
+  @ApiPropertyOptional({
+    description:
+      'Optional digital signature of the host as a PNG data URL. Stored as a private file, never as base64 in the visitor row.',
+    example: 'data:image/png;base64,iVBORw0KGgo...',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(MAX_SIGNATURE_DATA_URL_CHARS)
+  @Matches(/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/, {
+    message: 'Signature must be a PNG data URL (data:image/png;base64,...)',
+  })
+  signature?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional free-text note recorded in the audit log (never printed on the slip).',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  note?: string;
+}
+
 /** Whitelisted query string for GET /visitor/entries (§13 list + filter/pagination). */
 export class ListVisitorEntriesQueryDto {
   @ApiPropertyOptional({ description: 'Page number', default: 1 })
@@ -140,8 +195,7 @@ export class ListVisitorEntriesQueryDto {
 }
 
 /** Whitelisted query string for GET /visitor/hosts (§10 host lookup). */
-export class HostLookupQueryDto {
-  @ApiPropertyOptional({ description: 'Search by name or employee code' })
+export class HostLookupQueryDto {  @ApiPropertyOptional({ description: 'Search by name or employee code' })
   @IsString()
   @IsOptional()
   @MaxLength(100)

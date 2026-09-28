@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  App, Button, Card, Col, Descriptions, Empty, Form, Input, Modal, Row, Select,
-  Space, Spin, Switch, Table, Tag, Typography,
+  Alert, App, Button, Card, Col, Descriptions, Empty, Form, Input, Modal, Row,
+  Select, Space, Spin, Switch, Table, Tag, Typography,
 } from 'antd';
 import {
+  CheckCircleOutlined,
   ClockCircleOutlined,
   EyeOutlined,
   PlusOutlined,
+  PrinterOutlined,
   ReloadOutlined,
   SearchOutlined,
   UserOutlined,
@@ -15,8 +17,9 @@ import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
-import { DivisionSelect, PageHeader, PhotoCapture } from '../../components/shared';
+import { DivisionSelect, PageHeader, PhotoCapture, SignaturePad } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
+import VisitorSlipPreview from './VisitorSlipPreview';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface DivisionRow {
@@ -44,6 +47,8 @@ interface HostRow {
 
 interface VisitorRow {
   id: string;
+  /** Server-generated reception reference, printed on the slip (Prompt #19). */
+  visitorReference?: string | null;
   visitorName: string;
   cnic: string | null;
   mobile: string | null;
@@ -61,10 +66,19 @@ interface VisitorRow {
   onSite?: boolean;
   /** Who recorded the Time-Out (Prompt #18) — null until the visit is closed. */
   exitedBy?: string | null;
+  /** Host confirmation (Prompt #19) — independent of the visit status (§28). */
+  hostConfirmed?: boolean;
+  hostConfirmedAt?: string | null;
+  hostConfirmedBy?: string | null;
+  hasSignature?: boolean;
   hasPhoto: boolean;
   photoUrl?: string | null;
+  signatureUrl?: string | null;
+  signatureCapturedAt?: string | null;
+  signatureCapturedBy?: string | null;
   createdAt: string;
   createdBy: string | null;
+  updatedAt?: string | null;
 }
 
 const STATUS_TAG_COLOR: Record<string, string> = {
@@ -112,6 +126,10 @@ export function VisitorManagement() {
   // Prompt #18 §21 — same permission family as the rest of the Visitor module.
   // UX only: the backend rejects the request regardless.
   const canExit = can('visitor.entry.update');
+  // Prompt #19 §19 — printing the physical document is its own capability, so it
+  // has its own permission (`visitor.slip.print`) and a role may hold one
+  // without the other. A hidden button is UX only; the slip endpoint is guarded.
+  const canPrintSlip = can('visitor.slip.print');
 
   // ── List state ─────────────────────────────────────────────────────────
   const [rows, setRows] = useState<VisitorRow[]>([]);
@@ -147,6 +165,14 @@ export function VisitorManagement() {
   // ── Exit confirmation (Prompt #18 §14) ─────────────────────────────────
   const [exitTarget, setExitTarget] = useState<VisitorRow | null>(null);
   const [exiting, setExiting] = useState(false);
+
+  // ── Slip + host confirmation (Prompt #19) ───────────────────────────────
+  /** The visitor whose slip preview is open; opening it never mutates data. */
+  const [slipTarget, setSlipTarget] = useState<VisitorRow | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<VisitorRow | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [signature, setSignature] = useState<string | null>(null);
+  const [confirmNote, setConfirmNote] = useState<string>('');
 
   const divisionId = Form.useWatch('divisionId', form);
   const hostSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -453,9 +479,120 @@ export function VisitorManagement() {
     }
   }, [exitTarget, detail, statusFilter, todayOnly, load, openDetail, message]);
 
+  // ── Slip print / re-print (Prompt #19 §9/§10/§11) ──────────────────────
+  /**
+   * Opening the preview performs NO write: `VisitorSlipPreview` only issues GET
+   * requests for the slip and its images (§9). Printing is also allowed for a
+   * COMPLETED visitor — a closed visit stays printable and then shows the real
+   * Time-In + Time-Out (§29).
+   */
+  const openSlip = useCallback(
+    (row: VisitorRow | null) => {
+      if (!row) return;
+      if (!canPrintSlip) {
+        message.error('You do not have permission to print a visitor slip.');
+        return;
+      }
+      setSlipTarget(row);
+    },
+    [canPrintSlip, message],
+  );
+
+  // ── Host confirmation (Prompt #19 §12/§15/§16) ────────────────────────
+  /**
+   * Open the confirmation dialog. Nothing is sent until the user confirms — the
+   * dialog itself never mutates state.
+   */
+  const askHostConfirmation = useCallback(
+    (row: VisitorRow) => {
+      if (!canExit) {
+        message.error('You do not have permission to record a host confirmation.');
+        return;
+      }
+      // §16 — the action disappears once the host has confirmed; a second
+      // confirmation would overwrite the first `confirmed_at`.
+      if (row.hostConfirmed) return;
+      setSignature(null);
+      setConfirmNote('');
+      setConfirmTarget(row);
+    },
+    [canExit, message],
+  );
+
+  const closeHostConfirmation = useCallback(() => {
+    if (confirming) return; // never leave the dialog while the request is in flight
+    setConfirmTarget(null);
+    setSignature(null);
+    setConfirmNote('');
+  }, [confirming]);
+
+  /**
+   * Confirm → POST .../host-confirmation. The client sends ONLY the optional
+   * signature and note: `host_confirmed*` and every Time-Out field are the
+   * server's (§17, §28) and a payload that tries to state them is a 400.
+   *
+   * The response is the server's own updated record, so the row and the detail
+   * can only ever show a confirmation the backend actually recorded.
+   */
+  const confirmHost = useCallback(async () => {
+    if (!confirmTarget) return;
+    setConfirming(true);
+    try {
+      const payload: Record<string, unknown> = {};
+      if (signature) payload.signature = signature;
+      if (confirmNote.trim()) payload.note = confirmNote.trim();
+
+      const res = await apiService.post<{ data?: VisitorRow }>(
+        `/visitor/entries/${confirmTarget.id}/host-confirmation`,
+        payload,
+      );
+      const updated = res?.data ?? null;
+      setConfirmTarget(null);
+      setSignature(null);
+      setConfirmNote('');
+      message.success('Host visit confirmed');
+      if (updated) {
+        setRows((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
+        setDetail((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+      }
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 409) {
+        // Someone else confirmed first, or a double-click. Re-read the truth.
+        message.error(formatApiError(err, 'Host visit has already been confirmed'));
+        setConfirmTarget(null);
+        void load();
+        if (detail?.id === confirmTarget.id) void openDetail(confirmTarget);
+      } else if (status === 403) {
+        message.error(formatApiError(err, 'You do not have permission to record this host confirmation'));
+        setConfirmTarget(null);
+      } else {
+        message.error(formatApiError(err, 'Could not confirm the host visit'));
+      }
+    } finally {
+      setConfirming(false);
+    }
+  }, [confirmTarget, signature, confirmNote, detail, load, openDetail, message]);
+
   // ── Columns ────────────────────────────────────────────────────────────
   const columns: ColumnsType<VisitorRow> = useMemo(
     () => [
+      {
+        // §5 — the reception reference is what security quotes, so it leads the
+        // row rather than being buried at the end.
+        title: 'Visitor ID',
+        dataIndex: 'visitorReference',
+        key: 'visitorReference',
+        width: 150,
+        render: (v: string | null, row) =>
+          v ? (
+            <Typography.Text code data-testid={`visitor-ref-${row.id}`}>
+              {v}
+            </Typography.Text>
+          ) : (
+            '—'
+          ),
+      },
       {
         title: 'Visitor Name',
         dataIndex: 'visitorName',
@@ -535,11 +672,36 @@ export function VisitorManagement() {
         ),
       },
       {
+        // §16 — the host confirmation is its own column so a still-on-site
+        // visitor can be seen as "host confirmed, not yet departed".
+        title: 'Host Confirmation',
+        key: 'hostConfirmed',
+        width: 160,
+        render: (_, row) =>
+          row.hostConfirmed ? (
+            <Tag color="blue" data-testid={`visitor-host-confirmed-${row.id}`}>
+              Confirmed
+            </Tag>
+          ) : (
+            <Tag data-testid={`visitor-host-pending-${row.id}`}>Pending</Tag>
+          ),
+      },
+      {
         title: 'Actions',
         key: 'actions',
-        width: canExit ? 190 : 90,
+        width: canExit || canPrintSlip ? 260 : 90,
         render: (_, row) => (
           <Space size={4}>
+            {canPrintSlip && (
+              <Button
+                size="small"
+                icon={<PrinterOutlined />}
+                onClick={() => openSlip(row)}
+                data-testid={`visitor-slip-${row.id}`}
+              >
+                Print Slip
+              </Button>
+            )}
             {canExit && isOnSite(row) && (
               <Button
                 size="small"
@@ -562,7 +724,7 @@ export function VisitorManagement() {
         ),
       },
     ],
-    [canExit, askExit, openDetail],
+    [canExit, canPrintSlip, askExit, openSlip, openDetail],
   );
 
   const statusOptions = [
@@ -692,6 +854,9 @@ export function VisitorManagement() {
               Visitor registered successfully.
             </Typography.Paragraph>
             <Descriptions bordered size="small" column={1}>
+              <Descriptions.Item label="Visitor ID">
+                <span data-testid="created-visitor-reference">{created.visitorReference || '—'}</span>
+              </Descriptions.Item>
               <Descriptions.Item label="Visitor">{created.visitorName}</Descriptions.Item>
               <Descriptions.Item label="Host">{created.hostNameSnapshot || '—'}</Descriptions.Item>
               <Descriptions.Item label="Division">
@@ -704,7 +869,9 @@ export function VisitorManagement() {
                 {/* Display-only: the server generated it, the client cannot edit it. */}
                 <span data-testid="created-time-in">{formatDateTime(created.timeIn)}</span>
               </Descriptions.Item>
-              <Descriptions.Item label="Time-Out">—</Descriptions.Item>
+              <Descriptions.Item label="Time-Out">
+                <span data-testid="created-time-out">—</span>
+              </Descriptions.Item>
               <Descriptions.Item label="Status">
                 <Tag color={STATUS_TAG_COLOR[created.status] ?? 'default'} data-testid="created-status">
                   {created.status}
@@ -716,7 +883,20 @@ export function VisitorManagement() {
                 The visitor was saved, but the photo could not be uploaded: {createdPhotoError}
               </Typography.Paragraph>
             )}
-            <div style={{ marginTop: 16, textAlign: 'right' }}>
+            {/* §25 — the record is already saved at this point, so the slip is
+                generated from the STORED row. Cancelling the print leaves the
+                registration completely valid and re-printable from the list or
+                from Visitor Detail. */}
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              {canPrintSlip && (
+                <Button
+                  icon={<PrinterOutlined />}
+                  onClick={() => openSlip(created)}
+                  data-testid="created-print-slip"
+                >
+                  Print Visitor Slip
+                </Button>
+              )}
               <Button type="primary" onClick={closeCreate} data-testid="created-close">
                 Close
               </Button>
@@ -859,20 +1039,42 @@ export function VisitorManagement() {
         open={!!detail}
         onCancel={() => setDetail(null)}
         footer={
-          detail && canExit && isOnSite(detail) ? (
-            <Space>
+          detail ? (
+            <Space wrap>
               <Button onClick={() => setDetail(null)} data-testid="visitor-detail-close">
                 Close
               </Button>
-              <Button
-                danger
-                type="primary"
-                icon={<ClockCircleOutlined />}
-                onClick={() => askExit(detail)}
-                data-testid="visitor-detail-exit"
-              >
-                Time Out
-              </Button>
+              {/* §10/§29 — re-print is available from the detail of a PENDING *and*
+                  a COMPLETED visitor, straight from the stored record. */}
+              {canPrintSlip && (
+                <Button
+                  icon={<PrinterOutlined />}
+                  onClick={() => openSlip(detail)}
+                  data-testid="visitor-detail-print"
+                >
+                  Print Visitor Slip
+                </Button>
+              )}
+              {canExit && !detail.hostConfirmed && (
+                <Button
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => askHostConfirmation(detail)}
+                  data-testid="visitor-detail-confirm-host"
+                >
+                  Confirm Host Visit
+                </Button>
+              )}
+              {canExit && isOnSite(detail) && (
+                <Button
+                  danger
+                  type="primary"
+                  icon={<ClockCircleOutlined />}
+                  onClick={() => askExit(detail)}
+                  data-testid="visitor-detail-exit"
+                >
+                  Time Out
+                </Button>
+              )}
             </Space>
           ) : null
         }
@@ -911,6 +1113,11 @@ export function VisitorManagement() {
               </Col>
               <Col span={14}>
                 <Descriptions bordered size="small" column={1}>
+                  <Descriptions.Item label="Visitor ID">
+                    <span data-testid="detail-visitor-reference">
+                      {detail.visitorReference || '—'}
+                    </span>
+                  </Descriptions.Item>
                   <Descriptions.Item label="Visitor">{detail.visitorName}</Descriptions.Item>
                   <Descriptions.Item label="CNIC">{detail.cnic || '—'}</Descriptions.Item>
                   <Descriptions.Item label="Mobile">{detail.mobile || '—'}</Descriptions.Item>
@@ -943,6 +1150,37 @@ export function VisitorManagement() {
                   <Descriptions.Item label="Status">
                     <Tag color={STATUS_TAG_COLOR[detail.status] ?? 'default'}>{detail.status}</Tag>
                   </Descriptions.Item>
+                  {/* §16/§24 — host confirmation state, with the actor and moment. */}
+                  <Descriptions.Item label="Host Confirmation">
+                    {detail.hostConfirmed ? (
+                      <span data-testid="detail-host-confirmed">
+                        <Tag color="blue">Confirmed</Tag>
+                      </span>
+                    ) : (
+                      <span data-testid="detail-host-pending">
+                        <Tag>Pending</Tag>
+                      </span>
+                    )}
+                  </Descriptions.Item>
+                  {detail.hostConfirmed && (
+                    <>
+                      <Descriptions.Item label="Confirmed By">
+                        <span data-testid="detail-host-confirmed-by">
+                          {detail.hostConfirmedBy || '—'}
+                        </span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Confirmed At">
+                        <span data-testid="detail-host-confirmed-at">
+                          {formatDateTime(detail.hostConfirmedAt)}
+                        </span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Signature">
+                        <span data-testid="detail-signature-status">
+                          {detail.hasSignature ? 'Captured' : 'Not captured (physical slip only)'}
+                        </span>
+                      </Descriptions.Item>
+                    </>
+                  )}
                   <Descriptions.Item label="Created At">{formatDateTime(detail.createdAt)}</Descriptions.Item>
                   <Descriptions.Item label="Created By">{detail.createdBy || '—'}</Descriptions.Item>
                   {/* §17 — who recorded the Time-Out, once the visit is closed. */}
@@ -952,6 +1190,17 @@ export function VisitorManagement() {
                     </Descriptions.Item>
                   )}
                 </Descriptions>
+
+                {/* §17 — stated once, plainly, so nobody reads "Confirmed By" as
+                    proof that the person who clicked is the person being visited. */}
+                <Typography.Paragraph
+                  type="secondary"
+                  style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}
+                  data-testid="detail-host-identity-note"
+                >
+                  Host confirmation records the signed-in ERP user as the confirming party. The
+                  system does not verify that this user is the selected host.
+                </Typography.Paragraph>
               </Col>
             </Row>
           </div>
@@ -1012,6 +1261,93 @@ export function VisitorManagement() {
           </div>
         )}
       </Modal>
+
+      {/* ── Confirm host visit (Prompt #19 §12/§16) ──────────────────────── */}
+      <Modal
+        title="Confirm Host Visit"
+        open={!!confirmTarget}
+        onCancel={closeHostConfirmation}
+        maskClosable={!confirming}
+        closable={!confirming}
+        width={620}
+        data-testid="visitor-host-modal"
+        footer={
+          <Space>
+            <Button onClick={closeHostConfirmation} disabled={confirming} data-testid="visitor-host-cancel">
+              Cancel
+            </Button>
+            <Button
+              type="primary"
+              loading={confirming}
+              onClick={() => void confirmHost()}
+              data-testid="visitor-host-confirm"
+            >
+              Confirm Host Visit
+            </Button>
+          </Space>
+        }
+      >
+        {confirmTarget && (
+          <div data-testid="visitor-host-body">
+            <Descriptions bordered size="small" column={1}>
+              <Descriptions.Item label="Visitor">{confirmTarget.visitorName}</Descriptions.Item>
+              <Descriptions.Item label="Host (Person Being Visited)">
+                {confirmTarget.hostNameSnapshot || '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Division">
+                {confirmTarget.division
+                  ? `${confirmTarget.division.divisionCode} · ${confirmTarget.division.name}`
+                  : confirmTarget.divisionId}
+              </Descriptions.Item>
+              <Descriptions.Item label="Time-In">
+                <span data-testid="visitor-host-time-in">{formatDateTime(confirmTarget.timeIn)}</span>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Alert
+              type="info"
+              showIcon
+              style={{ margin: '12px 0' }}
+              data-testid="visitor-host-exit-note"
+              message="Confirming the host visit does NOT record the visitor's departure."
+              description="The visitor stays PENDING (still on site) until the exit records a Time-Out."
+            />
+
+            <Typography.Paragraph style={{ marginBottom: 4 }}>
+              Digital signature (optional)
+            </Typography.Paragraph>
+            <SignaturePad
+              value={signature}
+              onChange={setSignature}
+              disabled={confirming}
+              testId="visitor-host-signature"
+            />
+
+            <Form.Item
+              label="Note (optional, recorded in the audit log only)"
+              style={{ marginTop: 12, marginBottom: 0 }}
+            >
+              <Input.TextArea
+                rows={2}
+                maxLength={200}
+                value={confirmNote}
+                onChange={(e) => setConfirmNote(e.target.value)}
+                disabled={confirming}
+                data-testid="visitor-host-note"
+                placeholder="e.g. Host received the visitor at the department"
+              />
+            </Form.Item>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Print / re-print the slip (Prompt #19 §9/§10) ────────────────── */}
+      <VisitorSlipPreview
+        open={!!slipTarget}
+        visitorId={slipTarget?.id ?? null}
+        visitorLabel={slipTarget?.visitorReference ?? null}
+        onClose={() => setSlipTarget(null)}
+      />
     </div>
   );
 }

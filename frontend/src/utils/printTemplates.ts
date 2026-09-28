@@ -1,4 +1,5 @@
 import { formatDecimal } from './numberFormat';
+import { renderVisitorSlipHtml, type VisitorSlipAssets, type VisitorSlipData } from './visitorSlipHtml';
 
 function getLogoUrl(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -1454,5 +1455,36 @@ export function printCustomerStatementDocument(customer: any, statementData: any
   `;
 
   printHtmlContent(`Statement - ${custName}`, bodyHtml);
+}
+
+/**
+ * VISITOR SLIP (Prompt #19 §8/§10/§29).
+ *
+ * Deliberately thin: the layout lives in `renderVisitorSlipHtml`, which the
+ * on-screen preview renders too, so the preview and the printout cannot drift
+ * apart. This function only hands that markup to the project's EXISTING print
+ * pipeline (`printHtmlContent` → hidden iframe → A4 `@page` → `window.print`).
+ *
+ * Because the document is written into a detached iframe, no ERP navigation,
+ * menu, button or table chrome can reach the page — §8 comes for free from the
+ * architecture already in use, not from per-element print CSS.
+ *
+ * `assets.photoDataUrl` / `assets.signatureDataUrl` are supplied by the caller
+ * after it fetched them through the authenticated API. That is deliberate: the
+ * slip never builds a URL to a private storage path, so a visitor photo or a
+ * host signature is never readable from an unauthenticated address (§6, §22).
+ * Both are optional — a missing image degrades to a placeholder and the slip
+ * still prints (§26).
+ */
+export function printVisitorSlipDocument(
+  slip: VisitorSlipData,
+  assets: VisitorSlipAssets = {},
+): void {
+  if (!slip) return;
+  const reference = slip.visitorReference ? ` - ${slip.visitorReference}` : '';
+  printHtmlContent(
+    `Visitor Slip${reference}`,
+    renderVisitorSlipHtml(slip, assets, getLogoUrl()),
+  );
 }
 

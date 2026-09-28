@@ -1,15 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { FindOperator } from 'typeorm';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { VisitorEntryService } from './visitor-entry.service';
+import { VisitorEntryService, REFERENCE_MAX_ATTEMPTS } from './visitor-entry.service';
 import { VisitorEntry, VisitorEntryStatus, Location, LocationStatus } from '../entities';
 import { Division } from '../../organization/entities/division.entity';
+import { Company } from '../../organization/entities/company.entity';
 import { HrEmployee } from '../../hr/entities/hr-employee.entity';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
-import { CreateVisitorEntryDto } from '../dto';
+import { CreateVisitorEntryDto, MAX_SIGNATURE_BYTES } from '../dto';
 
 /**
  * Prompt #17 §21 — API security tests for Visitor Entry.
@@ -48,6 +50,7 @@ describe('VisitorEntryService', () => {
   let visitorRepo: any;
   let locationRepo: any;
   let divisionRepo: any;
+  let companyRepo: any;
   let employeeRepo: any;
   let storageDir: string;
 
@@ -123,10 +126,17 @@ describe('VisitorEntryService', () => {
       // Prompt #18 §15 — the exit transition is ONE conditional UPDATE; the
       // mock reports how many rows the WHERE clause actually matched.
       update: jest.fn().mockResolvedValue({ affected: 1 }),
-      createQueryBuilder: jest.fn(),
+      // Prompt #19 §5 — create() allocates the reception reference by asking the
+      // repository for the highest existing one. The default builder returns no
+      // previous row, so the first reference of a company is VIS-<year>-000001.
+      // Tests that care about the sequence override this.
+      createQueryBuilder: jest.fn().mockImplementation(() => makeQb()),
     };
     locationRepo = { findOne: jest.fn(), createQueryBuilder: jest.fn() };
     divisionRepo = { findOne: jest.fn() };
+    // Prompt #19 — the slip prints the real company legal name from the database
+    // instead of a hard-coded string.
+    companyRepo = { findOne: jest.fn() };
     employeeRepo = { findOne: jest.fn(), createQueryBuilder: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -135,12 +145,20 @@ describe('VisitorEntryService', () => {
         { provide: getRepositoryToken(VisitorEntry), useValue: visitorRepo },
         { provide: getRepositoryToken(Location), useValue: locationRepo },
         { provide: getRepositoryToken(Division), useValue: divisionRepo },
+        { provide: getRepositoryToken(Company), useValue: companyRepo },
         { provide: getRepositoryToken(HrEmployee), useValue: employeeRepo },
         { provide: ActivityLogService, useValue: { log: jest.fn().mockResolvedValue(null) } },
       ],
     }).compile();
 
     service = module.get<VisitorEntryService>(VisitorEntryService);
+
+    companyRepo.findOne.mockResolvedValue({
+      id: COMPANY,
+      companyCode: 'PWI',
+      legalName: 'Pakistan Wire Industries (Pvt) Ltd.',
+      tradeName: 'PWI',
+    });
 
     divisionRepo.findOne.mockImplementation((args: any) =>
       Promise.resolve(args.where.id === CCD ? divisionCcd : args.where.id === SPD ? divisionSpd : null),
@@ -399,6 +417,91 @@ describe('VisitorEntryService', () => {
       ).rejects.toThrow(/JPEG, PNG or WebP/i);
 
       await expect(service.savePhoto(ENTRY, COMPANY, USER, undefined, [CCD])).rejects.toThrow(/file is required/i);
+    });
+
+    // §6 — a client-declared Content-Type proves nothing. Verified live against
+    // the running server before this guard existed: a body of plain text sent as
+    // `image/jpeg` returned 201 and was written into the private photo store,
+    // which the printed slip then inlines.
+    it('rejects bytes that are not the image the client declared', async () => {
+      const dir = path.join(storageDir, 'visitors', COMPANY, ENTRY);
+      const filesIn = () => (fs.existsSync(dir) ? fs.readdirSync(dir).sort() : []);
+      // The shared storage dir is not wiped between tests, so the assertion is
+      // on the DELTA — a rejected upload must add nothing, not "empty the dir".
+      const before = filesIn();
+
+      const lies: Array<[string, Buffer, RegExp]> = [
+        ['text declared as a JPEG', Buffer.from('this is not an image at all'), /not a readable JPEG, PNG or WebP/i],
+        ['an empty file declared as a PNG', Buffer.alloc(0), /not a readable JPEG, PNG or WebP/i],
+        ['a three-byte stub that is only the JPEG SOI marker', Buffer.from([0xff, 0xd8, 0xff]), /not a readable JPEG, PNG or WebP/i],
+        ['an SVG (scriptable, so never acceptable here) declared as a WebP', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), /not a readable JPEG, PNG or WebP/i],
+        ['a PDF declared as a PNG', Buffer.from('%PDF-1.7\n%...'), /not a readable JPEG, PNG or WebP/i],
+      ];
+      for (const [label, buffer, expected] of lies) {
+        // `.rejects.toThrow` takes no message argument, so the label is asserted
+        // alongside: a failure must say WHICH lie was believed.
+        await expect(
+          service.savePhoto(ENTRY, COMPANY, USER, { mimetype: 'image/jpeg', buffer }, [CCD]),
+        ).rejects.toThrow(expected);
+        if (visitorRepo.save.mock.calls.length) throw new Error(`the "${label}" upload was accepted`);
+      }
+
+      // The check happens before the file is created, so a rejected request
+      // leaves no residue at all — not even a temporary file.
+      expect(filesIn()).toEqual(before);
+      expect(visitorRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('records the mime the CONTENT proves, not the one the client claimed', async () => {
+      // Declared as a JPEG, actually a PNG: the stored extension and the recorded
+      // mime must both follow the bytes, so the slip and the photo endpoint can
+      // never be handed a file that lies about its own type.
+      const pngBytes = Buffer.concat([
+        Buffer.from('89504e470d0a1a0a0000000d494844520000000100000001', 'hex'),
+        Buffer.alloc(8),
+      ]);
+      const dir = path.join(storageDir, 'visitors', COMPANY, ENTRY);
+      const before = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+
+      await service.savePhoto(ENTRY, COMPANY, USER, { mimetype: 'image/jpeg', buffer: pngBytes }, [CCD]);
+
+      // The repository is mocked, so the persisted payload IS the contract here.
+      const persisted = visitorRepo.save.mock.calls[0][0];
+      expect(persisted.photoMime).toBe('image/png');
+      expect(persisted.photoPath).toMatch(/\.png$/);
+      const added = fs.readdirSync(dir).filter((f) => !before.includes(f));
+      expect(added).toHaveLength(1);
+      expect(added[0].endsWith('.png')).toBe(true);
+    });
+
+    it('accepts a real PNG and a real WebP declared correctly', async () => {
+      const webp = Buffer.concat([
+        Buffer.from('5249464600000000', 'hex'), // "RIFF" + chunk size
+        Buffer.from('57454250', 'hex'), //         "WEBP"
+        Buffer.alloc(8),
+      ]);
+      const png = Buffer.concat([
+        Buffer.from('89504e470d0a1a0a0000000d494844520000000100000001', 'hex'),
+        Buffer.alloc(8),
+      ]);
+      const dir = path.join(storageDir, 'visitors', COMPANY, ENTRY);
+      const before = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+
+      // Neither format may be rejected by the content check.
+      await expect(
+        service.savePhoto(ENTRY, COMPANY, USER, { mimetype: 'image/webp', buffer: webp }, [CCD]),
+      ).resolves.toBeDefined();
+      expect(fs.readdirSync(dir).filter((f) => f.endsWith('.webp'))).toHaveLength(1);
+
+      await expect(
+        service.savePhoto(ENTRY, COMPANY, USER, { mimetype: 'image/png', buffer: png }, [CCD]),
+      ).resolves.toBeDefined();
+
+      // The second upload replaces the first, exactly as it always has — the
+      // content check must not change that lifecycle.
+      const added = fs.readdirSync(dir).filter((f) => !before.includes(f));
+      expect(added).toHaveLength(1);
+      expect(added[0].endsWith('.png')).toBe(true);
     });
 
     it('refuses to serve a photo from an unauthorized division', async () => {
@@ -762,6 +865,625 @@ describe('VisitorEntryService', () => {
       expect(checkedOut.status).toBe(VisitorEntryStatus.COMPLETED);
       expect(checkedOut.timeOut).toBeInstanceOf(Date);
       expect(visitorRepo.update).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // =========================================================================
+  // PROMPT #19 — VISITOR SLIP + HOST CONFIRMATION (§31)
+  //
+  //   1  authorized user can retrieve slip data
+  //   2  unauthorized division cannot retrieve slip data
+  //   3  slip data contains every field the printed document needs
+  //   4  the visitor reference is stable and server-generated
+  //   5  a PENDING visitor is printable
+  //   6  a COMPLETED visitor stays printable, with the real Time-Out
+  //   7  host confirmation succeeds for an authorized user
+  //   8  host confirmation records confirmed_by
+  //   9  host confirmation records confirmed_at
+  //   10 host confirmation does NOT change the visitor status
+  //   11 host confirmation does NOT create a Time-Out
+  //   12 an already confirmed visitor cannot be confirmed again
+  //   13 an unauthorized user cannot confirm a host visit
+  //   14 the signature is stored privately, never as base64 in the row
+  //   15 existing Time-Out behaviour is unchanged after a confirmation
+  //   16 existing Visitor Entry behaviour is unchanged (a reference is added)
+  //   17 division-scope authorization is unchanged
+  // =========================================================================
+  describe('Prompt #19 — visitor slip + host confirmation', () => {
+    const CONFIRMING_USER = 'u1000000-0000-0000-0000-0000000000ff';
+    const confirmedAt = new Date('2026-09-28T14:05:00.000Z');
+
+    /** A 1×1 PNG — the smallest valid file the signature path will accept. */
+    const PNG_1PX =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    const entry = (overrides: Record<string, any> = {}) => ({
+      id: ENTRY,
+      visitorReference: 'VIS-2026-000042',
+      companyId: COMPANY,
+      divisionId: CCD,
+      locationId: LOC_CCD,
+      visitorName: 'Muhammad Test',
+      cnic: '12345-1234567-1',
+      mobile: '0300-1234567',
+      visitorCompany: 'PakWiz Trading',
+      hostEmployeeId: HOST_CCD,
+      hostNameSnapshot: 'Muhammad Zeeshan',
+      hostEmployee: hostCcd,
+      timeIn: new Date('2026-09-28T10:15:00.000Z'),
+      timeOut: null,
+      status: VisitorEntryStatus.PENDING,
+      hostConfirmed: false,
+      hostConfirmedAt: null,
+      hostConfirmedBy: null,
+      signaturePath: null,
+      signatureMime: null,
+      signatureCapturedAt: null,
+      signatureCapturedBy: null,
+      exitedBy: null,
+      createdBy: USER,
+      createdAt: new Date('2026-09-28T10:15:00.000Z'),
+      updatedBy: USER,
+      updatedAt: new Date('2026-09-28T10:15:00.000Z'),
+      photoPath: null,
+      photoMime: null,
+      division: divisionCcd,
+      location: locationCcd,
+      ...overrides,
+    });
+
+    /** [where, set] of the single conditional UPDATE the service issued. */
+    const updateCall = (index = 0) => visitorRepo.update.mock.calls[index] as [any, any];
+
+    beforeEach(() => {
+      visitorRepo.update.mockResolvedValue({ affected: 1 });
+    });
+
+    // ── 1 / 2 / 3 / 5 / 6 ───────────────────────────────────────────────────
+    describe('the print payload', () => {
+      it('1. returns slip data to an authorized caller', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.visitorReference).toBe('VIS-2026-000042');
+        expect(slip.visitorName).toBe('Muhammad Test');
+        expect(visitorRepo.findOne).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: ENTRY, companyId: COMPANY } }),
+        );
+      });
+
+      it('2. refuses slip data for a division outside the authorized set (403)', async () => {
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ divisionId: SPD, locationId: LOC_SPD, division: divisionSpd, location: locationSpd }),
+        );
+
+        await expect(service.getSlip(ENTRY, COMPANY, [CCD])).rejects.toThrow(ForbiddenException);
+      });
+
+      it('2b. answers a guessed id with 404, never a slip payload', async () => {
+        visitorRepo.findOne.mockResolvedValue(null);
+
+        await expect(service.getSlip(ENTRY, COMPANY, [CCD])).rejects.toThrow(NotFoundException);
+        await expect(service.getSlip('not-a-uuid', COMPANY, [CCD])).rejects.toThrow(NotFoundException);
+      });
+
+      it('3. carries every field the printed slip needs', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        // §4 — company, visitor, host, location, times, status, reference, audit.
+        expect(slip.companyName).toBe('Pakistan Wire Industries (Pvt) Ltd.');
+        expect(slip.companyCode).toBe('PWI');
+        expect(slip).toMatchObject({
+          visitorReference: 'VIS-2026-000042',
+          visitorName: 'Muhammad Test',
+          cnic: expect.any(String),
+          mobile: '0300-1234567',
+          visitorCompany: 'PakWiz Trading',
+          hostName: 'Muhammad Zeeshan',
+          hostDepartment: 'Cutting & Packing',
+          status: VisitorEntryStatus.PENDING,
+          createdBy: USER,
+        });
+        expect(slip.division).toEqual({ code: 'DIV-CCD', name: 'Control Cable Division' });
+        expect(slip.location).toEqual({ code: 'GATE-01', name: 'Main Gate' });
+        expect(slip.timeIn).toBeInstanceOf(Date);
+        expect(slip.timeOut).toBeNull();
+        expect(slip.createdAt).toBeInstanceOf(Date);
+      });
+
+      it('3b. masks the CNIC and never leaks an internal storage path (§30)', async () => {
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ photoPath: 'visitors/company/entry/photo.jpg', photoMime: 'image/jpeg', signaturePath: 'visitors/company/entry/signature-x.png' }),
+        );
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        // The masked form the list already uses, never the stored plaintext.
+        expect(slip.cnic).not.toBe('12345-1234567-1');
+        expect(slip.cnic).toMatch(/\*/);
+        // The private paths stay on the server; the client only learns that an
+        // image exists and which AUTHORISED endpoint fetches it.
+        expect(JSON.stringify(slip)).not.toContain('photo.jpg');
+        expect(JSON.stringify(slip)).not.toContain('signature-x.png');
+        expect(slip.hasPhoto).toBe(true);
+        expect(slip.photoUrl).toBe(`/visitor/entries/${ENTRY}/photo`);
+        expect(slip.hasSignature).toBe(true);
+        expect(slip.signatureUrl).toBe(`/visitor/entries/${ENTRY}/signature`);
+      });
+
+      it('3c. states that host identity is NOT verified (§17)', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        // Recorded as the acting ERP user; the host stays a separate field and
+        // the system never claims the two are the same person.
+        expect(slip.hostConfirmation.hostIdentityVerified).toBe(false);
+        expect(slip.hostConfirmation.confirmedBy).toBeNull();
+        expect(slip.hostName).toBe('Muhammad Zeeshan');
+      });
+
+      it('3d. prints a pending visitor with a NULL Time-Out (§27)', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.timeOut).toBeNull();
+        expect(slip.status).toBe(VisitorEntryStatus.PENDING);
+      });
+
+      it('5+6. prints a COMPLETED visitor with the stored Time-In AND Time-Out (§29)', async () => {
+        const timeOut = new Date('2026-09-28T13:40:00.000Z');
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ status: VisitorEntryStatus.COMPLETED, timeOut, exitedBy: USER }),
+        );
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.timeIn).toEqual(new Date('2026-09-28T10:15:00.000Z'));
+        expect(slip.timeOut).toEqual(timeOut);
+        expect(slip.status).toBe(VisitorEntryStatus.COMPLETED);
+      });
+
+      it('10. re-printing after exit still shows the stored host confirmation', async () => {
+        visitorRepo.findOne.mockResolvedValue(
+          entry({
+            status: VisitorEntryStatus.COMPLETED,
+            timeOut: new Date('2026-09-28T13:40:00.000Z'),
+            hostConfirmed: true,
+            hostConfirmedAt: confirmedAt,
+            hostConfirmedBy: CONFIRMING_USER,
+            signatureCapturedAt: confirmedAt,
+            signatureCapturedBy: CONFIRMING_USER,
+            signaturePath: 'visitors/c/e/signature-y.png',
+            signatureMime: 'image/png',
+          }),
+        );
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.hostConfirmation).toMatchObject({
+          confirmed: true,
+          confirmedAt,
+          confirmedBy: CONFIRMING_USER,
+          signatureCapturedAt: confirmedAt,
+          signatureCapturedBy: CONFIRMING_USER,
+        });
+      });
+
+      it('falls back to the ERP company name when the row has none', async () => {
+        companyRepo.findOne.mockResolvedValue(null);
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.companyName).toBe('PAKISTAN WIRE INDUSTRIES (PVT) LTD.');
+      });
+    });
+
+    // ── 7 / 8 / 9 / 10 / 11 / 12 ────────────────────────────────────────────
+    describe('host confirmation', () => {
+      it('7+8+9. confirms the visit and records who/when, on the server clock', async () => {
+        const before = Date.now();
+        visitorRepo.findOne
+          .mockResolvedValueOnce(entry())
+          .mockResolvedValueOnce(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER }));
+
+        const result = await service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD]);
+
+        const [, patch] = updateCall();
+        expect(patch.hostConfirmed).toBe(true);
+        expect(patch.hostConfirmedBy).toBe(CONFIRMING_USER);
+        expect(patch.hostConfirmedAt).toBeInstanceOf(Date);
+        expect(patch.hostConfirmedAt.getTime()).toBeGreaterThanOrEqual(before);
+        expect(result.hostConfirmed).toBe(true);
+      });
+
+      it('guards the transition on host_confirmed = FALSE (double-click safety)', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        await service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD]);
+
+        const [where] = updateCall();
+        expect(where).toMatchObject({ id: ENTRY, companyId: COMPANY, hostConfirmed: false });
+      });
+
+      it('10+11. NEVER touches status, Time-In, Time-Out, division or location (§28)', async () => {
+        visitorRepo.findOne
+          .mockResolvedValueOnce(entry())
+          .mockResolvedValueOnce(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER }));
+
+        await service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD]);
+
+        const [where, patch] = updateCall();
+        // The WHERE clause pins the identity of the visit...
+        for (const key of ['status', 'timeOut', 'timeIn', 'divisionId', 'locationId', 'hostEmployeeId']) {
+          expect(where).not.toHaveProperty(key);
+        }
+        // ...and the patch writes the confirmation columns and nothing else.
+        expect(Object.keys(patch).sort()).toEqual([
+          'hostConfirmed',
+          'hostConfirmedAt',
+          'hostConfirmedBy',
+          'updatedBy',
+        ]);
+        expect(patch.timeOut).toBeUndefined();
+        expect(patch.status).toBeUndefined();
+        expect(visitorRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('11b. a confirmed host is still an ON-SITE PENDING visitor', async () => {
+        visitorRepo.findOne
+          .mockResolvedValueOnce(entry())
+          .mockResolvedValueOnce(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER }));
+
+        const result = await service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD]);
+
+        expect(result.status).toBe(VisitorEntryStatus.PENDING);
+        expect(result.timeOut).toBeNull();
+        expect(result.onSite).toBe(true);
+      });
+
+      it('12. refuses a second confirmation with a conflict and writes nothing', async () => {
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER }),
+        );
+
+        await expect(service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD])).rejects.toThrow(
+          ConflictException,
+        );
+        expect(visitorRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('12b. answers a concurrent confirmation with a conflict and writes only once', async () => {
+        visitorRepo.update.mockResolvedValueOnce({ affected: 1 }).mockResolvedValueOnce({ affected: 0 });
+        visitorRepo.findOne
+          .mockResolvedValueOnce(entry()) // request 1 — pre-check read
+          .mockResolvedValueOnce(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER })) // winner re-read
+          .mockResolvedValueOnce(entry()) // request 2 — pre-check read (stale)
+          .mockResolvedValueOnce(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER })); // loser re-read
+
+        await service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD]);
+        await expect(service.confirmHostVisit(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(ConflictException);
+
+        expect(visitorRepo.update).toHaveBeenCalledTimes(2);
+      });
+
+      it('12c. refuses to confirm a cancelled visitor entry', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry({ status: VisitorEntryStatus.CANCELLED }));
+
+        await expect(service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD])).rejects.toThrow(
+          /cancelled/i,
+        );
+        expect(visitorRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('13. refuses an unauthorized division (403) and writes nothing', async () => {
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ divisionId: SPD, locationId: LOC_SPD, division: divisionSpd, location: locationSpd }),
+        );
+
+        await expect(service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD])).rejects.toThrow(
+          ForbiddenException,
+        );
+        expect(visitorRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('13b. a confirmed visit does not remove the exit eligibility', async () => {
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER }),
+        );
+
+        // The same row still checks out: a host confirmation is not an exit.
+        await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).resolves.toBeDefined();
+        expect(visitorRepo.update).toHaveBeenCalledTimes(1);
+      });
+
+      it('audits the confirmation through the existing activity log (§18/§30)', async () => {
+        const logged: any[] = [];
+        (service as any).activityLog.log = jest.fn(async (payload: any) => {
+          logged.push(payload);
+          return null;
+        });
+        visitorRepo.findOne
+          .mockResolvedValueOnce(entry())
+          .mockResolvedValueOnce(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER }));
+
+        await service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD], { signature: `data:image/png;base64,${PNG_1PX}` });
+
+        expect(logged).toHaveLength(1);
+        expect(logged[0]).toMatchObject({
+          action: 'UPDATE',
+          targetType: 'visitor_entry',
+          targetId: ENTRY,
+          actorUserId: CONFIRMING_USER,
+        });
+        expect(logged[0].details).toContain('VIS-2026-000042');
+        expect(logged[0].details).toContain('digital signature captured');
+        // Never any personal data or image bytes in the audit trail.
+        expect(JSON.stringify(logged[0])).not.toContain('12345-1234567-1');
+        expect(JSON.stringify(logged[0])).not.toContain('0300-1234567');
+        expect(JSON.stringify(logged[0])).not.toContain(PNG_1PX);
+      });
+    });
+
+    // ── 14 ─────────────────────────────────────────────────────────────────
+    describe('digital signature storage', () => {
+      const dataUrl = `data:image/png;base64,${PNG_1PX}`;
+
+      it('14. stores the signature as a PRIVATE file, never as data in the row', async () => {
+        visitorRepo.findOne
+          .mockResolvedValueOnce(entry())
+          .mockResolvedValueOnce(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER }));
+
+        await service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD], { signature: dataUrl });
+
+        const [, patch] = updateCall();
+        // Only a relative path + mime reach the row — never the base64 string.
+        expect(patch.signaturePath).toMatch(new RegExp(`^visitors/${COMPANY}/${ENTRY}/signature-[0-9a-f-]+\\.png$`));
+        expect(patch.signatureMime).toBe('image/png');
+        expect(patch.signatureCapturedBy).toBe(CONFIRMING_USER);
+        expect(patch.signatureCapturedAt).toBeInstanceOf(Date);
+        expect(JSON.stringify(patch)).not.toContain('base64');
+
+        // The file really exists on disk, under STORAGE_PATH, as a valid PNG.
+        const written = path.join(storageDir, patch.signaturePath);
+        expect(fs.existsSync(written)).toBe(true);
+        const bytes = fs.readFileSync(written);
+        expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');
+      });
+
+      it('14b. serves the signature only through the authorised endpoint', async () => {
+        const signaturePath = `visitors/${COMPANY}/${ENTRY}/signature-existing.png`;
+        const written = path.join(storageDir, signaturePath);
+        fs.mkdirSync(path.dirname(written), { recursive: true });
+        fs.writeFileSync(written, Buffer.from(PNG_1PX, 'base64'));
+
+        visitorRepo.findOne.mockResolvedValue(entry({ signaturePath, signatureMime: 'image/png' }));
+
+        const ref = await service.resolveSignature(ENTRY, COMPANY, [CCD]);
+
+        expect(ref).toEqual({ absolutePath: written, mime: 'image/png' });
+        // …and an unauthorized division cannot even reach it.
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ signaturePath, divisionId: SPD, division: divisionSpd }),
+        );
+        await expect(service.resolveSignature(ENTRY, COMPANY, [CCD])).rejects.toThrow(ForbiddenException);
+      });
+
+      it('14c. returns null when no signature is attached, so the slip still prints', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        await expect(service.resolveSignature(ENTRY, COMPANY, [CCD])).resolves.toBeNull();
+      });
+
+      it('14d. refuses a non-PNG payload even when the data URL claims otherwise', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        // Plain base64 with no data URL prefix.
+        await expect(
+          service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD], { signature: PNG_1PX }),
+        ).rejects.toThrow(BadRequestException);
+
+        // Correct prefix, but the bytes are not a PNG.
+        await expect(
+          service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD], {
+            signature: `data:image/png;base64,${Buffer.from('not an image at all').toString('base64')}`,
+          }),
+        ).rejects.toThrow(/PNG/);
+
+        expect(visitorRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('14e. refuses an oversized signature before anything is written', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        // 1×1 PNG scaled up past the cap: a real (oversized) buffer, so the size
+        // check — not the magic-number check — is what rejects it.
+        const big = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(MAX_SIGNATURE_BYTES + 1)]);
+        await expect(
+          service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD], {
+            signature: `data:image/png;base64,${big.toString('base64')}`,
+          }),
+        ).rejects.toThrow(/too large/i);
+
+        expect(visitorRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('14f. confirms without a signature — the host may sign the printed slip instead (§13/§14)', async () => {
+        visitorRepo.findOne
+          .mockResolvedValueOnce(entry())
+          .mockResolvedValueOnce(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER }));
+
+        await service.confirmHostVisit(ENTRY, COMPANY, CONFIRMING_USER, [CCD]);
+
+        const [, patch] = updateCall();
+        expect(patch.hostConfirmed).toBe(true);
+        expect(patch).not.toHaveProperty('signaturePath');
+      });
+    });
+
+    // ── 4 / 16 / 17 — entry behaviour + division scope are unchanged ─────────
+    describe('regressions', () => {
+      it('4+16. create still works and now also allocates a unique reference (§5)', async () => {
+        const saved = await service.create(baseDto, COMPANY, USER, [CCD]);
+
+        expect(saved).toMatchObject({
+          companyId: COMPANY,
+          divisionId: CCD,
+          locationId: LOC_CCD,
+          visitorName: 'Muhammad Test',
+          hostEmployeeId: HOST_CCD,
+          status: VisitorEntryStatus.PENDING,
+          timeOut: null,
+          createdBy: USER,
+        });
+        expect(saved.visitorReference).toBe(`VIS-${new Date().getFullYear()}-000001`);
+        expect(visitorRepo.save).toHaveBeenCalledTimes(1);
+      });
+
+      it('4b. the reference continues the highest existing number of the year', async () => {
+        const year = new Date().getFullYear();
+        const qb = makeQb();
+        qb.getOne.mockResolvedValue({ visitorReference: `VIS-${year}-000041` });
+        visitorRepo.createQueryBuilder.mockReturnValue(qb);
+
+        const saved = await service.create(baseDto, COMPANY, USER, [CCD]);
+
+        expect(saved.visitorReference).toBe(`VIS-${year}-000042`);
+      });
+
+      it('4c. retries with a fresh number when the unique index refuses the write', async () => {
+        const uniqueViolation = Object.assign(new Error('duplicate key'), { code: '23505' });
+        visitorRepo.save
+          .mockImplementationOnce(async () => {
+            throw uniqueViolation;
+          })
+          .mockImplementationOnce(async (row: any) => ({ ...row, id: ENTRY }));
+
+        const year = new Date().getFullYear();
+        const qb = makeQb();
+        // Every attempt sees the same busy high-water mark — a genuine race.
+        qb.getOne.mockResolvedValue({ visitorReference: `VIS-${year}-000001` });
+        visitorRepo.createQueryBuilder.mockReturnValue(qb);
+
+        const saved = await service.create(baseDto, COMPANY, USER, [CCD]);
+
+        expect(visitorRepo.save).toHaveBeenCalledTimes(2);
+        expect(saved.visitorReference).toBe(`VIS-${year}-000002`);
+      });
+
+      it('4d. gives up with a business error instead of looping forever', async () => {
+        visitorRepo.save.mockImplementation(async () => {
+          throw Object.assign(new Error('duplicate key'), { code: '23505' });
+        });
+
+        await expect(service.create(baseDto, COMPANY, USER, [CCD])).rejects.toThrow(BadRequestException);
+        expect(visitorRepo.save).toHaveBeenCalledTimes(REFERENCE_MAX_ATTEMPTS);
+      });
+
+      it('4e. a non-unique failure is surfaced immediately, not retried', async () => {
+        visitorRepo.save.mockImplementation(async () => {
+          throw new Error('connection terminated unexpectedly');
+        });
+
+        await expect(service.create(baseDto, COMPANY, USER, [CCD])).rejects.toThrow(/connection terminated/);
+        expect(visitorRepo.save).toHaveBeenCalledTimes(1);
+      });
+
+      it('4f. the reference is searchable, so a printed slip can be looked up', async () => {
+        const qb = makeQb();
+        visitorRepo.createQueryBuilder.mockReturnValue(qb);
+
+        await service.findAll({ companyId: COMPANY, allowedDivisionIds: [CCD], search: 'VIS-2026' });
+
+        const clause = qb.whereCalls.find(([sql]: [string, any]) => sql.includes('visitor_reference'));
+        expect(clause).toBeDefined();
+        expect(clause![1].q).toBe('%VIS-2026%');
+      });
+
+      it('16b. a new entry starts with no confirmation and no signature (§15)', async () => {
+        const qb = makeQb();
+        qb.getManyAndCount.mockResolvedValue([[entry()], 1]);
+        visitorRepo.createQueryBuilder.mockReturnValue(qb);
+
+        const { data } = await service.findAll({ companyId: COMPANY, allowedDivisionIds: [CCD] });
+
+        expect(data[0]).toMatchObject({
+          visitorReference: 'VIS-2026-000042',
+          hostConfirmed: false,
+          hostConfirmedAt: null,
+          hostConfirmedBy: null,
+          hasSignature: false,
+          status: VisitorEntryStatus.PENDING,
+        });
+      });
+
+      it('15. the Prompt #18 exit still runs unchanged after a confirmation (§15/§29)', async () => {
+        const timeOut = new Date('2026-09-28T13:40:00.000Z');
+        const confirmed = entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt, hostConfirmedBy: CONFIRMING_USER });
+        // The re-read reflects the write the service just made, as a real
+        // database would: the confirmation is untouched by the exit.
+        visitorRepo.findOne
+          .mockResolvedValueOnce(confirmed)
+          .mockResolvedValueOnce({ ...confirmed, status: VisitorEntryStatus.COMPLETED, timeOut, exitedBy: USER });
+
+        const result = await service.checkOut(ENTRY, COMPANY, USER, [CCD]);
+
+        const [where, patch] = updateCall();
+        expect(where).toMatchObject({ id: ENTRY, status: expect.anything() });
+        // Still the ONE guarded conditional UPDATE of Prompt #18 — `time_out IS
+        // NULL` is expressed as the `IsNull()` find operator.
+        expect(where.timeOut).toBeInstanceOf(FindOperator);
+        expect((where.timeOut as FindOperator<unknown>).type).toBe('isNull');
+        expect(patch).toMatchObject({ status: VisitorEntryStatus.COMPLETED, exitedBy: USER });
+        expect(patch.timeOut).toBeInstanceOf(Date);
+        // The Time-Out is the SERVER's clock, so the re-read is the single source
+        // of truth for the value the caller finally sees.
+        expect(result.timeOut).toEqual(timeOut);
+        expect(result).toMatchObject({
+          hostConfirmed: true,
+          hostConfirmedAt: confirmedAt,
+          hostConfirmedBy: CONFIRMING_USER,
+          status: VisitorEntryStatus.COMPLETED,
+        });
+      });
+
+      it('15b. the exit never writes a confirmation column', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry({ hostConfirmed: true, hostConfirmedAt: confirmedAt }));
+
+        await service.checkOut(ENTRY, COMPANY, USER, [CCD]);
+
+        const [, patch] = updateCall();
+        for (const key of ['hostConfirmed', 'hostConfirmedAt', 'hostConfirmedBy', 'signaturePath']) {
+          expect(patch).not.toHaveProperty(key);
+        }
+      });
+
+      it('17. division scope is still enforced for the slip, the confirmation and the signature', async () => {
+        const foreign = entry({ divisionId: SPD, locationId: LOC_SPD, division: divisionSpd, location: locationSpd });
+        visitorRepo.findOne.mockResolvedValue(foreign);
+
+        await expect(service.getSlip(ENTRY, COMPANY, [CCD])).rejects.toThrow(ForbiddenException);
+        await expect(service.confirmHostVisit(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(ForbiddenException);
+        await expect(service.resolveSignature(ENTRY, COMPANY, [CCD])).rejects.toThrow(ForbiddenException);
+        expect(visitorRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('17b. the slip reads the host department through the employee master (§4)', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+
+        await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(visitorRepo.findOne).toHaveBeenCalledWith(
+          expect.objectContaining({
+            relations: expect.objectContaining({ hostEmployee: { department: true } }),
+          }),
+        );
+      });
     });
   });
 });
