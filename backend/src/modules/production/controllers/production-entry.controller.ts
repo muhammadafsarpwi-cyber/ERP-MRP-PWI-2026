@@ -18,6 +18,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { ProductionEntryService } from '../services';
 import { ResolveMachineTargetQueryDto } from '../../machine-target/dto';
 import {
@@ -29,7 +30,7 @@ import {
 
 @ApiTags('production/entries')
 @Controller('production')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class ProductionEntryController {
   constructor(
@@ -46,6 +47,11 @@ export class ProductionEntryController {
 
   private getUserId(req: any): string | undefined {
     return req.erpUser?.id;
+  }
+
+  /** Division list a service may filter with; `undefined` = unrestricted. */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
   }
 
   // ─── Daily Production Entries ───────────────────────────────────────────────
@@ -108,6 +114,7 @@ export class ProductionEntryController {
       productionOrderId,
       sortBy,
       sortDir,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, ...result };
   }
@@ -134,6 +141,7 @@ export class ProductionEntryController {
     const companyId = this.getCompanyId(req);
     const result = await this.entryService.getReport(companyId, {
       divisionId, sectionId, departmentId, dateFrom, dateTo, shiftId, machineNo, machineId, itemId, uomId, productionOrderId,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, ...result };
   }
@@ -153,7 +161,10 @@ export class ProductionEntryController {
   })
   async machineStatus(@Req() req: any, @Query() query: MachineEntryStatusQueryDto) {
     const companyId = this.getCompanyId(req);
-    const result = await this.entryService.getMachineEntryStatus(companyId, query);
+    const result = await this.entryService.getMachineEntryStatus(companyId, {
+      ...(query as MachineEntryStatusQueryDto & { allowedDivisionIds?: string[] }),
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, ...result };
   }
 
@@ -182,7 +193,11 @@ export class ProductionEntryController {
   @ApiOperation({ summary: 'List machine master (optionally filtered by department)' })
   async machines(@Req() req: any, @Query('departmentId') departmentId?: string, @Query('search') search?: string) {
     const companyId = this.getCompanyId(req);
-    const data = await this.entryService.findMachines(companyId, { departmentId, search });
+    const data = await this.entryService.findMachines(companyId, {
+      departmentId,
+      search,
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, data };
   }
 
@@ -229,7 +244,7 @@ export class ProductionEntryController {
   @ApiOperation({ summary: 'Get a daily production entry by ID' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const entry = await this.entryService.findOne(id, companyId);
+    const entry = await this.entryService.findOne(id, companyId, this.divisions(req));
     return { success: true, data: entry };
   }
 
@@ -241,7 +256,7 @@ export class ProductionEntryController {
   @ApiOperation({ summary: 'Create a daily production entry' })
   async create(@Body() dto: CreateProductionEntryDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const entry = await this.entryService.create(dto, companyId, this.getUserId(req));
+    const entry = await this.entryService.create(dto, companyId, this.getUserId(req), this.divisions(req));
     return { success: true, data: entry, message: 'Production entry saved' };
   }
 
@@ -252,7 +267,7 @@ export class ProductionEntryController {
   @ApiOperation({ summary: 'Update a daily production entry' })
   async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductionEntryDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const entry = await this.entryService.update(id, dto, companyId, this.getUserId(req));
+    const entry = await this.entryService.update(id, dto, companyId, this.getUserId(req), this.divisions(req));
     return { success: true, data: entry, message: 'Production entry updated' };
   }
 
@@ -264,7 +279,7 @@ export class ProductionEntryController {
   @ApiOperation({ summary: 'Soft-delete a daily production entry' })
   async remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    await this.entryService.remove(id, companyId, this.getUserId(req));
+    await this.entryService.remove(id, companyId, this.getUserId(req), this.divisions(req));
     return { success: true, message: 'Production entry deleted' };
   }
 }

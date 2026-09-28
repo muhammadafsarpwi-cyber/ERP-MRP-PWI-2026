@@ -3,12 +3,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Permission, PermissionStatus } from '../entities';
 import { ErpUser } from '../../user/entities/erp-user.entity';
+import { DivisionAccessService } from './division-access.service';
+import { DivisionAccess } from '../../../common/division-scope.util';
 
 @Injectable()
 export class PermissionService {
   constructor(
     @InjectRepository(Permission)
     private readonly permissionRepository: Repository<Permission>,
+    private readonly divisionAccessService: DivisionAccessService,
   ) {}
 
   async findAll(options?: {
@@ -113,5 +116,26 @@ export class PermissionService {
       .getCount();
 
     return result > 0;
+  }
+
+  /**
+   * Prompt #16 §10/§11 — effective divisions for `(user, permission)`.
+   *
+   *   user organization scopes  ∩  role permission division scopes
+   *
+   * Returns `'ALL'` when either side is unrestricted (no configured role
+   * restriction ⇒ legacy behaviour). An empty array means the intersection is
+   * empty and therefore NO division may be accessed.
+   */
+  async getEffectiveDivisions(
+    userId: string,
+    permissionCode?: string,
+  ): Promise<DivisionAccess> {
+    return this.divisionAccessService.getEffectiveDivisions(userId, permissionCode);
+  }
+
+  /** True when division enforcement is switched on for this deployment. */
+  isDivisionEnforcementEnabled(): boolean {
+    return this.divisionAccessService.isEnforcementEnabled();
   }
 }

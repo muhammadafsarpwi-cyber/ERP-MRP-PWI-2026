@@ -20,6 +20,7 @@ import { BomLine } from '../../bom/entities/bom-line.entity';
 import { ProductionRouting, RoutingOperation } from '../../production-routing/entities';
 import { ItemBarcode } from '../../item/entities/item-barcode.entity';
 import { UomConversion } from '../../item/entities/uom-conversion.entity';
+import { applyDivisionScopeFilter } from '../../../common/division-scope.util';
 
 export interface DashboardFilters {
   divisionId?: string;
@@ -34,6 +35,12 @@ export interface DashboardFilters {
   status?: string;
   search?: string;
   warehouseId?: string;
+  /**
+   * Prompt #16 — server-side division scope resolved by `DivisionScopeGuard`.
+   * `undefined` = unrestricted (legacy behaviour); a list restricts the query
+   * to exactly those divisions; an empty list denies everything.
+   */
+  allowedDivisionIds?: string[];
 }
 
 @Injectable()
@@ -63,17 +70,20 @@ export class DashboardService {
 
   // ── Filter Helpers ──────────────────────────────────────────────
 
-  async getFilterDivisions(companyId: string) {
-    return this.divisionRepo.find({
-      where: { companyId, isActive: true },
-      select: ['id', 'divisionCode', 'name'],
-      order: { divisionCode: 'ASC' },
-    });
+  async getFilterDivisions(companyId: string, allowedDivisionIds?: string[]) {
+    const qb = this.divisionRepo
+      .createQueryBuilder('d')
+      .where('d.companyId = :companyId', { companyId })
+      .andWhere('d.isActive = true')
+      .select(['d.id', 'd.divisionCode', 'd.name']);
+    // Only the divisions the caller may see are offered to the filter dropdown.
+    applyDivisionScopeFilter(qb, 'd.id', allowedDivisionIds);
+    return qb.orderBy('d.divisionCode', 'ASC').getMany();
   }
 
-  async getFilterSections(companyId: string, divisionId?: string) {
+  async getFilterSections(companyId: string, divisionId?: string, allowedDivisionIds?: string[]) {
     if (divisionId) {
-      return this.sectionRepo
+      const qb = this.sectionRepo
         .createQueryBuilder('s')
         .innerJoin(Department, 'd', 'd.section_id = s.id')
         .where('s.company_id = :companyId', { companyId })
@@ -81,17 +91,21 @@ export class DashboardService {
         .andWhere('d.division_id = :divisionId', { divisionId })
         .select(['s.id', 's.section_code', 's.name'])
         .distinct(true)
-        .orderBy('s.section_code', 'ASC')
-        .getMany();
+        .orderBy('s.section_code', 'ASC');
+      applyDivisionScopeFilter(qb, 's.divisionId', allowedDivisionIds);
+      return qb.getMany();
     }
-    return this.sectionRepo.find({
-      where: { companyId, isActive: true },
-      select: ['id', 'sectionCode', 'name'],
-      order: { sectionCode: 'ASC' },
-    });
+    const qb = this.sectionRepo
+      .createQueryBuilder('s')
+      .where('s.company_id = :companyId', { companyId })
+      .andWhere('s.is_active = true')
+      .select(['s.id', 's.section_code', 's.name'])
+      .orderBy('s.section_code', 'ASC');
+    applyDivisionScopeFilter(qb, 's.divisionId', allowedDivisionIds);
+    return qb.getMany();
   }
 
-  async getFilterDepartments(companyId: string, opts: { divisionId?: string; sectionId?: string }) {
+  async getFilterDepartments(companyId: string, opts: { divisionId?: string; sectionId?: string; allowedDivisionIds?: string[] }) {
     const qb = this.departmentRepo
       .createQueryBuilder('d')
       .where('d.company_id = :companyId', { companyId })
@@ -104,6 +118,7 @@ export class DashboardService {
       qb.innerJoin(Division, 'div', 'div.id = d.division_id')
         .andWhere('d.division_id = :divisionId', { divisionId: opts.divisionId });
     }
+    applyDivisionScopeFilter(qb, 'd.divisionId', opts.allowedDivisionIds);
 
     return qb.select(['d.id', 'd.name']).orderBy('d.name', 'ASC').getMany();
   }
@@ -120,6 +135,7 @@ export class DashboardService {
 
   async getSummary(companyId: string, filters?: DashboardFilters) {
     const today = new Date().toISOString().slice(0, 10);
+    const allowedDivisionIds = filters?.allowedDivisionIds;
 
     const qb = (repo: Repository<any>, alias: string) => {
       const q = repo.createQueryBuilder(alias).where(`${alias}."company_id" = :companyId`, { companyId });
@@ -127,36 +143,46 @@ export class DashboardService {
       return q;
     };
 
+    const itemCountQb = this.itemRepo
+      .createQueryBuilder('i')
+      .where('i.companyId = :companyId', { companyId });
+    applyDivisionScopeFilter(itemCountQb, 'i.divisionId', allowedDivisionIds);
     const [totalItems, activeItems] = await Promise.all([
-      this.itemRepo.count({ where: { companyId } }),
-      this.itemRepo.count({ where: { companyId, status: 'ACTIVE' as any } }),
+      itemCountQb.getCount(),
+      itemCountQb.clone().andWhere('i.status = :itemStatus', { itemStatus: 'ACTIVE' }).getCount(),
     ]);
 
-    let totalMachines = await this.machineRepo.count({ where: { companyId } });
-    let activeMachines = await this.machineRepo.count({ where: { companyId, status: 'ACTIVE' as any } });
+    const machineCountQb = this.machineRepo
+      .createQueryBuilder('m')
+      .where('m.companyId = :companyId', { companyId });
+    applyDivisionScopeFilter(machineCountQb, 'm.divisionId', allowedDivisionIds);
+    let totalMachines = await machineCountQb.getCount();
+    let activeMachines = await machineCountQb.clone().andWhere('m.status = :machineStatus', { machineStatus: 'ACTIVE' }).getCount();
     const machineStatusMap: Record<string, number> = {};
 
     if (filters?.departmentId) {
-      const statusRows = await this.machineRepo
+      const deptStatusQb = this.machineRepo
         .createQueryBuilder('m')
         .select('m.status', 'status')
         .addSelect('COUNT(*)', 'count')
         .where('m."company_id" = :companyId', { companyId })
         .andWhere('m."department_id" = :departmentId', { departmentId: filters.departmentId })
-        .groupBy('m.status')
-        .getRawMany();
+        .groupBy('m.status');
+      applyDivisionScopeFilter(deptStatusQb, 'm.divisionId', allowedDivisionIds);
+      const statusRows = await deptStatusQb.getRawMany();
       totalMachines = statusRows.reduce((s, r) => s + parseInt(r.count, 10), 0);
       activeMachines = statusRows.find(r => r.status === 'ACTIVE') ? parseInt(statusRows.find(r => r.status === 'ACTIVE').count, 10) : 0;
       for (const row of statusRows) machineStatusMap[row.status] = parseInt(row.count, 10);
     } else {
-      const statusRows = await this.machineRepo
+      const allStatusQb = this.machineRepo
         .createQueryBuilder('m')
         .select('m.status', 'status')
         .addSelect('COUNT(*)', 'count')
         .where('m."company_id" = :companyId', { companyId })
         .andWhere('m.is_active = true')
-        .groupBy('m.status')
-        .getRawMany();
+        .groupBy('m.status');
+      applyDivisionScopeFilter(allStatusQb, 'm.divisionId', allowedDivisionIds);
+      const statusRows = await allStatusQb.getRawMany();
       for (const row of statusRows) machineStatusMap[row.status] = parseInt(row.count, 10);
     }
 
@@ -164,6 +190,7 @@ export class DashboardService {
       .where('pe.company_id = :companyId', { companyId })
       .andWhere('pe.is_active = true');
     if (filters?.departmentId) entryQb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
+    applyDivisionScopeFilter(entryQb, 'pe.divisionId', allowedDivisionIds);
 
     const [totalEntries, todayEntries] = await Promise.all([
       entryQb.getCount(),
@@ -174,10 +201,16 @@ export class DashboardService {
       .where('mt."company_id" = :companyId', { companyId });
     const targetActiveCountQb = this.machineTargetRepo.createQueryBuilder('mt')
       .where('mt."company_id" = :companyId', { companyId });
+    // MachineTarget has no division_id of its own — its division is inherited
+    // from the machine it targets (machine.division_id).
+    targetCountQb.leftJoin(Machine, 'mtm', 'mtm.id = mt.machine_id');
+    targetActiveCountQb.leftJoin(Machine, 'mtm', 'mtm.id = mt.machine_id');
     if (filters?.departmentId) {
       targetCountQb.andWhere('mt."department_id" = :departmentId', { departmentId: filters.departmentId });
       targetActiveCountQb.andWhere('mt."department_id" = :departmentId', { departmentId: filters.departmentId });
     }
+    applyDivisionScopeFilter(targetCountQb, 'mtm.divisionId', allowedDivisionIds);
+    applyDivisionScopeFilter(targetActiveCountQb, 'mtm.divisionId', allowedDivisionIds);
 
     const [totalTargets, activeTargets, totalWarehouses, totalPOs, totalSOs] = await Promise.all([
       targetCountQb.getCount(),
@@ -197,14 +230,18 @@ export class DashboardService {
       .andWhere('i."minimum_stock_level" IS NOT NULL')
       .andWhere('ib.on_hand <= i."minimum_stock_level"');
     if (filters?.departmentId) lowStockQb.andWhere('i."department_id" = :departmentId', { departmentId: filters.departmentId });
+    applyDivisionScopeFilter(lowStockQb, 'i.divisionId', allowedDivisionIds);
     const lowStockItems = await lowStockQb.getCount();
 
-    const totalStockValue = await this.inventoryBalanceRepo
+    const stockValueQb = this.inventoryBalanceRepo
       .createQueryBuilder('ib')
       .select('COALESCE(SUM(ib.on_hand), 0)', 'total')
       .where('ib."company_id" = :companyId', { companyId })
-      .andWhere('ib.status = :status', { status: 'ACTIVE' })
-      .getRawOne();
+      .andWhere('ib.status = :status', { status: 'ACTIVE' });
+    // inventory_balances carries no division_id — scope it through the item.
+    stockValueQb.leftJoin(Item, 'svItem', 'svItem.id = ib.item_id');
+    applyDivisionScopeFilter(stockValueQb, 'svItem.divisionId', allowedDivisionIds);
+    const totalStockValue = await stockValueQb.getRawOne();
 
     const activePOs = await this.purchaseOrderRepo.count({
       where: { companyId, status: In(['DRAFT', 'APPROVED', 'PARTIAL']) },
@@ -254,6 +291,8 @@ export class DashboardService {
         .innerJoin(Division, 'div', 'div.id = d2.division_id')
         .andWhere('d2.division_id = :divisionId', { divisionId: filters.divisionId });
     }
+    // Server-side division scoping (Prompt #16) — never trusts a client dropdown.
+    applyDivisionScopeFilter(qb, 'pe.divisionId', filters?.allowedDivisionIds);
 
     const entries = await qb.getMany();
 
@@ -357,6 +396,7 @@ export class DashboardService {
         .innerJoin(Division, 'div', 'div.id = d2.division_id')
         .andWhere('d2.division_id = :divisionId', { divisionId: filters.divisionId });
     }
+    applyDivisionScopeFilter(qb, 'pe.divisionId', filters?.allowedDivisionIds);
 
     qb.groupBy('pe.entry_date').orderBy('pe.entry_date', 'ASC');
 
@@ -391,6 +431,7 @@ export class DashboardService {
         .innerJoin(Division, 'div', 'div.id = d2.division_id')
         .andWhere('d2.division_id = :divisionId', { divisionId: filters.divisionId });
     }
+    applyDivisionScopeFilter(machineQb, 'm.divisionId', filters?.allowedDivisionIds);
 
     machineQb.orderBy('m.machine_code', 'ASC');
     const machines = await machineQb.getMany();
@@ -412,6 +453,7 @@ export class DashboardService {
     if (filters?.dateTo) entryQb.andWhere('pe.entry_date <= :dateTo', { dateTo: filters.dateTo });
     if (filters?.departmentId) entryQb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
     if (filters?.shiftId) entryQb.andWhere('pe.shift_id = :shiftId', { shiftId: filters.shiftId });
+    applyDivisionScopeFilter(entryQb, 'pe.divisionId', filters?.allowedDivisionIds);
 
     entryQb.groupBy('pe.machine_no').orderBy('pe.machine_no', 'ASC');
     const performance = await entryQb.getRawMany();
@@ -470,6 +512,7 @@ export class DashboardService {
     if (filters?.status) qb.andWhere('i.status = :status', { status: filters.status });
     if (filters?.departmentId) qb.andWhere('i.department_id = :departmentId', { departmentId: filters.departmentId });
     if (filters?.search) qb.andWhere('(LOWER(i.item_code) LIKE :search OR LOWER(i.name) LIKE :search)', { search: `%${filters.search.toLowerCase()}%` });
+    applyDivisionScopeFilter(qb, 'i.divisionId', filters?.allowedDivisionIds);
 
     qb.orderBy('i.item_code', 'ASC');
     const items = await qb.getMany();
@@ -1054,6 +1097,7 @@ export class DashboardService {
       .addGroupBy('i.name')
       .addGroupBy('i."minimum_stock_level"');
     if (filters?.departmentId) lowStockQb.andWhere('i."department_id" = :departmentId', { departmentId: filters.departmentId });
+    applyDivisionScopeFilter(lowStockQb, 'i.divisionId', filters?.allowedDivisionIds);
     const lowStockItems = await lowStockQb.getRawMany();
 
     if (lowStockItems.length > 0) {
@@ -1075,6 +1119,7 @@ export class DashboardService {
       .andWhere('m.status != :status', { status: 'ACTIVE' })
       .andWhere('m.status != :inactiveStatus', { inactiveStatus: 'INACTIVE' });
     if (filters?.departmentId) machineQb.andWhere('m."department_id" = :departmentId', { departmentId: filters.departmentId });
+    applyDivisionScopeFilter(machineQb, 'm.divisionId', filters?.allowedDivisionIds);
     const inactiveMachines = await machineQb.getMany();
 
     if (inactiveMachines.length > 0) {
@@ -1094,7 +1139,10 @@ export class DashboardService {
       .where('mt."company_id" = :companyId', { companyId })
       .andWhere('mt.status = :status', { status: 'ACTIVE' })
       .andWhere('mt.effective_to < :today', { today: new Date().toISOString().slice(0, 10) });
+    // MachineTarget has no division_id — inherit it from the target's machine.
+    expiredTargetsQb.leftJoin(Machine, 'mtm', 'mtm.id = mt.machine_id');
     if (filters?.departmentId) expiredTargetsQb.andWhere('mt."department_id" = :departmentId', { departmentId: filters.departmentId });
+    applyDivisionScopeFilter(expiredTargetsQb, 'mtm.divisionId', filters?.allowedDivisionIds);
     const expiredTargets = await expiredTargetsQb.getCount();
 
     if (expiredTargets > 0) {
@@ -1128,13 +1176,14 @@ export class DashboardService {
     }
 
     // ── MISSING ROUTES ──
-    const mfgItems = await this.itemRepo
+    const mfgItemsQb = this.itemRepo
       .createQueryBuilder('i')
       .where('i."company_id" = :companyId', { companyId })
       .andWhere('i.status = :status', { status: 'ACTIVE' })
       .andWhere('i.is_manufacturable = true')
-      .select(['i.id', 'i.itemCode', 'i.name'])
-      .getMany();
+      .select(['i.id', 'i.itemCode', 'i.name']);
+    applyDivisionScopeFilter(mfgItemsQb, 'i.divisionId', filters?.allowedDivisionIds);
+    const mfgItems = await mfgItemsQb.getMany();
 
     const itemsWithRoutes = await this.entryRepo
       .createQueryBuilder('pe')
@@ -1156,12 +1205,13 @@ export class DashboardService {
     }
 
     // ── MISSING BARCODES ──
-    const allItems = await this.itemRepo
+    const allItemsQb = this.itemRepo
       .createQueryBuilder('i')
       .where('i."company_id" = :companyId', { companyId })
       .andWhere('i.status = :status', { status: 'ACTIVE' })
-      .select('i.id', 'id')
-      .getMany();
+      .select('i.id', 'id');
+    applyDivisionScopeFilter(allItemsQb, 'i.divisionId', filters?.allowedDivisionIds);
+    const allItems = await allItemsQb.getMany();
 
     const itemsWithBarcodes = await this.itemBarcodeRepo
       .createQueryBuilder('ib')

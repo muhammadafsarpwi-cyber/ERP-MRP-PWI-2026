@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RoleService } from './role.service';
-import { Role, RoleStatus, RolePermission } from '../entities';
+import { Role, RoleStatus, RolePermission, RolePermissionStatus, RolePermissionDivisionScope } from '../entities';
 
 describe('RoleService', () => {
   let service: RoleService;
@@ -25,10 +25,11 @@ describe('RoleService', () => {
   beforeEach(async () => {
     const mockRepo = {
       findOne: jest.fn(),
-      find: jest.fn(),
-      create: jest.fn(),
-      save: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
+      create: jest.fn((x: any) => x),
+      save: jest.fn(async (x: any) => x),
       delete: jest.fn(),
+      remove: jest.fn(async (x: any) => x),
       createQueryBuilder: jest.fn(() => ({
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
@@ -45,6 +46,7 @@ describe('RoleService', () => {
         RoleService,
         { provide: getRepositoryToken(Role), useValue: mockRepo },
         { provide: getRepositoryToken(RolePermission), useValue: mockRepo },
+        { provide: getRepositoryToken(RolePermissionDivisionScope), useValue: mockRepo },
       ],
     }).compile();
 
@@ -87,6 +89,60 @@ describe('RoleService', () => {
       repo.findOne = jest.fn().mockResolvedValue(systemRole);
 
       await expect(service.deactivate('test-role-id')).rejects.toThrow('Cannot deactivate system role');
+    });
+  });
+
+  // Prompt #16 §27 — optional division scope on permission grants
+  describe('assignPermissions division scope', () => {
+    const prime = () => {
+      const roleRepo: any = service['roleRepository'];
+      roleRepo.findOne = jest.fn().mockResolvedValue(mockRole);
+      const rpRepo: any = service['rolePermissionRepository'];
+      rpRepo.findOne = jest.fn().mockResolvedValue({ id: 'rp-1', status: RolePermissionStatus.ACTIVE });
+      rpRepo.save = jest.fn(async (x: any) => x);
+      rpRepo.create = jest.fn((x: any) => x);
+      const scopeRepo: any = service['roleDivisionScopeRepository'];
+      scopeRepo.find = jest.fn().mockResolvedValue([]);
+      scopeRepo.save = jest.fn(async (x: any) => x);
+      scopeRepo.create = jest.fn((x: any) => x);
+      scopeRepo.remove = jest.fn(async (x: any) => x);
+      return scopeRepo;
+    };
+
+    it('leaves restriction rows untouched when divisionScopes is omitted', async () => {
+      const scopeRepo = prime();
+      await service.assignPermissions('test-role-id', { permissionIds: ['p1'] });
+      expect(scopeRepo.find).not.toHaveBeenCalled();
+      expect(scopeRepo.remove).not.toHaveBeenCalled();
+      expect(scopeRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('clears restriction rows when an empty list is sent (no restriction)', async () => {
+      const scopeRepo = prime();
+      const row = { id: 's1', roleId: 'test-role-id', permissionId: 'p1', divisionId: 'd1' };
+      scopeRepo.find = jest.fn().mockResolvedValue([row]);
+
+      await service.assignPermissions('test-role-id', {
+        permissionIds: ['p1'],
+        divisionScopes: [{ permissionId: 'p1', divisionIds: [] }],
+      });
+
+      expect(scopeRepo.remove).toHaveBeenCalledWith([row]);
+      expect(scopeRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('stores exactly the selected divisions and de-duplicates them', async () => {
+      const scopeRepo = prime();
+
+      await service.assignPermissions('test-role-id', {
+        permissionIds: ['p1'],
+        divisionScopes: [{ permissionId: 'p1', divisionIds: ['d1', 'd1', 'd2'] }],
+      });
+
+      expect(scopeRepo.save).toHaveBeenCalledTimes(2);
+      expect(scopeRepo.save).toHaveBeenCalledWith(expect.objectContaining({ divisionId: 'd1' }));
+      expect(scopeRepo.save).toHaveBeenCalledWith(expect.objectContaining({ divisionId: 'd2' }));
+      expect(scopeRepo.remove).not.toHaveBeenCalled();
     });
   });
 });

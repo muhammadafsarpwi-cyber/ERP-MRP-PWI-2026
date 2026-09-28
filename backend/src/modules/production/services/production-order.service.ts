@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not } from 'typeorm';
@@ -16,6 +17,7 @@ import { Division, Section, Department, DepartmentDivisionScope, Warehouse } fro
 import { SalesOrderItem } from '../../sales/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 
 const ISSUE_REFERENCE_TYPE = 'PRODUCTION_ORDER';
 
@@ -58,6 +60,37 @@ export class ProductionOrderService {
     private readonly inventoryBalanceService: InventoryBalanceService,
   ) {}
 
+  // ─── Division scope (Prompt #16 §18/§19) ───────────────────────────────────
+
+  /**
+   * Shared read-by-ID and write authorization for production orders.
+   *
+   * Called by the controller BEFORE handing an order id to any mutating
+   * service method, so release / cancel / delete / issue / complete all sit
+   * behind the same check without widening every service signature.
+   *
+   * - unrestricted caller   → no-op (legacy behaviour)
+   * - order not found       → no-op; the service raises the canonical 404
+   * - order has no division → no-op; nothing to restrict (never invent one)
+   * - otherwise             → 403 when the division is outside the caller's set
+   */
+  async assertDivisionAccessForOrder(
+    orderId: string,
+    companyId: string,
+    allowedDivisionIds?: string[],
+  ): Promise<void> {
+    if (isUnrestricted(allowedDivisionIds)) return;
+
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, companyId },
+      select: ['id', 'divisionId'],
+    });
+    if (!order) return;
+    if (!order.divisionId) return;
+    if ((allowedDivisionIds as string[]).includes(order.divisionId)) return;
+    throw new ForbiddenException('You do not have access to this division.');
+  }
+
   // ─── Queries ────────────────────────────────────────────────────────────────
 
   /**
@@ -65,7 +98,10 @@ export class ProductionOrderService {
    * and planned/completed/scrapped quantities, scoped to the company (and
    * optionally a division/date range). Read-only.
    */
-  async getDashboardSummary(companyId: string, filters?: { dateFrom?: string; dateTo?: string; divisionId?: string }) {
+  async getDashboardSummary(
+    companyId: string,
+    filters?: { dateFrom?: string; dateTo?: string; divisionId?: string; allowedDivisionIds?: string[] },
+  ) {
     const qb = this.orderRepo.createQueryBuilder('o');
     qb.select(`COUNT(o.id)::int`, 'total');
     qb.addSelect(`COUNT(*) FILTER (WHERE o.status = 'DRAFT')`, 'open');
@@ -77,6 +113,7 @@ export class ProductionOrderService {
     qb.addSelect(`COALESCE(SUM(o.scrapped_quantity),0)`, 'scrappedQuantity');
     qb.where('o.company_id = :companyId', { companyId });
     if (filters?.divisionId) qb.andWhere('o.division_id = :divisionId', { divisionId: filters.divisionId });
+    applyDivisionScopeFilter(qb, 'o.division_id', filters?.allowedDivisionIds);
     if (filters?.dateFrom) qb.andWhere('o.due_date >= :dateFrom', { dateFrom: filters.dateFrom });
     if (filters?.dateTo) qb.andWhere('o.due_date <= :dateTo', { dateTo: filters.dateTo });
 
@@ -101,8 +138,9 @@ export class ProductionOrderService {
     productId?: string;
     divisionId?: string;
     priority?: string;
+    allowedDivisionIds?: string[];
   }): Promise<{ data: ProductionOrder[]; total: number }> {
-    const { page = 1, limit = 20, search, status, productId, divisionId, priority } = filters || {};
+    const { page = 1, limit = 20, search, status, productId, divisionId, priority, allowedDivisionIds } = filters || {};
 
     const qb = this.orderRepo.createQueryBuilder('po')
       .leftJoinAndSelect('po.product', 'product')
@@ -119,6 +157,7 @@ export class ProductionOrderService {
     if (status) qb.andWhere('po.status = :status', { status });
     if (productId) qb.andWhere('po.productId = :productId', { productId });
     if (divisionId) qb.andWhere('po.divisionId = :divisionId', { divisionId });
+    applyDivisionScopeFilter(qb, 'po.divisionId', allowedDivisionIds);
     if (priority) qb.andWhere('po.priority = :priority', { priority });
 
     qb.orderBy('po.createdAt', 'DESC');
@@ -128,7 +167,7 @@ export class ProductionOrderService {
     return { data, total };
   }
 
-  async findOne(id: string, companyId: string): Promise<ProductionOrder> {
+  async findOne(id: string, companyId: string, allowedDivisionIds?: string[]): Promise<ProductionOrder> {
     const order = await this.orderRepo.findOne({
       where: { id, companyId },
       relations: [
@@ -140,6 +179,12 @@ export class ProductionOrderService {
       order: { operations: { sequenceNo: 'ASC' } },
     });
     if (!order) throw new NotFoundException(`Production Order with ID '${id}' not found`);
+    // §18 — a known/guessed order id must not bypass the list filter.
+    if (!isUnrestricted(allowedDivisionIds) && order.divisionId) {
+      if (!(allowedDivisionIds as string[]).includes(order.divisionId)) {
+        throw new ForbiddenException('You do not have access to this division.');
+      }
+    }
     return order;
   }
 

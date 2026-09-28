@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Item } from '../../item/entities';
@@ -6,6 +6,7 @@ import { StockLedger, InventoryBalance } from '../../inventory/entities';
 import { Company } from '../../organization/entities';
 import { ProductionEntry } from '../entities';
 import { businessDayWindow } from '../date/business-day';
+import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 
 const N = (v: unknown): number => Number(v) || 0;
 const R4 = (v: number): number => Math.round(v * 10000) / 10000;
@@ -61,6 +62,12 @@ export interface ProductionInventoryReportFilters {
   movementType?: string;
   dateFrom?: string;
   dateTo?: string;
+  /**
+   * Prompt #16 — server-side division scope resolved by `DivisionScopeGuard`.
+   * `undefined` = unrestricted (legacy behaviour); a list restricts the report
+   * to items of exactly those divisions; an empty list denies everything.
+   */
+  allowedDivisionIds?: string[];
 }
 
 export interface ProductionInventoryReportRow {
@@ -159,6 +166,23 @@ export class ProductionInventoryReportService {
     };
   }
 
+  /**
+   * Read authorization (Prompt #16 §18): throws 403 when the item sits in a
+   * division the caller may not access. An item without a division (not yet
+   * filed) inherits the company's access and is not refused — mirroring
+   * `ProductionEntryService.assertDivisionAccess`.
+   */
+  private assertDivisionAccess(
+    allowedDivisionIds: string[] | undefined,
+    divisionId: string | null | undefined,
+    label = 'record',
+  ): void {
+    if (isUnrestricted(allowedDivisionIds)) return;
+    if (!divisionId) return;
+    if ((allowedDivisionIds as string[]).includes(divisionId)) return;
+    throw new ForbiddenException(`You do not have access to the ${label} in this division.`);
+  }
+
   async getReport(companyId: string, filters: ProductionInventoryReportFilters = {}) {
     const timeZone = await this.companyTimeZone(companyId);
     const { start, end } = businessDayWindow(filters.dateFrom, filters.dateTo, timeZone);
@@ -182,6 +206,9 @@ export class ProductionInventoryReportService {
     if (filters.departmentId) itemQb.andWhere('i.departmentId = :departmentId', { departmentId: filters.departmentId });
     if (filters.itemId) itemQb.andWhere('i.id = :itemId', { itemId: filters.itemId });
     if (filters.itemType) itemQb.andWhere('i.itemType = :itemType', { itemType: filters.itemType });
+    // Server-side division scoping (Prompt #16) — report rows are item rows,
+    // and `items` carry their own `division_id`.
+    applyDivisionScopeFilter(itemQb, 'i.divisionId', filters.allowedDivisionIds);
     itemQb.orderBy('i.itemCode', 'ASC');
 
     const items = await itemQb.getMany();
@@ -208,7 +235,18 @@ export class ProductionInventoryReportService {
 
     if (items.length === 0) {
       return {
-        filters: { ...filters, movementTypes: PRODUCTION_MOVEMENT_TYPES },
+        // Explicit field list (not a spread) so the server-side division scope
+        // never leaks into the response payload.
+        filters: {
+          divisionId: filters.divisionId,
+          departmentId: filters.departmentId,
+          itemId: filters.itemId,
+          itemType: filters.itemType,
+          movementType: filters.movementType,
+          dateFrom: filters.dateFrom,
+          dateTo: filters.dateTo,
+          movementTypes: PRODUCTION_MOVEMENT_TYPES,
+        },
         summary: emptySummary,
         items: [],
       };
@@ -435,6 +473,8 @@ export class ProductionInventoryReportService {
       relations: ['baseUom', 'division', 'section', 'department'],
     });
     if (!item) throw new NotFoundException(`Item with id '${itemId}' not found in this company`);
+    // §18 — drilling into an item of a foreign division must not bypass the scope.
+    this.assertDivisionAccess(filters.allowedDivisionIds, item.divisionId, 'item');
 
     const timeZone = await this.companyTimeZone(companyId);
     const { start, end } = businessDayWindow(filters.dateFrom, filters.dateTo, timeZone);
@@ -597,7 +637,7 @@ export class ProductionInventoryReportService {
     });
 
     // Build Material Journey chain
-    let journey: any[] = [];
+    const journey: any[] = [];
     try {
       const allCompanyItems = await this.itemRepo
         .createQueryBuilder('m')

@@ -47,6 +47,7 @@ TagsOutlined,
   TeamOutlined,
   ToolOutlined,
   UserOutlined,
+  UsergroupAddOutlined,
   WalletOutlined,
 
   UnorderedListOutlined,
@@ -166,6 +167,29 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/organization/departments', label: 'Departments', icon: TeamOutlined, color: 'indigo', permissions: ['department.view'] },
       { key: '/organization/warehouses', label: 'Warehouses', icon: HomeOutlined, color: 'indigo', permissions: ['warehouse.view'] },
       { key: '/organization/locations', label: 'Warehouse Locations', icon: EnvironmentOutlined, color: 'indigo', permissions: ['warehouse.view'] },
+    ],
+  },
+
+  {
+    key: 'visitor-management',
+    label: 'Visitor Management',
+    icon: UsergroupAddOutlined,
+    color: 'violet',
+    children: [
+      {
+        key: '/visitor-management/visitors',
+        label: 'Visitors',
+        icon: TeamOutlined,
+        color: 'violet',
+        permissions: ['visitor.entry.view'],
+      },
+      {
+        key: '/visitor-management/locations',
+        label: 'Locations',
+        icon: EnvironmentOutlined,
+        color: 'violet',
+        permissions: ['location.view'],
+      },
     ],
   },
 

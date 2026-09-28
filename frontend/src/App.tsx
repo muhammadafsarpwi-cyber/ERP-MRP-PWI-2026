@@ -135,6 +135,7 @@ import {
 } from './pages/store';
 import AiAssistantPage from './pages/ai-assistant/AiAssistantPage';
 import GeneralReports from './pages/reports/GeneralReports';
+import { VisitorManagement, VisitorLocationManagement } from './pages/visitor';
 import './App.css';
 
 const MachineRouteRedirect: React.FC = () => {
@@ -258,6 +259,8 @@ const App: React.FC = () => {
                   <Route path="/organization/departments" element={<DepartmentManagement />} />
                   <Route path="/organization/warehouses" element={<WarehouseManagement />} />
                   <Route path="/organization/locations" element={<LocationManagement />} />
+                  <Route path="/visitor-management/visitors" element={<VisitorManagement />} />
+                  <Route path="/visitor-management/locations" element={<VisitorLocationManagement />} />
                   <Route path="/admin/users" element={<UserManagement />} />
                   <Route path="/admin/roles" element={<RoleManagement />} />
                   <Route path="/admin/permissions" element={<PermissionManagement />} />

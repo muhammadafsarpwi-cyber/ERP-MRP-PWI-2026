@@ -78,6 +78,8 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'notifications.view', 'notifications.rules.view',
   'email.settings.manage', 'email.template.manage', 'email.log.view',
   'whatsapp.settings.manage', 'whatsapp.template.manage', 'whatsapp.log.view',
+  // visitor management (erp_00069 seeds)
+  'visitor.entry.view', 'location.view',
 ];
 
 /** Every authenticated route registered in App.tsx / Production routers. */
@@ -85,6 +87,9 @@ const DISCOVERED_ROUTES: string[] = [
   '/dashboard',
   '/settings',
   '/ai-assistant',
+  // General Reports (pre-existing route that was missing from this list and
+  // therefore failed the "every leaf nav key maps to a registered route" test).
+  '/reports',
   '/customers',
   '/sales/analytics',
   '/sales/finished-goods',
@@ -121,6 +126,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/organization/divisions', '/organization/sections',
   '/organization/departments', '/organization/warehouses',
   '/organization/locations',
+  '/visitor-management/visitors', '/visitor-management/locations',
   '/admin/users', '/admin/roles', '/admin/permissions',
   '/admin/permissions-matrix',
   '/master-data/items', '/master-data/item-types', '/master-data/categories', '/master-data/route-types',
@@ -136,6 +142,9 @@ const DISCOVERED_ROUTES: string[] = [
   '/store/transfers', '/store/adjustments', '/store/opening-stock',
   '/store/stock-balance', '/store/ledger', '/store/material-trace',
   '/store/low-stock', '/store/reports', '/store/settings',
+  // Pre-existing omissions from this list (all registered: gate-passes and
+  // packages in App.tsx, units via the nested /production/* router).
+  '/barcode-management/gate-passes', '/dispatch/packages', '/production/units',
 ];
 
 /** Routes that redirect or render inside a parent entry (not in the menu). */
@@ -236,6 +245,45 @@ describe('navigationConfig canonical reconciliation', () => {
     for (const { url, parent } of DETAIL_AND_ALIAS_ROUTES) {
       expect(findNavEntry(url)?.key).toBe(parent);
     }
+  });
+
+  describe('Visitor Management (Prompt #17)', () => {
+    const group = NAV_ENTRIES.find(
+      (e): e is NavGroup => isNavGroup(e) && e.key === 'visitor-management',
+    );
+
+    it('registers a Visitor Management group with both leaf routes', () => {
+      expect(group).toBeDefined();
+      expect(group!.children.map((c) => c.key)).toEqual([
+        '/visitor-management/visitors',
+        '/visitor-management/locations',
+      ]);
+      expect(group!.children.map((c) => c.label)).toEqual(['Visitors', 'Locations']);
+    });
+
+    it('gates both leaves behind the seeded visitor/location permissions', () => {
+      expect(group!.children[0].permissions).toEqual(['visitor.entry.view']);
+      expect(group!.children[1].permissions).toEqual(['location.view']);
+      // Guard: the seed list above must contain them, or the entries never show.
+      const seeded = new Set(SEEDED_VIEW_PERMISSIONS);
+      expect(seeded.has('visitor.entry.view')).toBe(true);
+      expect(seeded.has('location.view')).toBe(true);
+    });
+
+    it('keeps the pre-existing Warehouse Locations entry untouched', () => {
+      const warehouseLocations = findNavEntry('/organization/locations');
+      expect(warehouseLocations?.label).toBe('Warehouse Locations');
+      expect(warehouseLocations?.permissions).toEqual(['warehouse.view']);
+    });
+
+    it('resolves both routes for the sidebar highlight', () => {
+      expect(findNavEntry('/visitor-management/visitors')?.key).toBe('/visitor-management/visitors');
+      expect(findNavEntry('/visitor-management/locations')?.key).toBe('/visitor-management/locations');
+
+      const resolved = resolveNavActiveKeys('/visitor-management/visitors');
+      expect(resolved.selectedKey).toBe('/visitor-management/visitors');
+      expect(resolved.openKeys).toEqual(expect.arrayContaining(['visitor-management']));
+    });
   });
 
   describe('active parent / child resolution', () => {

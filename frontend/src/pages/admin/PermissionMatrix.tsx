@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { PageHeader, SaveResultDialog } from '../../components/shared';
+import { DivisionSelect } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -26,6 +27,12 @@ interface PermissionCell {
   permissionId: string;
   permissionCode: string;
   roleGranted: Record<string, boolean>;
+  /**
+   * Prompt #16 §24 — DIVISION restriction per role for this permission.
+   * `null` (or an absent key) = NO role-level restriction = legacy behaviour.
+   * `string[]` = this role's grant only applies inside those divisions.
+   */
+  roleDivisionScopes?: Record<string, string[] | null>;
 }
 
 interface PermissionRow {
@@ -43,12 +50,21 @@ interface RoleInfo {
   status: string;
 }
 
+interface DivisionInfo {
+  id: string;
+  divisionCode: string;
+  name: string;
+  status: string;
+}
+
 interface PermissionMatrixData {
   roles: RoleInfo[];
   modules: string[];
   rows: PermissionRow[];
   moduleLabels: Record<string, string>;
   resourceLabels: Record<string, string>;
+  /** Division master — source of truth for the Division Access panel (§24). */
+  divisions?: DivisionInfo[];
 }
 
 const MODULE_COLORS: Record<string, string> = {
@@ -93,6 +109,15 @@ const PermissionMatrix: React.FC = () => {
   const [collapsedModules, setCollapsedModules] = useState<Set<string>>(new Set());
   const [exportLoading, setExportLoading] = useState(false);
 
+  // Prompt #16 §24 — expandable "Division Access" panel per resource row.
+  const [expandedDivisionRows, setExpandedDivisionRows] = useState<Set<string>>(new Set());
+  /**
+   * Pending division-scope edits. Key `${roleId}:${permissionId}`.
+   * Value `null` = unrestricted (no restriction rows). Value `string[]` =
+   * restrict to exactly those divisions. Missing key = untouched.
+   */
+  const [divisionChanges, setDivisionChanges] = useState<Map<string, string[] | null>>(new Map());
+
   // Animated SaveResultDialog state
   const [saveDialogVisible, setSaveDialogVisible] = useState(false);
   const [saveDialogPhase, setSaveDialogPhase] = useState<SaveResultPhase>('loading');
@@ -109,6 +134,7 @@ const PermissionMatrix: React.FC = () => {
       const response = await apiService.get<{ data: PermissionMatrixData }>('/admin/permissions-matrix');
       setMatrix(response.data);
       setLocalChanges(new Map());
+      setDivisionChanges(new Map());
     } catch (error) {
       message.error('Failed to load permission matrix');
     } finally {
@@ -163,7 +189,54 @@ const PermissionMatrix: React.FC = () => {
     });
   }, [changeKey, localChanges]);
 
-  const hasChanges = localChanges.size > 0;
+  const hasChanges = localChanges.size > 0 || divisionChanges.size > 0;
+
+  const toggleDivisionAccessRow = useCallback((row: PermissionRow) => {
+    const key = `${row.module}:${row.resource}`;
+    setExpandedDivisionRows(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  /** Pending-or-original division scope for one (role, permission) grant. */
+  const getDivisionScope = useCallback(
+    (roleId: string, permissionId: string, original: string[] | null | undefined): string[] | null => {
+      const key = changeKey(roleId, permissionId);
+      if (divisionChanges.has(key)) return divisionChanges.get(key)!;
+      return original ?? null;
+    },
+    [divisionChanges, changeKey],
+  );
+
+  /** `null` = unrestricted; an emptied selection is stored as `null` (§27). */
+  const setDivisionScope = useCallback(
+    (
+      roleId: string,
+      permissionId: string,
+      original: string[] | null | undefined,
+      next: string[] | null,
+    ) => {
+      const key = changeKey(roleId, permissionId);
+      const before: string[] | null = original ?? null;
+      const clean: string[] | null = next && next.length > 0 ? next : null;
+      const same =
+        (before === null && clean === null) ||
+        (before !== null &&
+          clean !== null &&
+          before.length === clean.length &&
+          before.every((id, i) => id === clean[i]));
+      setDivisionChanges(prev => {
+        const map = new Map(prev);
+        if (same) map.delete(key);
+        else map.set(key, clean);
+        return map;
+      });
+    },
+    [changeKey],
+  );
 
   const toggleModule = useCallback((module: string) => {
     setCollapsedModules(prev => {
@@ -184,23 +257,62 @@ const PermissionMatrix: React.FC = () => {
 
   // Save All Changes with Animated SaveResultDialog
   const handleSave = useCallback(async () => {
-    if (!matrix || localChanges.size === 0) return;
+    if (!matrix || (localChanges.size === 0 && divisionChanges.size === 0)) return;
     try {
       setSaving(true);
       setSaveDialogLoadingTitle('Saving Permissions Matrix...');
-      setSaveDialogLoadingHint(`Applying ${localChanges.size} permission assignment update(s)...`);
+      setSaveDialogLoadingHint(
+        `Applying ${localChanges.size} permission toggle(s) and ${divisionChanges.size} division scope change(s)...`,
+      );
       setSaveDialogPhase('loading');
       setSaveDialogVisible(true);
       setSaveDialogRetry(() => () => void handleSave());
 
-      const rolePermMap = new Map<string, { permissionId: string; granted: boolean }[]>();
+      // permissionId → cell, so a division-only edit can carry the correct
+      // `granted` value without forcing the admin to toggle anything.
+      const cellByPermissionId = new Map<string, PermissionCell>();
+      for (const row of matrix.rows) {
+        for (const cell of Object.values(row.permissions)) {
+          cellByPermissionId.set(cell.permissionId, cell);
+        }
+      }
+
+      type TogglePayload = { permissionId: string; granted: boolean; divisionIds?: string[] | null };
+      const rolePermMap = new Map<string, TogglePayload[]>();
+
+      const pushOrMerge = (
+        roleId: string,
+        permissionId: string,
+        granted: boolean,
+        divisionIds: string[] | null | undefined,
+      ) => {
+        const list = rolePermMap.get(roleId) || [];
+        const existing = list.find(p => p.permissionId === permissionId);
+        if (existing) {
+          existing.granted = granted;
+          if (divisionIds !== undefined) existing.divisionIds = divisionIds;
+        } else {
+          const entry: TogglePayload = { permissionId, granted };
+          if (divisionIds !== undefined) entry.divisionIds = divisionIds;
+          list.push(entry);
+        }
+        rolePermMap.set(roleId, list);
+      };
 
       for (const [key, granted] of localChanges.entries()) {
         const [roleId, permissionId] = key.split(':');
-        if (!rolePermMap.has(roleId)) {
-          rolePermMap.set(roleId, []);
-        }
-        rolePermMap.get(roleId)!.push({ permissionId, granted });
+        // Only include `divisionIds` when it was actually edited — omitting the
+        // field entirely is what tells the backend "leave scope untouched".
+        const divisionIds = divisionChanges.has(key) ? divisionChanges.get(key)! : undefined;
+        pushOrMerge(roleId, permissionId, granted, divisionIds);
+      }
+
+      // Division-only edits (the grant itself did not change).
+      for (const [key, divisionIds] of divisionChanges.entries()) {
+        if (localChanges.has(key)) continue;
+        const [roleId, permissionId] = key.split(':');
+        const cell = cellByPermissionId.get(permissionId);
+        pushOrMerge(roleId, permissionId, cell ? cell.roleGranted[roleId] || false : false, divisionIds);
       }
 
       const roleUpdates = Array.from(rolePermMap.entries()).map(([roleId, permissions]) => ({
@@ -211,12 +323,12 @@ const PermissionMatrix: React.FC = () => {
       await apiService.put('/admin/permissions-matrix', { roles: roleUpdates });
 
       const affectedRoles = matrix.roles.filter(r => rolePermMap.has(r.id));
-      const totalToggles = localChanges.size;
+      const totalToggles = localChanges.size + divisionChanges.size;
 
       setSaveDialogSuccessTitle('Matrix Updated Successfully');
       setSaveDialogResult({
         title: 'Authorization Matrix Synchronized',
-        message: `Successfully synchronized ${totalToggles} permission toggle(s) across ${affectedRoles.length} role(s).`,
+        message: `Successfully synchronized ${totalToggles} update(s) across ${affectedRoles.length} role(s).`,
         userName: `${affectedRoles.length} Roles Configured`,
         userEmail: `${totalToggles} Granular Rights Assigned`,
         tags: affectedRoles.map(r => ({ label: r.roleCode, color: r.isSystemRole ? 'gold' : 'blue' })),
@@ -230,7 +342,7 @@ const PermissionMatrix: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [matrix, localChanges, fetchMatrix]);
+  }, [matrix, localChanges, divisionChanges, fetchMatrix]);
 
   // Bulk column actions: Toggle all permissions for an action in a role column
   const handleToggleColumnAction = useCallback((roleId: string, action: string, value: boolean) => {
@@ -313,6 +425,7 @@ const PermissionMatrix: React.FC = () => {
   // Discard all unsaved changes
   const handleDiscardChanges = useCallback(() => {
     setLocalChanges(new Map());
+    setDivisionChanges(new Map());
     message.info('All unsaved changes have been discarded.');
   }, [message]);
 
@@ -427,7 +540,7 @@ const PermissionMatrix: React.FC = () => {
 
   const rolesCount = matrix?.roles?.length || 0;
   const protectedRowsCount = matrix?.rows?.length || 0;
-  const pendingChangesCount = localChanges.size;
+  const pendingChangesCount = localChanges.size + divisionChanges.size;
 
   const exportMenuItems: MenuProps['items'] = [
     {
@@ -738,6 +851,19 @@ const PermissionMatrix: React.FC = () => {
                   const isCollapsed = collapsedModules.has(row.module) && !search;
                   if (isCollapsed && !showModuleHeader) return null;
 
+                  // Aliased actions (DELETE↔DEACTIVATE…) share one cell object;
+                  // list each permission exactly once for the Division panel.
+                  const divisionPermissions = (() => {
+                    const seen = new Set<string>();
+                    const list: PermissionCell[] = [];
+                    for (const cell of Object.values(row.permissions)) {
+                      if (seen.has(cell.permissionId)) continue;
+                      seen.add(cell.permissionId);
+                      list.push(cell);
+                    }
+                    return list;
+                  })();
+
                   return (
                     <React.Fragment key={`${row.module}-${row.resource}`}>
                       {showModuleHeader && (
@@ -778,11 +904,33 @@ const PermissionMatrix: React.FC = () => {
                         <tr>
                           {/* Sticky Left Resource Column */}
                           <td className="matrix-sticky-col">
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                               <span>{row.resourceName}</span>
-                              <Tooltip title={`Resource code: ${row.resource} (${Object.keys(row.permissions).length} controls)`}>
-                                <InfoCircleOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
-                              </Tooltip>
+                              <Space size={4}>
+                                <Tooltip
+                                  title="Division Access — restrict which divisions each role may use this permission in (Prompt #16)"
+                                >
+                                  <Button
+                                    size="small"
+                                    type="text"
+                                    data-testid={`division-access-toggle-${row.module}-${row.resource}`}
+                                    aria-label={`Division Access for ${row.resourceName}`}
+                                    icon={
+                                      <ApartmentOutlined
+                                        style={{
+                                          color: expandedDivisionRows.has(`${row.module}:${row.resource}`)
+                                            ? '#4f46e5'
+                                            : '#94a3b8',
+                                        }}
+                                      />
+                                    }
+                                    onClick={() => toggleDivisionAccessRow(row)}
+                                  />
+                                </Tooltip>
+                                <Tooltip title={`Resource code: ${row.resource} (${Object.keys(row.permissions).length} controls)`}>
+                                  <InfoCircleOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
+                                </Tooltip>
+                              </Space>
                             </div>
                           </td>
 
@@ -885,6 +1033,126 @@ const PermissionMatrix: React.FC = () => {
                           ))}
                         </tr>
                       )}
+
+                      {/* Prompt #16 §24 — expandable Division Access panel */}
+                      {!isCollapsed && expandedDivisionRows.has(`${row.module}:${row.resource}`) && (
+                        <tr
+                          className="matrix-division-row"
+                          data-testid={`division-access-row-${row.module}-${row.resource}`}
+                        >
+                          <td colSpan={(matrix?.roles?.length || 0) + 1}>
+                            <div
+                              style={{
+                                padding: '10px 14px',
+                                background: 'rgba(79, 70, 229, 0.05)',
+                                borderTop: '1px dashed rgba(79, 70, 229, 0.3)',
+                                borderBottom: '1px dashed rgba(79, 70, 229, 0.3)',
+                              }}
+                            >
+                              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                                <Space size={8} wrap>
+                                  <ApartmentOutlined style={{ color: '#4f46e5' }} />
+                                  <Text strong>Division Access</Text>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    Empty = no restriction for that grant (every division the user&apos;s own
+                                    organization scope allows). Selecting divisions limits the grant to exactly
+                                    those; a user always receives the intersection of their own scope and this
+                                    setting.
+                                  </Text>
+                                </Space>
+
+                                <div
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                                    gap: 12,
+                                  }}
+                                >
+                                  {matrix?.roles?.map(role => (
+                                    <div
+                                      key={role.id}
+                                      style={{
+                                        border: '1px solid rgba(226, 232, 240, 0.9)',
+                                        borderRadius: 10,
+                                        padding: 10,
+                                        background: 'rgba(255, 255, 255, 0.7)',
+                                      }}
+                                    >
+                                      <Space size={6} style={{ marginBottom: 8 }} wrap>
+                                        <Tag color={role.isSystemRole ? 'gold' : 'blue'} style={{ margin: 0 }}>
+                                          {role.roleCode}
+                                        </Tag>
+                                        <Text style={{ fontSize: 12 }}>{role.name}</Text>
+                                      </Space>
+
+                                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                        {divisionPermissions.map(perm => {
+                                          const original = perm.roleDivisionScopes?.[role.id] ?? null;
+                                          const current = getDivisionScope(role.id, perm.permissionId, original);
+                                          const key = changeKey(role.id, perm.permissionId);
+                                          const dirty = divisionChanges.has(key);
+                                          const granted = isGranted(
+                                            role.id,
+                                            perm.permissionId,
+                                            perm.roleGranted[role.id] || false,
+                                          );
+
+                                          return (
+                                            <div
+                                              key={perm.permissionId}
+                                              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                                            >
+                                              <Tooltip title={perm.permissionCode}>
+                                                <span
+                                                  style={{
+                                                    width: 132,
+                                                    flexShrink: 0,
+                                                    fontSize: 11,
+                                                    color: granted ? '#334155' : '#94a3b8',
+                                                    textDecoration: granted ? 'none' : 'line-through',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap',
+                                                  }}
+                                                >
+                                                  {perm.permissionCode}
+                                                </span>
+                                              </Tooltip>
+                                              <DivisionSelect
+                                                mode="multiple"
+                                                size="small"
+                                                style={{ flex: 1, minWidth: 0 }}
+                                                value={current}
+                                                divisions={matrix.divisions ?? null}
+                                                disabled={!granted}
+                                                allowClear
+                                                placeholder="All divisions"
+                                                onChange={(v: any) =>
+                                                  setDivisionScope(
+                                                    role.id,
+                                                    perm.permissionId,
+                                                    original,
+                                                    Array.isArray(v) && v.length > 0 ? (v as string[]) : null,
+                                                  )
+                                                }
+                                              />
+                                              {dirty && (
+                                                <Tag color="orange" style={{ margin: 0 }}>
+                                                  new
+                                                </Tag>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </Space>
+                                    </div>
+                                  ))}
+                                </div>
+                              </Space>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                     </React.Fragment>
                   );
                 });
@@ -938,6 +1206,7 @@ const PermissionMatrix: React.FC = () => {
           <span className="matrix-save-dock-pulse" />
           <span className="matrix-save-dock-text">
             Unsaved Changes: {localChanges.size} permission toggle(s)
+            {divisionChanges.size > 0 ? ` · ${divisionChanges.size} division scope(s)` : ''}
           </span>
           <Button
             type="primary"

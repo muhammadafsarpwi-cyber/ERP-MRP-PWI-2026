@@ -22,6 +22,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagg
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { MachineTargetService } from '../services';
 import {
   CreateMachineTargetDto,
@@ -33,7 +34,7 @@ import {
 
 @ApiTags('Machine Targets')
 @Controller('production/machine-targets')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class MachineTargetController {
   constructor(private readonly service: MachineTargetService) {}
@@ -48,6 +49,11 @@ export class MachineTargetController {
 
   private getUserId(req: any): string | undefined {
     return req.erpUser?.id;
+  }
+
+  /** Division list a service may filter with; `undefined` = unrestricted. */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
   }
 
   @Post('import')
@@ -68,7 +74,7 @@ export class MachineTargetController {
     if (!/\.csv$/i.test(file.originalname)) {
       throw new BadRequestException('Only CSV files are supported');
     }
-    return this.service.importCsv(this.getCompanyId(req), this.getUserId(req), file.buffer);
+    return this.service.importCsv(this.getCompanyId(req), this.getUserId(req), file.buffer, this.divisions(req));
   }
 
   @Get('resolve')
@@ -77,7 +83,7 @@ export class MachineTargetController {
   @RequirePermission('manufacturing.machine_target.view')
   @ApiOperation({ summary: 'Resolve the applicable target for machine + shift + production date' })
   async resolve(@Query() query: ResolveMachineTargetQueryDto, @Req() req: any) {
-    return this.service.resolve(query, this.getCompanyId(req));
+    return this.service.resolve(query, this.getCompanyId(req), this.divisions(req));
   }
 
   @Get()
@@ -86,7 +92,10 @@ export class MachineTargetController {
   @RequirePermission('manufacturing.machine_target.view')
   @ApiOperation({ summary: 'List machine targets with filters, sorting and pagination' })
   async findAll(@Query() query: MachineTargetQueryDto, @Req() req: any) {
-    return this.service.findAll(this.getCompanyId(req), query);
+    return this.service.findAll(this.getCompanyId(req), {
+      ...query,
+      allowedDivisionIds: this.divisions(req),
+    });
   }
 
   @Get(':id')
@@ -95,7 +104,7 @@ export class MachineTargetController {
   @RequirePermission('manufacturing.machine_target.view')
   @ApiOperation({ summary: 'Get a machine target' })
   async findOne(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: any) {
-    return this.service.findOne(id, this.getCompanyId(req));
+    return this.service.findOne(id, this.getCompanyId(req), this.divisions(req));
   }
 
   @Post()
@@ -105,7 +114,7 @@ export class MachineTargetController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a machine target' })
   async create(@Body() dto: CreateMachineTargetDto, @Req() req: any) {
-    return this.service.create(dto, this.getCompanyId(req), this.getUserId(req));
+    return this.service.create(dto, this.getCompanyId(req), this.getUserId(req), this.divisions(req));
   }
 
   @Put(':id')
@@ -118,7 +127,7 @@ export class MachineTargetController {
     @Body() dto: UpdateMachineTargetDto,
     @Req() req: any,
   ) {
-    return this.service.update(id, dto, this.getCompanyId(req), this.getUserId(req));
+    return this.service.update(id, dto, this.getCompanyId(req), this.getUserId(req), this.divisions(req));
   }
 
   @Patch(':id/status')
@@ -131,7 +140,7 @@ export class MachineTargetController {
     @Body() dto: ChangeMachineTargetStatusDto,
     @Req() req: any,
   ) {
-    return this.service.changeStatus(id, dto.status, this.getCompanyId(req), this.getUserId(req));
+    return this.service.changeStatus(id, dto.status, this.getCompanyId(req), this.getUserId(req), this.divisions(req));
   }
 
   @Delete(':id')
@@ -141,6 +150,6 @@ export class MachineTargetController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Soft-delete a machine target' })
   async remove(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: any) {
-    await this.service.remove(id, this.getCompanyId(req), this.getUserId(req));
+    await this.service.remove(id, this.getCompanyId(req), this.getUserId(req), this.divisions(req));
   }
 }

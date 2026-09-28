@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
@@ -13,6 +14,7 @@ import {
   ProductionUnitStatus,
   ProductionUnitCodeType,
 } from '../entities/production-unit.entity';
+import { ProductionEntry } from '../entities/production-entry.entity';
 import {
   ProductionUnitPrintLog,
   PrintEventType,
@@ -25,6 +27,7 @@ import {
   PrintProductionUnitsDto,
   ListProductionUnitsQueryDto,
 } from '../dto/production-unit.dto';
+import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 
 @Injectable()
 export class ProductionUnitService {
@@ -37,6 +40,35 @@ export class ProductionUnitService {
     private readonly printLogRepo: Repository<ProductionUnitPrintLog>,
     private readonly dataSource: DataSource,
   ) {}
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // DIVISION SCOPE (Prompt #16 §18 / §19)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * `ProductionUnit` carries no `division_id` — it inherits its division from
+   * the production entry it was generated from (`productionEntry.divisionId`).
+   *
+   * Read/write authorization: throws 403 when that division is outside the
+   * caller's list. Units with no linked entry (division not yet known) inherit
+   * the company's access and are not refused — mirroring
+   * `ProductionEntryService.assertDivisionAccess`.
+   */
+  private assertDivisionAccess(
+    allowedDivisionIds: string[] | undefined,
+    divisionId: string | null | undefined,
+    label = 'production unit',
+  ): void {
+    if (isUnrestricted(allowedDivisionIds)) return;
+    if (!divisionId) return;
+    if ((allowedDivisionIds as string[]).includes(divisionId)) return;
+    throw new ForbiddenException(`You do not have access to the ${label} in this division.`);
+  }
+
+  /** Division of a loaded unit — requires the `productionEntry` relation. */
+  private unitDivisionId(unit: ProductionUnit): string | null | undefined {
+    return unit.productionEntry?.divisionId;
+  }
 
   // ════════════════════════════════════════════════════════════════════════════
   // SERIAL NUMBER GENERATION
@@ -110,6 +142,7 @@ export class ProductionUnitService {
   async generateUnits(
     dto: GenerateProductionUnitsDto,
     userId?: string,
+    allowedDivisionIds?: string[],
   ): Promise<ProductionUnit[]> {
     if (dto.quantity < 1 || dto.quantity > 500) {
       throw new BadRequestException('Quantity must be between 1 and 500');
@@ -118,6 +151,15 @@ export class ProductionUnitService {
     const companyId = dto.companyId || (await this.getDefaultCompanyId());
     if (!companyId) {
       throw new BadRequestException('Company ID is required to generate production units');
+    }
+
+    // §19 — units inherit their division from the linked production entry;
+    // generating them for a foreign entry must be refused.
+    if (dto.productionEntryId && !isUnrestricted(allowedDivisionIds)) {
+      const entry = await this.dataSource
+        .getRepository(ProductionEntry)
+        .findOne({ where: { id: dto.productionEntryId }, select: ['id', 'divisionId'] });
+      this.assertDivisionAccess(allowedDivisionIds, entry?.divisionId, 'production unit');
     }
 
     const prefix = (dto.coilPrefix || 'CN').toUpperCase().slice(0, 10);
@@ -219,6 +261,7 @@ export class ProductionUnitService {
   async listUnits(
     companyId: string,
     query: ListProductionUnitsQueryDto,
+    allowedDivisionIds?: string[],
   ): Promise<{ data: ProductionUnit[]; total: number }> {
     const page  = Number(query.page  ?? 1);
     const limit = Math.min(Number(query.limit ?? 50), 200);
@@ -228,6 +271,8 @@ export class ProductionUnitService {
       .leftJoinAndSelect('u.item', 'item')
       .leftJoinAndSelect('u.shift', 'shift')
       .leftJoinAndSelect('u.machine', 'machine')
+      // Units carry no division_id of their own — scope through the parent entry.
+      .leftJoin('u.productionEntry', 'pe')
       .where('u.companyId = :companyId', { companyId })
       .orderBy('u.createdAt', 'DESC');
 
@@ -247,43 +292,49 @@ export class ProductionUnitService {
         { s },
       );
     }
+    applyDivisionScopeFilter(qb, 'pe.divisionId', allowedDivisionIds);
 
     qb.skip((page - 1) * limit).take(limit);
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 
-  async findOne(id: string, companyId: string): Promise<ProductionUnit> {
+  async findOne(id: string, companyId: string, allowedDivisionIds?: string[]): Promise<ProductionUnit> {
     const unit = await this.unitRepo.findOne({
       where: { id, companyId },
       relations: ['item', 'shift', 'machine', 'productionEntry'],
     });
     if (!unit) throw new NotFoundException(`Production unit ${id} not found`);
+    // §18 — guessing an ID must not bypass the list filter.
+    this.assertDivisionAccess(allowedDivisionIds, this.unitDivisionId(unit), 'production unit');
     return unit;
   }
 
-  async findBySerial(serialNo: string, companyId?: string): Promise<ProductionUnit> {
+  async findBySerial(serialNo: string, companyId?: string, allowedDivisionIds?: string[]): Promise<ProductionUnit> {
     const where: any = { unitSerialNo: serialNo };
     if (companyId) where.companyId = companyId;
     const unit = await this.unitRepo.findOne({
       where,
-      relations: ['item', 'shift', 'machine'],
+      relations: ['item', 'shift', 'machine', 'productionEntry'],
     });
     if (!unit) throw new NotFoundException(`Production unit with serial ${serialNo} not found`);
+    this.assertDivisionAccess(allowedDivisionIds, this.unitDivisionId(unit), 'production unit');
     return unit;
   }
 
-  async findByQrOrBarcode(payload: string, companyId?: string): Promise<ProductionUnit> {
+  async findByQrOrBarcode(payload: string, companyId?: string, allowedDivisionIds?: string[]): Promise<ProductionUnit> {
     const qb = this.unitRepo
       .createQueryBuilder('u')
       .leftJoinAndSelect('u.item', 'item')
       .leftJoinAndSelect('u.shift', 'shift')
+      .leftJoinAndSelect('u.productionEntry', 'productionEntry')
       .where('(u.qrPayload = :p OR u.barcodePayload = :p OR u.unitSerialNo = :p)', { p: payload });
     if (companyId) {
       qb.andWhere('u.companyId = :companyId', { companyId });
     }
     const unit = await qb.getOne();
     if (!unit) throw new NotFoundException(`Production unit with payload ${payload} not found`);
+    this.assertDivisionAccess(allowedDivisionIds, this.unitDivisionId(unit), 'production unit');
     return unit;
   }
 
@@ -296,8 +347,9 @@ export class ProductionUnitService {
     companyId: string,
     dto: UpdateProductionUnitDto,
     userId?: string,
+    allowedDivisionIds?: string[],
   ): Promise<ProductionUnit> {
-    const unit = await this.findOne(id, companyId);
+    const unit = await this.findOne(id, companyId, allowedDivisionIds);
     if ([ProductionUnitStatus.VOID, ProductionUnitStatus.CANCELLED].includes(unit.status)) {
       throw new BadRequestException('Cannot update a VOID or CANCELLED unit');
     }
@@ -315,11 +367,15 @@ export class ProductionUnitService {
     companyId: string,
     dto: BulkUpdateUnitsDto,
     userId?: string,
+    allowedDivisionIds?: string[],
   ): Promise<ProductionUnit[]> {
     const ids = dto.units.map((u) => u.id).filter(Boolean) as string[];
     if (!ids.length) throw new BadRequestException('No unit IDs provided');
 
-    const existing = await this.unitRepo.find({ where: { companyId, id: In(ids) } });
+    const existing = await this.unitRepo.find({
+      where: { companyId, id: In(ids) },
+      relations: ['productionEntry'],
+    });
     const existingMap = new Map(existing.map((u) => [u.id, u]));
 
     const updated: ProductionUnit[] = [];
@@ -327,6 +383,8 @@ export class ProductionUnitService {
       if (!row.id) continue;
       const unit = existingMap.get(row.id);
       if (!unit) continue;
+      // §18 — bulk writes must not reach across division boundaries.
+      this.assertDivisionAccess(allowedDivisionIds, this.unitDivisionId(unit), 'production unit');
       if ([ProductionUnitStatus.VOID, ProductionUnitStatus.CANCELLED].includes(unit.status)) continue;
 
       if (row.weightKg    !== undefined) unit.weightKg    = row.weightKg;
@@ -353,12 +411,19 @@ export class ProductionUnitService {
     companyId: string,
     dto: PrintProductionUnitsDto,
     userId?: string,
+    allowedDivisionIds?: string[],
   ): Promise<{ printJobId: string; units: ProductionUnit[]; logs: ProductionUnitPrintLog[] }> {
     const units = await this.unitRepo.find({
       where: { companyId, id: In(dto.unitIds) },
+      relations: ['productionEntry'],
     });
 
     if (!units.length) throw new NotFoundException('No valid units found for printing');
+
+    // §18 — printing a label for a foreign-division unit must be refused.
+    for (const unit of units) {
+      this.assertDivisionAccess(allowedDivisionIds, this.unitDivisionId(unit), 'production unit');
+    }
 
     // Filter out VOID/CANCELLED
     const printable = units.filter(
@@ -415,8 +480,9 @@ export class ProductionUnitService {
     companyId: string,
     dto: VoidProductionUnitDto,
     userId?: string,
+    allowedDivisionIds?: string[],
   ): Promise<ProductionUnit> {
-    const unit = await this.findOne(id, companyId);
+    const unit = await this.findOne(id, companyId, allowedDivisionIds);
     if ([ProductionUnitStatus.VOID, ProductionUnitStatus.CANCELLED].includes(unit.status)) {
       throw new BadRequestException(`Unit is already ${unit.status}`);
     }
@@ -435,9 +501,9 @@ export class ProductionUnitService {
   // PRINT LOGS
   // ════════════════════════════════════════════════════════════════════════════
 
-  async getPrintLogs(unitId: string, companyId: string): Promise<ProductionUnitPrintLog[]> {
-    // Verify access
-    await this.findOne(unitId, companyId);
+  async getPrintLogs(unitId: string, companyId: string, allowedDivisionIds?: string[]): Promise<ProductionUnitPrintLog[]> {
+    // Verify access (including division scope)
+    await this.findOne(unitId, companyId, allowedDivisionIds);
     return this.printLogRepo.find({
       where: { productionUnitId: unitId },
       order: { printedAt: 'DESC' },
@@ -482,22 +548,25 @@ export class ProductionUnitService {
   // SCAN TO DETAIL (lookup by QR/barcode payload)
   // ════════════════════════════════════════════════════════════════════════════
 
-  async scanLookup(payload: string, companyId?: string): Promise<ProductionUnit> {
-    return this.findByQrOrBarcode(payload, companyId);
+  async scanLookup(payload: string, companyId?: string, allowedDivisionIds?: string[]): Promise<ProductionUnit> {
+    return this.findByQrOrBarcode(payload, companyId, allowedDivisionIds);
   }
 
   // ════════════════════════════════════════════════════════════════════════════
   // STATS
   // ════════════════════════════════════════════════════════════════════════════
 
-  async getStats(companyId: string): Promise<Record<string, number>> {
-    const rows = await this.unitRepo
+  async getStats(companyId: string, allowedDivisionIds?: string[]): Promise<Record<string, number>> {
+    const qb = this.unitRepo
       .createQueryBuilder('u')
       .select('u.status', 'status')
       .addSelect('COUNT(*)', 'cnt')
+      // Units carry no division_id of their own — scope through the parent entry.
+      .leftJoin('u.productionEntry', 'pe')
       .where('u.companyId = :companyId', { companyId })
-      .groupBy('u.status')
-      .getRawMany();
+      .groupBy('u.status');
+    applyDivisionScopeFilter(qb, 'pe.divisionId', allowedDivisionIds);
+    const rows = await qb.getRawMany();
 
     const stats: Record<string, number> = {
       GENERATED: 0, PRINTED: 0, ACTIVE: 0, USED: 0, VOID: 0, CANCELLED: 0, total: 0,

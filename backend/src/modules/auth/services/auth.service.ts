@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SupabaseAuthService } from './supabase-auth.service';
 import { ErpUserService } from '../../user/services/erp-user.service';
 import { PermissionMatrixService } from '../../permission/services/permission-matrix.service';
+import { DivisionAccessService } from '../../permission/services/division-access.service';
 import { LoginDto, ForgotPasswordDto, ResetPasswordDto, ChangePasswordDto, UpdateOwnProfileDto, AvatarUploadDto } from '../dto/auth.dto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -17,9 +18,41 @@ export class AuthService {
     private readonly supabaseAuthService: SupabaseAuthService,
     private readonly userService: ErpUserService,
     private readonly permissionMatrixService: PermissionMatrixService,
+    private readonly divisionAccessService: DivisionAccessService,
   ) {
     const configured = this.configService.get<string>('STORAGE_PATH', './storage');
     this.storagePath = path.resolve(configured);
+  }
+
+  /**
+   * Prompt #16 §22 — the divisions this user may actually use.
+   *
+   * Deliberately minimal: an `unrestricted` flag (so the UI can say "All
+   * divisions" instead of a misleading finite list) plus the division master
+   * rows the user is allowed to pick. No internal authorization data — no
+   * role ids, scope rows or permission codes — is exposed here.
+   */
+  private async buildDivisionAccess(erpUserId: string): Promise<{
+    unrestricted: boolean;
+    items: Array<{ id: string; divisionCode: string; name: string }>;
+    permissionScopes: Record<string, string[]>;
+  }> {
+    try {
+      const [{ unrestricted, divisions }, permissionScopes] = await Promise.all([
+        this.divisionAccessService.listAccessibleDivisions(erpUserId),
+        this.divisionAccessService.getRestrictedPermissionScopes(erpUserId),
+      ]);
+      return {
+        unrestricted,
+        items: divisions.map((d) => ({ id: d.id, divisionCode: d.divisionCode, name: d.name })),
+        permissionScopes,
+      };
+    } catch (error) {
+      this.logger.warn(`Division access lookup failed for ${erpUserId}: ${(error as Error).message}`);
+      // Never fail an authentication response because of an authorization
+      // lookup — the API layer still enforces the real scope per request.
+      return { unrestricted: true, items: [], permissionScopes: {} };
+    }
   }
 
   async login(loginDto: LoginDto): Promise<{ token: string; refreshToken: string; user: any }> {
@@ -41,6 +74,7 @@ export class AuthService {
     await this.userService.updateLastLogin(erpUser.id);
 
     const permissions = await this.permissionMatrixService.getUserPermissions(erpUser.id);
+    const divisions = await this.buildDivisionAccess(erpUser.id);
 
     return {
       token: result.accessToken,
@@ -55,6 +89,7 @@ export class AuthService {
         defaultCompanyId: erpUser.defaultCompanyId,
         status: erpUser.status,
         permissions,
+        divisions,
       },
     };
   }
@@ -68,6 +103,7 @@ export class AuthService {
     }
 
     const permissions = await this.permissionMatrixService.getUserPermissions(erpUser.id);
+    const divisions = await this.buildDivisionAccess(erpUser.id);
 
     return {
       token: result.accessToken,
@@ -82,6 +118,7 @@ export class AuthService {
         defaultCompanyId: erpUser.defaultCompanyId,
         status: erpUser.status,
         permissions,
+        divisions,
       },
     };
   }
@@ -118,10 +155,12 @@ export class AuthService {
     }
 
     const permissions = await this.permissionMatrixService.getUserPermissions(user.id);
+    const divisions = await this.buildDivisionAccess(user.id);
 
     return {
       ...user,
       permissions,
+      divisions,
     };
   }
 

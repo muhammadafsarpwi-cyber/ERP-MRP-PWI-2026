@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,6 +12,7 @@ import { Machine } from '../../production/entities/machine.entity';
 import { Shift } from '../../production/entities/shift.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { Item } from '../../item/entities/item.entity';
+import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 import {
   familyOf,
   convertWithItemData,
@@ -75,11 +77,34 @@ export class MachineTargetService {
     private readonly itemRepo: Repository<Item>,
   ) {}
 
+  // ─── Division scope helpers (Prompt #16 §18/§19) ───────────────────────────
+
+  /**
+   * Read-by-ID / write authorization. `MachineTarget` carries no division_id
+   * of its own — its division is inherited from the machine it targets
+   * (`machine.division_id`), exactly like the existing explicit `divisionId`
+   * list filter. Throws 403 when that division is outside the caller's list.
+   *
+   * `divisionId` may be null (machine not yet filed under a division); those
+   * inherit the company's access and are not refused — mirroring
+   * `ProductionEntryService.assertDivisionAccess`.
+   */
+  private assertDivisionAccess(
+    allowedDivisionIds: string[] | undefined,
+    divisionId: string | null | undefined,
+    label = 'machine target',
+  ): void {
+    if (isUnrestricted(allowedDivisionIds)) return;
+    if (!divisionId) return;
+    if ((allowedDivisionIds as string[]).includes(divisionId)) return;
+    throw new ForbiddenException(`You do not have access to the ${label} in this division.`);
+  }
+
   // ─── Queries ────────────────────────────────────────────────────────────────
 
   async findAll(
     companyId: string,
-    filters: MachineTargetQueryDto,
+    filters: MachineTargetQueryDto & { allowedDivisionIds?: string[] },
   ): Promise<{ data: MachineTarget[]; total: number; page: number; limit: number }> {
     const {
       page = 1,
@@ -98,6 +123,7 @@ export class MachineTargetService {
       search,
       sortBy,
       sortDir = 'ASC',
+      allowedDivisionIds,
     } = filters || {};
 
     const qb = this.targetRepo
@@ -121,6 +147,9 @@ export class MachineTargetService {
     if (divisionId) qb.andWhere('machine.divisionId = :divisionId', { divisionId });
     if (sectionId) qb.andWhere('machine.sectionId = :sectionId', { sectionId });
     if (departmentId) qb.andWhere('machine.departmentId = :departmentId', { departmentId });
+    // Server-side division scoping (Prompt #16) — MachineTarget inherits its
+    // division from the machine it targets (`machine.division_id`).
+    applyDivisionScopeFilter(qb, 'machine.divisionId', allowedDivisionIds);
     if (machineCode) qb.andWhere('machine.machineCode ILIKE :mcode', { mcode: `%${machineCode}%` });
     if (machineNumber) qb.andWhere('machine.machineNumber ILIKE :mnum', { mnum: `%${machineNumber}%` });
     if (status) qb.andWhere('mt.status = :status', { status });
@@ -159,7 +188,7 @@ export class MachineTargetService {
     return { data, total, page, limit };
   }
 
-  async findOne(id: string, companyId: string): Promise<MachineTarget> {
+  async findOne(id: string, companyId: string, allowedDivisionIds?: string[]): Promise<MachineTarget> {
     const target = await this.targetRepo.findOne({
       where: { id, companyId },
       relations: [
@@ -171,15 +200,24 @@ export class MachineTargetService {
     if (!target || !target.isActive) {
       throw new NotFoundException(`Machine Target '${id}' not found`);
     }
+    // §18 — guessing an ID must not bypass the list filter.
+    this.assertDivisionAccess(allowedDivisionIds, target.machine?.divisionId, 'machine target');
     return target;
   }
 
   // ─── Mutations ──────────────────────────────────────────────────────────────
 
-  async create(dto: CreateMachineTargetDto, companyId: string, userId?: string): Promise<MachineTarget> {
+  async create(
+    dto: CreateMachineTargetDto,
+    companyId: string,
+    userId?: string,
+    allowedDivisionIds?: string[],
+  ): Promise<MachineTarget> {
     const machine = await this.assertRefsValid(companyId, dto.machineId, dto.shiftId, dto.uomId, dto.itemId);
     this.validateDates(dto.effectiveFrom, dto.effectiveTo ?? null);
     this.assertOrgConsistent(machine, dto);
+    // §19 — the target's division (inherited from its machine) must be allowed.
+    this.assertDivisionAccess(allowedDivisionIds, machine.divisionId, 'machine target');
 
     await this.assertNoOverlap(
       companyId, dto.machineId, dto.shiftId, dto.itemId, dto.uomId,
@@ -205,7 +243,7 @@ export class MachineTargetService {
     try {
       const saved = await this.targetRepo.save(target);
       // Reload with machine/shift/item/UOM/org relations for a complete API response.
-      return await this.findOne(saved.id, companyId);
+      return await this.findOne(saved.id, companyId, allowedDivisionIds);
     } catch (e: any) {
       // uq_machine_targets_active_open_combo safety net
       if (String(e?.code) === '23505' || String(e?.detail ?? '').includes('uq_machine_targets_active_open_combo')) {
@@ -217,8 +255,14 @@ export class MachineTargetService {
     }
   }
 
-  async update(id: string, dto: UpdateMachineTargetDto, companyId: string, userId?: string): Promise<MachineTarget> {
-    const existing = await this.findOne(id, companyId);
+  async update(
+    id: string,
+    dto: UpdateMachineTargetDto,
+    companyId: string,
+    userId?: string,
+    allowedDivisionIds?: string[],
+  ): Promise<MachineTarget> {
+    const existing = await this.findOne(id, companyId, allowedDivisionIds);
 
     const merged = {
       machineId: dto.machineId ?? existing.machineId,
@@ -236,6 +280,8 @@ export class MachineTargetService {
     const machine = await this.assertRefsValid(companyId, merged.machineId, merged.shiftId, merged.uomId, merged.itemId);
     this.validateDates(merged.effectiveFrom, merged.effectiveTo);
     this.assertOrgConsistent(machine, dto);
+    // §19 — re-check when the update moves the target to another machine.
+    this.assertDivisionAccess(allowedDivisionIds, machine.divisionId, 'machine target');
     if (
       dto.status === MachineTargetStatus.ACTIVE ||
       (dto.status === undefined && existing.status === MachineTargetStatus.ACTIVE)
@@ -258,7 +304,7 @@ export class MachineTargetService {
 
     try {
       await this.targetRepo.save(existing);
-      return await this.findOne(id, companyId);
+      return await this.findOne(id, companyId, allowedDivisionIds);
     } catch (e: any) {
       if (String(e?.code) === '23505') {
         throw new ConflictException(
@@ -269,8 +315,14 @@ export class MachineTargetService {
     }
   }
 
-  async changeStatus(id: string, status: MachineTargetStatus, companyId: string, userId?: string): Promise<MachineTarget> {
-    const target = await this.findOne(id, companyId);
+  async changeStatus(
+    id: string,
+    status: MachineTargetStatus,
+    companyId: string,
+    userId?: string,
+    allowedDivisionIds?: string[],
+  ): Promise<MachineTarget> {
+    const target = await this.findOne(id, companyId, allowedDivisionIds);
     if (status === MachineTargetStatus.ACTIVE && target.status !== MachineTargetStatus.ACTIVE) {
       await this.assertNoOverlap(
         companyId, target.machineId, target.shiftId, target.itemId ?? null, target.uomId,
@@ -281,12 +333,12 @@ export class MachineTargetService {
     target.updatedBy = userId ?? null;
     delete (target as any).updatedByUser;
     await this.targetRepo.save(target);
-    return this.findOne(id, companyId);
+    return this.findOne(id, companyId, allowedDivisionIds);
   }
 
   /** Soft delete per ERP convention — historical snapshots keep their FK alive. */
-  async remove(id: string, companyId: string, userId?: string): Promise<void> {
-    const target = await this.findOne(id, companyId);
+  async remove(id: string, companyId: string, userId?: string, allowedDivisionIds?: string[]): Promise<void> {
+    const target = await this.findOne(id, companyId, allowedDivisionIds);
     target.isActive = false;
     target.updatedBy = userId ?? null;
     delete (target as any).updatedByUser;
@@ -299,9 +351,15 @@ export class MachineTargetService {
    * Resolve endpoint payload: deterministic target for machine+shift on a
    * production date plus the pro-rated calculated target for given hours.
    */
-  async resolve(query: ResolveMachineTargetQueryDto, companyId: string): Promise<any> {
+  async resolve(
+    query: ResolveMachineTargetQueryDto,
+    companyId: string,
+    allowedDivisionIds?: string[],
+  ): Promise<any> {
     const machine = await this.machineRepo.findOne({ where: { id: query.machineId, companyId } });
     if (!machine) throw new NotFoundException(`Machine '${query.machineId}' not found in this company`);
+    // §18 — resolving a target for a machine outside the caller's division is refused.
+    this.assertDivisionAccess(allowedDivisionIds, machine.divisionId, 'machine target');
 
     let item: Item | null = null;
     if (query.itemId) {
@@ -670,6 +728,7 @@ export class MachineTargetService {
     companyId: string,
     userId: string | undefined,
     fileBuffer: Buffer,
+    allowedDivisionIds?: string[],
   ): Promise<{
     totalRows: number;
     imported: number;
@@ -721,13 +780,23 @@ export class MachineTargetService {
         results.push({ row: rowNum, status: 'error', message: 'Machine Code / Machine Number is required' });
         continue;
       }
-      let machine = machineByCode.get(machineCode.toUpperCase()) || machineByNumber.get(machineCode.toUpperCase());
+      const machine = machineByCode.get(machineCode.toUpperCase()) || machineByNumber.get(machineCode.toUpperCase());
       if (!machine) {
         results.push({ row: rowNum, status: 'error', message: `Machine '${machineCode}' not found` });
         continue;
       }
       if (machine.status !== 'ACTIVE') {
         results.push({ row: rowNum, status: 'error', message: `Machine '${machineCode}' is not ACTIVE` });
+        continue;
+      }
+      // Prompt #16 — the target's division (inherited from its machine) must
+      // be one the caller may write to; reported per row like other import errors.
+      if (
+        !isUnrestricted(allowedDivisionIds) &&
+        machine.divisionId &&
+        !(allowedDivisionIds as string[]).includes(machine.divisionId)
+      ) {
+        results.push({ row: rowNum, status: 'error', message: 'You do not have access to this division.' });
         continue;
       }
 

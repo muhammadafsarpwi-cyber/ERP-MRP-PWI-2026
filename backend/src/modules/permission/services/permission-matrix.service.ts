@@ -4,12 +4,27 @@ import { Repository } from 'typeorm';
 import { Role } from '../../role/entities/role.entity';
 import { Permission } from '../entities/permission.entity';
 import { RolePermission, RolePermissionStatus } from '../../role/entities/role-permission.entity';
+import {
+  RolePermissionDivisionScope,
+  RolePermissionDivisionScopeStatus,
+  RolePermissionScopeLevel,
+} from '../../role/entities/role-permission-division-scope.entity';
+import { Division } from '../../organization/entities/division.entity';
 import { UpdatePermissionMatrixDto } from '../dto/permission-matrix.dto';
 
 export interface PermissionMatrixCell {
   permissionId: string;
   permissionCode: string;
   roleGranted: Record<string, boolean>;
+  /**
+   * Prompt #16 §23 — optional division restriction per role for this
+   * permission.
+   *
+   * `null` (or a missing key) ⇒ NO role-level division restriction, i.e. the
+   * permission behaves exactly as it did before Prompt #16 (§12).
+   * `string[]` ⇒ the permission is limited to those division ids.
+   */
+  roleDivisionScopes: Record<string, string[] | null>;
 }
 
 export interface PermissionMatrixRow {
@@ -25,6 +40,8 @@ export interface PermissionMatrixResponse {
   rows: PermissionMatrixRow[];
   moduleLabels: Record<string, string>;
   resourceLabels: Record<string, string>;
+  /** Division master used by the Division Access panel (never hard-coded). */
+  divisions: { id: string; divisionCode: string; name: string; status: string }[];
 }
 
 @Injectable()
@@ -38,6 +55,10 @@ export class PermissionMatrixService {
     private readonly permissionRepository: Repository<Permission>,
     @InjectRepository(RolePermission)
     private readonly rolePermissionRepository: Repository<RolePermission>,
+    @InjectRepository(RolePermissionDivisionScope)
+    private readonly roleDivisionScopeRepository: Repository<RolePermissionDivisionScope>,
+    @InjectRepository(Division)
+    private readonly divisionRepository: Repository<Division>,
   ) {}
 
   private readonly moduleLabels: Record<string, string> = {
@@ -179,6 +200,35 @@ export class PermissionMatrixService {
       where: { status: 'ACTIVE' as any },
     });
 
+    // Prompt #16 §23 — optional division restrictions per (role, permission).
+    // An empty table (or an empty result) means every permission is
+    // UNRESTRICTED, exactly as before this feature existed.
+    let divisionScopes: RolePermissionDivisionScope[] = [];
+    try {
+      divisionScopes = await this.roleDivisionScopeRepository.find({
+        where: { status: RolePermissionDivisionScopeStatus.ACTIVE },
+      });
+    } catch (error) {
+      this.logger.warn(`role_permission_division_scopes unavailable: ${(error as Error).message}`);
+    }
+
+    const divisions = await this.divisionRepository.find({
+      order: { divisionCode: 'ASC' },
+    });
+
+    // `${roleId}:${permissionId}` → division ids restricted for that grant.
+    const scopeMap = new Map<string, string[]>();
+    for (const s of divisionScopes) {
+      if (!s.divisionId) continue; // explicit "all divisions" row
+      const key = `${s.roleId}:${s.permissionId}`;
+      const list = scopeMap.get(key);
+      if (list) {
+        if (!list.includes(s.divisionId)) list.push(s.divisionId);
+      } else {
+        scopeMap.set(key, [s.divisionId]);
+      }
+    }
+
     const grantedSet = new Set<string>();
     for (const rp of rolePermissions) {
       grantedSet.add(`${rp.roleId}:${rp.permissionId}`);
@@ -217,13 +267,17 @@ export class PermissionMatrixService {
         const cells: Record<string, PermissionMatrixCell> = {};
         for (const perm of perms) {
           const roleGranted: Record<string, boolean> = {};
+          const roleDivisionScopes: Record<string, string[] | null> = {};
           for (const roleId of roleIds) {
             roleGranted[roleId] = grantedSet.has(`${roleId}:${perm.id}`);
+            const restricted = scopeMap.get(`${roleId}:${perm.id}`);
+            roleDivisionScopes[roleId] = restricted ? [...restricted] : null;
           }
           cells[perm.action.toUpperCase()] = {
             permissionId: perm.id,
             permissionCode: perm.permissionCode,
             roleGranted,
+            roleDivisionScopes,
           };
         }
 
@@ -258,6 +312,12 @@ export class PermissionMatrixService {
       rows,
       moduleLabels: this.moduleLabels,
       resourceLabels: this.resourceLabels,
+      divisions: divisions.map((d) => ({
+        id: d.id,
+        divisionCode: d.divisionCode,
+        name: d.name,
+        status: d.status,
+      })),
     };
   }
 
@@ -299,10 +359,85 @@ export class PermissionMatrixService {
             await this.rolePermissionRepository.save(existing);
           }
         }
+
+        // Prompt #16 §23 — optional division restriction for this grant.
+        // `divisionIds === undefined` (field omitted) leaves scope rows alone,
+        // which is why every pre-existing caller of this endpoint keeps
+        // working unchanged.
+        if (toggle.divisionIds !== undefined) {
+          await this.setDivisionScope(
+            roleUpdate.roleId,
+            toggle.permissionId,
+            toggle.divisionIds,
+            userId,
+          );
+        }
       }
     }
 
     return { success: true, message: 'Permission matrix updated successfully' };
+  }
+
+  /**
+   * Replace the division restrictions for one (role, permission) grant.
+   *
+   * - `null` / `[]`  → delete every row ⇒ unrestricted (legacy behaviour, §12)
+   * - `[uuid, ...]`  → keep exactly those rows
+   *
+   * Rows are inserted one at a time so the expression unique index
+   * `uq_rpd_scope` (COALESCE over nullable columns) remains the single source
+   * of duplicate protection — no ON CONFLICT clause can express it.
+   */
+  private async setDivisionScope(
+    roleId: string,
+    permissionId: string,
+    divisionIds: string[] | null | undefined,
+    userId?: string,
+  ): Promise<void> {
+    const wanted = Array.isArray(divisionIds)
+      ? [...new Set(divisionIds.filter((id) => typeof id === 'string' && id.trim() !== ''))]
+      : [];
+
+    const existing = await this.roleDivisionScopeRepository.find({ where: { roleId, permissionId } });
+
+    if (wanted.length === 0) {
+      // Explicitly unrestricted → remove all restriction rows (additive table,
+      // nothing else is touched).
+      if (existing.length > 0) {
+        await this.roleDivisionScopeRepository.remove(existing);
+      }
+      return;
+    }
+
+    const existingByDivision = new Map(existing.map((row) => [row.divisionId ?? '', row]));
+
+    // Drop rows that are no longer selected.
+    const toRemove = existing.filter((row) => !wanted.includes(row.divisionId ?? ''));
+    if (toRemove.length > 0) {
+      await this.roleDivisionScopeRepository.remove(toRemove);
+    }
+
+    // Add the newly selected divisions.
+    for (const divisionId of wanted) {
+      if (existingByDivision.has(divisionId)) continue;
+      const row = this.roleDivisionScopeRepository.create({
+        roleId,
+        permissionId,
+        divisionId,
+        departmentId: null,
+        scopeLevel: RolePermissionScopeLevel.DIVISION,
+        status: RolePermissionDivisionScopeStatus.ACTIVE,
+        createdBy: userId || null,
+        updatedBy: userId || null,
+      });
+      try {
+        await this.roleDivisionScopeRepository.save(row);
+      } catch (error: any) {
+        // 23505 = unique violation: someone else wrote the same grant at the
+        // same moment. Treat as already applied rather than failing the save.
+        if (error?.code !== '23505') throw error;
+      }
+    }
   }
 
   async getUserPermissions(userId: string): Promise<string[]> {

@@ -11,11 +11,12 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { DashboardService } from '../services/dashboard.service';
 
 @ApiTags('dashboard')
 @Controller('dashboard')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
@@ -26,6 +27,11 @@ export class DashboardController {
       throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
     }
     return companyId;
+  }
+
+  /** Division list a service may filter with; `undefined` = unrestricted. */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
   }
 
   @Get('summary')
@@ -42,7 +48,10 @@ export class DashboardController {
     @Query('departmentId') departmentId?: string,
   ) {
     const companyId = this.getCompanyId(req);
-    const data = await this.dashboardService.getSummary(companyId, { divisionId, sectionId, departmentId });
+    const data = await this.dashboardService.getSummary(companyId, {
+      divisionId, sectionId, departmentId,
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, data };
   }
 
@@ -72,6 +81,7 @@ export class DashboardController {
     const companyId = this.getCompanyId(req);
     const data = await this.dashboardService.getProductionSummary(companyId, {
       dateFrom, dateTo, divisionId, sectionId, departmentId, shiftId, machineId, itemId,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, data };
   }
@@ -101,6 +111,7 @@ export class DashboardController {
     const d = Math.min(Math.max(Number(days) || 14, 1), 90);
     const data = await this.dashboardService.getProductionTrend(companyId, d, {
       divisionId, sectionId, departmentId, shiftId, machineId, itemId,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, data };
   }
@@ -125,6 +136,7 @@ export class DashboardController {
     const companyId = this.getCompanyId(req);
     const data = await this.dashboardService.getMachinePerformance(companyId, {
       divisionId, sectionId, departmentId, dateFrom, dateTo,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, data };
   }
@@ -151,6 +163,7 @@ export class DashboardController {
     const companyId = this.getCompanyId(req);
     const data = await this.dashboardService.getItemOverview(companyId, {
       divisionId, sectionId, departmentId, itemType, status, search,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, data };
   }
@@ -217,7 +230,10 @@ export class DashboardController {
     @Query('departmentId') departmentId?: string,
   ) {
     const companyId = this.getCompanyId(req);
-    const data = await this.dashboardService.getAlerts(companyId, { divisionId, sectionId, departmentId });
+    const data = await this.dashboardService.getAlerts(companyId, {
+      divisionId, sectionId, departmentId,
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, data };
   }
 
@@ -239,9 +255,12 @@ export class DashboardController {
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
   @ApiOperation({ summary: 'List divisions for filter dropdown' })
-  async divisions(@Req() req: any) {
+  // NOTE: the handler method is `listDivisions` (not `divisions`) so it does
+  // not collide with the private `divisions(req)` scope helper. The HTTP
+  // endpoint (`GET /dashboard/divisions`) is unchanged.
+  async listDivisions(@Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.dashboardService.getFilterDivisions(companyId);
+    const data = await this.dashboardService.getFilterDivisions(companyId, this.divisions(req));
     return { success: true, data };
   }
 
@@ -252,7 +271,7 @@ export class DashboardController {
   @ApiOperation({ summary: 'List sections for filter dropdown (optionally by division)' })
   async sections(@Req() req: any, @Query('divisionId') divisionId?: string) {
     const companyId = this.getCompanyId(req);
-    const data = await this.dashboardService.getFilterSections(companyId, divisionId);
+    const data = await this.dashboardService.getFilterSections(companyId, divisionId, this.divisions(req));
     return { success: true, data };
   }
 
@@ -264,7 +283,10 @@ export class DashboardController {
   @ApiOperation({ summary: 'List departments for filter dropdown' })
   async departments(@Req() req: any, @Query('divisionId') divisionId?: string, @Query('sectionId') sectionId?: string) {
     const companyId = this.getCompanyId(req);
-    const data = await this.dashboardService.getFilterDepartments(companyId, { divisionId, sectionId });
+    const data = await this.dashboardService.getFilterDepartments(companyId, {
+      divisionId, sectionId,
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, data };
   }
 

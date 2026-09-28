@@ -1,6 +1,8 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
+import { OrgScopeGuard } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { DivisionService } from '../services';
 import { CreateDivisionDto, UpdateDivisionDto } from '../dto';
@@ -8,9 +10,14 @@ import { DivisionStatus } from '../entities';
 
 @ApiTags('organization/divisions')
 @Controller('divisions')
-@UseGuards(SupabaseJwtGuard, PermissionGuard)
+@UseGuards(SupabaseJwtGuard, PermissionGuard, OrgScopeGuard, DivisionScopeGuard)
 export class DivisionController {
   constructor(private readonly divisionService: DivisionService) {}
+
+  /** Divisions the caller may see; `undefined` = unrestricted (legacy). */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
+  }
 
   @Post()
   @RequirePermission('division.create')
@@ -31,13 +38,21 @@ export class DivisionController {
   @ApiQuery({ name: 'status', required: false, enum: DivisionStatus })
   @ApiQuery({ name: 'companyId', required: false, type: String })
   async findAll(
+    @Req() req: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
     @Query('status') status?: DivisionStatus,
     @Query('companyId') companyId?: string,
   ) {
-    const result = await this.divisionService.findAll({ page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId });
+    const result = await this.divisionService.findAll({
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
+      search,
+      status,
+      companyId,
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, ...result };
   }
 
@@ -47,8 +62,8 @@ export class DivisionController {
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division found' })
   @ApiResponse({ status: 404, description: 'Division not found' })
-  async findOne(@Param('id') id: string) {
-    const division = await this.divisionService.findOne(id);
+  async findOne(@Param('id') id: string, @Req() req: any) {
+    const division = await this.divisionService.findOne(id, this.divisions(req));
     return { success: true, data: division };
   }
 
@@ -57,8 +72,8 @@ export class DivisionController {
   @ApiOperation({ summary: 'Update a division' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division updated successfully' })
-  async update(@Param('id') id: string, @Body() updateDivisionDto: UpdateDivisionDto) {
-    const division = await this.divisionService.update(id, updateDivisionDto);
+  async update(@Param('id') id: string, @Body() updateDivisionDto: UpdateDivisionDto, @Req() req: any) {
+    const division = await this.divisionService.update(id, updateDivisionDto, undefined, this.divisions(req));
     return { success: true, data: division, message: 'Division updated successfully' };
   }
 
@@ -68,8 +83,8 @@ export class DivisionController {
   @ApiOperation({ summary: 'Activate a division' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division activated successfully' })
-  async activate(@Param('id') id: string) {
-    const division = await this.divisionService.activate(id);
+  async activate(@Param('id') id: string, @Req() req: any) {
+    const division = await this.divisionService.activate(id, undefined, this.divisions(req));
     return { success: true, data: division, message: 'Division activated successfully' };
   }
 
@@ -79,8 +94,8 @@ export class DivisionController {
   @ApiOperation({ summary: 'Deactivate a division' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division deactivated successfully' })
-  async deactivate(@Param('id') id: string) {
-    const division = await this.divisionService.deactivate(id);
+  async deactivate(@Param('id') id: string, @Req() req: any) {
+    const division = await this.divisionService.deactivate(id, undefined, this.divisions(req));
     return { success: true, data: division, message: 'Division deactivated successfully' };
   }
 
@@ -90,7 +105,7 @@ export class DivisionController {
   @ApiOperation({ summary: 'Delete a division' })
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 204, description: 'Division deleted successfully' })
-  async remove(@Param('id') id: string) {
-    await this.divisionService.remove(id);
+  async remove(@Param('id') id: string, @Req() req: any) {
+    await this.divisionService.remove(id, this.divisions(req));
   }
 }

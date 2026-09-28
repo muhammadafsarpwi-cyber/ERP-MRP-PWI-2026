@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App,
-  Popconfirm, Card, Row, Col, Divider, Typography, Badge, Tooltip,
+  Popconfirm, Card, Row, Col, Divider, Typography, Badge, Tooltip, Alert,
   Empty, Dropdown, message as staticMessage,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -15,12 +15,20 @@ import {
   FilePdfOutlined, FileExcelOutlined, UploadOutlined,
   MinusOutlined, EyeOutlined, CloseOutlined, UserAddOutlined,
   ClockCircleOutlined, SettingOutlined, TagOutlined, BankOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { PageHeader, SaveResultDialog, DraggableResizableModal } from '../../components/shared';
+import {
+  DivisionAccessModal,
+  DivisionScopeTags,
+  isDivisionRestriction,
+  type DivisionAccessTarget,
+  type DivisionScope,
+} from '../../components/shared/DivisionAccessModal';
 import GlobalLoading from '../../components/shared/GlobalLoading';
 import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
@@ -121,6 +129,7 @@ const UserManagement: React.FC = () => {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [roleModalVisible, setRoleModalVisible] = useState(false);
+  const [divisionModalVisible, setDivisionModalVisible] = useState(false);
   const [resetModalVisible, setResetModalVisible] = useState(false);
   const [avatarModalVisible, setAvatarModalVisible] = useState(false);
 
@@ -135,6 +144,23 @@ const UserManagement: React.FC = () => {
   const [roleLoading, setRoleLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
+  const [divisionScopeLoading, setDivisionScopeLoading] = useState(false);
+
+  // Prompt #16 §25 — the user's DIVISION access (their organization scope).
+  // Read from and written to the existing /admin/users/:id/org-scopes API.
+  // Prompt #16B §19 — this is the ONE state for division access; the modal,
+  // the Edit form summary and the New User summary all render it.
+  const [divisionScopes, setDivisionScopes] = useState<DivisionScope[]>([]);
+  // Which user the Division Access modal is working on. Kept separate from
+  // `selectedUser` so the New User flow can target a freshly created account
+  // that the table has not necessarily re-rendered yet.
+  const [divisionTarget, setDivisionTarget] = useState<DivisionAccessTarget | null>(null);
+  // Prompt #16B §2/§6 — the account created by the still-open Add User form.
+  // Division Access is only offered once the REAL user id exists.
+  const [createdUser, setCreatedUser] = useState<DivisionAccessTarget | null>(null);
+  // Prompt #16B §16 — a failed scope write after a successful user creation is
+  // never reported as an overall success.
+  const [createScopeError, setCreateScopeError] = useState<string | null>(null);
 
   // Selected records
   const [selectedUser, setSelectedUser] = useState<ErpUser | null>(null);
@@ -246,6 +272,10 @@ const UserManagement: React.FC = () => {
     if (companies.length > 0) {
       createForm.setFieldValue('companyId', companies[0].id);
     }
+    // Prompt #16B §16 — a fresh Add User session must not inherit the previous
+    // run's created account or its scope error.
+    setCreatedUser(null);
+    setCreateScopeError(null);
     setIsCreateMinimized(false);
     setCreateModalVisible(true);
   };
@@ -261,6 +291,11 @@ const UserManagement: React.FC = () => {
       username: record.username,
       defaultCompanyId: record.defaultCompanyId || record.defaultCompany?.id || companies[0]?.id,
     });
+    // Prompt #16B §8 — the users LIST endpoint does not embed
+    // `organizationScopes`, so the Edit form re-reads them for this user.
+    setDivisionScopes([]);
+    setDivisionScopeLoading(true);
+    void refreshDivisionScopes(record.id);
     setIsEditMinimized(false);
     setEditModalVisible(true);
   };
@@ -275,6 +310,97 @@ const UserManagement: React.FC = () => {
     setSelectedUser(user);
     roleForm.setFieldsValue({ roleIds: user.userRoles?.map(ur => ur.roleId) || [] });
     setRoleModalVisible(true);
+  };
+
+  // ─── Prompt #16 §25 / #16B — DIVISION access via the existing org-scopes API ──
+
+  const refreshDivisionScopes = useCallback(async (userId: string) => {
+    try {
+      const res = await apiService.get<{ data: ErpUser }>(`/admin/users/${userId}`);
+      const all = res?.data?.organizationScopes || [];
+      // Prompt #16B §6 — the section lists *restrictions*, so the
+      // auto-provisioned COMPANY-wide row every user has is filtered out
+      // here (the single place that owns this list). Without it the required
+      // "No division restriction — … full company access" state would never
+      // render for a normal user and the scope count would be wrong.
+      const scopes = all.filter(isDivisionRestriction);
+      setDivisionScopes(scopes);
+      setSelectedUser(prev => (prev && prev.id === userId ? { ...prev, organizationScopes: all } : prev));
+      setDivisionTarget(prev => (prev && prev.id === userId ? { ...prev, organizationScopes: all } : prev));
+      return scopes;
+    } catch (error) {
+      message.error(formatApiError(error, 'Failed to refresh division access'));
+      return null;
+    } finally {
+      setDivisionScopeLoading(false);
+    }
+  }, [message]);
+
+  /**
+   * Prompt #16B — the single entry point into the Division Access modal.
+   * Used by Actions → Divisions, Add User (post-create) and Edit User.
+   */
+  const openDivisionModal = (user: DivisionAccessTarget) => {
+    setDivisionTarget(user);
+    // The users list endpoint does not embed organizationScopes, so this is
+    // only a placeholder — re-read them from GET /admin/users/:id right away,
+    // otherwise an already-restricted user renders as "full company access".
+    setDivisionScopes((user.organizationScopes || []).filter(isDivisionRestriction));
+    setDivisionModalVisible(true);
+    setDivisionScopeLoading(true);
+    void refreshDivisionScopes(user.id);
+  };
+
+  /**
+   * Prompt #16B §4/§9 — grants through the existing
+   * `POST /admin/users/:id/org-scopes`. Returns whether it was persisted so
+   * the modal clears its division picker only on success.
+   */
+  const handleAddDivisionScope = async (values: { companyId?: string; divisionId?: string }): Promise<boolean> => {
+    if (!divisionTarget) return false;
+    if (!values.companyId || !values.divisionId) {
+      message.error('Select a company and a division first.');
+      return false;
+    }
+    setDivisionScopeLoading(true);
+    try {
+      await apiService.post(`/admin/users/${divisionTarget.id}/org-scopes`, {
+        companyId: values.companyId,
+        divisionId: values.divisionId,
+        scopeLevel: 'DIVISION',
+        isFullScope: false,
+      });
+      message.success('Division access granted');
+      // Prompt #16B §16 — clear a previous "could not be saved" warning.
+      if (createdUser && createdUser.id === divisionTarget.id) setCreateScopeError(null);
+      await refreshDivisionScopes(divisionTarget.id);
+      return true;
+    } catch (error) {
+      const inCreateFlow = !!createdUser && createdUser.id === divisionTarget.id;
+      const fallback = inCreateFlow
+        ? 'User created, but Division Access could not be saved.'
+        : 'Failed to grant division access';
+      const text = formatApiError(error, fallback);
+      message.error(text);
+      if (inCreateFlow) setCreateScopeError(text);
+      return false;
+    } finally {
+      setDivisionScopeLoading(false);
+    }
+  };
+
+  const handleRemoveDivisionScope = async (scopeId: string) => {
+    if (!divisionTarget) return;
+    setDivisionScopeLoading(true);
+    try {
+      await apiService.delete(`/admin/users/${divisionTarget.id}/org-scopes/${scopeId}`);
+      message.success('Division access removed');
+      await refreshDivisionScopes(divisionTarget.id);
+    } catch (error) {
+      message.error(formatApiError(error, 'Failed to remove division access'));
+    } finally {
+      setDivisionScopeLoading(false);
+    }
   };
 
   const openResetModal = (user: ErpUser) => {
@@ -415,23 +541,42 @@ const UserManagement: React.FC = () => {
       setSaveDialogVisible(true);
       setSaveDialogRetry(() => () => void handleCreate());
 
-      await apiService.post('/admin/users/create-full', {
-        email: values.email,
-        password: values.password,
-        displayName: values.displayName,
-        firstName: values.firstName,
-        lastName: values.lastName,
-        phone: values.phone,
-        employeeId: values.employeeId,
-        username: values.username,
-        roleIds: values.roleIds || [],
-        companyId: values.companyId || (companies[0]?.id),
-      });
+      const created = await apiService.post<{ success?: boolean; data?: ErpUser }>(
+        '/admin/users/create-full',
+        {
+          email: values.email,
+          password: values.password,
+          displayName: values.displayName,
+          firstName: values.firstName,
+          lastName: values.lastName,
+          phone: values.phone,
+          employeeId: values.employeeId,
+          username: values.username,
+          roleIds: values.roleIds || [],
+          companyId: values.companyId || (companies[0]?.id),
+        },
+      );
 
       const assignedRoles = roles.filter(r => (values.roleIds || []).includes(r.id));
 
-      setCreateModalVisible(false);
-      createForm.resetFields();
+      // Prompt #16B §2/§6 — organization scopes may only be written once the
+      // account exists. Capture the REAL database id returned by
+      // `POST /admin/users/create-full` and keep the form open so Division
+      // Access can be configured for that id (never with a temp/frontend id).
+      const newUserId = created?.data?.id;
+      setCreatedUser(
+        newUserId
+          ? {
+              id: newUserId,
+              displayName: created?.data?.displayName || values.displayName,
+              defaultCompanyId: created?.data?.defaultCompanyId || values.companyId || companies[0]?.id,
+            }
+          : null,
+      );
+      // Prompt #16B §6 — the section below must describe THIS account, so any
+      // scope list left over from a previous Edit/Actions session is dropped.
+      setDivisionScopes([]);
+      setCreateScopeError(null);
 
       setSaveDialogSuccessTitle('User Created Successfully');
       setSaveDialogResult({
@@ -1009,6 +1154,18 @@ const UserManagement: React.FC = () => {
               <Button type="text" size="small" onClick={() => openRoleModal(record)}>Roles</Button>
             </Tooltip>
           )}
+          {can('admin.users.manage_scope') && (
+            <Tooltip title="Division Access — which divisions this user can work in">
+              <Button
+                type="text"
+                size="small"
+                data-testid="user-division-access"
+                onClick={() => openDivisionModal(record)}
+              >
+                Divisions
+              </Button>
+            </Tooltip>
+          )}
           {can('admin.users.update') && (
             <Tooltip title="Reset Password">
               <Popconfirm
@@ -1292,8 +1449,13 @@ const UserManagement: React.FC = () => {
         onCancel={() => {
           setCreateModalVisible(false);
           setIsCreateMinimized(false);
+          // Prompt #16B §16 — leaving the form never leaves a half-configured
+          // session behind; a retry must not create a duplicate user.
+          setCreatedUser(null);
+          setCreateScopeError(null);
         }}
         okText="Create User"
+        okButtonProps={{ disabled: !!createdUser }}
         confirmLoading={createLoading}
         width={980}
         height={650}
@@ -1429,6 +1591,56 @@ const UserManagement: React.FC = () => {
                   }))}
                 />
               </Form.Item>
+
+              {/* Prompt #16B §2/§6 — Division Access inside the New User flow.
+                  The scope row is only written once `POST /admin/users/create-full`
+                  has returned the real user id (never before). */}
+              <Divider orientation="left" style={{ fontSize: 13, margin: '12px 0' }}>
+                Division Access
+              </Divider>
+
+              {createdUser ? (
+                <div data-testid="create-division-access">
+                  <Space align="center" size={8}>
+                    <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                    <Text type="success">User created successfully.</Text>
+                  </Space>
+
+                  {createScopeError ? (
+                    <Alert
+                      type="error"
+                      showIcon
+                      style={{ margin: '8px 0' }}
+                      message="User created, but Division Access could not be saved."
+                      description={createScopeError}
+                    />
+                  ) : null}
+
+                  <DivisionScopeTags
+                    scopes={divisionScopes}
+                    loading={divisionScopeLoading}
+                    style={{ margin: '6px 0 10px', minHeight: 0 }}
+                  />
+
+                  <Button
+                    block
+                    icon={<ApartmentOutlined />}
+                    data-testid="create-division-access-configure"
+                    onClick={() => openDivisionModal(createdUser)}
+                  >
+                    Configure Division Access
+                  </Button>
+                </div>
+              ) : (
+                <Text
+                  type="secondary"
+                  style={{ fontSize: 12, display: 'block' }}
+                  data-testid="create-division-access-pending"
+                >
+                  Division Access becomes available after the account is created — organization scopes can only be
+                  saved against the real database user id.
+                </Text>
+              )}
             </Form>
           </div>
 
@@ -1583,6 +1795,34 @@ const UserManagement: React.FC = () => {
                   </Form.Item>
                 </Col>
               </Row>
+
+              {/* Prompt #16B §3/§18 — same Division Access state as
+                  Actions → Divisions (single source: user_organization_scopes). */}
+              <Divider orientation="left" style={{ fontSize: 13, margin: '12px 0' }}>
+                Division Access
+              </Divider>
+              <div data-testid="edit-division-access">
+                <DivisionScopeTags
+                  scopes={divisionScopes}
+                  loading={divisionScopeLoading}
+                  style={{ margin: '4px 0 8px', minHeight: 32 }}
+                />
+                {!divisionScopeLoading && divisionScopes.length > 0 ? (
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                    {divisionScopes.length} division scope{divisionScopes.length === 1 ? '' : 's'} configured
+                  </Text>
+                ) : null}
+                {can('admin.users.manage_scope') && selectedUser ? (
+                  <Button
+                    icon={<ApartmentOutlined />}
+                    data-testid="edit-division-access-configure"
+                    onClick={() => openDivisionModal(selectedUser)}
+                  >
+                    Configure Division Access
+                  </Button>
+                ) : null}
+              </div>
+
               <div style={{ marginTop: 14 }}>
                 <Button
                   icon={<CameraOutlined />}
@@ -1858,6 +2098,19 @@ const UserManagement: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* Prompt #16 §25/§26 + #16B — Division Access (organization scope).
+          ONE implementation, shared by Actions → Divisions, Add User and Edit User. */}
+      <DivisionAccessModal
+        open={divisionModalVisible}
+        user={divisionTarget}
+        companies={companies}
+        scopes={divisionScopes}
+        loading={divisionScopeLoading}
+        onGrant={handleAddDivisionScope}
+        onRemove={handleRemoveDivisionScope}
+        onClose={() => setDivisionModalVisible(false)}
+      />
 
       {/* Reset Password Modal */}
       <Modal

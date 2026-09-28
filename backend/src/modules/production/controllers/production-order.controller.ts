@@ -18,6 +18,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam, ApiQuery } from '@nestj
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { ProductionOrderService, ProductionPlanningService } from '../services';
 import {
   CreateProductionOrderDto,
@@ -29,7 +30,7 @@ import {
 
 @ApiTags('production/orders')
 @Controller('production/orders')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class ProductionOrderController {
   constructor(
@@ -47,6 +48,23 @@ export class ProductionOrderController {
 
   private getUserId(req: any): string | undefined {
     return req.erpUser?.id;
+  }
+
+  /** Division list a service may filter with; `undefined` = unrestricted. */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
+  }
+
+  /**
+   * §18/§19 — every read-by-id and every mutation on an order must prove the
+   * order sits inside the caller's divisions first.
+   */
+  private async assertOrderAccess(req: any, orderId: string, companyId: string): Promise<void> {
+    await this.productionOrderService.assertDivisionAccessForOrder(
+      orderId,
+      companyId,
+      this.divisions(req),
+    );
   }
 
   @Get()
@@ -80,6 +98,7 @@ export class ProductionOrderController {
       productId,
       divisionId,
       priority,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, ...result };
   }
@@ -110,7 +129,10 @@ export class ProductionOrderController {
     @Query('divisionId') divisionId?: string,
   ) {
     const companyId = this.getCompanyId(req);
-    const data = await this.productionOrderService.getDashboardSummary(companyId, { dateFrom, dateTo, divisionId });
+    const data = await this.productionOrderService.getDashboardSummary(companyId, {
+      dateFrom, dateTo, divisionId,
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, data };
   }
 
@@ -121,7 +143,7 @@ export class ProductionOrderController {
   @ApiOperation({ summary: 'Get production order detail with operations' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const order = await this.productionOrderService.findOne(id, companyId);
+    const order = await this.productionOrderService.findOne(id, companyId, this.divisions(req));
     return { success: true, data: order };
   }
 
@@ -132,6 +154,7 @@ export class ProductionOrderController {
   @ApiOperation({ summary: 'Material requirements vs issued for the order' })
   async requirements(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, id, companyId);
     const result = await this.productionOrderService.getRequirements(id, companyId);
     return { success: true, ...result };
   }
@@ -155,6 +178,7 @@ export class ProductionOrderController {
   @ApiOperation({ summary: 'Update a DRAFT production order' })
   async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductionOrderDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, id, companyId);
     const order = await this.productionOrderService.update(id, dto, companyId, this.getUserId(req));
     return { success: true, data: order, message: 'Production order updated' };
   }
@@ -166,6 +190,7 @@ export class ProductionOrderController {
   @ApiOperation({ summary: 'Release order: snapshot routing operations into execution operations' })
   async release(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, id, companyId);
     const order = await this.productionOrderService.release(id, companyId, this.getUserId(req));
     return { success: true, data: order, message: `Production Order ${order.orderNumber} released` };
   }
@@ -177,6 +202,7 @@ export class ProductionOrderController {
   @ApiOperation({ summary: 'Cancel a DRAFT or RELEASED production order' })
   async cancel(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, id, companyId);
     const order = await this.productionOrderService.cancel(id, companyId, this.getUserId(req));
     return { success: true, data: order, message: `Production Order ${order.orderNumber} cancelled` };
   }
@@ -189,6 +215,7 @@ export class ProductionOrderController {
   @ApiOperation({ summary: 'Soft-delete a DRAFT production order' })
   async remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, id, companyId);
     await this.productionOrderService.remove(id, companyId, this.getUserId(req));
     return { success: true, message: 'Production order deleted' };
   }
@@ -204,6 +231,7 @@ export class ProductionOrderController {
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, orderId, companyId);
     const op = await this.productionOrderService.startOperation(orderId, operationId, companyId, this.getUserId(req));
     return { success: true, data: op, message: `Operation ${op.sequenceNo} started` };
   }
@@ -220,6 +248,7 @@ export class ProductionOrderController {
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, orderId, companyId);
     const op = await this.productionOrderService.completeOperation(orderId, operationId, dto, companyId, this.getUserId(req));
     return { success: true, data: op, message: `Operation ${op.sequenceNo} completed` };
   }
@@ -231,6 +260,7 @@ export class ProductionOrderController {
   @ApiOperation({ summary: 'Issue raw materials to production (PRODUCTION_ISSUE ledger OUT)' })
   async issueMaterials(@Param('id', ParseUUIDPipe) id: string, @Body() dto: IssueMaterialsDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, id, companyId);
     const result = await this.productionOrderService.issueMaterials(id, dto, companyId, this.getUserId(req));
     return { success: true, data: result, message: 'Materials issued' };
   }
@@ -242,6 +272,7 @@ export class ProductionOrderController {
   @ApiOperation({ summary: 'Complete order + FG receipt (PRODUCTION_RECEIPT ledger IN)' })
   async completeOrder(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CompleteProductionOrderDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    await this.assertOrderAccess(req, id, companyId);
     const order = await this.productionOrderService.completeProductionOrder(id, dto, companyId, this.getUserId(req));
     return { success: true, data: order, message: `Production Order ${order.orderNumber} completed` };
   }

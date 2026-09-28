@@ -17,6 +17,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { OrgScopeGuard } from '../../auth/guards/org-scope.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { ProductionUnitService } from '../services/production-unit.service';
 import {
   GenerateProductionUnitsDto,
@@ -29,7 +30,7 @@ import {
 
 @ApiTags('production/units')
 @Controller('production/units')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class ProductionUnitController {
 
@@ -54,6 +55,11 @@ export class ProductionUnitController {
     return req.erpUser?.id || req.user?.id;
   }
 
+  /** Division list a service may filter with; `undefined` = unrestricted. */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
+  }
+
   // ─── Label templates ─────────────────────────────────────────────────────────
 
   @Get('templates')
@@ -70,7 +76,7 @@ export class ProductionUnitController {
   @ApiOperation({ summary: 'Production unit status statistics' })
   async getStats(@Req() req: any) {
     const companyId = await this.getCompanyId(req);
-    const stats = await this.unitService.getStats(companyId);
+    const stats = await this.unitService.getStats(companyId, this.divisions(req));
     return { success: true, data: stats };
   }
 
@@ -82,7 +88,7 @@ export class ProductionUnitController {
   @ApiOperation({ summary: 'Resolve QR / barcode payload to production unit' })
   async scanLookup(@Param('payload') payload: string, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
-    const unit = await this.unitService.scanLookup(payload, companyId);
+    const unit = await this.unitService.scanLookup(payload, companyId, this.divisions(req));
     return { success: true, data: unit };
   }
 
@@ -94,7 +100,7 @@ export class ProductionUnitController {
   @ApiOperation({ summary: 'Find production unit by serial number' })
   async findBySerial(@Param('serialNo') serialNo: string, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
-    const unit = await this.unitService.findBySerial(serialNo, companyId);
+    const unit = await this.unitService.findBySerial(serialNo, companyId, this.divisions(req));
     return { success: true, data: unit };
   }
 
@@ -112,7 +118,7 @@ export class ProductionUnitController {
   @ApiQuery({ name: 'limit', required: false })
   async list(@Req() req: any, @Query() query: ListProductionUnitsQueryDto) {
     const companyId = await this.getCompanyId(req);
-    const result = await this.unitService.listUnits(companyId, query);
+    const result = await this.unitService.listUnits(companyId, query, this.divisions(req));
     return { success: true, ...result };
   }
 
@@ -124,7 +130,7 @@ export class ProductionUnitController {
   @ApiOperation({ summary: 'Get a single production unit' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
-    const unit = await this.unitService.findOne(id, companyId);
+    const unit = await this.unitService.findOne(id, companyId, this.divisions(req));
     return { success: true, data: unit };
   }
 
@@ -138,7 +144,7 @@ export class ProductionUnitController {
   async generate(@Body() dto: GenerateProductionUnitsDto, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
     dto.companyId = companyId; // always use authenticated company
-    const units = await this.unitService.generateUnits(dto, this.getUserId(req));
+    const units = await this.unitService.generateUnits(dto, this.getUserId(req), this.divisions(req));
     return { success: true, data: units, count: units.length };
   }
 
@@ -150,7 +156,7 @@ export class ProductionUnitController {
   @ApiOperation({ summary: 'Bulk update individual unit weights / attributes' })
   async bulkUpdate(@Body() dto: BulkUpdateUnitsDto, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
-    const units = await this.unitService.bulkUpdateUnits(companyId, dto, this.getUserId(req));
+    const units = await this.unitService.bulkUpdateUnits(companyId, dto, this.getUserId(req), this.divisions(req));
     return { success: true, data: units, count: units.length };
   }
 
@@ -166,7 +172,7 @@ export class ProductionUnitController {
     @Req() req: any,
   ) {
     const companyId = await this.getCompanyId(req);
-    const unit = await this.unitService.updateUnit(id, companyId, dto, this.getUserId(req));
+    const unit = await this.unitService.updateUnit(id, companyId, dto, this.getUserId(req), this.divisions(req));
     return { success: true, data: unit };
   }
 
@@ -179,7 +185,7 @@ export class ProductionUnitController {
   @ApiOperation({ summary: 'Record a print / reprint action for selected units' })
   async print(@Body() dto: PrintProductionUnitsDto, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
-    const result = await this.unitService.recordPrint(companyId, dto, this.getUserId(req));
+    const result = await this.unitService.recordPrint(companyId, dto, this.getUserId(req), this.divisions(req));
     return {
       success: true,
       printJobId: result.printJobId,
@@ -200,7 +206,7 @@ export class ProductionUnitController {
     @Req() req: any,
   ) {
     const companyId = await this.getCompanyId(req);
-    const unit = await this.unitService.voidUnit(id, companyId, dto, this.getUserId(req));
+    const unit = await this.unitService.voidUnit(id, companyId, dto, this.getUserId(req), this.divisions(req));
     return { success: true, data: unit };
   }
 
@@ -212,7 +218,7 @@ export class ProductionUnitController {
   @ApiOperation({ summary: 'Get print history for a production unit' })
   async getPrintLogs(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
-    const logs = await this.unitService.getPrintLogs(id, companyId);
+    const logs = await this.unitService.getPrintLogs(id, companyId, this.divisions(req));
     return { success: true, data: logs };
   }
 }

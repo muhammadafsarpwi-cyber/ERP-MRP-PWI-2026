@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager, DeepPartial } from 'typeorm';
 import {
@@ -29,6 +29,7 @@ import {
 } from '../../item/services/uom-conversion.calculator';
 import { BarcodeService } from '../../barcode/services/barcode.service';
 import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
+import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 
 const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
 
@@ -107,6 +108,29 @@ export class ProductionEntryService {
     private readonly productionRoutingService: ProductionRoutingService,
     private readonly barcodeService: BarcodeService,
   ) {}
+
+  // ─── Division scope helpers (Prompt #16 §16/§18/§19) ──────────────────────
+
+  /**
+   * Read-by-ID / write authorization (§18 / §19). Throws 403 when the record
+   * sits in a division the caller may not access, and 404 when the record is
+   * simply absent — never leaking that a foreign record exists beyond the
+   * refusal itself.
+   *
+   * `divisionId` may be `null` for records whose division is not yet known
+   * (e.g. before a department is chosen); those inherit the company's access
+   * and are not filtered.
+   */
+  private assertDivisionAccess(
+    allowedDivisionIds: string[] | undefined,
+    divisionId: string | null | undefined,
+    label = 'record',
+  ): void {
+    if (isUnrestricted(allowedDivisionIds)) return;
+    if (!divisionId) return;
+    if ((allowedDivisionIds as string[]).includes(divisionId)) return;
+    throw new ForbiddenException(`You do not have access to the ${label} in this division.`);
+  }
   private readonly logger = new Logger(ProductionEntryService.name);
 
   // ─── Queries ────────────────────────────────────────────────────────────────
@@ -128,6 +152,7 @@ export class ProductionEntryService {
     productionOrderId?: string;
     sortBy?: string;
     sortDir?: 'ASC' | 'DESC';
+    allowedDivisionIds?: string[];
   }): Promise<{ data: ProductionEntry[]; total: number; page: number; limit: number }> {
     const {
       page = 1,
@@ -146,6 +171,7 @@ export class ProductionEntryService {
       productionOrderId,
       sortBy,
       sortDir = 'DESC',
+      allowedDivisionIds,
     } = filters || {};
 
     const qb = this.entryRepo.createQueryBuilder('pe')
@@ -160,6 +186,8 @@ export class ProductionEntryService {
       .andWhere('pe.isActive = true');
 
     if (divisionId) qb.andWhere('pe.divisionId = :divisionId', { divisionId });
+    // Server-side division scoping (§16) — never trusts a client dropdown.
+    applyDivisionScopeFilter(qb, 'pe.divisionId', allowedDivisionIds);
     if (sectionId) qb.andWhere('pe.sectionId = :sectionId', { sectionId });
     if (departmentId) qb.andWhere('pe.departmentId = :departmentId', { departmentId });
     if (dateFrom) qb.andWhere('pe.entryDate >= :dateFrom', { dateFrom });
@@ -196,7 +224,7 @@ export class ProductionEntryService {
     return { data, total, page, limit };
   }
 
-  async findOne(id: string, companyId: string): Promise<ProductionEntry> {
+  async findOne(id: string, companyId: string, allowedDivisionIds?: string[]): Promise<ProductionEntry> {
     const entry = await this.entryRepo.findOne({
       where: { id, companyId },
       relations: [
@@ -207,6 +235,8 @@ export class ProductionEntryService {
     if (!entry || !entry.isActive) {
       throw new NotFoundException(`Production Entry with ID '${id}' not found`);
     }
+    // §18 — guessing an ID must not bypass the list filter.
+    this.assertDivisionAccess(allowedDivisionIds, entry.divisionId, 'production entry');
     // Attach child production item lines + downtime lines for edit-mode UI
     try {
       const [items, downtimes] = await Promise.all([
@@ -268,6 +298,7 @@ export class ProductionEntryService {
     itemId?: string;
     uomId?: string;
     productionOrderId?: string;
+    allowedDivisionIds?: string[];
   }): Promise<any> {
     /**
      * DATA SOURCE (Item Master driven — COMPLETE production-class catalogue):
@@ -292,7 +323,7 @@ export class ProductionEntryService {
      * Per-item master weights (weight_per_piece / weight_per_meter / weight)
      * are passed through unchanged — never computed, never defaulted to zero.
      */
-    const { divisionId, sectionId, departmentId, dateFrom, dateTo, shiftId, machineNo, machineId, itemId, uomId, productionOrderId } = filters;
+    const { divisionId, sectionId, departmentId, dateFrom, dateTo, shiftId, machineNo, machineId, itemId, uomId, productionOrderId, allowedDivisionIds } = filters;
 
     // Production-class Item Types shown in the report (authoritative Item Master values).
     const ITEM_TYPE_FILTER = "i.item_type IN ('RAW_MATERIAL','WORK_IN_PROGRESS','SEMI_FINISHED','FINISHED_GOOD')";
@@ -300,6 +331,18 @@ export class ProductionEntryService {
     const itemWhere: string[] = ['i.company_id = $1'];
     const itemParams: unknown[] = [companyId];
     if (divisionId) { itemParams.push(divisionId); itemWhere.push(`i.division_id = $${itemParams.length}`); }
+    // §16 — restrict the report's Item Master rows to the caller's divisions.
+    if (allowedDivisionIds !== undefined && !isUnrestricted(allowedDivisionIds)) {
+      if (allowedDivisionIds.length === 0) {
+        itemWhere.push('FALSE');
+      } else {
+        const placeholders = allowedDivisionIds.map((id) => {
+          itemParams.push(id);
+          return `$${itemParams.length}`;
+        });
+        itemWhere.push(`i.division_id IN (${placeholders.join(', ')})`);
+      }
+    }
     if (sectionId) { itemParams.push(sectionId); itemWhere.push(`i.section_id = $${itemParams.length}`); }
     if (departmentId) { itemParams.push(departmentId); itemWhere.push(`i.department_id = $${itemParams.length}`); }
     if (itemId) { itemParams.push(itemId); itemWhere.push(`i.id = $${itemParams.length}`); }
@@ -342,6 +385,18 @@ export class ProductionEntryService {
     if (machineNo) { aggParams.push(`%${machineNo}%`); aggWhere.push(`pe.machine_no ILIKE $${aggParams.length}`); }
     if (machineId) { aggParams.push(machineId); aggWhere.push(`pe.machine_id = $${aggParams.length}`); }
     if (productionOrderId) { aggParams.push(productionOrderId); aggWhere.push(`pe.production_order_id = $${aggParams.length}`); }
+    // §16 — the aggregates behind those rows must also be division-scoped.
+    if (allowedDivisionIds !== undefined && !isUnrestricted(allowedDivisionIds)) {
+      if (allowedDivisionIds.length === 0) {
+        aggWhere.push('FALSE');
+      } else {
+        const placeholders = allowedDivisionIds.map((id) => {
+          aggParams.push(id);
+          return `$${aggParams.length}`;
+        });
+        aggWhere.push(`pe.division_id IN (${placeholders.join(', ')})`);
+      }
+    }
 
     const agg = await this.itemRepo.manager.query(
       `SELECT
@@ -611,13 +666,17 @@ addToDept(org, {
 
   // ─── Masters ────────────────────────────────────────────────────────────────
 
-  async findMachines(companyId: string, filters?: { departmentId?: string; search?: string }): Promise<Machine[]> {
+  async findMachines(
+    companyId: string,
+    filters?: { departmentId?: string; search?: string; allowedDivisionIds?: string[] },
+  ): Promise<Machine[]> {
     const qb = this.machineRepo.createQueryBuilder('m')
       .leftJoinAndSelect('m.department', 'department')
       .where('m.companyId = :companyId', { companyId })
       .andWhere('m.isActive = true');
     if (filters?.departmentId) qb.andWhere('m.departmentId = :departmentId', { departmentId: filters.departmentId });
     if (filters?.search) qb.andWhere('(m.machineCode ILIKE :search OR m.name ILIKE :search)', { search: `%${filters.search}%` });
+    applyDivisionScopeFilter(qb, 'm.divisionId', filters?.allowedDivisionIds);
     qb.orderBy('m.machineCode', 'ASC');
     return qb.getMany();
   }
@@ -681,6 +740,7 @@ addToDept(org, {
       divisionId?: string;
       sectionId?: string;
       departmentId?: string;
+      allowedDivisionIds?: string[];
     },
   ): Promise<{
     data: Array<{
@@ -716,7 +776,7 @@ addToDept(org, {
       shiftId: string;
     };
   }> {
-    const { entryDate, shiftId, divisionId, sectionId, departmentId } = filters;
+    const { entryDate, shiftId, divisionId, sectionId, departmentId, allowedDivisionIds } = filters;
 
     const shift = await this.shiftRepo.findOne({
       where: { id: shiftId, companyId, isActive: true },
@@ -731,6 +791,7 @@ addToDept(org, {
       .where('m.companyId = :companyId', { companyId })
       .andWhere('m.isActive = true');
     if (divisionId) machinesQb.andWhere('m.divisionId = :divisionId', { divisionId });
+    applyDivisionScopeFilter(machinesQb, 'm.divisionId', allowedDivisionIds);
     if (sectionId) machinesQb.andWhere('m.sectionId = :sectionId', { sectionId });
     if (departmentId) machinesQb.andWhere('m.departmentId = :departmentId', { departmentId });
     machinesQb.orderBy('m.machineCode', 'ASC');
@@ -755,6 +816,7 @@ addToDept(org, {
       .andWhere('pe.entryDate = :entryDate', { entryDate })
       .andWhere('pe.shiftId = :shiftId', { shiftId });
     if (divisionId) entriesQb.andWhere('pe.divisionId = :divisionId', { divisionId });
+    applyDivisionScopeFilter(entriesQb, 'pe.divisionId', allowedDivisionIds);
     if (sectionId) entriesQb.andWhere('pe.sectionId = :sectionId', { sectionId });
     if (departmentId) entriesQb.andWhere('pe.departmentId = :departmentId', { departmentId });
     const entries = await entriesQb.getMany();
@@ -888,7 +950,14 @@ addToDept(org, {
     };
   }
 
-  async create(dto: CreateProductionEntryDto, companyId: string, userId?: string): Promise<ProductionEntry> {
+  async create(
+    dto: CreateProductionEntryDto,
+    companyId: string,
+    userId?: string,
+    allowedDivisionIds?: string[],
+  ): Promise<ProductionEntry> {
+    // §19 — never trust a client-supplied division id.
+    this.assertDivisionAccess(allowedDivisionIds, dto.divisionId, 'production entry');
     // ERP-00016: resolve the machine target FIRST so the final UOM/target feed
     // the standard validations (target governs the entry UOM when linked).
     const mt = await this.resolveMachineTarget(companyId, {
@@ -1015,8 +1084,16 @@ addToDept(org, {
     return saved;
   }
 
-  async update(id: string, dto: UpdateProductionEntryDto, companyId: string, userId?: string): Promise<ProductionEntry> {
+  async update(
+    id: string,
+    dto: UpdateProductionEntryDto,
+    companyId: string,
+    userId?: string,
+    allowedDivisionIds?: string[],
+  ): Promise<ProductionEntry> {
     const entry = await this.getRawEntry(id, companyId);
+    // §19 — a CCD-scoped user must not be able to edit an SPD record.
+    this.assertDivisionAccess(allowedDivisionIds, entry.divisionId, 'production entry');
 
     const merged = {
       divisionId: dto.divisionId ?? entry.divisionId,
@@ -1038,6 +1115,8 @@ addToDept(org, {
       downtimeHours: dto.downtimeHours ?? Number(entry.downtimeHours),
       rawMaterialWarehouseId: dto.rawMaterialWarehouseId !== undefined ? (dto.rawMaterialWarehouseId ?? null) : entry.rawMaterialWarehouseId ?? null,
     };
+    // §19 — moving an existing record INTO a division must also be authorized.
+    this.assertDivisionAccess(allowedDivisionIds, merged.divisionId, 'production entry');
 
     // ERP-00016: re-resolve the target when machine/shift/date/hours changed.
     const mt = await this.resolveMachineTarget(companyId, {
@@ -1155,8 +1234,10 @@ addToDept(org, {
     }
   }
 
-  async remove(id: string, companyId: string, userId?: string): Promise<void> {
+  async remove(id: string, companyId: string, userId?: string, allowedDivisionIds?: string[]): Promise<void> {
     const entry = await this.getRawEntry(id, companyId);
+    // §19 — deletion must respect the caller's division scope too.
+    this.assertDivisionAccess(allowedDivisionIds, entry.divisionId, 'production entry');
     entry.isActive = false;
     entry.updatedBy = userId ?? null;
     await this.entryRepo.save(entry);

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, App, Popconfirm,
   Card, Checkbox, Row, Col, Typography, Badge, Tooltip, Empty,
-  Dropdown, message as staticMessage,
+  Dropdown, Divider, message as staticMessage,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -18,6 +18,7 @@ import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { PageHeader, SaveResultDialog, DraggableResizableModal } from '../../components/shared';
+import { DivisionSelect } from '../../components/shared';
 import GlobalLoading from '../../components/shared/GlobalLoading';
 import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
@@ -117,6 +118,11 @@ const RoleManagement: React.FC = () => {
   // Loading States
   const [modalLoading, setModalLoading] = useState(false);
   const [permModalLoading, setPermModalLoading] = useState(false);
+  // Prompt #16 §27 — OPTIONAL division scope. Default (unchecked) leaves every
+  // existing restriction exactly as it is, so nothing changes for roles that
+  // never configure divisions.
+  const [limitDivisionScope, setLimitDivisionScope] = useState(false);
+  const [roleDivisionIds, setRoleDivisionIds] = useState<string[]>([]);
 
   // Active selections
   const [editingRole, setEditingRole] = useState<Role | null>(null);
@@ -127,6 +133,7 @@ const RoleManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [permForm] = Form.useForm();
+  const watchedPermissionIds = Form.useWatch('permissionIds', permForm) as string[] | undefined;
   const { can } = usePermission();
 
   // Watch fields for live preview in split view
@@ -210,6 +217,8 @@ const RoleManagement: React.FC = () => {
   const handleOpenPermissions = (role: Role) => {
     setSelectedRole(role);
     setPermSearchQuery('');
+    setLimitDivisionScope(false);
+    setRoleDivisionIds([]);
     const assignedIds = role.rolePermissions?.map((rp: any) => rp.permissionId || rp.permission?.id || rp.id) || [];
     permForm.setFieldsValue({ permissionIds: assignedIds });
     setIsPermMinimized(false);
@@ -325,9 +334,23 @@ const RoleManagement: React.FC = () => {
       setSaveDialogVisible(true);
       setSaveDialogRetry(() => () => void handleAssignPermissions());
 
-      await apiService.post(`/admin/roles/${selectedRole.id}/permissions`, {
-        permissionIds: values.permissionIds || [],
-      });
+      const selectedPermissionIds: string[] = values.permissionIds || [];
+      const payload: {
+        permissionIds: string[];
+        divisionScopes?: Array<{ permissionId: string; divisionIds: string[] | null }>;
+      } = { permissionIds: selectedPermissionIds };
+
+      // Prompt #16 §27 — only send division scopes when the admin explicitly
+      // turned the option on. Omitting the field is what preserves every
+      // existing restriction (and every role that never configures divisions).
+      if (limitDivisionScope) {
+        payload.divisionScopes = selectedPermissionIds.map(permissionId => ({
+          permissionId,
+          divisionIds: roleDivisionIds,
+        }));
+      }
+
+      await apiService.post(`/admin/roles/${selectedRole.id}/permissions`, payload);
 
       const selectedCount = values.permissionIds?.length || 0;
 
@@ -1319,6 +1342,36 @@ const RoleManagement: React.FC = () => {
             </Checkbox.Group>
           </Form.Item>
         </Form>
+
+        <Divider style={{ margin: '4px 0 10px' }} />
+
+        {/* Prompt #16 §27 — optional division scope (off by default) */}
+        <div
+          data-testid="role-division-scope"
+          style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}
+        >
+          <Checkbox
+            checked={limitDivisionScope}
+            onChange={e => setLimitDivisionScope(e.target.checked)}
+            style={{ fontSize: 13, paddingTop: 4 }}
+          >
+            <span style={{ fontWeight: 600 }}>Limit to divisions</span>
+          </Checkbox>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <DivisionSelect
+              mode="multiple"
+              value={roleDivisionIds}
+              disabled={!limitDivisionScope}
+              placeholder="No restriction — every division"
+              onChange={(v: any) => setRoleDivisionIds(Array.isArray(v) ? (v as string[]) : [])}
+            />
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+              Applies to the {watchedPermissionIds?.length || 0} permission(s) selected above. Keep this option
+              <strong> off</strong> to leave current division settings unchanged. Turn it on with nothing selected
+              to explicitly remove every restriction.
+            </Text>
+          </div>
+        </div>
       </DraggableResizableModal>
 
       {/* Minimized Window Floating Dock */}

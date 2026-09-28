@@ -44,4 +44,27 @@ export class AssignPermissionsDto {
   @IsArray()
   @IsUUID('4', { each: true })
   permissionIds: string[];
+
+  /**
+   * Prompt #16 §27 — OPTIONAL division scope for individual grants of THIS
+   * role.
+   *
+   * - field ABSENT        → leave every existing restriction untouched
+   * - `divisionIds` null/`[]` → clear the restriction for that permission
+   *                             (no restriction = legacy behaviour)
+   * - `divisionIds: [uuid…]`  → restrict that grant to exactly those divisions
+   *
+   * Shaped as a plain array (rather than a nested validated class) because the
+   * per-entry rules are enforced in the service, which must distinguish
+   * "omitted" from "explicitly empty".
+   */
+  @ApiPropertyOptional({
+    description:
+      'Optional per-permission division restrictions for this role. Omit to leave unchanged.',
+    type: 'array',
+    required: false,
+  })
+  @IsArray()
+  @IsOptional()
+  divisionScopes?: Array<{ permissionId: string; divisionIds?: string[] | null }>;
 }

@@ -6,6 +6,7 @@ import { AuthController } from './controllers/auth.controller';
 import { SupabaseJwtGuard } from './guards/supabase-jwt.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { OrgScopeGuard } from './guards/org-scope.guard';
+import { DivisionScopeGuard } from './guards/division-scope.guard';
 import { AuthRateLimitGuard } from './guards/auth-rate-limit.guard';
 import { UserModule } from '../user/user.module';
 import { PermissionModule } from '../permission/permission.module';
@@ -26,6 +27,7 @@ import { PermissionModule } from '../permission/permission.module';
     SupabaseJwtGuard,
     PermissionGuard,
     OrgScopeGuard,
+    DivisionScopeGuard,
     AuthRateLimitGuard,
   ],
   exports: [
@@ -34,6 +36,7 @@ import { PermissionModule } from '../permission/permission.module';
     SupabaseJwtGuard,
     PermissionGuard,
     OrgScopeGuard,
+    DivisionScopeGuard,
     AuthRateLimitGuard,
   ],
 })

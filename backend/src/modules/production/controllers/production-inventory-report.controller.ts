@@ -3,11 +3,12 @@ import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth, ApiParam } from '@nestj
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { ProductionInventoryReportService, PRODUCTION_MOVEMENT_TYPES } from '../services';
 
 @ApiTags('production/inventory-report')
 @Controller('production')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class ProductionInventoryReportController {
   constructor(
@@ -20,6 +21,11 @@ export class ProductionInventoryReportController {
       throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
     }
     return companyId;
+  }
+
+  /** Division list a service may filter with; `undefined` = unrestricted. */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
   }
 
   @Get('inventory-report')
@@ -47,6 +53,7 @@ export class ProductionInventoryReportController {
       movementType: query.movementType,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, data };
   }
@@ -75,6 +82,7 @@ export class ProductionInventoryReportController {
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
       movementType: query.movementType,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, data };
   }

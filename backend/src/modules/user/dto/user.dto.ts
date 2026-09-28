@@ -3,6 +3,22 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ErpUserStatus, ScopeLevel, OrgScopeStatus } from '../entities';
 
+/**
+ * Prompt #16A — the id shape the database `uuid` columns actually accept.
+ *
+ * `@IsUUID()` delegates to validator.js, which additionally enforces the
+ * RFC-4122 *version* and *variant* nibbles. Seeded master rows such as
+ * `divisions.id` for DIV-CCD (`d1000000-0000-0000-0000-000000000002`) are not
+ * RFC-4122, so a correct, database-valid id was rejected with
+ * `divisionId must be a UUID`. Requiring the UUID shape keeps codes such as
+ * `DIV-CCD` out while letting every id the database stores through.
+ *
+ * This is already the project convention for division/section/department ids —
+ * see machine-target.dto.ts and production-routing.dto.ts, which reject with
+ * the very same message.
+ */
+export const UUID_LOOSE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 export class CreateErpUserDto {
   @ApiProperty({ description: 'Supabase Auth User ID' })
   @IsUUID()
@@ -131,7 +147,7 @@ export class AssignOrgScopeDto {
   companyId: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' })
   @IsOptional()
   divisionId?: string;
 
@@ -161,7 +177,7 @@ export class SetDefaultContextDto {
   companyId: string;
 
   @ApiPropertyOptional({ description: 'Default Division ID' })
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' })
   @IsOptional()
   divisionId?: string;
 

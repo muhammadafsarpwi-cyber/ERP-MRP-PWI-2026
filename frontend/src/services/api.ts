@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
+import { message } from 'antd';
 import { useLoadingStore } from '../store/loadingStore';
 
 const API_BASE_URL =
@@ -54,6 +55,32 @@ export function describeRequestError(err: unknown): string {
     return `Cannot reach the API server at ${API_BASE_URL}. Make sure the backend is running and accessible from this browser, then retry.`;
   }
   return msg || 'Unknown request error';
+}
+
+/**
+ * Prompt #16 §30 — turns a backend 403 into a message a user can act on.
+ *
+ * The raw backend text is deliberately NOT echoed: it can contain permission
+ * codes (`Missing required permission: manufacturing...`), SQL, or other
+ * internals. Only the two distinctions that matter to a person are surfaced:
+ * a division the caller is not allowed to use, versus a general permission
+ * they lack. The original message still goes to the console for debugging.
+ *
+ * Returns `null` when there is nothing safe/meaningful to show.
+ */
+export function describeForbiddenMessage(backendMessage: unknown): string | null {
+  const raw = Array.isArray(backendMessage) ? backendMessage[0] : backendMessage;
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (!text) return null;
+  // Division-scope refusals raised by DivisionScopeGuard / service asserts.
+  if (/division/i.test(text) && /(access|scope|permission|forbidden)/i.test(text)) {
+    return 'You do not have access to this division.';
+  }
+  if (/^(missing required permission|forbidden)/i.test(text) || /permission/i.test(text)) {
+    return 'You do not have permission to perform this action.';
+  }
+  // Anything else: generic wording only (never the backend's raw text).
+  return 'You do not have permission to perform this action.';
 }
 
 class ApiService {
@@ -178,6 +205,14 @@ class ApiService {
           if (msg) {
             console.warn(`[API 403] ${msg}`);
           }
+          // §30 — surface a clear, non-technical explanation. A shared key
+          // collapses a burst of parallel 403s into one toast instead of a
+          // stack. The user is deliberately NOT logged out: a 403 means
+          // "not allowed to do that", not "session invalid".
+          const friendly = describeForbiddenMessage(backendMsg);
+          if (friendly) {
+            message.warning({ content: friendly, duration: 4, key: 'api-403' });
+          }
         }
 
         return Promise.reject(error);
@@ -187,6 +222,24 @@ class ApiService {
 
   async get<T>(url: string, params?: any, config?: any): Promise<T> {
     const response = await this.api.get<T>(url, { params, ...config });
+    return response.data;
+  }
+
+  /**
+   * Fetch a protected binary asset (visitor photo, generated document, …)
+   * through the same axios instance, so the Authorization header is attached.
+   * Private files are therefore never requested through a bare `<img src>`,
+   * which could not carry credentials. `silent` keeps the global loading
+   * overlay from flashing while an image streams in.
+   */
+  async getFile<T = Blob>(url: string, params?: any): Promise<T> {
+    const config: any = {
+      params,
+      responseType: 'blob',
+      // `silent` is handled by our request interceptor (skips the global loader).
+      silent: true,
+    };
+    const response = await this.api.get<T>(url, config);
     return response.data;
   }
 

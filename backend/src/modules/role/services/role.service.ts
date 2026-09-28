@@ -1,7 +1,15 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
-import { Role, RoleStatus, RolePermission, RolePermissionStatus } from '../entities';
+import {
+  Role,
+  RoleStatus,
+  RolePermission,
+  RolePermissionStatus,
+  RolePermissionDivisionScope,
+  RolePermissionDivisionScopeStatus,
+  RolePermissionScopeLevel,
+} from '../entities';
 import { CreateRoleDto, UpdateRoleDto, AssignPermissionsDto } from '../dto/role.dto';
 
 @Injectable()
@@ -11,6 +19,8 @@ export class RoleService {
     private readonly roleRepository: Repository<Role>,
     @InjectRepository(RolePermission)
     private readonly rolePermissionRepository: Repository<RolePermission>,
+    @InjectRepository(RolePermissionDivisionScope)
+    private readonly roleDivisionScopeRepository: Repository<RolePermissionDivisionScope>,
   ) {}
 
   async create(dto: CreateRoleDto, userId?: string): Promise<Role> {
@@ -120,12 +130,81 @@ export class RoleService {
       }
     }
 
+    // Prompt #16 §27 — OPTIONAL division scope per grant of this role.
+    // The field is only present when Role Management explicitly configured it;
+    // when omitted every existing restriction is left exactly as it was.
+    if (Array.isArray(dto.divisionScopes)) {
+      for (const entry of dto.divisionScopes) {
+        if (!entry || typeof entry.permissionId !== 'string' || entry.permissionId.trim() === '') continue;
+        await this.setDivisionScope(id, entry.permissionId, entry.divisionIds, userId);
+      }
+    }
+
     return this.findOne(id);
+  }
+
+  /**
+   * Replace the division restrictions for one (role, permission) grant.
+   *
+   * - `null` / `[]`  → delete every restriction row ⇒ unrestricted, which is
+   *   exactly how the system behaved before Prompt #16 (§12: zero rows = no
+   *   restriction, never a denial).
+   * - `[divisionId,…]` → keep only those rows.
+   *
+   * Rows are written one at a time so the expression unique index
+   * `uq_rpd_scope` stays the single source of duplicate protection.
+   */
+  private async setDivisionScope(
+    roleId: string,
+    permissionId: string,
+    divisionIds: string[] | null | undefined,
+    userId?: string,
+  ): Promise<void> {
+    const wanted = Array.isArray(divisionIds)
+      ? [...new Set(divisionIds.filter(d => typeof d === 'string' && d.trim() !== ''))].map(d => d.trim())
+      : [];
+
+    const existing = await this.roleDivisionScopeRepository.find({ where: { roleId, permissionId } });
+
+    if (wanted.length === 0) {
+      if (existing.length > 0) await this.roleDivisionScopeRepository.remove(existing);
+      return;
+    }
+
+    const keep = existing.filter(row => row.divisionId && wanted.includes(row.divisionId));
+    const drop = existing.filter(row => !keep.includes(row));
+    if (drop.length > 0) await this.roleDivisionScopeRepository.remove(drop);
+
+    const alreadyHave = new Set(keep.map(row => row.divisionId as string));
+    for (const divisionId of wanted) {
+      if (alreadyHave.has(divisionId)) continue;
+      const row = this.roleDivisionScopeRepository.create({
+        roleId,
+        permissionId,
+        divisionId,
+        departmentId: null,
+        scopeLevel: RolePermissionScopeLevel.DIVISION,
+        status: RolePermissionDivisionScopeStatus.ACTIVE,
+        createdBy: userId || null,
+        updatedBy: userId || null,
+      });
+      try {
+        await this.roleDivisionScopeRepository.save(row);
+      } catch (error: any) {
+        if (error?.code === '23505') continue; // concurrent duplicate → already applied
+        if (error?.code === '23503') {
+          throw new BadRequestException('One or more selected divisions do not exist');
+        }
+        throw error;
+      }
+    }
   }
 
   async removePermissions(id: string, dto: AssignPermissionsDto, userId?: string): Promise<Role> {
     for (const permissionId of dto.permissionIds) {
       await this.rolePermissionRepository.delete({ roleId: id, permissionId });
+      // Prompt #16 — drop the now-orphaned division restrictions with the grant.
+      await this.roleDivisionScopeRepository.delete({ roleId: id, permissionId });
     }
     return this.findOne(id);
   }
