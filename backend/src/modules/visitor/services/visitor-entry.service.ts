@@ -15,6 +15,7 @@ import { VisitorEntry, VisitorEntryStatus, Location, LocationStatus } from '../e
 import { Division } from '../../organization/entities/division.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { HrEmployee } from '../../hr/entities/hr-employee.entity';
+import { ErpUser } from '../../user/entities/erp-user.entity';
 import {
   ConfirmHostVisitDto,
   CreateVisitorEntryDto,
@@ -99,6 +100,20 @@ export interface PhotoRef {
 }
 
 /**
+ * Prompt #19A — what a printed slip shows when the acting ERP user cannot be
+ * resolved to a person.
+ *
+ * A visitor slip is a document a person hands to a security guard and a person
+ * signs by hand. Printing a raw UUID in place of a name ("Confirmed By:
+ * 0804af57-1f03-…") is not a usable record and is not something a paper
+ * document should ever carry, so the slip payload always resolves to a human
+ * string. This constant is the last-resort value; it is deliberately
+ * distinguishable from a real name so a reviewer can tell "we could not
+ * resolve this" apart from "this person is called System User".
+ */
+export const SLIP_ACTOR_FALLBACK_NAME = 'System User';
+
+/**
  * Visitor Entry service (Prompt #17) + Visitor Exit (Prompt #18) + Visitor Slip
  * and Host Confirmation (Prompt #19).
  *
@@ -133,6 +148,12 @@ export class VisitorEntryService {
     private readonly companyRepo: Repository<Company>,
     @InjectRepository(HrEmployee)
     private readonly employeeRepo: Repository<HrEmployee>,
+    // Prompt #19A — the slip prints PEOPLE, not the UUIDs stored in
+    // `created_by` / `host_confirmed_by`. Resolved through the same
+    // `erp_users.displayName` the rest of the ERP uses (see
+    // `hr-advances.service.ts` `addAuditJoins`), never from a hard-coded string.
+    @InjectRepository(ErpUser)
+    private readonly erpUserRepo: Repository<ErpUser>,
     private readonly activityLog: ActivityLogService,
   ) {}
 
@@ -791,6 +812,13 @@ export class VisitorEntryService {
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
     const hostDepartment = entry.hostEmployee?.department?.name ?? null;
 
+    // #19A §2 — resolve the two acting ERP users to display names. One extra
+    // query for both ids; it can only ever narrow what is printed, it cannot
+    // widen access (the row itself was already authorised by `findRow`).
+    const actorNames = await this.resolveActorNames([entry.createdBy, entry.hostConfirmedBy]);
+    const actorName = (id: string | null | undefined): string =>
+      (id ? actorNames.get(id) : undefined) || SLIP_ACTOR_FALLBACK_NAME;
+
     return {
       visitorReference: entry.visitorReference,
       // §3/§4 — the real company name from the database, with the ERP's
@@ -823,19 +851,54 @@ export class VisitorEntryService {
         confirmed: entry.hostConfirmed,
         confirmedAt: entry.hostConfirmedAt,
         confirmedBy: entry.hostConfirmedBy ?? null,
+        // #19A §2 — the name the slip PRINTS. The UUID above is kept for API
+        // traceability, but the renderer must use this field, never the id.
+        confirmedByName: actorName(entry.hostConfirmedBy),
         signatureCapturedAt: entry.signatureCapturedAt,
         signatureCapturedBy: entry.signatureCapturedBy ?? null,
+        signatureCapturedByName: actorName(entry.signatureCapturedBy),
         // §17 — stated, never implied: the system records who pressed the button,
         // it does not prove that person is the host.
         hostIdentityVerified: false,
       },
       createdBy: entry.createdBy ?? null,
+      createdByName: actorName(entry.createdBy),
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
     };
   }
 
   // ──────────────────────────────────────────────────────── HELPERS ───────
+  /**
+   * Prompt #19A §2 — map ERP user ids to their `display_name` in ONE query.
+   *
+   * Why a batch and not two lookups: the slip needs at most three ids and a
+   * single round-trip keeps the print payload cheap. Why a LEFT-style
+   * best-effort: a deleted or not-yet-provisioned user must degrade to
+   * `SLIP_ACTOR_FALLBACK_NAME`, never fail the request, and never leak an id.
+   * A repository failure is caught for the same reason — a name lookup must not
+   * be able to stop someone printing a visitor's departure slip.
+   */
+  private async resolveActorNames(ids: Array<string | null | undefined>): Promise<Map<string, string>> {
+    const unique = Array.from(new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0)));
+    const names = new Map<string, string>();
+    if (!unique.length) return names;
+
+    try {
+      const rows = await this.erpUserRepo.find({
+        where: { id: In(unique) },
+        select: { id: true, displayName: true },
+      });
+      for (const row of rows ?? []) {
+        const name = (row?.displayName ?? '').trim();
+        if (row?.id && name) names.set(row.id, name);
+      }
+    } catch {
+      // Fall through: the caller substitutes the fallback name.
+    }
+    return names;
+  }
+
   private async findRow(
     id: string,
     companyId: string,

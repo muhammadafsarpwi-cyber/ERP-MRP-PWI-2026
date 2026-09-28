@@ -43,14 +43,43 @@ export interface VisitorSlipData {
     confirmed?: boolean;
     confirmedAt?: string | null;
     confirmedBy?: string | null;
+    /** #19A §2 — the NAME to print. Never render `confirmedBy`. */
+    confirmedByName?: string | null;
     signatureCapturedAt?: string | null;
     signatureCapturedBy?: string | null;
+    signatureCapturedByName?: string | null;
     hostIdentityVerified?: boolean;
   } | null;
   createdBy?: string | null;
+  /** #19A §2 — the NAME to print. Never render `createdBy`. */
+  createdByName?: string | null;
   createdAt?: string | null;
   [key: string]: unknown;
 }
+
+/**
+ * #19A §3/§4 — the printed letterhead, as a CONSTANT.
+ *
+ * WHY NOT `slip.companyName`
+ *   Every other printed document in this ERP states its letterhead as a literal
+ *   (`printTemplates.ts` → "PAKISTAN WIRE INDUSTRIES (PVT) LTD" on the invoice,
+ *   the dispatch note and the weighbridge slip). The visitor slip is the same
+ *   class of document: a pre-printed stationery item for one site. The API
+ *   still returns the `companies` row, and it is still used for authorization
+ *   (org scope, division scope) — but the NAME ON THE PAPER is the production
+ *   legal name of this deployment, not whatever a test fixture row happens to
+ *   contain in a given database.
+ *
+ *   A full street/site address is deliberately NOT present: the site address
+ *   has not been supplied, and inventing one on a security document would be
+ *   worse than omitting it (#19A §8).
+ */
+export const SLIP_COMPANY_NAME = 'Pakistan Wire Industries (Pvt.) LTD.';
+export const SLIP_COMPANY_CITY = 'Karachi, Pakistan';
+export const SLIP_COMPANY_UNIT = 'Security & Reception';
+
+/** #19A §2 — shown when the API could not resolve the acting ERP user. */
+export const SLIP_ACTOR_FALLBACK = 'System User';
 
 /**
  * Images are handed in as data URLs, fetched by the caller through the
@@ -72,43 +101,105 @@ const SLIP_CSS = `
   padding: 2mm 1mm;
 }
 .visitor-slip * { box-sizing: border-box; }
+/* #19A section 5 - HEADER GRID.
+   The header is a real 2x3 grid, not a flex row of two independently sized
+   stacks. A flex row cannot align them: centring the brand block (a 44px logo
+   beside two text lines) against the headline block (a 27px title bar over an
+   11px note) puts the block CENTRES on one line but leaves the title bar
+   itself 7px above the logo, because a title-and-caption stack is not
+   vertically symmetric about its own centre.
+
+   The grid removes the ambiguity. Row 1 carries the company name and the title
+   bar; row 2 carries the city line and the "retain this slip" caption. Both
+   cells of a row are centred in the same row box, so each pair shares one
+   baseline by construction rather than by eye. The logo spans both rows and is
+   centred against the block, which is what keeps it level with the name. */
 .visitor-slip .vs-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 3px;
   border: 2px solid #0f172a;
   border-bottom: none;
   padding: 7px 10px;
   background: #ffffff;
 }
-.visitor-slip .vs-logo { width: 46px; height: 46px; object-fit: contain; flex: 0 0 auto; }
-.visitor-slip .vs-company { font-size: 13px; font-weight: 900; letter-spacing: 0.4px; text-transform: uppercase; }
-.visitor-slip .vs-company-sub { font-size: 9px; color: #475569; font-weight: 600; margin-top: 1px; }
+/* Explicit line-heights (not the UA default) give every cell a known height, so
+   the centring is reproducible across font stacks. */
+.visitor-slip .vs-logo {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+.visitor-slip .vs-company {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  line-height: 16px;
+}
+.visitor-slip .vs-company-sub {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 8.5px;
+  color: #475569;
+  font-weight: 700;
+  line-height: 12px;
+}
 .visitor-slip .vs-title {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
   background: #0f172a;
   color: #ffffff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 900;
-  letter-spacing: 2px;
+  letter-spacing: 2.5px;
+  line-height: 15px;
   padding: 6px 12px;
   text-align: center;
-  border: 2px solid #0f172a;
+  white-space: nowrap;
 }
+.visitor-slip .vs-headline-note {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+  font-size: 8px;
+  color: #64748b;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  line-height: 12px;
+  white-space: nowrap;
+}
+/* #19A §5 — the VISITOR ID row is a real 3-column grid, so the reference is
+   optically centred on the page instead of drifting wherever flexbox happens to
+   put it between a long label and a wide status badge. */
 .visitor-slip .vs-ref-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   border: 2px solid #0f172a;
   border-top: none;
   border-bottom: none;
-  padding: 4px 10px;
+  padding: 5px 10px;
   background: #f1f5f9;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
 }
-.visitor-slip .vs-ref { font-size: 13px; letter-spacing: 0.6px; }
+.visitor-slip .vs-ref-label { letter-spacing: 0.6px; }
+.visitor-slip .vs-ref {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.visitor-slip .vs-ref-status { text-align: right; }
 .visitor-slip .vs-body { display: flex; gap: 10px; border: 2px solid #0f172a; padding: 9px 10px; }
 .visitor-slip .vs-photo-col { flex: 0 0 78px; text-align: center; }
 .visitor-slip .vs-photo {
@@ -147,7 +238,19 @@ const SLIP_CSS = `
   margin-bottom: 5px;
 }
 .visitor-slip .vs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; }
-.visitor-slip .vs-row { display: flex; justify-content: space-between; gap: 6px; font-size: 10px; padding: 1.5px 0; }
+/* #19A section 6 - baseline (not the flex default stretch) so a label and its
+   value share one first-line baseline. With stretch, a two-line value left the
+   label floating against the middle of its own text, which is what made the
+   fact grid look unevenly aligned row to row. */
+.visitor-slip .vs-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 14px;
+  padding: 1.5px 0;
+}
 .visitor-slip .vs-row-full { grid-column: 1 / -1; }
 .visitor-slip .vs-label { color: #64748b; font-weight: 700; white-space: nowrap; }
 .visitor-slip .vs-val { font-weight: 700; text-align: right; color: #0f172a; word-break: break-word; }
@@ -194,19 +297,23 @@ const SLIP_CSS = `
 }
 .visitor-slip .vs-reception {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   border: 2px solid #0f172a;
   border-top: none;
-  padding: 4px 10px;
+  padding: 5px 10px;
   font-size: 8.5px;
+  line-height: 12px;
   color: #475569;
   font-weight: 700;
   background: #f8fafc;
 }
+.visitor-slip .vs-reception span:last-child { text-align: right; }
 .visitor-slip .vs-foot {
   text-align: center;
   font-size: 7.5px;
+  line-height: 10px;
   color: #94a3b8;
   border-top: 1px solid #e2e8f0;
   padding-top: 4px;
@@ -238,6 +345,27 @@ const orDash = (value: unknown): string => {
   return text.length > 0 ? text : '—';
 };
 
+/**
+ * #19A §2 — the LAST line of defence against a UUID reaching paper.
+ *
+ * The backend already sends a resolved name and substitutes "System User", so
+ * this guard should never fire. It exists because the requirement is absolute
+ * ("do not expose raw UUIDs in the printed slip") and a single upstream
+ * regression — a renamed API field, an older backend, a hand-edited payload —
+ * would otherwise silently put `0804af57-1f03-4d11-ad84-dc34f8829d41` on a
+ * document that is kept on file and handed to security. A UUID carries no
+ * information for a human reader, so substituting a name can only improve the
+ * document; there is no case where printing the id was the better outcome.
+ */
+const UUID_SHAPE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+const actorName = (value: unknown): string => {
+  const text = value === null || value === undefined ? '' : String(value).trim();
+  if (!text) return SLIP_ACTOR_FALLBACK;
+  if (UUID_SHAPE.test(text)) return SLIP_ACTOR_FALLBACK;
+  return text;
+};
+
 const statusBadge = (status: string): string => {
   const cls =
     status === 'COMPLETED' ? 'vs-badge-done' : status === 'CANCELLED' ? 'vs-badge-cancelled' : 'vs-badge-pending';
@@ -246,15 +374,20 @@ const statusBadge = (status: string): string => {
 
 /**
  * Render a server timestamp the way a printed document should show it:
- * `28-Sep-2026 16:05`.
+ * `28-Sep-2026 09:45 PM` (#19A §1).
  *
  * WHY THIS EXISTS
  *   The API sends UTC ISO-8601 (`2026-09-28T16:05:01.271Z`). Printing that
  *   verbatim would put a machine timestamp — millisecond precision and a
  *   trailing `Z` — onto a document a person signs by hand, and it would not
  *   agree with the same visitor's Time-In as shown on the ERP screen. The slip
- *   therefore formats it exactly the way the rest of the ERP renders times
- *   (`DD-MMM-YYYY HH:mm`, local time), so the paper and the screen match.
+ *   therefore formats it in local time, in the 12-hour form a paper visitor
+ *   pass uses, so `16:05` reads as `04:05 PM` on both the screen and the slip.
+ *
+ *   `hh` (not `HH`) is the 12-hour clock and `A` is the AM/PM designator;
+ *   dayjs upper-cases it, giving `AM` / `PM` as required. This is DISPLAY
+ *   ONLY: the stored timestamps, the API contract and the database are
+ *   untouched, so re-printing still shows the exact same instant.
  *
  *   A value that is missing becomes an em dash, and one that cannot be parsed is
  *   passed through unchanged — a printed slip never says "Invalid Date", and a
@@ -264,7 +397,7 @@ function formatStamp(value?: string | null): string {
   const text = value === null || value === undefined ? '' : String(value).trim();
   if (!text) return '—';
   const parsed = dayjs(text);
-  return parsed.isValid() ? parsed.format('DD-MMM-YYYY HH:mm') : text;
+  return parsed.isValid() ? parsed.format('DD-MMM-YYYY hh:mm A') : text;
 }
 
 /**
@@ -297,9 +430,9 @@ export function renderVisitorSlipHtml(
     : row('Host Confirmation:', '<span class="vs-badge vs-badge-pending">PENDING</span>');
 
   // §17 — the slip states the truth about identity rather than implying a
-  // verification the system never performed.
+  // verification the system never performed. #19A §2 — the NAME, not the id.
   const identityNote = confirmed && host.hostIdentityVerified === false
-    ? `<div class="vs-row vs-row-full"><span class="vs-label">Confirmed By:</span><span class="vs-val">${escapeHtml(orDash(host.confirmedBy))} <span style="font-weight:600; color:#64748b;">(ERP user — host identity not verified)</span></span></div>`
+    ? `<div class="vs-row vs-row-full"><span class="vs-label">Confirmed By:</span><span class="vs-val">${escapeHtml(actorName(host.confirmedByName))} <span style="font-weight:600; color:#64748b;">(ERP user — host identity not verified)</span></span></div>`
     : '';
 
   // §13 — the BLANK, handwritten signature area is unconditional. A captured
@@ -323,23 +456,17 @@ export function renderVisitorSlipHtml(
 <style>${SLIP_CSS}</style>
 <div class="visitor-slip" data-testid="visitor-slip-document">
   <div class="vs-header">
-    <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-      ${logoUrl ? `<img class="vs-logo" src="${escapeHtml(logoUrl)}" alt="" />` : ''}
-      <div style="min-width: 0;">
-        <div class="vs-company">${escapeHtml(slip.companyName || 'Pakistan Wire Industries (Pvt) Ltd.')}</div>
-        <div class="vs-company-sub">Security &amp; Reception — Lahore, Pakistan</div>
-      </div>
-    </div>
-    <div style="text-align: right; flex: 0 0 auto;">
-      <div style="font-size: 11px; font-weight: 900; letter-spacing: 2px;">VISITOR SLIP</div>
-      <div style="font-size: 8px; color: #64748b; font-weight: 700; letter-spacing: 0.5px;">RETAIN THIS SLIP FOR DEPARTURE</div>
-    </div>
+    ${logoUrl ? `<img class="vs-logo" src="${escapeHtml(logoUrl)}" alt="" />` : ''}
+    <div class="vs-company">${escapeHtml(SLIP_COMPANY_NAME)}</div>
+    <div class="vs-company-sub">${escapeHtml(SLIP_COMPANY_UNIT)} — ${escapeHtml(SLIP_COMPANY_CITY)}</div>
+    <div class="vs-title">VISITOR SLIP</div>
+    <div class="vs-headline-note">RETAIN THIS SLIP FOR DEPARTURE</div>
   </div>
 
   <div class="vs-ref-bar">
-    <span>VISITOR ID</span>
+    <span class="vs-ref-label">VISITOR ID</span>
     <span class="vs-ref">${escapeHtml(orDash(slip.visitorReference))}</span>
-    <span>${statusBadge(orDash(slip.status))}</span>
+    <span class="vs-ref-status">${statusBadge(orDash(slip.status))}</span>
   </div>
 
   <div class="vs-body">
@@ -412,7 +539,7 @@ export function renderVisitorSlipHtml(
   </div>
 
   <div class="vs-reception">
-    <span>Created By: ${escapeHtml(orDash(slip.createdBy))}</span>
+    <span>Created By: ${escapeHtml(actorName(slip.createdByName))}</span>
     <span>Created At: ${escapeHtml(formatStamp(slip.createdAt))}</span>
   </div>
 

@@ -1,12 +1,43 @@
 import dayjs from 'dayjs';
-import { renderVisitorSlipHtml as buildSlipHtml, escapeHtml, type VisitorSlipData } from './visitorSlipHtml';
+import {
+  renderVisitorSlipHtml as buildSlipHtml,
+  escapeHtml,
+  SLIP_COMPANY_NAME,
+  SLIP_COMPANY_CITY,
+  SLIP_ACTOR_FALLBACK,
+  type VisitorSlipData,
+} from './visitorSlipHtml';
 import { printVisitorSlipDocument } from './printTemplates';
 
 /**
- * Prompt #19 §7 / §8 / §13 / §26 / §30 / §33 / §34 — the printed document
- * contract. These tests hold the layout itself to the requirements, so a later
- * edit to the CSS cannot quietly shrink the signature box or drop the page rules.
+ * Prompt #19 §7 / §8 / §13 / §26 / §30 / §33 / §34, extended by Prompt #19A
+ * §1/§2/§3/§4/§5 — the printed document contract. These tests hold the layout
+ * itself to the requirements, so a later edit to the CSS cannot quietly shrink
+ * the signature box, drop the page rules, revert the 12-hour clock, or put a
+ * UUID back on the page.
  */
+
+const CREATED_BY_NAME = 'Muhammad Afsar';
+const CONFIRMED_BY_NAME = 'Ahmed Raza';
+
+/** A real-shaped user id — the exact thing that must never reach the paper. */
+const A_UUID = '0804af57-1f03-4d11-ad84-dc34f8829d41';
+
+/** Any RFC-4122-shaped identifier, in any attribute, text node or comment. */
+const UUID_SHAPE_SOURCE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/** The hidden iframe the shared print pipeline writes into. */
+function printFrame(): HTMLIFrameElement {
+  const frame = document.getElementById('pwi-print-frame') as HTMLIFrameElement;
+  expect(frame).not.toBeNull();
+  return frame;
+}
+
+// The print frame is a real DOM node in `document.body`; drop it between tests
+// so a print assertion in one test cannot read a document left by another.
+afterEach(() => {
+  document.getElementById('pwi-print-frame')?.remove();
+});
 
 const SLIP: VisitorSlipData = {
   visitorReference: 'VIS-2026-000042',
@@ -26,7 +57,8 @@ const SLIP: VisitorSlipData = {
     confirmed: false,
     hostIdentityVerified: false,
   },
-  createdBy: 'u1',
+  createdBy: A_UUID,
+  createdByName: CREATED_BY_NAME,
   createdAt: '2026-09-30 10:30',
 };
 
@@ -37,9 +69,11 @@ const CONFIRMED: VisitorSlipData = {
   hostConfirmation: {
     confirmed: true,
     confirmedAt: '2026-09-30 11:05',
-    confirmedBy: 'u1',
+    confirmedBy: A_UUID,
+    confirmedByName: CONFIRMED_BY_NAME,
     signatureCapturedAt: '2026-09-30 11:05',
-    signatureCapturedBy: 'u1',
+    signatureCapturedBy: A_UUID,
+    signatureCapturedByName: CONFIRMED_BY_NAME,
     hostIdentityVerified: false,
   },
 };
@@ -56,15 +90,16 @@ function asDom(html: string): Document {
 /**
  * What a timestamp SHOULD read on the slip, computed rather than hard-coded.
  *
- * The slip formats times as `DD-MMM-YYYY HH:mm` in local time, so a test that
- * hard-codes a wall-clock string would fail in any timezone that is not UTC.
- * Mirroring the slip's own format here keeps the assertion about the *rule*
- * (printable, human-readable) rather than about the machine's offset.
+ * The slip formats times as `DD-MMM-YYYY hh:mm A` in local time (#19A §1), so a
+ * test that hard-codes a wall-clock string would fail in any timezone that is
+ * not UTC. Mirroring the slip's own format here keeps the assertion about the
+ * *rule* (printable, human-readable, 12-hour with AM/PM) rather than about the
+ * machine's offset.
  */
 function asDisplayed(iso?: string | null): string {
   if (!iso) return '—';
   const parsed = dayjs(iso);
-  return parsed.isValid() ? parsed.format('DD-MMM-YYYY HH:mm') : iso;
+  return parsed.isValid() ? parsed.format('DD-MMM-YYYY hh:mm A') : iso;
 }
 
 describe('escapeHtml', () => {
@@ -86,7 +121,7 @@ describe('renderVisitorSlipHtml', () => {
     const text = doc.body.textContent || '';
 
     for (const expected of [
-      'PAKISTAN WIRE INDUSTRIES (PVT) LTD.',
+      SLIP_COMPANY_NAME,
       'VISITOR SLIP',
       'VIS-2026-000042',
       'Muhammad Test',
@@ -99,7 +134,7 @@ describe('renderVisitorSlipHtml', () => {
       'Main Gate',
       asDisplayed(SLIP.timeIn),
       'PENDING',
-      'u1',
+      CREATED_BY_NAME,
     ]) {
       expect(text).toContain(expected);
     }
@@ -254,6 +289,7 @@ describe('renderVisitorSlipHtml', () => {
         timeOut: null,
         status: null,
         createdBy: null,
+        createdByName: null,
         createdAt: null,
       }),
     ).body.textContent || '';
@@ -262,7 +298,171 @@ describe('renderVisitorSlipHtml', () => {
     expect(text).not.toContain('undefined');
     // The company header still names a company rather than rendering nothing
     // (the CSS uppercases it for print, so the markup keeps the natural case).
-    expect(text).toContain('Pakistan Wire Industries (Pvt) Ltd.');
+    expect(text).toContain(SLIP_COMPANY_NAME);
+  });
+
+  // ── Prompt #19A ───────────────────────────────────────────────────────────
+
+  // §1 — 12-hour clock with AM/PM.
+  it('prints every time in 12-hour form with an AM/PM designator', () => {
+    const text = asDom(
+      buildSlipHtml(
+        CONFIRMED,
+        { signatureDataUrl: 'data:image/png;base64,AAAA' },
+        '/logo.png',
+      ),
+    ).body.textContent || '';
+
+    // Every rendered time carries a designator...
+    const times = text.match(/\d{2}:\d{2}\s?(AM|PM)/g) || [];
+    expect(times.length).toBeGreaterThanOrEqual(4);
+    // ...and not one of them is a bare 24-hour clock.
+    expect(text).not.toMatch(/\b[01]?\d:\d\d\b(?!\s?(AM|PM))/);
+    // The two the reader actually checks, stated explicitly.
+    expect(text).toContain('Time-In');
+    expect(text).toContain('Time-Out');
+    expect(text).toContain(asDisplayed(CONFIRMED.timeIn));
+    expect(text).toContain(asDisplayed(CONFIRMED.timeOut));
+  });
+
+  it('shows midnight and noon as 12 AM and 12 PM, not 00 and 12', () => {
+    // The classic 12-hour bug: `00:30` for half past midnight. A visitor pass is
+    // read at a gate in the dark; "00:30" is not what the guard sees on a clock.
+    const at = (hour: string) => asDisplayed(`2026-09-30T${hour}:00`);
+    const midnight = asDom(buildSlipHtml({ ...SLIP, timeIn: '2026-09-30 00:30' })).body.textContent || '';
+    expect(midnight).toContain(at('00:30'));
+    expect(at('00:30')).toMatch(/12:30 AM/);
+
+    const noon = asDom(buildSlipHtml({ ...SLIP, timeIn: '2026-09-30 12:15' })).body.textContent || '';
+    expect(noon).toContain(at('12:15'));
+    expect(at('12:15')).toMatch(/12:15 PM/);
+  });
+
+  it('keeps the AM/PM clock in the PRINTED document, not only in the preview', () => {
+    printVisitorSlipDocument(CONFIRMED, { signatureDataUrl: 'data:image/png;base64,AAAA' });
+    const text = (printFrame().contentDocument as Document).body.textContent || '';
+    expect(text).toContain(asDisplayed(CONFIRMED.timeIn));
+    expect(text).toMatch(/\d{2}:\d{2}\s(AM|PM)/);
+  });
+
+  // §2 — names, never UUIDs.
+  it('prints the acting users by name, not by id', () => {
+    const doc = asDom(buildSlipHtml(CONFIRMED));
+    // Read the rows, not the flat text: the label and the value are separate
+    // flex children, so `textContent` runs them together with no space and a
+    // flattened-string assertion would be testing the DOM, not the content.
+    const confirmedRow = Array.from(doc.querySelectorAll('.vs-row')).find((r) =>
+      (r.querySelector('.vs-label')?.textContent || '').startsWith('Confirmed By'),
+    );
+    expect(confirmedRow?.querySelector('.vs-val')?.textContent || '').toContain(CONFIRMED_BY_NAME);
+
+    const created = doc.querySelector('.vs-reception')?.textContent || '';
+    expect(created).toContain(`Created By: ${CREATED_BY_NAME}`);
+  });
+
+  it('never prints a UUID anywhere on the slip, in any state', () => {
+    // Checked on the markup, not on the rendered text, so an id hidden in an
+    // attribute, a title or a comment would still be caught.
+    for (const slip of [
+      SLIP,
+      CONFIRMED,
+      // Names deliberately absent — the fallback must still be a name.
+      { ...SLIP, createdByName: null },
+      { ...SLIP, createdByName: A_UUID },
+      {
+        ...CONFIRMED,
+        hostConfirmation: { ...CONFIRMED.hostConfirmation!, confirmedByName: null },
+      },
+    ]) {
+      const markup = buildSlipHtml(slip as VisitorSlipData, { signatureDataUrl: 'data:image/png;base64,AAAA' });
+      expect(markup).not.toMatch(UUID_SHAPE_SOURCE);
+      expect(markup).not.toContain(A_UUID);
+    }
+  });
+
+  it('substitutes a human fallback when the user cannot be resolved', () => {
+    // Missing name, a name that is a UUID, and a blank string must all degrade
+    // the same way — a reader must never be handed an identifier.
+    const blank = asDom(buildSlipHtml({ ...SLIP, createdByName: '   ' })).body.textContent || '';
+    expect(blank).toContain(`Created By: ${SLIP_ACTOR_FALLBACK}`);
+    expect(blank).not.toContain('Created By: —');
+
+    const asId = asDom(buildSlipHtml({ ...SLIP, createdByName: A_UUID })).body.textContent || '';
+    expect(asId).toContain(`Created By: ${SLIP_ACTOR_FALLBACK}`);
+  });
+
+  it('still states that the host identity was not verified after naming the user', () => {
+    // §17 is not weakened by §2: naming who pressed the button is not the same
+    // claim as verifying who the host is, and both must be visible together.
+    const text = asDom(buildSlipHtml(CONFIRMED)).body.textContent || '';
+    expect(text).toContain(CONFIRMED_BY_NAME);
+    expect(text).toContain('Confirmed By:');
+    expect(text).toContain('ERP user — host identity not verified');
+  });
+
+  // §3/§4 — the printed letterhead.
+  it('prints the exact production company name and city', () => {
+    const doc = asDom(buildSlipHtml(SLIP, {}, '/logo.png'));
+    const header = doc.querySelector('.vs-header')?.textContent || '';
+    expect(header).toContain(SLIP_COMPANY_NAME);
+    expect(header).toContain(SLIP_COMPANY_CITY);
+    // The development fixture name must not leak onto the slip.
+    expect(header).not.toMatch(/PAKWIZ/i);
+    expect(header).not.toMatch(/Lahore/i);
+  });
+
+  it('prints the production letterhead even when the API returns a different company row', () => {
+    // The letterhead is a constant of the printed stationery, not of whatever
+    // `companies` row this database happens to contain.
+    const doc = asDom(
+      buildSlipHtml({ ...SLIP, companyName: 'Some Other Company Limited' }, {}, '/logo.png'),
+    );
+    const header = doc.querySelector('.vs-header')?.textContent || '';
+    expect(header).toContain(SLIP_COMPANY_NAME);
+    expect(header).not.toContain('Some Other Company Limited');
+  });
+
+  it('invents no street address, because none has been supplied', () => {
+    const text = asDom(buildSlipHtml(SLIP, {}, '/logo.png')).body.textContent || '';
+    expect(text).not.toMatch(/\d+\s+(Street|Road|Block|Sector|I\.I\.|Industrial|Area)/i);
+  });
+
+  // §5 — header alignment is structural, not incidental.
+  it('lays the header out as a 2-row grid so each pair shares a baseline', () => {
+    const css = asDom(buildSlipHtml(SLIP)).querySelector('style')?.textContent || '';
+    const headerRule = css.slice(css.indexOf('.visitor-slip .vs-header {'));
+    expect(headerRule).toMatch(/display:\s*grid/);
+    expect(headerRule).toMatch(/align-items:\s*center/);
+
+    // Row 1: company name + title bar. Row 2: city + retain-note. Each pair is
+    // placed by grid coordinates, so they cannot drift apart the way two
+    // flex-centred stacks can.
+    const place = (sel: string, col: number, row: string) => {
+      const rule = css.slice(css.indexOf(`.visitor-slip .${sel} {`));
+      expect(rule).toContain('grid-column');
+      expect(rule).toMatch(new RegExp(`grid-column:\\s*${col}`));
+      expect(rule).toMatch(new RegExp(`grid-row:\\s*${row}`));
+    };
+    place('vs-company', 2, '1');
+    place('vs-title', 3, '1');
+    place('vs-company-sub', 2, '2');
+    place('vs-headline-note', 3, '2');
+    // The logo spans both rows, so it stays level with the whole block.
+    place('vs-logo', 1, '1 / 3');
+
+    // No inline layout styles left in the header markup.
+    const headerMarkup = buildSlipHtml(SLIP, {}, '/logo.png')
+      .slice(buildSlipHtml(SLIP, {}, '/logo.png').indexOf('<div class="vs-header"'));
+    expect(headerMarkup.slice(0, headerMarkup.indexOf('<div class="vs-ref-bar">')))
+      .not.toMatch(/style="[^"]*(align-items|display|vertical-align)/);
+  });
+
+  it('lays the VISITOR ID row out as a grid so the reference is centred', () => {
+    const css = asDom(buildSlipHtml(SLIP)).querySelector('style')?.textContent || '';
+    const refRule = css.slice(css.indexOf('.visitor-slip .vs-ref-bar {'));
+    expect(refRule).toMatch(/display:\s*grid/);
+    expect(refRule).toMatch(/grid-template-columns:\s*1fr auto 1fr/);
+    expect(refRule).toMatch(/align-items:\s*center/);
   });
 
   // §30 — untrusted visitor text reaching a print surface.
@@ -311,12 +511,6 @@ describe('printVisitorSlipDocument', () => {
   afterEach(() => {
     document.getElementById('pwi-print-frame')?.remove();
   });
-
-  function printFrame(): HTMLIFrameElement {
-    const frame = document.getElementById('pwi-print-frame') as HTMLIFrameElement;
-    expect(frame).not.toBeNull();
-    return frame;
-  }
 
   // The whole architectural promise: the slip reuses the EXISTING print
   // pipeline instead of introducing a second printing system.

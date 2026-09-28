@@ -5,11 +5,16 @@ import { FindOperator } from 'typeorm';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { VisitorEntryService, REFERENCE_MAX_ATTEMPTS } from './visitor-entry.service';
+import {
+  VisitorEntryService,
+  REFERENCE_MAX_ATTEMPTS,
+  SLIP_ACTOR_FALLBACK_NAME,
+} from './visitor-entry.service';
 import { VisitorEntry, VisitorEntryStatus, Location, LocationStatus } from '../entities';
 import { Division } from '../../organization/entities/division.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { HrEmployee } from '../../hr/entities/hr-employee.entity';
+import { ErpUser } from '../../user/entities/erp-user.entity';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
 import { CreateVisitorEntryDto, MAX_SIGNATURE_BYTES } from '../dto';
 
@@ -52,6 +57,7 @@ describe('VisitorEntryService', () => {
   let divisionRepo: any;
   let companyRepo: any;
   let employeeRepo: any;
+  let erpUserRepo: any;
   let storageDir: string;
 
   /** Minimal chainable query builder that records every where-clause. */
@@ -138,6 +144,10 @@ describe('VisitorEntryService', () => {
     // instead of a hard-coded string.
     companyRepo = { findOne: jest.fn() };
     employeeRepo = { findOne: jest.fn(), createQueryBuilder: jest.fn() };
+    // #19A — the slip resolves acting ERP users to display names so no UUID is
+    // printed. Default: a small directory keyed by id; unknown ids resolve to
+    // nothing, which is what makes the "System User" fallback observable.
+    erpUserRepo = { find: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -147,6 +157,7 @@ describe('VisitorEntryService', () => {
         { provide: getRepositoryToken(Division), useValue: divisionRepo },
         { provide: getRepositoryToken(Company), useValue: companyRepo },
         { provide: getRepositoryToken(HrEmployee), useValue: employeeRepo },
+        { provide: getRepositoryToken(ErpUser), useValue: erpUserRepo },
         { provide: ActivityLogService, useValue: { log: jest.fn().mockResolvedValue(null) } },
       ],
     }).compile();
@@ -992,6 +1003,70 @@ describe('VisitorEntryService', () => {
         expect(slip.timeIn).toBeInstanceOf(Date);
         expect(slip.timeOut).toBeNull();
         expect(slip.createdAt).toBeInstanceOf(Date);
+      });
+
+      // #19A §2 — the slip must carry a NAME for each acting ERP user, because
+      // a UUID is not a usable record on a document that is kept on file.
+      it('3A. resolves the acting ERP users to their display names', async () => {
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ hostConfirmed: true, hostConfirmedBy: CONFIRMING_USER }),
+        );
+        erpUserRepo.find.mockResolvedValue([
+          { id: USER, displayName: 'Muhammad Afsar' },
+          { id: CONFIRMING_USER, displayName: 'Ahmed Raza' },
+        ]);
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.createdByName).toBe('Muhammad Afsar');
+        expect(slip.hostConfirmation.confirmedByName).toBe('Ahmed Raza');
+        // One query for both ids, not a lookup per field.
+        expect(erpUserRepo.find).toHaveBeenCalledTimes(1);
+        expect(erpUserRepo.find.mock.calls[0][0].where.id).toBeDefined();
+      });
+
+      it('3B. falls back to a human name when the user row cannot be resolved', async () => {
+        // A deleted, disabled or not-yet-provisioned user must never put an id
+        // on the paper.
+        visitorRepo.findOne.mockResolvedValue(
+          entry({ hostConfirmed: true, hostConfirmedBy: CONFIRMING_USER }),
+        );
+        erpUserRepo.find.mockResolvedValue([]);
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.createdByName).toBe(SLIP_ACTOR_FALLBACK_NAME);
+        expect(slip.hostConfirmation.confirmedByName).toBe(SLIP_ACTOR_FALLBACK_NAME);
+      });
+
+      it('3C. never resolves to a blank name, even if the column is empty', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry());
+        erpUserRepo.find.mockResolvedValue([{ id: USER, displayName: '   ' }]);
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.createdByName).toBe(SLIP_ACTOR_FALLBACK_NAME);
+      });
+
+      it('3D. still returns the slip when the user directory itself fails', async () => {
+        // A name lookup must never be able to stop someone printing the record
+        // of a visitor who is waiting at the gate.
+        visitorRepo.findOne.mockResolvedValue(entry());
+        erpUserRepo.find.mockRejectedValue(new Error('erp_users unavailable'));
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(slip.visitorReference).toBe('VIS-2026-000042');
+        expect(slip.createdByName).toBe(SLIP_ACTOR_FALLBACK_NAME);
+      });
+
+      it('3E. does not query the user directory at all when there is nobody to resolve', async () => {
+        visitorRepo.findOne.mockResolvedValue(entry({ createdBy: null, hostConfirmedBy: null }));
+
+        const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
+
+        expect(erpUserRepo.find).not.toHaveBeenCalled();
+        expect(slip.createdByName).toBe(SLIP_ACTOR_FALLBACK_NAME);
       });
 
       it('3b. masks the CNIC and never leaks an internal storage path (§30)', async () => {

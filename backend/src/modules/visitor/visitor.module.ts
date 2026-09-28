@@ -5,6 +5,7 @@ import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { AuditModule } from '../audit/audit.module';
 import { Location, VisitorEntry } from './entities';
+import { ErpUser } from '../user/entities/erp-user.entity';
 import { Company } from '../organization/entities/company.entity';
 import { Division } from '../organization/entities/division.entity';
 import { HrEmployee } from '../hr/entities/hr-employee.entity';
@@ -20,7 +21,9 @@ import { LocationController, VisitorEntryController } from './controllers';
  * and the existing employee master (`hr_employees`) for host selection, so no
  * parallel authentication/authorization system is introduced. `Company` is
  * registered only so the slip can print the real legal name from the database
- * instead of a hard-coded one (§3/§4).
+ * instead of a hard-coded one (§3/§4). `ErpUser` is registered for the same
+ * narrow reason (#19A §2): the slip resolves `created_by` / `host_confirmed_by`
+ * to a person's `display_name` so a UUID never reaches the printed page.
  */
 @Module({
   imports: [
@@ -28,7 +31,7 @@ import { LocationController, VisitorEntryController } from './controllers';
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
     AuditModule,
-    TypeOrmModule.forFeature([Location, VisitorEntry, Division, HrEmployee, Company]),
+    TypeOrmModule.forFeature([Location, VisitorEntry, Division, HrEmployee, Company, ErpUser]),
   ],
   controllers: [LocationController, VisitorEntryController],
   providers: [LocationService, VisitorEntryService],
