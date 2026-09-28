@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -120,6 +120,9 @@ describe('VisitorEntryService', () => {
       create: jest.fn().mockImplementation((input: any) => ({ ...input })),
       save: jest.fn().mockImplementation(async (row: any) => ({ ...row, id: ENTRY })),
       findOne: jest.fn(),
+      // Prompt #18 §15 — the exit transition is ONE conditional UPDATE; the
+      // mock reports how many rows the WHERE clause actually matched.
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
       createQueryBuilder: jest.fn(),
     };
     locationRepo = { findOne: jest.fn(), createQueryBuilder: jest.fn() };
@@ -405,6 +408,360 @@ describe('VisitorEntryService', () => {
       });
 
       await expect(service.resolvePhoto(ENTRY, COMPANY, [CCD])).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // =========================================================================
+  // Prompt #18 §27 — Visitor Exit / Time-Out
+  //
+  //   1  PENDING visitor can be checked out
+  //   2  Time-Out is generated server-side
+  //   3  a client cannot override the Time-Out (only server-owned columns are written)
+  //   4  status moves PENDING → COMPLETED
+  //   5  a COMPLETED visitor cannot be checked out again
+  //   6  the original Time-Out is never overwritten
+  //   7  an unauthorized division cannot check the visitor out
+  //   8  an unknown id in an unauthorized division is 403, not 409
+  //   9  a missing / malformed id is 404
+  //   10 the Pending filter also requires time_out IS NULL
+  //   11 the Completed filter also requires time_out IS NOT NULL
+  //   12 exit audit (exitedBy + activity log) is recorded
+  //   13 a concurrent / double checkout is refused, not written twice
+  //   14 the Prompt #17 create → exit lifecycle still works end to end
+  //   15 the division scope of Prompt #16 is unchanged (create + exit)
+  // =========================================================================
+  describe('Prompt #18 — visitor exit / Time-Out', () => {
+    const pendingEntry = (overrides: Record<string, any> = {}) => ({
+      id: ENTRY,
+      companyId: COMPANY,
+      divisionId: CCD,
+      locationId: LOC_CCD,
+      visitorName: 'Muhammad Test',
+      cnic: '12345-1234567-1',
+      hostNameSnapshot: 'Muhammad Zeeshan',
+      timeIn: new Date('2026-09-28T10:15:00.000Z'),
+      timeOut: null,
+      status: VisitorEntryStatus.PENDING,
+      exitedBy: null,
+      createdBy: USER,
+      createdAt: new Date('2026-09-28T10:15:00.000Z'),
+      updatedBy: USER,
+      updatedAt: new Date('2026-09-28T10:15:00.000Z'),
+      photoPath: null,
+      photoMime: null,
+      division: divisionCcd,
+      location: locationCcd,
+      ...overrides,
+    });
+
+    const completedEntry = (overrides: Record<string, any> = {}) => {
+      const exitTime = new Date('2026-09-28T13:40:00.000Z');
+      return pendingEntry({
+        timeOut: exitTime,
+        status: VisitorEntryStatus.COMPLETED,
+        exitedBy: USER,
+        updatedAt: exitTime,
+        ...overrides,
+      });
+    };
+
+    /** [where, set] of the single conditional UPDATE the service issued. */
+    const updateCall = () => visitorRepo.update.mock.calls[0] as [any, any];
+
+    beforeEach(() => {
+      visitorRepo.update.mockResolvedValue({ affected: 1 });
+    });
+
+    // ── 1 / 2 / 3 / 4 / 12 ──────────────────────────────────────────────────
+    it('1+2+4+12. checks a PENDING visitor out with a server-generated Time-Out and exit audit', async () => {
+      const exitTime = new Date('2026-09-28T13:40:00.000Z');
+      const logged: any[] = [];
+      (service as any).activityLog.log = jest.fn(async (payload: any) => {
+        logged.push(payload);
+        return null;
+      });
+
+      visitorRepo.findOne
+        .mockResolvedValueOnce(pendingEntry()) // existence + authorization check
+        .mockResolvedValueOnce(completedEntry({ timeOut: exitTime, updatedAt: exitTime })); // re-read
+
+      const before = Date.now();
+      const result = await service.checkOut(ENTRY, COMPANY, USER, [CCD]);
+      const after = Date.now();
+
+      // 2 — the Time-Out came from the server clock, inside the call window.
+      const [, set] = updateCall();
+      expect(set.timeOut).toBeInstanceOf(Date);
+      expect(set.timeOut.getTime()).toBeGreaterThanOrEqual(before - 1000);
+      expect(set.timeOut.getTime()).toBeLessThanOrEqual(after + 1000);
+
+      // 4 — PENDING → COMPLETED, and 12 — the exit actor is preserved.
+      expect(set.status).toBe(VisitorEntryStatus.COMPLETED);
+      expect(set.exitedBy).toBe(USER);
+      expect(set.updatedBy).toBe(USER);
+
+      // 3 — nothing server-owned beyond the checkout fields is written, and
+      //      company / division / location / identity / time_in are not touched.
+      expect(Object.keys(set).sort()).toEqual(['exitedBy', 'status', 'timeOut', 'updatedBy']);
+      for (const forbidden of ['timeIn', 'companyId', 'divisionId', 'locationId', 'visitorName', 'hostEmployeeId']) {
+        expect(set).not.toHaveProperty(forbidden);
+      }
+      // Read-modify-write would race (§15) — the transition is one UPDATE.
+      expect(visitorRepo.save).not.toHaveBeenCalled();
+
+      // 12 — the audit trail names the actor and the action.
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toEqual(
+        expect.objectContaining({
+          actorUserId: USER,
+          action: 'UPDATE',
+          targetType: 'visitor_entry',
+          targetId: ENTRY,
+        }),
+      );
+      expect(logged[0].details).toMatch(/exit/i);
+      // Personal data is never written to the audit log (Prompt #17 §19).
+      expect(JSON.stringify(logged[0])).not.toContain('12345-1234567-1');
+
+      // 24 — the response is the same shape the detail endpoint returns.
+      expect(result).toMatchObject({
+        id: ENTRY,
+        status: VisitorEntryStatus.COMPLETED,
+        timeOut: exitTime,
+        exitedBy: USER,
+        cnic: '12345-1234567-1',
+        hostNameSnapshot: 'Muhammad Zeeshan',
+        division: { id: CCD, divisionCode: 'DIV-CCD' },
+        location: { id: LOC_CCD, locationCode: 'GATE-01' },
+      });
+    });
+
+    // ── 15 / 3 — the WHERE clause is the concurrency + scope guard ──────────
+    it('15+3. guards the update with the company, the open status and a NULL Time-Out', async () => {
+      visitorRepo.findOne.mockResolvedValue(pendingEntry());
+
+      await service.checkOut(ENTRY, COMPANY, USER, [CCD]);
+
+      const [where] = updateCall();
+      expect(where.id).toBe(ENTRY);
+      // Another company's row can never be touched.
+      expect(where.companyId).toBe(COMPANY);
+      // Only an open visit is eligible …
+      expect(where.status.type).toBe('in');
+      expect(where.status.value).toEqual([VisitorEntryStatus.PENDING, VisitorEntryStatus.INSIDE]);
+      // … and only while it has no Time-Out, which is what makes a second
+      // concurrent UPDATE match 0 rows.
+      expect(where.timeOut.type).toBe('isNull');
+    });
+
+    // ── 5 / 6 ─────────────────────────────────────────────────────────────
+    it('5+6. refuses a visitor who already checked out and never overwrites the first Time-Out', async () => {
+      visitorRepo.findOne.mockResolvedValue(completedEntry());
+
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(ConflictException);
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(
+        /already checked out/i,
+      );
+      // A business-state conflict is a 409, never a 500, and nothing is written.
+      expect(visitorRepo.update).not.toHaveBeenCalled();
+      expect(visitorRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('5b. refuses a row whose Time-Out is set even if the status still says PENDING', async () => {
+      // Defence in depth: the filter definition is status AND time_out IS NULL.
+      visitorRepo.findOne.mockResolvedValue(
+        pendingEntry({ timeOut: new Date('2026-09-28T13:40:00.000Z') }),
+      );
+
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(ConflictException);
+      expect(visitorRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('9. keeps a CANCELLED entry out of the checkout transition (§9)', async () => {
+      visitorRepo.findOne.mockResolvedValue(pendingEntry({ status: VisitorEntryStatus.CANCELLED }));
+
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(ConflictException);
+      expect(visitorRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('allows an INSIDE visit to be completed (the status CHECK already allows it)', async () => {
+      visitorRepo.findOne
+        .mockResolvedValueOnce(pendingEntry({ status: VisitorEntryStatus.INSIDE }))
+        .mockResolvedValueOnce(completedEntry({ status: VisitorEntryStatus.COMPLETED }));
+
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).resolves.toMatchObject({
+        status: VisitorEntryStatus.COMPLETED,
+      });
+    });
+
+    // ── 13 ────────────────────────────────────────────────────────────────
+    it('13. answers a concurrent / double checkout with a conflict and writes only once', async () => {
+      // The second request passes its own state check (it read PENDING before the
+      // first UPDATE committed) but its conditional UPDATE then matches 0 rows —
+      // exactly the double-click / two-gate-officer race.
+      visitorRepo.update.mockResolvedValueOnce({ affected: 1 }).mockResolvedValueOnce({ affected: 0 });
+      visitorRepo.findOne
+        .mockResolvedValueOnce(pendingEntry()) // request 1 — pre-check read
+        .mockResolvedValueOnce(completedEntry()) // request 1 — re-read after winning
+        .mockResolvedValueOnce(pendingEntry()) // request 2 — pre-check read (stale)
+        .mockResolvedValueOnce(completedEntry()) // request 2 — re-read after losing
+        .mockResolvedValue(completedEntry()); // any later request sees the closed visit
+
+      await service.checkOut(ENTRY, COMPANY, USER, [CCD]);
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(ConflictException);
+      // A later third call is caught by the plain state check — still a 409.
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(/already checked out/i);
+
+      expect(visitorRepo.update).toHaveBeenCalledTimes(2);
+      // Exactly one successful write: the loser gets a controlled conflict and
+      // the first Time-Out is left alone.
+      expect(visitorRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('13b. asks the caller to retry when the row is still open but was not updated', async () => {
+      visitorRepo.update.mockResolvedValueOnce({ affected: 0 });
+      visitorRepo.findOne
+        .mockResolvedValueOnce(pendingEntry())
+        .mockResolvedValueOnce(pendingEntry());
+
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(/try again/i);
+    });
+
+    // ── 7 / 8 / 9 ─────────────────────────────────────────────────────────
+    it('7. refuses to check out a visitor in an unauthorized division (403) and writes nothing', async () => {
+      visitorRepo.findOne.mockResolvedValue(
+        pendingEntry({ divisionId: SPD, locationId: LOC_SPD, division: divisionSpd, location: locationSpd }),
+      );
+
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(ForbiddenException);
+      // Answered before the state check, so a guessed id is never confirmed.
+      expect(visitorRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('8. answers a foreign-division id with 403 and never leaks the visitor state', async () => {
+      visitorRepo.findOne.mockResolvedValue(
+        completedEntry({
+          divisionId: SPD, locationId: LOC_SPD, division: divisionSpd, location: locationSpd,
+        }),
+      );
+
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(ForbiddenException);
+      expect(visitorRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('9b. answers a missing or malformed id with 404', async () => {
+      visitorRepo.findOne.mockResolvedValue(null);
+      await expect(service.checkOut('not-a-uuid', COMPANY, USER, [CCD])).rejects.toThrow(NotFoundException);
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [CCD])).rejects.toThrow(NotFoundException);
+      expect(visitorRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('denies every exit when the effective division set is empty (Prompt #16 §15)', async () => {
+      visitorRepo.findOne.mockResolvedValue(pendingEntry());
+
+      await expect(service.checkOut(ENTRY, COMPANY, USER, [])).rejects.toThrow(ForbiddenException);
+      expect(visitorRepo.update).not.toHaveBeenCalled();
+    });
+
+    // ── 10 / 11 — status filters are defined by status AND time_out ────────
+    it('10. the PENDING filter requires status = PENDING AND time_out IS NULL', async () => {
+      const qb = makeQb();
+      visitorRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await service.findAll({ companyId: COMPANY, allowedDivisionIds: [CCD], status: VisitorEntryStatus.PENDING });
+
+      const sql = qb.whereCalls.map(([clause]: [string, any]) => clause);
+      expect(sql).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('ve.status = :status'),
+          've.timeOut IS NULL',
+        ]),
+      );
+      expect(qb.whereCalls.find(([c]: [string, any]) => c === 've.status = :status')![1].status).toBe(
+        VisitorEntryStatus.PENDING,
+      );
+    });
+
+    it('11. the COMPLETED filter requires status = COMPLETED AND time_out IS NOT NULL', async () => {
+      const qb = makeQb();
+      visitorRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await service.findAll({ companyId: COMPANY, allowedDivisionIds: [CCD], status: VisitorEntryStatus.COMPLETED });
+
+      const sql = qb.whereCalls.map(([clause]: [string, any]) => clause);
+      expect(sql).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('ve.status = :status'),
+          've.timeOut IS NOT NULL',
+        ]),
+      );
+    });
+
+    it('leaves the unfiltered list alone (no implicit status or Time-Out clause)', async () => {
+      const qb = makeQb();
+      visitorRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await service.findAll({ companyId: COMPANY, allowedDivisionIds: [CCD] });
+
+      const sql = qb.whereCalls.map(([clause]: [string, any]) => clause);
+      expect(sql.some((c: string) => c.includes('timeOut'))).toBe(false);
+      expect(sql.some((c: string) => c.includes('ve.status'))).toBe(false);
+    });
+
+    // ── §19 current-day monitoring ─────────────────────────────────────────
+    it('bounds "today" on the SERVER clock, not on anything the client sent', async () => {
+      const qb = makeQb();
+      visitorRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await service.findAll({ companyId: COMPANY, allowedDivisionIds: [CCD], today: true });
+
+      const clause = qb.whereCalls.find(([sql]: [string, any]) => sql.includes('ve.timeIn >='));
+      expect(clause).toBeDefined();
+      const { startOfToday, startOfTomorrow } = clause![1];
+      expect(startOfToday).toBeInstanceOf(Date);
+      expect(startOfTomorrow).toBeInstanceOf(Date);
+      expect(startOfTomorrow.getTime()).toBeGreaterThan(startOfToday.getTime());
+      expect(startOfTomorrow.getTime() - startOfToday.getTime()).toBe(24 * 60 * 60 * 1000);
+    });
+
+    // ── 10/20 — the client gets the derived on-site truth ──────────────────
+    it('marks a visitor as on site only while PENDING with a NULL Time-Out', async () => {
+      const qb = makeQb();
+      visitorRepo.createQueryBuilder.mockReturnValue(qb);
+      qb.getManyAndCount.mockResolvedValue([
+        [
+          pendingEntry(),
+          pendingEntry({ id: 'other', status: VisitorEntryStatus.PENDING, timeOut: new Date() }),
+          completedEntry(),
+        ],
+        3,
+      ]);
+
+      const { data } = await service.findAll({ companyId: COMPANY });
+
+      expect(data[0].onSite).toBe(true);
+      expect(data[1].onSite).toBe(false); // PENDING but already has a Time-Out
+      expect(data[2].onSite).toBe(false); // COMPLETED
+      expect(data[2].exitedBy).toBe(USER);
+    });
+
+    // ── 14 — the whole lifecycle on the real service ───────────────────────
+    it('14. runs the Prompt #17 create → exit lifecycle on the same service', async () => {
+      visitorRepo.findOne.mockResolvedValue(pendingEntry());
+
+      const created = await service.create(baseDto, COMPANY, USER, [CCD]);
+      expect(created).toMatchObject({ status: VisitorEntryStatus.PENDING, timeOut: null });
+      // A new visit has no exit actor — the column stays NULL until checkout.
+      expect(created.exitedBy ?? null).toBeNull();
+
+      visitorRepo.findOne
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce({ ...created, status: VisitorEntryStatus.COMPLETED, timeOut: new Date(), exitedBy: USER });
+
+      const checkedOut = await service.checkOut(created.id, COMPANY, USER, [CCD]);
+      expect(checkedOut.status).toBe(VisitorEntryStatus.COMPLETED);
+      expect(checkedOut.timeOut).toBeInstanceOf(Date);
+      expect(visitorRepo.update).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -103,6 +103,8 @@ const CREATED_ROW = { ...LIST_ROW, cnic: '12345-1234567-1' };
 const ALL_PERMISSIONS = [
   'visitor.entry.view',
   'visitor.entry.create',
+  // Prompt #18 §21 — the exit is its own permission, in the same family.
+  'visitor.entry.update',
   'location.view',
   'location.create',
   'location.update',
@@ -262,6 +264,7 @@ describe('VisitorManagement', () => {
     seedUser();
     apiMock.get.mockReset();
     apiMock.post.mockReset();
+    apiMock.patch.mockReset();
     apiMock.upload.mockReset();
     apiMock.getFile.mockReset();
     mockApi();
@@ -528,5 +531,381 @@ describe('VisitorManagement', () => {
       ),
     ).toBeInTheDocument();
     expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
+  // ==========================================================================
+  // Prompt #18 §28 — Visitor Exit / Time-Out + pending / completed visitors
+  //
+  //   1  a pending visitor displays PENDING
+  //   2  a pending visitor shows the Time Out action
+  //   3  a completed visitor displays COMPLETED
+  //   4  a completed visitor displays the server Time-Out
+  //   5  a completed visitor has no active Time Out action
+  //   6  a confirmation dialog appears before any request is sent
+  //   7  a successful checkout refreshes the visitor data
+  //   8  the Pending filter is sent to the server and drives the table
+  //   9  the Completed filter is sent to the server and drives the table
+  //   10 an unauthorized / rejected exit is handled without a false success
+  //   11 visitor creation from Prompt #17 still works (outer suite)
+  // ==========================================================================
+  describe('Prompt #18 — exit / Time-Out', () => {
+    /**
+     * A finished visit. A different visitor name AND a different day for
+     * Time-In keep every assertion below unambiguous in a two-row list.
+     */
+    const EXITED = {
+      ...LIST_ROW,
+      id: 'f1000000-0000-0000-0000-000000000002',
+      visitorName: 'Ahmed Khan',
+      hostNameSnapshot: 'Usman Ali',
+      timeIn: '2026-09-14T10:15:00.000Z',
+      timeOut: '2026-09-21T13:40:00.000Z',
+      status: 'COMPLETED',
+      onSite: false,
+      exitedBy: 'u1000000-0000-0000-0000-000000000001',
+    };
+    const EXITED_ID = EXITED.id;
+    const PENDING_ROW = { ...LIST_ROW, onSite: true };
+
+    /**
+     * What the server returns from the exit endpoint: the SAME row, now closed.
+     * (A different id would make the in-place row update a no-op and hide a real
+     * bug, so the fixture deliberately keeps the identity.)
+     */
+    const CHECKED_OUT = {
+      ...PENDING_ROW,
+      timeOut: '2026-09-21T13:40:00.000Z',
+      status: 'COMPLETED',
+      onSite: false,
+      exitedBy: 'u1000000-0000-0000-0000-000000000001',
+    };
+
+    /**
+     * NOTE ON "IS THE DIALOG GONE?"
+     *   A closed antd Modal leaves its panel mounted in jsdom and hides it with
+     *   CSS-in-JS that jsdom never applies, so visibility is NOT observable
+     *   here (probed, not guessed). What IS observable — and what actually
+     *   matters — is that closing the dialog performs no request and leaves the
+     *   visit untouched, which is what the cancellation and 403 tests assert.
+     */
+
+    const listCalls = () =>
+      apiMock.get.mock.calls.filter(([url]: any[]) => String(url) === '/visitor/entries') as any[];
+
+    /**
+     * A server-side filter: the API decides what the table shows. The pending
+     * answer deliberately contains no completed row (and vice versa), so a
+     * client-side filter would be visible immediately.
+     */
+    function mockFilteredList(detailRow: any = DETAIL_ROW) {
+      apiMock.get.mockImplementation((url: any, params?: any) => {
+        const u = String(url);
+        if (u === '/visitor/entries') {
+          if (params?.status === 'PENDING') return Promise.resolve({ data: [PENDING_ROW], total: 1 });
+          if (params?.status === 'COMPLETED') return Promise.resolve({ data: [EXITED], total: 1 });
+          if (params?.today === true) return Promise.resolve({ data: [PENDING_ROW], total: 1 });
+          return Promise.resolve({ data: [PENDING_ROW, EXITED], total: 2 });
+        }
+        if (u.startsWith('/visitor/entries/')) return Promise.resolve({ data: detailRow });
+        if (u === '/divisions') return Promise.resolve({ data: ALL_DIVISIONS });
+        if (u === '/locations') {
+          const key = String(params?.divisionId || '');
+          return Promise.resolve({ data: LOCATIONS[key] ?? [] });
+        }
+        if (u === '/visitor/hosts') return Promise.resolve({ data: HOSTS });
+        return Promise.resolve({ data: [] });
+      });
+    }
+
+    /**
+     * rc-select binds its mousedown handler to the SELECTOR wrapper, so a
+     * mousedown on the combobox input inside it bubbles up and opens the list.
+     */
+    function openStatusSelect() {
+      const combo = within(screen.getByTestId('visitor-status-filter')).getByRole('combobox');
+      fireEvent.mouseDown(combo);
+    }
+
+    async function pickStatusOption(label: string) {
+      openStatusSelect();
+      const option = await screen.findByText(
+        label,
+        { selector: '.ant-select-item-option-content' },
+        { timeout: 15000 },
+      );
+      fireEvent.click(option);
+    }
+
+    async function openExitDialog() {
+      fireEvent.click(await screen.findByTestId(`visitor-exit-${ENTRY}`, {}, { timeout: 15000 }));
+      return screen.findByTestId('visitor-exit-body', {}, { timeout: 15000 });
+    }
+
+    beforeEach(() => {
+      seedUser(); // ALL_PERMISSIONS now includes visitor.entry.update
+      mockFilteredList();
+      apiMock.patch.mockResolvedValue({ success: true, data: CHECKED_OUT });
+    });
+
+    // ── 1 / 2 ──────────────────────────────────────────────────────────────
+    it('1+2. marks a pending visitor as PENDING with a Pending Time-Out and a Time Out action', async () => {
+      await renderPage();
+
+      expect(await screen.findByText('Muhammad Test', {}, { timeout: 15000 })).toBeInTheDocument();
+      expect(screen.getByTestId('visitor-status-PENDING')).toHaveTextContent('PENDING');
+      // §10 — the pending state is spelled out, not only coloured.
+      expect(screen.getByTestId(`visitor-timeout-pending-${ENTRY}`)).toHaveTextContent('Pending');
+      expect(screen.getByTestId(`visitor-exit-${ENTRY}`)).toBeInTheDocument();
+    });
+
+    // ── 3 / 4 / 5 ──────────────────────────────────────────────────────────
+    it('3+4+5. shows the server Time-Out for a completed visitor and offers no Time Out action', async () => {
+      // A list that contains ONLY the closed visit.
+      apiMock.get.mockImplementation((url: any) => {
+        const u = String(url);
+        if (u === '/visitor/entries') return Promise.resolve({ data: [EXITED], total: 1 });
+        if (u.startsWith('/visitor/entries/')) return Promise.resolve({ data: EXITED });
+        if (u === '/divisions') return Promise.resolve({ data: ALL_DIVISIONS });
+        return Promise.resolve({ data: [] });
+      });
+
+      await renderPage();
+
+      expect(await screen.findByText('Ahmed Khan', {}, { timeout: 15000 })).toBeInTheDocument();
+      expect(screen.getByTestId('visitor-status-COMPLETED')).toHaveTextContent('COMPLETED');
+      // §11 — the real server Time-Out, formatted, and no "Pending" marker.
+      expect(screen.getByTestId(`visitor-timeout-${EXITED_ID}`)).toHaveTextContent(/21-[A-Za-z]{3}-2026/);
+      expect(screen.queryByTestId(`visitor-timeout-pending-${EXITED_ID}`)).not.toBeInTheDocument();
+      // §20 — no active Time Out action on a closed visit.
+      expect(screen.queryByTestId(`visitor-exit-${EXITED_ID}`)).not.toBeInTheDocument();
+      expect(screen.getByTestId(`visitor-view-${EXITED_ID}`)).toBeInTheDocument();
+    });
+
+    // ── 6 ─────────────────────────────────────────────────────────────────
+    it('6. asks for confirmation before any request is sent', async () => {
+      await renderPage();
+      const body = await openExitDialog();
+
+      // Visitor, Time-In and the explicit question are all shown.
+      expect(within(body).getByText('Muhammad Test')).toBeInTheDocument();
+      expect(within(body).getByTestId('visitor-exit-time-in')).toBeInTheDocument();
+      expect(
+        screen.getByText('Are you sure this visitor has exited the premises?'),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('visitor-exit-cancel')).toBeInTheDocument();
+      expect(screen.getByTestId('visitor-exit-confirm')).toHaveTextContent('Confirm Time-Out');
+      // §14 — nothing is sent until the user confirms.
+      expect(apiMock.patch).not.toHaveBeenCalled();
+    });
+
+    it('6b. cancelling the dialog leaves the visitor untouched', async () => {
+      await renderPage();
+      await openExitDialog();
+
+      fireEvent.click(screen.getByTestId('visitor-exit-cancel'));
+
+      // Nothing was sent, and the visit is exactly as it was.
+      expect(apiMock.patch).not.toHaveBeenCalled();
+      expect(screen.getByTestId('visitor-status-PENDING')).toBeInTheDocument();
+      expect(screen.getByTestId(`visitor-exit-${ENTRY}`)).toBeInTheDocument();
+    });
+
+    // ── 7 ─────────────────────────────────────────────────────────────────
+    it('7. checks the visitor out and refreshes the row from the server response', async () => {
+      await renderPage();
+      await openExitDialog();
+
+      fireEvent.click(screen.getByTestId('visitor-exit-confirm'));
+
+      await waitFor(() => expect(apiMock.patch).toHaveBeenCalledTimes(1), { timeout: 15000 });
+      const [url, body] = apiMock.patch.mock.calls[0] as [string, any];
+      expect(url).toBe(`/visitor/entries/${ENTRY}/exit`);
+      // §4 — the client sends no Time-Out, status or actor at all.
+      expect(body ?? {}).toEqual({});
+
+      // The table now shows what the SERVER recorded for THIS row.
+      const timeOutCell = await screen.findByTestId(
+        `visitor-timeout-${ENTRY}`,
+        {},
+        { timeout: 15000 },
+      );
+      expect(timeOutCell).toHaveTextContent(/21-[A-Za-z]{3}-2026/);
+      expect(screen.queryByTestId(`visitor-timeout-pending-${ENTRY}`)).not.toBeInTheDocument();
+      expect(screen.queryByTestId(`visitor-exit-${ENTRY}`)).not.toBeInTheDocument();
+      // The pending visit is now the closed one: two completed, none pending.
+      expect(screen.getAllByTestId('visitor-status-COMPLETED')).toHaveLength(2);
+      expect(screen.queryByTestId('visitor-status-PENDING')).not.toBeInTheDocument();
+    });
+
+    it('7b. refetches the list when a filter is active, so the closed visit leaves the view', async () => {
+      await renderPage();
+      await pickStatusOption('Pending (still on site)');
+      await waitFor(() =>
+        expect(apiMock.get).toHaveBeenCalledWith(
+          '/visitor/entries',
+          expect.objectContaining({ status: 'PENDING' }),
+        ),
+      );
+      const before = listCalls().length;
+
+      await openExitDialog();
+      fireEvent.click(screen.getByTestId('visitor-exit-confirm'));
+
+      await waitFor(() => expect(apiMock.patch).toHaveBeenCalledTimes(1), { timeout: 15000 });
+      // The pending query is re-issued — the visitor must not linger in a
+      // "still on site" view.
+      await waitFor(() => expect(listCalls().length).toBeGreaterThan(before));
+      const last = listCalls()[listCalls().length - 1][1];
+      expect(last).toEqual(expect.objectContaining({ status: 'PENDING' }));
+    });
+
+    // ── 8 ─────────────────────────────────────────────────────────────────
+    it('8. filters by Pending on the server and shows only the pending visit', async () => {
+      await renderPage();
+      // Unfiltered, the table holds both rows.
+      expect(await screen.findByText('Muhammad Test', {}, { timeout: 15000 })).toBeInTheDocument();
+
+      await pickStatusOption('Pending (still on site)');
+
+      await waitFor(() =>
+        expect(apiMock.get).toHaveBeenCalledWith(
+          '/visitor/entries',
+          expect.objectContaining({ status: 'PENDING' }),
+        ),
+      );
+      // §12 — the server answer is what is rendered, so the completed row from
+      // the unfiltered load is gone.
+      await waitFor(() => expect(screen.getAllByTestId('visitor-status-PENDING')).toHaveLength(1));
+      expect(screen.queryByTestId('visitor-status-COMPLETED')).not.toBeInTheDocument();
+    });
+
+    // ── 9 ─────────────────────────────────────────────────────────────────
+    it('9. filters by Completed on the server and shows only the closed visit', async () => {
+      await renderPage();
+      await screen.findByText('Muhammad Test', {}, { timeout: 15000 });
+
+      await pickStatusOption('Completed');
+
+      await waitFor(() =>
+        expect(apiMock.get).toHaveBeenCalledWith(
+          '/visitor/entries',
+          expect.objectContaining({ status: 'COMPLETED' }),
+        ),
+      );
+      // §12 — the server answer replaces the previous two-row list, so the
+      // pending visit disappears from a Completed view.
+      await waitFor(() => expect(screen.queryByTestId('visitor-status-PENDING')).not.toBeInTheDocument());
+    });
+
+    it('9b. limits the list to the current day using the server-side flag', async () => {
+      await renderPage();
+      await screen.findByText('Muhammad Test', {}, { timeout: 15000 });
+
+      fireEvent.click(screen.getByTestId('visitor-today-only'));
+
+      await waitFor(() =>
+        expect(apiMock.get).toHaveBeenCalledWith('/visitor/entries', expect.objectContaining({ today: true })),
+      );
+      // §19 — the browser never sends a day boundary of its own.
+      const params = listCalls()[listCalls().length - 1][1];
+      expect(params.from).toBeUndefined();
+      expect(params.to).toBeUndefined();
+    });
+
+    // ── 10 ────────────────────────────────────────────────────────────────
+    it('10a. hides the Time Out action from a user without visitor.entry.update', async () => {
+      seedUser(['visitor.entry.view', 'visitor.entry.create']);
+
+      await renderPage();
+      expect(await screen.findByText('Muhammad Test', {}, { timeout: 15000 })).toBeInTheDocument();
+      // §23 — UX only; the backend is the real gate.
+      expect(screen.queryByTestId(`visitor-exit-${ENTRY}`)).not.toBeInTheDocument();
+      expect(screen.getByTestId(`visitor-view-${ENTRY}`)).toBeInTheDocument();
+      expect(screen.getByTestId('new-visitor-button')).toBeInTheDocument();
+    });
+
+    it('10b. reports a 403 from the exit endpoint without claiming success', async () => {
+      apiMock.patch.mockRejectedValue({
+        response: { status: 403, data: { message: 'You do not have access to this visitor record.' } },
+      });
+
+      await renderPage();
+      await openExitDialog();
+      fireEvent.click(screen.getByTestId('visitor-exit-confirm'));
+
+      expect(
+        await screen.findByText('You do not have permission to perform this action.', {}, { timeout: 15000 }),
+      ).toBeInTheDocument();
+      // The visit is still open and the action is still offered.
+      expect(screen.getByTestId('visitor-status-PENDING')).toBeInTheDocument();
+      expect(screen.getByTestId(`visitor-exit-${ENTRY}`)).toBeInTheDocument();
+      // No success was claimed.
+      expect(screen.queryByText(/Visitor exit recorded/)).not.toBeInTheDocument();
+    });
+
+    it('10c. reports an already-completed visitor (double click / second officer) and reloads', async () => {
+      apiMock.patch.mockRejectedValue({
+        response: { status: 409, data: { message: 'Visitor has already checked out.' } },
+      });
+
+      await renderPage();
+      await openExitDialog();
+      fireEvent.click(screen.getByTestId('visitor-exit-confirm'));
+
+      expect(
+        await screen.findByText('Visitor has already checked out.', {}, { timeout: 15000 }),
+      ).toBeInTheDocument();
+      // The truth is re-read instead of guessed (§15).
+      await waitFor(() =>
+        expect(
+          apiMock.get.mock.calls.filter(([u]: any[]) => String(u) === '/visitor/entries').length,
+        ).toBeGreaterThan(1),
+      );
+    });
+
+    // ── 16 — detail view ───────────────────────────────────────────────────
+    it('16a. the detail view spells out a pending Time-Out and shows the record fields', async () => {
+      await renderPage();
+
+      fireEvent.click(await screen.findByTestId(`visitor-view-${ENTRY}`, {}, { timeout: 15000 }));
+      const detail = await screen.findByTestId('visitor-detail', {}, { timeout: 15000 });
+
+      // §16 — a pending visit reads "Pending", never a blank.
+      expect(within(detail).getByTestId('detail-time-out-pending')).toHaveTextContent('Pending');
+      expect(within(detail).getByText('PENDING')).toBeInTheDocument();
+      // No exit actor exists before the Time-Out is recorded.
+      expect(within(detail).queryByTestId('detail-exited-by')).not.toBeInTheDocument();
+      for (const label of ['Visitor', 'CNIC', 'Mobile', 'Host', 'Division', 'Location', 'Time-In', 'Time-Out', 'Status', 'Created At', 'Created By']) {
+        expect(within(detail).getByText(label)).toBeInTheDocument();
+      }
+      // The full record is on screen, unmasked CNIC included.
+      expect(within(detail).getByText('12345-1234567-1')).toBeInTheDocument();
+    });
+
+    it('16b. a completed detail shows the real Time-Out and who recorded it', async () => {
+      apiMock.get.mockImplementation((url: any) => {
+        const u = String(url);
+        if (u === '/visitor/entries') return Promise.resolve({ data: [EXITED], total: 1 });
+        if (u.startsWith('/visitor/entries/')) return Promise.resolve({ data: EXITED });
+        if (u === '/divisions') return Promise.resolve({ data: ALL_DIVISIONS });
+        return Promise.resolve({ data: [] });
+      });
+
+      await renderPage();
+      fireEvent.click(await screen.findByTestId(`visitor-view-${EXITED_ID}`, {}, { timeout: 15000 }));
+      const detail = await screen.findByTestId('visitor-detail', {}, { timeout: 15000 });
+
+      await waitFor(() => expect(within(detail).getByTestId('detail-time-out')).toBeInTheDocument());
+      expect(within(detail).getByTestId('detail-time-out')).toHaveTextContent(/21-[A-Za-z]{3}-2026/);
+      expect(within(detail).getByText('COMPLETED')).toBeInTheDocument();
+      expect(within(detail).queryByTestId('detail-time-out-pending')).not.toBeInTheDocument();
+      // §17 — the exit actor is preserved next to the record.
+      expect(within(detail).getByTestId('detail-exited-by')).toHaveTextContent(
+        'u1000000-0000-0000-0000-000000000001',
+      );
+      // §20 — a closed visit offers no Time Out action anywhere, detail included.
+      expect(screen.queryByTestId('visitor-detail-exit')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(`visitor-exit-${EXITED_ID}`)).not.toBeInTheDocument();
+    });
   });
 });

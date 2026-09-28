@@ -1,9 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   App, Button, Card, Col, Descriptions, Empty, Form, Input, Modal, Row, Select,
-  Space, Spin, Table, Tag, Typography,
+  Space, Spin, Switch, Table, Tag, Typography,
 } from 'antd';
-import { EyeOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
+import {
+  ClockCircleOutlined,
+  EyeOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
@@ -50,6 +57,10 @@ interface VisitorRow {
   timeIn: string;
   timeOut: string | null;
   status: string;
+  /** Server-derived: still on site (status PENDING and no Time-Out yet). */
+  onSite?: boolean;
+  /** Who recorded the Time-Out (Prompt #18) — null until the visit is closed. */
+  exitedBy?: string | null;
   hasPhoto: boolean;
   photoUrl?: string | null;
   createdAt: string;
@@ -86,10 +97,21 @@ const formatDateTime = (value?: string | null): string => {
   return parsed.isValid() ? parsed.format('DD-MMM-YYYY HH:mm') : '—';
 };
 
+/**
+ * A visitor is on site while the status is PENDING *and* no Time-Out exists —
+ * the same rule the API applies when it filters (§10/§20). `onSite` from the
+ * server wins; the fallback keeps the table honest for a row shaped without it.
+ */
+const isOnSite = (row: VisitorRow): boolean =>
+  typeof row.onSite === 'boolean' ? row.onSite : row.status === 'PENDING' && !row.timeOut;
+
 export function VisitorManagement() {
   const { message } = App.useApp();
   const { can, allowedDivisionIds, divisionsUnrestricted } = usePermission();
   const canCreate = can('visitor.entry.create');
+  // Prompt #18 §21 — same permission family as the rest of the Visitor module.
+  // UX only: the backend rejects the request regardless.
+  const canExit = can('visitor.entry.update');
 
   // ── List state ─────────────────────────────────────────────────────────
   const [rows, setRows] = useState<VisitorRow[]>([]);
@@ -99,6 +121,8 @@ export function VisitorManagement() {
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  // §19 — the day window is computed by the SERVER, never in the browser.
+  const [todayOnly, setTodayOnly] = useState(false);
 
   // ── Division master (client-side intersection with the caller scope) ───
   const [divisionRows, setDivisionRows] = useState<DivisionRow[] | null>(null);
@@ -119,6 +143,10 @@ export function VisitorManagement() {
   const [detail, setDetail] = useState<VisitorRow | null>(null);
   const [detailPhoto, setDetailPhoto] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // ── Exit confirmation (Prompt #18 §14) ─────────────────────────────────
+  const [exitTarget, setExitTarget] = useState<VisitorRow | null>(null);
+  const [exiting, setExiting] = useState(false);
 
   const divisionId = Form.useWatch('divisionId', form);
   const hostSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,6 +181,7 @@ export function VisitorManagement() {
       const params: Record<string, unknown> = { page, limit: pageSize };
       if (search.trim()) params.search = search.trim();
       if (statusFilter) params.status = statusFilter;
+      if (todayOnly) params.today = true;
       const res = await apiService.get<{ data?: VisitorRow[]; total?: number }>(
         '/visitor/entries',
         params,
@@ -170,7 +199,7 @@ export function VisitorManagement() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, statusFilter, message]);
+  }, [page, pageSize, search, statusFilter, todayOnly, message]);
 
   useEffect(() => {
     void load();
@@ -359,6 +388,71 @@ export function VisitorManagement() {
     [detailPhoto],
   );
 
+  // ── Exit / Time-Out (Prompt #18 §14) ───────────────────────────────────
+  /**
+   * The confirmation dialog never mutates anything by itself: a queued row only
+   * becomes the target once the user confirms (§14).
+   */
+  const askExit = useCallback((row: VisitorRow) => {
+    if (!canExit) {
+      message.error('You do not have permission to record a visitor exit.');
+      return;
+    }
+    if (!isOnSite(row)) return; // already checked out — the action is hidden
+    setExitTarget(row);
+  }, [canExit, message]);
+
+  const closeExit = useCallback(() => {
+    if (exiting) return; // never leave the dialog while the request is in flight
+    setExitTarget(null);
+  }, [exiting]);
+
+  /**
+   * Confirm → PATCH .../exit. No Time-Out is ever sent: the server generates it
+   * (§4). The list row is replaced with the server's own response, so the table
+   * can never show a Time-Out the backend did not record.
+   */
+  const confirmExit = useCallback(async () => {
+    if (!exitTarget) return;
+    setExiting(true);
+    try {
+      const res = await apiService.patch<{ data?: VisitorRow }>(
+        `/visitor/entries/${exitTarget.id}/exit`,
+      );
+      const updated = res?.data ?? null;
+      setExitTarget(null);
+      message.success(
+        updated?.timeOut
+          ? `Visitor exit recorded at ${formatDateTime(updated.timeOut)}`
+          : 'Visitor exit recorded',
+      );
+      if (updated) {
+        setRows((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
+        setDetail((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+      }
+      // A status/day filter decides whether the closed visit still belongs in
+      // the current view, so refetch whenever one is active.
+      if (statusFilter || todayOnly) void load();
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 409) {
+        // Lost the race or the visit was closed by someone else — re-read the
+        // truth rather than guessing what happened (§15).
+        message.error(formatApiError(err, 'Visitor has already checked out'));
+        setExitTarget(null);
+        void load();
+        if (detail?.id === exitTarget.id) void openDetail(exitTarget);
+      } else if (status === 403) {
+        message.error(formatApiError(err, 'You do not have permission to record this visitor exit'));
+        setExitTarget(null);
+      } else {
+        message.error(formatApiError(err, 'Could not record the visitor exit'));
+      }
+    } finally {
+      setExiting(false);
+    }
+  }, [exitTarget, detail, statusFilter, todayOnly, load, openDetail, message]);
+
   // ── Columns ────────────────────────────────────────────────────────────
   const columns: ColumnsType<VisitorRow> = useMemo(
     () => [
@@ -416,9 +510,18 @@ export function VisitorManagement() {
         title: 'Time-Out',
         dataIndex: 'timeOut',
         key: 'timeOut',
-        width: 110,
-        // Prompt #18 owns exit — always empty in this phase.
-        render: (v: string | null) => v || '—',
+        width: 150,
+        // §11/§20 — the pending state is spelled out, not only coloured.
+        render: (v: string | null, row) =>
+          v ? (
+            <span data-testid={`visitor-timeout-${row.id}`}>{formatDateTime(v)}</span>
+          ) : isOnSite(row) ? (
+            <Tag color="orange" data-testid={`visitor-timeout-pending-${row.id}`}>
+              Pending
+            </Tag>
+          ) : (
+            <span data-testid={`visitor-timeout-${row.id}`}>—</span>
+          ),
       },
       {
         title: 'Status',
@@ -434,26 +537,38 @@ export function VisitorManagement() {
       {
         title: 'Actions',
         key: 'actions',
-        width: 90,
+        width: canExit ? 190 : 90,
         render: (_, row) => (
-          <Button
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => void openDetail(row)}
-            data-testid={`visitor-view-${row.id}`}
-          >
-            View
-          </Button>
+          <Space size={4}>
+            {canExit && isOnSite(row) && (
+              <Button
+                size="small"
+                icon={<ClockCircleOutlined />}
+                onClick={() => askExit(row)}
+                data-testid={`visitor-exit-${row.id}`}
+              >
+                Time Out
+              </Button>
+            )}
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => void openDetail(row)}
+              data-testid={`visitor-view-${row.id}`}
+            >
+              View
+            </Button>
+          </Space>
         ),
       },
     ],
-    [openDetail],
+    [canExit, askExit, openDetail],
   );
 
   const statusOptions = [
-    { value: 'PENDING', label: 'Pending' },
-    { value: 'INSIDE', label: 'Inside' },
+    { value: 'PENDING', label: 'Pending (still on site)' },
     { value: 'COMPLETED', label: 'Completed' },
+    { value: 'INSIDE', label: 'Inside' },
     { value: 'CANCELLED', label: 'Cancelled' },
   ];
 
@@ -477,7 +592,8 @@ export function VisitorManagement() {
           }}
         >
           <Typography.Text type="secondary">
-            Time-In is generated by the server when the visitor is registered.
+            Time-In is generated by the server when the visitor is registered. Time-Out is generated by the server on
+            exit.
           </Typography.Text>
           <Space>
             <Button icon={<ReloadOutlined />} onClick={() => void load()} data-testid="visitor-refresh">
@@ -509,7 +625,7 @@ export function VisitorManagement() {
               <Select
                 allowClear
                 style={{ width: '100%' }}
-                placeholder="Status"
+                placeholder="All visitors"
                 options={statusOptions}
                 value={statusFilter}
                 onChange={(value) => {
@@ -518,6 +634,23 @@ export function VisitorManagement() {
                 }}
               />
             </div>
+          </Col>
+          <Col xs={24} sm={12} md={10}>
+            <Space wrap>
+              <Switch
+                checked={todayOnly}
+                onChange={(checked) => {
+                  setTodayOnly(checked);
+                  setPage(1);
+                }}
+                data-testid="visitor-today-only"
+              />
+              <Typography.Text>Today only</Typography.Text>
+              <Tag data-testid="visitor-filter-summary">
+                {statusFilter ?? 'ALL'}
+                {todayOnly ? ' · TODAY' : ''}
+              </Tag>
+            </Space>
           </Col>
         </Row>
 
@@ -725,7 +858,24 @@ export function VisitorManagement() {
         title="Visitor Detail"
         open={!!detail}
         onCancel={() => setDetail(null)}
-        footer={null}
+        footer={
+          detail && canExit && isOnSite(detail) ? (
+            <Space>
+              <Button onClick={() => setDetail(null)} data-testid="visitor-detail-close">
+                Close
+              </Button>
+              <Button
+                danger
+                type="primary"
+                icon={<ClockCircleOutlined />}
+                onClick={() => askExit(detail)}
+                data-testid="visitor-detail-exit"
+              >
+                Time Out
+              </Button>
+            </Space>
+          ) : null
+        }
         width={720}
         data-testid="visitor-detail-modal"
       >
@@ -779,17 +929,88 @@ export function VisitorManagement() {
                       : detail.locationId}
                   </Descriptions.Item>
                   <Descriptions.Item label="Time-In">{formatDateTime(detail.timeIn)}</Descriptions.Item>
-                  <Descriptions.Item label="Time-Out">{detail.timeOut ? formatDateTime(detail.timeOut) : '—'}</Descriptions.Item>
+                  <Descriptions.Item label="Time-Out">
+                    {detail.timeOut ? (
+                      <span data-testid="detail-time-out">{formatDateTime(detail.timeOut)}</span>
+                    ) : isOnSite(detail) ? (
+                      <Tag color="orange" data-testid="detail-time-out-pending">
+                        Pending
+                      </Tag>
+                    ) : (
+                      '—'
+                    )}
+                  </Descriptions.Item>
                   <Descriptions.Item label="Status">
                     <Tag color={STATUS_TAG_COLOR[detail.status] ?? 'default'}>{detail.status}</Tag>
                   </Descriptions.Item>
                   <Descriptions.Item label="Created At">{formatDateTime(detail.createdAt)}</Descriptions.Item>
                   <Descriptions.Item label="Created By">{detail.createdBy || '—'}</Descriptions.Item>
+                  {/* §17 — who recorded the Time-Out, once the visit is closed. */}
+                  {detail.timeOut && (
+                    <Descriptions.Item label="Exit Recorded By">
+                      <span data-testid="detail-exited-by">{detail.exitedBy || '—'}</span>
+                    </Descriptions.Item>
+                  )}
                 </Descriptions>
               </Col>
             </Row>
           </div>
         ) : null}
+      </Modal>
+
+      {/* ── Confirm exit (Prompt #18 §14) ───────────────────────────────── */}
+      <Modal
+        title="Confirm Visitor Exit"
+        open={!!exitTarget}
+        onCancel={closeExit}
+        maskClosable={!exiting}
+        closable={!exiting}
+        width={520}
+        data-testid="visitor-exit-modal"
+        footer={
+          <Space>
+            <Button onClick={closeExit} disabled={exiting} data-testid="visitor-exit-cancel">
+              Cancel
+            </Button>
+            <Button
+              danger
+              type="primary"
+              loading={exiting}
+              onClick={() => void confirmExit()}
+              data-testid="visitor-exit-confirm"
+            >
+              Confirm Time-Out
+            </Button>
+          </Space>
+        }
+      >
+        {exitTarget && (
+          <div data-testid="visitor-exit-body">
+            <Descriptions bordered size="small" column={1}>
+              <Descriptions.Item label="Visitor">{exitTarget.visitorName}</Descriptions.Item>
+              <Descriptions.Item label="Host">{exitTarget.hostNameSnapshot || '—'}</Descriptions.Item>
+              <Descriptions.Item label="Division">
+                {exitTarget.division
+                  ? `${exitTarget.division.divisionCode} · ${exitTarget.division.name}`
+                  : exitTarget.divisionId}
+              </Descriptions.Item>
+              <Descriptions.Item label="Location">
+                {exitTarget.location
+                  ? `${exitTarget.location.locationCode} · ${exitTarget.location.name}`
+                  : exitTarget.locationId}
+              </Descriptions.Item>
+              <Descriptions.Item label="Time-In">
+                <span data-testid="visitor-exit-time-in">{formatDateTime(exitTarget.timeIn)}</span>
+              </Descriptions.Item>
+            </Descriptions>
+            <Typography.Paragraph style={{ marginTop: 12, marginBottom: 0 }}>
+              Are you sure this visitor has exited the premises?
+            </Typography.Paragraph>
+            <Typography.Text type="secondary">
+              The Time-Out is recorded by the system at the moment you confirm.
+            </Typography.Text>
+          </div>
+        )}
       </Modal>
     </div>
   );

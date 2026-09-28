@@ -8,20 +8,22 @@ import { Location } from './location.entity';
 export enum VisitorEntryStatus {
   /** Registered at the gate, Time-In recorded, not yet departed. */
   PENDING = 'PENDING',
-  /** Reserved for Prompt #18 (visitor still on site). */
+  /** Visitor confirmed on site. No writer in Prompt #18 — reserved for later phases. */
   INSIDE = 'INSIDE',
-  /** Reserved for Prompt #18 (Time-Out recorded). */
+  /** Time-Out recorded — the visit is closed and kept as history (§18). */
   COMPLETED = 'COMPLETED',
-  /** Registered then cancelled at the gate. */
+  /** Registered then cancelled at the gate — never check-out eligible. */
   CANCELLED = 'CANCELLED',
 }
 
 /**
- * Visitor register — `visitor_entries` (migration ERP-00069).
+ * Visitor register — `visitor_entries` (migration ERP-00069, ERP-00070).
  *
- * Prompt #17 scope: create + list + detail only.
+ * One row = one visit (§18). There is no separate history table.
  *   - `timeIn`  is written SERVER-SIDE only (never accepted from the client).
- *   - `timeOut` stays NULL until Prompt #18 (the table + CHECK already allow it).
+ *   - `timeOut` is written SERVER-SIDE only, exactly once, by the Prompt #18
+ *     exit endpoint; `exitedBy` records who did it.
+ *   - `status` moves PENDING → COMPLETED on exit and is never reset afterwards.
  *   - `hostEmployeeId` points at the existing employee master, and
  *     `hostNameSnapshot` keeps the record readable after that employee is
  *     renamed or archived.
@@ -85,9 +87,22 @@ export class VisitorEntry extends BaseEntity {
   @Column({ name: 'time_in', type: 'timestamp with time zone' })
   timeIn: Date;
 
-  /** Reserved for Prompt #18 — must stay NULL in this phase. */
+  /**
+   * Server-generated Time-Out (Prompt #18). NULL while the visitor is still on
+   * site; written once by `VisitorEntryService.checkOut` and never overwritten.
+   */
   @Column({ name: 'time_out', type: 'timestamp with time zone', nullable: true })
   timeOut: Date | null;
+
+  /**
+   * Who recorded the Time-Out (migration ERP-00070, §17).
+   *
+   * `updated_by`/`updated_at` alone are not enough: a later photo upload bumps
+   * them, which would erase the record of who checked the visitor out. Same
+   * shape as `created_by` (plain uuid, no FK).
+   */
+  @Column({ name: 'exited_by', type: 'uuid', nullable: true })
+  exitedBy: string | null;
 
   @Column({ type: 'varchar', length: 20, default: VisitorEntryStatus.PENDING })
   status: VisitorEntryStatus;
