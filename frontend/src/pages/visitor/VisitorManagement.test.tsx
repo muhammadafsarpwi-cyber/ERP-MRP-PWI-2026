@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { App as AntApp } from 'antd';
 import dayjs from 'dayjs';
 import VisitorManagement from './VisitorManagement';
+import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import apiService from '../../services/api';
 
 jest.mock('../../services/api');
@@ -147,6 +148,8 @@ const LIST_ROW = {
   hasPhoto: false,
   createdAt: '2026-09-28T10:30:00.000Z',
   createdBy: 'u1000000-0000-0000-0000-000000000001',
+  // #19B §6 — the resolved ERP user name the detail screen renders.
+  createdByName: 'Gate Officer',
 };
 
 /** Detail row — full CNIC (§14) plus the authenticated photo endpoint. */
@@ -186,8 +189,10 @@ const SLIP_PENDING = {
     confirmed: false,
     confirmedAt: null,
     confirmedBy: null,
+    confirmedByName: null,
     signatureCapturedAt: null,
     signatureCapturedBy: null,
+    signatureCapturedByName: null,
     hostIdentityVerified: false,
   },
   hasPhoto: true,
@@ -195,6 +200,7 @@ const SLIP_PENDING = {
   hasSignature: false,
   signatureUrl: null,
   createdBy: 'u1000000-0000-0000-0000-000000000001',
+  createdByName: 'Muhammad Afsar',
   createdAt: '2026-09-28 10:30',
 };
 
@@ -207,8 +213,10 @@ const SLIP_CONFIRMED = {
     confirmed: true,
     confirmedAt: '2026-09-28 11:05',
     confirmedBy: 'u1000000-0000-0000-0000-000000000001',
+    confirmedByName: 'Ahmed Raza',
     signatureCapturedAt: '2026-09-28 11:05',
     signatureCapturedBy: 'u1000000-0000-0000-0000-000000000001',
+    signatureCapturedByName: 'Ahmed Raza',
     hostIdentityVerified: false,
   },
   hasSignature: true,
@@ -221,6 +229,7 @@ const HOST_CONFIRMED_ROW = {
   hostConfirmed: true,
   hostConfirmedAt: '2026-09-28T11:05:00.000Z',
   hostConfirmedBy: 'u1000000-0000-0000-0000-000000000001',
+  hostConfirmedByName: 'Ahmed Raza',
   hasSignature: true,
   signatureUrl: `/visitor/entries/${ENTRY}/signature`,
   // §28 — the confirmation changed NONE of these.
@@ -289,6 +298,39 @@ function mockApi({ listReject }: { listReject?: any } = {}) {
   apiMock.getFile.mockResolvedValue(new Blob(['photo'], { type: 'image/jpeg' }));
 }
 
+/**
+ * Draw the page's header-registered actions on screen.
+ *
+ * Prompt #19C — the Visitor page's Refresh and New Visitor controls are passed
+ * to `PageHeader` as its `extra`. `PageHeader`
+ * (components/shared/PageHeader.tsx) deliberately renders no banner of its own:
+ * it registers the page title and that `extra` node into the shared
+ * application header store and returns `null`, and the app's Main Header draws
+ * them for the user. So in a standalone page render those two buttons exist
+ * only in the store, and a `getByTestId` over the page body cannot see them.
+ *
+ * This helper mounts the registered `extra` exactly where the Main Header
+ * mounts it, which keeps every assertion below honest rather than softer:
+ *   • it still finds the REAL button, with its REAL `data-testid`, and clicking
+ *     it still opens the REAL New Visitor dialog;
+ *   • the permission test still has teeth — for a user without
+ *     `visitor.entry.create` the button is genuinely never registered, so
+ *     `queryByTestId` still finds nothing;
+ *   • `Print Register` lives in the same node and is reachable the same way.
+ *
+ * The same approach is already used elsewhere in this codebase — see
+ * `MachineManagement.task21.test.tsx`, `ItemManagement.task25.test.tsx` and
+ * `ItemManagement.persistence.test.tsx`.
+ */
+function renderHeaderActions() {
+  const { extra, tabMetaMap } = useHeaderActions.getState();
+  // `extra` is the live value for the active tab; the map is the fallback for
+  // when the active-tab lookup does not match this router's location.
+  const node = extra ?? Object.values(tabMetaMap).map((m) => m.extra).find(Boolean);
+  expect(node).toBeTruthy();
+  render(<AntApp>{node}</AntApp>);
+}
+
 async function renderPage() {
   const view = render(
     <AntApp>
@@ -298,6 +340,9 @@ async function renderPage() {
     </AntApp>,
   );
   await screen.findByTestId('visitor-page', {}, { timeout: 15000 });
+  // PageHeader registers its `extra` in an effect, so it is populated by the
+  // time the page itself is on screen.
+  renderHeaderActions();
   return view;
 }
 
@@ -309,6 +354,14 @@ const form = () => screen.getByTestId('visitor-form');
  * — otherwise the test only passes on a UTC machine.
  */
 const asDisplayed = (iso: string) => dayjs(iso).format('DD-MMM-YYYY HH:mm');
+
+/**
+ * The PRINTED SLIP uses a different, deliberate format from the ERP screen:
+ * a visitor pass is a paper document read at a gate, so it prints the 12-hour
+ * clock with an AM/PM designator (#19A §1) while the screen keeps the ERP's
+ * 24-hour `formatDateTime`. Two helpers, so a test states which surface it means.
+ */
+const asSlipDisplayed = (iso: string) => dayjs(iso).format('DD-MMM-YYYY hh:mm A');
 
 /**
  * Resolve a Form.Item by its label text — tolerant of the required asterisk
@@ -407,6 +460,19 @@ describe('VisitorManagement', () => {
     apiMock.patch.mockReset();
     apiMock.upload.mockReset();
     apiMock.getFile.mockReset();
+    // The header store is global and outlives an unmount, so clear it between
+    // cases. Without this, one test's Refresh/New Visitor controls would still
+    // be registered when the next test looks — which would make the
+    // "user without the permission" case pass or fail for the wrong reason.
+    useHeaderActions.setState({
+      actions: [],
+      tabActionsMap: {},
+      tabMetaMap: {},
+      extra: undefined,
+      title: undefined,
+      subtitle: undefined,
+      icon: undefined,
+    });
     mockApi();
   });
 
@@ -425,8 +491,13 @@ describe('VisitorManagement', () => {
     expect(screen.queryByText('12345-1234567-1')).not.toBeInTheDocument();
     expect(screen.getByTestId('visitor-status-PENDING')).toHaveTextContent('PENDING');
     expect(screen.getByText('Muhammad Zeeshan')).toBeInTheDocument();
-    expect(screen.getByText('DIV-CCD · Control Cable Division')).toBeInTheDocument();
-    expect(screen.getByText('GATE-01 · Main Gate')).toBeInTheDocument();
+    // The list lays the division and the location out as a code chip over a
+    // name, so both halves are asserted rather than one joined string — the
+    // point is that the code AND the name are legible, not how they are stacked.
+    expect(screen.getByText('DIV-CCD')).toBeInTheDocument();
+    expect(screen.getByText('Control Cable Division')).toBeInTheDocument();
+    expect(screen.getByText('GATE-01')).toBeInTheDocument();
+    expect(screen.getByText('Main Gate')).toBeInTheDocument();
     // Time-Out stays empty until Prompt #18.
     expect(screen.queryByText('2026-09-28T10:30:00.000Z')).not.toBeInTheDocument();
   });
@@ -703,6 +774,7 @@ describe('VisitorManagement', () => {
       status: 'COMPLETED',
       onSite: false,
       exitedBy: 'u1000000-0000-0000-0000-000000000001',
+      exitedByName: 'Gate Officer',
     };
     const EXITED_ID = EXITED.id;
     const PENDING_ROW = { ...LIST_ROW, onSite: true };
@@ -718,6 +790,7 @@ describe('VisitorManagement', () => {
       status: 'COMPLETED',
       onSite: false,
       exitedBy: 'u1000000-0000-0000-0000-000000000001',
+      exitedByName: 'Gate Officer',
     };
 
     /**
@@ -1040,9 +1113,7 @@ describe('VisitorManagement', () => {
       expect(within(detail).getByText('COMPLETED')).toBeInTheDocument();
       expect(within(detail).queryByTestId('detail-time-out-pending')).not.toBeInTheDocument();
       // §17 — the exit actor is preserved next to the record.
-      expect(within(detail).getByTestId('detail-exited-by')).toHaveTextContent(
-        'u1000000-0000-0000-0000-000000000001',
-      );
+      expect(within(detail).getByTestId('detail-exited-by')).toHaveTextContent('Gate Officer');
       // §20 — a closed visit offers no Time Out action anywhere, detail included.
       expect(screen.queryByTestId('visitor-detail-exit')).not.toBeInTheDocument();
       expect(screen.queryByTestId(`visitor-exit-${EXITED_ID}`)).not.toBeInTheDocument();
@@ -1103,7 +1174,9 @@ describe('VisitorManagement', () => {
       hostConfirmed: true,
       hostConfirmedAt: '2026-09-28T11:05:00.000Z',
       hostConfirmedBy: 'u1000000-0000-0000-0000-000000000001',
+      hostConfirmedByName: 'Ahmed Raza',
       exitedBy: 'u1000000-0000-0000-0000-000000000001',
+      exitedByName: 'Gate Officer',
     };
 
     async function openSlipPreview(rowId: string = ENTRY) {
@@ -1159,8 +1232,8 @@ describe('VisitorManagement', () => {
         'Cutting & Packing',
         'Control Cable Division',
         'Main Gate',
-        asDisplayed(SLIP_PENDING.timeIn), // Time-In, as the slip prints it
-        'PAKISTAN WIRE INDUSTRIES (PVT) LTD.',
+        asSlipDisplayed(SLIP_PENDING.timeIn), // Time-In, as the SLIP prints it
+        'Pakistan Wire Industries (Pvt.) LTD.',
       ]) {
         expect(within(slip).getByText(text)).toBeInTheDocument();
       }
@@ -1171,6 +1244,55 @@ describe('VisitorManagement', () => {
       expect(within(slip).getAllByText('PENDING').length).toBeGreaterThanOrEqual(2);
       // The raw record id is never the human identifier on the document.
       expect(slip.textContent).not.toContain(ENTRY);
+    });
+
+    // ── Prompt #19A ─────────────────────────────────────────────────────────
+    it('3B. previews the slip with a 12-hour clock, a person, and the production letterhead', async () => {
+      apiMock.get.mockImplementation((url: any, params?: any) => {
+        if (String(url).endsWith('/slip')) return Promise.resolve({ data: SLIP_CONFIRMED });
+        return listRows([{ ...COMPLETED_ROW }])(url, params);
+      });
+
+      await renderPage();
+      const slip = await openSlipPreview();
+
+      // §1 — AM/PM on the paper, even though the ERP screen itself is 24-hour.
+      expect(within(slip).getByText(asSlipDisplayed(SLIP_CONFIRMED.timeIn))).toBeInTheDocument();
+      expect(within(slip).getByText(asSlipDisplayed(SLIP_CONFIRMED.timeOut))).toBeInTheDocument();
+      expect(slip.textContent).toMatch(/\d{2}:\d{2}\s(AM|PM)/);
+
+      // §2 — the acting users are named, and no id of any kind is printed.
+      // The label and the value are separate flex children, so they are two
+      // elements to find rather than one string to match.
+      expect(within(slip).getByText('Confirmed By:')).toBeInTheDocument();
+      expect(within(slip).getByText(/Ahmed Raza/)).toBeInTheDocument();
+      expect(within(slip).getByText(/^Created By: Muhammad Afsar$/)).toBeInTheDocument();
+      expect(slip.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+      // §17 is not weakened by naming the user.
+      expect(within(slip).getByText(/host identity not verified/)).toBeInTheDocument();
+
+      // §3/§4 — the production letterhead, and the development fixture gone.
+      expect(within(slip).getByText(/Pakistan Wire Industries \(Pvt\.\) LTD\./)).toBeInTheDocument();
+      expect(within(slip).getByText(/Karachi, Pakistan/)).toBeInTheDocument();
+      expect(slip.textContent).not.toMatch(/Lahore/i);
+    });
+
+    it('3C. falls back to a human name when the API resolved no user', async () => {
+      apiMock.get.mockImplementation((url: any, params?: any) => {
+        if (String(url).endsWith('/slip')) {
+          return Promise.resolve({
+            data: { ...SLIP_PENDING, createdByName: null, createdBy: 'u1000000-0000-0000-0000-000000000001' },
+          });
+        }
+        return listRows([{ ...LIST_ROW }])(url, params);
+      });
+
+      await renderPage();
+      const slip = await openSlipPreview();
+
+      expect(within(slip).getByText(/^Created By: System User$/)).toBeInTheDocument();
+      // The id the API sent alongside it is still not on the page.
+      expect(slip.textContent).not.toContain('u1000000-0000-0000-0000-000000000001');
     });
 
     it('4. builds the slip from the authorised slip endpoint, never the list row', async () => {
@@ -1373,9 +1495,7 @@ describe('VisitorManagement', () => {
       expect(screen.getByTestId('visitor-status-PENDING')).toHaveTextContent('PENDING');
       expect(screen.getByTestId(`visitor-timeout-pending-${ENTRY}`)).toHaveTextContent('Pending');
       expect(within(detail).getByTestId('detail-host-confirmed')).toBeInTheDocument();
-      expect(within(detail).getByTestId('detail-host-confirmed-by')).toHaveTextContent(
-        'u1000000-0000-0000-0000-000000000001',
-      );
+      expect(within(detail).getByTestId('detail-host-confirmed-by')).toHaveTextContent('Ahmed Raza');
       expect(within(detail).getByTestId('detail-host-confirmed-at')).toHaveTextContent(
         asDisplayed(HOST_CONFIRMED_ROW.hostConfirmedAt),
       );
@@ -1398,7 +1518,7 @@ describe('VisitorManagement', () => {
       // §29 — a closed visit is still printable from the list…
       const slip = await openSlipPreview();
       expect(within(slip).getAllByText('COMPLETED').length).toBeGreaterThanOrEqual(1);
-      expect(within(slip).getByText(asDisplayed(SLIP_CONFIRMED.timeOut))).toBeInTheDocument();
+      expect(within(slip).getByText(asSlipDisplayed(SLIP_CONFIRMED.timeOut))).toBeInTheDocument();
       expect(within(slip).getByText('CONFIRMED')).toBeInTheDocument();
       // No blank/placeholder state: the Time-Out is the real one, not "Pending".
       expect(within(slip).queryByText('Pending')).not.toBeInTheDocument();
@@ -1455,6 +1575,219 @@ describe('VisitorManagement', () => {
       await waitFor(() =>
         expect(apiMock.get).toHaveBeenCalledWith('/visitor/entries', expect.anything()),
       );
+    });
+  });
+
+  // ==========================================================================
+  // PROMPT #19B — UUID CLEANUP & RESPONSIVE STRUCTURE
+  // ==========================================================================
+  //   §6   the Visitor Detail screen renders ERP user NAMES, never a raw id
+  //   §6   an unresolvable actor degrades to the "System User" fallback
+  //   §6   no raw UUID survives anywhere in the detail screen's text
+  //   §4/§5 the slip preview is wrapped in the fit scaffold — one A4 document,
+  //        scaled to the box, never reflowed
+  //   §1   every dialog caps its body so its own actions stay on screen
+  describe('Prompt #19B — actor names and responsive structure', () => {
+    const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    /**
+     * A REAL postgres uuid, not the `u1000000-…` shorthand the older fixtures
+     * use. The point of these cases is to prove an id cannot be rendered, and
+     * that is only a real test if the value the guard has to recognise is one
+     * the database actually issues.
+     */
+    const ACTOR_UUID = '0804af57-1f03-4d11-ad84-dc34f8829db1';
+
+    /**
+     * A fully acted-on visit: the host confirmed, the visitor left, and every
+     * one of the three acting ERP users has a resolved name. This is the case
+     * that used to put three bare UUIDs on the screen.
+     */
+    const CLOSED_ROW = {
+      ...DETAIL_ROW,
+      status: 'COMPLETED',
+      timeIn: '2026-09-28T10:30:00.000Z',
+      timeOut: '2026-09-28T13:40:00.000Z',
+      onSite: false,
+      hostConfirmed: true,
+      hostConfirmedAt: '2026-09-28T11:05:00.000Z',
+      createdBy: ACTOR_UUID,
+      createdByName: null,
+      hostConfirmedBy: ACTOR_UUID,
+      hostConfirmedByName: null,
+      exitedBy: ACTOR_UUID,
+      exitedByName: null,
+    };
+
+    async function openSlipPreviewFor() {
+      fireEvent.click(await screen.findByTestId(`visitor-slip-${ENTRY}`, {}, { timeout: 15000 }));
+      return screen.findByTestId('visitor-slip-preview-canvas', {}, { timeout: 15000 });
+    }
+
+    /** The same URL router the #19 block uses, for the cases that need a list. */
+    const listRows = (rows: any[]) => (url: any, params?: any) => {
+      const u = String(url);
+      if (u === '/visitor/entries') return Promise.resolve({ data: rows, total: rows.length });
+      if (u.endsWith('/slip')) return Promise.resolve({ data: SLIP_PENDING });
+      if (u.startsWith('/visitor/entries/')) return Promise.resolve({ data: rows[0] ?? DETAIL_ROW });
+      if (u === '/divisions') return Promise.resolve({ data: ALL_DIVISIONS });
+      if (u === '/locations') return Promise.resolve({ data: LOCATIONS[String(params?.divisionId || '')] ?? [] });
+      if (u === '/visitor/hosts') return Promise.resolve({ data: HOSTS });
+      return Promise.resolve({ data: [] });
+    };
+
+    async function openDetailFor(row: Record<string, unknown>) {
+      apiMock.get.mockImplementation((url: any) => {
+        const u = String(url);
+        if (u === '/visitor/entries') return Promise.resolve({ data: [row], total: 1 });
+        if (u.startsWith('/visitor/entries/')) return Promise.resolve({ data: row });
+        if (u === '/divisions') return Promise.resolve({ data: ALL_DIVISIONS });
+        return Promise.resolve({ data: [] });
+      });
+      await renderPage();
+      fireEvent.click(await screen.findByTestId(`visitor-view-${row.id}`, {}, { timeout: 15000 }));
+      return screen.findByTestId('visitor-detail', {}, { timeout: 15000 });
+    }
+
+    // ── §6 ────────────────────────────────────────────────────────────────
+    it('§6 renders the resolved ERP user name for every actor, and no UUID', async () => {
+      const detail = await openDetailFor({
+        ...CLOSED_ROW,
+        createdByName: 'Gate Officer',
+        hostConfirmedByName: 'Ahmed Raza',
+        exitedByName: 'Bilal Khan',
+      });
+
+      expect(within(detail).getByTestId('detail-created-by')).toHaveTextContent('Gate Officer');
+      expect(within(detail).getByTestId('detail-host-confirmed-by')).toHaveTextContent('Ahmed Raza');
+      expect(within(detail).getByTestId('detail-exited-by')).toHaveTextContent('Bilal Khan');
+
+      // The ids are still in the payload — the audit trail needs them — but the
+      // screen shows the people. This is the assertion the old UI failed: it
+      // rendered the raw id in all three of these cells.
+      expect(CLOSED_ROW.createdBy).toBe(ACTOR_UUID);
+      expect(CLOSED_ROW.hostConfirmedBy).toBe(ACTOR_UUID);
+      expect(CLOSED_ROW.exitedBy).toBe(ACTOR_UUID);
+      expect(detail.textContent || '').not.toMatch(UUID_RE);
+      for (const id of ['detail-created-by', 'detail-host-confirmed-by', 'detail-exited-by']) {
+        expect(within(detail).getByTestId(id).textContent).not.toMatch(UUID_RE);
+      }
+    });
+
+    it('§6 falls back to "System User" rather than showing an id it could not resolve', async () => {
+      // Two different failures, one honest answer. `null` means the directory
+      // returned nothing; a name that is ITSELF a uuid means something upstream
+      // put an id in the name field. Neither may reach the screen as an id.
+      const detail = await openDetailFor({
+        ...CLOSED_ROW,
+        createdByName: null,
+        hostConfirmedByName: ACTOR_UUID,
+        exitedByName: null,
+      });
+
+      expect(within(detail).getByTestId('detail-created-by')).toHaveTextContent('System User');
+      expect(within(detail).getByTestId('detail-host-confirmed-by')).toHaveTextContent('System User');
+      expect(within(detail).getByTestId('detail-exited-by')).toHaveTextContent('System User');
+      expect(detail.textContent || '').not.toMatch(UUID_RE);
+    });
+
+    it('§6 shows an em dash, not a person, for an action that has not happened yet', async () => {
+      // No actor at all is a different statement from "an actor we could not
+      // name", and it must not be dressed up as a person.
+      const detail = await openDetailFor({
+        ...LIST_ROW,
+        id: ENTRY,
+        createdBy: null,
+        createdByName: null,
+        hostConfirmed: false,
+        hostConfirmedAt: null,
+        hostConfirmedBy: null,
+        hostConfirmedByName: null,
+      });
+
+      expect(within(detail).getByTestId('detail-created-by')).toHaveTextContent('—');
+      // Nothing was confirmed, so the whole block — actor included — is absent.
+      expect(within(detail).queryByTestId('detail-host-confirmed-by')).not.toBeInTheDocument();
+      expect(detail.textContent || '').not.toMatch(UUID_RE);
+    });
+
+    it('§6 never renders a division or location relation id when the relation is missing', async () => {
+      // `division` / `location` are relations, not actors, but their ids are
+      // uuids too — a record with a missing relation used to print one.
+      const detail = await openDetailFor({
+        ...LIST_ROW,
+        id: ENTRY,
+        division: null,
+        location: null,
+        createdByName: 'Gate Officer',
+      });
+
+      // The dash is the answer for every unresolved relation on the screen.
+      expect(within(detail).getAllByText('—').length).toBeGreaterThan(0);
+      expect(detail.textContent || '').not.toMatch(UUID_RE);
+    });
+
+    // ── §4/§5 ─────────────────────────────────────────────────────────────
+    it('§4/§5 previews the A4 document inside a fit scaffold that is preview-only', async () => {
+      apiMock.get.mockImplementation((url: any) => {
+        const u = String(url);
+        if (u.endsWith('/slip')) return Promise.resolve({ data: SLIP_PENDING });
+        return listRows([{ ...LIST_ROW }])(url);
+      });
+      await renderPage();
+      const canvas = await openSlipPreviewFor();
+
+      const stage = within(canvas).getByTestId('visitor-slip-preview-stage');
+      const frame = within(canvas).getByTestId('visitor-slip-preview-frame');
+      const doc = within(canvas).getByTestId('visitor-slip-preview-doc');
+      expect(stage).toBeInTheDocument();
+      expect(frame).toBeInTheDocument();
+      expect(doc).toBeInTheDocument();
+
+      // The scaffold lives OUTSIDE the slip markup, so `renderVisitorSlipHtml`
+      // stays byte-identical between the preview and the print job — the
+      // #19A preview/print parity contract. What lands inside the scaled
+      // document is checked as markup, because the claim is about the markup.
+      const printed = doc.innerHTML;
+      expect(printed).toContain('data-testid="visitor-slip-document"');
+      expect(printed).not.toContain('vs-preview-doc');
+      // The document carries no inline geometry at all: the A4 width comes from
+      // the print stylesheet, which is what keeps preview and print identical.
+      expect(printed).not.toMatch(/class="visitor-slip"[^>]*\sstyle=/);
+      expect(printed).not.toMatch(/class="visitor-slip"[^>]*\swidth=/);
+
+      // jsdom performs no layout, so the fit sees zero and falls back to 1:1 —
+      // which is the desktop case, and is asserted as such here. The scaled
+      // mobile case is measured in the browser harness.
+      expect(frame).toHaveAttribute('data-scale', '1.0000');
+      expect(frame).toHaveAttribute('data-scrolls', 'false');
+    });
+
+    // ── §1 ────────────────────────────────────────────────────────────────
+    it('§1 caps each dialog body so the dialog stays inside the viewport', async () => {
+      // antd caps a Modal at 100vh but positions it at `top: 100px`, so a long
+      // dialog pushes its own footer below the fold. Each dialog on this page
+      // therefore carries the shared body cap; the measured proof at
+      // 1366x664 / 1366x768 / 390x667 lives in the browser harness.
+      //
+      // jsdom does not evaluate `calc()`, so `getComputedStyle` cannot be asked
+      // about a `max-height` here. The declaration antd actually applied is the
+      // contract, and it is an inline style on `.ant-modal-body`.
+      await renderPage();
+      await openCreate();
+      await screen.findByTestId('visitor-form', {}, { timeout: 15000 });
+
+      // `.ant-modal-body` is a class, not a role and not a test id, so no
+      // accessible query can reach it — the node access is the assertion.
+      /* eslint-disable-next-line testing-library/no-node-access */
+      const body = screen.getByTestId('visitor-form').closest('.ant-modal-body') as HTMLElement;
+      expect(body).not.toBeNull();
+      expect(body.getAttribute('style')).toContain('max-height: calc(100vh - 220px)');
+      expect(body.getAttribute('style')).toContain('overflow-y: auto');
+
+      // The registration controls are the LAST thing in that body, so if the cap
+      // works they are reachable by scrolling it — not pushed off the dialog.
+      expect(screen.getByTestId('new-visitor-submit')).toBeInTheDocument();
+      expect(screen.getByTestId('new-visitor-cancel')).toBeInTheDocument();
     });
   });
 });

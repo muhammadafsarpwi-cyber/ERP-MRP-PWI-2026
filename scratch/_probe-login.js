@@ -1,0 +1,21 @@
+﻿const { chromium } = require('playwright');
+(async () => {
+  const b = await chromium.launch({ headless: true });
+  const p = await b.newPage();
+  const errs = [];
+  p.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
+  p.on('pageerror', e => errs.push('pageerror: '+e.message));
+  p.on('framenavigated', f => { if (f === p.mainFrame()) console.log('NAV ->', f.url()); });
+  await p.goto('http://localhost:3000/', { waitUntil: 'domcontentloaded', timeout: 300000 });
+  await p.getByRole('button', { name: /ENTER SYSTEM/i }).waitFor({ state:'visible', timeout: 300000 });
+  console.log('sessionStorage before:', await p.evaluate(() => sessionStorage.getItem('pwi_welcome_passed')));
+  await p.getByRole('button', { name: /ENTER SYSTEM/i }).click();
+  await p.waitForTimeout(20000);
+  console.log('url:', p.url());
+  console.log('sessionStorage after:', await p.evaluate(() => sessionStorage.getItem('pwi_welcome_passed')));
+  const inputs = await p.$$eval('input', els => els.map(e => ({ id: e.id, name: e.name, type: e.type })));
+  console.log('INPUTS:', JSON.stringify(inputs));
+  console.log('BODY:', (await p.innerText('body')).slice(0,600));
+  console.log('ERRORS:', JSON.stringify(errs.slice(0,6), null, 1));
+  await b.close();
+})().catch(e => { console.error(e.message); process.exit(1); });

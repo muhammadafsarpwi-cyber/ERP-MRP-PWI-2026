@@ -484,6 +484,43 @@ export class VisitorEntryService {
     return this.toDetailView(entry);
   }
 
+  // ───────────────────────────────────────────────── ACTOR NAMES (#19B) ───
+  /**
+   * Prompt #19B §6 — "the Visitor Detail UI must display the resolved ERP user
+   * name, not the UUID".
+   *
+   * The `*By` columns stay in the response exactly as they were: they are
+   * legitimate relational keys and the audit trail still needs them. What is
+   * added is a resolved `*Name` beside each one, so a screen can render a
+   * person without ever being handed a raw id to print by accident. This is the
+   * same batch helper the slip uses (§19A), so there is ONE way this module
+   * turns a user id into a display name, and one fallback constant for it.
+   *
+   * A name is `null` — not the fallback — when there is no actor at all (the
+   * visit has not been confirmed, nobody recorded the exit). "System User"
+   * means "an actor exists but could not be resolved"; the UI tells those two
+   * apart by showing an em dash for the first.
+   */
+  private async resolveDetailActorNames(entry: VisitorEntry): Promise<Record<string, string | null>> {
+    const names = await this.resolveActorNames([
+      entry.createdBy,
+      entry.hostConfirmedBy,
+      entry.exitedBy,
+      entry.signatureCapturedBy,
+      entry.updatedBy,
+    ]);
+    const label = (id: string | null | undefined): string | null =>
+      id ? names.get(id) || SLIP_ACTOR_FALLBACK_NAME : null;
+
+    return {
+      createdByName: label(entry.createdBy),
+      hostConfirmedByName: label(entry.hostConfirmedBy),
+      exitedByName: label(entry.exitedBy),
+      signatureCapturedByName: label(entry.signatureCapturedBy),
+      updatedByName: label(entry.updatedBy),
+    };
+  }
+
   /**
    * Re-read a visitor after a mutation (Prompt #18 §24) — the exit response is
    * the same shape the detail endpoint returns, so the client can drop the row
@@ -964,8 +1001,17 @@ export class VisitorEntryService {
     };
   }
 
-  /** Detail row: full CNIC (§14) plus the authenticated photo/signature endpoints. */
-  private toDetailView(entry: VisitorEntry): any {
+  /**
+   * Detail row: full CNIC (§14) plus the authenticated photo/signature endpoints.
+   *
+   * #19B §6 — now async, because the acting ERP users are resolved to display
+   * names here as well as on the slip. This is the payload the Visitor Detail
+   * modal renders, and it used to be the one place in Visitor Management where a
+   * bare `created_by` / `host_confirmed_by` UUID reached the screen.
+   */
+  private async toDetailView(entry: VisitorEntry): Promise<any> {
+    const actorNames = await this.resolveDetailActorNames(entry);
+
     return {
       ...this.toListView(entry),
       cnic: entry.cnic,
@@ -975,8 +1021,14 @@ export class VisitorEntryService {
       signatureUrl: entry.signaturePath ? `/visitor/entries/${entry.id}/signature` : null,
       signatureCapturedAt: entry.signatureCapturedAt ?? null,
       signatureCapturedBy: entry.signatureCapturedBy ?? null,
+      signatureCapturedByName: actorNames.signatureCapturedByName,
       updatedBy: entry.updatedBy,
+      updatedByName: actorNames.updatedByName,
       updatedAt: entry.updatedAt,
+      // #19B §6 — render these, never the ids beside them.
+      createdByName: actorNames.createdByName,
+      hostConfirmedByName: actorNames.hostConfirmedByName,
+      exitedByName: actorNames.exitedByName,
     };
   }
 }

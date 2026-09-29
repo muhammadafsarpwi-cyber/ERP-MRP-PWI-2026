@@ -1,0 +1,88 @@
+/* ============================================================================
+   VISITOR SLIP — PREVIEW FIT (Prompt #19B §4/§5)
+
+   SCOPE, AND WHY IT IS IN ITS OWN FILE
+     Every rule below is scoped to `.vs-preview-doc`, a wrapper that exists only
+     inside the Print Visitor Slip MODAL. It is not part of the slip markup and
+     it is not part of `SLIP_CSS`. The print job is written into its own
+     document by `printHtmlContent()`, which carries only the slip's own
+     stylesheet — so none of this can reach A4 output. Print layout is therefore
+     untouched by construction, not by a media query that might one day be
+     deleted.
+
+   THE THREE-BOX STRUCTURE
+     .vs-preview-stage  full width, centres the frame
+     .vs-preview-frame  the scroll box; its width/height are set from the
+                        measured fit, so the modal never reserves paper it is
+                        not showing
+     .vs-preview-doc    pins the slip to its real A4 width and scales it
+
+   Pinned, not fluid
+     `.visitor-slip` ships `max-width: 190mm` with no `width`, so it collapses
+     to whatever box it is handed. That is correct for print and wrong for a
+     narrow modal: the header grid gave the letterhead a ~100px track and it
+     broke into PAKIS / TAN / WIRE / INDUS / TRIES. Pinning the width to A4 and
+     scaling instead means the preview shows the ACTUAL printed layout at every
+     width, and there is nothing left to wrap.
+   ========================================================================== */
+
+.vs-preview-stage {
+  display: flex;
+  justify-content: center;
+  /* Without this a flex item's automatic minimum size lets the stage grow to the
+     document's width, which would defeat the fit and re-introduce page-level
+     horizontal scrolling. */
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+
+.vs-preview-frame {
+  min-width: 0;
+  /* Width and height are written inline from the measured fit. `max-width` is
+     the backstop for the MIN_SLIP_PREVIEW_SCALE floor: below that scale the
+     frame stops growing and the document scrolls inside it. `overflow-x` is
+     also written inline — it is `hidden` on a successful fit, because a
+     transform leaves the document's LAYOUT box at the full 718px and a
+     permanently scrollable frame would show a scrollbar over a preview that
+     visually fits. */
+  max-width: 100%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+}
+
+.vs-preview-doc {
+  /* 190mm is the A4 content width: 210mm page minus the 10mm horizontal page
+     margins `printHtmlContent()` sets. It is the same number, on purpose. */
+  width: 190mm;
+  max-width: none;
+  margin: 0;
+  transform: scale(var(--vs-preview-scale, 1));
+  /* Top-left origin keeps the document pinned to the frame corner as it shrinks,
+     so a scaled preview is left-aligned exactly as the page is. */
+  transform-origin: top left;
+}
+
+/* Print guard. Nothing in this file should ever be needed for A4, and this
+   makes that a hard failure rather than a silent layout shift if the preview
+   markup is ever printed by accident. */
+@media print {
+  .vs-preview-stage,
+  .vs-preview-frame,
+  .vs-preview-doc {
+    transform: none !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+  }
+}
+
+/* Narrow screens: the alerts above the document are the first thing to squeeze,
+   and the frame needs a little breathing room from the modal edge. */
+@media (max-width: 480px) {
+  .vs-preview-stage {
+    justify-content: flex-start;
+  }
+}

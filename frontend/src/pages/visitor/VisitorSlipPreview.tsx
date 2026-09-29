@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Alert, App, Button, Modal, Space, Spin, Typography } from 'antd';
 import { PrinterOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { printVisitorSlipDocument } from '../../utils/printTemplates';
 import { loadVisitorSlipAssets } from '../../utils/visitorSlipAssets';
+import { fitSlipToWidth, type SlipFit } from '../../utils/visitorSlipFit';
 import { renderVisitorSlipHtml, type VisitorSlipAssets, type VisitorSlipData } from '../../utils/visitorSlipHtml';
+import './visitorSlipPreview.css';
 
 /**
  * VISITOR SLIP PREVIEW (Prompt #19 §9 / §10 / §21 / §26).
@@ -27,6 +29,22 @@ import { renderVisitorSlipHtml, type VisitorSlipAssets, type VisitorSlipData } f
  *     placeholder (§26).
  *   • Photos and signatures are fetched WITH the session and inlined as data
  *     URLs, so a private storage path is never exposed as a URL (§6, §22).
+ *
+ * PROMPT #19B §4/§5 — FITTING THE PREVIEW WITHOUT TOUCHING THE PRINT
+ *   The preview shows the REAL A4 document, scaled to fit. It is not a
+ *   reflowed mobile variant: before #19B the preview let the slip collapse to
+ *   the width of a phone modal, which squeezed the header grid and broke the
+ *   letterhead into "PAKIS / TAN / WIRE / INDUS / TRIES". The slip is now
+ *   pinned to its 190 mm print width and scaled down as a whole, so the header,
+ *   the columns and the signature box are pixel-identical to the printed page
+ *   at every screen size, and nothing overflows the viewport.
+ *
+ *   The scaling is `transform: scale()` on a PREVIEW-ONLY wrapper
+ *   (`visitorSlipPreview.css`). The slip markup is untouched, the print
+ *   stylesheet is untouched, and the print job — which is rendered into a
+ *   separate document by `printHtmlContent()` — never sees these rules. Preview
+ *   and print therefore still share one source of truth: the same HTML string
+ *   produced by `renderVisitorSlipHtml`.
  */
 export interface VisitorSlipPreviewProps {
   open: boolean;
@@ -58,6 +76,53 @@ export function VisitorSlipPreview({
   // A photo/signature that could not be loaded is reported, never hidden: the
   // user should know the printed copy is missing an image (§26).
   const [imageWarning, setImageWarning] = useState<string | null>(null);
+
+  // The document markup, from the same `renderVisitorSlipHtml` the printout
+  // uses. Declared before the fit below because "is there a document at all"
+  // is one of the fit's inputs.
+  const html = useMemo(
+    () => (slip ? renderVisitorSlipHtml(slip, assets, logoUrl()) : ''),
+    [slip, assets],
+  );
+
+  // ── #19B §4/§5 — measure the unscaled document and the space it may use ──
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const docRef = useRef<HTMLDivElement | null>(null);
+  const [fit, setFit] = useState<SlipFit>({ scale: 1, width: 0, height: 0, scrolls: false });
+
+  /**
+   * Re-fit whenever the document is measured, the stage resizes, or the modal
+   * layout settles. `offsetWidth`/`offsetHeight` are used deliberately: a CSS
+   * transform does not change them, so the fit cannot feed back on itself the way
+   * `getBoundingClientRect()` would.
+   */
+  const refit = useCallback(() => {
+    const stage = stageRef.current;
+    const doc = docRef.current;
+    if (!stage || !doc) return;
+    setFit(
+      fitSlipToWidth(
+        doc.offsetWidth,
+        doc.offsetHeight,
+        stage.clientWidth,
+      ),
+    );
+  }, []);
+
+  // #19B §4/§5 — the ResizeObserver callback re-observes whenever the document
+  // itself changes, because a new document can have a different natural size
+  // even at the same stage width. `hasDocument` is extracted from `html` so the
+  // dependency array stays statically checkable.
+  const hasDocument = html.length > 0;
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === 'undefined') return undefined;
+    // Rotation, window resize, and the modal finishing its open animation all
+    // change the available width without re-rendering this component.
+    const observer = new ResizeObserver(() => refit());
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [refit, open, hasDocument]);
 
   const load = useCallback(async () => {
     if (!open || !visitorId) return;
@@ -112,10 +177,20 @@ export function VisitorSlipPreview({
     }
   }, [open]);
 
-  const html = useMemo(
-    () => (slip ? renderVisitorSlipHtml(slip, assets, logoUrl()) : ''),
-    [slip, assets],
-  );
+  // ── #19B §4/§5 — fit the rendered document into whatever space the modal has ──
+  // These sit AFTER `html` because the document only exists once the markup
+  // string is built: the fit is a measurement of real rendered geometry, not a
+  // guess made from the data.
+  useLayoutEffect(() => {
+    if (!html) return;
+    refit();
+  }, [html, refit]);
+
+  // A freshly loaded document replaces the previous one; drop the stale fit so
+  // the frame never briefly shows the old document's size.
+  useEffect(() => {
+    if (!html) setFit({ scale: 1, width: 0, height: 0, scrolls: false });
+  }, [html]);
 
   const print = () => {
     if (!slip) return;
@@ -138,6 +213,10 @@ export function VisitorSlipPreview({
       width={860}
       destroyOnHidden
       data-testid={testId}
+      // #19B §1 — the same viewport cap the other Visitor Management dialogs
+      // use. The document canvas already carries its own 58vh limit; this stops
+      // the notices above it from pushing the Print button off a short screen.
+      styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
       footer={
         <Space>
           <Button onClick={onClose} data-testid={`${testId}-cancel`}>
@@ -183,8 +262,47 @@ export function VisitorSlipPreview({
             data-testid={`${testId}-canvas`}
           >
             {/* The slip markup is fully escaped by `renderVisitorSlipHtml` — every
-                visitor-supplied value is encoded before it reaches this point. */}
-            <div dangerouslySetInnerHTML={{ __html: html }} />
+                visitor-supplied value is encoded before it reaches this point.
+
+                #19B §4/§5 — the document is pinned to its A4 width and scaled to
+                fit (see `visitorSlipFit` / `visitorSlipPreview.css`). This
+                wrapper is modal-only: the print job is a different document. */}
+            <div className="vs-preview-stage" ref={stageRef} data-testid={`${testId}-stage`}>
+              <div
+                className="vs-preview-frame"
+                data-testid={`${testId}-frame`}
+                data-scale={fit.scale.toFixed(4)}
+                data-scrolls={fit.scrolls ? 'true' : 'false'}
+                style={
+                  fit.width > 0
+                    ? ({
+                        width: fit.width,
+                        // Ceil absorbs sub-pixel rounding so the last line of the
+                        // document is never clipped by a 0.3px shortfall.
+                        height: Math.ceil(fit.height),
+                        // A CSS transform does not change layout size, so the
+                        // document's LAYOUT box is always the full 718px and the
+                        // frame would always report itself as horizontally
+                        // scrollable — showing a scrollbar over a preview that
+                        // visually fits. Clipping keeps it honest: the frame only
+                        // becomes scrollable when the fit floor actually bites.
+                        overflowX: fit.scrolls ? 'auto' : 'hidden',
+                        overflowY: 'hidden',
+                        // The scale drives the transform; the two together keep
+                        // the frame exactly the size of what it is showing.
+                        '--vs-preview-scale': fit.scale,
+                      } as React.CSSProperties)
+                    : undefined
+                }
+              >
+                <div
+                  className="vs-preview-doc"
+                  ref={docRef}
+                  data-testid={`${testId}-doc`}
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+              </div>
+            </div>
           </div>
         </>
       ) : (

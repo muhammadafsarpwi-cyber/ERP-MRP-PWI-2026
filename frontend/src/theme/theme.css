@@ -589,11 +589,15 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
 .pwi-app-logo {
   filter: none !important;
   display: block;
+  background: #ffffff;
+  border-radius: 6px;
+  object-fit: contain;
   transition: transform 0.2s ease;
 }
 
 [data-theme='dark'] .pwi-app-logo {
-  filter: invert(1);
+  filter: none !important;
+  background: #ffffff;
 }
 
 .pwi-marquee-dot {

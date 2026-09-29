@@ -1,22 +1,32 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, App, Button, Card, Col, Descriptions, Empty, Form, Input, Modal, Row,
-  Select, Space, Spin, Switch, Table, Tag, Typography,
+  Alert, App, Button, Calendar, Card, Col, DatePicker, Descriptions, Empty, Form, Input, Modal, Row,
+  Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography,
 } from 'antd';
 import {
+  CalendarOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   EyeOutlined,
+  FilterOutlined,
+  IdcardOutlined,
+  LogoutOutlined,
+  MobileOutlined,
   PlusOutlined,
   PrinterOutlined,
   ReloadOutlined,
+  RightCircleOutlined,
   SearchOutlined,
+  TableOutlined,
+  TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
+import { SLIP_ACTOR_FALLBACK } from '../../utils/visitorSlipHtml';
+import { printVisitorRegisterDocument, renderVisitorRegisterHtml } from '../../utils/visitorRegisterPrint';
 import { DivisionSelect, PageHeader, PhotoCapture, SignaturePad } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
 import VisitorSlipPreview from './VisitorSlipPreview';
@@ -66,27 +76,180 @@ interface VisitorRow {
   onSite?: boolean;
   /** Who recorded the Time-Out (Prompt #18) — null until the visit is closed. */
   exitedBy?: string | null;
+  /**
+   * Prompt #19B §6 — the resolved `display_name` for each acting ERP user.
+   *
+   * The `*By` ids above stay in the payload for traceability, but no screen in
+   * Visitor Management renders them. These are the fields a UI shows, and the
+   * backend fills them from the same `erp_users` directory the slip uses.
+   * `null` means "no actor yet"; the fallback name means "an actor exists but
+   * could not be resolved".
+   */
+  exitedByName?: string | null;
+  updatedByName?: string | null;
   /** Host confirmation (Prompt #19) — independent of the visit status (§28). */
   hostConfirmed?: boolean;
   hostConfirmedAt?: string | null;
   hostConfirmedBy?: string | null;
+  /** #19B §6 — the human name behind `hostConfirmedBy`. */
+  hostConfirmedByName?: string | null;
   hasSignature?: boolean;
   hasPhoto: boolean;
   photoUrl?: string | null;
   signatureUrl?: string | null;
   signatureCapturedAt?: string | null;
   signatureCapturedBy?: string | null;
+  /** #19B §6 — the human name behind `signatureCapturedBy`. */
+  signatureCapturedByName?: string | null;
   createdAt: string;
   createdBy: string | null;
+  /** #19B §6 — the human name behind `createdBy`. */
+  createdByName?: string | null;
   updatedAt?: string | null;
 }
 
-const STATUS_TAG_COLOR: Record<string, string> = {
-  PENDING: 'orange',
-  INSIDE: 'blue',
-  COMPLETED: 'green',
-  CANCELLED: 'default',
+// ─── Status + design tokens ─────────────────────────────────────────────────
+const STATUS_CONFIG: Record<string, { bg: string; color: string; dot: string }> = {
+  PENDING:   { bg: '#fff7e6', color: '#d46b08', dot: '#faad14' },
+  INSIDE:    { bg: '#e6f4ff', color: '#0958d9', dot: '#1677ff' },
+  COMPLETED: { bg: '#f6ffed', color: '#389e0d', dot: '#52c41a' },
+  CANCELLED: { bg: '#f5f5f5', color: '#595959', dot: '#8c8c8c' },
 };
+
+function StatusBadge({ status, testId }: { status: string; testId?: string }) {
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.CANCELLED;
+  return (
+    <span
+      data-testid={testId}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        background: cfg.bg, color: cfg.color,
+        border: `1px solid ${cfg.dot}44`,
+        borderRadius: 20, padding: '2px 10px 2px 7px',
+        fontSize: 12, fontWeight: 600, letterSpacing: '0.01em',
+      }}
+    >
+      <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: cfg.dot, boxShadow: `0 0 0 2px ${cfg.dot}33`, flexShrink: 0 }} />
+      {status}
+    </span>
+  );
+}
+
+function HostConfirmBadge({ confirmed, testId }: { confirmed?: boolean; testId?: string }) {
+  if (confirmed) {
+    return (
+      <span data-testid={testId} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f6ffed', color: '#389e0d', border: '1px solid #b7eb8f', borderRadius: 20, padding: '2px 10px 2px 7px', fontSize: 12, fontWeight: 600 }}>
+        <CheckCircleOutlined style={{ fontSize: 11 }} /> Confirmed
+      </span>
+    );
+  }
+  return (
+    <span data-testid={testId} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fffbe6', color: '#ad6800', border: '1px solid #ffe58f', borderRadius: 20, padding: '2px 10px 2px 7px', fontSize: 12, fontWeight: 600 }}>
+      <ClockCircleOutlined style={{ fontSize: 11 }} /> Pending
+    </span>
+  );
+}
+
+// ─── KPI Card ────────────────────────────────────────────────────────────────
+interface KpiCardProps { label: string; value: number | string; icon: React.ReactNode; gradient: string; sub?: string; accentColor?: string; }
+function KpiCard({ label, value, icon, gradient, sub, accentColor = 'rgba(255,255,255,0.3)' }: KpiCardProps) {
+  return (
+    <div style={{ background: gradient, borderRadius: 10, color: '#fff', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 18px rgba(0,0,0,0.18)', display: 'flex', flexDirection: 'column' }}>
+      {/* decorative circles */}
+      <div style={{ position: 'absolute', top: -24, right: -24, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
+      <div style={{ position: 'absolute', bottom: -32, right: 8, width: 90, height: 90, borderRadius: '50%', background: 'rgba(255,255,255,0.07)' }} />
+      {/* main content */}
+      <div style={{ padding: '18px 20px 14px', flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 36, fontWeight: 900, lineHeight: 1, letterSpacing: '-1px' }}>{value}</div>
+          <div style={{ fontSize: 28, opacity: 0.85 }}>{icon}</div>
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.9, marginTop: 6 }}>{label}</div>
+        {sub && <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>{sub}</div>}
+      </div>
+      {/* bottom line + More info */}
+      <div style={{ borderTop: `1px solid ${accentColor}`, padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: 0.92 }}>
+        More info <RightCircleOutlined style={{ fontSize: 13 }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Arrow Tabs ───────────────────────────────────────────────────────────────
+type TabKey = 'ALL' | 'PENDING' | 'COMPLETED' | 'INSIDE' | 'CANCELLED';
+const TABS: { key: TabKey; label: string; activeBg: string }[] = [
+  { key: 'ALL',       label: 'ALL',       activeBg: '#e74c3c' },
+  { key: 'PENDING',   label: 'PENDING',   activeBg: '#f39c12' },
+  { key: 'INSIDE',    label: 'INSIDE',    activeBg: '#3498db' },
+  { key: 'COMPLETED', label: 'COMPLETED', activeBg: '#27ae60' },
+  { key: 'CANCELLED', label: 'CANCELLED', activeBg: '#7f8c8d' },
+];
+
+interface ArrowTabsProps { active: TabKey; onChange: (key: TabKey) => void; counts: Record<string, number>; }
+function ArrowTabs({ active, onChange, counts }: ArrowTabsProps) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 0, marginBottom: 16, borderRadius: 6, overflow: 'hidden' }}>
+      {TABS.map((tab, i) => {
+        const isActive = active === tab.key;
+        const bg = isActive ? tab.activeBg : '#d0d0d0';
+        const color = isActive ? '#fff' : '#444';
+        const clipPath = i === 0
+          ? 'polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%)'
+          : i === TABS.length - 1
+          ? 'polygon(14px 0,100% 0,100% 100%,0 100%,14px 50%)'
+          : 'polygon(14px 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%,14px 50%)';
+        return (
+          <button key={tab.key} onClick={() => onChange(tab.key)} data-testid={`visitor-tab-${tab.key}`}
+            style={{ flex: '1 1 90px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: bg, color, border: 'none', padding: '13px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 800, letterSpacing: '0.06em', transition: 'all 0.2s', clipPath, textTransform: 'uppercase' }}>
+            {tab.label}
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: isActive ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.1)', borderRadius: 12, minWidth: 24, height: 20, fontSize: 12, fontWeight: 800, padding: '0 6px' }}>
+              {counts[tab.key] ?? 0}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Print Range Modal ────────────────────────────────────────────────────────
+interface PrintRangeModalProps {
+  open: boolean;
+  onClose: () => void;
+  onPrint: (mode: 'today' | 'month', date: dayjs.Dayjs) => void;
+  /** How many loaded rows the chosen range actually covers, for the hint. */
+  rowsInRange?: number;
+  /** Controlled: the parent owns the range so the hint and the print agree. */
+  mode: 'today' | 'month';
+  date: dayjs.Dayjs;
+  onModeChange: (mode: 'today' | 'month') => void;
+  onDateChange: (date: dayjs.Dayjs) => void;
+}
+function PrintRangeModal({
+  open, onClose, onPrint, rowsInRange, mode, date, onModeChange, onDateChange,
+}: PrintRangeModalProps) {
+  return (
+    <Modal title={<span><PrinterOutlined style={{ color: '#e74c3c', marginRight: 8 }} />Print Visitor Register</span>} open={open} onCancel={onClose} width={480}
+      styles={{ body: MODAL_BODY_STYLE }}
+      footer={<Space><Button onClick={onClose}>Cancel</Button><Button type="primary" icon={<PrinterOutlined />} style={{ background: '#e74c3c', borderColor: '#e74c3c' }} onClick={() => onPrint(mode, date)}>Print</Button></Space>}>
+      <div style={{ padding: '12px 0' }}>
+        <Typography.Text strong style={{ marginBottom: 8, display: 'block' }}>Print Range</Typography.Text>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {(['today', 'month'] as const).map((m) => (
+            <button key={m} onClick={() => onModeChange(m)} data-testid={`print-range-${m}`} style={{ flex: 1, padding: '10px 0', background: mode === m ? '#1677ff' : '#f5f5f5', color: mode === m ? '#fff' : '#444', border: `2px solid ${mode === m ? '#1677ff' : '#d9d9d9'}`, borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13, transition: 'all 0.2s' }}>
+              {m === 'today' ? 'Today Only' : 'Full Month'}
+            </button>
+          ))}
+        </div>
+        <Typography.Text strong style={{ marginBottom: 8, display: 'block' }}>{mode === 'today' ? 'Select Date' : 'Select Month'}</Typography.Text>
+        {mode === 'today'
+          ? <DatePicker value={date} onChange={(d) => d && onDateChange(d)} style={{ width: '100%' }} format="DD-MMM-YYYY" />
+          : <DatePicker.MonthPicker value={date} onChange={(d) => d && onDateChange(d)} style={{ width: '100%' }} format="MMM YYYY" />}
+        <Alert style={{ marginTop: 16 }} type="info" showIcon message={`Prints the ${rowsInRange === undefined ? 'currently visible' : rowsInRange} row${rowsInRange === 1 ? '' : 's'} in the current filter, on A4 landscape.`} />
+      </div>
+    </Modal>
+  );
+}
 
 /** 13 raw digits or the formatted `00000-0000000-0` (same rule as the API). */
 const CNIC_SHAPE = /^(?:\d{13}|\d{5}-\d{7}-\d)$/;
@@ -105,10 +268,105 @@ function normaliseMobile(raw: string): string {
   return raw.replace(/[\s\-().]/g, '');
 }
 
+/**
+ * The ERP screen's timestamp format: `28-Sep-2026 16:05`, 24-hour.
+ *
+ * This is deliberately NOT the printed slip's format. A visitor pass is a paper
+ * document read at a gate, so the slip prints the 12-hour clock with an AM/PM
+ * designator (#19A §1, `visitorSlipHtml.formatStamp`); the ERP screen keeps the
+ * 24-hour form it shares with every other module in the system, so a timestamp
+ * read off a monitor matches one read off any other screen. Both formats are
+ * correct for their own surface and the difference is intentional — which is
+ * why a redesign that made this helper emit 12-hour AM/PM was a regression, not
+ * an improvement: it silently changed the clock on every timestamp in the
+ * module, including audit records.
+ *
+ * `DD-MMM-YYYY` also keeps the century. A two-digit year on a Time-Out is a
+ * record a reader cannot place on a timeline.
+ */
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '—';
   const parsed = dayjs(value);
   return parsed.isValid() ? parsed.format('DD-MMM-YYYY HH:mm') : '—';
+};
+
+/**
+ * The Time-In / Time-Out table cell, built from ONE `formatDateTime` call.
+ *
+ * Prompt #19C — Time-In and Time-Out used to be two lines assembled from two
+ * independent formatters: a `DD-MMM-YY` date above a 12-hour clock. Two
+ * consequences, both real:
+ *
+ *   1. The date lost its century. `21-Sep-26` on a Time-Out is an audit record
+ *      a reader cannot place on a timeline without assuming a century.
+ *   2. The two halves were joined with no separator, so the cell's text read
+ *      `21-Sep-266:40 PM` to anything consuming it as a string — a test
+ *      assertion, and a screen reader. The quiet space below is a real text
+ *      node for exactly that reason.
+ *
+ * Splitting a single formatted stamp makes it structurally impossible for the
+ * date and the clock to disagree, and keeps the cell identical to every other
+ * timestamp on the page.
+ */
+function TimestampCell({ value, testId }: { value: string; testId?: string }) {
+  const [datePart, timePart] = formatDateTime(value).split(' ');
+  return (
+    <div style={{ fontSize: 12, lineHeight: 1.25 }} data-testid={testId}>
+      {datePart}{' '}
+      <span style={{ fontSize: 11, opacity: 0.6 }}>{timePart}</span>
+    </div>
+  );
+}
+
+// ─── Actor names (Prompt #19B §6) ──────────────────────────────────────────
+/**
+ * A raw ERP user id is a 36-character UUID. The backend already resolves every
+ * acting user to a `display_name`; this guard is the second half of the same
+ * promise — if a `*Name` field is itself a UUID, or is missing while an id is
+ * present, the screen still shows a person and never an identifier.
+ */
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Render the human behind an actor field.
+ *
+ *   name + id present  → the resolved display name
+ *   no name, id present → `SLIP_ACTOR_FALLBACK` ("System User"): somebody acted
+ *                        but the directory could not name them
+ *   neither            → "—": the action has not happened yet, which is a
+ *                        different statement and is not dressed up as a person
+ */
+function actorName(name?: string | null, id?: string | null): string {
+  const candidate = (name ?? '').trim();
+  if (candidate && !UUID_SHAPE.test(candidate)) return candidate;
+  return (id ?? '').trim() ? SLIP_ACTOR_FALLBACK : '—';
+}
+
+/**
+ * Prompt #19B §1 — every dialog on this page has to fit the VIEWPORT, header and
+ * footer included.
+ *
+ * antd caps a Modal at 100vh but still positions it `top: 100px`, so a dialog
+ * with a long body reaches that cap and pushes its own footer off the bottom of
+ * the screen. Measured before this change: on a 1366x768 laptop — a completely
+ * ordinary laptop — the Visitor Detail dialog's Print Slip, Confirm Host and
+ * Time Out buttons sat 56px BELOW the viewport edge, and on 1366x664 the New
+ * Visitor dialog's Register button did the same. The dialog's own actions were
+ * only reachable by scrolling the page behind it.
+ *
+ * Capping the BODY is the antd-idiomatic fix and the least invasive one: the
+ * body already scrolls, so the dialog becomes viewport-sized and the footer
+ * stays exactly where it is. Nothing about the dialog's content, ordering or
+ * styling changes — only where the scroll happens.
+ *
+ * The 220px reserve covers antd's own chrome (100px top offset, ~44px of modal
+ * padding, a ~24px title and a ~32px footer) plus a little slack. It is
+ * verified, not assumed: `verify-visitor-p19b-responsive.js` asserts the footer
+ * is inside the viewport at 1366x768, 1366x664, 768x1024, 390x844 and 390x667.
+ */
+const MODAL_BODY_STYLE: React.CSSProperties = {
+  maxHeight: 'calc(100vh - 220px)',
+  overflowY: 'auto',
 };
 
 /**
@@ -138,9 +396,14 @@ export function VisitorManagement() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
-  // §19 — the day window is computed by the SERVER, never in the browser.
+  const [activeTab, setActiveTab] = useState<TabKey>('ALL');
   const [todayOnly, setTodayOnly] = useState(false);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  // The print range lives here, not inside the dialog, so the row-count hint and
+  // the printed document are computed from one value and cannot disagree.
+  const [printMode, setPrintMode] = useState<'today' | 'month'>('today');
+  const [printDate, setPrintDate] = useState<dayjs.Dayjs>(dayjs());
+  const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
 
   // ── Division master (client-side intersection with the caller scope) ───
   const [divisionRows, setDivisionRows] = useState<DivisionRow[] | null>(null);
@@ -206,7 +469,7 @@ export function VisitorManagement() {
     try {
       const params: Record<string, unknown> = { page, limit: pageSize };
       if (search.trim()) params.search = search.trim();
-      if (statusFilter) params.status = statusFilter;
+      if (activeTab !== 'ALL') params.status = activeTab;
       if (todayOnly) params.today = true;
       const res = await apiService.get<{ data?: VisitorRow[]; total?: number }>(
         '/visitor/entries',
@@ -225,7 +488,7 @@ export function VisitorManagement() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, statusFilter, todayOnly, message]);
+  }, [page, pageSize, search, activeTab, todayOnly, message]);
 
   useEffect(() => {
     void load();
@@ -456,9 +719,7 @@ export function VisitorManagement() {
         setRows((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
         setDetail((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       }
-      // A status/day filter decides whether the closed visit still belongs in
-      // the current view, so refetch whenever one is active.
-      if (statusFilter || todayOnly) void load();
+      if (activeTab !== 'ALL' || todayOnly) void load();
     } catch (err: any) {
       const status = err?.response?.status;
       if (status === 409) {
@@ -477,7 +738,7 @@ export function VisitorManagement() {
     } finally {
       setExiting(false);
     }
-  }, [exitTarget, detail, statusFilter, todayOnly, load, openDetail, message]);
+  }, [exitTarget, detail, activeTab, todayOnly, load, openDetail, message]);
 
   // ── Slip print / re-print (Prompt #19 §9/§10/§11) ──────────────────────
   /**
@@ -574,285 +835,465 @@ export function VisitorManagement() {
     }
   }, [confirmTarget, signature, confirmNote, detail, load, openDetail, message]);
 
+  // ── KPI derivation ─────────────────────────────────────────────────────
+  const kpiCounts = useMemo(() => {
+    const onSiteCount = rows.filter(isOnSite).length;
+    const completedCount = rows.filter((r) => r.status === 'COMPLETED').length;
+    const hostPendingCount = rows.filter((r) => !r.hostConfirmed && isOnSite(r)).length;
+    return { onSite: onSiteCount, completed: completedCount, hostPending: hostPendingCount };
+  }, [rows]);
+
+  const tabCounts = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = { ALL: total };
+    for (const tab of ['PENDING', 'INSIDE', 'COMPLETED', 'CANCELLED'] as TabKey[]) {
+      counts[tab] = rows.filter((r) => r.status === tab).length;
+    }
+    return counts;
+  }, [rows, total]);
+
+  // ── Print handler ──────────────────────────────────────────────────────
+  /**
+   * The loaded rows that fall inside the chosen print range.
+   *
+   * Prompt #19C — the range is now actually APPLIED. The dialog has always
+   * offered "Today Only" and "Full Month", and the old handler used the
+   * selection for nothing but the caption — so a register printed for
+   * 29-Sep-2026 could carry visitors from any date the current filter happened
+   * to hold, under a header that said otherwise. The rows are already loaded,
+   * so this narrows what the screen is already showing: it issues no new
+   * request and widens no access. When the range genuinely holds nothing, the
+   * document says so rather than printing a blank sheet.
+   */
+  const printRowsInRange = useCallback(
+    (mode: 'today' | 'month', date: dayjs.Dayjs): VisitorRow[] =>
+      rows.filter((r) =>
+        mode === 'today' ? dayjs(r.timeIn).isSame(date, 'day') : dayjs(r.timeIn).isSame(date, 'month'),
+      ),
+    [rows],
+  );
+  /**
+   * Print the Visitor REGISTER (the multi-column gate list).
+   *
+   * This is a different document from the individual Visitor Slip, on purpose.
+   * The slip is a single A4 portrait sheet; the register is thirteen columns of
+   * tabular data, so it renders and prints A4 **landscape** in its own document
+   * built by `visitorRegisterPrint`. Nothing here touches the slip, and nothing
+   * in the slip's pipeline reaches here.
+   *
+   * The chosen range is now actually APPLIED. The dialog has always offered
+   * "Today Only" and "Full Month", and the old handler used the selection for
+   * nothing but the caption — so a register printed for 29-Sep-2026 could carry
+   * visitors from any date the current filter happened to hold, under a header
+   * that said otherwise. The rows are already loaded, so this filters what the
+   * screen is already showing: it issues no new request and widens no access.
+   * When the range genuinely holds nothing, the document says so rather than
+   * printing a blank sheet.
+   */
+  const handlePrint = (mode: 'today' | 'month', date: dayjs.Dayjs) => {
+    setPrintModalOpen(false);
+    const rangeLabel =
+      mode === 'today' ? `Date: ${date.format('DD-MMM-YYYY')}` : `Month: ${date.format('MMMM YYYY')}`;
+    printVisitorRegisterDocument(
+      renderVisitorRegisterHtml({ rows: printRowsInRange(mode, date), rangeLabel }),
+    );
+  };
+
   // ── Columns ────────────────────────────────────────────────────────────
   const columns: ColumnsType<VisitorRow> = useMemo(
     () => [
       {
-        // §5 — the reception reference is what security quotes, so it leads the
-        // row rather than being buried at the end.
-        title: 'Visitor ID',
+        title: 'VISITOR ID',
         dataIndex: 'visitorReference',
         key: 'visitorReference',
         width: 150,
         render: (v: string | null, row) =>
           v ? (
-            <Typography.Text code data-testid={`visitor-ref-${row.id}`}>
+            <span
+              data-testid={`visitor-ref-${row.id}`}
+              style={{
+                display: 'inline-block',
+                fontFamily: 'monospace',
+                background: '#1a1a2e',
+                border: '1px solid #3a3a5e',
+                borderRadius: 5,
+                padding: '3px 8px',
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#a5b4fc',
+                whiteSpace: 'nowrap',
+                letterSpacing: '0.03em',
+              }}
+            >
               {v}
-            </Typography.Text>
-          ) : (
-            '—'
-          ),
+            </span>
+          ) : <span style={{ color: '#bbb' }}>—</span>,
       },
       {
-        title: 'Visitor Name',
+        title: 'VISITOR NAME',
         dataIndex: 'visitorName',
         key: 'visitorName',
         width: 180,
-        render: (value: string) => <Typography.Text strong>{value}</Typography.Text>,
-      },
-      {
-        title: 'CNIC',
-        dataIndex: 'cnic',
-        key: 'cnic',
-        width: 140,
-        // Server masks it in list responses; the detail view shows it in full.
-        render: (value: string | null) => value || '—',
-      },
-      { title: 'Mobile', dataIndex: 'mobile', key: 'mobile', width: 130, render: (v: string | null) => v || '—' },
-      {
-        title: 'Visitor Company',
-        dataIndex: 'visitorCompany',
-        key: 'visitorCompany',
-        width: 160,
-        render: (v: string | null) => v || '—',
-      },
-      {
-        title: 'Host',
-        dataIndex: 'hostNameSnapshot',
-        key: 'hostNameSnapshot',
-        width: 170,
-        render: (v: string | null) => v || '—',
-      },
-      {
-        title: 'Division',
-        key: 'division',
-        width: 170,
-        render: (_, row) =>
-          row.division ? `${row.division.divisionCode} · ${row.division.name}` : row.divisionId,
-      },
-      {
-        title: 'Location',
-        key: 'location',
-        width: 150,
-        render: (_, row) => (row.location ? `${row.location.locationCode} · ${row.location.name}` : row.locationId),
-      },
-      {
-        title: 'Time-In',
-        dataIndex: 'timeIn',
-        key: 'timeIn',
-        width: 150,
-        render: (v: string) => formatDateTime(v),
-      },
-      {
-        title: 'Time-Out',
-        dataIndex: 'timeOut',
-        key: 'timeOut',
-        width: 150,
-        // §11/§20 — the pending state is spelled out, not only coloured.
-        render: (v: string | null, row) =>
-          v ? (
-            <span data-testid={`visitor-timeout-${row.id}`}>{formatDateTime(v)}</span>
-          ) : isOnSite(row) ? (
-            <Tag color="orange" data-testid={`visitor-timeout-pending-${row.id}`}>
-              Pending
-            </Tag>
-          ) : (
-            <span data-testid={`visitor-timeout-${row.id}`}>—</span>
-          ),
-      },
-      {
-        title: 'Status',
-        dataIndex: 'status',
-        key: 'status',
-        width: 120,
-        render: (status: string) => (
-          <Tag color={STATUS_TAG_COLOR[status] ?? 'default'} data-testid={`visitor-status-${status}`}>
-            {status}
-          </Tag>
+        render: (value: string, row) => (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>{value}</div>
+            {row.cnic && (
+              <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2, display: 'flex', alignItems: 'center', gap: 3 }}>
+                <IdcardOutlined style={{ fontSize: 10 }} />
+                <span>{row.cnic}</span>
+              </div>
+            )}
+            {row.mobile && (
+              <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 1, display: 'flex', alignItems: 'center', gap: 3 }}>
+                <MobileOutlined style={{ fontSize: 10 }} />
+                <span>{row.mobile}</span>
+              </div>
+            )}
+          </div>
         ),
       },
       {
-        // §16 — the host confirmation is its own column so a still-on-site
-        // visitor can be seen as "host confirmed, not yet departed".
-        title: 'Host Confirmation',
-        key: 'hostConfirmed',
-        width: 160,
-        render: (_, row) =>
-          row.hostConfirmed ? (
-            <Tag color="blue" data-testid={`visitor-host-confirmed-${row.id}`}>
-              Confirmed
-            </Tag>
-          ) : (
-            <Tag data-testid={`visitor-host-pending-${row.id}`}>Pending</Tag>
-          ),
+        title: 'COMPANY',
+        dataIndex: 'visitorCompany',
+        key: 'visitorCompany',
+        width: 140,
+        render: (v: string | null) => v ? <span style={{ fontSize: 12 }}>{v}</span> : <span style={{ color: '#bbb' }}>—</span>,
       },
       {
-        title: 'Actions',
+        title: 'HOST / DIVISION / LOCATION',
+        key: 'hostDivLoc',
+        width: 210,
+        render: (_, row) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {/* Host */}
+            {row.hostNameSnapshot ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <UserOutlined style={{ color: '#1677ff', fontSize: 10, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#1677ff' }}>{row.hostNameSnapshot}</span>
+              </div>
+            ) : (
+              <span style={{ fontSize: 11, color: '#bbb' }}>—</span>
+            )}
+            {/* Division */}
+            {row.division && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{
+                  fontFamily: 'monospace', background: '#1a1a2e', border: '1px solid #3a3a5e',
+                  borderRadius: 3, padding: '1px 5px', fontSize: 10, fontWeight: 700,
+                  color: '#a5b4fc', whiteSpace: 'nowrap', flexShrink: 0,
+                }}>{row.division.divisionCode}</span>
+                <span style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.division.name}</span>
+              </div>
+            )}
+            {/* Location */}
+            {row.location && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{
+                  background: '#f0f5ff', border: '1px solid #adc6ff',
+                  borderRadius: 3, padding: '1px 5px', fontSize: 10, fontWeight: 700,
+                  color: '#2f54eb', whiteSpace: 'nowrap', flexShrink: 0,
+                }}>{row.location.locationCode}</span>
+                <span style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.location.name}</span>
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        title: 'TIME-IN',
+        dataIndex: 'timeIn',
+        key: 'timeIn',
+        width: 120,
+        render: (v: string) => <TimestampCell value={v} testId={undefined} />,
+      },
+      {
+        title: 'TIME-OUT',
+        dataIndex: 'timeOut',
+        key: 'timeOut',
+        width: 120,
+        render: (v: string | null, row) => {
+          if (!v) {
+            return isOnSite(row) ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fff7e6', color: '#d46b08', border: '1px solid #ffe58f', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }} data-testid={`visitor-timeout-pending-${row.id}`}>
+                <ClockCircleOutlined style={{ fontSize: 10 }} /> Pending
+              </span>
+            ) : (
+              <span style={{ color: '#bbb' }} data-testid={`visitor-timeout-${row.id}`}>—</span>
+            );
+          }
+          return <TimestampCell value={v} testId={`visitor-timeout-${row.id}`} />;
+        },
+      },
+      {
+        title: 'STATUS',
+        dataIndex: 'status',
+        key: 'status',
+        width: 120,
+        render: (status: string) => <StatusBadge status={status} testId={`visitor-status-${status}`} />,
+      },
+      {
+        title: 'HOST CONFIRM',
+        key: 'hostConfirmed',
+        width: 140,
+        render: (_, row) => (
+          <HostConfirmBadge
+            confirmed={row.hostConfirmed}
+            testId={row.hostConfirmed ? `visitor-host-confirmed-${row.id}` : `visitor-host-pending-${row.id}`}
+          />
+        ),
+      },
+      {
+        title: 'ACTIONS',
         key: 'actions',
-        width: canExit || canPrintSlip ? 260 : 90,
+        width: 120,
+        fixed: 'right' as const,
         render: (_, row) => (
           <Space size={4}>
             {canPrintSlip && (
-              <Button
-                size="small"
-                icon={<PrinterOutlined />}
-                onClick={() => openSlip(row)}
-                data-testid={`visitor-slip-${row.id}`}
-              >
-                Print Slip
-              </Button>
+              <Tooltip title="Print Visitor Slip">
+                <Button
+                  size="small"
+                  icon={<PrinterOutlined />}
+                  onClick={() => openSlip(row)}
+                  data-testid={`visitor-slip-${row.id}`}
+                  className="visitor-action-btn visitor-action-blue"
+                  style={{ borderRadius: 6, width: 30, height: 28, padding: 0 }}
+                />
+              </Tooltip>
+            )}
+            {canExit && !row.hostConfirmed && isOnSite(row) && (
+              <Tooltip title="Confirm Host Visit">
+                <Button
+                  size="small"
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => askHostConfirmation(row)}
+                  data-testid={`visitor-confirm-${row.id}`}
+                  className="visitor-action-btn visitor-action-teal"
+                  style={{ borderRadius: 6, width: 30, height: 28, padding: 0 }}
+                />
+              </Tooltip>
             )}
             {canExit && isOnSite(row) && (
+              <Tooltip title="Record Time-Out">
+                <Button
+                  size="small"
+                  icon={<LogoutOutlined />}
+                  onClick={() => askExit(row)}
+                  data-testid={`visitor-exit-${row.id}`}
+                  className="visitor-action-btn visitor-action-orange"
+                  style={{ borderRadius: 6, width: 30, height: 28, padding: 0 }}
+                />
+              </Tooltip>
+            )}
+            <Tooltip title="View Details">
               <Button
                 size="small"
-                icon={<ClockCircleOutlined />}
-                onClick={() => askExit(row)}
-                data-testid={`visitor-exit-${row.id}`}
-              >
-                Time Out
-              </Button>
-            )}
-            <Button
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => void openDetail(row)}
-              data-testid={`visitor-view-${row.id}`}
-            >
-              View
-            </Button>
+                icon={<EyeOutlined />}
+                onClick={() => void openDetail(row)}
+                data-testid={`visitor-view-${row.id}`}
+                aria-label="View Details"
+                className="visitor-action-btn visitor-action-default"
+                style={{ borderRadius: 6, width: 30, height: 28, padding: 0 }}
+              />
+            </Tooltip>
           </Space>
         ),
       },
     ],
-    [canExit, canPrintSlip, askExit, openSlip, openDetail],
+    [canExit, canPrintSlip, askExit, openSlip, openDetail, askHostConfirmation],
   );
 
-  const statusOptions = [
-    { value: 'PENDING', label: 'Pending (still on site)' },
-    { value: 'COMPLETED', label: 'Completed' },
-    { value: 'INSIDE', label: 'Inside' },
-    { value: 'CANCELLED', label: 'Cancelled' },
-  ];
+  // ── Calendar cell renderer ─────────────────────────────────────────────
+  const calendarDateCellRender = useCallback((value: dayjs.Dayjs) => {
+    const dayStr = value.format('YYYY-MM-DD');
+    const dayRows = rows.filter((r) => dayjs(r.timeIn).format('YYYY-MM-DD') === dayStr);
+    if (!dayRows.length) return null;
+    return (
+      <ul style={{ margin: 0, padding: '0 4px', listStyle: 'none' }}>
+        {dayRows.slice(0, 3).map((r) => (
+          <li key={r.id} style={{ marginBottom: 2 }}>
+            <div
+              onClick={() => void openDetail(r)}
+              style={{
+                cursor: 'pointer', fontSize: 11, lineHeight: '16px',
+                background: STATUS_CONFIG[r.status]?.bg ?? '#f5f5f5',
+                color: STATUS_CONFIG[r.status]?.color ?? '#595959',
+                border: `1px solid ${STATUS_CONFIG[r.status]?.dot ?? '#8c8c8c'}44`,
+                borderRadius: 4, padding: '1px 5px',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}
+            >
+              {r.visitorName}
+            </div>
+          </li>
+        ))}
+        {dayRows.length > 3 && (
+          <li style={{ fontSize: 10, color: '#888', paddingLeft: 4 }}>+{dayRows.length - 3} more</li>
+        )}
+      </ul>
+    );
+  }, [rows, openDetail]);
 
   return (
     <div data-testid="visitor-page">
+      {/* ── Page Header — buttons go into the main application header via extra prop ── */}
       <PageHeader
         icon={<UserOutlined />}
         title="Visitors"
         subtitle="Visitor Management — gate register with server-side Time-In"
-      />
-
-      <Card>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 8,
-            flexWrap: 'wrap',
-            marginBottom: 16,
-          }}
-        >
-          <Typography.Text type="secondary">
-            Time-In is generated by the server when the visitor is registered. Time-Out is generated by the server on
-            exit.
-          </Typography.Text>
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={() => void load()} data-testid="visitor-refresh">
-              Refresh
-            </Button>
+        extra={
+          <Space wrap>
+            <Button icon={<PrinterOutlined />} onClick={() => setPrintModalOpen(true)} style={{ borderColor: '#e74c3c', color: '#e74c3c', fontWeight: 600, borderRadius: 6 }}>Print Register</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => void load()} data-testid="visitor-refresh" style={{ borderRadius: 6 }}>Refresh</Button>
             {canCreate && (
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} data-testid="new-visitor-button">
-                New Visitor
-              </Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} data-testid="new-visitor-button" style={{ background: '#4a0808', borderColor: '#4a0808', borderRadius: 6, fontWeight: 700 }}>New Visitor</Button>
             )}
           </Space>
-        </div>
-        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-          <Col xs={24} sm={12} md={8}>
-            <Input
-              allowClear
-              prefix={<SearchOutlined />}
-              placeholder="Search name, company, host, mobile…"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              data-testid="visitor-search"
-            />
-          </Col>
-          <Col xs={24} sm={12} md={6}>
-            <div data-testid="visitor-status-filter">
-              <Select
-                allowClear
-                style={{ width: '100%' }}
-                placeholder="All visitors"
-                options={statusOptions}
-                value={statusFilter}
-                onChange={(value) => {
-                  setStatusFilter(value);
-                  setPage(1);
-                }}
-              />
+        }
+      />
+
+      {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
+      <Row gutter={[14, 14]} style={{ marginBottom: 18 }}>
+        <Col xs={24} sm={12} md={6}>
+          <KpiCard label="Total This View" value={total} icon={<TeamOutlined />} gradient="linear-gradient(135deg,#2ecc71 0%,#27ae60 100%)" sub="Matching current filter" />
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <KpiCard label="Currently On-Site" value={kpiCounts.onSite} icon={<UserOutlined />} gradient="linear-gradient(135deg,#f39c12 0%,#d68910 100%)" sub="PENDING · no Time-Out" />
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <KpiCard label="Completed Visits" value={kpiCounts.completed} icon={<CheckCircleOutlined />} gradient="linear-gradient(135deg,#3498db 0%,#1a6bab 100%)" sub="Time-Out recorded" />
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <KpiCard label="Awaiting Host Confirm" value={kpiCounts.hostPending} icon={<ClockCircleOutlined />} gradient="linear-gradient(135deg,#e74c3c 0%,#c0392b 100%)" sub="On-site · not yet confirmed" />
+        </Col>
+      </Row>
+
+      <Card styles={{ body: { padding: '16px 16px 8px' } }}>
+        {/* ── Filters + Today toggle + View toggle ──────────────────────── */}
+        <Row gutter={[10, 10]} style={{ marginBottom: 14 }} align="middle">
+          <Col xs={24} sm={1}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch checked={todayOnly} onChange={(checked) => { setTodayOnly(checked); setPage(1); }} data-testid="visitor-today-only" style={{ background: todayOnly ? '#27ae60' : undefined }} />
+              <Typography.Text strong style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{todayOnly ? 'Today' : 'All'}</Typography.Text>
             </div>
           </Col>
-          <Col xs={24} sm={12} md={10}>
-            <Space wrap>
-              <Switch
-                checked={todayOnly}
-                onChange={(checked) => {
-                  setTodayOnly(checked);
-                  setPage(1);
+          <Col xs={24} sm={11} md={8}>
+            <Input allowClear prefix={<SearchOutlined style={{ color: '#aaa' }} />} placeholder="Search name, company, host, mobile…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} data-testid="visitor-search" style={{ borderRadius: 8 }} />
+          </Col>
+          <Col xs={24} sm={8} md={6}>
+            <Select allowClear style={{ width: '100%' }}
+              placeholder={<span><FilterOutlined style={{ marginRight: 4 }} />All visitors</span>}
+              options={[{ value: 'PENDING', label: 'Pending (still on site)' }, { value: 'COMPLETED', label: 'Completed' }, { value: 'INSIDE', label: 'Inside' }, { value: 'CANCELLED', label: 'Cancelled' }]}
+              value={activeTab === 'ALL' ? undefined : activeTab}
+              onChange={(value) => { setActiveTab(value ?? 'ALL'); setPage(1); }}
+              data-testid="visitor-status-filter" />
+          </Col>
+          <Col xs={24} sm={4} md={3}>
+            {/* Table / Calendar toggle */}
+            <div style={{ display: 'inline-flex', border: '1px solid #d9d9d9', borderRadius: 7, overflow: 'hidden', height: 32 }}>
+              <button
+                onClick={() => setViewMode('table')}
+                style={{
+                  padding: '0 12px', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12,
+                  background: viewMode === 'table' ? '#1677ff' : 'transparent',
+                  color: viewMode === 'table' ? '#fff' : '#555',
+                  border: 'none', cursor: 'pointer', fontWeight: 600, transition: 'all 0.2s',
                 }}
-                data-testid="visitor-today-only"
-              />
-              <Typography.Text>Today only</Typography.Text>
-              <Tag data-testid="visitor-filter-summary">
-                {statusFilter ?? 'ALL'}
-                {todayOnly ? ' · TODAY' : ''}
-              </Tag>
-            </Space>
+              >
+                <TableOutlined /> Table
+              </button>
+              <button
+                onClick={() => setViewMode('calendar')}
+                style={{
+                  padding: '0 12px', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12,
+                  background: viewMode === 'calendar' ? '#1677ff' : 'transparent',
+                  color: viewMode === 'calendar' ? '#fff' : '#555',
+                  border: 'none', borderLeft: '1px solid #d9d9d9', cursor: 'pointer', fontWeight: 600, transition: 'all 0.2s',
+                }}
+              >
+                <CalendarOutlined /> Cal
+              </button>
+            </div>
           </Col>
         </Row>
 
-        <Table<VisitorRow>
-          rowKey="id"
-          size="small"
-          loading={loading}
-          columns={columns}
-          dataSource={rows}
-          locale={{
-            emptyText: loading ? <Spin size="small" /> : <Empty description="No visitor entries yet" />,
-          }}
-          pagination={{
-            current: page,
-            pageSize,
-            total,
-            showSizeChanger: true,
-            showTotal: (count) => `${count} visitor${count === 1 ? '' : 's'}`,
-            onChange: (nextPage, nextPageSize) => {
-              setPage(nextPageSize !== pageSize ? 1 : nextPage);
-              setPageSize(nextPageSize);
-            },
-          }}
-        />
+        {/* ── Arrow Tabs ────────────────────────────────────────────────── */}
+        <ArrowTabs active={activeTab} onChange={(key) => { setActiveTab(key); setPage(1); }} counts={tabCounts} />
+
+        {/* ── Table / Calendar ─────────────────────────────────────────── */}
+        {viewMode === 'calendar' ? (
+          <Calendar
+            cellRender={(date, info) => info.type === 'date' ? calendarDateCellRender(date) : null}
+            style={{ borderRadius: 8 }}
+          />
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <Table<VisitorRow>
+              rowKey="id"
+              size="small"
+              loading={loading}
+              columns={columns}
+              dataSource={rows}
+              scroll={{ x: 1400 }}
+              locale={{ emptyText: loading ? <Spin size="small" /> : <Empty description="No visitor entries found" /> }}
+              components={{
+                header: {
+                  cell: (props: any) => (
+                    <th {...props} style={{ ...props.style, background: '#4a0808', color: '#fff', fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', padding: '11px 12px', borderBottom: '2px solid #6b1010', borderRight: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap', textTransform: 'uppercase' }} />
+                  ),
+                },
+              }}
+              rowClassName={(_, i) => (i % 2 === 1 ? 'visitor-row-alt' : '')}
+              pagination={{
+                current: page, pageSize, total, showSizeChanger: true,
+                showTotal: (count) => <span style={{ fontWeight: 600 }}>{count} visitor{count === 1 ? '' : 's'}</span>,
+                onChange: (nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); },
+                style: { marginTop: 16 },
+              }}
+            />
+          </div>
+        )}
       </Card>
 
-      {/* ── New visitor ───────────────────────────────────────────────── */}
+      {/* Alternating row tint + hover + action button styles */}
+      <style>{`
+        .visitor-row-alt td{background:#f8f9fc!important;}
+        .ant-table-tbody>tr:hover>td{background:#eef1ff!important;}
+        .visitor-action-btn{background:transparent!important;box-shadow:none!important;}
+        .visitor-action-blue{border-color:#1677ff!important;color:#1677ff!important;}
+        .visitor-action-blue:hover{background:#1677ff!important;color:#fff!important;}
+        .visitor-action-teal{border-color:#13c2c2!important;color:#13c2c2!important;}
+        .visitor-action-teal:hover{background:#13c2c2!important;color:#fff!important;}
+        .visitor-action-orange{border-color:#fa8c16!important;color:#fa8c16!important;}
+        .visitor-action-orange:hover{background:#fa8c16!important;color:#fff!important;}
+        .visitor-action-default{border-color:#d9d9d9!important;color:#595959!important;}
+        .visitor-action-default:hover{border-color:#1677ff!important;color:#1677ff!important;}
+      `}</style>
+
+      {/* ── Print Range Modal ──────────────────────────────────────────── */}
+      <PrintRangeModal
+        open={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        onPrint={handlePrint}
+        rowsInRange={printRowsInRange(printMode, printDate).length}
+        mode={printMode}
+        date={printDate}
+        onModeChange={setPrintMode}
+        onDateChange={setPrintDate}
+      />
+
+      {/* ── New visitor modal ──────────────────────────────────────────── */}
       <Modal
-        title={created ? 'Visitor Registered' : 'New Visitor'}
+        title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UserOutlined style={{ color: '#1677ff' }} />{created ? 'Visitor Registered' : 'New Visitor'}</span>}
         open={createOpen}
         onCancel={closeCreate}
         footer={null}
         width={760}
+        styles={{ body: MODAL_BODY_STYLE }}
         data-testid="new-visitor-modal"
       >
         {created ? (
           <div data-testid="visitor-created">
-            <Typography.Paragraph type="success">
-              Visitor registered successfully.
-            </Typography.Paragraph>
+            <Alert type="success" showIcon message="Visitor registered successfully." style={{ marginBottom: 12 }} />
             <Descriptions bordered size="small" column={1}>
               <Descriptions.Item label="Visitor ID">
                 <span data-testid="created-visitor-reference">{created.visitorReference || '—'}</span>
@@ -860,10 +1301,10 @@ export function VisitorManagement() {
               <Descriptions.Item label="Visitor">{created.visitorName}</Descriptions.Item>
               <Descriptions.Item label="Host">{created.hostNameSnapshot || '—'}</Descriptions.Item>
               <Descriptions.Item label="Division">
-                {created.division ? `${created.division.divisionCode} · ${created.division.name}` : created.divisionId}
+                {created.division ? `${created.division.divisionCode} · ${created.division.name}` : '—'}
               </Descriptions.Item>
               <Descriptions.Item label="Location">
-                {created.location ? `${created.location.locationCode} · ${created.location.name}` : created.locationId}
+                {created.location ? `${created.location.locationCode} · ${created.location.name}` : '—'}
               </Descriptions.Item>
               <Descriptions.Item label="Time-In">
                 {/* Display-only: the server generated it, the client cannot edit it. */}
@@ -872,16 +1313,10 @@ export function VisitorManagement() {
               <Descriptions.Item label="Time-Out">
                 <span data-testid="created-time-out">—</span>
               </Descriptions.Item>
-              <Descriptions.Item label="Status">
-                <Tag color={STATUS_TAG_COLOR[created.status] ?? 'default'} data-testid="created-status">
-                  {created.status}
-                </Tag>
-              </Descriptions.Item>
+              <Descriptions.Item label="Status"><StatusBadge status={created.status} testId="created-status" /></Descriptions.Item>
             </Descriptions>
             {createdPhotoError && (
-              <Typography.Paragraph type="warning" style={{ marginTop: 12 }} data-testid="created-photo-warning">
-                The visitor was saved, but the photo could not be uploaded: {createdPhotoError}
-              </Typography.Paragraph>
+              <Alert type="warning" showIcon style={{ marginTop: 12 }} message={`Photo not uploaded: ${createdPhotoError}`} data-testid="created-photo-warning" />
             )}
             {/* §25 — the record is already saved at this point, so the slip is
                 generated from the STORED row. Cancelling the print leaves the
@@ -889,17 +1324,9 @@ export function VisitorManagement() {
                 from Visitor Detail. */}
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               {canPrintSlip && (
-                <Button
-                  icon={<PrinterOutlined />}
-                  onClick={() => openSlip(created)}
-                  data-testid="created-print-slip"
-                >
-                  Print Visitor Slip
-                </Button>
+                <Button icon={<PrinterOutlined />} onClick={() => openSlip(created)} data-testid="created-print-slip" style={{ background: '#1677ff', borderColor: '#1677ff', color: '#fff', fontWeight: 600, borderRadius: 6 }}>Print Visitor Slip</Button>
               )}
-              <Button type="primary" onClick={closeCreate} data-testid="created-close">
-                Close
-              </Button>
+              <Button type="primary" onClick={closeCreate} data-testid="created-close">Close</Button>
             </div>
           </div>
         ) : (
@@ -1035,7 +1462,7 @@ export function VisitorManagement() {
 
       {/* ── Detail ────────────────────────────────────────────────────── */}
       <Modal
-        title="Visitor Detail"
+        title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><EyeOutlined style={{ color: '#1677ff' }} />Visitor Detail</span>}
         open={!!detail}
         onCancel={() => setDetail(null)}
         footer={
@@ -1044,16 +1471,8 @@ export function VisitorManagement() {
               <Button onClick={() => setDetail(null)} data-testid="visitor-detail-close">
                 Close
               </Button>
-              {/* §10/§29 — re-print is available from the detail of a PENDING *and*
-                  a COMPLETED visitor, straight from the stored record. */}
               {canPrintSlip && (
-                <Button
-                  icon={<PrinterOutlined />}
-                  onClick={() => openSlip(detail)}
-                  data-testid="visitor-detail-print"
-                >
-                  Print Visitor Slip
-                </Button>
+                <Button icon={<PrinterOutlined />} onClick={() => openSlip(detail)} data-testid="visitor-detail-print" style={{ background: '#1677ff', borderColor: '#1677ff', color: '#fff', fontWeight: 600 }}>Print Visitor Slip</Button>
               )}
               {canExit && !detail.hostConfirmed && (
                 <Button
@@ -1079,14 +1498,18 @@ export function VisitorManagement() {
           ) : null
         }
         width={720}
+        styles={{ body: MODAL_BODY_STYLE }}
         data-testid="visitor-detail-modal"
       >
         {detailLoading ? (
           <Spin style={{ display: 'block', margin: '24px auto' }} />
         ) : detail ? (
           <div data-testid="visitor-detail">
-            <Row gutter={16}>
-              <Col span={10}>
+            {/* #19B §1 — the photo sits beside the record on a laptop and above
+                it on a phone. A fixed 10/24 split leaves the descriptions about
+                200px on a 390px screen, which no label fits inside. */}
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={10}>
                 {detailPhoto ? (
                   <img
                     src={detailPhoto}
@@ -1111,7 +1534,7 @@ export function VisitorManagement() {
                   </div>
                 )}
               </Col>
-              <Col span={14}>
+              <Col xs={24} md={14}>
                 <Descriptions bordered size="small" column={1}>
                   <Descriptions.Item label="Visitor ID">
                     <span data-testid="detail-visitor-reference">
@@ -1128,12 +1551,12 @@ export function VisitorManagement() {
                   <Descriptions.Item label="Division">
                     {detail.division
                       ? `${detail.division.divisionCode} · ${detail.division.name}`
-                      : detail.divisionId}
+                      : '—'}
                   </Descriptions.Item>
                   <Descriptions.Item label="Location">
                     {detail.location
                       ? `${detail.location.locationCode} · ${detail.location.name}`
-                      : detail.locationId}
+                      : '—'}
                   </Descriptions.Item>
                   <Descriptions.Item label="Time-In">{formatDateTime(detail.timeIn)}</Descriptions.Item>
                   <Descriptions.Item label="Time-Out">
@@ -1148,25 +1571,20 @@ export function VisitorManagement() {
                     )}
                   </Descriptions.Item>
                   <Descriptions.Item label="Status">
-                    <Tag color={STATUS_TAG_COLOR[detail.status] ?? 'default'}>{detail.status}</Tag>
+                    <StatusBadge status={detail.status} testId="detail-status" />
                   </Descriptions.Item>
-                  {/* §16/§24 — host confirmation state, with the actor and moment. */}
                   <Descriptions.Item label="Host Confirmation">
-                    {detail.hostConfirmed ? (
-                      <span data-testid="detail-host-confirmed">
-                        <Tag color="blue">Confirmed</Tag>
-                      </span>
-                    ) : (
-                      <span data-testid="detail-host-pending">
-                        <Tag>Pending</Tag>
-                      </span>
-                    )}
+                    <HostConfirmBadge
+                      confirmed={detail.hostConfirmed}
+                      testId={detail.hostConfirmed ? 'detail-host-confirmed' : 'detail-host-pending'}
+                    />
                   </Descriptions.Item>
                   {detail.hostConfirmed && (
                     <>
                       <Descriptions.Item label="Confirmed By">
+                        {/* #19B §6 — the resolved ERP user name, never the id. */}
                         <span data-testid="detail-host-confirmed-by">
-                          {detail.hostConfirmedBy || '—'}
+                          {actorName(detail.hostConfirmedByName, detail.hostConfirmedBy)}
                         </span>
                       </Descriptions.Item>
                       <Descriptions.Item label="Confirmed At">
@@ -1182,11 +1600,18 @@ export function VisitorManagement() {
                     </>
                   )}
                   <Descriptions.Item label="Created At">{formatDateTime(detail.createdAt)}</Descriptions.Item>
-                  <Descriptions.Item label="Created By">{detail.createdBy || '—'}</Descriptions.Item>
+                  <Descriptions.Item label="Created By">
+                    <span data-testid="detail-created-by">
+                      {actorName(detail.createdByName, detail.createdBy)}
+                    </span>
+                  </Descriptions.Item>
                   {/* §17 — who recorded the Time-Out, once the visit is closed. */}
                   {detail.timeOut && (
                     <Descriptions.Item label="Exit Recorded By">
-                      <span data-testid="detail-exited-by">{detail.exitedBy || '—'}</span>
+                      {/* #19B §6 — the resolved ERP user name, never the id. */}
+                      <span data-testid="detail-exited-by">
+                        {actorName(detail.exitedByName, detail.exitedBy)}
+                      </span>
                     </Descriptions.Item>
                   )}
                 </Descriptions>
@@ -1207,14 +1632,15 @@ export function VisitorManagement() {
         ) : null}
       </Modal>
 
-      {/* ── Confirm exit (Prompt #18 §14) ───────────────────────────────── */}
+      {/* ── Confirm exit ─────────────────────────────────────────────── */}
       <Modal
-        title="Confirm Visitor Exit"
+        title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ClockCircleOutlined style={{ color: '#fa8c16' }} />Confirm Visitor Exit</span>}
         open={!!exitTarget}
         onCancel={closeExit}
         maskClosable={!exiting}
         closable={!exiting}
         width={520}
+        styles={{ body: MODAL_BODY_STYLE }}
         data-testid="visitor-exit-modal"
         footer={
           <Space>
@@ -1241,49 +1667,38 @@ export function VisitorManagement() {
               <Descriptions.Item label="Division">
                 {exitTarget.division
                   ? `${exitTarget.division.divisionCode} · ${exitTarget.division.name}`
-                  : exitTarget.divisionId}
+                  : '—'}
               </Descriptions.Item>
               <Descriptions.Item label="Location">
                 {exitTarget.location
                   ? `${exitTarget.location.locationCode} · ${exitTarget.location.name}`
-                  : exitTarget.locationId}
+                  : '—'}
               </Descriptions.Item>
               <Descriptions.Item label="Time-In">
                 <span data-testid="visitor-exit-time-in">{formatDateTime(exitTarget.timeIn)}</span>
               </Descriptions.Item>
             </Descriptions>
-            <Typography.Paragraph style={{ marginTop: 12, marginBottom: 0 }}>
-              Are you sure this visitor has exited the premises?
-            </Typography.Paragraph>
-            <Typography.Text type="secondary">
-              The Time-Out is recorded by the system at the moment you confirm.
-            </Typography.Text>
+            <Alert type="warning" showIcon style={{ marginTop: 12 }} message="Are you sure this visitor has exited the premises?" description="The Time-Out is recorded by the system at the moment you confirm." />
           </div>
         )}
       </Modal>
 
-      {/* ── Confirm host visit (Prompt #19 §12/§16) ──────────────────────── */}
+      {/* ── Confirm host visit ─────────────────────────────────────────── */}
       <Modal
-        title="Confirm Host Visit"
+        title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircleOutlined style={{ color: '#27ae60' }} />Confirm Host Visit</span>}
         open={!!confirmTarget}
         onCancel={closeHostConfirmation}
         maskClosable={!confirming}
         closable={!confirming}
         width={620}
+        styles={{ body: MODAL_BODY_STYLE }}
         data-testid="visitor-host-modal"
         footer={
           <Space>
             <Button onClick={closeHostConfirmation} disabled={confirming} data-testid="visitor-host-cancel">
               Cancel
             </Button>
-            <Button
-              type="primary"
-              loading={confirming}
-              onClick={() => void confirmHost()}
-              data-testid="visitor-host-confirm"
-            >
-              Confirm Host Visit
-            </Button>
+            <Button type="primary" loading={confirming} onClick={() => void confirmHost()} data-testid="visitor-host-confirm" style={{ background: '#27ae60', borderColor: '#27ae60', fontWeight: 700 }}>Confirm Host Visit</Button>
           </Space>
         }
       >
@@ -1297,7 +1712,7 @@ export function VisitorManagement() {
               <Descriptions.Item label="Division">
                 {confirmTarget.division
                   ? `${confirmTarget.division.divisionCode} · ${confirmTarget.division.name}`
-                  : confirmTarget.divisionId}
+                  : '—'}
               </Descriptions.Item>
               <Descriptions.Item label="Time-In">
                 <span data-testid="visitor-host-time-in">{formatDateTime(confirmTarget.timeIn)}</span>
@@ -1341,7 +1756,7 @@ export function VisitorManagement() {
         )}
       </Modal>
 
-      {/* ── Print / re-print the slip (Prompt #19 §9/§10) ────────────────── */}
+      {/* ── Print / re-print the slip ──────────────────────────────────── */}
       <VisitorSlipPreview
         open={!!slipTarget}
         visitorId={slipTarget?.id ?? null}

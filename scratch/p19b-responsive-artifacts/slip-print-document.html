@@ -1,0 +1,539 @@
+<html lang="en"><head>
+        <meta charset="utf-8">
+        <title>Visitor Slip - VIS-2026-000051</title>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 8mm 10mm;
+          }
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            margin: 0;
+            padding: 0;
+            width: 100% !important;
+            background: #ffffff !important;
+            color: #111827 !important;
+            font-family: Arial, "Helvetica Neue", Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+          }
+          .pwi-print-container {
+            width: 100%;
+            max-width: 190mm;
+            margin: 0 auto;
+            padding: 0;
+          }
+          .company-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 10px;
+            margin-bottom: 12px;
+          }
+          .company-logo-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }
+          .company-logo {
+            width: 58px;
+            height: 58px;
+            object-fit: contain;
+          }
+          .company-name {
+            font-size: 17px;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: 0.5px;
+          }
+          .company-sub {
+            font-size: 9.5px;
+            color: #475569;
+            margin-top: 1px;
+          }
+          .company-tax {
+            font-size: 9.5px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 2px;
+          }
+          .doc-badge-box {
+            text-align: right;
+          }
+          .doc-badge {
+            display: inline-block;
+            border: 2px solid #0f172a;
+            font-size: 14px;
+            font-weight: 900;
+            padding: 4px 12px;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+          }
+          .doc-badge-sub {
+            font-size: 9px;
+            font-weight: 700;
+            color: #64748b;
+            margin-top: 2px;
+            letter-spacing: 0.5px;
+          }
+          .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+          }
+          .info-card {
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 8px 10px;
+            background: #fafafa;
+          }
+          .info-card-title {
+            font-size: 10.5px;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #0f172a;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 3px;
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
+          }
+          .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+            font-size: 10.5px;
+          }
+          .info-label {
+            color: #64748b;
+            font-weight: 600;
+          }
+          .info-val {
+            color: #0f172a;
+            font-weight: 700;
+            text-align: right;
+          }
+          table.print-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 12px;
+          }
+          table.print-table th {
+            background-color: #1e293b !important;
+            color: #ffffff !important;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 6px 7px;
+            border: 1px solid #1e293b;
+          }
+          table.print-table td {
+            padding: 6px 7px;
+            border: 1px solid #cbd5e1;
+            font-size: 10.5px;
+            color: #1e293b;
+          }
+          table.print-table tr:nth-child(even) td {
+            background-color: #f8fafc;
+          }
+          .totals-wrap {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 14px;
+          }
+          .totals-table {
+            width: 320px;
+            border-collapse: collapse;
+          }
+          .totals-table td {
+            padding: 4px 8px;
+            font-size: 11px;
+            border-bottom: 1px solid #e2e8f0;
+          }
+          .totals-table td.total-label {
+            color: #475569;
+            font-weight: 600;
+          }
+          .totals-table td.total-val {
+            text-align: right;
+            font-weight: 700;
+            color: #0f172a;
+          }
+          .totals-table tr.grand-total td {
+            font-size: 13px;
+            font-weight: 900;
+            border-top: 2px solid #0f172a;
+            border-bottom: 2px solid #0f172a;
+            background: #f1f5f9;
+            color: #0f172a;
+          }
+          .signatures {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 24px;
+            margin-top: 30px;
+            padding-top: 10px;
+          }
+          .sig-box {
+            text-align: center;
+            border-top: 1px dashed #64748b;
+            padding-top: 5px;
+            font-size: 10px;
+            font-weight: 700;
+            color: #475569;
+          }
+          .footer-note {
+            margin-top: 16px;
+            text-align: center;
+            font-size: 9px;
+            color: #94a3b8;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 5px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="pwi-print-container">
+          
+<style>
+.visitor-slip {
+  font-family: Arial, "Helvetica Neue", Helvetica, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #0f172a;
+  max-width: 190mm;
+  margin: 0 auto;
+  padding: 2mm 1mm;
+}
+.visitor-slip * { box-sizing: border-box; }
+/* #19A section 5 - HEADER GRID.
+   The header is a real 2x3 grid, not a flex row of two independently sized
+   stacks. A flex row cannot align them: centring the brand block (a 44px logo
+   beside two text lines) against the headline block (a 27px title bar over an
+   11px note) puts the block CENTRES on one line but leaves the title bar
+   itself 7px above the logo, because a title-and-caption stack is not
+   vertically symmetric about its own centre.
+
+   The grid removes the ambiguity. Row 1 carries the company name and the title
+   bar; row 2 carries the city line and the "retain this slip" caption. Both
+   cells of a row are centred in the same row box, so each pair shares one
+   baseline by construction rather than by eye. The logo spans both rows and is
+   centred against the block, which is what keeps it level with the name. */
+.visitor-slip .vs-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 3px;
+  border: 2px solid #0f172a;
+  border-bottom: none;
+  padding: 7px 10px;
+  background: #ffffff;
+}
+/* Explicit line-heights (not the UA default) give every cell a known height, so
+   the centring is reproducible across font stacks. */
+.visitor-slip .vs-logo {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+.visitor-slip .vs-company {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  line-height: 16px;
+}
+.visitor-slip .vs-company-sub {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 8.5px;
+  color: #475569;
+  font-weight: 700;
+  line-height: 12px;
+}
+.visitor-slip .vs-title {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  line-height: 15px;
+  padding: 6px 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+.visitor-slip .vs-headline-note {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+  font-size: 8px;
+  color: #64748b;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  line-height: 12px;
+  white-space: nowrap;
+}
+/* #19A §5 — the VISITOR ID row is a real 3-column grid, so the reference is
+   optically centred on the page instead of drifting wherever flexbox happens to
+   put it between a long label and a wide status badge. */
+.visitor-slip .vs-ref-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid #0f172a;
+  border-top: none;
+  border-bottom: none;
+  padding: 5px 10px;
+  background: #f1f5f9;
+  font-size: 10px;
+  font-weight: 800;
+}
+.visitor-slip .vs-ref-label { letter-spacing: 0.6px; }
+.visitor-slip .vs-ref {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.visitor-slip .vs-ref-status { text-align: right; }
+.visitor-slip .vs-body { display: flex; gap: 10px; border: 2px solid #0f172a; padding: 9px 10px; }
+.visitor-slip .vs-photo-col { flex: 0 0 78px; text-align: center; }
+.visitor-slip .vs-photo {
+  width: 78px;
+  height: 100px;
+  /* A fixed box + contain: an awkward original aspect ratio is letterboxed,
+     never stretched. */
+  object-fit: contain;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+}
+.visitor-slip .vs-photo-placeholder {
+  width: 78px;
+  height: 100px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: #94a3b8;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.visitor-slip .vs-photo-cap { font-size: 7.5px; color: #94a3b8; margin-top: 2px; font-weight: 700; }
+.visitor-slip .vs-facts { flex: 1 1 auto; min-width: 0; }
+.visitor-slip .vs-section-label {
+  font-size: 8.5px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #0f172a;
+  border-bottom: 1px solid #0f172a;
+  padding-bottom: 2px;
+  margin-bottom: 5px;
+}
+.visitor-slip .vs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; }
+/* #19A section 6 - baseline (not the flex default stretch) so a label and its
+   value share one first-line baseline. With stretch, a two-line value left the
+   label floating against the middle of its own text, which is what made the
+   fact grid look unevenly aligned row to row. */
+.visitor-slip .vs-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 14px;
+  padding: 1.5px 0;
+}
+.visitor-slip .vs-row-full { grid-column: 1 / -1; }
+.visitor-slip .vs-label { color: #64748b; font-weight: 700; white-space: nowrap; }
+.visitor-slip .vs-val { font-weight: 700; text-align: right; color: #0f172a; word-break: break-word; }
+.visitor-slip .vs-section { margin-top: 8px; }
+.visitor-slip .vs-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  border: 1px solid;
+}
+.visitor-slip .vs-badge-pending { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.visitor-slip .vs-badge-done { background: #dcfce7; color: #166534; border-color: #86efac; }
+.visitor-slip .vs-badge-cancelled { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.visitor-slip .vs-badge-confirmed { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.visitor-slip .vs-confirm-box {
+  border: 1.5px solid #0f172a;
+  padding: 7px 9px;
+  background: #fafafa;
+}
+.visitor-slip .vs-sign-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 18px;
+  margin-top: 6px;
+}
+.visitor-slip .vs-sign-line { padding-top: 3px; min-width: 0; }
+.visitor-slip .vs-sign-line-full { grid-column: 1 / -1; }
+/* §13 — the physical signature area. 48px ≈ 12.7 mm of writable height,
+   which is what a handwritten signature actually needs; the other blanks are
+   34px ≈ 9 mm, and reception use 26px ≈ 7 mm. */
+.visitor-slip .vs-sign-rule { border-bottom: 1px solid #0f172a; height: 34px; }
+.visitor-slip .vs-sign-rule-main { height: 48px; }
+.visitor-slip .vs-sign-rule-sm { height: 26px; }
+.visitor-slip .vs-sign-cap { font-size: 8.5px; font-weight: 700; color: #475569; margin-top: 2px; }
+.visitor-slip .vs-sig-image {
+  max-width: 190px;
+  max-height: 52px;
+  object-fit: contain;
+  border-bottom: 1px solid #0f172a;
+  display: block;
+}
+.visitor-slip .vs-reception {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 2px solid #0f172a;
+  border-top: none;
+  padding: 5px 10px;
+  font-size: 8.5px;
+  line-height: 12px;
+  color: #475569;
+  font-weight: 700;
+  background: #f8fafc;
+}
+.visitor-slip .vs-reception span:last-child { text-align: right; }
+.visitor-slip .vs-foot {
+  text-align: center;
+  font-size: 7.5px;
+  line-height: 10px;
+  color: #94a3b8;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 4px;
+  margin-top: 5px;
+  font-weight: 600;
+}
+@media print {
+  .visitor-slip { max-width: none; padding: 0; }
+  /* §8 — never split the signature block away from the slip it belongs to. */
+  .visitor-slip .vs-confirm-box,
+  .visitor-slip .vs-body { break-inside: avoid; page-break-inside: avoid; }
+}
+</style>
+<div class="visitor-slip" data-testid="visitor-slip-document">
+  <div class="vs-header">
+    <img class="vs-logo" src="http://localhost:3000/logo.png" alt="">
+    <div class="vs-company">Pakistan Wire Industries (Pvt.) LTD.</div>
+    <div class="vs-company-sub">Security &amp; Reception — Karachi, Pakistan</div>
+    <div class="vs-title">VISITOR SLIP</div>
+    <div class="vs-headline-note">RETAIN THIS SLIP FOR DEPARTURE</div>
+  </div>
+
+  <div class="vs-ref-bar">
+    <span class="vs-ref-label">VISITOR ID</span>
+    <span class="vs-ref">VIS-2026-000051</span>
+    <span class="vs-ref-status"><span class="vs-badge vs-badge-done">COMPLETED</span></span>
+  </div>
+
+  <div class="vs-body">
+    <div class="vs-photo-col">
+      <div class="vs-photo-placeholder" data-testid="visitor-slip-photo-placeholder">No<br>Photo</div>
+      <div class="vs-photo-cap">PHOTO</div>
+    </div>
+
+    <div class="vs-facts">
+      <div class="vs-section-label">VISITOR INFORMATION</div>
+      <div class="vs-grid">
+        <div class="vs-row vs-row-full"><span class="vs-label">Visitor Name</span><span class="vs-val">P19UI620352 Sana Yousaf</span></div>
+        <div class="vs-row"><span class="vs-label">CNIC</span><span class="vs-val">35202-*******-9</span></div>
+        <div class="vs-row"><span class="vs-label">Mobile</span><span class="vs-val">03211234567</span></div>
+        <div class="vs-row vs-row-full"><span class="vs-label">Company / Source</span><span class="vs-val">Bright Future Ltd</span></div>
+      </div>
+
+      <div class="vs-section">
+        <div class="vs-section-label">PERSON BEING VISITED (HOST)</div>
+        <div class="vs-grid">
+          <div class="vs-row vs-row-full"><span class="vs-label">Host Name</span><span class="vs-val">Abdul Hameed</span></div>
+          <div class="vs-row"><span class="vs-label">Department</span><span class="vs-val">Cutting &amp; Packing</span></div>
+          <div class="vs-row"><span class="vs-label">Division</span><span class="vs-val">Control Cable Division</span></div>
+          <div class="vs-row"><span class="vs-label">Location</span><span class="vs-val">Production Department</span></div>
+        </div>
+      </div>
+
+      <div class="vs-section">
+        <div class="vs-section-label">VISIT</div>
+        <div class="vs-grid">
+          <div class="vs-row"><span class="vs-label">Time-In</span><span class="vs-val">29-Sep-2026 01:01 AM</span></div>
+          <div class="vs-row"><span class="vs-label">Time-Out</span><span class="vs-val">29-Sep-2026 01:01 AM</span></div>
+          <div class="vs-row"><span class="vs-label">Status</span><span class="vs-val"><span class="vs-badge vs-badge-done">COMPLETED</span></span></div>
+          <div class="vs-row"><span class="vs-label">Host Confirmation:</span><span class="vs-val"><span class="vs-badge vs-badge-confirmed">CONFIRMED</span></span></div>
+          <div class="vs-row vs-row-full"><span class="vs-label">Confirmed By:</span><span class="vs-val">System Admin <span style="font-weight:600; color:#64748b;">(ERP user — host identity not verified)</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="vs-section">
+    <div class="vs-confirm-box">
+      <div class="vs-section-label">HOST CONFIRMATION</div>
+      <div style="font-size: 9px; color: #475569; font-weight: 600; margin-bottom: 3px;">
+        The host signs below to confirm the visitor reached them. This slip must be
+        returned to Security on departure.
+      </div>
+      <div class="vs-sign-grid">
+        
+        <div class="vs-sign-line">
+          <div class="vs-sign-rule vs-sign-rule-main"></div>
+          <div class="vs-sign-cap">Host Signature</div>
+        </div>
+        <div class="vs-sign-line">
+         <img class="vs-sig-image" src="data:image/png;base64,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" alt="Host signature">
+         <div class="vs-sign-cap">Host Signature — digital, captured 29-Sep-2026 01:01 AM</div>
+       </div>
+        <div class="vs-sign-line">
+          <div class="vs-sign-rule"></div>
+          <div class="vs-sign-cap">Host Name</div>
+        </div>
+        <div class="vs-sign-line">
+          <div class="vs-sign-rule vs-sign-rule-sm"></div>
+          <div class="vs-sign-cap">Date / Time</div>
+        </div>
+        <div class="vs-sign-line vs-sign-line-full">
+          <div class="vs-sign-rule vs-sign-rule-sm"></div>
+          <div class="vs-sign-cap">Security / Reception Use</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="vs-reception">
+    <span>Created By: System Admin</span>
+    <span>Created At: 29-Sep-2026 01:01 AM</span>
+  </div>
+
+  <div class="vs-foot">
+    This slip is issued by Security at the gate. Time-In and Time-Out are recorded by the
+    system. Host confirmation does not record the visitor's departure.
+  </div>
+</div>
+
+        </div>
+      
+    
+  </body></html>

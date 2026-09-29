@@ -1,0 +1,537 @@
+{
+  "totalInApi": 51,
+  "rows": 25,
+  "listRows": 25,
+  "hintText": "Prints the 25 rows in the current filter, on A4 landscape.",
+  "frameCompatMode": "CSS1Compat",
+  "frameDoctype": "html",
+  "after": {
+    "pages": 1,
+    "pageSizeMm": {
+      "wPt": 841.91998,
+      "hPt": 594.95996,
+      "wMm": 297,
+      "hMm": 209.9
+    },
+    "compatMode": "CSS1Compat",
+    "docScrollW": 1047,
+    "clientW": 1047,
+    "bodyScrollW": 1047,
+    "table": {
+      "widthPx": 1046.9,
+      "widthMm": 277,
+      "layout": "fixed",
+      "colCount": 13,
+      "colWidths": [
+        {
+          "label": "#",
+          "declaredPct": "2.5%",
+          "wMm": 6.9
+        },
+        {
+          "label": "VISITOR ID",
+          "declaredPct": "9%",
+          "wMm": 24.9
+        },
+        {
+          "label": "VISITOR NAME",
+          "declaredPct": "11.3%",
+          "wMm": 31.3
+        },
+        {
+          "label": "CNIC",
+          "declaredPct": "8.7%",
+          "wMm": 24.1
+        },
+        {
+          "label": "MOBILE",
+          "declaredPct": "7.9%",
+          "wMm": 21.9
+        },
+        {
+          "label": "COMPANY",
+          "declaredPct": "9.9%",
+          "wMm": 27.4
+        },
+        {
+          "label": "HOST",
+          "declaredPct": "9.4%",
+          "wMm": 26
+        },
+        {
+          "label": "DIVISION",
+          "declaredPct": "5.7%",
+          "wMm": 15.8
+        },
+        {
+          "label": "LOCATION",
+          "declaredPct": "6%",
+          "wMm": 16.6
+        },
+        {
+          "label": "TIME-IN",
+          "declaredPct": "8.2%",
+          "wMm": 22.7
+        },
+        {
+          "label": "TIME-OUT",
+          "declaredPct": "8.2%",
+          "wMm": 22.7
+        },
+        {
+          "label": "STATUS",
+          "declaredPct": "6.6%",
+          "wMm": 18.3
+        },
+        {
+          "label": "HOST CONF.",
+          "declaredPct": "6.6%",
+          "wMm": 18.3
+        }
+      ]
+    },
+    "theadDisplay": "table-header-group",
+    "theadRepeat": true,
+    "fonts": {
+      "bodyPx": 16,
+      "title": 16,
+      "company": 13,
+      "companySub": 8.5,
+      "meta": 8,
+      "th": 7.5,
+      "td": 8.5,
+      "badge": 7.5,
+      "foot": 7,
+      "sample": {
+        "sel": ".vr-co-name",
+        "px": 13
+      }
+    },
+    "blocks": {
+      "headPx": 32.5,
+      "metaPx": 10,
+      "theadPx": 19.4,
+      "footPx": 13.5
+    },
+    "oldBlocks": {
+      "h2Px": null,
+      "pPx": null,
+      "theadPx": 19.4
+    },
+    "oldFonts": {
+      "h2": null,
+      "p": null,
+      "th": 7.5,
+      "td": 8.5
+    },
+    "cells": [
+      {
+        "label": "#",
+        "wPx": 26.1,
+        "wMm": 6.9,
+        "fontPx": 8.5,
+        "whiteSpace": "normal",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "1"
+      },
+      {
+        "label": "VISITOR ID",
+        "wPx": 94.1,
+        "wMm": 24.9,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "VIS-2026-000051"
+      },
+      {
+        "label": "VISITOR NAME",
+        "wPx": 118.2,
+        "wMm": 31.3,
+        "fontPx": 8.5,
+        "whiteSpace": "normal",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "P19UI620352 Sana Yousaf"
+      },
+      {
+        "label": "CNIC",
+        "wPx": 91,
+        "wMm": 24.1,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "35202-*******-9"
+      },
+      {
+        "label": "MOBILE",
+        "wPx": 82.6,
+        "wMm": 21.9,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "03211234567"
+      },
+      {
+        "label": "COMPANY",
+        "wPx": 103.5,
+        "wMm": 27.4,
+        "fontPx": 8.5,
+        "whiteSpace": "normal",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "Bright Future Ltd"
+      },
+      {
+        "label": "HOST",
+        "wPx": 98.3,
+        "wMm": 26,
+        "fontPx": 8.5,
+        "whiteSpace": "normal",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "Abdul Hameed"
+      },
+      {
+        "label": "DIVISION",
+        "wPx": 59.6,
+        "wMm": 15.8,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "DIV-CCD"
+      },
+      {
+        "label": "LOCATION",
+        "wPx": 62.8,
+        "wMm": 16.6,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "CCD-A01"
+      },
+      {
+        "label": "TIME-IN",
+        "wPx": 85.8,
+        "wMm": 22.7,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "29-Sep-202601:01 AM"
+      },
+      {
+        "label": "TIME-OUT",
+        "wPx": 85.8,
+        "wMm": 22.7,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "29-Sep-202601:01 AM"
+      },
+      {
+        "label": "STATUS",
+        "wPx": 69,
+        "wMm": 18.3,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "COMPLETED"
+      },
+      {
+        "label": "HOST CONF.",
+        "wPx": 69.1,
+        "wMm": 18.3,
+        "fontPx": 8.5,
+        "whiteSpace": "nowrap",
+        "lines": 1.9,
+        "clipped": false,
+        "text": "Confirmed"
+      }
+    ],
+    "rows": {
+      "count": 25,
+      "firstPx": 21.9,
+      "medianPx": 21.9,
+      "maxPx": 21.9
+    },
+    "clippedCells": [],
+    "multiLineCells": [
+      "#(1.9)",
+      "VISITOR ID(1.9)",
+      "VISITOR NAME(1.9)",
+      "CNIC(1.9)",
+      "MOBILE(1.9)",
+      "COMPANY(1.9)",
+      "HOST(1.9)",
+      "DIVISION(1.9)",
+      "LOCATION(1.9)",
+      "TIME-IN(1.9)",
+      "TIME-OUT(1.9)",
+      "STATUS(1.9)",
+      "HOST CONF.(1.9)"
+    ],
+    "totalTablePx": 568.1
+  },
+  "utilisation": {
+    "printablePx": 714.3,
+    "usedPx": 643.5,
+    "usedPct": 90.1,
+    "rowsPerPage": 29
+  },
+  "before": {
+    "pages": 3,
+    "pageSizeMm": {
+      "wPt": 612,
+      "hPt": 792,
+      "wMm": 215.9,
+      "hMm": 279.4
+    },
+    "compatMode": "BackCompat",
+    "docScrollW": 983,
+    "clientW": 718,
+    "bodyScrollW": 983,
+    "table": {
+      "widthPx": 966.9,
+      "widthMm": 255.8,
+      "layout": "auto",
+      "colCount": 13,
+      "colWidths": []
+    },
+    "theadDisplay": "table-header-group",
+    "theadRepeat": true,
+    "fonts": {
+      "bodyPx": 11,
+      "title": null,
+      "company": null,
+      "companySub": null,
+      "meta": null,
+      "th": 10,
+      "td": 16,
+      "badge": null,
+      "foot": null,
+      "sample": {
+        "sel": "h2",
+        "px": 16
+      }
+    },
+    "blocks": {
+      "headPx": null,
+      "metaPx": null,
+      "theadPx": 38,
+      "footPx": null
+    },
+    "oldBlocks": {
+      "h2Px": 18,
+      "pPx": 12,
+      "theadPx": 38
+    },
+    "oldFonts": {
+      "h2": 16,
+      "p": 11,
+      "th": 10,
+      "td": 16
+    },
+    "cells": [
+      {
+        "label": "#",
+        "wPx": 29.8,
+        "wMm": 7.9,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "1"
+      },
+      {
+        "label": "Visitor ID",
+        "wPx": 65.4,
+        "wMm": 17.3,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "VIS-2026-000051"
+      },
+      {
+        "label": "Visitor Name",
+        "wPx": 109.9,
+        "wMm": 29.1,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "P19UI620352 Sana Yousaf"
+      },
+      {
+        "label": "CNIC",
+        "wPx": 69.8,
+        "wMm": 18.5,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "35202-*******-9"
+      },
+      {
+        "label": "Mobile",
+        "wPx": 109.9,
+        "wMm": 29.1,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "03211234567"
+      },
+      {
+        "label": "Company",
+        "wPx": 119.6,
+        "wMm": 31.6,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "Bright Future Ltd"
+      },
+      {
+        "label": "Host",
+        "wPx": 72.5,
+        "wMm": 19.2,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "Abdul Hameed"
+      },
+      {
+        "label": "Division",
+        "wPx": 54.1,
+        "wMm": 14.3,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "DIV-CCD"
+      },
+      {
+        "label": "Location",
+        "wPx": 56.9,
+        "wMm": 15,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "CCD-A01"
+      },
+      {
+        "label": "Time-In",
+        "wPx": 52,
+        "wMm": 13.8,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "29-Sep-2026 1:01 AM"
+      },
+      {
+        "label": "Time-Out",
+        "wPx": 70.7,
+        "wMm": 18.7,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "29-Sep-2026 1:01 AM"
+      },
+      {
+        "label": "Status",
+        "wPx": 90.8,
+        "wMm": 24,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "COMPLETED"
+      },
+      {
+        "label": "Host Confirmed",
+        "wPx": 65.6,
+        "wMm": 17.4,
+        "fontPx": 16,
+        "whiteSpace": "normal",
+        "lines": 4.7,
+        "clipped": false,
+        "text": "✓ Yes"
+      }
+    ],
+    "rows": {
+      "count": 25,
+      "firstPx": 104.5,
+      "medianPx": 105,
+      "maxPx": 105
+    },
+    "clippedCells": [],
+    "multiLineCells": [
+      "#(4.7)",
+      "Visitor ID(4.7)",
+      "Visitor Name(4.7)",
+      "CNIC(4.7)",
+      "Mobile(4.7)",
+      "Company(4.7)",
+      "Host(4.7)",
+      "Division(4.7)",
+      "Location(4.7)",
+      "Time-In(4.7)",
+      "Time-Out(4.7)",
+      "Status(4.7)",
+      "Host Confirmed(4.7)"
+    ],
+    "totalTablePx": 2663
+  },
+  "compatMode": {
+    "before": "BackCompat",
+    "after": "CSS1Compat",
+    "liveFrame": "CSS1Compat"
+  },
+  "slip": {
+    "pages": 1,
+    "pageSizeMm": {
+      "wPt": 594.95996,
+      "hPt": 841.91998,
+      "wMm": 209.9,
+      "hMm": 297
+    },
+    "fonts": {
+      "bodyPx": 11,
+      "title": null,
+      "company": null,
+      "companySub": null,
+      "meta": null,
+      "th": null,
+      "td": null,
+      "badge": null,
+      "foot": null,
+      "sample": {
+        "sel": ".vs-company",
+        "px": 13
+      }
+    },
+    "docScrollW": 718,
+    "clientW": 718
+  },
+  "slipSheetW": {
+    "wPx": 718
+  },
+  "summary": {
+    "pass": 44,
+    "fail": 0,
+    "failures": []
+  }
+}

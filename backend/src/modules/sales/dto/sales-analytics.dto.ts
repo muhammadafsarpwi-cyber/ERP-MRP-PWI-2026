@@ -56,6 +56,14 @@ export class SalesAnalyticsFilterDto {
   @IsString()
   search?: string;
 
+  /**
+   * Ranking metric for /customer-rankings. Declared here so the shared query
+   * DTO whitelist accepts it (the controller also reads it via @Query('metric')).
+   */
+  @IsOptional()
+  @IsEnum(CustomerRankingMetric)
+  metric?: CustomerRankingMetric;
+
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
