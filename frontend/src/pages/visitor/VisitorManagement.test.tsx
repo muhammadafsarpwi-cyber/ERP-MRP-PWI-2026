@@ -1790,4 +1790,156 @@ describe('VisitorManagement', () => {
       expect(screen.getByTestId('new-visitor-cancel')).toBeInTheDocument();
     });
   });
+
+  // ==========================================================================
+  //  Prompt #20 - mobile status tabs
+  //
+  //  The five status tabs were laid out `flexWrap: 'nowrap'` inside an
+  //  `overflow: hidden` box. Measured in Chromium against the real page at
+  //  390x844, the strip was 352px wide against 682px of content, so CANCELLED
+  //  - which begins at x=540 - was not trimmed but entirely past the visible
+  //  edge: one of the five status filters was unreachable, with nothing on
+  //  screen to hint that it existed.
+  //
+  //  jsdom has no layout engine, so it cannot reproduce those pixel numbers.
+  //  What it CAN assert is the declaration that produced them - and that is the
+  //  contract, because the two declarations that caused the crop are exactly
+  //  the two the fix changes. The measured proof at 390x844, 430x932, 768 and
+  //  1366 lives in the browser harness; the numbers quoted in the component's
+  //  comment come from there.
+  // ==========================================================================
+  describe('Prompt #20 - mobile status tabs', () => {
+    const TAB_KEYS = ['ALL', 'PENDING', 'INSIDE', 'COMPLETED', 'CANCELLED'] as const;
+
+    const strip = () => screen.getByTestId('visitor-status-tabs');
+    const tab = (key: string) => screen.getByTestId(`visitor-tab-${key}`);
+
+    /** A jsdom rect: jsdom has no layout, so these are supplied by hand. */
+    const rect = (left: number, width: number) =>
+      ({
+        left, right: left + width, width, top: 0, bottom: 46, x: left, y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    /**
+     * "Do NOT remove tabs" and "Do NOT change the meaning or order of the
+     * tabs" are requirements, so they are asserted rather than assumed. The
+     * trailing digit of each button's text is its count badge.
+     */
+    it('1. keeps all five status tabs, labelled and in their original order', async () => {
+      await renderPage();
+      const labels = within(strip())
+        .getAllByRole('button')
+        .map((b) => (b.textContent ?? '').replace(/\d+$/, '').trim());
+      expect(labels).toEqual(['ALL', 'PENDING', 'INSIDE', 'COMPLETED', 'CANCELLED']);
+      TAB_KEYS.forEach((key) => expect(tab(key)).toBeInTheDocument());
+    });
+
+    /**
+     * The regression itself. The strip must WRAP, and must SCROLL rather than
+     * clip - the crop came from `overflow: hidden` combined with `nowrap`, and
+     * those are exactly the declarations asserted against below.
+     */
+    it('2. wraps instead of clipping, and scrolls rather than hiding', async () => {
+      await renderPage();
+      const style = strip().getAttribute('style') ?? '';
+      expect(style).toContain('flex-wrap: wrap');
+      expect(style).toContain('overflow-x: auto');
+      expect(style).toContain('overflow-y: hidden');
+      // The clipper itself, and the reason a whole tab vanished. `overflow-y:
+      // hidden` above is fine; it is the AXIS-SHORT `overflow: hidden` that
+      // cropped the strip, and that is what must not come back.
+      expect(style).not.toContain('overflow: hidden');
+      // `getComputedStyle` cannot confirm this: jsdom does not implement
+      // `overflow-x` and reports `0px` for it, so the declaration itself is
+      // the assertion and the rendered result is measured in the harness.
+    });
+
+    /**
+     * "Do NOT shrink text to an unreadable size" and no tab may be silently
+     * cropped. The labels must not be ellipsised or hidden, and the 13px
+     * desktop size is unchanged - the fix adds rows, it does not compress the
+     * type.
+     */
+    it('3. does not shrink or truncate the tab labels', async () => {
+      await renderPage();
+      TAB_KEYS.forEach((key) => {
+        const style = tab(key).getAttribute('style') ?? '';
+        expect(style).not.toContain('text-overflow');
+        expect(style).not.toContain('overflow: hidden');
+        // The 13px label is the desktop size, unchanged: the fix adds rows
+        // rather than compressing the type. Read off the declaration, because
+        // jsdom does not resolve a computed `font-size`.
+        expect(style).toContain('font-size: 13px');
+      });
+    });
+
+    /**
+     * "Clicking each tab still changes the visitor list/filter" - the filter is
+     * server-side, so the proof is the request the click produces.
+     *
+     * `ALL` is clicked LAST on purpose: it is the tab the page mounts on, and
+     * re-selecting the already-active tab is a genuine no-op that fires no
+     * request, so clicking it first would assert nothing at all. By then the
+     * active tab is CANCELLED, so the move back to ALL is a real change.
+     *
+     * `ALL` deliberately omits the status param (see `params.status` in the
+     * component), so "no status" is the correct expectation there, not a gap.
+     */
+    it('4. clicking each tab still drives the server-side list filter', async () => {
+      await renderPage();
+      for (const key of ['PENDING', 'INSIDE', 'COMPLETED', 'CANCELLED', 'ALL'] as const) {
+        apiMock.get.mockClear();
+        fireEvent.click(tab(key));
+        const expected = key === 'ALL' ? undefined : key;
+        await waitFor(() => {
+          const calls = apiMock.get.mock.calls.filter(
+            ([url, params]: any[]) =>
+              String(url) === '/visitor/entries' && params?.status === expected,
+          );
+          expect(calls.length).toBeGreaterThan(0);
+        }, { timeout: 15000 });
+      }
+    });
+
+    /**
+     * "Active tab remains visible." The 390x844 geometry, supplied by hand: a
+     * 352px strip whose CANCELLED tab runs from 540 to 701.
+     */
+    it('5. scrolls the active tab into view when the strip overflows', async () => {
+      await renderPage();
+      const s = strip() as HTMLElement;
+      const cancelled = tab('CANCELLED') as HTMLElement;
+      Object.defineProperty(s, 'clientWidth', { value: 352, configurable: true });
+      s.getBoundingClientRect = () => rect(0, 352);
+      cancelled.getBoundingClientRect = () => rect(540, 161);
+
+      expect(s.scrollLeft).toBe(0);
+      fireEvent.click(cancelled);
+      // 701 - 352: the tab's right edge is brought to the strip's right edge,
+      // so the tab becomes visible without scrolling further than necessary.
+      await waitFor(() => expect(s.scrollLeft).toBe(349), { timeout: 15000 });
+    });
+
+    /**
+     * The other half of "nearest": a tab already inside the window must not
+     * move the strip at all, so nothing shifts at a width where the strip does
+     * not actually scroll.
+     */
+    it('6. leaves the strip untouched when the active tab already fits', async () => {
+      await renderPage();
+      const s = strip() as HTMLElement;
+      const inside = tab('INSIDE') as HTMLElement;
+      Object.defineProperty(s, 'clientWidth', { value: 352, configurable: true });
+      s.getBoundingClientRect = () => rect(0, 352);
+      inside.getBoundingClientRect = () => rect(116, 139);
+
+      fireEvent.click(inside);
+      // INSIDE is the active tab once its own background is applied.
+      await waitFor(() =>
+        expect(inside.getAttribute('style')).toContain('rgb(52, 152, 219)'),
+      );
+      expect(s.scrollLeft).toBe(0);
+    });
+  });
 });

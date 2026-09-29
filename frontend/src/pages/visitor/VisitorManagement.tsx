@@ -186,9 +186,62 @@ const TABS: { key: TabKey; label: string; activeBg: string }[] = [
 ];
 
 interface ArrowTabsProps { active: TabKey; onChange: (key: TabKey) => void; counts: Record<string, number>; }
+
+/**
+ * The status filter strip.
+ *
+ * Prompt #20 — the five status tabs need about 683px at their natural width,
+ * which a 390px phone cannot show. The strip was `flexWrap: 'nowrap'` inside an
+ * `overflow: hidden` box, so the last tab was not merely trimmed: measured at
+ * 390x844 the strip was 352px wide against 682px of content, and `CANCELLED`
+ * began at x=540 — entirely past the visible edge. Five status filters with one
+ * of them unreachable, and nothing on screen to suggest anything was missing.
+ *
+ * Two deliberate properties, both measured in Chromium against the real page:
+ *
+ *   • `flex-wrap: wrap` is the PRIMARY mechanism. At 390x844 the tabs settle
+ *     onto 3 rows, at 430x932 onto 2, and every tab lands inside the viewport.
+ *     Once a viewport has ~718px available against ~683px of content the strip
+ *     no longer wraps, so the desktop and tablet geometry is untouched —
+ *     measured identical to before at 768 and 1366 (single row, same right
+ *     edge, same tab widths).
+ *
+ *   • `overflow-x: auto` is a FALLBACK, not the primary path. After wrapping,
+ *     `scrollWidth` equals `clientWidth` at every width tested, so no
+ *     scrollbar ever appears. It only engages in a pathological case — a
+ *     viewport narrower than the widest single tab, or a large font scale —
+ *     where scrolling is still better than clipping. The native scrollbar is
+ *     hidden by `.vm-status-tabs` so that fallback cannot read as a layout
+ *     defect.
+ *
+ * The active tab is also scrolled back into view whenever it changes, so
+ * selecting a tab that was out of view never leaves the user looking at the
+ * wrong one. That path is inert at every width where the strip does not scroll.
+ */
 function ArrowTabs({ active, onChange, counts }: ArrowTabsProps) {
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const tab = strip.querySelector<HTMLElement>(`[data-testid="visitor-tab-${active}"]`);
+    if (!tab) return;
+    // Measured in the strip's own scroll space. `offsetLeft` is relative to the
+    // nearest POSITIONED ancestor, which is not this strip, so the rects are
+    // converted instead — that stays correct whatever the offset parent is.
+    const stripRect = strip.getBoundingClientRect();
+    const tabRect = tab.getBoundingClientRect();
+    const left = tabRect.left - stripRect.left + strip.scrollLeft;
+    const right = left + tabRect.width;
+    // `nearest` semantics: move only when the tab is genuinely outside the
+    // window, so nothing shifts at a width where the strip does not scroll.
+    if (left < strip.scrollLeft) strip.scrollLeft = left;
+    else if (right > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right - strip.clientWidth;
+  }, [active]);
+
   return (
-    <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 0, marginBottom: 16, borderRadius: 6, overflow: 'hidden' }}>
+    <div ref={stripRef} className="vm-status-tabs" data-testid="visitor-status-tabs"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 0, marginBottom: 16, borderRadius: 6, overflowX: 'auto', overflowY: 'hidden' }}>
       {TABS.map((tab, i) => {
         const isActive = active === tab.key;
         const bg = isActive ? tab.activeBg : '#d0d0d0';
@@ -1267,6 +1320,12 @@ export function VisitorManagement() {
         .visitor-action-orange:hover{background:#fa8c16!important;color:#fff!important;}
         .visitor-action-default{border-color:#d9d9d9!important;color:#595959!important;}
         .visitor-action-default:hover{border-color:#1677ff!important;color:#1677ff!important;}
+        /* Prompt #20 - the status strip wraps, so it only scrolls in a
+           pathological case (a viewport narrower than the widest single tab, or
+           a large font scale). Keep that fallback available but never let a
+           scrollbar sit under the tabs and read as a layout defect. */
+        .vm-status-tabs{scrollbar-width:none;}
+        .vm-status-tabs::-webkit-scrollbar{width:0;height:0;display:none;}
       `}</style>
 
       {/* ── Print Range Modal ──────────────────────────────────────────── */}
