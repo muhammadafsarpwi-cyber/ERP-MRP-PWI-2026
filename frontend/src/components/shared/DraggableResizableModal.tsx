@@ -83,6 +83,14 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
     return defaultVal;
   };
 
+  const [windowWidth, setWindowWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1280));
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  const isMobile = windowWidth <= 768;
+
   const [size, setSize] = useState({ w: parseDim(width, 880), h: parseDim(height, 560) });
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [isMaximized, setIsMaximized] = useState(false);
@@ -262,8 +270,8 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
     );
   }
 
+
   const modalRender = (modalNode: React.ReactNode) => {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
     return (
       <div
         className={`erp-draggable-modal ${isMobile ? 'erp-draggable-modal--mobile' : ''} ${isMaximized ? 'erp-draggable-modal--maximized' : ''}`}
@@ -278,8 +286,8 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
         <div
           className="erp-draggable-modal-inner"
           style={{
-            height: isMobile || isMaximized ? 'calc(100vh - 24px)' : size.h,
-            maxHeight: isMobile || isMaximized ? 'calc(100vh - 24px)' : size.h,
+            height: isMobile ? '100dvh' : (isMaximized ? 'calc(100vh - 24px)' : size.h),
+            maxHeight: isMobile ? '100dvh' : (isMaximized ? 'calc(100vh - 24px)' : size.h),
           }}
         >
           {modalNode}
@@ -294,15 +302,57 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   const headerTitle = (
     <div
       className="erp-draggable-modal-title-row"
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%' }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        width: '100%',
+        minWidth: 0,
+      }}
     >
-      <div className="erp-draggable-modal-title-text" style={{ minWidth: 0, flex: '1 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: 16 }}>{title}</span>
-        {subtitle && (
-          <div className="erp-draggable-modal-subtitle">{subtitle}</div>
+      <div
+        className="erp-draggable-modal-title-text"
+        style={{
+          minWidth: 0,
+          flex: '1 1 auto',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: isMobile ? 14 : 16,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+          }}
+        >
+          {title}
+        </div>
+        {!isMobile && subtitle && (
+          <div
+            className="erp-draggable-modal-subtitle"
+            style={{
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              fontSize: 12,
+              color: 'var(--theme-text-muted, #94a3b8)',
+              marginTop: 0,
+            }}
+          >
+            {subtitle}
+          </div>
         )}
       </div>
-      <div className="erp-draggable-modal-title-actions" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div className="erp-draggable-modal-title-actions" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         {infoTooltip && (
           <Tooltip title={infoTooltip}>
             <button type="button" className="erp-modal-action-btn" aria-label="Information">
@@ -313,7 +363,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
         {extra && (
           <div className="erp-draggable-modal-title-extra" style={{ flex: '0 0 auto' }}>{extra}</div>
         )}
-        {allowMinimize && (
+        {!isMobile && allowMinimize && (
           <Tooltip title="Minimize">
             <button
               type="button"
@@ -329,7 +379,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
             </button>
           </Tooltip>
         )}
-        {allowMaximize && (
+        {!isMobile && allowMaximize && (
           <Tooltip title={isMaximized ? 'Restore' : 'Maximize'}>
             <button
               type="button"

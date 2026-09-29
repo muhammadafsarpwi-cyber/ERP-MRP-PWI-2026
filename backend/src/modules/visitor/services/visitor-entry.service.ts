@@ -293,7 +293,8 @@ export class VisitorEntryService {
       visitorName: dto.visitorName.trim(),
       cnic: normalizeCnic(dto.cnic) ?? dto.cnic,
       mobile: dto.mobile,
-      visitorCompany: dto.visitorCompany?.trim() || null,
+      // Strip HTML tags from visitor company to prevent XSS in print documents.
+      visitorCompany: dto.visitorCompany ? dto.visitorCompany.trim().replace(/<[^>]*>/g, '').trim() || null : null,
       hostEmployeeId: host.id,
       hostNameSnapshot: [host.firstName, host.lastName].filter(Boolean).join(' ').trim() || host.employeeCode,
       photoPath: null,

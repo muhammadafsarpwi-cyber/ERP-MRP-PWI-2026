@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Drawer, Grid, Button, Tooltip } from 'antd';
-import { MenuOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Layout, Menu, Drawer, Grid, Button } from 'antd';
+import { MenuOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
-import { triggerTabRefresh } from '../../services/tabSessionCache';
 import ThemeSettingsButton from './ThemeCustomizer';
 import HeaderSearch from './HeaderSearch';
 import NotificationBell from './NotificationBell';
@@ -631,31 +630,12 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                overflowX: 'auto',
-                minWidth: 0,
                 flexShrink: 0,
-                scrollbarWidth: 'thin',
+                marginLeft: 'auto',
+                paddingRight: 6,
               }}
             >
               <HeaderSearch />
-              <Tooltip title="Refresh active page data (Direct DB Sync)">
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={() => triggerTabRefresh(location.pathname)}
-                  style={{
-                    borderRadius: 6,
-                    fontWeight: 600,
-                    fontSize: 12,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                  size="middle"
-                  className="erp-top-header-refresh-btn"
-                >
-                  Refresh
-                </Button>
-              </Tooltip>
               <NotificationBell />
               <EmailCommunicationIcon />
               <WhatsAppCommunicationIcon />

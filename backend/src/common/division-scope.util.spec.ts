@@ -3,8 +3,10 @@ import {
   DivisionAccess,
   applyDivisionScopeFilter,
   deriveUserDivisionIds,
+  divisionScopeFromRequest,
   intersectDivisionAccess,
   isUnrestricted,
+  narrowWhereByDivision,
   rawDivisionInClause,
   toDivisionList,
 } from './division-scope.util';
@@ -171,6 +173,146 @@ describe('division-scope.util', () => {
           { divisionId: null, scopeLevel: 'COMPANY', status: 'INACTIVE' },
         ]),
       ).toEqual(['d1']);
+    });
+
+    /**
+     * PROMPT #26 — THE REGRESSION THAT CAUSED THE INCIDENT.
+     *
+     * `ErpUserService.getUserOrganizationScopes()` auto-heals any account with
+     * no scope row by writing a COMPANY-wide one
+     * (`division_id IS NULL`, `is_full_scope = true`, `scope_level = 'COMPANY'`).
+     * The previous implementation short-circuited to `'ALL'` the moment it saw
+     * ANY company-wide row, so an admin who added DIV-CCD to a user who already
+     * had that auto-heal row produced an account the API treated as
+     * UNRESTRICTED while the Division Access popup showed only DIV-CCD.
+     *
+     * This is the exact row shape found in production for the reported user
+     * (DIV-CCD scope `14df543b-…` + company-wide scope `facbee53-…`).
+     */
+    it('lets an explicit division restriction win over the auto-healed company-wide default', () => {
+      expect(
+        deriveUserDivisionIds([
+          { divisionId: 'd1', scopeLevel: 'DIVISION', isFullScope: false, status: 'ACTIVE' },
+          { divisionId: null, scopeLevel: 'COMPANY', isFullScope: true, status: 'ACTIVE' },
+        ]),
+      ).toEqual(['d1']);
+    });
+
+    it('applies the same precedence regardless of row order', () => {
+      expect(
+        deriveUserDivisionIds([
+          { divisionId: null, scopeLevel: 'COMPANY', isFullScope: true, status: 'ACTIVE' },
+          { divisionId: 'd1', scopeLevel: 'DIVISION', isFullScope: false, status: 'ACTIVE' },
+        ]),
+      ).toEqual(['d1']);
+    });
+
+    it('keeps the company-wide default authoritative when it is the ONLY scope', () => {
+      // 13 production accounts (every ADMIN / SUPER_ADMIN) are in exactly this
+      // state. They MUST stay unrestricted — the fix narrows, it never widens.
+      expect(
+        deriveUserDivisionIds([{ divisionId: null, scopeLevel: 'COMPANY', isFullScope: true, status: 'ACTIVE' }]),
+      ).toEqual(ALL_DIVISIONS);
+    });
+
+    it('treats a company-wide row that also carries a division_id as a default, not a restriction', () => {
+      // `isFullScope: true` with a division_id is the shape the auto-heal and
+      // some legacy rows use; it must never be read as a restriction.
+      expect(
+        deriveUserDivisionIds([{ divisionId: 'd1', scopeLevel: 'COMPANY', isFullScope: true, status: 'ACTIVE' }]),
+      ).toEqual(ALL_DIVISIONS);
+    });
+
+    it('yields an empty (deny-all) set for the explicit NONE marker', () => {
+      // `setDivisionAccess({ divisionIds: [] })` persists an ACTIVE
+      // `scope_level = 'NONE'` row. It has to be ACTIVE: every resolver filters
+      // on `status = 'ACTIVE'`, so an INACTIVE row would be invisible and the
+      // backward-compat rule below would turn the revoke back into full access.
+      expect(deriveUserDivisionIds([{ divisionId: null, scopeLevel: 'NONE', status: 'ACTIVE' }])).toEqual([]);
+    });
+
+    it('does not let a company-wide default undo the NONE marker', () => {
+      expect(
+        deriveUserDivisionIds([
+          { divisionId: null, scopeLevel: 'NONE', status: 'ACTIVE' },
+          { divisionId: null, scopeLevel: 'COMPANY', isFullScope: true, status: 'ACTIVE' },
+        ]),
+      ).toEqual([]);
+    });
+
+    it('lets an explicit division row override a leftover NONE marker', () => {
+      expect(
+        deriveUserDivisionIds([
+          { divisionId: null, scopeLevel: 'NONE', status: 'ACTIVE' },
+          { divisionId: 'd1', scopeLevel: 'DIVISION', status: 'ACTIVE' },
+        ]),
+      ).toEqual(['d1']);
+    });
+
+    it('stays backward compatible when the only rows are inactive', () => {
+      // §12 — nothing ACTIVE configured ⇒ legacy unrestricted. This is why the
+      // deny marker must be ACTIVE rather than a deactivated company-wide row.
+      expect(deriveUserDivisionIds([{ divisionId: null, scopeLevel: 'COMPANY', status: 'INACTIVE' }])).toEqual(
+        ALL_DIVISIONS,
+      );
+    });
+
+    it('stays backward compatible for a section-only account', () => {
+      expect(
+        deriveUserDivisionIds([{ divisionId: null, scopeLevel: 'SECTION', status: 'ACTIVE' }]),
+      ).toEqual(ALL_DIVISIONS);
+    });
+  });
+
+  describe('divisionScopeFromRequest  (controller → service scope handoff)', () => {
+    it('returns undefined when the guard resolved "unrestricted"', () => {
+      expect(divisionScopeFromRequest({ allowedDivisionIds: 'ALL' })).toBeUndefined();
+      expect(divisionScopeFromRequest({})).toBeUndefined();
+      expect(divisionScopeFromRequest(null)).toBeUndefined();
+      expect(divisionScopeFromRequest(undefined)).toBeUndefined();
+    });
+
+    it('returns the concrete list when the guard restricted the caller', () => {
+      expect(divisionScopeFromRequest({ allowedDivisionIds: ['d1', 'd2'] })).toEqual(['d1', 'd2']);
+    });
+
+    it('distinguishes deny-all ([]) from unrestricted (undefined)', () => {
+      // This distinction is load-bearing: `undefined` means "no filter",
+      // `[]` means the query must match nothing.
+      expect(divisionScopeFromRequest({ allowedDivisionIds: [] })).toEqual([]);
+    });
+  });
+
+  describe('narrowWhereByDivision  (Repository.find reference data)', () => {
+    it('returns the where object untouched when unrestricted', () => {
+      const where = { companyId: 'c1', status: 'ACTIVE' };
+      expect(narrowWhereByDivision(where, 'divisionId', 'ALL')).toBe(where);
+      expect(narrowWhereByDivision(where, 'divisionId', undefined)).toBe(where);
+    });
+
+    it('never mutates the caller object', () => {
+      const where: Record<string, unknown> = { companyId: 'c1' };
+      narrowWhereByDivision(where, 'divisionId', ['d1']);
+      expect(where).toEqual({ companyId: 'c1' });
+    });
+
+    it('produces a restrictive find operator for a concrete set', () => {
+      const result: any = narrowWhereByDivision({ companyId: 'c1' }, 'divisionId', ['d1', 'd2']);
+      expect(result.companyId).toBe('c1');
+      expect(result.divisionId).toBeDefined();
+      // TypeORM FindOperator — serialised back to a parameterised IN clause.
+      expect(JSON.stringify(result.divisionId)).toContain('d1');
+    });
+
+    it('fails closed for an empty set', () => {
+      const result: any = narrowWhereByDivision({ companyId: 'c1' }, 'divisionId', []);
+      expect(result.divisionId).toBeDefined();
+    });
+
+    it('keeps unassigned rows only when explicitly asked (company master data)', () => {
+      const strict: any = narrowWhereByDivision({ companyId: 'c1' }, 'divisionId', ['d1']);
+      const shared: any = narrowWhereByDivision({ companyId: 'c1' }, 'divisionId', ['d1'], { includeUnassigned: true });
+      expect(strict.divisionId).not.toEqual(shared.divisionId);
     });
   });
 });

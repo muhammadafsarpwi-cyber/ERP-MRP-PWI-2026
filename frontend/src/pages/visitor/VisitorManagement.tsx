@@ -8,6 +8,8 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   EyeOutlined,
+  FileExcelOutlined,
+  FilePdfOutlined,
   FilterOutlined,
   IdcardOutlined,
   LogoutOutlined,
@@ -951,6 +953,113 @@ export function VisitorManagement() {
     );
   };
 
+  // ── PDF Export ───────────────────────────────────────────────────────────────
+  /**
+   * Export the current visible rows to a PDF table using jsPDF + autoTable.
+   * Landscape A4, same column structure as the printed register.
+   */
+  const handleExportPdf = useCallback(async () => {
+    try {
+      // Dynamic import so the ~200 KB library does not affect initial load time.
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const doc = new jsPDF({ orientation: 'landscape', format: 'a4', unit: 'mm' });
+
+      // Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('Pakistan Wire Industries (Pvt.) Ltd.', 14, 14);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text('Visitor Register', 14, 20);
+      doc.text(`Printed: ${dayjs().format('DD-MMM-YYYY hh:mm A')}`, 14, 25);
+      doc.text(`Total Records: ${rows.length}`, 14, 30);
+
+      autoTable(doc, {
+        startY: 35,
+        head: [['#', 'Visitor ID', 'Name', 'CNIC', 'Mobile', 'Company', 'Host', 'Division', 'Location', 'Time-In', 'Time-Out', 'Status', 'Host Conf.']],
+        body: rows.map((r, i) => [
+          i + 1,
+          r.visitorReference ?? '—',
+          r.visitorName,
+          r.cnic ?? '—',
+          r.mobile ?? '—',
+          r.visitorCompany ?? '—',
+          r.hostNameSnapshot ?? '—',
+          r.division?.name ?? '—',
+          r.location?.name ?? '—',
+          r.timeIn ? dayjs(r.timeIn).format('DD-MMM-YYYY hh:mm A') : '—',
+          r.timeOut ? dayjs(r.timeOut).format('DD-MMM-YYYY hh:mm A') : (r.status === 'PENDING' ? 'Pending' : '—'),
+          r.status,
+          r.hostConfirmed ? 'Confirmed' : 'Pending',
+        ]),
+        styles: { fontSize: 7, cellPadding: 1.5 },
+        headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+        alternateRowStyles: { fillColor: [246, 248, 251] },
+        columnStyles: {
+          0: { cellWidth: 6 },
+          1: { cellWidth: 20 },
+          2: { cellWidth: 24 },
+          3: { cellWidth: 22 },
+          4: { cellWidth: 20 },
+          5: { cellWidth: 22 },
+          6: { cellWidth: 22 },
+          7: { cellWidth: 22 },
+          8: { cellWidth: 22 },
+          9: { cellWidth: 22 },
+          10: { cellWidth: 22 },
+          11: { cellWidth: 16 },
+          12: { cellWidth: 16 },
+        },
+        margin: { left: 10, right: 10 },
+      });
+
+      doc.save(`visitor-register-${dayjs().format('YYYY-MM-DD')}.pdf`);
+      message.success('PDF exported successfully');
+    } catch {
+      message.error('Could not export PDF');
+    }
+  }, [rows, message]);
+
+  // ── CSV/Excel Export ──────────────────────────────────────────────────────────
+  /**
+   * Export current visible rows as a CSV file that Excel opens natively.
+   */
+  const handleExportCsv = useCallback(() => {
+    const headers = ['#', 'Visitor ID', 'Name', 'CNIC', 'Mobile', 'Company', 'Host', 'Division', 'Location', 'Time-In', 'Time-Out', 'Status', 'Host Confirmed'];
+    const escape = (v: string | number | null | undefined) => {
+      const s = (v ?? '').toString();
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csvRows = [
+      headers.map(escape).join(','),
+      ...rows.map((r, i) => [
+        i + 1,
+        r.visitorReference ?? '',
+        r.visitorName,
+        r.cnic ?? '',
+        r.mobile ?? '',
+        r.visitorCompany ?? '',
+        r.hostNameSnapshot ?? '',
+        r.division?.name ?? '',
+        r.location?.name ?? '',
+        r.timeIn ? dayjs(r.timeIn).format('DD-MMM-YYYY HH:mm') : '',
+        r.timeOut ? dayjs(r.timeOut).format('DD-MMM-YYYY HH:mm') : (r.status === 'PENDING' ? 'Pending' : ''),
+        r.status,
+        r.hostConfirmed ? 'Confirmed' : 'Pending',
+      ].map(escape).join(',')),
+    ];
+    // BOM for Excel UTF-8 detection
+    const blob = new Blob(['\uFEFF' + csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `visitor-register-${dayjs().format('YYYY-MM-DD')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    message.success('Excel/CSV exported successfully');
+  }, [rows, message]);
+
   // ── Columns ────────────────────────────────────────────────────────────
   const columns: ColumnsType<VisitorRow> = useMemo(
     () => [
@@ -985,20 +1094,47 @@ export function VisitorManagement() {
         title: 'VISITOR NAME',
         dataIndex: 'visitorName',
         key: 'visitorName',
-        width: 180,
+        width: 195,
         render: (value: string, row) => (
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{value}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* Name — primary, bold */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                background: 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)',
+                fontSize: 11, fontWeight: 800, color: '#fff',
+              }}>
+                {value?.charAt(0)?.toUpperCase() || '?'}
+              </span>
+              <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', lineHeight: 1.2 }}>
+                {value}
+              </span>
+            </div>
+            {/* CNIC */}
             {row.cnic && (
-              <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2, display: 'flex', alignItems: 'center', gap: 3 }}>
-                <IdcardOutlined style={{ fontSize: 10 }} />
-                <span>{row.cnic}</span>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: '#f1f5f9', borderRadius: 5, padding: '2px 7px',
+              }}>
+                <IdcardOutlined style={{ fontSize: 10, color: '#6366f1', flexShrink: 0 }} />
+                <span style={{ fontSize: 10.5, color: '#475569', fontFamily: 'monospace', letterSpacing: '0.02em' }}>
+                  {row.cnic}
+                </span>
               </div>
             )}
+            {/* Mobile */}
             {row.mobile && (
-              <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 1, display: 'flex', alignItems: 'center', gap: 3 }}>
-                <MobileOutlined style={{ fontSize: 10 }} />
-                <span>{row.mobile}</span>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: '#f0fdf4', borderRadius: 5, padding: '2px 7px',
+              }}>
+                <MobileOutlined style={{ fontSize: 10, color: '#22c55e', flexShrink: 0 }} />
+                <span style={{ fontSize: 10.5, color: '#16a34a', fontFamily: 'monospace' }}>
+                  {row.mobile}
+                </span>
               </div>
             )}
           </div>
@@ -1009,47 +1145,59 @@ export function VisitorManagement() {
         dataIndex: 'visitorCompany',
         key: 'visitorCompany',
         width: 140,
-        render: (v: string | null) => v ? <span style={{ fontSize: 12 }}>{v}</span> : <span style={{ color: '#bbb' }}>—</span>,
+        render: (v: string | null) => {
+          if (!v || !v.trim()) return <span style={{ color: '#bbb' }}>—</span>;
+          // Strip any HTML tags that may have been entered (defence-in-depth;
+          // React already escapes {v} but a clean label looks better).
+          const safe = v.replace(/<[^>]*>/g, '').trim();
+          if (!safe) return <span style={{ color: '#bbb' }}>—</span>;
+          return <span style={{ fontSize: 12 }}>{safe}</span>;
+        },
       },
       {
         title: 'HOST / DIVISION / LOCATION',
         key: 'hostDivLoc',
         width: 210,
-        render: (_, row) => (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {/* Host */}
-            {row.hostNameSnapshot ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <UserOutlined style={{ color: '#1677ff', fontSize: 10, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#1677ff' }}>{row.hostNameSnapshot}</span>
-              </div>
-            ) : (
-              <span style={{ fontSize: 11, color: '#bbb' }}>—</span>
-            )}
-            {/* Division */}
-            {row.division && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{
-                  fontFamily: 'monospace', background: '#1a1a2e', border: '1px solid #3a3a5e',
-                  borderRadius: 3, padding: '1px 5px', fontSize: 10, fontWeight: 700,
-                  color: '#a5b4fc', whiteSpace: 'nowrap', flexShrink: 0,
-                }}>{row.division.divisionCode}</span>
-                <span style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.division.name}</span>
-              </div>
-            )}
-            {/* Location */}
-            {row.location && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{
-                  background: '#f0f5ff', border: '1px solid #adc6ff',
-                  borderRadius: 3, padding: '1px 5px', fontSize: 10, fontWeight: 700,
-                  color: '#2f54eb', whiteSpace: 'nowrap', flexShrink: 0,
-                }}>{row.location.locationCode}</span>
-                <span style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.location.name}</span>
-              </div>
-            )}
-          </div>
-        ),
+        render: (_, row) => {
+          // Guard: if hostNameSnapshot is a UUID, show dash instead of a raw ID
+          const UUID_SHAPE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const hostName = row.hostNameSnapshot && !UUID_SHAPE_RE.test(row.hostNameSnapshot.trim())
+            ? row.hostNameSnapshot.trim()
+            : null;
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {/* Host */}
+              {hostName ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <UserOutlined style={{ color: '#1677ff', fontSize: 10, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#1677ff' }}>{hostName}</span>
+                </div>
+              ) : (
+                <span style={{ fontSize: 11, color: '#bbb' }}>—</span>
+              )}
+              {/* Division — full name only, no code ID */}
+              {row.division?.name && (
+                <div style={{ fontSize: 11, color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{
+                    display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
+                    background: '#6366f1', flexShrink: 0,
+                  }} />
+                  <span style={{ fontWeight: 600 }}>{row.division.name}</span>
+                </div>
+              )}
+              {/* Location — full name only, no code ID */}
+              {row.location?.name && (
+                <div style={{ fontSize: 11, color: '#475569', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{
+                    display: 'inline-block', width: 7, height: 7, borderRadius: 1,
+                    background: '#22c55e', flexShrink: 0,
+                  }} />
+                  <span>{row.location.name}</span>
+                </div>
+              )}
+            </div>
+          );
+        },
       },
       {
         title: 'TIME-IN',
@@ -1195,7 +1343,37 @@ export function VisitorManagement() {
         subtitle="Visitor Management — gate register with server-side Time-In"
         extra={
           <Space wrap>
-            <Button icon={<PrinterOutlined />} onClick={() => setPrintModalOpen(true)} style={{ borderColor: '#e74c3c', color: '#e74c3c', fontWeight: 600, borderRadius: 6 }}>Print Register</Button>
+            <Button
+              icon={<PrinterOutlined />}
+              onClick={() => setPrintModalOpen(true)}
+              style={{ borderColor: '#e74c3c', color: '#e74c3c', fontWeight: 600, borderRadius: 6 }}
+            >
+              Print Register
+            </Button>
+            <Button
+              icon={<FilePdfOutlined />}
+              onClick={() => void handleExportPdf()}
+              data-testid="visitor-export-pdf"
+              style={{
+                background: 'linear-gradient(135deg,#e74c3c,#c0392b)',
+                borderColor: '#c0392b', color: '#fff',
+                fontWeight: 600, borderRadius: 6,
+              }}
+            >
+              PDF Export
+            </Button>
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={handleExportCsv}
+              data-testid="visitor-export-excel"
+              style={{
+                background: 'linear-gradient(135deg,#27ae60,#1e8449)',
+                borderColor: '#1e8449', color: '#fff',
+                fontWeight: 600, borderRadius: 6,
+              }}
+            >
+              Excel Export
+            </Button>
             <Button icon={<ReloadOutlined />} onClick={() => void load()} data-testid="visitor-refresh" style={{ borderRadius: 6 }}>Refresh</Button>
             {canCreate && (
               <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} data-testid="new-visitor-button" style={{ background: '#4a0808', borderColor: '#4a0808', borderRadius: 6, fontWeight: 700 }}>New Visitor</Button>

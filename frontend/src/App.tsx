@@ -136,6 +136,7 @@ import {
 import AiAssistantPage from './pages/ai-assistant/AiAssistantPage';
 import GeneralReports from './pages/reports/GeneralReports';
 import { VisitorManagement, VisitorLocationManagement } from './pages/visitor';
+import apiService from './services/api';
 import './App.css';
 
 const MachineRouteRedirect: React.FC = () => {
@@ -144,6 +145,18 @@ const MachineRouteRedirect: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  // PROMPT #26 (issue #3) — keep the session alive across long idle periods.
+  //
+  // Without this, a tab left open past the access-token lifetime only recovered
+  // reactively (a 401 AFTER a request had already failed), and the identity /
+  // permission / division context on the client stayed stale for the rest of
+  // the 5-minute cache window. Mounted once at the app root so every route —
+  // including ones that never call the API — benefits.
+  //
+  // Explicitly NOT a `window.location.reload()`: this revalidates in place and
+  // leaves the user's open tabs, form state and scroll position alone.
+  React.useEffect(() => apiService.startSessionWatchdog(), []);
+
   return (
     <Routes>
       <Route path="/" element={<Welcome />} />

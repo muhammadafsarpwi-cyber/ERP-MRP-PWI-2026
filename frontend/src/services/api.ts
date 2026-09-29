@@ -1,6 +1,13 @@
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import { message } from 'antd';
 import { useLoadingStore } from '../store/loadingStore';
+import { useUserStore } from '../store/userStore';
+import {
+  REFRESH_SKEW_SECONDS,
+  clearSessionStorage,
+  createSingleFlight,
+  isTokenExpiring,
+} from './sessionRefresh';
 
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || `http://${window.location.hostname}:3001/api/v1`;
@@ -83,6 +90,118 @@ export function describeForbiddenMessage(backendMessage: unknown): string | null
   return 'You do not have permission to perform this action.';
 }
 
+/** Paths that legitimately answer 401 without meaning "your session died". */
+const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password'];
+
+/** Never run auth machinery for these — they ARE the auth machinery. */
+const AUTH_PATHS = ['/auth/refresh', '/auth/login', '/auth/signup', '/auth/logout'];
+
+/** Owns the single teardown/redirect for a dead session (issue #3, cause 3). */
+const sessionTeardown = createSingleFlight();
+
+/** The in-flight refresh promise, shared by every concurrent 401. */
+let refreshInFlight: Promise<string | null> | null = null;
+
+/**
+ * Tear the session down and navigate to /login exactly once.
+ *
+ * PROMPT #26 (issue #3, causes 2 + 3): the previous implementation assigned
+ * `window.location.href` and then FELL THROUGH into the 403 handler and
+ * `Promise.reject(error)`. That fall-through is why a dead session produced a
+ * burst of toast errors and a stuck UI instead of a clean redirect. The
+ * `return` is load-bearing, and the single-flight guard stops N parallel 401s
+ * from each redirecting.
+ */
+function endSessionAndRedirect(reason: string): void {
+  if (!sessionTeardown.claim()) return;
+  clearSessionStorage();
+  try {
+    useUserStore.getState().clearUser?.();
+  } catch {
+    /* store shape differs — storage clear above is what actually matters */
+  }
+  // eslint-disable-next-line no-console
+  console.warn(`[API] session ended: ${reason}`);
+  window.location.href = '/login';
+}
+
+/**
+ * Re-arm the terminal-session guard after a successful sign-in.
+ *
+ * `endSessionAndRedirect()` latches `sessionTeardown` so a burst of parallel
+ * 401s produces exactly ONE navigation. That latch has to be released again
+ * once a new session exists, otherwise a later terminal failure in the same
+ * tab would be swallowed (no redirect, no storage clear) and the app would sit
+ * there looking signed-in while every request 401s.
+ */
+export function markSessionActive(): void {
+  sessionTeardown.reset();
+  refreshInFlight = null;
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  const refreshToken = localStorage.getItem('refresh_token');
+  if (!refreshToken) return null;
+
+  const run = (async (): Promise<string | null> => {
+    try {
+      const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+      const newToken = res.data?.token as string | undefined;
+      const newRefreshToken = res.data?.refreshToken as string | undefined;
+      if (!newToken) return null;
+
+      localStorage.setItem('token', newToken);
+      localStorage.setItem('access_token', newToken);
+      if (newRefreshToken) localStorage.setItem('refresh_token', newRefreshToken);
+
+      // PROMPT #26 (issue #3, cause 4): a silent token rotation that leaves
+      // `erp_user` / `erp_permissions_ts` untouched keeps the OLD identity and
+      // OLD division context alive for the rest of the TTL — so revoked sidebar
+      // buttons stay clickable and division pickers show divisions the server
+      // has already removed. Re-pull the authoritative profile right after the
+      // refresh, and reuse it to settle any waiting 401s.
+      await syncIdentityAfterRefresh();
+      return newToken;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  refreshInFlight = run;
+  return run;
+}
+
+/**
+ * Re-read `GET /auth/me` after a successful refresh so permissions and division
+ * access on the client match what the server will actually enforce.
+ *
+ * Never rejects: a failure here must not turn a successful token refresh into a
+ * logout, it just leaves the previous (still valid) identity in place.
+ */
+async function syncIdentityAfterRefresh(): Promise<void> {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+    });
+    const userData = response.data?.data;
+    if (!userData || typeof userData !== 'object') return;
+    localStorage.setItem('erp_user', JSON.stringify(userData));
+    localStorage.setItem('erp_permissions_ts', Date.now().toString());
+    try {
+      useUserStore.getState().setUser(userData);
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(new CustomEvent('erp:session-synced'));
+  } catch {
+    /* keep the previous identity; the next refresh/focus will retry */
+  }
+}
+
 class ApiService {
   private api: AxiosInstance;
 
@@ -102,7 +221,7 @@ class ApiService {
     let activeRequests = 0;
 
     this.api.interceptors.request.use(
-      (config: any) => {
+      async (config: any) => {
         if (!config?.silent) {
           activeRequests += 1;
           loading().begin();
@@ -110,6 +229,21 @@ class ApiService {
         const token = localStorage.getItem('token') || localStorage.getItem('access_token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
+        }
+
+        // PROMPT #26 (issue #3, cause 1): refresh BEFORE the request is sent
+        // when the access token is already expired / about to be. Previously
+        // the only recovery was reactive (a 401 AFTER the call failed), which
+        // is what left the app in a broken state after a long idle period.
+        // Guarded so the refresh call itself never recurses.
+        const isAuthCall = AUTH_PATHS.some((p) => String(config?.url || '').includes(p));
+        if (!isAuthCall && !config?._retry && token && isTokenExpiring(token, REFRESH_SKEW_SECONDS)) {
+          const fresh = await refreshAccessToken();
+          if (fresh) {
+            config.headers.Authorization = `Bearer ${fresh}`;
+          } else {
+            endSessionAndRedirect('access token expired and refresh failed');
+          }
         }
         return config;
       },
@@ -149,12 +283,18 @@ class ApiService {
         const originalRequest = error.config as any;
         const status = error.response?.status;
         const currentPath = window.location.pathname;
-        const publicPaths = ['/login', '/forgot-password', '/reset-password', '/auth/refresh'];
+        const isPublicPath = PUBLIC_PATHS.includes(currentPath);
 
-        if (status === 401 && !publicPaths.includes(currentPath) && originalRequest && !originalRequest._retry) {
-          const refreshToken = localStorage.getItem('refresh_token');
-          if (refreshToken) {
+        if (status === 401 && !isPublicPath && originalRequest && !originalRequest._retry) {
+          const isAuthCall = AUTH_PATHS.some((p) => String(originalRequest.url || '').includes(p));
+
+          if (!isAuthCall) {
+            originalRequest._retry = true;
+
             if (isRefreshing) {
+              // A refresh is already running (started by the request
+              // interceptor, or by an earlier 401). Park this request until it
+              // settles instead of firing a second /auth/refresh.
               return new Promise((resolve, reject) => {
                 failedQueue.push({ resolve, reject });
               })
@@ -165,41 +305,31 @@ class ApiService {
                 .catch((err) => Promise.reject(err));
             }
 
-            originalRequest._retry = true;
             isRefreshing = true;
-
             try {
-              const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-              const newToken = res.data?.token;
-              const newRefreshToken = res.data?.refreshToken;
+              const newToken = await refreshAccessToken();
               if (newToken) {
-                localStorage.setItem('token', newToken);
-                if (newRefreshToken) {
-                  localStorage.setItem('refresh_token', newRefreshToken);
-                }
                 processQueue(null, newToken);
                 originalRequest.headers.Authorization = `Bearer ${newToken}`;
                 return this.api(originalRequest);
               }
+              processQueue(error, null);
             } catch (refreshErr) {
               processQueue(refreshErr, null);
-              localStorage.removeItem('token');
-              localStorage.removeItem('refresh_token');
-              localStorage.removeItem('erp_user');
-              window.location.href = '/login';
-              return Promise.reject(refreshErr);
             } finally {
               isRefreshing = false;
             }
           }
 
-          localStorage.removeItem('token');
-          localStorage.removeItem('refresh_token');
-          localStorage.removeItem('erp_user');
-          window.location.href = '/login';
+          // Terminal: no refresh token, or the refresh itself failed.
+          // NOTE the `return` — without it this fell through into the 403
+          // branch below and rejected with the ORIGINAL error after already
+          // having torn the session down (issue #3, cause 2).
+          endSessionAndRedirect(`HTTP 401 on ${originalRequest?.url ?? 'request'}`);
+          return Promise.reject(error);
         }
 
-        if (status === 403 && !publicPaths.includes(currentPath)) {
+        if (status === 403 && !isPublicPath) {
           const backendMsg = (error.response?.data as any)?.message;
           const msg = Array.isArray(backendMsg) ? backendMsg[0] : backendMsg;
           if (msg) {
@@ -218,6 +348,14 @@ class ApiService {
         return Promise.reject(error);
       }
     );
+  }
+
+  /**
+   * PROMPT #26 — call after a successful sign-in so the terminal-session guard
+   * is armed again for the new session. See {@link markSessionActive}.
+   */
+  markSessionActive(): void {
+    markSessionActive();
   }
 
   async get<T>(url: string, params?: any, config?: any): Promise<T> {
@@ -268,6 +406,75 @@ class ApiService {
   async delete<T>(url: string): Promise<T> {
     const response = await this.api.delete<T>(url);
     return response.data;
+  }
+
+  /**
+   * PROMPT #26 (issue #3, cause 5) — revalidate the session when the user comes
+   * back to a tab that has been left open.
+   *
+   * Without this, a laptop left open overnight keeps rendering whatever
+   * permissions were cached at the last successful `/auth/me`, so:
+   *  - an admin who revoked a role in the meantime still sees those buttons, and
+   *    clicking one produces a 403 the user cannot act on, and
+   *  - a user whose division access changed still sees stale division pickers.
+   *
+   * Listens to `visibilitychange` (tab switched back in), `focus` (window
+   * refocused) and a slow interval (a tab that stays visible but idle). All
+   * three funnel into ONE in-flight check, and the check is a no-op unless the
+   * cached identity is actually stale, so it costs nothing in the common case.
+   *
+   * Deliberately NOT `window.location.reload()` — reloading is a band-aid that
+   * throws away the user's open tabs, unsaved form state and scroll position,
+   * and the brief explicitly rules it out.
+   */
+  startSessionWatchdog(options: { staleAfterMs?: number; intervalMs?: number } = {}): () => void {
+    const staleAfterMs = options.staleAfterMs ?? 60_000;
+    const intervalMs = options.intervalMs ?? 60_000;
+
+    let checking = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const revalidate = async () => {
+      if (checking) return;
+      const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+      if (!token) return; // not signed in — nothing to revalidate
+
+      // Cheap gate: only do work when the token is near expiry or the cached
+      // permission/division snapshot has aged out.
+      const ts = Number(localStorage.getItem('erp_permissions_ts') || '0');
+      const identityStale = !ts || Date.now() - ts > staleAfterMs;
+      if (!identityStale && !isTokenExpiring(token, REFRESH_SKEW_SECONDS)) return;
+
+      checking = true;
+      try {
+        if (isTokenExpiring(token, REFRESH_SKEW_SECONDS)) {
+          const fresh = await refreshAccessToken();
+          if (!fresh) {
+            endSessionAndRedirect('access token expired while the tab was in the background');
+            return;
+          }
+        } else {
+          await syncIdentityAfterRefresh();
+        }
+      } finally {
+        checking = false;
+      }
+    };
+
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void revalidate();
+    };
+
+    document?.addEventListener?.('visibilitychange', onVisible);
+    window?.addEventListener?.('focus', onVisible);
+    timer = setInterval(() => void revalidate(), intervalMs);
+
+    return () => {
+      document?.removeEventListener?.('visibilitychange', onVisible);
+      window?.removeEventListener?.('focus', onVisible);
+      if (timer) clearInterval(timer);
+    };
   }
 }
 

@@ -41,6 +41,9 @@ interface UserData {
 
 const PERMISSIONS_TTL_MS = 5 * 60 * 1000;
 
+/** How stale a cached identity may get before a focus/visibility revalidation. */
+export const PERMISSIONS_FOCUS_TTL_MS = 60 * 1000;
+
 const DEFAULT_DIVISION_ACCESS: DivisionAccess = {
   unrestricted: true,
   items: [],
@@ -75,11 +78,26 @@ function getStoredPermissionsTimestamp(): number {
   return 0;
 }
 
+/** True when the caller's access token (or refresh token) is gone. */
+export function isSessionGone(): boolean {
+  try {
+    return !localStorage.getItem('token') && !localStorage.getItem('access_token');
+  } catch {
+    return true;
+  }
+}
+
+function statusOf(err: unknown): number | undefined {
+  const e = err as { response?: { status?: number }; status?: number } | null;
+  return e?.response?.status ?? e?.status;
+}
+
 export function usePermission() {
   const stored = getStoredUser();
   const [user, setUser] = useState<UserData | null>(stored);
   const [permissions, setPermissions] = useState<string[]>(stored?.permissions || []);
   const [isLoaded, setIsLoaded] = useState<boolean>(!!(stored && stored.permissions && stored.permissions.length > 0));
+  const [isError, setIsError] = useState<boolean>(false);
   const fetchingRef = useRef(false);
 
   const refreshPermissions = useCallback(async () => {
@@ -91,14 +109,37 @@ export function usePermission() {
       setUser(userData);
       setPermissions(userData.permissions || []);
       setIsLoaded(true);
+      setIsError(false);
       localStorage.setItem('erp_user', JSON.stringify(userData));
       localStorage.setItem('erp_permissions_ts', Date.now().toString());
       useUserStore.getState().setUser(userData);
-    } catch {
-      setIsLoaded(true);
+    } catch (err) {
+      // PROMPT #26 (issue #3, cause 5) — the old `catch { setIsLoaded(true) }`
+      // was the single biggest reason the sidebar went dead: a failed
+      // revalidation left `permissions` EMPTY and flipped `isLoaded` to true,
+      // so `MainLayout.effectiveCan` returned false for EVERY nav entry at
+      // once and the user was left with a permanently empty sidebar.
+      //
+      // A failed load is now surfaced as an error state and `isLoaded` is left
+      // false, so the app keeps showing navigation and the interceptor owns the
+      // 401/refresh path instead of this hook silently half-authorising the UI.
+      const status = statusOf(err);
+      if (status === 401 || status === 403 || isSessionGone()) {
+        setIsError(true);
+        setIsLoaded(false);
+      } else {
+        // Transient failure (network blip, backend restart): keep whatever we
+        // already had. Blanket-wiping permissions on a flaky network is the
+        // other half of the same bug.
+        setIsError(true);
+        setIsLoaded(permissions.length > 0 || !!stored?.permissions?.length);
+      }
     } finally {
       fetchingRef.current = false;
     }
+    // `permissions`/`stored` are read only for their length; re-running on every
+    // permissions change would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -115,6 +156,43 @@ export function usePermission() {
     } else {
       refreshPermissions();
     }
+  }, [refreshPermissions]);
+
+  /**
+   * PROMPT #26 (issue #3) — revalidate when the user returns to a tab that was
+   * left open, and whenever a token refresh re-pulled the server profile.
+   *
+   * This is what makes a revoked permission or a changed division scope show up
+   * without a manual browser refresh, which the brief explicitly forbids as a
+   * workaround.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const revalidateIfStale = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      const ts = getStoredPermissionsTimestamp();
+      if (ts && Date.now() - ts <= PERMISSIONS_FOCUS_TTL_MS) return;
+      void refreshPermissions();
+    };
+
+    const onFocus = () => revalidateIfStale();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') revalidateIfStale();
+    };
+    // Fired by `api.ts` after a successful token refresh so the hook re-reads
+    // the freshly persisted identity instead of waiting for the next focus.
+    const onSynced = () => void refreshPermissions();
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('erp:session-synced', onSynced);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('erp:session-synced', onSynced);
+    };
   }, [refreshPermissions]);
 
   const can = useCallback((permissionCode: string): boolean => {
@@ -210,6 +288,9 @@ export function usePermission() {
     canModule,
     refreshPermissions,
     isLoaded,
+    // PROMPT #26 — a failed `/auth/me` revalidation is now observable, so a
+    // shell can offer a retry instead of rendering a permanently empty sidebar.
+    isError,
     // Prompt #16 §28 — division-aware additions. `can`/`canAny`/`canAll`/
     // `canModule` above are untouched so existing components keep working.
     divisionAccess,
@@ -228,6 +309,7 @@ export function usePermission() {
     canModule,
     refreshPermissions,
     isLoaded,
+    isError,
     divisionAccess,
     allowedDivisions,
     allowedDivisionIds,

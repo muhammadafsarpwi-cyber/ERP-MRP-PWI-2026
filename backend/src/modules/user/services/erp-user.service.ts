@@ -5,7 +5,8 @@ import { DataSource, Repository, Not, IsNull } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { ErpUser, ErpUserStatus, UserRole, UserRoleStatus, UserOrganizationScope, ScopeLevel, OrgScopeStatus } from '../entities';
 import { Company, CompanyStatus } from '../../organization/entities/company.entity';
-import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto, CreateUserFullDto } from '../dto/user.dto';
+import { Division } from '../../organization/entities/division.entity';
+import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto, CreateUserFullDto, SetDivisionAccessDto } from '../dto/user.dto';
 import { SupabaseUser } from '../../auth/interfaces/supabase-user.interface';
 import { SupabaseAuthService } from '../../auth/services/supabase-auth.service';
 import { NotificationsService } from '../../notification/notifications.service';
@@ -441,12 +442,225 @@ export class ErpUserService {
     return this.orgScopeRepository.save(scope);
   }
 
+  /**
+   * PROMPT #26 — revoke one organization scope row.
+   *
+   * Hardening: when the removed row was the account's last DIVISION-level
+   * restriction, a plain `remove()` left the user with zero rows, and the
+   * auto-heal in {@link getUserOrganizationScopes} then interpreted "no rows"
+   * as "brand-new user" and silently re-granted full company access. A one-click
+   * "Remove" in the Division Access popup was therefore an escalation, not a
+   * revocation.
+   *
+   * The fix writes an explicit ACTIVE `scope_level = 'NONE'` deny marker in the
+   * same call, so the removal is durable. Re-granting is not blocked: the very
+   * next `assignOrgScope()` / `setDivisionAccess()` deletes the marker again.
+   */
   async removeOrgScope(id: string, scopeId: string): Promise<void> {
     const scope = await this.orgScopeRepository.findOne({ where: { id: scopeId, userId: id } });
     if (!scope) {
       throw new NotFoundException('Organizational scope not found');
     }
     await this.orgScopeRepository.remove(scope);
+
+    if (scope.scopeLevel !== ScopeLevel.DIVISION || !scope.divisionId) return;
+
+    const remainingDivisionRows = await this.orgScopeRepository.count({
+      where: { userId: id, status: OrgScopeStatus.ACTIVE },
+    });
+    if (remainingDivisionRows > 0) return;
+
+    const companyWideOrOther = await this.orgScopeRepository.findOne({
+      where: { userId: id, companyId: scope.companyId, status: OrgScopeStatus.ACTIVE },
+    });
+    // A company-wide default still governs this company, so nothing to mark.
+    if (companyWideOrOther) return;
+
+    await this.orgScopeRepository.save(
+      this.orgScopeRepository.create({
+        userId: id,
+        companyId: scope.companyId,
+        divisionId: null,
+        sectionId: null,
+        departmentId: null,
+        scopeLevel: ScopeLevel.NONE,
+        isFullScope: false,
+        isActive: true,
+        status: OrgScopeStatus.ACTIVE,
+      }),
+    );
+  }
+
+  /**
+   * PROMPT #26 — declarative, transactional replacement of a user's division
+   * access. This is the real "Save Changes" behind the Division Access popup.
+   *
+   * Why this had to exist:
+   *  - `POST /org-scopes` could only append ONE row, and `DELETE` removed one
+   *    row, so there was no way to express a desired SET. Two admins editing
+   *    the same user interleaved writes and produced contradictory rows.
+   *  - The one-off append also left the auto-healed COMPANY row
+   *    (`division_id IS NULL`, `is_full_scope = true`) in place next to the new
+   *    division row. `deriveUserDivisionIds()` used to short-circuit to 'ALL'
+   *    on that company-wide row, so "restricted" users kept full access while
+   *    the popup showed only the divisions an admin had picked. This method
+   *    removes that contradiction atomically, so the popup and the API can no
+   *    longer disagree.
+   *
+   * Rules:
+   *  - Restricted (`divisionIds` non-empty): every ACTIVE division row for the
+   *    company is reconciled to the requested set AND any company-wide row is
+   *    deleted. Rows for OTHER companies and non-division (SECTION /
+   *    DEPARTMENT) rows are left alone — they are a different authorization
+   *    axis and must not be silently destroyed here.
+   *  - Unrestricted (`companyWide`): all division rows for the company are
+   *    deleted and exactly one COMPANY row is written — the same shape
+   *    `getUserOrganizationScopes()` auto-heals, so SUPER_ADMIN / ADMIN
+   *    accounts keep working exactly as before.
+   *  - Deny-all (`divisionIds: []`, no `companyWide`): rows are deleted and an
+   *    ACTIVE `scope_level = 'NONE'` marker is written, so
+   *    `deriveUserDivisionIds()` returns an empty set and `DivisionScopeGuard`
+   *    answers 403. The auto-heal in `getUserOrganizationScopes()` cannot fire
+   *    because a scope row for the company exists, and because the resolvers
+   *    read `status = 'ACTIVE'` the marker is always visible to them — the
+   *    deny therefore stays revoked until an admin widens it again.
+   */
+  async setDivisionAccess(
+    id: string,
+    dto: SetDivisionAccessDto,
+    userId?: string,
+  ): Promise<{ user: ErpUser; scopes: UserOrganizationScope[] }> {
+    const user = await this.findOne(id);
+
+    const companyWide = dto.companyWide === true;
+    const requested = Array.from(new Set((dto.divisionIds ?? []).map((d) => d.trim()).filter(Boolean)));
+
+    if (!companyWide && requested.length === 0 && dto.divisionIds === undefined) {
+      throw new BadRequestException(
+        'Provide divisionIds (possibly an empty array to deny all divisions) or set companyWide=true.',
+      );
+    }
+
+    // Validate every requested division really exists and is ACTIVE in this
+    // company — an admin must not be able to persist a scope that silently
+    // grants (and later leaks) a division outside their company.
+    if (requested.length > 0) {
+      const found = await this.dataSource
+        .getRepository(Division)
+        .createQueryBuilder('d')
+        .select('d.id', 'id')
+        .where('d.company_id = :companyId', { companyId: dto.companyId })
+        .andWhere('d.id IN (:...ids)', { ids: requested })
+        .getRawMany<{ id: string }>();
+
+      const foundIds = new Set(found.map((r) => r.id));
+      const missing = requested.filter((d) => !foundIds.has(d));
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          `Division(s) not found or not ACTIVE in this company: ${missing.join(', ')}`,
+        );
+      }
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const scopeRepo = manager.getRepository(UserOrganizationScope);
+
+      const existing = await scopeRepo.find({
+        where: { userId: id, companyId: dto.companyId, status: OrgScopeStatus.ACTIVE },
+      });
+
+      // Company-wide default row: `division_id IS NULL`. This is the row the
+      // auto-heal writes and the row that used to grant everything.
+      const companyWideRows = existing.filter((s) => !s.divisionId);
+      // Plain DIVISION-level rows. SECTION / DEPARTMENT rows are a different
+      // axis and are intentionally left untouched.
+      const divisionRows = existing.filter((s) => s.divisionId && !s.sectionId && !s.departmentId);
+
+      if (companyWide) {
+        const replaced = [...companyWideRows, ...divisionRows];
+        if (replaced.length > 0) await scopeRepo.remove(replaced);
+        const companyRow = scopeRepo.create({
+          userId: id,
+          companyId: dto.companyId,
+          divisionId: null,
+          sectionId: null,
+          departmentId: null,
+          scopeLevel: ScopeLevel.COMPANY,
+          isFullScope: true,
+          isActive: true,
+          status: OrgScopeStatus.ACTIVE,
+          createdBy: userId ?? null,
+          updatedBy: userId ?? null,
+        });
+        await scopeRepo.save(companyRow);
+        return;
+      }
+
+      // Restricted (or explicit deny-all): the company-wide default must go,
+      // otherwise it contradicts the restriction and, on the pre-fix
+      // resolver, silently overrode it.
+      if (companyWideRows.length > 0) await scopeRepo.remove(companyWideRows);
+
+      const keep = new Set(requested);
+      const toRemove = divisionRows.filter((s) => s.divisionId && !keep.has(s.divisionId));
+      if (toRemove.length > 0) await scopeRepo.remove(toRemove);
+
+      const have = new Set(divisionRows.map((s) => s.divisionId as string));
+      const toCreate = requested
+        .filter((d) => !have.has(d))
+        .map((d) =>
+          scopeRepo.create({
+            userId: id,
+            companyId: dto.companyId,
+            divisionId: d,
+            sectionId: null,
+            departmentId: null,
+            scopeLevel: ScopeLevel.DIVISION,
+            isFullScope: false,
+            isActive: true,
+            status: OrgScopeStatus.ACTIVE,
+            createdBy: userId ?? null,
+            updatedBy: userId ?? null,
+          }),
+        );
+      if (toCreate.length > 0) await scopeRepo.save(toCreate);
+
+      if (requested.length === 0) {
+        // Deny-all. PROMPT #26 — the marker must be ACTIVE and use
+        // `scope_level = 'NONE'`, not an INACTIVE COMPANY row:
+        //   • the resolvers query `status = 'ACTIVE'`, so an INACTIVE row is
+        //     invisible to them and `deriveUserDivisionIds([])` answers 'ALL'
+        //     (backward-compat rule §12) — the revoke would silently revert to
+        //     full access on the very next request;
+        //   • `division_id IS NULL` with `is_full_scope = false` is exactly the
+        //     shape of the pre-existing `Super Administrator` row, so a NULL
+        //     division cannot double as "deny".
+        // `NONE` is a value the pre-fix enum could never emit, so this is
+        // backward compatible: no existing account is re-interpreted.
+        const marker = scopeRepo.create({
+          userId: id,
+          companyId: dto.companyId,
+          divisionId: null,
+          sectionId: null,
+          departmentId: null,
+          scopeLevel: ScopeLevel.NONE,
+          isFullScope: false,
+          isActive: true,
+          status: OrgScopeStatus.ACTIVE,
+          createdBy: userId ?? null,
+          updatedBy: userId ?? null,
+        });
+        await scopeRepo.save(marker);
+      }
+    });
+
+    const scopes = await this.orgScopeRepository.find({
+      where: { userId: id, companyId: dto.companyId },
+      relations: ['division'],
+      order: { createdAt: 'ASC' },
+    });
+
+    return { user, scopes };
   }
 
   async getUserOrganizationScopes(userId: string): Promise<UserOrganizationScope[]> {
@@ -457,9 +671,15 @@ export class ErpUserService {
 
     // Auto-heal: If user has no active scopes, automatically provision full company scope
     // for their defaultCompanyId or the system's primary active company.
+    //
+    // PROMPT #26 SECURITY FIX — heal ONLY when the user has no scope row AT ALL.
+    // The old condition was "no ACTIVE scope", which meant revoking every scope
+    // (or persisting an explicit deny-all) silently handed the account full
+    // company access back on the very next read. A revoke must stay revoked.
     if (!scopes || scopes.length === 0) {
+      const anyScopeRow = await this.orgScopeRepository.findOne({ where: { userId } });
       const user = await this.userRepository.findOne({ where: { id: userId } });
-      if (user && user.status === ErpUserStatus.ACTIVE) {
+      if (!anyScopeRow && user && user.status === ErpUserStatus.ACTIVE) {
         let targetCompanyId = user.defaultCompanyId;
         if (!targetCompanyId) {
           const defaultCompany = await this.companyRepository.findOne({ where: { status: CompanyStatus.ACTIVE } });

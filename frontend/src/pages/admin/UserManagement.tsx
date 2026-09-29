@@ -28,6 +28,7 @@ import {
   isDivisionRestriction,
   type DivisionAccessTarget,
   type DivisionScope,
+  type EffectiveDivisionAccess,
 } from '../../components/shared/DivisionAccessModal';
 import GlobalLoading from '../../components/shared/GlobalLoading';
 import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
@@ -151,6 +152,21 @@ const UserManagement: React.FC = () => {
   // Prompt #16B §19 — this is the ONE state for division access; the modal,
   // the Edit form summary and the New User summary all render it.
   const [divisionScopes, setDivisionScopes] = useState<DivisionScope[]>([]);
+  /**
+   * PROMPT #26 — the UNFILTERED scope rows.
+   *
+   * `divisionScopes` deliberately drops the auto-provisioned company-wide row
+   * so the tag list renders restrictions only. But the contradiction that
+   * caused this incident lives in exactly that dropped row, so the modal needs
+   * the raw set to be able to warn about it. Two lists, two purposes, one
+   * source.
+   */
+  const [allDivisionScopes, setAllDivisionScopes] = useState<DivisionScope[]>([]);
+  // PROMPT #26 — the server-computed answer to "what can this user actually
+  // reach?". Read from `GET /admin/users/:id/division-access` and rendered
+  // verbatim. Deriving it client-side from the scope rows is exactly what made
+  // the popup contradict the API, so it is never derived here.
+  const [effectiveDivisionAccess, setEffectiveDivisionAccess] = useState<EffectiveDivisionAccess | null>(null);
   // Which user the Division Access modal is working on. Kept separate from
   // `selectedUser` so the New User flow can target a freshly created account
   // that the table has not necessarily re-rendered yet.
@@ -325,6 +341,7 @@ const UserManagement: React.FC = () => {
       // render for a normal user and the scope count would be wrong.
       const scopes = all.filter(isDivisionRestriction);
       setDivisionScopes(scopes);
+      setAllDivisionScopes(all);
       setSelectedUser(prev => (prev && prev.id === userId ? { ...prev, organizationScopes: all } : prev));
       setDivisionTarget(prev => (prev && prev.id === userId ? { ...prev, organizationScopes: all } : prev));
       return scopes;
@@ -337,6 +354,23 @@ const UserManagement: React.FC = () => {
   }, [message]);
 
   /**
+   * PROMPT #26 — load the server-authoritative effective access for the user the
+   * modal is working on. Never derived on the client, so the popup and the API
+   * can no longer disagree.
+   */
+  const refreshEffectiveDivisionAccess = useCallback(async (userId: string) => {
+    try {
+      const res = await apiService.get<{ data: { effective: EffectiveDivisionAccess } }>(
+        `/admin/users/${userId}/division-access`,
+      );
+      setEffectiveDivisionAccess(res?.data?.effective ?? null);
+    } catch {
+      // Non-fatal: the modal shows a "loading…" placeholder rather than a lie.
+      setEffectiveDivisionAccess(null);
+    }
+  }, []);
+
+  /**
    * Prompt #16B — the single entry point into the Division Access modal.
    * Used by Actions → Divisions, Add User (post-create) and Edit User.
    */
@@ -346,9 +380,12 @@ const UserManagement: React.FC = () => {
     // only a placeholder — re-read them from GET /admin/users/:id right away,
     // otherwise an already-restricted user renders as "full company access".
     setDivisionScopes((user.organizationScopes || []).filter(isDivisionRestriction));
+    setAllDivisionScopes(user.organizationScopes || []);
+    setEffectiveDivisionAccess(null);
     setDivisionModalVisible(true);
     setDivisionScopeLoading(true);
     void refreshDivisionScopes(user.id);
+    void refreshEffectiveDivisionAccess(user.id);
   };
 
   /**
@@ -374,6 +411,7 @@ const UserManagement: React.FC = () => {
       // Prompt #16B §16 — clear a previous "could not be saved" warning.
       if (createdUser && createdUser.id === divisionTarget.id) setCreateScopeError(null);
       await refreshDivisionScopes(divisionTarget.id);
+      await refreshEffectiveDivisionAccess(divisionTarget.id);
       return true;
     } catch (error) {
       const inCreateFlow = !!createdUser && createdUser.id === divisionTarget.id;
@@ -396,8 +434,49 @@ const UserManagement: React.FC = () => {
       await apiService.delete(`/admin/users/${divisionTarget.id}/org-scopes/${scopeId}`);
       message.success('Division access removed');
       await refreshDivisionScopes(divisionTarget.id);
+      await refreshEffectiveDivisionAccess(divisionTarget.id);
     } catch (error) {
       message.error(formatApiError(error, 'Failed to remove division access'));
+    } finally {
+      setDivisionScopeLoading(false);
+    }
+  };
+
+  /**
+   * PROMPT #26 — the real "Save Changes" for the Division Access popup.
+   *
+   * `PUT /admin/users/:id/division-access` replaces the add-one/revoke-one pair
+   * with one transactional reconcile, and — crucially — deletes the
+   * auto-provisioned company-wide row when a restricted set is saved. That
+   * delete is the actual persistence fix: while that row existed, the backend
+   * treated the account as unrestricted, so "Save" used to be a lie.
+   */
+  const handleSaveDivisionAccess = async (values: {
+    companyId: string;
+    divisionIds: string[];
+    companyWide: boolean;
+  }): Promise<boolean> => {
+    if (!divisionTarget) return false;
+    setDivisionScopeLoading(true);
+    try {
+      await apiService.put(`/admin/users/${divisionTarget.id}/division-access`, {
+        companyId: values.companyId,
+        divisionIds: values.divisionIds,
+        companyWide: values.companyWide,
+      });
+      if (createdUser && createdUser.id === divisionTarget.id) setCreateScopeError(null);
+      await refreshDivisionScopes(divisionTarget.id);
+      await refreshEffectiveDivisionAccess(divisionTarget.id);
+      return true;
+    } catch (error) {
+      const inCreateFlow = !!createdUser && createdUser.id === divisionTarget.id;
+      const fallback = inCreateFlow
+        ? 'User created, but Division Access could not be saved.'
+        : 'Failed to save division access';
+      const text = formatApiError(error, fallback);
+      message.error(text);
+      if (inCreateFlow) setCreateScopeError(text);
+      return false;
     } finally {
       setDivisionScopeLoading(false);
     }
@@ -2109,6 +2188,9 @@ const UserManagement: React.FC = () => {
         loading={divisionScopeLoading}
         onGrant={handleAddDivisionScope}
         onRemove={handleRemoveDivisionScope}
+        onSaveAccess={handleSaveDivisionAccess}
+        effectiveAccess={effectiveDivisionAccess}
+        rawScopes={allDivisionScopes}
         onClose={() => setDivisionModalVisible(false)}
       />
 

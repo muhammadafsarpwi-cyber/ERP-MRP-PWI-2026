@@ -60,10 +60,10 @@ const rowCount = (html: string) => count(tbody(html), '<tr');
 //  1  The column model
 // ══════════════════════════════════════════════════════════════════════════════
 describe('VisitorRegister — column model', () => {
-  it('declares exactly the thirteen columns the gate reads', () => {
+  it('declares exactly the twelve columns the gate reads', () => {
     expect(REGISTER_COLUMNS.map((c) => c.key)).toEqual([
       'index', 'reference', 'name', 'cnic', 'mobile', 'company', 'host',
-      'division', 'location', 'timeIn', 'timeOut', 'status', 'hostConfirmed',
+      'divLoc', 'timeIn', 'timeOut', 'status', 'hostConfirmed',
     ]);
   });
 
@@ -85,7 +85,7 @@ describe('VisitorRegister — column model', () => {
   it('never wraps an identifier, a clock, a status or a flag', () => {
     // Reported as a list rather than a loop of expectations, so a failure names
     // the offending columns instead of stopping at the first one.
-    const mustNotWrap = ['reference', 'cnic', 'mobile', 'timeIn', 'timeOut', 'status', 'hostConfirmed'];
+    const mustNotWrap = ['reference', 'cnic', 'mobile', 'divLoc', 'timeIn', 'timeOut', 'status', 'hostConfirmed'];
     const wrappable = REGISTER_COLUMNS.filter((c) => mustNotWrap.includes(c.key) && c.nowrap !== true)
       .map((c) => c.label);
     expect(wrappable).toEqual([]);
@@ -256,8 +256,8 @@ describe('VisitorRegister — cells', () => {
   });
 
   it('renders a compact host-confirmation flag', () => {
-    expect(buildRegister([ROW])).toContain('vr-hc-yes">Confirmed');
-    expect(buildRegister([{ ...ROW, hostConfirmed: false }])).toContain('vr-hc-no">No');
+    expect(buildRegister([ROW])).toContain('vr-hc-yes">✓ Confirmed');
+    expect(buildRegister([{ ...ROW, hostConfirmed: false }])).toContain('vr-hc-no">Pending');
   });
 
   it('colours each status and never invents one', () => {
@@ -268,10 +268,15 @@ describe('VisitorRegister — cells', () => {
     expect(buildRegister([{ ...ROW, status: 'SOMETHING_NEW' }])).toContain('vr-st-cancelled">SOMETHING_NEW');
   });
 
-  it('uses the division and location codes, not their names', () => {
-    const html = buildRegister([ROW]);
-    expect(html).toContain('DIV-CCD');
-    expect(html).toContain('GATE-A');
+  it('uses the division and location names (not codes) in the register', () => {
+    const html = buildRegister([{
+      ...ROW,
+      division: { divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
+      location: { locationCode: 'CCD-A01', name: 'Production Department' },
+    }]);
+    // Names must appear
+    expect(html).toContain('Control Cable Division');
+    expect(html).toContain('Production Department');
   });
 
   it('prints an em dash, never a null, for anything missing', () => {

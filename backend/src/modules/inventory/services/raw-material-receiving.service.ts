@@ -1,9 +1,9 @@
 import {
-  Injectable, BadRequestException, NotFoundException,
+  Injectable, BadRequestException, NotFoundException, ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository, EntityManager } from 'typeorm';
+import { In, Not, Repository, EntityManager, SelectQueryBuilder } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -28,6 +28,7 @@ import {
   RawMaterialReceivingReportQuery, WhatsAppReceiptShareDto,
 } from '../dto/raw-material-receiving.dto';
 import { populateAuditNames } from '../../organization/helpers/audit-names';
+import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 
 interface LineArg {
   itemId: string;
@@ -37,6 +38,18 @@ interface LineArg {
   quantity?: number;
   remarks?: string;
 }
+
+/**
+ * Prompt #26 — the server-derived effective division scope for the caller.
+ *
+ * `undefined` ⇒ unrestricted (SUPER_ADMIN / company-wide scope) — no filtering.
+ * `[]`        ⇒ deny-all — every query must match nothing.
+ * `[ids…]`    ⇒ restrict to exactly these divisions.
+ *
+ * It is ALWAYS produced by the guard chain from the authenticated identity and
+ * is never taken from the request body, query string or any client-side state.
+ */
+export type DivisionScope = string[] | undefined;
 
 @Injectable()
 export class RawMaterialReceivingService {
@@ -97,6 +110,37 @@ export class RawMaterialReceivingService {
     configService: ConfigService,
   ) {
     this.storagePath = path.resolve(configService.get<string>('STORAGE_PATH', './storage'));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Prompt #26 — division scope enforcement
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Narrow a TypeORM query to the caller's effective divisions.
+   * Delegates to the shared helper so every division-scoped ERP module behaves
+   * identically (and so no module can accidentally re-implement the rules).
+   */
+  private static scopeQuery<T extends Record<string, any>>(
+    qb: SelectQueryBuilder<T>,
+    column: string,
+    allowedDivisionIds: DivisionScope,
+  ): SelectQueryBuilder<T> {
+    applyDivisionScopeFilter(qb as any, column, allowedDivisionIds);
+    return qb;
+  }
+
+  /**
+   * Refuse a single-document read/write whose division is outside the caller's
+   * effective scope. Applied to every by-id endpoint so a leaked/guessed UUID
+   * can never reach a document in another division.
+   */
+  private static assertDivisionAllowed(divisionId: string | null | undefined, allowedDivisionIds: DivisionScope): void {
+    if (isUnrestricted(allowedDivisionIds)) return;
+    const ids = allowedDivisionIds as string[];
+    if (ids.length === 0 || !divisionId || !ids.includes(divisionId)) {
+      throw new ForbiddenException('You do not have access to this division.');
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -285,9 +329,11 @@ export class RawMaterialReceivingService {
     kind: 'PHOTO' | 'ATTACHMENT',
     file: any,
     userId?: string,
+    allowedDivisionIds?: DivisionScope,
   ) {
     const receipt = await this.receiptRepo.findOne({ where: { id: receiptId, companyId } });
     if (!receipt) throw new NotFoundException(`Receipt '${receiptId}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(receipt.divisionId, allowedDivisionIds);
 
     const normKind = kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT';
     const { buffer, mime, ext } = this.validateReceiptFile(file, normKind);
@@ -319,9 +365,10 @@ export class RawMaterialReceivingService {
     }
   }
 
-  async listReceiptDocuments(companyId: string, receiptId: string) {
+  async listReceiptDocuments(companyId: string, receiptId: string, allowedDivisionIds?: DivisionScope) {
     const receipt = await this.receiptRepo.findOne({ where: { id: receiptId, companyId } });
     if (!receipt) throw new NotFoundException(`Receipt '${receiptId}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(receipt.divisionId, allowedDivisionIds);
     const docs = await this.docRepo.find({
       where: { receiptId, companyId },
       order: { uploadedAt: 'ASC' },
@@ -337,16 +384,20 @@ export class RawMaterialReceivingService {
     }));
   }
 
-  async removeReceiptDocument(companyId: string, receiptId: string, docId: string): Promise<void> {
+  async removeReceiptDocument(companyId: string, receiptId: string, docId: string, allowedDivisionIds?: DivisionScope): Promise<void> {
+    const receipt = await this.receiptRepo.findOne({ where: { id: receiptId, companyId } });
+    if (!receipt) throw new NotFoundException(`Receipt '${receiptId}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(receipt.divisionId, allowedDivisionIds);
     const doc = await this.docRepo.findOne({ where: { id: docId, receiptId, companyId } });
     if (!doc) throw new NotFoundException(`Document '${docId}' not found in this company.`);
     await this.docRepo.delete({ id: docId });
     this.deleteReceiptFile(doc.fileUrl);
   }
 
-  async shareReceiptWhatsApp(companyId: string, receiptId: string, dto: WhatsAppReceiptShareDto, userId?: string) {
+  async shareReceiptWhatsApp(companyId: string, receiptId: string, dto: WhatsAppReceiptShareDto, userId?: string, allowedDivisionIds?: DivisionScope) {
     const receipt = await this.receiptRepo.findOne({ where: { id: receiptId, companyId } });
     if (!receipt) throw new NotFoundException(`Receipt '${receiptId}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(receipt.divisionId, allowedDivisionIds);
 
     const setting = await this.settingRepo.findOne({
       where: { settingType: 'WHATSAPP', enabled: true, isActive: true, companyId },
@@ -387,9 +438,11 @@ export class RawMaterialReceivingService {
     kind: 'PHOTO' | 'ATTACHMENT',
     file: any,
     userId?: string,
+    allowedDivisionIds?: DivisionScope,
   ) {
     const returnHeader = await this.returnRepo.findOne({ where: { id: returnId, companyId } });
     if (!returnHeader) throw new NotFoundException(`Return '${returnId}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(returnHeader.divisionId, allowedDivisionIds);
 
     const normKind = kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT';
     const { buffer, mime, ext } = this.validateReceiptFile(file, normKind);
@@ -421,9 +474,10 @@ export class RawMaterialReceivingService {
     }
   }
 
-  async listReturnDocuments(companyId: string, returnId: string) {
+  async listReturnDocuments(companyId: string, returnId: string, allowedDivisionIds?: DivisionScope) {
     const returnHeader = await this.returnRepo.findOne({ where: { id: returnId, companyId } });
     if (!returnHeader) throw new NotFoundException(`Return '${returnId}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(returnHeader.divisionId, allowedDivisionIds);
     const docs = await this.returnDocRepo.find({
       where: { returnId, companyId },
       order: { uploadedAt: 'ASC' },
@@ -439,16 +493,20 @@ export class RawMaterialReceivingService {
     }));
   }
 
-  async removeReturnDocument(companyId: string, returnId: string, docId: string): Promise<void> {
+  async removeReturnDocument(companyId: string, returnId: string, docId: string, allowedDivisionIds?: DivisionScope): Promise<void> {
+    const returnHeader = await this.returnRepo.findOne({ where: { id: returnId, companyId } });
+    if (!returnHeader) throw new NotFoundException(`Return '${returnId}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(returnHeader.divisionId, allowedDivisionIds);
     const doc = await this.returnDocRepo.findOne({ where: { id: docId, returnId, companyId } });
     if (!doc) throw new NotFoundException(`Document '${docId}' not found in this company.`);
     await this.returnDocRepo.delete({ id: docId });
     this.deleteReturnFile(doc.fileUrl);
   }
 
-  async shareReturnWhatsApp(companyId: string, returnId: string, dto: WhatsAppReceiptShareDto, userId?: string) {
+  async shareReturnWhatsApp(companyId: string, returnId: string, dto: WhatsAppReceiptShareDto, userId?: string, allowedDivisionIds?: DivisionScope) {
     const returnHeader = await this.returnRepo.findOne({ where: { id: returnId, companyId } });
     if (!returnHeader) throw new NotFoundException(`Return '${returnId}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(returnHeader.divisionId, allowedDivisionIds);
 
     const setting = await this.settingRepo.findOne({
       where: { settingType: 'WHATSAPP', enabled: true, isActive: true, companyId },
@@ -568,7 +626,10 @@ export class RawMaterialReceivingService {
   // Create
   // ─────────────────────────────────────────────────────────────────────────
 
-  async createReceipt(companyId: string, dto: CreateRawMaterialReceiptDto, userId?: string) {
+  async createReceipt(companyId: string, dto: CreateRawMaterialReceiptDto, userId?: string, allowedDivisionIds?: DivisionScope) {
+    // Prompt #26 — refuse to POST into a division outside the caller's scope
+    // BEFORE any validation or stock posting happens.
+    RawMaterialReceivingService.assertDivisionAllowed(dto.divisionId, allowedDivisionIds);
     await this.validateOrg(companyId, dto.divisionId, dto.sectionId, dto.departmentId);
     await this.validateWarehouse(dto.warehouseId, companyId);
     await this.validateLines(companyId, dto.items, {
@@ -639,11 +700,12 @@ export class RawMaterialReceivingService {
       return { header: savedHeader, lines };
     });
 
-    const receipt = await this.findReceiptById(companyId, header.header.id);
+    const receipt = await this.findReceiptById(companyId, header.header.id, allowedDivisionIds);
     return duplicate ? { ...receipt, alreadyProcessed: true } : receipt;
   }
 
-  async createReturn(companyId: string, dto: CreateRawMaterialReturnDto, userId?: string) {
+  async createReturn(companyId: string, dto: CreateRawMaterialReturnDto, userId?: string, allowedDivisionIds?: DivisionScope) {
+    RawMaterialReceivingService.assertDivisionAllowed(dto.divisionId, allowedDivisionIds);
     await this.validateOrg(companyId, dto.divisionId, dto.sectionId, dto.departmentId);
     await this.validateWarehouse(dto.warehouseId, companyId);
     await this.validateLines(companyId, dto.items, {
@@ -697,19 +759,22 @@ export class RawMaterialReceivingService {
       return { header: savedHeader, lines };
     });
 
-    return this.findReturnById(companyId, created.header.id);
+    return this.findReturnById(companyId, created.header.id, allowedDivisionIds);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Update (delta-based stock handling; mirrors the inventory adjustment pattern)
   // ─────────────────────────────────────────────────────────────────────────
 
-  async updateReceipt(id: string, companyId: string, dto: UpdateRawMaterialReceiptDto, userId?: string) {
+  async updateReceipt(id: string, companyId: string, dto: UpdateRawMaterialReceiptDto, userId?: string, allowedDivisionIds?: DivisionScope) {
     const existing = await this.receiptRepo.findOne({
       where: { id, companyId },
       relations: ['lines'],
     });
     if (!existing) throw new NotFoundException(`Receipt '${id}' not found in this company.`);
+    // Prompt #26 — cannot edit a document that is not already in scope, and
+    // cannot move a document INTO an out-of-scope division.
+    RawMaterialReceivingService.assertDivisionAllowed(existing.divisionId, allowedDivisionIds);
 
     const divisionId = dto.divisionId ?? existing.divisionId!;
     const sectionId = dto.sectionId ?? existing.sectionId!;
@@ -718,6 +783,7 @@ export class RawMaterialReceivingService {
     if (!divisionId || !sectionId || !departmentId || !warehouseId) {
       throw new BadRequestException('Division, Section, Department and Warehouse are required.');
     }
+    RawMaterialReceivingService.assertDivisionAllowed(divisionId, allowedDivisionIds);
     await this.validateOrg(companyId, divisionId, sectionId, departmentId);
     await this.validateWarehouse(warehouseId, companyId);
     if (dto.items) {
@@ -803,15 +869,16 @@ export class RawMaterialReceivingService {
       }
     });
 
-    return this.findReceiptById(companyId, id);
+    return this.findReceiptById(companyId, id, allowedDivisionIds);
   }
 
-  async updateReturn(id: string, companyId: string, dto: UpdateRawMaterialReturnDto, userId?: string) {
+  async updateReturn(id: string, companyId: string, dto: UpdateRawMaterialReturnDto, userId?: string, allowedDivisionIds?: DivisionScope) {
     const existing = await this.returnRepo.findOne({
       where: { id, companyId },
       relations: ['lines'],
     });
     if (!existing) throw new NotFoundException(`Return '${id}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(existing.divisionId, allowedDivisionIds);
 
     const divisionId = dto.divisionId ?? existing.divisionId!;
     const sectionId = dto.sectionId ?? existing.sectionId!;
@@ -820,6 +887,7 @@ export class RawMaterialReceivingService {
     if (!divisionId || !sectionId || !departmentId || !warehouseId) {
       throw new BadRequestException('Division, Section, Department and Warehouse are required.');
     }
+    RawMaterialReceivingService.assertDivisionAllowed(divisionId, allowedDivisionIds);
     await this.validateOrg(companyId, divisionId, sectionId, departmentId);
     await this.validateWarehouse(warehouseId, companyId);
     if (dto.items) {
@@ -889,19 +957,20 @@ export class RawMaterialReceivingService {
       }
     });
 
-    return this.findReturnById(companyId, id);
+    return this.findReturnById(companyId, id, allowedDivisionIds);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Delete (reverses posted stock, atomic)
   // ─────────────────────────────────────────────────────────────────────────
 
-  async removeReceipt(id: string, companyId: string): Promise<void> {
+  async removeReceipt(id: string, companyId: string, allowedDivisionIds?: DivisionScope): Promise<void> {
     const existing = await this.receiptRepo.findOne({
       where: { id, companyId },
       relations: ['lines', 'documents'],
     });
     if (!existing) throw new NotFoundException(`Receipt '${id}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(existing.divisionId, allowedDivisionIds);
 
     await this.receiptRepo.manager.transaction(async (manager) => {
       await this.reverseStockForLines(
@@ -923,12 +992,13 @@ export class RawMaterialReceivingService {
     }
   }
 
-  async removeReturn(id: string, companyId: string): Promise<void> {
+  async removeReturn(id: string, companyId: string, allowedDivisionIds?: DivisionScope): Promise<void> {
     const existing = await this.returnRepo.findOne({
       where: { id, companyId },
       relations: ['lines'],
     });
     if (!existing) throw new NotFoundException(`Return '${id}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(existing.divisionId, allowedDivisionIds);
 
     await this.returnRepo.manager.transaction(async (manager) => {
       await this.reverseStockForLines(
@@ -948,7 +1018,7 @@ export class RawMaterialReceivingService {
   // Queries
   // ─────────────────────────────────────────────────────────────────────────
 
-  async getFormReferenceData(companyId: string) {
+  async getFormReferenceData(companyId: string, allowedDivisionIds?: DivisionScope) {
     const [warehouses, items, uoms, divisions, productionOrders, sections, departments] = await Promise.all([
       this.warehouseRepo.find({
         where: { companyId, status: 'ACTIVE' as any },
@@ -987,7 +1057,25 @@ export class RawMaterialReceivingService {
         order: { name: 'ASC' },
       }),
     ]);
-    return { warehouses, items, uoms, divisions, productionOrders, sections, departments };
+
+    // Prompt #26 — the pickers must only ever offer divisions the caller may
+    // actually post into, otherwise the UI would let a user pick a division
+    // that the server then rejects. `unrestricted` keeps the old behaviour.
+    if (isUnrestricted(allowedDivisionIds)) {
+      return { warehouses, items, uoms, divisions, productionOrders, sections, departments };
+    }
+    const ids = allowedDivisionIds as string[];
+    const idSet = new Set(ids);
+    const scopedDivisions = divisions.filter((d) => idSet.has(d.id));
+    return {
+      warehouses,
+      items,
+      uoms,
+      divisions: scopedDivisions,
+      productionOrders,
+      sections: sections.filter((s) => !s.divisionId || idSet.has(s.divisionId)),
+      departments: departments.filter((d) => !d.divisionId || idSet.has(d.divisionId)),
+    };
   }
 
   async findAllReceipts(companyId: string, filter: {
@@ -1001,7 +1089,9 @@ export class RawMaterialReceivingService {
     gatePassNo?: string;
     dateFrom?: string;
     dateTo?: string;
-  } = {}) {
+  } = {},
+    allowedDivisionIds?: DivisionScope,
+  ) {
     const { page = 1, limit = 20 } = filter;
     const qb = this.receiptRepo
       .createQueryBuilder('r')
@@ -1011,6 +1101,12 @@ export class RawMaterialReceivingService {
       .leftJoinAndSelect('r.warehouse', 'warehouse')
       .loadRelationCountAndMap('r.lineCount', 'r.lines')
       .where('r.companyId = :companyId', { companyId });
+
+    // Prompt #26 — company scope alone is NOT enough. Without this the query
+    // was `WHERE company_id = :companyId` and returned every division.
+    // NOTE: `allowedDivisionIds` is a separate positional argument, never part
+    // of the client-supplied `filter`, so it cannot be influenced by a request.
+    RawMaterialReceivingService.scopeQuery(qb, 'r.divisionId', allowedDivisionIds);
 
     if (filter.status) qb.andWhere('r.status = :status', { status: filter.status });
     if (filter.divisionId) qb.andWhere('r.divisionId = :divisionId', { divisionId: filter.divisionId });
@@ -1058,12 +1154,14 @@ export class RawMaterialReceivingService {
     };
   }
 
-  async findReceiptById(companyId: string, id: string) {
+  async findReceiptById(companyId: string, id: string, allowedDivisionIds?: DivisionScope) {
     const header = await this.receiptRepo.findOne({
       where: { id, companyId },
       relations: ['division', 'section', 'department', 'warehouse', 'lines', 'lines.item', 'lines.uom', 'documents'],
     });
     if (!header) throw new NotFoundException(`Receipt '${id}' not found in this company.`);
+    // Prompt #26 — a guessed/known UUID from another division must 403, not 404.
+    RawMaterialReceivingService.assertDivisionAllowed(header.divisionId, allowedDivisionIds);
 
     const lineIds = header.lines.map((l) => l.id);
     let ledgerEntries: StockLedger[] = [];
@@ -1118,12 +1216,13 @@ export class RawMaterialReceivingService {
    * inventory_balances source of truth in a single bulk query (no N+1).
    * This NEVER posts ledger / mutates balances — it is a viewing feature.
    */
-  async getReceiptInventory(companyId: string, id: string) {
+  async getReceiptInventory(companyId: string, id: string, allowedDivisionIds?: DivisionScope) {
     const header = await this.receiptRepo.findOne({
       where: { id, companyId },
       relations: ['warehouse'],
     });
     if (!header) throw new NotFoundException(`Receipt '${id}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(header.divisionId, allowedDivisionIds);
 
     const lines = await this.receiptLineRepo.find({
       where: { receiptId: header.id },
@@ -1193,7 +1292,9 @@ export class RawMaterialReceivingService {
     sourceNo?: string;
     dateFrom?: string;
     dateTo?: string;
-  } = {}) {
+  } = {},
+    allowedDivisionIds?: DivisionScope,
+  ) {
     const { page = 1, limit = 20 } = filter;
     const qb = this.returnRepo
       .createQueryBuilder('r')
@@ -1203,6 +1304,9 @@ export class RawMaterialReceivingService {
       .leftJoinAndSelect('r.warehouse', 'warehouse')
       .loadRelationCountAndMap('r.lineCount', 'r.lines')
       .where('r.companyId = :companyId', { companyId });
+
+    // Prompt #26 — same enforcement as findAllReceipts.
+    RawMaterialReceivingService.scopeQuery(qb, 'r.divisionId', allowedDivisionIds);
 
     if (filter.status) qb.andWhere('r.status = :status', { status: filter.status });
     if (filter.divisionId) qb.andWhere('r.divisionId = :divisionId', { divisionId: filter.divisionId });
@@ -1242,12 +1346,13 @@ export class RawMaterialReceivingService {
     };
   }
 
-  async findReturnById(companyId: string, id: string) {
+  async findReturnById(companyId: string, id: string, allowedDivisionIds?: DivisionScope) {
     const header = await this.returnRepo.findOne({
       where: { id, companyId },
       relations: ['division', 'section', 'department', 'warehouse', 'referenceReceipt', 'lines', 'lines.item', 'lines.uom', 'documents'],
     });
     if (!header) throw new NotFoundException(`Return '${id}' not found in this company.`);
+    RawMaterialReceivingService.assertDivisionAllowed(header.divisionId, allowedDivisionIds);
 
     const lineIds = header.lines.map((l) => l.id);
     let ledgerEntries: StockLedger[] = [];
@@ -1281,7 +1386,7 @@ export class RawMaterialReceivingService {
   // Monthly report (receiving + return + legacy ledger entries)
   // ─────────────────────────────────────────────────────────────────────────
 
-  async getReport(companyId: string, filter: RawMaterialReceivingReportQuery) {
+  async getReport(companyId: string, filter: RawMaterialReceivingReportQuery, allowedDivisionIds?: DivisionScope) {
     const { dateFrom, dateTo } = filter;
 
     const receiptsQb = this.receiptLineRepo
@@ -1307,6 +1412,9 @@ export class RawMaterialReceivingService {
       .where('line.companyId = :companyId', { companyId });
 
     const applyCommon = (qb: any, dateColumn: string) => {
+      // Prompt #26 — the header division is the authoritative scope column for
+      // both the receipt and the return side of the report.
+      RawMaterialReceivingService.scopeQuery(qb, 'h.divisionId', allowedDivisionIds);
       if (dateFrom) qb.andWhere(`${dateColumn} >= :dateFrom`, { dateFrom });
       if (dateTo) qb.andWhere(`${dateColumn} <= :dateTo`, { dateTo });
       if (filter.divisionId) qb.andWhere('h.divisionId = :divisionId', { divisionId: filter.divisionId });
@@ -1344,6 +1452,9 @@ export class RawMaterialReceivingService {
         .where('l.companyId = :companyId', { companyId })
         .andWhere('l.transactionType IN (:...types)', { types: ['RECEIPT', 'RETURN_OUT'] })
         .andWhere('(l.referenceType IS NULL OR l.referenceType IN (:...legacyTypes))', { legacyTypes: ['RECEIPT', 'RETURN_OUT'] });
+      // Prompt #26 — the legacy ledger side must be scoped identically, or the
+      // report would leak out-of-scope rows through its legacy section.
+      RawMaterialReceivingService.scopeQuery(legacyQb, 'l.divisionId', allowedDivisionIds);
       if (dateFrom) legacyQb.andWhere('l.transactionDate >= :dateFrom', { dateFrom: `${dateFrom} 00:00:00` });
       if (dateTo) legacyQb.andWhere('l.transactionDate <= :dateTo', { dateTo: `${dateTo} 23:59:59` });
       if (filter.warehouseId) legacyQb.andWhere('l.warehouseId = :warehouseId', { warehouseId: filter.warehouseId });
@@ -1534,7 +1645,12 @@ export class RawMaterialReceivingService {
     return Array.from(grouped.values());
   }
 
-  async getItemLedgerHistory(companyId: string, itemId: string, warehouseId?: string) {
+  async getItemLedgerHistory(
+    companyId: string,
+    itemId: string,
+    warehouseId?: string,
+    allowedDivisionIds?: DivisionScope,
+  ) {
     const item = await this.itemRepo.findOne({
       where: { id: itemId, companyId },
       relations: ['baseUom'],
@@ -1550,6 +1666,8 @@ export class RawMaterialReceivingService {
       .leftJoinAndSelect('sl.department', 'department')
       .where('sl.companyId = :companyId', { companyId })
       .andWhere('sl.itemId = :itemId', { itemId });
+
+    RawMaterialReceivingService.scopeQuery(qb, 'sl.divisionId', allowedDivisionIds);
 
     if (warehouseId) {
       qb.andWhere('sl.warehouseId = :warehouseId', { warehouseId });

@@ -209,14 +209,27 @@ if (-not $SkipFrontend) {
     if ($frontendPid) {
         $frontendReady = Wait-ForPort -Port 3000 -TimeoutSec $TimeoutSec -ServiceName "Frontend"
         if ($frontendReady) {
-            Start-Sleep -Seconds 5
-            $browser = Test-HttpEndpoint -Url "http://localhost:3000"
+            Write-Host "[WAIT] Verifying frontend HTTP response (waiting for webpack compilation)..." -ForegroundColor DarkYellow
+            $httpElapsed = 0
+            $httpTimeout = 60
+            $browser = @{ Ok = $false; StatusCode = 0 }
+            while ($httpElapsed -lt $httpTimeout) {
+                $browser = Test-HttpEndpoint -Url "http://localhost:3000"
+                if ($browser.Ok) {
+                    break
+                }
+                Start-Sleep -Seconds 3
+                $httpElapsed += 3
+                if ($httpElapsed % 15 -eq 0) {
+                    Write-Host "[WAIT] Webpack still compiling... (${httpElapsed}s / ${httpTimeout}s)" -ForegroundColor DarkYellow
+                }
+            }
             if ($browser.Ok) {
                 $results.Frontend = "PASS"
                 $results.Browser = "PASS"
                 Write-Host "[HEALTH] Frontend serving React app: PASS (HTTP $($browser.StatusCode))" -ForegroundColor Green
             } else {
-                Write-Host "[HEALTH] Frontend port open but HTTP failed" -ForegroundColor Red
+                Write-Host "[HEALTH] Frontend port open but HTTP failed after ${httpTimeout}s" -ForegroundColor Red
             }
         }
     }

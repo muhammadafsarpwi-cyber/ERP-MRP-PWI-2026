@@ -120,6 +120,11 @@ const Login: React.FC = () => {
       if (response.refreshToken) {
         localStorage.setItem('refresh_token', response.refreshToken);
       }
+      // PROMPT #26 — re-arm the single-flight teardown guard. A previous
+      // terminal session failure latches it so parallel 401s redirect once;
+      // without re-arming it, the NEXT session expiry in this same tab would
+      // be silently swallowed and the app would look signed-in while dead.
+      apiService.markSessionActive();
       if (response.user) {
         localStorage.setItem('erp_user', JSON.stringify(response.user));
       }

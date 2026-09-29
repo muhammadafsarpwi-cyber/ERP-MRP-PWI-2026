@@ -11,6 +11,27 @@ export enum ScopeLevel {
   DIVISION = 'DIVISION',
   SECTION = 'SECTION',
   DEPARTMENT = 'DEPARTMENT',
+  /**
+   * PROMPT #26 — explicit "no division at all" marker.
+   *
+   * Written by `ErpUserService.setDivisionAccess({ divisionIds: [] })` when an
+   * admin deliberately denies every division. It is the only shape that
+   * `deriveUserDivisionIds()` can read as "deny":
+   *
+   *  - `division_id IS NULL` can never be a deny, because the pre-existing
+   *    `Super Administrator` row is exactly `scope_level='COMPANY'`,
+   *    `division_id IS NULL`, `is_full_scope=false` and MUST stay unrestricted.
+   *  - a row with only `status='INACTIVE'` cannot be a deny either, because the
+   *    resolution queries filter on `status='ACTIVE'` and would see zero rows,
+   *    which the backward-compatibility rule (§12) defines as "nothing
+   *    configured ⇒ unrestricted". A persisted revoke would silently become
+   *    full access again — exactly the escalation this prompt is fixing.
+   *
+   * So the deny is stored as an ACTIVE row with a scope level that cannot be
+   * produced by any pre-existing code path (the enum only ever held the four
+   * values above), which makes it both unambiguous and backward compatible.
+   */
+  NONE = 'NONE',
 }
 
 export enum OrgScopeStatus {

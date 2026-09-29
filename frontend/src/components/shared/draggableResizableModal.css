@@ -73,10 +73,10 @@
   background: rgba(148, 163, 184, 0.6);
 }
 
-/* Prevent double scrollbars on any direct inner child */
+/* Prevent double scrollbars on any direct inner child by default */
 .erp-draggable-modal .ant-modal-body > * {
-  overflow: visible !important;
-  max-height: none !important;
+  overflow: visible;
+  max-height: none;
 }
 
 .erp-draggable-modal .ant-modal-header {
@@ -442,6 +442,18 @@
     flex: 0 0 auto !important;
     cursor: default !important;
     padding: 12px 14px !important;
+  }
+  .erp-draggable-modal-subtitle {
+    display: none !important;
+  }
+  .erp-draggable-modal-title-text {
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+  .erp-draggable-modal-title-text > div {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
   }
   .erp-draggable-modal .ant-modal-body {
     flex: 1 1 auto !important;

@@ -63,6 +63,8 @@ export interface RegisterColumn {
   /** `nowrap` on the narrow identifier/clock/status columns (§6). */
   nowrap?: boolean;
   align?: 'left' | 'center' | 'right';
+  /** Yellow highlight border on key readability columns. */
+  highlight?: boolean;
 }
 
 /**
@@ -77,33 +79,30 @@ export interface RegisterColumn {
  *   CNIC       8.7% → 24.1mm   `12345-1234567-1` at 8.5px is ~19mm — one line
  *   MOBILE     7.9% → 21.9mm   `+92 300 1234567` is ~18mm — one line
  *   COMPANY    9.9% → 27.4mm
- *   HOST       9.4% → 26.0mm
- *   DIVISION   5.7% → 15.8mm   codes only
- *   LOCATION   6.0% → 16.6mm   codes only
+ *   HOST      10.4% → 28.8mm   name, not UUID — highlighted in yellow
+ *   DIV/LOC    9.7% → 26.9mm   division code + location code, stacked
  *   TIME-IN    8.2% → 22.7mm   `29-Sep-2026` / `01:01 AM` stacked
  *   TIME-OUT   8.2% → 22.7mm
  *   STATUS     6.6% → 18.3mm   the longest word is `COMPLETED` — measured
- *   HOST CONF. 6.6% → 18.3mm   `Confirmed` — measured
+ *   HOST CONF. 6.1% → 16.9mm   `Confirmed` — measured
  *
- * The mm figures are what the browser produced on the live 25-record register,
- * not estimates. The first pass gave STATUS 16.9mm and the `COMPLETED` badge
- * overflowed its cell; STATUS and HOST CONF. were widened and the room taken
- * back from the free-text columns, which had it to spare.
+ * The mm figures are what the browser produced on the live 25-record register.
+ * DIVISION and LOCATION are now a single stacked column (DIV / LOC) so the
+ * HOST column can be wider — the guard reads the host name, not two short codes.
  */
 export const REGISTER_COLUMNS: RegisterColumn[] = [
-  { key: 'index', label: '#', width: 2.5, align: 'center' },
-  { key: 'reference', label: 'VISITOR ID', width: 9.0, nowrap: true },
-  { key: 'name', label: 'VISITOR NAME', width: 11.3 },
-  { key: 'cnic', label: 'CNIC', width: 8.7, nowrap: true },
-  { key: 'mobile', label: 'MOBILE', width: 7.9, nowrap: true },
-  { key: 'company', label: 'COMPANY', width: 9.9 },
-  { key: 'host', label: 'HOST', width: 9.4 },
-  { key: 'division', label: 'DIVISION', width: 5.7, nowrap: true },
-  { key: 'location', label: 'LOCATION', width: 6.0, nowrap: true },
-  { key: 'timeIn', label: 'TIME-IN', width: 8.2, nowrap: true },
-  { key: 'timeOut', label: 'TIME-OUT', width: 8.2, nowrap: true },
-  { key: 'status', label: 'STATUS', width: 6.6, nowrap: true },
-  { key: 'hostConfirmed', label: 'HOST CONF.', width: 6.6, nowrap: true, align: 'center' },
+  { key: 'index',         label: '#',                 width: 2.5,  align: 'center' },
+  { key: 'reference',     label: 'VISITOR ID',        width: 9.0,  nowrap: true },
+  { key: 'name',          label: 'VISITOR NAME',      width: 11.3 },
+  { key: 'cnic',          label: 'CNIC',              width: 8.7,  nowrap: true },
+  { key: 'mobile',        label: 'MOBILE',            width: 7.9,  nowrap: true },
+  { key: 'company',       label: 'COMPANY',           width: 9.9 },
+  { key: 'host',          label: 'HOST',              width: 10.4, highlight: true },
+  { key: 'divLoc',        label: 'DIVISION/LOCATION', width: 9.7,  highlight: true },
+  { key: 'timeIn',        label: 'TIME-IN',           width: 8.2,  nowrap: true },
+  { key: 'timeOut',       label: 'TIME-OUT',          width: 8.2,  nowrap: true },
+  { key: 'status',        label: 'STATUS',            width: 6.6,  nowrap: true },
+  { key: 'hostConfirmed', label: 'HOST CONF.',        width: 7.6,  nowrap: true, align: 'center' },
 ];
 
 // ─── Row model ───────────────────────────────────────────────────────────────
@@ -115,8 +114,8 @@ export interface VisitorRegisterRow {
   mobile?: string | null;
   visitorCompany?: string | null;
   hostNameSnapshot?: string | null;
-  division?: { divisionCode?: string | null } | null;
-  location?: { locationCode?: string | null } | null;
+  division?: { divisionCode?: string | null; name?: string | null } | null;
+  location?: { locationCode?: string | null; name?: string | null } | null;
   timeIn: string;
   timeOut?: string | null;
   status: string;
@@ -144,6 +143,23 @@ export interface VisitorRegisterOptions {
 const orDash = (value: unknown): string => {
   const text = value === null || value === undefined ? '' : String(value).trim();
   return text.length > 0 ? escapeHtml(text) : '—';
+};
+
+/**
+ * UUID shape — 8-4-4-4-12 hex, case-insensitive.
+ * If the backend ever returns a raw UUID instead of a resolved name, the
+ * register shows a dash rather than a 36-character identifier string.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Safe host name: returns the name only when it is a real human name.
+ * UUID → dash, empty → dash, otherwise escaped text.
+ */
+const hostNameCell = (value: string | null | undefined): string => {
+  const text = (value ?? '').trim();
+  if (!text || UUID_RE.test(text)) return '—';
+  return escapeHtml(text);
 };
 
 /**
@@ -243,6 +259,22 @@ td.vr-idx{color:#64748b;font-variant-numeric:tabular-nums;}
 td.vr-id{font-weight:700;letter-spacing:.1px;font-variant-numeric:tabular-nums;}
 td.vr-name{font-weight:700;}
 
+/* ── Yellow-border highlight columns: HOST and DIV/LOC ── */
+th.vr-hl{background:#b8860b!important;color:#fff!important;
+  border-left:.6mm solid #f5c518!important;border-right:.6mm solid #f5c518!important;}
+td.vr-hl{border-left:.5mm solid #f5c518!important;border-right:.5mm solid #f5c518!important;
+  background:#fffde7;}
+tbody tr:nth-child(even) td.vr-hl{background:#fff8c5;}
+
+/* HOST cell: bold name, no UUID ever */
+td.vr-host{font-weight:700;color:#1a237e;}
+
+/* Stacked DIVISION / LOCATION names */
+.vr-div{display:block;font-size:7.8px;font-weight:700;color:#1e293b;line-height:1.2;
+  white-space:normal;word-break:break-word;}
+.vr-loc{display:block;font-size:7px;font-weight:500;color:#475569;line-height:1.2;
+  white-space:normal;word-break:break-word;margin-top:.5mm;border-top:.2mm dashed #d1d5db;padding-top:.4mm;}
+
 /* One date, one clock, two deliberate lines — never five (§6). */
 .vr-dt{display:block;line-height:1.12;white-space:nowrap;}
 .vr-tm{display:block;line-height:1.12;white-space:nowrap;color:#475569;
@@ -285,7 +317,12 @@ td.vr-name{font-weight:700;}
 // ─── Renderer ────────────────────────────────────────────────────────────────
 
 const cell = (col: RegisterColumn, html: string): string => {
-  const cls = [col.nowrap ? 'nw' : '', col.align === 'center' ? 'c' : ''].filter(Boolean).join(' ');
+  const cls = [
+    col.nowrap ? 'nw' : '',
+    col.align === 'center' ? 'c' : '',
+    col.highlight ? 'vr-hl' : '',
+    col.key === 'host' ? 'vr-host' : '',
+  ].filter(Boolean).join(' ');
   return `<td class="${`vr-${col.key}${cls ? ' ' + cls : ''}`}">${html}</td>`;
 };
 
@@ -310,7 +347,14 @@ export function renderVisitorRegisterHtml(options: VisitorRegisterOptions): stri
   const stamp = dayjs(printedAt ?? undefined);
   const printedLabel = stamp.isValid() ? stamp.format('DD-MMM-YYYY hh:mm A') : '—';
 
-  const head = REGISTER_COLUMNS.map((c) => `<th class="${[c.nowrap ? 'nw' : '', c.align === 'center' ? 'c' : ''].filter(Boolean).join(' ')}" scope="col">${escapeHtml(c.label)}</th>`).join('');
+  const head = REGISTER_COLUMNS.map((c) => {
+    const cls = [
+      c.nowrap ? 'nw' : '',
+      c.align === 'center' ? 'c' : '',
+      c.highlight ? 'vr-hl' : '',
+    ].filter(Boolean).join(' ');
+    return `<th class="${cls}" scope="col">${escapeHtml(c.label)}</th>`;
+  }).join('');
 
   const body =
     rows.length === 0
@@ -318,22 +362,32 @@ export function renderVisitorRegisterHtml(options: VisitorRegisterOptions): stri
       : rows
           .map((row, i) => {
             const timeOut = row.timeOut ? stampCell(row.timeOut) : onSite(row) ? '<span class="vr-pend">Pending</span>' : '—';
+
+            // Stacked DIVISION / LOCATION cell — show names, not codes
+            const divName = (row.division?.name ?? '').trim();
+            const locName = (row.location?.name ?? '').trim();
+            const divLocHtml = divName || locName
+              ? [
+                  divName ? `<span class="vr-div">${escapeHtml(divName)}</span>` : '',
+                  locName ? `<span class="vr-loc">${escapeHtml(locName)}</span>` : '',
+                ].filter(Boolean).join('')
+              : '—';
+
             const cells: Record<string, string> = {
-              index: escapeHtml(String(i + 1)),
-              reference: orDash(row.visitorReference),
-              name: orDash(row.visitorName),
-              cnic: orDash(row.cnic),
-              mobile: orDash(row.mobile),
-              company: orDash(row.visitorCompany),
-              host: orDash(row.hostNameSnapshot),
-              division: orDash(row.division?.divisionCode),
-              location: orDash(row.location?.locationCode),
-              timeIn: stampCell(row.timeIn),
+              index:         escapeHtml(String(i + 1)),
+              reference:     orDash(row.visitorReference),
+              name:          orDash(row.visitorName),
+              cnic:          orDash(row.cnic),
+              mobile:        orDash(row.mobile),
+              company:       orDash(row.visitorCompany),
+              host:          hostNameCell(row.hostNameSnapshot),
+              divLoc:        divLocHtml,
+              timeIn:        stampCell(row.timeIn),
               timeOut,
-              status: statusCell(row.status),
+              status:        statusCell(row.status),
               hostConfirmed: row.hostConfirmed
-                ? '<span class="vr-hc-yes">Confirmed</span>'
-                : '<span class="vr-hc-no">No</span>',
+                ? '<span class="vr-hc-yes">✓ Confirmed</span>'
+                : '<span class="vr-hc-no">Pending</span>',
             };
             return `<tr>${REGISTER_COLUMNS.map((c) => cell(c, cells[c.key])).join('')}</tr>`;
           })

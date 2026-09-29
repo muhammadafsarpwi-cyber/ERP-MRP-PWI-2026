@@ -2,7 +2,9 @@ import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, HttpCode
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ErpUserService } from '../services/erp-user.service';
 import { AuthService } from '../../auth/services/auth.service';
-import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto, CreateUserFullDto } from '../dto/user.dto';
+import { DivisionAccessService } from '../../permission/services/division-access.service';
+import { isUnrestricted, toDivisionList } from '../../../common/division-scope.util';
+import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, SetDefaultContextDto, CreateUserFullDto, SetDivisionAccessDto } from '../dto/user.dto';
 import { AdminResetPasswordDto, AvatarUploadDto } from '../../auth/dto/auth.dto';
 import { ErpUserStatus } from '../entities';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
@@ -16,6 +18,7 @@ export class UserController {
   constructor(
     private readonly userService: ErpUserService,
     private readonly authService: AuthService,
+    private readonly divisionAccessService: DivisionAccessService,
   ) {}
 
   @Post()
@@ -153,6 +156,74 @@ export class UserController {
   async assignOrgScope(@Param('id') id: string, @Body() dto: AssignOrgScopeDto) {
     const scope = await this.userService.assignOrgScope(id, dto);
     return { success: true, data: scope, message: 'Organizational scope assigned successfully' };
+  }
+
+  /**
+   * PROMPT #26 — the real "Save Changes" for the Division Access popup.
+   *
+   * Replaces the add-one/revoke-one pair with a single declarative, atomic
+   * reconcile. Also the actual persistence fix for accounts that were holding a
+   * contradictory company-wide scope row next to a division row (the popup used
+   * to display only the division while the API still granted everything).
+   */
+  @Put(':id/division-access')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('admin.users.manage_scope')
+  @ApiOperation({
+    summary: 'Replace a user division access with an exact set (transactional)',
+  })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  async setDivisionAccess(@Param('id') id: string, @Body() dto: SetDivisionAccessDto, @Req() req: any) {
+    const result = await this.userService.setDivisionAccess(id, dto, req.user?.id);
+    const effective = await this.divisionAccessService.getEffectiveDivisions(id);
+    return {
+      success: true,
+      data: {
+        scopes: result.scopes,
+        // Server-authoritative projection so the popup never has to guess.
+        effective: {
+          unrestricted: isUnrestricted(effective),
+          divisionIds: toDivisionList(effective),
+        },
+      },
+      message: 'Division access updated successfully',
+    };
+  }
+
+  /**
+   * Read-only, server-computed view of what a target user can ACTUALLY reach.
+   * The popup renders this instead of deriving "effective access" from the raw
+   * scope rows, so the admin sees what the API will actually enforce.
+   */
+  @Get(':id/division-access')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('admin.users.view')
+  @ApiOperation({ summary: 'Server-computed effective division access for a user' })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  @ApiQuery({ name: 'companyId', required: false, type: String })
+  async getDivisionAccess(@Param('id') id: string, @Query('companyId') companyId?: string) {
+    const user = await this.userService.findOne(id);
+    const scopes = await this.userService.getUserOrganizationScopes(id);
+    const effective = await this.divisionAccessService.getEffectiveDivisions(id);
+    const projection = await this.divisionAccessService.listAccessibleDivisions(id);
+
+    const companyScopes = companyId
+      ? scopes.filter((s) => s.companyId === companyId)
+      : scopes;
+
+    return {
+      success: true,
+      data: {
+        user: { id: user.id, displayName: user.displayName, email: user.email },
+        scopes: companyScopes,
+        effective: {
+          unrestricted: isUnrestricted(effective),
+          divisionIds: toDivisionList(effective),
+        },
+        accessibleDivisions: projection.divisions,
+        unrestricted: projection.unrestricted,
+      },
+    };
   }
 
   @Delete(':id/org-scopes/:scopeId')

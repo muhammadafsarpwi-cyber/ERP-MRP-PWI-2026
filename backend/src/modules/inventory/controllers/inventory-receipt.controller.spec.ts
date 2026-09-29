@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InventoryReceiptController } from './inventory-receipt.controller';
 import { StockLedgerService } from '../services/stock-ledger.service';
 import { InventoryBalanceService } from '../services/inventory-balance.service';
@@ -13,10 +13,26 @@ import { StockLedger } from '../entities';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { OrgScopeGuard } from '../../auth/guards/org-scope.guard';
 import { PermissionGuard } from '../../auth/guards/permission.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { DivisionAccessService } from '../../permission/services/division-access.service';
 
 const COMPANY = '7725aa04-a270-4314-9e82-90949cbe7791';
+const DIV_CCD = 'd1000000-0000-0000-0000-000000000002';
 
-const makeReq = () => ({ erpUser: { id: 'user-1', defaultCompanyId: COMPANY }, orgScopes: [{ companyId: COMPANY }] });
+/**
+ * PROMPT #26 — `makeReq()` now carries `allowedDivisionIds`, which is what
+ * `DivisionScopeGuard` publishes and what the controller forwards to the
+ * service. Omitting it models a guard that resolved "unrestricted", so the
+ * service receives `undefined` and applies no filter.
+ */
+const makeReq = (allowedDivisionIds: any = 'ALL') => ({
+  erpUser: { id: 'user-1', defaultCompanyId: COMPANY },
+  orgScopes: [{ companyId: COMPANY }],
+  allowedDivisionIds,
+});
+
+/** A caller the guard resolved to exactly one division (the reported bug). */
+const makeScopedReq = (divisionIds: string[]) => makeReq(divisionIds);
 
 const makeMockRepo = () => ({
   findOne: jest.fn(),
@@ -48,16 +64,20 @@ describe('InventoryReceiptController (return)', () => {
     rawMaterialService = {
       createReceipt: jest.fn(),
       findAllReceipts: jest.fn(),
+      findReceiptById: jest.fn(),
       createReturn: jest.fn(),
       findAllReturns: jest.fn(),
+      findReturnById: jest.fn(),
       getReport: jest.fn(),
       addReceiptDocument: jest.fn(),
       listReceiptDocuments: jest.fn(),
       removeReceiptDocument: jest.fn(),
       shareReceiptWhatsApp: jest.fn(),
       getReceiptInventory: jest.fn(),
+      getFormReferenceData: jest.fn(),
     };
     ledgerService = { create: jest.fn().mockResolvedValue({ id: 'ledger-1' }),
+      findAll: jest.fn().mockResolvedValue({ data: [], total: 0 }),
       findOneByCompany: jest.fn().mockResolvedValue({ id: 'ledger-1', companyId: COMPANY, transactionType: 'RECEIPT', direction: 'IN', itemId: 'item-1', warehouseId: 'wh-1', quantity: 100, uomId: 'uom-kg', divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1' }),
       update: jest.fn().mockResolvedValue({ id: 'ledger-1' }),
       remove: jest.fn().mockResolvedValue(undefined),
@@ -87,6 +107,11 @@ describe('InventoryReceiptController (return)', () => {
         { provide: getRepositoryToken(Item), useValue: itemRepo },
         { provide: getRepositoryToken(Uom), useValue: uomRepo },
         { provide: getRepositoryToken(StockLedger), useValue: ledgerRepo },
+        // PROMPT #26 — the controller now runs DivisionScopeGuard, which needs
+        // DivisionAccessService. Overridden to "unrestricted" so the existing
+        // happy-path assertions keep their pre-scope behaviour; the new
+        // `division scope enforcement` block below exercises the restricted path.
+        { provide: DivisionAccessService, useValue: { isEnforcementEnabled: () => true, resolveForRequest: async (r: any) => (r.allowedDivisionIds ?? 'ALL') } },
       ],
     })
       .overrideGuard(SupabaseJwtGuard)
@@ -94,6 +119,8 @@ describe('InventoryReceiptController (return)', () => {
       .overrideGuard(OrgScopeGuard)
       .useValue({ canActivate: jest.fn(() => true) })
       .overrideGuard(PermissionGuard)
+      .useValue({ canActivate: jest.fn(() => true) })
+      .overrideGuard(DivisionScopeGuard)
       .useValue({ canActivate: jest.fn(() => true) })
       .compile();
 
@@ -111,6 +138,16 @@ describe('InventoryReceiptController (return)', () => {
     returnDate: '2026-08-31',
     reference: 'RET-TEST-001',
     reason: 'Test return',
+  });
+
+  /** Minimal multi-item Gate Pass payload (header + one line). */
+  const multiReceiptDto = () => ({
+    sectionId: 'sec-1',
+    departmentId: 'dept-1',
+    warehouseId: 'wh-1',
+    items: [
+      { itemId: 'item-1', quantity: 10, uomId: 'uom-kg', gatePassWeight: 12, receivedWeight: 10 },
+    ],
   });
 
   describe('createReturn', () => {
@@ -246,7 +283,7 @@ describe('InventoryReceiptController (return)', () => {
       expect(result.success).toBe(true);
       expect(result.data.id).toBe('doc-1');
       expect(rawMaterialService.addReceiptDocument).toHaveBeenCalledWith(
-        COMPANY, 'rec-1', 'PHOTO', file, 'user-1',
+        COMPANY, 'rec-1', 'PHOTO', file, 'user-1', undefined,
       );
     });
 
@@ -256,7 +293,7 @@ describe('InventoryReceiptController (return)', () => {
 
       const result = await controller.uploadReceiptDocument('rec-1', file, makeReq());
 
-      expect(rawMaterialService.addReceiptDocument).toHaveBeenCalledWith(COMPANY, 'rec-1', 'ATTACHMENT', file, 'user-1');
+      expect(rawMaterialService.addReceiptDocument).toHaveBeenCalledWith(COMPANY, 'rec-1', 'ATTACHMENT', file, 'user-1', undefined);
       expect(result.data.kind).toBe('ATTACHMENT');
     });
 
@@ -265,7 +302,7 @@ describe('InventoryReceiptController (return)', () => {
 
       const result = await controller.listReceiptDocuments('rec-1', makeReq());
 
-      expect(rawMaterialService.listReceiptDocuments).toHaveBeenCalledWith(COMPANY, 'rec-1');
+      expect(rawMaterialService.listReceiptDocuments).toHaveBeenCalledWith(COMPANY, 'rec-1', undefined);
       expect(result.data).toHaveLength(1);
     });
 
@@ -274,7 +311,7 @@ describe('InventoryReceiptController (return)', () => {
 
       const result = await controller.removeReceiptDocument('rec-1', 'doc-1', makeReq());
 
-      expect(rawMaterialService.removeReceiptDocument).toHaveBeenCalledWith(COMPANY, 'rec-1', 'doc-1');
+      expect(rawMaterialService.removeReceiptDocument).toHaveBeenCalledWith(COMPANY, 'rec-1', 'doc-1', undefined);
       expect(result.success).toBe(true);
     });
   });
@@ -286,7 +323,7 @@ describe('InventoryReceiptController (return)', () => {
 
       const result = await controller.shareReceiptWhatsApp('rec-1', dto, makeReq());
 
-      expect(rawMaterialService.shareReceiptWhatsApp).toHaveBeenCalledWith(COMPANY, 'rec-1', dto, 'user-1');
+      expect(rawMaterialService.shareReceiptWhatsApp).toHaveBeenCalledWith(COMPANY, 'rec-1', dto, 'user-1', undefined);
       expect(result.data.enqueued).toBe(true);
       expect(result.data.deliveryId).toBe('del-1');
     });
@@ -311,7 +348,7 @@ describe('InventoryReceiptController (return)', () => {
       const req = makeReq();
       const result = await controller.getReceiptInventory('rec-1', req);
 
-      expect(rawMaterialService.getReceiptInventory).toHaveBeenCalledWith(COMPANY, 'rec-1');
+      expect(rawMaterialService.getReceiptInventory).toHaveBeenCalledWith(COMPANY, 'rec-1', undefined);
       expect(result.success).toBe(true);
       expect(result.data.receiptCode).toBe('RMR-00020');
     });
@@ -320,14 +357,128 @@ describe('InventoryReceiptController (return)', () => {
       rawMaterialService.getReceiptInventory.mockRejectedValue(new NotFoundException('Receipt not found'));
 
       await expect(controller.getReceiptInventory('foreign-receipt', makeReq())).rejects.toThrow(NotFoundException);
-      expect(rawMaterialService.getReceiptInventory).toHaveBeenCalledWith(COMPANY, 'foreign-receipt');
+      expect(rawMaterialService.getReceiptInventory).toHaveBeenCalledWith(COMPANY, 'foreign-receipt', undefined);
     });
 
     it('fails closed when no company scope can be derived from the authenticated user', async () => {
-      const noScopeReq = { erpUser: { id: 'user-1' }, orgScopes: [] };
+      const noScopeReq = { erpUser: { id: 'user-1' }, orgScopes: [], allowedDivisionIds: 'ALL' };
 
       await expect(controller.getReceiptInventory('rec-1', noScopeReq)).rejects.toThrow(BadRequestException);
       expect(rawMaterialService.getReceiptInventory).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * PROMPT #26 — the reported production bug, as a controller-level contract.
+   *
+   * Before this block the controller had no `DivisionScopeGuard` and forwarded
+   * no scope at all, so a DIV-CCD-only user received every division's Gate
+   * Passes from the Raw Material Receiving list.
+   */
+  describe('division scope enforcement (PROMPT #26)', () => {
+    it('forwards the SERVER-resolved scope into the receipt list query', async () => {
+      rawMaterialService.findAllReceipts.mockResolvedValue({ data: [], total: 0 });
+
+      await controller.listMultiReceipts(makeScopedReq([DIV_CCD]), 1, 20, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+
+      expect(rawMaterialService.findAllReceipts).toHaveBeenCalledWith(
+        COMPANY,
+        expect.objectContaining({ page: 1, limit: 20 }),
+        [DIV_CCD],
+      );
+    });
+
+    it('forwards the scope into the return list query too', async () => {
+      rawMaterialService.findAllReturns.mockResolvedValue({ data: [], total: 0 });
+
+      await controller.listMultiReturns(makeScopedReq([DIV_CCD]), 1, 20, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+
+      expect(rawMaterialService.findAllReturns).toHaveBeenCalledWith(
+        COMPANY,
+        expect.objectContaining({ page: 1, limit: 20 }),
+        [DIV_CCD],
+      );
+    });
+
+    it('forwards the scope into the legacy stock-ledger list', async () => {
+      ledgerService.findAll = jest.fn().mockResolvedValue({ data: [], total: 0 });
+
+      await controller.findAll(makeScopedReq([DIV_CCD]), 1, 20);
+
+      expect(ledgerService.findAll).toHaveBeenCalledWith(
+        expect.objectContaining({ companyId: COMPANY }),
+        [DIV_CCD],
+      );
+    });
+
+    it('rejects a receipt detail in another division (403) — a leaked UUID must not work', async () => {
+      rawMaterialService.findReceiptById = jest.fn().mockRejectedValue(
+        new ForbiddenException('You do not have access to this division.'),
+      );
+
+      await expect(controller.getMultiReceipt('receipt-in-spd', makeScopedReq([DIV_CCD]))).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects a CREATE whose body division is outside the scope', async () => {
+      divisionRepo.findOne.mockResolvedValue({ id: 'div-1', status: 'ACTIVE' });
+
+      await expect(
+        controller.createMultiReceipt(
+          { divisionId: 'div-spd', ...multiReceiptDto() } as any,
+          makeScopedReq([DIV_CCD]),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(rawMaterialService.createReceipt).not.toHaveBeenCalled();
+    });
+
+    it('accepts a CREATE inside the scope and forwards it', async () => {
+      rawMaterialService.createReceipt.mockResolvedValue({ id: 'rec-1' });
+
+      await controller.createMultiReceipt(
+        { divisionId: DIV_CCD, ...multiReceiptDto() } as any,
+        makeScopedReq([DIV_CCD]),
+      );
+
+      expect(rawMaterialService.createReceipt).toHaveBeenCalledWith(
+        COMPANY,
+        expect.objectContaining({ divisionId: DIV_CCD }),
+        'user-1',
+        [DIV_CCD],
+      );
+    });
+
+    it('refuses to touch a legacy ledger row that belongs to another division', async () => {
+      ledgerService.findOneByCompany.mockResolvedValue({
+        id: 'ledger-spd', companyId: COMPANY, transactionType: 'RECEIPT', direction: 'IN',
+        itemId: 'item-1', warehouseId: 'wh-1', quantity: 100, uomId: 'uom-kg', divisionId: 'div-spd',
+      });
+
+      await expect(controller.remove('ledger-spd', makeScopedReq([DIV_CCD]))).rejects.toThrow(ForbiddenException);
+      expect(ledgerService.remove).not.toHaveBeenCalled();
+    });
+
+    it('treats an empty scope as deny-all rather than as unrestricted', async () => {
+      rawMaterialService.findAllReceipts.mockResolvedValue({ data: [], total: 0 });
+
+      await controller.listMultiReceipts(makeScopedReq([]), 1, 20, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+
+      // `[]` must reach the service (→ `1 = 0`), NOT `undefined` (→ no filter).
+      expect(rawMaterialService.findAllReceipts).toHaveBeenCalledWith(
+        COMPANY,
+        expect.anything(),
+        [],
+      );
+    });
+
+    it('keeps the reference-data endpoints narrowed to the caller scope', async () => {
+      rawMaterialService.getFormReferenceData.mockResolvedValue({ divisions: [] });
+
+      await controller.getGatePassFormData(makeScopedReq([DIV_CCD]));
+
+      expect(rawMaterialService.getFormReferenceData).toHaveBeenCalledWith(COMPANY, [DIV_CCD]);
     });
   });
 });

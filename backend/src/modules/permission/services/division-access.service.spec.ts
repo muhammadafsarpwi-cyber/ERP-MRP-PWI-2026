@@ -183,6 +183,70 @@ describe('DivisionAccessService', () => {
     });
   });
 
+  /**
+   * PROMPT #26 — regression for the reported leak, expressed at the service
+   * that every guard delegates to.
+   *
+   * The production user (Anus) had TWO ACTIVE rows:
+   *   - the DIV-CCD row the Division Access popup displayed, and
+   *   - a stray company-wide row (`division_id IS NULL`, `is_full_scope = true`)
+   *     that `ErpUserService.getUserOrganizationScopes()` had auto-healed.
+   * The pre-fix resolver short-circuited to 'ALL' on the company-wide row, so
+   * `GET /auth/me` reported `unrestricted: true` and Raw Material Receiving
+   * returned every division's receipts to a DIV-CCD-only user.
+   *
+   * The invariant asserted here: an explicit DIVISION-level restriction is
+   * authoritative and is never widened by a co-existing company-wide default.
+   */
+  describe('PROMPT #26 — contradictory scope rows (DIV-CCD user + company-wide default)', () => {
+    const ANUS_SCOPES = [
+      { divisionId: D1, sectionId: null, departmentId: null, scopeLevel: 'DIVISION', isFullScope: false, status: 'ACTIVE' },
+      { divisionId: null, sectionId: null, departmentId: null, scopeLevel: 'COMPANY', isFullScope: true, status: 'ACTIVE' },
+    ];
+
+    it('resolves to the division row, not ALL', async () => {
+      orgScopeRepo.find.mockResolvedValue(ANUS_SCOPES);
+      await expect(service.getEffectiveDivisions('anus')).resolves.toEqual([D1]);
+    });
+
+    it('is rejected for a division outside the explicit restriction (the leak itself)', async () => {
+      orgScopeRepo.find.mockResolvedValue(ANUS_SCOPES);
+      const access = await service.getEffectiveDivisions('anus');
+      expect(service.isDivisionAllowed(access, D1)).toBe(true);  // DIV-CCD
+      expect(service.isDivisionAllowed(access, D2)).toBe(false); // DIV-SPD — was 200, must be 403
+      expect(service.isDivisionAllowed(access, D3)).toBe(false);
+    });
+
+    it('projects only the allowed divisions in /auth/me master data', async () => {
+      orgScopeRepo.find.mockResolvedValue(ANUS_SCOPES);
+      divisionRepo.find.mockResolvedValue([
+        { id: D1, divisionCode: 'DIV-CCD', status: 'ACTIVE' },
+        { id: D2, divisionCode: 'DIV-SPD', status: 'ACTIVE' },
+        { id: D3, divisionCode: 'DIV-PWI', status: 'ACTIVE' },
+      ]);
+
+      const result = await service.listAccessibleDivisions('anus');
+
+      expect(result.unrestricted).toBe(false);
+      expect(result.divisions.map((d) => d.divisionCode)).toEqual(['DIV-CCD']);
+    });
+
+    it('stays restricted through resolveForRequest, which is what the guard caches', async () => {
+      orgScopeRepo.find.mockResolvedValue(ANUS_SCOPES);
+      const request: any = { erpUser: { id: 'anus' } };
+
+      await expect(service.resolveForRequest(request)).resolves.toEqual([D1]);
+      expect(request.allowedDivisionIds).toEqual([D1]);
+      expect(request.divisionAccessResolved).toBe(true);
+    });
+
+    it('still leaves a genuine company-wide-only user unrestricted (SUPER_ADMIN regression)', async () => {
+      orgScopeRepo.find.mockResolvedValue([ANUS_SCOPES[1]]);
+      await expect(service.getEffectiveDivisions('super-admin')).resolves.toBe('ALL');
+      expect(service.isDivisionAllowed('ALL', D2)).toBe(true);
+    });
+  });
+
   describe('isDivisionAllowed', () => {
     it('allows everything when unrestricted', () => {
       expect(service.isDivisionAllowed('ALL', D1)).toBe(true);

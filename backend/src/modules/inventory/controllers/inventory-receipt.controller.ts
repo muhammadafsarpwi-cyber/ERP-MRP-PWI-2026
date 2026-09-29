@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, Req, Query, UseGuards, HttpCode, HttpStatus, BadRequestException, NotFoundException, UploadedFile, UseInterceptors,
+  Controller, Get, Post, Patch, Delete, Body, Param, Req, Query, UseGuards, HttpCode, HttpStatus, BadRequestException, NotFoundException, ForbiddenException, UploadedFile, UseInterceptors,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -9,6 +9,8 @@ import { IsUUID, IsNumber, Min, IsOptional, IsString, MaxLength, IsDateString } 
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { divisionScopeFromRequest, narrowWhereByDivision } from '../../../common/division-scope.util';
 import { StockLedgerService } from '../services/stock-ledger.service';
 import { InventoryBalanceService } from '../services/inventory-balance.service';
 import { RawMaterialReceivingService } from '../services/raw-material-receiving.service';
@@ -148,10 +150,16 @@ class UpdateInventoryReceiptDto {
  *   → validate org hierarchy + available stock
  *   → atomic: StockLedgerService.create(direction OUT, transactionType RETURN_OUT, org ids)
  *   → InventoryBalanceService.updateBalance(direction OUT) inside the same transaction
+ *
+ * PROMPT #26 — every handler on this controller is division-sensitive, so
+ * `DivisionScopeGuard` runs (layer 4 of the guard chain) and each handler
+ * forwards the SERVER-resolved scope into the service via
+ * `this.divisionScope(req)`. A client can therefore never widen its own view
+ * by editing `?divisionId=…`, a body field, localStorage, or route params.
  */
 @ApiTags('inventory receipt')
 @Controller('inventory/receipts')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class InventoryReceiptController {
   constructor(
@@ -180,6 +188,32 @@ export class InventoryReceiptController {
       throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
     }
     return companyId;
+  }
+
+  /**
+   * PROMPT #26 — the effective division scope the guard chain resolved for this
+   * request. Deliberately reads ONLY from `request.allowedDivisionIds` (server
+   * derived), never from the body/query, so a tampered `?divisionId=` cannot
+   * change what the service filters with.
+   *
+   * `undefined` = unrestricted (SUPER_ADMIN / company-wide scope) => no filter.
+   * `[]`        = deny-all => service query matches nothing.
+   */
+  private divisionScope(req: any): string[] | undefined {
+    return divisionScopeFromRequest(req);
+  }
+
+  /**
+   * Reject a body/query division reference that is outside the caller's scope.
+   * Used by the legacy single-item ledger endpoints below, which validate the
+   * org hierarchy inline instead of going through `RawMaterialReceivingService`.
+   */
+  private assertDivisionInScope(req: any, divisionId: string | null | undefined): void {
+    const scope = this.divisionScope(req);
+    if (scope === undefined) return;
+    if (!divisionId || scope.length === 0 || !scope.includes(divisionId)) {
+      throw new ForbiddenException('You do not have access to this division.');
+    }
   }
 
   private async validateOrg(divisionId: string, sectionId: string, departmentId: string, companyId: string): Promise<void> {
@@ -244,6 +278,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Raw material receiving — posts a real inventory stock IN' })
   async create(@Body() dto: CreateInventoryReceiptDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    this.assertDivisionInScope(req, dto.divisionId);
     await this.validateOrg(dto.divisionId, dto.sectionId, dto.departmentId, companyId);
     await this.validateRawMaterialItem(dto.itemId, companyId, dto.divisionId, dto.sectionId, dto.departmentId);
     const ledger = await this.ledgerService.create({
@@ -276,6 +311,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Raw material return — posts a real inventory stock OUT (atomic)' })
   async createReturn(@Body() dto: CreateInventoryReturnDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
+    this.assertDivisionInScope(req, dto.divisionId);
     await this.validateOrg(dto.divisionId, dto.sectionId, dto.departmentId, companyId);
     await this.validateRawMaterialItem(dto.itemId, companyId, dto.divisionId, dto.sectionId, dto.departmentId);
 
@@ -337,7 +373,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Form reference data for the multi-item receiving/return form' })
   async getGatePassFormData(@Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.getFormReferenceData(companyId);
+    const data = await this.rawMaterialService.getFormReferenceData(companyId, this.divisionScope(req));
     return { success: true, data };
   }
 
@@ -348,7 +384,14 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Create a multi-item raw material receipt (Gate Pass). Posts stock IN for received quantities only.' })
   async createMultiReceipt(@Body() dto: CreateRawMaterialReceiptDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.createReceipt(companyId, dto, req.erpUser?.id);
+    // Defence in depth: `DivisionScopeGuard` already rejects an out-of-scope
+    // body `divisionId`, and `RawMaterialReceivingService.createReceipt` asserts
+    // it again. Re-checking here means the controller boundary is self-defending
+    // even if the guard chain is ever reordered.
+    this.assertDivisionInScope(req, dto.divisionId);
+    const data = await this.rawMaterialService.createReceipt(
+      companyId, dto, req.erpUser?.id, this.divisionScope(req),
+    );
     const alreadyProcessed = (data as any)?.alreadyProcessed === true;
     return {
       success: true,
@@ -388,18 +431,22 @@ export class InventoryReceiptController {
     @Query('dateTo') dateTo?: string,
   ) {
     const companyId = this.getCompanyId(req);
-    const result = await this.rawMaterialService.findAllReceipts(companyId, {
-      page: Number(page) || 1,
-      limit: Number(limit) || 20,
-      status,
-      divisionId,
-      sectionId,
-      departmentId,
-      warehouseId,
-      gatePassNo,
-      dateFrom,
-      dateTo,
-    });
+    const result = await this.rawMaterialService.findAllReceipts(
+      companyId,
+      {
+        page: Number(page) || 1,
+        limit: Number(limit) || 20,
+        status,
+        divisionId,
+        sectionId,
+        departmentId,
+        warehouseId,
+        gatePassNo,
+        dateFrom,
+        dateTo,
+      },
+      this.divisionScope(req),
+    );
     return { success: true, ...result };
   }
 
@@ -410,7 +457,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Receipt detail with lines + ledger entries' })
   async getMultiReceipt(@Param('id') id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.findReceiptById(companyId, id);
+    const data = await this.rawMaterialService.findReceiptById(companyId, id, this.divisionScope(req));
     return { success: true, data };
   }
 
@@ -421,7 +468,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'READ-ONLY current inventory (on-hand/reserved/available) for every item received in a receipt, from the existing inventory_balances source of truth' })
   async getReceiptInventory(@Param('id') id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.getReceiptInventory(companyId, id);
+    const data = await this.rawMaterialService.getReceiptInventory(companyId, id, this.divisionScope(req));
     return { success: true, data };
   }
 
@@ -432,7 +479,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Update a multi-item receipt (delta-based stock handling)' })
   async updateMultiReceipt(@Param('id') id: string, @Body() dto: UpdateRawMaterialReceiptDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.updateReceipt(id, companyId, dto, req.erpUser?.id);
+    const data = await this.rawMaterialService.updateReceipt(id, companyId, dto, req.erpUser?.id, this.divisionScope(req));
     return { success: true, data, message: 'Receipt updated successfully.' };
   }
 
@@ -444,7 +491,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Delete a multi-item receipt — reverses posted stock atomically' })
   async removeMultiReceipt(@Param('id') id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    await this.rawMaterialService.removeReceipt(id, companyId);
+    await this.rawMaterialService.removeReceipt(id, companyId, this.divisionScope(req));
     return { success: true, message: 'Receipt deleted and inventory balance reversed.' };
   }
 
@@ -463,7 +510,7 @@ export class InventoryReceiptController {
   ) {
     const companyId = this.getCompanyId(req);
     const data = await this.rawMaterialService.addReceiptDocument(
-      companyId, id, kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT', file, req.erpUser?.id,
+      companyId, id, kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT', file, req.erpUser?.id, this.divisionScope(req),
     );
     return { success: true, data };
   }
@@ -475,7 +522,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'List photos/attachments for a receipt' })
   async listReceiptDocuments(@Param('id') id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.listReceiptDocuments(companyId, id);
+    const data = await this.rawMaterialService.listReceiptDocuments(companyId, id, this.divisionScope(req));
     return { success: true, data };
   }
 
@@ -491,7 +538,7 @@ export class InventoryReceiptController {
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);
-    await this.rawMaterialService.removeReceiptDocument(companyId, id, docId);
+    await this.rawMaterialService.removeReceiptDocument(companyId, id, docId, this.divisionScope(req));
     return { success: true, message: 'Document removed.' };
   }
 
@@ -506,7 +553,9 @@ export class InventoryReceiptController {
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.shareReceiptWhatsApp(companyId, id, dto, req.erpUser?.id);
+    const data = await this.rawMaterialService.shareReceiptWhatsApp(
+      companyId, id, dto, req.erpUser?.id, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -521,7 +570,9 @@ export class InventoryReceiptController {
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.getItemLedgerHistory(companyId, itemId, warehouseId);
+    const data = await this.rawMaterialService.getItemLedgerHistory(
+      companyId, itemId, warehouseId, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -532,7 +583,10 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Create a multi-item raw material return. Posts stock OUT (atomic).' })
   async createMultiReturn(@Body() dto: CreateRawMaterialReturnDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.createReturn(companyId, dto, req.erpUser?.id);
+    this.assertDivisionInScope(req, dto.divisionId);
+    const data = await this.rawMaterialService.createReturn(
+      companyId, dto, req.erpUser?.id, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -565,18 +619,22 @@ export class InventoryReceiptController {
     @Query('dateTo') dateTo?: string,
   ) {
     const companyId = this.getCompanyId(req);
-    const result = await this.rawMaterialService.findAllReturns(companyId, {
-      page: Number(page) || 1,
-      limit: Number(limit) || 20,
-      status,
-      divisionId,
-      sectionId,
-      departmentId,
-      warehouseId,
-      sourceNo,
-      dateFrom,
-      dateTo,
-    });
+    const result = await this.rawMaterialService.findAllReturns(
+      companyId,
+      {
+        page: Number(page) || 1,
+        limit: Number(limit) || 20,
+        status,
+        divisionId,
+        sectionId,
+        departmentId,
+        warehouseId,
+        sourceNo,
+        dateFrom,
+        dateTo,
+      },
+      this.divisionScope(req),
+    );
     return { success: true, ...result };
   }
 
@@ -587,7 +645,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Return detail with lines + ledger entries' })
   async getMultiReturn(@Param('id') id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.findReturnById(companyId, id);
+    const data = await this.rawMaterialService.findReturnById(companyId, id, this.divisionScope(req));
     return { success: true, data };
   }
 
@@ -598,7 +656,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Update a raw material return (delta-based stock handling)' })
   async updateMultiReturn(@Param('id') id: string, @Body() dto: UpdateRawMaterialReturnDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.updateReturn(id, companyId, dto, req.erpUser?.id);
+    const data = await this.rawMaterialService.updateReturn(id, companyId, dto, req.erpUser?.id, this.divisionScope(req));
     return { success: true, data, message: 'Return updated successfully.' };
   }
 
@@ -610,7 +668,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'Delete a raw material return — reverses posted stock atomically' })
   async removeMultiReturn(@Param('id') id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    await this.rawMaterialService.removeReturn(id, companyId);
+    await this.rawMaterialService.removeReturn(id, companyId, this.divisionScope(req));
     return { success: true, message: 'Return deleted and inventory balance reversed.' };
   }
 
@@ -629,7 +687,7 @@ export class InventoryReceiptController {
   ) {
     const companyId = this.getCompanyId(req);
     const data = await this.rawMaterialService.addReturnDocument(
-      companyId, id, kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT', file, req.erpUser?.id,
+      companyId, id, kind === 'PHOTO' ? 'PHOTO' : 'ATTACHMENT', file, req.erpUser?.id, this.divisionScope(req),
     );
     return { success: true, data };
   }
@@ -641,7 +699,7 @@ export class InventoryReceiptController {
   @ApiOperation({ summary: 'List photos/attachments for a return' })
   async listReturnDocuments(@Param('id') id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.listReturnDocuments(companyId, id);
+    const data = await this.rawMaterialService.listReturnDocuments(companyId, id, this.divisionScope(req));
     return { success: true, data };
   }
 
@@ -657,7 +715,7 @@ export class InventoryReceiptController {
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);
-    await this.rawMaterialService.removeReturnDocument(companyId, id, docId);
+    await this.rawMaterialService.removeReturnDocument(companyId, id, docId, this.divisionScope(req));
     return { success: true, message: 'Document removed.' };
   }
 
@@ -672,7 +730,9 @@ export class InventoryReceiptController {
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.shareReturnWhatsApp(companyId, id, dto, req.erpUser?.id);
+    const data = await this.rawMaterialService.shareReturnWhatsApp(
+      companyId, id, dto, req.erpUser?.id, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -684,7 +744,7 @@ export class InventoryReceiptController {
   @ApiQuery({ type: RawMaterialReceivingReportQuery })
   async getReport(@Req() req: any, @Query() query: RawMaterialReceivingReportQuery) {
     const companyId = this.getCompanyId(req);
-    const data = await this.rawMaterialService.getReport(companyId, query);
+    const data = await this.rawMaterialService.getReport(companyId, query, this.divisionScope(req));
     return { success: true, data };
   }
 
@@ -720,7 +780,7 @@ export class InventoryReceiptController {
       divisionId,
       sectionId,
       departmentId,
-    });
+    }, this.divisionScope(req));
     return { success: true, ...result };
   }
 
@@ -735,6 +795,9 @@ export class InventoryReceiptController {
     if (entry.transactionType !== 'RECEIPT' && entry.transactionType !== 'RETURN_OUT') {
       throw new BadRequestException(`Transaction type '${entry.transactionType}' cannot be edited through this endpoint.`);
     }
+    // The stored row must be readable AND the new target division must be writable.
+    this.assertDivisionInScope(req, entry.divisionId);
+    this.assertDivisionInScope(req, dto.divisionId);
 
     await this.validateOrg(dto.divisionId, dto.sectionId, dto.departmentId, companyId);
     await this.validateRawMaterialItem(dto.itemId, companyId, dto.divisionId, dto.sectionId, dto.departmentId);
@@ -791,6 +854,7 @@ export class InventoryReceiptController {
     if (entry.transactionType !== 'RECEIPT' && entry.transactionType !== 'RETURN_OUT') {
       throw new BadRequestException(`Transaction type '${entry.transactionType}' cannot be deleted through this endpoint.`);
     }
+    this.assertDivisionInScope(req, entry.divisionId);
 
     await this.ledgerRepo.manager.transaction(async (manager) => {
       const reverseDir = entry.direction === 'IN' ? 'OUT' : 'IN';
@@ -807,11 +871,11 @@ export class InventoryReceiptController {
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
   @RequirePermission('inventory.opening_stock.create')
-  @ApiOperation({ summary: 'Divisions for the user company scope' })
+  @ApiOperation({ summary: 'Divisions for the user company scope, narrowed to the caller effective division access' })
   async getDivisions(@Req() req: any) {
     const companyId = this.getCompanyId(req);
     const data = await this.divisionRepo.find({
-      where: { companyId, status: 'ACTIVE' as any },
+      where: narrowWhereByDivision({ companyId, status: 'ACTIVE' as any }, 'id', this.divisionScope(req)),
       order: { name: 'ASC' },
     });
     return { success: true, data };
@@ -821,10 +885,10 @@ export class InventoryReceiptController {
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
   @RequirePermission('inventory.opening_stock.create')
-  @ApiOperation({ summary: 'Sections for a division' })
+  @ApiOperation({ summary: 'Sections for a division, narrowed to the caller effective division access' })
   @ApiQuery({ name: 'divisionId', required: false })
-  async getSections(@Query('divisionId') divisionId?: string) {
-    const where: any = { status: 'ACTIVE' };
+  async getSections(@Query('divisionId') divisionId: string | undefined, @Req() req: any) {
+    const where: any = narrowWhereByDivision({ status: 'ACTIVE' }, 'divisionId', this.divisionScope(req));
     if (divisionId) where.divisionId = divisionId;
     const data = await this.sectionRepo.find({
       where,
@@ -837,14 +901,15 @@ export class InventoryReceiptController {
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
   @RequirePermission('inventory.opening_stock.create')
-  @ApiOperation({ summary: 'Departments for a division and section' })
+  @ApiOperation({ summary: 'Departments for a division and section, narrowed to the caller effective division access' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
   async getDepartments(
-    @Query('divisionId') divisionId?: string,
-    @Query('sectionId') sectionId?: string,
+    @Query('divisionId') divisionId: string | undefined,
+    @Query('sectionId') sectionId: string | undefined,
+    @Req() req: any,
   ) {
-    const where: any = { status: 'ACTIVE' };
+    const where: any = narrowWhereByDivision({ status: 'ACTIVE' }, 'divisionId', this.divisionScope(req));
     if (divisionId) where.divisionId = divisionId;
     if (sectionId) where.sectionId = sectionId;
     const data = await this.departmentRepo.find({
@@ -867,7 +932,14 @@ export class InventoryReceiptController {
         order: { name: 'ASC' },
       }),
       this.itemRepo.find({
-        where: { companyId, status: 'ACTIVE' as any },
+        // Items are company master data: an item with no division assignment
+        // belongs to no division, so keeping it cannot leak another division.
+        where: narrowWhereByDivision(
+          { companyId, status: 'ACTIVE' as any },
+          'divisionId',
+          this.divisionScope(req),
+          { includeUnassigned: true },
+        ),
         order: { itemCode: 'ASC' },
         take: 200,
       }),
@@ -896,7 +968,12 @@ export class InventoryReceiptController {
     @Query('limit') limit?: number,
   ) {
     const companyId = this.getCompanyId(req);
-    const where: any = { companyId, status: 'ACTIVE', itemType: 'RAW_MATERIAL' };
+    const where: any = narrowWhereByDivision(
+      { companyId, status: 'ACTIVE', itemType: 'RAW_MATERIAL' },
+      'divisionId',
+      this.divisionScope(req),
+      { includeUnassigned: true },
+    );
     if (divisionId) where.divisionId = divisionId;
     if (sectionId) where.sectionId = sectionId;
     if (departmentId) where.departmentId = departmentId;

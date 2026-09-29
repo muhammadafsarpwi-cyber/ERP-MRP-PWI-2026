@@ -140,26 +140,41 @@ const ProfileMenu: React.FC = () => {
           display: 'inline-flex',
           alignItems: 'center',
           gap: 8,
-          height: 'auto',
-          padding: '4px 6px',
-          borderRadius: 8,
-          color: 'var(--theme-text)',
-          maxWidth: 220,
+          height: 38,
+          padding: '2px 10px 2px 4px',
+          borderRadius: 20,
+          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.08))',
+          border: '1.5px solid var(--theme-border-strong, rgba(148, 163, 184, 0.35))',
+          color: 'var(--theme-text, #ffffff)',
+          cursor: 'pointer',
+          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.12)',
+          flexShrink: 0,
+          transition: 'all 0.2s ease',
         }}
       >
-        <UserAvatar avatarUrl={user?.avatarUrl} displayName={displayName} size={32} />
+        <UserAvatar
+          avatarUrl={user?.avatarUrl}
+          displayName={displayName}
+          size={30}
+          style={{
+            border: '2px solid var(--theme-primary, #6366f1)',
+            boxShadow: '0 0 4px rgba(99, 102, 241, 0.4)',
+          }}
+        />
         <span
           style={{
             fontSize: 13,
-            fontWeight: 500,
+            fontWeight: 600,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
+            maxWidth: 130,
+            letterSpacing: '0.2px',
           }}
         >
           {displayName}
         </span>
-        <DownOutlined style={{ fontSize: 10, color: 'var(--theme-text-muted)' }} />
+        <DownOutlined style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', marginLeft: 2 }} />
       </Button>
     </Dropdown>
   );

@@ -1792,10 +1792,10 @@ const RawMaterialReceiving: React.FC = () => {
         open={modalOpen}
         onCancel={closeModalWithoutSave}
         onMinimize={minimizeModal}
-        width={1240}
-        height={780}
-        minWidth={680}
-        minHeight={540}
+        width={typeof window !== 'undefined' && window.innerWidth <= 768 ? '100vw' : 1240}
+        height={typeof window !== 'undefined' && window.innerWidth <= 768 ? '100dvh' : 780}
+        minWidth={typeof window !== 'undefined' && window.innerWidth <= 768 ? 0 : 680}
+        minHeight={typeof window !== 'undefined' && window.innerWidth <= 768 ? 0 : 540}
         footer={null}
         destroyOnHidden
         maskClosable={false}

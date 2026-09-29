@@ -170,8 +170,50 @@ export class AssignOrgScopeDto {
   isFullScope?: boolean;
 }
 
-export class SetDefaultContextDto {
-  @ApiProperty({ description: 'Default Company ID' })
+/**
+ * PROMPT #26 — declarative replacement of a user's division access.
+ *
+ * The Division Access popup used to have no real save step: it could only
+ * append a single `POST /org-scopes` row or delete one, so an admin could never
+ * express "this user has exactly DIV-CCD and DIV-SPD" atomically, and revoking
+ * the auto-provisioned COMPANY row while keeping the restricted ones was
+ * impossible from the UI.
+ *
+ * Semantics are declarative (PUT = set to exactly this list), not additive:
+ *  - `divisionIds: ['a']`      → replace the user's access with division `a`
+ *  - `divisionIds: []`         → no division access at all (deny)
+ *  - `companyWide: true`       → unrestricted (every ACTIVE division)
+ *  - neither flag, empty list  → rejected (would be indistinguishable from deny)
+ */
+export class SetDivisionAccessDto {
+  @ApiProperty({
+    description: 'Company the division access applies to',
+  })
+  @Matches(UUID_LOOSE, { message: 'companyId must be a UUID' })
+  @IsNotEmpty()
+  companyId: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Exact set of division IDs the user may access. Replaces any previous ' +
+      'division-level scope for this company.',
+    type: [String],
+  })
+  @IsArray()
+  @Matches(UUID_LOOSE, { each: true, message: 'divisionIds must be UUIDs' })
+  @IsOptional()
+  divisionIds?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'true = unrestricted across every ACTIVE division (removes all ' +
+      'division-level rows and restores a single COMPANY row).',
+  })
+  @IsOptional()
+  companyWide?: boolean;
+}
+
+export class SetDefaultContextDto {  @ApiProperty({ description: 'Default Company ID' })
   @IsUUID()
   @IsNotEmpty()
   companyId: string;

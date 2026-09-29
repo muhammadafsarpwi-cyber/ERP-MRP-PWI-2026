@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
 import { StockLedger } from '../entities';
+import { applyDivisionScopeFilter } from '../../../common/division-scope.util';
 
 @Injectable()
 export class StockLedgerService {
@@ -75,7 +76,7 @@ export class StockLedgerService {
     departmentId?: string;
     referenceType?: string;
     referenceId?: string;
-  }): Promise<{ data: StockLedger[]; total: number }> {
+  }, allowedDivisionIds?: string[] | undefined): Promise<{ data: StockLedger[]; total: number }> {
     const {
       page = 1,
       limit = 20,
@@ -174,6 +175,12 @@ export class StockLedgerService {
     if (conditions.length > 0) {
       qb.where(conditions.join(' AND '), params);
     }
+
+    // PROMPT #26 — the server-resolved effective division scope. A user-scoped
+    // caller never sees ledger rows from another division, and a client cannot
+    // widen this by passing (or omitting) `?divisionId=`; the explicit filter
+    // above can only ever be an ADDITIONAL restriction on top of this.
+    applyDivisionScopeFilter(qb, 'ledger.divisionId', allowedDivisionIds);
 
     qb.orderBy('ledger.transactionDate', 'DESC');
     qb.skip((page - 1) * limit).take(limit);
