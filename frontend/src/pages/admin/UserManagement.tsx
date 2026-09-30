@@ -15,10 +15,11 @@ import {
   FilePdfOutlined, FileExcelOutlined, UploadOutlined,
   MinusOutlined, EyeOutlined, CloseOutlined, UserAddOutlined,
   ClockCircleOutlined, SettingOutlined, TagOutlined, BankOutlined,
-  ApartmentOutlined,
+  ApartmentOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import dayjs from 'dayjs';
 import { usePermission } from '../../hooks/usePermission';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { PageHeader, SaveResultDialog, DraggableResizableModal } from '../../components/shared';
@@ -26,10 +27,12 @@ import {
   DivisionAccessModal,
   DivisionScopeTags,
   isDivisionRestriction,
+  isDenyAllMarker,
   type DivisionAccessTarget,
   type DivisionScope,
   type EffectiveDivisionAccess,
 } from '../../components/shared/DivisionAccessModal';
+import { DivisionSelect } from '../../components/shared';
 import GlobalLoading from '../../components/shared/GlobalLoading';
 import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
@@ -40,6 +43,18 @@ import autoTable from 'jspdf-autotable';
 import './userManagement.css';
 
 const { Text } = Typography;
+
+const formatDateTime = (dateStr?: string | null): string => {
+  if (!dateStr) return '-';
+  const d = dayjs(dateStr);
+  return d.isValid() ? d.format('DD MMM YYYY, HH:mm') : '-';
+};
+
+const formatDate = (dateStr?: string | null): string => {
+  if (!dateStr) return '-';
+  const d = dayjs(dateStr);
+  return d.isValid() ? d.format('DD MMM YYYY') : '-';
+};
 
 export interface ErpUser {
   id: string;
@@ -177,6 +192,8 @@ const UserManagement: React.FC = () => {
   // Prompt #16B §16 — a failed scope write after a successful user creation is
   // never reported as an overall success.
   const [createScopeError, setCreateScopeError] = useState<string | null>(null);
+  // Pre-selected division IDs chosen BEFORE user creation (inline in Create form).
+  const [createDivisionIds, setCreateDivisionIds] = useState<string[]>([]);
 
   // Selected records
   const [selectedUser, setSelectedUser] = useState<ErpUser | null>(null);
@@ -292,6 +309,7 @@ const UserManagement: React.FC = () => {
     // run's created account or its scope error.
     setCreatedUser(null);
     setCreateScopeError(null);
+    setCreateDivisionIds([]);
     setIsCreateMinimized(false);
     setCreateModalVisible(true);
   };
@@ -376,9 +394,8 @@ const UserManagement: React.FC = () => {
    */
   const openDivisionModal = (user: DivisionAccessTarget) => {
     setDivisionTarget(user);
-    // The users list endpoint does not embed organizationScopes, so this is
-    // only a placeholder — re-read them from GET /admin/users/:id right away,
-    // otherwise an already-restricted user renders as "full company access".
+    // The users list endpoint now embeds organizationScopes with division relations.
+    // Prompt #16A/B — scopes are available on the list row directly.
     setDivisionScopes((user.organizationScopes || []).filter(isDivisionRestriction));
     setAllDivisionScopes(user.organizationScopes || []);
     setEffectiveDivisionAccess(null);
@@ -643,19 +660,38 @@ const UserManagement: React.FC = () => {
       // `POST /admin/users/create-full` and keep the form open so Division
       // Access can be configured for that id (never with a temp/frontend id).
       const newUserId = created?.data?.id;
+      const newUserCompanyId = created?.data?.defaultCompanyId || values.companyId || companies[0]?.id;
+
+      // Auto-save pre-selected divisions immediately after account is created.
+      if (newUserId && createDivisionIds.length > 0) {
+        try {
+          await apiService.put(`/admin/users/${newUserId}/division-access`, {
+            companyId: newUserCompanyId,
+            divisionIds: createDivisionIds,
+            companyWide: false,
+          });
+        } catch {
+          // Non-fatal: user is created; scope save failure is shown below.
+          setCreateScopeError('User created, but Division Access could not be saved automatically.');
+        }
+      }
+
       setCreatedUser(
         newUserId
           ? {
               id: newUserId,
               displayName: created?.data?.displayName || values.displayName,
-              defaultCompanyId: created?.data?.defaultCompanyId || values.companyId || companies[0]?.id,
+              defaultCompanyId: newUserCompanyId,
             }
           : null,
       );
       // Prompt #16B §6 — the section below must describe THIS account, so any
       // scope list left over from a previous Edit/Actions session is dropped.
       setDivisionScopes([]);
-      setCreateScopeError(null);
+      if (newUserId && createDivisionIds.length > 0) {
+        // Refresh the scope tags so they reflect what was just saved.
+        void refreshDivisionScopes(newUserId);
+      }
 
       setSaveDialogSuccessTitle('User Created Successfully');
       setSaveDialogResult({
@@ -1049,7 +1085,7 @@ const UserManagement: React.FC = () => {
     {
       title: (
         <Space size={6}>
-          <UserOutlined style={{ color: '#4f46e5' }} />
+          <UserOutlined />
           <span>User</span>
         </Space>
       ),
@@ -1073,17 +1109,20 @@ const UserManagement: React.FC = () => {
               </div>
             </div>
           </Tooltip>
-          <div style={{ minWidth: 0 }}>
-            <div className="user-cell-name">{record.displayName}</div>
-            <div className="user-cell-email">{record.email}</div>
-          </div>
+           <div style={{ minWidth: 0 }}>
+             <div className="user-cell-name">{record.displayName}</div>
+             <div className="user-cell-email">
+               <MailOutlined style={{ marginRight: 4, color: 'var(--theme-text-muted, #94a3b8)' }} />
+               {record.email}
+             </div>
+           </div>
         </div>
       ),
     },
     {
       title: (
         <Space size={6}>
-          <IdcardOutlined style={{ color: '#0ea5e9' }} />
+          <IdcardOutlined />
           <span>Employee ID</span>
         </Space>
       ),
@@ -1095,7 +1134,7 @@ const UserManagement: React.FC = () => {
     {
       title: (
         <Space size={6}>
-          <PhoneOutlined style={{ color: '#10b981' }} />
+          <PhoneOutlined style={{ color: 'var(--theme-text-secondary, #64748b)' }} />
           <span>Phone</span>
         </Space>
       ),
@@ -1107,7 +1146,7 @@ const UserManagement: React.FC = () => {
     {
       title: (
         <Space size={6}>
-          <BankOutlined style={{ color: '#0284c7' }} />
+          <BankOutlined />
           <span>Company</span>
         </Space>
       ),
@@ -1125,7 +1164,7 @@ const UserManagement: React.FC = () => {
     {
       title: (
         <Space size={6}>
-          <SafetyCertificateOutlined style={{ color: '#f59e0b' }} />
+          <SafetyCertificateOutlined />
           <span>Roles</span>
         </Space>
       ),
@@ -1152,7 +1191,62 @@ const UserManagement: React.FC = () => {
     {
       title: (
         <Space size={6}>
-          <ClockCircleOutlined style={{ color: '#8b5cf6' }} />
+          <ApartmentOutlined />
+          <span>Division Access</span>
+        </Space>
+      ),
+      key: 'divisions',
+      width: 200,
+       render: (_, record) => {
+        const scopes: DivisionScope[] = record.organizationScopes || [];
+        if (!scopes || scopes.length === 0) {
+          return <Text type="secondary" style={{ fontSize: 12 }}>No Division Access</Text>;
+        }
+        // Check for company-wide (unrestricted) scope
+        const hasCompanyWide = scopes.some(
+          (s) => s && !isDivisionRestriction(s) && !isDenyAllMarker(s) && s.status !== 'INACTIVE'
+        );
+        if (hasCompanyWide) {
+          return <Text type="success" style={{ fontSize: 12, fontWeight: 500 }}>All Divisions</Text>;
+        }
+        // Check for deny-all marker (explicitly denied)
+        const hasDenyAll = scopes.some(
+          (s) => s && isDenyAllMarker(s) && s.status !== 'INACTIVE'
+        );
+        if (hasDenyAll) {
+          return <Text type="danger" style={{ fontSize: 12, fontWeight: 500 }}>No Division Access</Text>;
+        }
+        // Show division-level scopes
+        const divScopes = scopes.filter((s: DivisionScope) => isDivisionRestriction(s) && s.status !== 'INACTIVE');
+        if (divScopes.length === 0) {
+          return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+        }
+        return (
+          <Space size={[4, 4]} wrap>
+            {divScopes.slice(0, 3).map((s: any) => (
+              <Tag
+                key={s.id}
+                color="cyan"
+                style={{ borderRadius: 4, fontSize: 11, margin: 0 }}
+              >
+                {s.division?.name || s.division?.code || 'Division'}
+              </Tag>
+            ))}
+            {divScopes.length > 3 && (
+              <Tooltip title={divScopes.slice(3).map((s: any) => s.division?.name || '').join(', ')}>
+                <Tag style={{ borderRadius: 4, fontSize: 11, margin: 0, cursor: 'pointer' }}>
+                  +{divScopes.length - 3}
+                </Tag>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
+    },
+    {
+      title: (
+        <Space size={6}>
+          <ClockCircleOutlined />
           <span>Last Login</span>
         </Space>
       ),
@@ -1163,12 +1257,14 @@ const UserManagement: React.FC = () => {
         const db = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
         return da - db;
       },
-      render: (_, record) => {
-        if (!record.lastLoginAt) return <Text type="secondary">Never</Text>;
-        const d = new Date(record.lastLoginAt);
+       render: (_, record) => {
+        if (!record.lastLoginAt) return <Text type="secondary"><ClockCircleOutlined style={{ marginRight: 4 }} />Never</Text>;
         return (
-          <Tooltip title={d.toLocaleString()}>
-            <Text style={{ fontSize: 13 }}>{d.toLocaleDateString()}</Text>
+          <Tooltip title={dayjs(record.lastLoginAt).format('DD MMM YYYY, HH:mm')}>
+            <Space size={4}>
+              <ClockCircleOutlined style={{ color: 'var(--theme-icon-success, #3fb950)' }} />
+              <Text style={{ fontSize: 13 }}>{formatDate(record.lastLoginAt)}</Text>
+            </Space>
           </Tooltip>
         );
       },
@@ -1176,7 +1272,7 @@ const UserManagement: React.FC = () => {
     {
       title: (
         <Space size={6}>
-          <CheckCircleOutlined style={{ color: '#22c55e' }} />
+          <CheckCircleOutlined />
           <span>Status</span>
         </Space>
       ),
@@ -1188,17 +1284,44 @@ const UserManagement: React.FC = () => {
         { text: 'Inactive', value: 'INACTIVE' },
       ],
       onFilter: (value, record) => record.status === value,
-      render: (s: string) => (
+       render: (s: string, record) => (
         <Badge
           status={s === 'ACTIVE' ? 'success' : 'error'}
-          text={<Text style={{ fontSize: 12, fontWeight: 500 }}>{s}</Text>}
+          text={
+            <Space size={4}>
+              <CheckCircleOutlined style={{ color: s === 'ACTIVE' ? 'var(--theme-icon-success, #3fb950)' : 'var(--theme-icon-danger, #f85149)' }} />
+              <Text style={{ fontSize: 12, fontWeight: 500 }}>{s}</Text>
+            </Space>
+          }
         />
       ),
     },
     {
       title: (
         <Space size={6}>
-          <SettingOutlined style={{ color: '#64748b' }} />
+          <CalendarOutlined />
+          <span>Created</span>
+        </Space>
+      ),
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 130,
+      sorter: (a, b) => {
+        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return da - db;
+      },
+      render: (v: string) => (
+        <Space size={4}>
+          <ClockCircleOutlined style={{ color: 'var(--theme-icon-info, #54aeff)' }} />
+          <Text style={{ fontSize: 13 }}>{formatDate(v)}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: (
+        <Space size={6}>
+          <SettingOutlined />
           <span>Actions</span>
         </Space>
       ),
@@ -1230,7 +1353,7 @@ const UserManagement: React.FC = () => {
           )}
           {can('admin.users.assign_roles') && (
             <Tooltip title="Manage Roles">
-              <Button type="text" size="small" onClick={() => openRoleModal(record)}>Roles</Button>
+              <Button type="text" size="small" icon={<SafetyCertificateOutlined />} aria-label="Roles" onClick={() => openRoleModal(record)} />
             </Tooltip>
           )}
           {can('admin.users.manage_scope') && (
@@ -1238,11 +1361,11 @@ const UserManagement: React.FC = () => {
               <Button
                 type="text"
                 size="small"
+                icon={<ApartmentOutlined />}
+                aria-label="Division Access"
                 data-testid="user-division-access"
                 onClick={() => openDivisionModal(record)}
-              >
-                Divisions
-              </Button>
+              />
             </Tooltip>
           )}
           {can('admin.users.update') && (
@@ -1275,7 +1398,7 @@ const UserManagement: React.FC = () => {
                 onConfirm={() => handleActivate(record.id)}
                 okText="Activate"
               >
-                <Button type="text" size="small" icon={<CheckCircleOutlined />} style={{ color: '#52c41a' }} />
+                <Button type="text" size="small" icon={<CheckCircleOutlined />} style={{ color: 'var(--theme-icon-success, #3fb950)' }} />
               </Popconfirm>
             </Tooltip>
           )}
@@ -1376,7 +1499,7 @@ const UserManagement: React.FC = () => {
         className="crystal-table-card"
         title={
           <Space>
-            <TeamOutlined style={{ color: '#4f46e5' }} />
+            <TeamOutlined style={{ color: '#E85444' }} />
             <span>User Management</span>
             <span className="user-model-badge">2027 Model</span>
           </Space>
@@ -1426,7 +1549,7 @@ const UserManagement: React.FC = () => {
             dataSource={users}
             rowKey="id"
             loading={loading}
-            scroll={{ x: 1100 }}
+            scroll={{ x: 1350 }}
             pagination={{
               current: page,
               total,
@@ -1440,7 +1563,11 @@ const UserManagement: React.FC = () => {
         )}
       </Card>
 
-      {/* Quick Change User Photo Modal */}
+      {/* Quick Change User Photo Modal.
+          zIndex 1100: this popup is opened FROM INSIDE the Create/Edit User
+          modal (DraggableResizableModal, zIndex 1060). antd's default modal
+          zIndex is 1000, which rendered the photo popup BEHIND the user modal —
+          the antd-supported `zIndex` prop is the nested-modal mechanism. */}
       <Modal
         title={
           <Space>
@@ -1454,6 +1581,8 @@ const UserManagement: React.FC = () => {
         okText="Save Photo"
         confirmLoading={avatarLoading}
         width={420}
+        zIndex={1100}
+        className="user-avatar-modal"
         destroyOnHidden
       >
         <div style={{ textAlign: 'center', padding: '20px 0' }}>
@@ -1532,6 +1661,7 @@ const UserManagement: React.FC = () => {
           // session behind; a retry must not create a duplicate user.
           setCreatedUser(null);
           setCreateScopeError(null);
+          setCreateDivisionIds([]);
         }}
         okText="Create User"
         okButtonProps={{ disabled: !!createdUser }}
@@ -1543,8 +1673,9 @@ const UserManagement: React.FC = () => {
         <div className="user-modal-split-container">
           <div className="user-modal-form-col">
             <Form form={createForm} layout="vertical" initialValues={{ roleIds: [] }}>
+              <div className="user-form-card">
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item
                     name="email"
                     label="Email Address"
@@ -1556,7 +1687,7 @@ const UserManagement: React.FC = () => {
                     <Input prefix={<MailOutlined />} placeholder="user@company.com" size="large" />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item
                     name="displayName"
                     label="Display Name"
@@ -1568,7 +1699,7 @@ const UserManagement: React.FC = () => {
               </Row>
 
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item
                     name="password"
                     label="Password"
@@ -1582,7 +1713,7 @@ const UserManagement: React.FC = () => {
                       iconRender={(visible) => visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />} />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item
                     name="confirmPassword"
                     label="Confirm Password"
@@ -1606,17 +1737,17 @@ const UserManagement: React.FC = () => {
               <Divider orientation="left" style={{ fontSize: 13, margin: '12px 0' }}>Personal Information</Divider>
 
               <Row gutter={16}>
-                <Col span={8}>
+                <Col xs={24} sm={12} lg={8}>
                   <Form.Item name="firstName" label="First Name">
                     <Input prefix={<FormOutlined />} placeholder="John" />
                   </Form.Item>
                 </Col>
-                <Col span={8}>
+                <Col xs={24} sm={12} lg={8}>
                   <Form.Item name="lastName" label="Last Name">
                     <Input prefix={<FormOutlined />} placeholder="Doe" />
                   </Form.Item>
                 </Col>
-                <Col span={8}>
+                <Col xs={24} sm={12} lg={8}>
                   <Form.Item name="phone" label="Phone">
                     <Input prefix={<PhoneOutlined />} placeholder="+1 234 567 890" />
                   </Form.Item>
@@ -1624,12 +1755,12 @@ const UserManagement: React.FC = () => {
               </Row>
 
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="username" label="Username">
                     <Input prefix={<UserOutlined />} placeholder="johndoe" />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="employeeId" label="Employee ID">
                     <Input prefix={<IdcardOutlined />} placeholder="EMP-001" />
                   </Form.Item>
@@ -1672,15 +1803,18 @@ const UserManagement: React.FC = () => {
               </Form.Item>
 
               {/* Prompt #16B §2/§6 — Division Access inside the New User flow.
-                  The scope row is only written once `POST /admin/users/create-full`
-                  has returned the real user id (never before). */}
+                  Pre-selected divisions are saved automatically right after create-full.
+                  After creation, the Configure button lets the admin refine access. */}
               <Divider orientation="left" style={{ fontSize: 13, margin: '12px 0' }}>
-                Division Access
+                <Space size={6}>
+                  <ApartmentOutlined style={{ color: '#0891b2' }} />
+                  Division Access
+                </Space>
               </Divider>
 
               {createdUser ? (
                 <div data-testid="create-division-access">
-                  <Space align="center" size={8}>
+                  <Space align="center" size={8} style={{ marginBottom: 8 }}>
                     <CheckCircleOutlined style={{ color: '#52c41a' }} />
                     <Text type="success">User created successfully.</Text>
                   </Space>
@@ -1707,19 +1841,39 @@ const UserManagement: React.FC = () => {
                     data-testid="create-division-access-configure"
                     onClick={() => openDivisionModal(createdUser)}
                   >
-                    Configure Division Access
+                    Modify Division Access
                   </Button>
                 </div>
               ) : (
-                <Text
-                  type="secondary"
-                  style={{ fontSize: 12, display: 'block' }}
-                  data-testid="create-division-access-pending"
+                <Form.Item
+                  label="Division Access"
+                  tooltip="Selected divisions are saved automatically when the user is created. Leave empty for unrestricted access to all divisions."
+                  style={{ marginBottom: 8 }}
                 >
-                  Division Access becomes available after the account is created — organization scopes can only be
-                  saved against the real database user id.
-                </Text>
+                  <div data-testid="create-division-access-pending">
+                    <div style={{ marginBottom: 8 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Select divisions now — they will be saved automatically when the user is created.
+                      </Text>
+                    </div>
+                    <DivisionSelect
+                      mode="multiple"
+                      placeholder="Select divisions (optional)"
+                      companyId={createCompanyId || companies[0]?.id}
+                      showCode
+                      value={createDivisionIds}
+                      onChange={(val) => setCreateDivisionIds(Array.isArray(val) ? val : val ? [val] : [])}
+                      style={{ width: '100%' }}
+                    />
+                    {createDivisionIds.length === 0 && (
+                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                        Leave empty for unrestricted access to all divisions.
+                      </Text>
+                    )}
+                  </div>
+                </Form.Item>
               )}
+              </div>
             </Form>
           </div>
 
@@ -1787,9 +1941,14 @@ const UserManagement: React.FC = () => {
       <DraggableResizableModal
         title={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-            <Space>
-              <EditOutlined style={{ color: '#f59e0b', fontSize: 16 }} />
-              <span style={{ fontWeight: 600 }}>Edit User — {selectedUser?.displayName}</span>
+            <Space direction="vertical" size={2} style={{ flex: 1, minWidth: 0 }}>
+              <Space size={6}>
+                <EditOutlined style={{ color: 'var(--theme-accent, #4f46e5)', fontSize: 16 }} />
+                <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--theme-text, #1e293b)' }}>Edit User</span>
+              </Space>
+              <span style={{ fontSize: 13, color: 'var(--theme-text-secondary, #64748b)', fontWeight: 400, marginLeft: 22 }}>
+                {selectedUser?.displayName || '—'}
+              </span>
             </Space>
             <div className="modal-header-window-controls">
               <span
@@ -1821,37 +1980,38 @@ const UserManagement: React.FC = () => {
         <div className="user-modal-split-container">
           <div className="user-modal-form-col">
             <Form form={editForm} layout="vertical">
+              <div className="user-form-card">
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="displayName" label="Display Name" rules={[{ required: true }]}>
                     <Input size="large" />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="username" label="Username">
                     <Input />
                   </Form.Item>
                 </Col>
               </Row>
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="firstName" label="First Name">
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="lastName" label="Last Name">
                     <Input />
                   </Form.Item>
                 </Col>
               </Row>
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="phone" label="Phone">
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="employeeId" label="Employee ID">
                     <Input />
                   </Form.Item>
@@ -1920,6 +2080,7 @@ const UserManagement: React.FC = () => {
                 >
                   Configure Roles
                 </Button>
+              </div>
               </div>
             </Form>
           </div>
@@ -2138,6 +2299,16 @@ const UserManagement: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Division Access — same source as Edit form and Main Table */}
+            <div className="user-preview-roles-container" style={{ marginTop: 16 }}>
+              <span className="user-preview-roles-label">Division Access</span>
+              <DivisionScopeTags
+                scopes={viewUser.organizationScopes || []}
+                style={{ marginTop: 8, minHeight: 32 }}
+                emptyDescription="No Division Access"
+              />
+            </div>
           </div>
         )}
       </DraggableResizableModal>
@@ -2192,6 +2363,7 @@ const UserManagement: React.FC = () => {
         effectiveAccess={effectiveDivisionAccess}
         rawScopes={allDivisionScopes}
         onClose={() => setDivisionModalVisible(false)}
+        className="division-access-modal"
       />
 
       {/* Reset Password Modal */}

@@ -5,10 +5,21 @@ import { CreateSalesQuotationDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
 
 @ApiTags('sales/quotations')
 @Controller('sales/quotations')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+// PROMPT #27 — `erp_sales.quotations` has NO `division_id` column and no
+// relation to a division-scoped entity (`SalesOrder.quotationId` points *at* a
+// quotation, never back). A quotation therefore cannot be attributed to any
+// division, so there is nothing for a per-division filter to narrow, and no
+// division-scoped behaviour is implemented here on purpose.
+//
+// The guard is still registered so that an explicit `?divisionId=` naming a
+// division the caller does not hold is refused with 403 rather than silently
+// ignored. This keeps one uniform rule across the whole Sales module and stops
+// a client from believing it filtered by division.
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class SalesQuotationController {
   constructor(private readonly service: SalesQuotationService) {}

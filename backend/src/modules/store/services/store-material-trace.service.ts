@@ -1,5 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import {
+  DivisionAccess,
+  isUnrestricted,
+  toDivisionList,
+} from '../../../common/division-scope.util';
 
 export interface MaterialLifecycleFilters {
   storeId?: string;
@@ -26,7 +31,12 @@ const normalize = (v: unknown): number => {
 export class StoreMaterialTraceService {
   constructor(private readonly dataSource: DataSource) {}
 
-  async getItemLifecycle(companyId: string, itemId: string, rawFilters: MaterialLifecycleFilters = {}) {
+  async getItemLifecycle(
+    companyId: string,
+    itemId: string,
+    rawFilters: MaterialLifecycleFilters = {},
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const filters: MaterialLifecycleFilters = {
       storeId: rawFilters.storeId || undefined,
       dateFrom: rawFilters.dateFrom || undefined,
@@ -35,10 +45,22 @@ export class StoreMaterialTraceService {
 
     let warehouseId: string | undefined;
     if (filters.storeId) {
+      // PROMPT #27 — the client-supplied `storeId` is the trust boundary for
+      // the whole method: it is resolved to a `warehouse_id` here and that
+      // warehouse then silently narrows the balance and ledger queries below.
+      // Without this assertion a caller could pass another division's store
+      // UUID and pull that division's stock movements.
+      const storeParams: any[] = [filters.storeId, companyId];
+      const storeScope = this.scopedDivision(allowedDivisionIds, storeParams, 'AND ');
       const storeRows = await this.dataSource.query(
-        `SELECT warehouse_id FROM stores WHERE id = $1 AND company_id = $2`,
-        [filters.storeId, companyId],
+        `SELECT warehouse_id FROM stores WHERE id = $1 AND company_id = $2${storeScope}`,
+        storeParams,
       );
+      if (storeRows.length === 0) {
+        // Unscoped miss and out-of-scope store are indistinguishable to the
+        // caller, so a leaked UUID cannot be used to probe for division stores.
+        throw new NotFoundException(`Store '${filters.storeId}' not found`);
+      }
       warehouseId = storeRows[0]?.warehouse_id || undefined;
     }
 
@@ -60,22 +82,22 @@ export class StoreMaterialTraceService {
       ledgerRows,
       storeMap,
     ] = await Promise.all([
-      this.fetchItem(companyId, itemId),
-      this.fetchStoreConfigs(companyId, itemId),
-      this.fetchBalances(companyId, itemId, warehouseId),
-      this.fetchReconciliationMr(companyId, itemId),
-      this.fetchReconciliationIssueReturn(companyId, itemId),
+      this.fetchItem(companyId, itemId, allowedDivisionIds),
+      this.fetchStoreConfigs(companyId, itemId, allowedDivisionIds),
+      this.fetchBalances(companyId, itemId, warehouseId, allowedDivisionIds),
+      this.fetchReconciliationMr(companyId, itemId, allowedDivisionIds),
+      this.fetchReconciliationIssueReturn(companyId, itemId, allowedDivisionIds),
       this.fetchReconciliationPoGrn(companyId, itemId),
-      this.fetchReconciliationLedger(companyId, itemId),
+      this.fetchReconciliationLedger(companyId, itemId, allowedDivisionIds),
       this.fetchReservations(companyId, itemId),
-      this.fetchRequests(companyId, itemId, filters.storeId),
+      this.fetchRequests(companyId, itemId, filters.storeId, allowedDivisionIds),
       this.fetchPrs(companyId, itemId),
       this.fetchOrders(companyId, itemId),
       this.fetchGrns(companyId, itemId),
-      this.fetchIssues(companyId, itemId, filters.storeId),
-      this.fetchReturns(companyId, itemId, filters.storeId),
-      this.fetchLedger(companyId, itemId, warehouseId),
-      this.fetchStoreMap(companyId, itemId),
+      this.fetchIssues(companyId, itemId, filters.storeId, allowedDivisionIds),
+      this.fetchReturns(companyId, itemId, filters.storeId, allowedDivisionIds),
+      this.fetchLedger(companyId, itemId, warehouseId, allowedDivisionIds),
+      this.fetchStoreMap(companyId, itemId, allowedDivisionIds),
     ]);
 
     const item = itemRows[0] || null;
@@ -178,7 +200,21 @@ export class StoreMaterialTraceService {
 
   // ==================== ITEM ====================
 
-  private async fetchItem(companyId: string, itemId: string) {
+  private async fetchItem(companyId: string, itemId: string, allowedDivisionIds?: DivisionAccess) {
+    // PROMPT #27 — `items` is MASTER DATA, so an unattributed item
+    // (`division_id IS NULL`) belongs to no division and cannot disclose
+    // another division's records. It therefore stays visible — the same
+    // `includeUnassigned` rule the Finished-Goods Inventory list uses.
+    const params: any[] = [itemId, companyId];
+    let scope = '';
+    if (!isUnrestricted(allowedDivisionIds)) {
+      const ids = toDivisionList(allowedDivisionIds);
+      if (ids.length === 0) {
+        return [];
+      }
+      params.push(ids);
+      scope = ` AND (i.division_id = ANY($${params.length}::uuid[]) OR i.division_id IS NULL)`;
+    }
     return this.dataSource.query(
       `SELECT i.id, i.item_code, i.sku, i.name, i.short_name, i.description, i.notes, i.item_type, i.material_role_usage, i.status,
               i.barcode, i.brand, i.model, i.manufacturer_part_number, i.category_id,
@@ -191,14 +227,18 @@ export class StoreMaterialTraceService {
        FROM items i
        LEFT JOIN item_categories c ON c.id = i.category_id
        LEFT JOIN uoms u ON u.id = i.base_uom_id
-       WHERE i.id = $1 AND i.company_id = $2`,
-      [itemId, companyId],
+       WHERE i.id = $1 AND i.company_id = $2${scope}`,
+      params,
     );
   }
 
   // ==================== STORE CONFIGURATION ====================
 
-  private async fetchStoreConfigs(companyId: string, itemId: string) {
+  private async fetchStoreConfigs(companyId: string, itemId: string, allowedDivisionIds?: DivisionAccess) {
+    // PROMPT #27 — `store_items` has no `division_id`; `stores.division_id`
+    // (already joined below) is the only lever, so scope there.
+    const params: any[] = [itemId, companyId];
+    const scope = this.scopedDivision(allowedDivisionIds, params, 'AND s.');
     return this.dataSource.query(
       `SELECT si.id AS store_item_id, si.store_id, si.bin, si.rack, si.shelf, si.location_detail,
               si.minimum_stock, si.reorder_level, si.maximum_stock, si.preferred_issue_method,
@@ -211,18 +251,28 @@ export class StoreMaterialTraceService {
        LEFT JOIN divisions d ON d.id = s.division_id
        LEFT JOIN sections sec ON sec.id = s.section_id
        LEFT JOIN departments dep ON dep.id = s.department_id
-       WHERE si.item_id = $1 AND s.company_id = $2 AND s.status = 'ACTIVE'
+       WHERE si.item_id = $1 AND s.company_id = $2 AND s.status = 'ACTIVE'${scope ? ` ${scope}` : ''}
        ORDER BY s.store_name`,
-      [itemId, companyId],
+      params,
     );
   }
 
   // ==================== STOCK ====================
 
-  private async fetchBalances(companyId: string, itemId: string, warehouseId?: string) {
+  private async fetchBalances(companyId: string, itemId: string, warehouseId?: string, allowedDivisionIds?: DivisionAccess) {
     const params: any[] = [itemId, companyId];
-    const where = `ib.item_id = $1 AND ib.company_id = $2 AND ib.status = 'ACTIVE'${warehouseId ? ` AND ib.warehouse_id = $3` : ''}`;
-    if (warehouseId) params.push(warehouseId);
+    let where = `ib.item_id = $1 AND ib.company_id = $2 AND ib.status = 'ACTIVE'`;
+    if (warehouseId) {
+      where += ` AND ib.warehouse_id = $3`;
+      params.push(warehouseId);
+    }
+    // PROMPT #27 — `inventory_balances` has NO `division_id` of its own. The
+    // only division-bearing relation is `stores.warehouse_id`, so scope via an
+    // EXISTS on `stores` exactly like the dashboard's `warehouseScope` helper
+    // does for GRNs / transfers / adjustments. Deny-all collapses to `1 = 0`
+    // BEFORE the EXISTS, so it cannot be bypassed by a warehouse match.
+    const storeScope = this.scopedViaStores(allowedDivisionIds, params, 'ib.warehouse_id', '$2');
+    if (storeScope) where += ` ${storeScope}`;
     return this.dataSource.query(
       `SELECT ib.warehouse_id, w.warehouse_code, w.name AS warehouse_name,
               COALESCE(SUM(ib.on_hand), 0)::float AS on_hand,
@@ -262,7 +312,11 @@ export class StoreMaterialTraceService {
 
   // ==================== RECONCILIATION ====================
 
-  private async fetchReconciliationMr(companyId: string, itemId: string) {
+  private async fetchReconciliationMr(companyId: string, itemId: string, allowedDivisionIds?: DivisionAccess) {
+    // PROMPT #27 — these reconciliation figures are sums over another
+    // division's documents, which is a leak even though no row id is returned.
+    const params: any[] = [itemId, companyId];
+    const scope = this.scopedDivision(allowedDivisionIds, params, 'AND m.');
     const rows = await this.dataSource.query(
       `SELECT
         COALESCE(SUM(mrl.requested_quantity), 0)::float AS requested,
@@ -272,22 +326,26 @@ export class StoreMaterialTraceService {
         COALESCE(SUM(mrl.pr_created_qty), 0)::float AS pr_created
        FROM material_request_lines mrl
        JOIN material_requests m ON m.id = mrl.request_id
-       WHERE mrl.item_id = $1 AND m.company_id = $2 AND m.status <> 'CANCELLED' AND m.rejected_at IS NULL`,
-      [itemId, companyId],
+       WHERE mrl.item_id = $1 AND m.company_id = $2 AND m.status <> 'CANCELLED' AND m.rejected_at IS NULL${scope ? ` ${scope}` : ''}`,
+      params,
     );
     return rows[0] || {};
   }
 
-  private async fetchReconciliationIssueReturn(companyId: string, itemId: string) {
+  private async fetchReconciliationIssueReturn(companyId: string, itemId: string, allowedDivisionIds?: DivisionAccess) {
+    const params: any[] = [itemId, companyId];
+    // Two independent sub-queries ⇒ two independent scope fragments.
+    const issueScope = this.scopedDivision(allowedDivisionIds, params, 'AND mi.');
+    const returnScope = this.scopedDivision(allowedDivisionIds, params, 'AND mr.');
     const rows = await this.dataSource.query(
       `SELECT
         (SELECT COALESCE(SUM(mil.quantity), 0)::float
            FROM material_issue_lines mil JOIN material_issues mi ON mi.id = mil.issue_id
-          WHERE mil.item_id = $1 AND mi.company_id = $2 AND mi.status = 'POSTED') AS issued,
+          WHERE mil.item_id = $1 AND mi.company_id = $2 AND mi.status = 'POSTED'${issueScope}) AS issued,
         (SELECT COALESCE(SUM(mrl.quantity), 0)::float
            FROM material_return_lines mrl JOIN material_returns mr ON mr.id = mrl.return_id
-          WHERE mrl.item_id = $1 AND mr.company_id = $2 AND mr.status = 'POSTED') AS returned`,
-      [itemId, companyId],
+          WHERE mrl.item_id = $1 AND mr.company_id = $2 AND mr.status = 'POSTED'${returnScope}) AS returned`,
+      params,
     );
     return rows[0] || {};
   }
@@ -312,22 +370,28 @@ export class StoreMaterialTraceService {
     return rows[0] || {};
   }
 
-  private async fetchReconciliationLedger(companyId: string, itemId: string) {
+  private async fetchReconciliationLedger(companyId: string, itemId: string, allowedDivisionIds?: DivisionAccess) {
+    // `stock_ledger` carries a real `division_id`, so one fragment is reused by
+    // all six sub-queries. IMPORTANT: it is pushed ONCE and the same `$n`
+    // placeholder is referenced every time — pushing it six times would make
+    // the 2nd..6th placeholders unbound and Postgres would error.
+    const params: any[] = [itemId, companyId];
+    const scope = this.scopedDivision(allowedDivisionIds, params, 'AND sl.');
     const rows = await this.dataSource.query(
       `SELECT
         (SELECT COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE 0 END), 0)::float
-           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'STOCK_TRANSFER') AS transfer_in,
+           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'STOCK_TRANSFER'${scope ? ` ${scope}` : ''}) AS transfer_in,
         (SELECT COALESCE(SUM(CASE WHEN sl.direction = 'OUT' THEN sl.quantity ELSE 0 END), 0)::float
-           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'STOCK_TRANSFER') AS transfer_out,
+           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'STOCK_TRANSFER'${scope ? ` ${scope}` : ''}) AS transfer_out,
         (SELECT COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE 0 END), 0)::float
-           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'STOCK_ADJUSTMENT') AS adjustment_in,
+           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'STOCK_ADJUSTMENT'${scope ? ` ${scope}` : ''}) AS adjustment_in,
         (SELECT COALESCE(SUM(CASE WHEN sl.direction = 'OUT' THEN sl.quantity ELSE 0 END), 0)::float
-           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'STOCK_ADJUSTMENT') AS adjustment_out,
+           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'STOCK_ADJUSTMENT'${scope ? ` ${scope}` : ''}) AS adjustment_out,
         (SELECT COALESCE(SUM(sl.quantity), 0)::float
-           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'GOODS_RECEIPT' AND sl.direction = 'IN') AS grns_in,
+           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.reference_type = 'GOODS_RECEIPT' AND sl.direction = 'IN'${scope ? ` ${scope}` : ''}) AS grns_in,
         (SELECT COALESCE(SUM(CASE WHEN sl.direction = 'OUT' THEN sl.quantity ELSE 0 END), 0)::float
-           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.transaction_type IN ('PRODUCTION_ISSUE','MANUFACTURING_ISSUE')) AS production_consumption`,
-      [itemId, companyId],
+           FROM stock_ledger sl WHERE sl.item_id = $1 AND sl.company_id = $2 AND sl.transaction_type IN ('PRODUCTION_ISSUE','MANUFACTURING_ISSUE')${scope ? ` ${scope}` : ''}) AS production_consumption`,
+      params,
     );
     return rows[0] || {};
   }
@@ -355,10 +419,11 @@ w.warehouse_code, w.name AS warehouse_name, u.display_name AS user_name
 
   // ==================== DOCUMENTS ====================
 
-  private async fetchRequests(companyId: string, itemId: string, storeId?: string) {
+  private async fetchRequests(companyId: string, itemId: string, storeId?: string, allowedDivisionIds?: DivisionAccess) {
     const params: any[] = [itemId, companyId];
     const sco = storeId ? ` AND m.store_id = $${params.length + 1}` : '';
     if (storeId) params.push(storeId);
+    const scope = this.scopedDivision(allowedDivisionIds, params, 'AND m.');
     return this.dataSource.query(
       `SELECT m.id, m.request_number, m.request_date::text AS request_date, m.required_date::text AS required_date,
               m.status, m.priority, m.purpose, m.remarks, m.store_id, m.supplier_id,
@@ -382,7 +447,7 @@ w.warehouse_code, w.name AS warehouse_name, u.display_name AS user_name
        LEFT JOIN divisions d ON d.id = m.division_id
        LEFT JOIN sections sec ON sec.id = m.section_id
        LEFT JOIN departments dep ON dep.id = m.department_id
-       WHERE mrl.item_id = $1 AND m.company_id = $2${sco}
+       WHERE mrl.item_id = $1 AND m.company_id = $2${sco}${scope}
        ORDER BY m.request_date DESC, m.request_number DESC`,
       params,
     );
@@ -448,9 +513,10 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
     );
   }
 
-  private async fetchIssues(companyId: string, itemId: string, storeId?: string) {
+  private async fetchIssues(companyId: string, itemId: string, storeId?: string, allowedDivisionIds?: DivisionAccess) {
     const params: any[] = [itemId, companyId];
     if (storeId) params.push(storeId);
+    const scope = this.scopedDivision(allowedDivisionIds, params, 'AND mi.');
     return this.dataSource.query(
       `SELECT mi.id, mi.issue_number, mi.issue_date::text AS issue_date, mi.status, mi.purpose,
               mi.remarks, mi.posted_by, mi.posted_at, mi.cancelled_at, mi.request_id,
@@ -462,15 +528,16 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
        JOIN stores s ON s.id = mi.store_id
        LEFT JOIN uoms u ON u.id = mil.uom_id
        LEFT JOIN departments dep ON dep.id = mi.issued_to_department_id
-       WHERE mil.item_id = $1 AND mi.company_id = $2${storeId ? ' AND mi.store_id = $3' : ''}
+       WHERE mil.item_id = $1 AND mi.company_id = $2${storeId ? ' AND mi.store_id = $3' : ''}${scope}
        ORDER BY mi.issue_date DESC, mi.issue_number DESC`,
       params,
     );
   }
 
-  private async fetchReturns(companyId: string, itemId: string, storeId?: string) {
+  private async fetchReturns(companyId: string, itemId: string, storeId?: string, allowedDivisionIds?: DivisionAccess) {
     const params: any[] = [itemId, companyId];
     if (storeId) params.push(storeId);
+    const scope = this.scopedDivision(allowedDivisionIds, params, 'AND mr.');
     return this.dataSource.query(
       `SELECT mr.id, mr.return_number, mr.return_date::text AS return_date, mr.status, mr.reason,
               mr.remarks, mr.posted_by, mr.posted_at, mr.cancelled_at, mr.issue_id, mr.condition_code,
@@ -482,7 +549,7 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
        JOIN stores s ON s.id = mr.store_id
        LEFT JOIN uoms u ON u.id = mrl.uom_id
        LEFT JOIN departments dep ON dep.id = mr.from_department_id
-       WHERE mrl.item_id = $1 AND mr.company_id = $2${storeId ? ' AND mr.store_id = $3' : ''}
+       WHERE mrl.item_id = $1 AND mr.company_id = $2${storeId ? ' AND mr.store_id = $3' : ''}${scope}
        ORDER BY mr.return_date DESC, mr.return_number DESC`,
       params,
     );
@@ -490,10 +557,11 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
 
   // ==================== LEDGER ====================
 
-  private async fetchLedger(companyId: string, itemId: string, warehouseId?: string) {
+  private async fetchLedger(companyId: string, itemId: string, warehouseId?: string, allowedDivisionIds?: DivisionAccess) {
     const params: any[] = [itemId, companyId];
-    const where = `sl.item_id = $1 AND sl.company_id = $2${warehouseId ? ` AND sl.warehouse_id = $3` : ''}`;
     if (warehouseId) params.push(warehouseId);
+    const scope = this.scopedDivision(allowedDivisionIds, params, 'AND sl.');
+    const where = `sl.item_id = $1 AND sl.company_id = $2${warehouseId ? ` AND sl.warehouse_id = $3` : ''}${scope}`;
     return this.dataSource.query(
       `SELECT sl.id, sl.transaction_type, sl.transaction_date, sl.quantity, sl.direction,
               sl.reference_type, sl.reference_id, sl.reference_number, sl.notes,
@@ -694,14 +762,16 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
 
   // ==================== AUDIT ====================
 
-  private async fetchStoreMap(companyId: string, itemId: string) {
+  private async fetchStoreMap(companyId: string, itemId: string, allowedDivisionIds?: DivisionAccess) {
+    const params: any[] = [itemId, companyId];
+    const scope = this.scopedDivision(allowedDivisionIds, params, 'AND s.');
     return this.dataSource.query(
       `SELECT s.warehouse_id, s.store_code, s.store_name
        FROM store_items si
        JOIN stores s ON s.id = si.store_id
-       WHERE si.item_id = $1 AND s.company_id = $2 AND s.warehouse_id IS NOT NULL
+       WHERE si.item_id = $1 AND s.company_id = $2 AND s.warehouse_id IS NOT NULL${scope}
        GROUP BY s.warehouse_id, s.store_code, s.store_name`,
-      [itemId, companyId],
+      params,
     );
   }
 
@@ -921,34 +991,127 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
 
   // ==================== DELETE LEDGER ENTRIES ====================
 
-  async deleteLedgerRow(companyId: string, ledgerId: string) {
+  /**
+   * PROMPT #27 — division scope for raw-SQL statements in this service.
+   *
+   * `stock_ledger`, `stores`, `material_requests/issues/returns` and `items`
+   * all carry a real `division_id`, so the caller's server-derived scope must
+   * be applied to every statement below. `undefined` (unresolved / enforcement
+   * off) is a no-op, matching `applyDivisionScopeFilter`; an EMPTY set becomes
+   * `1 = 0` — never an empty `= ANY(…)`, which in PostgreSQL matches nothing
+   * for `uuid[]` but must not be allowed to silently widen if the cast ever
+   * changes.
+   */
+  /**
+   * Build a ready-to-use `AND <division predicate>` fragment, or `''` when the
+   * caller is unrestricted. The returned string ALWAYS starts with `AND`, so
+   * callers can append it directly to a WHERE clause.
+   *
+   * `prefix` is the fully-qualified column prefix, e.g. `'AND m.'` → the clause
+   * becomes `AND m.division_id = ANY($n::uuid[])`.
+   */
+  private scopedDivision(
+    access: DivisionAccess | undefined,
+    params: any[],
+    prefix = 'AND ',
+  ): string {
+    if (isUnrestricted(access)) return '';
+    const ids = toDivisionList(access);
+    // Deny-all: an empty effective set must match nothing. Returned as a
+    // complete, self-contained clause so it can never be combined (with `AND`)
+    // into an `EXISTS` body and turn into a syntax error.
+    if (ids.length === 0) return 'AND 1 = 0';
+    params.push(ids);
+    return `${prefix}division_id = ANY($${params.length}::uuid[])`;
+  }
+
+  /**
+   * Restrict a warehouse-keyed row (a table with no `division_id` of its own)
+   * to warehouses that belong to a permitted division, by EXISTS-ing over
+   * `stores`. Returns a complete `AND …` clause, or `''` when unrestricted.
+   */
+  private scopedViaStores(
+    access: DivisionAccess | undefined,
+    params: any[],
+    warehouseColumn: string,
+    companyParam: string | number,
+  ): string {
+    if (isUnrestricted(access)) return '';
+    const ids = toDivisionList(access);
+    if (ids.length === 0) return 'AND 1 = 0';
+    params.push(ids);
+    return `AND EXISTS (
+        SELECT 1 FROM stores sto
+         WHERE sto.company_id = ${companyParam} AND sto.status = 'ACTIVE'
+           AND sto.warehouse_id = ${warehouseColumn}
+           AND sto.division_id = ANY($${params.length}::uuid[])
+      )`;
+  }
+
+  /**
+   * PROMPT #27 — the two ledger-delete endpoints below are DESTRUCTIVE, so
+   * they are the highest-severity instance of this gap in the Store module:
+   * a caller holding only `store.*` permission could previously delete a
+   * `stock_ledger` row belonging to another division.
+   *
+   * While closing that, two pre-existing CROSS-TENANT defects are fixed in the
+   * same statements: the `production_entries` UPDATE and the `stock_ledger`
+   * DELETE in `deleteDummyLedgerRows` carried NO `company_id` predicate at
+   * all, so they mutated rows in every tenant. Both now bind `company_id`, and
+   * both bind the caller's effective division scope.
+   */
+  async deleteLedgerRow(companyId: string, ledgerId: string, allowedDivisionIds?: DivisionAccess) {
+    const scopeParams: any[] = [];
+    const scope = this.scopedDivision(allowedDivisionIds, scopeParams);
+    const scopeSql = scope ? ` AND ${scope}` : '';
+    // [companyId, ledgerId] … then the scope array, so the placeholders line up.
+    const params: any[] = [companyId, ledgerId, ...scopeParams];
+
     await this.dataSource.query(
-      `UPDATE production_entries SET inventory_reference_id = NULL WHERE inventory_reference_id = $1`,
-      [ledgerId],
+      `UPDATE production_entries SET inventory_reference_id = NULL
+        WHERE inventory_reference_id = $2 AND company_id = $1${scopeSql}`,
+      params,
     );
     const res = await this.dataSource.query(
-      `DELETE FROM stock_ledger WHERE id = $1 AND company_id = $2 RETURNING id`,
-      [ledgerId, companyId],
+      `DELETE FROM stock_ledger
+        WHERE id = $2 AND company_id = $1${scopeSql}
+        RETURNING id`,
+      params,
     );
+    if (res.length === 0) {
+      // Either the row does not exist, is in another company, or belongs to a
+      // division the caller may not touch. All three must look identical.
+      throw new NotFoundException(`Stock ledger row '${ledgerId}' not found`);
+    }
     return { success: true, deletedId: res[0]?.id || ledgerId };
   }
 
-  async deleteDummyLedgerRows(companyId: string, itemId: string) {
+  async deleteDummyLedgerRows(companyId: string, itemId: string, allowedDivisionIds?: DivisionAccess) {
+    const scopeParams: any[] = [];
+    const scope = this.scopedDivision(allowedDivisionIds, scopeParams);
+    const scopeSql = scope ? ` AND ${scope}` : '';
+    // [companyId, itemId] … then the scope array.
+    const base: any[] = [companyId, itemId, ...scopeParams];
+
     const dummyRows = await this.dataSource.query(
-      `SELECT id FROM stock_ledger 
-       WHERE item_id = $1 AND company_id = $2 
+      `SELECT id FROM stock_ledger
+       WHERE item_id = $2 AND company_id = $1${scopeSql}
        AND (notes ILIKE '%FT-04%' OR notes ILIKE '%demo%' OR notes ILIKE '%test%' OR notes ILIKE '%dummy%')`,
-      [itemId, companyId],
+      base,
     );
     const ids = dummyRows.map((r: any) => r.id);
     if (ids.length > 0) {
+      const writeParams: any[] = [companyId, ids];
       await this.dataSource.query(
-        `UPDATE production_entries SET inventory_reference_id = NULL WHERE inventory_reference_id = ANY($1::uuid[])`,
-        [ids],
+        `UPDATE production_entries SET inventory_reference_id = NULL
+          WHERE inventory_reference_id = ANY($2::uuid[]) AND company_id = $1`,
+        writeParams,
       );
       const res = await this.dataSource.query(
-        `DELETE FROM stock_ledger WHERE id = ANY($1::uuid[]) RETURNING id`,
-        [ids],
+        `DELETE FROM stock_ledger
+          WHERE id = ANY($2::uuid[]) AND company_id = $1
+          RETURNING id`,
+        writeParams,
       );
       return { success: true, deletedCount: res.length, deletedIds: res.map((r: any) => r.id) };
     }

@@ -5,13 +5,33 @@ import { CreateSalesOrderDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { divisionScopeFromRequest } from '../../../common/division-scope.util';
 
 @ApiTags('sales/orders')
 @Controller('sales/orders')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+// PROMPT #27 — `DivisionScopeGuard` rejects an explicit out-of-scope
+// `divisionId` (query / body / route) with 403 and publishes the server-derived
+// `request.allowedDivisionIds` that every handler below forwards to the
+// service. Runs AFTER `OrgScopeGuard`, which is what populates `request.erpUser`
+// and `request.orgScopes` — the guard re-uses them rather than re-querying.
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class SalesOrderController {
   constructor(private readonly service: SalesOrderService) {}
+
+  /**
+   * The caller's effective division scope for this request.
+   *
+   * Single accessor so no handler can accidentally read the raw
+   * `request.allowedDivisionIds` (where `'ALL'` vs `[]` vs `undefined` are easy
+   * to confuse) — `divisionScopeFromRequest` normalises that to the
+   * `string[] | undefined` a service should filter with:
+   *   `undefined` → unrestricted, `[]` → deny-all, `[ids…]` → restrict.
+   */
+  private divisionScope(req: any): string[] | undefined {
+    return divisionScopeFromRequest(req);
+  }
 
   @Get()
   @UseGuards(PermissionGuard)
@@ -27,6 +47,7 @@ export class SalesOrderController {
     const companyId = req.erpUser?.defaultCompanyId;
     const result = await this.service.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, customerId, status, sortField, sortOrder,
+      allowedDivisionIds: this.divisionScope(req),
     });
     return { success: true, ...result };
   }
@@ -49,7 +70,7 @@ export class SalesOrderController {
   @ApiOperation({ summary: 'Get sales order by ID' })
   async findOne(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.findOne(id, companyId);
+    const order = await this.service.findOne(id, companyId, this.divisionScope(req));
     return { success: true, data: order };
   }
 
@@ -61,7 +82,7 @@ export class SalesOrderController {
   async create(@Req() req: any, @Body() dto: CreateSalesOrderDto) {
     const userId = req.user?.id;
     dto.companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.create(dto, userId);
+    const order = await this.service.create(dto, userId, this.divisionScope(req));
     return { success: true, data: order, message: 'Sales order created successfully' };
   }
 
@@ -73,7 +94,7 @@ export class SalesOrderController {
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: Partial<CreateSalesOrderDto>) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.update(id, dto, userId, companyId);
+    const order = await this.service.update(id, dto, userId, companyId, this.divisionScope(req));
     return { success: true, data: order, message: 'Sales order updated successfully' };
   }
 
@@ -86,7 +107,7 @@ export class SalesOrderController {
   async confirm(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.confirm(id, userId, companyId);
+    const order = await this.service.confirm(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: order, message: 'Sales order confirmed' };
   }
 
@@ -99,7 +120,7 @@ export class SalesOrderController {
   async process(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.process(id, userId, companyId);
+    const order = await this.service.process(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: order, message: 'Sales order processing started' };
   }
 
@@ -112,7 +133,7 @@ export class SalesOrderController {
   async ship(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.ship(id, userId, companyId);
+    const order = await this.service.ship(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: order, message: 'Sales order shipped' };
   }
 
@@ -125,7 +146,7 @@ export class SalesOrderController {
   async deliver(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.deliver(id, userId, companyId);
+    const order = await this.service.deliver(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: order, message: 'Sales order delivered' };
   }
 
@@ -138,7 +159,7 @@ export class SalesOrderController {
   async close(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.close(id, userId, companyId);
+    const order = await this.service.close(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: order, message: 'Sales order closed' };
   }
 
@@ -151,7 +172,7 @@ export class SalesOrderController {
   async cancel(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.cancel(id, userId, companyId);
+    const order = await this.service.cancel(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: order, message: 'Sales order cancelled' };
   }
 
@@ -168,7 +189,7 @@ export class SalesOrderController {
   ) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.convertToDelivery(id, dto, userId, companyId);
+    const delivery = await this.service.convertToDelivery(id, dto, userId, companyId, this.divisionScope(req));
     return { success: true, data: delivery, message: `Delivery ${delivery.deliveryNumber} created successfully` };
   }
 
@@ -195,7 +216,7 @@ export class SalesOrderController {
   ) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const po = await this.service.createProductionOrder(id, dto, userId, companyId);
+    const po = await this.service.createProductionOrder(id, dto, userId, companyId, this.divisionScope(req));
     return { success: true, data: po, message: `Production order ${po.orderNumber} created successfully` };
   }
 
@@ -206,7 +227,7 @@ export class SalesOrderController {
   @ApiOperation({ summary: 'Get complete sales order traceability chain' })
   async getTraceability(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId;
-    const result = await this.service.getOrderTraceability(id, companyId);
+    const result = await this.service.getOrderTraceability(id, companyId, this.divisionScope(req));
     return { success: true, data: result };
   }
 }

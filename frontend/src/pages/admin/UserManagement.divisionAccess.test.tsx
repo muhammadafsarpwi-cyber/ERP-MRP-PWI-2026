@@ -122,6 +122,15 @@ describe('UserManagement — Division Access (Prompt #16 §25/§26)', () => {
     seedUsers([{ ...baseUser }]);
   });
 
+  it('renders Divisions column with company-wide access showing All Divisions', async () => {
+    seedUsers([{ ...baseUser, organizationScopes: [companyWideScope] }]);
+
+    renderComponent();
+
+    await screen.findByText('junaid');
+    expect(screen.getByText('All Divisions')).toBeInTheDocument();
+  });
+
   it('only offers Division Access when the caller holds admin.users.manage_scope', async () => {
     localStorage.setItem(
       'erp_user',
@@ -234,6 +243,7 @@ describe('UserManagement — Division Access (Prompt #16 §25/§26)', () => {
       await screen.findByText('No division restriction — this user currently has full company access'),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Full company access/)).not.toBeInTheDocument();
+    expect(await screen.findByText('No division restriction — this user currently has full company access')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove division access' })).not.toBeInTheDocument();
     expect(screen.getByText('Grant Division Access')).toBeInTheDocument();
 

@@ -1795,3 +1795,71 @@
 }
 
 
+/* =====================================================================
+   Mobile Layout (≤ 768px) — Raw Material Receiving Form
+   ===================================================================== */
+
+@media (max-width: 768px) {
+  /* On mobile, allow the modal body to scroll vertically */
+  .raw-material-modal-wrap .erp-draggable-modal .ant-modal-body {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 8px 10px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    min-height: 0 !important;
+  }
+
+  /* Stack split container vertically on mobile */
+  .raw-material-modal-wrap .raw-material-modal-split-container,
+  .raw-material-modal-wrap .erp-draggable-modal .ant-modal-body > .raw-material-modal-split-container {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: 100% !important;
+    gap: 0 !important;
+  }
+
+  /* Form column takes full width, scrolls naturally */
+  .raw-material-modal-wrap .raw-material-modal-form-col {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow-y: visible !important;
+    overflow-x: visible !important;
+    border-right: none !important;
+    padding-right: 0 !important;
+  }
+
+  /* Hide Live Verification preview column on mobile */
+  .raw-material-modal-wrap .raw-material-modal-preview-col {
+    display: none !important;
+  }
+
+  /* Sticky footer stays pinned at bottom */
+  .rm-form-actions-footer-sticky {
+    position: sticky !important;
+    bottom: 0 !important;
+    z-index: 30 !important;
+    padding: 10px 12px !important;
+  }
+
+  /* Camera/photo/attachment buttons full-width on mobile for easy touch */
+  .rmr-upload-group .ant-space {
+    width: 100%;
+  }
+
+  /* Form section cards on mobile */
+  .rm-form-section-body {
+    padding: 10px 12px !important;
+  }
+}

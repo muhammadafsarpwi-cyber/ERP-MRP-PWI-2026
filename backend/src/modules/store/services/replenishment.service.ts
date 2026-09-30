@@ -1,12 +1,18 @@
 import { Injectable, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { Store } from '../entities/store.entity';
 import { StoreItem } from '../entities/store-item.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
 import { StoreReplenishment } from '../entities/store-replenishment.entity';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StoreService } from './store.service';
+import {
+  assertDivisionInScope,
+  isUnrestricted,
+  toDivisionList,
+  DivisionAccess,
+} from '../../../common/division-scope.util';
 
 const ACTIVE_MR_STATUSES = ['DRAFT', 'SUBMITTED', 'APPROVED', 'PARTIALLY_CONVERTED', 'FULLY_CONVERTED'];
 const SYSTEM_ACTOR_USERNAME = 'system.replenishment';
@@ -62,7 +68,14 @@ export class ReplenishmentService {
 
   // ==================== PUBLIC API ====================
 
-  async runReplenishmentCheck(options: { companyId?: string; userId?: string; autoCreateMr?: boolean } = {}) {
+  async runReplenishmentCheck(
+    options: {
+      companyId?: string;
+      userId?: string;
+      autoCreateMr?: boolean;
+      allowedDivisionIds?: DivisionAccess;
+    } = {},
+  ) {
     const runReference = `RUN-${Date.now()}`;
     const companyIds = options.companyId
       ? [options.companyId]
@@ -77,8 +90,26 @@ export class ReplenishmentService {
     let createdRequests = 0;
     let checkedRows = 0;
 
+    // PROMPT #27 — this is a WRITE path: it auto-creates material requests.
+    // A caller restricted to one division must not be able to trigger creation
+    // of replenishment rows for every other division in the company, so the
+    // store selection is narrowed to the caller's own divisions. An empty
+    // effective scope selects no stores at all rather than all of them.
+    const allowedDivisionIds = options.allowedDivisionIds;
+    const divisionWhere = isUnrestricted(allowedDivisionIds)
+      ? undefined
+      : { divisionId: toDivisionList(allowedDivisionIds).length
+            ? In(toDivisionList(allowedDivisionIds))
+            : In([]) };
+
     for (const companyId of companyIds) {
-      const stores = await this.storeRepo.find({ where: { companyId, status: 'ACTIVE' as any } });
+      const stores = await this.storeRepo.find({
+        where: {
+          companyId,
+          status: 'ACTIVE' as any,
+          ...(divisionWhere ? { divisionId: divisionWhere as any } : {}),
+        },
+      });
       for (const store of stores) {
         const storeItems = await this.storeItemRepo.find({ where: { storeId: store.id, status: 'ACTIVE' as any } });
         for (const storeItem of storeItems) {
@@ -119,6 +150,7 @@ export class ReplenishmentService {
       page?: number;
       limit?: number;
     } = {},
+    allowedDivisionIds?: DivisionAccess,
   ) {
     const { page = 1, limit = 20 } = filters;
     const where: string[] = ['r.company_id = $1'];
@@ -142,6 +174,19 @@ export class ReplenishmentService {
     if (filters.storeId) push(`r.store_id = $${params.length + 1}`, filters.storeId);
     if (filters.divisionId) push(`r.division_id = $${params.length + 1}`, filters.divisionId);
     if (filters.itemId) push(`r.item_id = $${params.length + 1}`, filters.itemId);
+    // PROMPT #27 — server-authoritative division scope for this raw-SQL query.
+    // Applied after every client filter so the response can never exceed the
+    // caller's own divisions. An empty effective set becomes `1 = 0` (no rows)
+    // rather than an empty `= ANY(...)`, which would match everything.
+    if (!isUnrestricted(allowedDivisionIds)) {
+      const ids = toDivisionList(allowedDivisionIds);
+      if (ids.length === 0) {
+        where.push('1 = 0');
+      } else {
+        params.push(ids);
+        where.push(`r.division_id = ANY($${params.length})`);
+      }
+    }
     if (filters.search) {
       push(
         `(i.item_code ILIKE $${params.length + 1} OR i.name ILIKE $${params.length + 1} OR s.store_name ILIKE $${params.length + 1})`,
@@ -234,11 +279,24 @@ export class ReplenishmentService {
     };
   }
 
-  async getKpis(companyId: string) {
-    const rows = await this.dataSource.query<{ status: string; cnt: number }[]>(
-      `SELECT status, COUNT(*)::int AS cnt FROM store_replenishments WHERE company_id = $1 GROUP BY status`,
-      [companyId],
-    );
+  async getKpis(companyId: string, allowedDivisionIds?: DivisionAccess) {
+    // PROMPT #27 — the KPI tiles are a roll-up of division-scoped rows, so a
+    // restricted caller must not see another division's counts. Not
+    // `includeUnassigned`: an unattributed replenishment row belongs to no
+    // division and therefore to no restricted caller.
+    const scopeIds = isUnrestricted(allowedDivisionIds) ? null : toDivisionList(allowedDivisionIds);
+    const rows = scopeIds === null
+      ? await this.dataSource.query<{ status: string; cnt: number }[]>(
+        `SELECT status, COUNT(*)::int AS cnt FROM store_replenishments WHERE company_id = $1 GROUP BY status`,
+        [companyId],
+      )
+      : scopeIds.length === 0
+        ? []
+        : await this.dataSource.query<{ status: string; cnt: number }[]>(
+          `SELECT status, COUNT(*)::int AS cnt FROM store_replenishments
+             WHERE company_id = $1 AND division_id = ANY($2::uuid[]) GROUP BY status`,
+          [companyId, scopeIds],
+        );
     const byStatus: Record<string, number> = {};
     let total = 0;
     for (const row of rows) {
@@ -263,8 +321,8 @@ export class ReplenishmentService {
 
   // ==================== MANUAL OVERRIDES (audited) ====================
 
-  async adjustQuantity(id: string, userId: string, dto: { quantity: number; reason: string }, companyId?: string) {
-    const row = await this.requireRow(id, companyId);
+  async adjustQuantity(id: string, userId: string, dto: { quantity: number; reason: string }, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const row = await this.requireRow(id, companyId, allowedDivisionIds);
     if (row.cancelled) throw new BadRequestException('Cannot adjust a cancelled replenishment');
     if (Number(dto.quantity) < 0) throw new BadRequestException('Adjusted quantity cannot be negative');
 
@@ -283,8 +341,8 @@ export class ReplenishmentService {
     return this.replenishmentRepo.save(row);
   }
 
-  async defer(id: string, userId: string, dto: { until?: string; reason: string }, companyId?: string) {
-    const row = await this.requireRow(id, companyId);
+  async defer(id: string, userId: string, dto: { until?: string; reason: string }, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const row = await this.requireRow(id, companyId, allowedDivisionIds);
     if (row.cancelled) throw new BadRequestException('Cannot defer a cancelled replenishment');
 
     row.deferred = true;
@@ -296,8 +354,8 @@ export class ReplenishmentService {
     return this.replenishmentRepo.save(row);
   }
 
-  async cancel(id: string, userId: string, dto: { reason: string }, companyId?: string) {
-    const row = await this.requireRow(id, companyId);
+  async cancel(id: string, userId: string, dto: { reason: string }, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const row = await this.requireRow(id, companyId, allowedDivisionIds);
     if (row.cancelled) throw new BadRequestException('Replenishment already cancelled');
 
     row.cancelled = true;
@@ -310,8 +368,8 @@ export class ReplenishmentService {
     return this.replenishmentRepo.save(row);
   }
 
-  async unreview(id: string, userId: string, companyId?: string) {
-    const row = await this.requireRow(id, companyId);
+  async unreview(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const row = await this.requireRow(id, companyId, allowedDivisionIds);
     row.deferred = false;
     row.deferredUntil = null;
     row.deferredReason = null;
@@ -325,8 +383,8 @@ export class ReplenishmentService {
     return this.replenishmentRepo.save(row);
   }
 
-  async createMr(id: string, userId: string, companyId?: string) {
-    const row = await this.requireRow(id, companyId);
+  async createMr(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const row = await this.requireRow(id, companyId, allowedDivisionIds);
     if (row.cancelled) throw new BadRequestException('Cannot create a request for a cancelled replenishment');
     if (row.materialRequestId) {
       throw new BadRequestException(`Material request ${row.materialRequestNumber} already exists for this item`);
@@ -391,8 +449,8 @@ export class ReplenishmentService {
     return { ...row, createdRequest: { id: created.id, requestNumber: created.requestNumber, status: created.status } };
   }
 
-  async convertToPr(id: string, userId: string, companyId: string, lineQuantities?: { lineId: string; quantity: number; estimatedUnitPrice?: number }[]) {
-    const row = await this.requireRow(id, companyId);
+  async convertToPr(id: string, userId: string, companyId: string, lineQuantities?: { lineId: string; quantity: number; estimatedUnitPrice?: number }[], allowedDivisionIds?: DivisionAccess) {
+    const row = await this.requireRow(id, companyId, allowedDivisionIds);
     if (!row.materialRequestId) {
       throw new BadRequestException('No material request exists yet for this replenishment');
     }
@@ -459,12 +517,20 @@ export class ReplenishmentService {
     return rows[0]?.id || null;
   }
 
-  private async requireRow(id: string, companyId?: string): Promise<StoreReplenishment> {
+  private async requireRow(
+    id: string,
+    companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<StoreReplenishment> {
     const row = await this.replenishmentRepo.findOne({ where: { id } });
     if (!row) throw new BadRequestException(`Replenishment row '${id}' not found`);
     if (companyId && row.companyId !== companyId) {
       throw new ForbiddenException(`Replenishment row '${id}' belongs to a different company`);
     }
+    // PROMPT #27 — `store_replenishments` carries a real `division_id`, so a
+    // row in another division must be refused (TEST E) before any override is
+    // written.
+    assertDivisionInScope(row.divisionId, allowedDivisionIds);
     return row;
   }
 

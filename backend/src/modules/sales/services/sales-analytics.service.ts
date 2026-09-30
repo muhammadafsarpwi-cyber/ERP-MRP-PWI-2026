@@ -18,6 +18,11 @@ import { CustomerLedgerService } from '../../customer/services/customer-ledger.s
 import { customerNameMatchKeys, normalizeCustomerName } from './customer-match.util';
 import { isCommittedReturnStatus } from './sales-return-status.util';
 import {
+  applyDivisionScopeFilter,
+  narrowWhereByDivision,
+  DivisionAccess,
+} from '../../../common/division-scope.util';
+import {
   SalesAnalyticsFilterDto,
   SalesAnalyticsPeriod,
   CustomerRankingMetric,
@@ -138,7 +143,11 @@ export class SalesAnalyticsService {
   /**
    * 1. SALES DASHBOARD & EXECUTIVE KPIS
    */
-  async getSalesDashboard(companyId: string, filter?: SalesAnalyticsFilterDto) {
+  async getSalesDashboard(
+    companyId: string,
+    filter?: SalesAnalyticsFilterDto,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const { startDate, endDate } = this.resolveDateRange(filter);
 
     // 1. Sales Orders query
@@ -146,6 +155,12 @@ export class SalesAnalyticsService {
       .where('so.companyId = :companyId', { companyId });
     if (startDate) orderQb.andWhere('so.orderDate >= :startDate', { startDate });
     if (endDate) orderQb.andWhere('so.orderDate <= :endDate', { endDate });
+    // PROMPT #27 — `so.divisionId` is the single authoritative attribution for
+    // the whole dashboard, so scoping this one query keeps every order-derived
+    // KPI (open / in-production / delivered / pipeline value) inside the
+    // caller's divisions. Not `includeUnassigned`: an order with no division
+    // is not inside any restricted caller's permitted set.
+    applyDivisionScopeFilter(orderQb as any, 'so.divisionId', allowedDivisionIds);
     const orders = await orderQb.getMany();
 
     const totalSalesOrders = orders.length;
@@ -154,11 +169,14 @@ export class SalesAnalyticsService {
     const deliveredOrders = orders.filter(o => ['Delivered', 'Partially Delivered', 'PARTIALLY_DELIVERED'].includes(o.status)).length;
     const pendingDelivery = orders.filter(o => ['Confirmed', 'Processing', 'Ready', 'PARTIALLY_DELIVERED'].includes(o.status)).length;
 
-    // 2. Invoices query
+    // 2. Invoices query — invoices have no division of their own; they inherit
+    // the billing order's, so the scope is applied through a join to that order.
     const invQb = this.invoiceRepo.createQueryBuilder('si')
+      .leftJoin('si.salesOrder', 'invOrder')
       .where('si.companyId = :companyId', { companyId });
     if (startDate) invQb.andWhere('si.invoiceDate >= :startDate', { startDate });
     if (endDate) invQb.andWhere('si.invoiceDate <= :endDate', { endDate });
+    applyDivisionScopeFilter(invQb as any, 'invOrder.divisionId', allowedDivisionIds);
     const invoices = await invQb.getMany();
 
     const activeInvoices = invoices.filter(i => i.status !== 'Cancelled');
@@ -193,11 +211,13 @@ export class SalesAnalyticsService {
     const totalQuotationsCount = quotations.length;
     const totalQuotationsAmount = quotations.reduce((sum, q) => sum + (Number(q.totalAmount) || 0), 0);
 
-    // 5. Deliveries
+    // 5. Deliveries — inherits the source order's division.
     const delQb = this.deliveryRepo.createQueryBuilder('sd')
+      .leftJoin('sd.salesOrder', 'delOrder')
       .where('sd.companyId = :companyId', { companyId });
     if (startDate) delQb.andWhere('sd.deliveryDate >= :startDate', { startDate });
     if (endDate) delQb.andWhere('sd.deliveryDate <= :endDate', { endDate });
+    applyDivisionScopeFilter(delQb as any, 'delOrder.divisionId', allowedDivisionIds);
     const deliveries = await delQb.getMany();
     const totalDeliveriesCount = deliveries.length;
     const totalDeliveriesAmount = deliveries.reduce((sum, d) => sum + (Number(d.totalAmount) || 0), 0);
@@ -209,11 +229,13 @@ export class SalesAnalyticsService {
     const totalProdOrdersCount = productionOrders.length;
     const totalProdPlannedQty = productionOrders.reduce((sum, p) => sum + (Number(p.plannedQuantity) || 0), 0);
 
-    // 7. Returns & Credit Notes
+    // 7. Returns & Credit Notes — inherits the source order's division.
     const retQb = this.returnRepo.createQueryBuilder('sr')
+      .leftJoin('sr.salesOrder', 'retOrder')
       .where('sr.companyId = :companyId', { companyId });
     if (startDate) retQb.andWhere('sr.returnDate >= :startDate', { startDate });
     if (endDate) retQb.andWhere('sr.returnDate <= :endDate', { endDate });
+    applyDivisionScopeFilter(retQb as any, 'retOrder.divisionId', allowedDivisionIds);
     const allReturns = await retQb.getMany();
 
     const activeReturns = allReturns.filter(r => isCommittedReturnStatus(r.status));
@@ -246,18 +268,23 @@ export class SalesAnalyticsService {
     const topCustomersByOutstanding = [...customerAgg].sort((a, b) => b.outstandingAmount - a.outstandingAmount).slice(0, 5);
 
     const recentOrders = await this.orderRepo.find({
-      where: { companyId },
+      where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds),
       order: { createdAt: 'DESC' },
       take: 5,
     });
-    const recentInvoices = await this.invoiceRepo.find({
-      where: { companyId },
-      order: { createdAt: 'DESC' },
-      take: 5,
-    });
+    // PROMPT #27 — "recent invoices" must not surface another division's
+    // billing activity, so the scope is applied through the billing order.
+    const recentInvoiceQb = this.invoiceRepo
+      .createQueryBuilder('si')
+      .leftJoin('si.salesOrder', 'riOrder')
+      .where('si.companyId = :companyId', { companyId })
+      .orderBy('si.createdAt', 'DESC')
+      .take(5);
+    applyDivisionScopeFilter(recentInvoiceQb as any, 'riOrder.divisionId', allowedDivisionIds);
+    const recentInvoices = await recentInvoiceQb.getMany();
 
     // 10. Item Section: Top selling FG & alerts
-    const itemAgg = await this.getItemSalesAnalysis(companyId, filter);
+    const itemAgg = await this.getItemSalesAnalysis(companyId, filter, allowedDivisionIds);
     const topSellingFinishedGoods = [...itemAgg].sort((a, b) => b.salesAmount - a.salesAmount).slice(0, 5);
     const highestOrderedFinishedGoods = [...itemAgg].sort((a, b) => b.orderedQuantity - a.orderedQuantity).slice(0, 5);
     const highestDeliveredFinishedGoods = [...itemAgg].sort((a, b) => b.deliveredQuantity - a.deliveredQuantity).slice(0, 5);
@@ -305,7 +332,11 @@ export class SalesAnalyticsService {
   /**
    * 2. CUSTOMER-WISE SALES ANALYTICS
    */
-  async getCustomerSalesAnalytics(companyId: string, filter?: SalesAnalyticsFilterDto) {
+  async getCustomerSalesAnalytics(
+    companyId: string,
+    filter?: SalesAnalyticsFilterDto,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const { startDate, endDate } = this.resolveDateRange(filter);
 
     // Fetch all sales customers in company
@@ -326,7 +357,7 @@ export class SalesAnalyticsService {
 
     // Fetch orders, quotations, deliveries, delivery lines, invoices, returns, return lines
     const [orders, orderItems, quotations, deliveries, deliveryLines, invoices, returns, returnLines, prodOrders, ledgerEntries] = await Promise.all([
-      this.orderRepo.find({ where: { companyId } }),
+      this.orderRepo.find({ where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds) }),
       this.orderItemRepo.find(),
       this.quotationRepo.find({ where: { companyId } }),
       this.deliveryRepo.find({ where: { companyId } }),
@@ -488,7 +519,11 @@ export class SalesAnalyticsService {
    * 3. ITEM-WISE SALES ANALYSIS
    * Sellable Finished Goods Only
    */
-  async getItemSalesAnalysis(companyId: string, filter?: SalesAnalyticsFilterDto) {
+  async getItemSalesAnalysis(
+    companyId: string,
+    filter?: SalesAnalyticsFilterDto,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     // Sellable FG Items only (exclude Raw Materials, Chemicals, Packaging, Spare Parts, Machinery, Consumables)
     const rawItems = await this.itemRepo.find({
       where: { companyId, itemType: ItemType.FINISHED_GOOD },
@@ -536,7 +571,7 @@ export class SalesAnalyticsService {
         .where('ib.companyId = :companyId', { companyId })
         .andWhere('ib.itemId IN (:...itemIds)', { itemIds })
         .getMany(),
-      this.orderRepo.find({ where: { companyId }, select: ['id', 'customerId', 'orderDate'] }),
+      this.orderRepo.find({ where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds), select: ['id', 'customerId', 'orderDate', 'divisionId'] }),
     ]);
 
     // Only committed returns (approved or later) may reduce returned quantities/values;
@@ -615,11 +650,15 @@ export class SalesAnalyticsService {
   /**
    * 4. CUSTOMER × ITEM MATRIX
    */
-  async getCustomerItemMatrix(companyId: string, filter?: SalesAnalyticsFilterDto) {
+  async getCustomerItemMatrix(
+    companyId: string,
+    filter?: SalesAnalyticsFilterDto,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const [salesCustomers, items, orders, orderItems, deliveryLines, invoices, deliveries, returns, returnLines, prodOrders] = await Promise.all([
       this.salesCustomerRepo.find({ where: { companyId } }),
       this.itemRepo.find({ where: { companyId }, relations: ['baseUom'] }),
-      this.orderRepo.find({ where: { companyId } }),
+      this.orderRepo.find({ where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds) }),
       this.orderItemRepo.find(),
       this.deliveryLineRepo.find(),
       this.invoiceRepo.find({ where: { companyId } }),
@@ -814,8 +853,13 @@ export class SalesAnalyticsService {
    * 5. CUSTOMER RANKINGS
    * Dynamic metric ranking
    */
-  async getCustomerRankings(companyId: string, metric: CustomerRankingMetric, filter?: SalesAnalyticsFilterDto) {
-    const analytics = await this.getCustomerSalesAnalytics(companyId, filter);
+  async getCustomerRankings(
+    companyId: string,
+    metric: CustomerRankingMetric,
+    filter?: SalesAnalyticsFilterDto,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
+    const analytics = await this.getCustomerSalesAnalytics(companyId, filter, allowedDivisionIds);
 
     const sorted = [...analytics].sort((a, b) => {
       switch (metric) {
@@ -875,9 +919,13 @@ export class SalesAnalyticsService {
   /**
    * 6. SALES ORDER FULFILLMENT ANALYSIS
    */
-  async getOrderFulfillmentAnalysis(companyId: string, filter?: SalesAnalyticsFilterDto) {
+  async getOrderFulfillmentAnalysis(
+    companyId: string,
+    filter?: SalesAnalyticsFilterDto,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const orders = await this.orderRepo.find({
-      where: { companyId },
+      where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds),
       relations: ['customer', 'items', 'items.item'],
       order: { orderDate: 'DESC' },
     });
@@ -958,7 +1006,11 @@ export class SalesAnalyticsService {
    * Projected Balance = Available FG Stock - Required Stock
    * Status: ABOVE_REQUIREMENT, AT_REQUIREMENT, BELOW_REQUIREMENT, SHORTAGE
    */
-  async getFinishedGoodsAvailability(companyId: string, filter?: SalesAnalyticsFilterDto) {
+  async getFinishedGoodsAvailability(
+    companyId: string,
+    filter?: SalesAnalyticsFilterDto,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const rawItems = await this.itemRepo.find({
       where: { companyId, itemType: ItemType.FINISHED_GOOD },
       relations: ['baseUom'],
@@ -995,8 +1047,8 @@ export class SalesAnalyticsService {
         .where('soi.itemId IN (:...itemIds)', { itemIds })
         .getMany(),
       this.orderRepo.find({
-        where: { companyId },
-        select: ['id', 'status'],
+        where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds),
+        select: ['id', 'status', 'divisionId'],
       }),
     ]);
 
@@ -1065,11 +1117,28 @@ export class SalesAnalyticsService {
   /**
    * 8. CUSTOMER OUTSTANDING REPORT
    */
-  async getCustomerOutstandingReport(companyId: string, filter?: { outstandingOnly?: boolean }) {
+  async getCustomerOutstandingReport(
+    companyId: string,
+    filter?: { outstandingOnly?: boolean },
+    allowedDivisionIds?: DivisionAccess,
+  ) {
+    // PROMPT #27 — an outstanding balance is money owed on an invoice, and the
+    // invoice belongs to a division. Both the invoice and return sets are
+    // therefore scoped through their source order; otherwise this report would
+    // disclose another division's receivables in full.
+    const invoiceQb = this.invoiceRepo.createQueryBuilder('si')
+      .leftJoin('si.salesOrder', 'outOrder')
+      .where('si.companyId = :companyId', { companyId });
+    applyDivisionScopeFilter(invoiceQb as any, 'outOrder.divisionId', allowedDivisionIds);
+    const returnQb = this.returnRepo.createQueryBuilder('sr')
+      .leftJoin('sr.salesOrder', 'outReturnOrder')
+      .where('sr.companyId = :companyId', { companyId });
+    applyDivisionScopeFilter(returnQb as any, 'outReturnOrder.divisionId', allowedDivisionIds);
+
     const [customers, invoices, returns, masterCustomers] = await Promise.all([
       this.salesCustomerRepo.find({ where: { companyId } }),
-      this.invoiceRepo.find({ where: { companyId } }),
-      this.returnRepo.find({ where: { companyId } }),
+      invoiceQb.getMany(),
+      returnQb.getMany(),
       this.customerMasterRepo.find({ where: { companyId } }),
     ]);
 

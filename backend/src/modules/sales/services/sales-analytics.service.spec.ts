@@ -31,8 +31,20 @@ describe('SalesAnalyticsService', () => {
     find: jest.fn().mockResolvedValue(records),
     findOne: jest.fn().mockResolvedValue(records[0] || null),
     createQueryBuilder: jest.fn(() => ({
+      // PROMPT #27 — the dashboard's invoice query now joins the billing order
+      // so a division-restricted caller only sees their own invoices; the
+      // builder mock has to tolerate that join. `mockReturnThis()` keeps the
+      // chain intact and, like the sibling methods, records the call so a
+      // future assertion can check the scope was applied to the joined alias.
+      leftJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
+      // The "recent invoices" block of the dashboard orders and limits after
+      // the scope clause, so the shared builder mock has to chain those too.
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
       getMany: jest.fn().mockResolvedValue(records),
     })),
   });
@@ -274,10 +286,21 @@ describe('SalesAnalyticsService', () => {
     });
 
     it('should subtract posted credit notes and source payment terms/status from the master customer', async () => {
-      returnRepoMock.find.mockResolvedValue([
+      const creditNotes = [
         { id: 'ret-1', customerId: CUST_ID, status: 'CREDITED', creditPosted: true, totalAmount: 500 },
         { id: 'ret-2', customerId: CUST_ID, status: 'DRAFT', creditPosted: false, totalAmount: 999 },
-      ]);
+      ];
+      returnRepoMock.find.mockResolvedValue(creditNotes);
+      // PROMPT #27 — the report now reads returns through a query builder so it
+      // can join the source order and apply the caller's division scope; the
+      // fixture has to travel on that path too. The expected numbers are
+      // unchanged — only how the rows are fetched.
+      returnRepoMock.createQueryBuilder.mockReturnValue({
+        leftJoin: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(creditNotes),
+      });
 
       const report = await service.getCustomerOutstandingReport(COMPANY_ID);
       // 4000 invoiced - 1500 paid - 500 credited = 2000 (the DRAFT return must not reduce it)
@@ -319,6 +342,9 @@ describe('SalesAnalyticsService', () => {
 
     it('should exclude DRAFT returns from dashboard return KPIs', async () => {
       returnRepoMock.createQueryBuilder.mockReturnValue({
+        // PROMPT #27 — the returns query joins the source order so a
+        // division-restricted caller only sees their own returns.
+        leftJoin: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue([
@@ -335,6 +361,8 @@ describe('SalesAnalyticsService', () => {
     it('should exclude DRAFT return lines from item analytics', async () => {
       returnRepoMock.find.mockResolvedValue([{ id: 'ret-1', status: 'DRAFT' }]);
       returnLineRepoMock.createQueryBuilder.mockReturnValue({
+        // PROMPT #27 — joins added for the division scope; see the note above.
+        leftJoin: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue([

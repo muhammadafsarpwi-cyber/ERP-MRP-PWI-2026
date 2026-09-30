@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Item, ItemType } from '../../item/entities/item.entity';
@@ -7,6 +7,12 @@ import { InventoryPolicy } from '../../inventory/entities/inventory-policy.entit
 import { SalesOrderItem } from '../entities/sales-order-item.entity';
 import { ProductionOrder, ProductionOrderStatus } from '../../production/entities/production-order.entity';
 import { FinishedGoodsFilterDto } from '../dto/finished-goods-inventory.dto';
+import {
+  applyDivisionScopeFilter,
+  isUnrestricted,
+  toDivisionList,
+  DivisionAccess,
+} from '../../../common/division-scope.util';
 
 export interface FinishedGoodsItemAvailability {
   itemId: string;
@@ -99,6 +105,7 @@ export class FinishedGoodsInventoryService {
   async getFinishedGoodsInventory(
     dto: FinishedGoodsFilterDto,
     companyId: string,
+    allowedDivisionIds?: DivisionAccess,
   ): Promise<FinishedGoodsInventoryResponse> {
     const page = dto.page || 1;
     const limit = dto.limit || 50;
@@ -114,6 +121,25 @@ export class FinishedGoodsInventoryService {
         fgType: ItemType.FINISHED_GOOD,
         fgTypeLower: 'finished_good',
       });
+
+    // PROMPT #27 — server-authoritative division scope.
+    //
+    // The `dto.divisionId` filter below is client-supplied and can only ever
+    // narrow further; `DivisionScopeGuard` has already refused it with 403 when
+    // it names a division the caller does not hold. This clause is what makes
+    // the response safe when the client omits `divisionId` entirely.
+    //
+    // `includeUnassigned: true` because this is MASTER data: an Item that is not
+    // assigned to a division belongs to no division, so it cannot disclose
+    // another division's stock. Excluding it would silently hide shared
+    // catalogue rows from every restricted user.
+    applyDivisionScopeFilter(
+      qb as any,
+      'item.divisionId',
+      allowedDivisionIds,
+      'allowedDivisionIds',
+      { includeUnassigned: true },
+    );
 
     if (dto.divisionId) {
       qb.andWhere('item.divisionId = :divisionId', { divisionId: dto.divisionId });
@@ -411,6 +437,7 @@ export class FinishedGoodsInventoryService {
     itemId: string,
     orderQuantity: number = 0,
     companyId: string,
+    allowedDivisionIds?: DivisionAccess,
   ): Promise<FinishedGoodsItemAvailability> {
     const item = await this.itemRepo.findOne({
       where: { id: itemId, companyId },
@@ -419,6 +446,18 @@ export class FinishedGoodsInventoryService {
 
     if (!item) {
       throw new NotFoundException(`Finished Goods item with ID '${itemId}' not found in current company`);
+    }
+
+    // PROMPT #27 — TEST E. A guessed item UUID from another division must not
+    // resolve, and this endpoint returns live stock / reservation figures.
+    // A NULL `divisionId` passes because an unassigned Item belongs to no
+    // division (the same `includeUnassigned` rule as the list above), so the
+    // check is "is this item attributed to a division I may not read?".
+    if (item.divisionId && allowedDivisionIds && !isUnrestricted(allowedDivisionIds)) {
+      const ids = toDivisionList(allowedDivisionIds);
+      if (!ids.includes(item.divisionId)) {
+        throw new ForbiddenException('You do not have access to this division.');
+      }
     }
 
     // Physical stock

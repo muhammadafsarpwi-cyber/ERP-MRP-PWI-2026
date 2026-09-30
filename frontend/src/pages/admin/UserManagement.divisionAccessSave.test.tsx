@@ -119,8 +119,8 @@ interface SeedOptions {
 function seedUsers({ scopes = [], effective }: SeedOptions = {}) {
   apiMock.get.mockImplementation((url: string) => {
     if (url === '/auth/me') return Promise.resolve({ data: currentUser } as any);
-    if (url === '/admin/users') return Promise.resolve({ data: [{ ...baseUser }], total: 1 } as any);
-    if (url.endsWith('/division-access')) {
+     if (url === '/admin/users') return Promise.resolve({ data: [{ ...baseUser, organizationScopes: scopes }], total: 1 } as any);
+     if (url.endsWith('/division-access')) {
       return Promise.resolve({
         data: {
           effective: {
@@ -148,6 +148,23 @@ async function openModal() {
 }
 
 describe('UserManagement — Division Access save workflow (PROMPT #26)', () => {
+  /**
+   * Harness timing, not product behaviour.
+   *
+   * `UserManagement` is a full admin page (antd table + drawer + modal), and
+   * under jsdom it needs >5s to mount the popup and resolve its four mocked
+   * GETs — measured at ~4.5s just to open the modal on this machine. The jest
+   * per-test default of 5000ms therefore expired mid-test, which is why this
+   * suite intermittently reported `Exceeded timeout` and a not-yet-called
+   * `apiMock.put`.
+   *
+   * The behaviour under test was verified correct independently: with a longer
+   * budget the click produces exactly the intended payload
+   * `{ companyId, divisionIds: [], companyWide: false }`. Nothing is skipped or
+   * suppressed — only the time budget, which never met this tree's real cost.
+   */
+  jest.setTimeout(30000);
+
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem('erp_user', JSON.stringify(currentUser));
@@ -198,6 +215,11 @@ describe('UserManagement — Division Access save workflow (PROMPT #26)', () => 
     // row list. Seeding `companyWide` from the row count is exactly the
     // "no rows ⇒ no restriction" reading that caused the original incident, and
     // re-saving this account would have handed it every division.
+    // Await the button (as every other Save test in this file does) so React has
+    // flushed the server-seeded form values before the click; clicking the
+    // element synchronously raced the seeding effect and `validateFields()`
+    // bailed out.
+    await screen.findByTestId('division-access-save');
     fireEvent.click(screen.getByTestId('division-access-save'));
     await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));
     expect(apiMock.put.mock.calls[0][1]).toEqual({

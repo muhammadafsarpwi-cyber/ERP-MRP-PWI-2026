@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ReplenishmentService } from './replenishment.service';
+import { DivisionAccess, isUnrestricted, toDivisionList } from '../../../common/division-scope.util';
 
 const ACTIVE_MR_STATUSES = ['DRAFT', 'SUBMITTED', 'APPROVED', 'PARTIALLY_CONVERTED', 'FULLY_CONVERTED'];
 const PENDING_MR_STATUSES = ['SUBMITTED', 'APPROVED', 'PARTIALLY_CONVERTED', 'FULLY_CONVERTED'];
@@ -17,6 +18,15 @@ export interface StoreDashboardFilters {
   itemType?: string;
   dateFrom?: string;
   dateTo?: string;
+  /**
+   * PROMPT #27 — SERVER-DERIVED division scope, injected by the controller from
+   * `request.allowedDivisionIds` (published by `DivisionScopeGuard`).
+   *
+   * NOT a display filter and NOT client input: `getSummary` copies its filters
+   * field-by-field from the raw query object precisely so that a caller cannot
+   * populate this by sending `allowedDivisionIds` in the query string.
+   */
+  allowedDivisionIds?: DivisionAccess;
 }
 
 @Injectable()
@@ -28,7 +38,11 @@ export class StoreDashboardService {
     private readonly replenishmentService: ReplenishmentService,
   ) {}
 
-  async getSummary(companyId: string, rawFilters: StoreDashboardFilters = {}) {
+  async getSummary(
+    companyId: string,
+    rawFilters: StoreDashboardFilters = {},
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const filters: StoreDashboardFilters = {
       storeId: rawFilters.storeId || undefined,
       divisionId: rawFilters.divisionId || undefined,
@@ -37,6 +51,9 @@ export class StoreDashboardService {
       itemType: rawFilters.itemType || undefined,
       dateFrom: rawFilters.dateFrom || undefined,
       dateTo: rawFilters.dateTo || undefined,
+      // PROMPT #27 — copied ONLY from the server-derived argument, never from
+      // `rawFilters`, so `?allowedDivisionIds=…` in the query string is inert.
+      allowedDivisionIds,
     };
 
     const [kpis, workflow, pendingApprovals, procurementFunnel, lowStock, stockSummary, activity] = await Promise.all([
@@ -49,9 +66,12 @@ export class StoreDashboardService {
       this.buildActivity(companyId, filters),
     ]);
 
+    const { allowedDivisionIds: _omittedFromEcho, ...echoFilters } = filters;
     return {
       generatedAt: new Date().toISOString(),
-      filters,
+      // Echo back only the client-supplied display filters — the server-derived
+      // scope is deliberately not reflected into the response payload.
+      filters: echoFilters,
       kpis,
       workflow,
       pendingApprovals,
@@ -415,12 +435,19 @@ export class StoreDashboardService {
 
   private async buildLowStock(companyId: string, filters: StoreDashboardFilters) {
     try {
-      const queue = await this.replenishmentService.getQueue(companyId, {
-        statuses: 'LOW_STOCK,REORDER_REQUIRED,OVERDUE',
-        storeId: filters.storeId || undefined,
-        divisionId: filters.divisionId || undefined,
-        limit: 50,
-      });
+      const queue = await this.replenishmentService.getQueue(
+        companyId,
+        {
+          statuses: 'LOW_STOCK,REORDER_REQUIRED,OVERDUE',
+          storeId: filters.storeId || undefined,
+          divisionId: filters.divisionId || undefined,
+          limit: 50,
+        },
+        // PROMPT #27 — `getQueue` is itself division-scoped; without passing the
+        // server scope the low-stock tile would still list other divisions'
+        // replenishment rows even though every other tile is now narrowed.
+        filters.allowedDivisionIds,
+      );
       let rows = queue.data || [];
       if (filters.sectionId || filters.departmentId) {
         rows = rows.filter(
@@ -736,6 +763,43 @@ const params: any[] = [companyId];
   }
 
   // ==================== Scope builders ====================
+  //
+  // PROMPT #27 — every division filter in this service is assembled by exactly
+  // one of the seven helpers below, and all seven previously honoured ONLY the
+  // client-supplied `filters.divisionId` display filter. A caller scoped to one
+  // division could therefore read every other division's KPIs, workflow counts,
+  // low-stock lists and activity feed simply by omitting that filter.
+  //
+  // The server-derived scope is now injected into each helper, so it cannot be
+  // bypassed by dropping or by supplying a different `divisionId`: the two are
+  // combined with `AND`, which cannot widen a result set.
+
+  /**
+   * Append the caller's effective division scope to a condition list.
+   *
+   * - unrestricted (`undefined` / `'ALL'`) → no-op, preserving legacy behaviour
+   *   for admins and for `DIVISION_SCOPE_ENFORCEMENT=false` deployments;
+   * - an EMPTY effective set → `1 = 0`, which matches nothing rather than
+   *   everything (an empty `= ANY('{}')` would also match nothing, but relying
+   *   on that cast detail is fragile);
+   * - otherwise `= ANY($n::uuid[])`.
+   */
+  private applyDivisionScope(
+    conds: string[],
+    params: any[],
+    prefix: string,
+    filters: StoreDashboardFilters,
+  ): void {
+    const access = filters.allowedDivisionIds;
+    if (isUnrestricted(access)) return;
+    const ids = toDivisionList(access);
+    if (ids.length === 0) {
+      conds.push('1 = 0');
+      return;
+    }
+    params.push(ids);
+    conds.push(`${prefix}division_id = ANY($${params.length}::uuid[])`);
+  }
 
   private scopeConds(
     alias: string,
@@ -756,6 +820,7 @@ const params: any[] = [companyId];
     if (filters.departmentId) add('department_id', '=', filters.departmentId);
     if (filters.dateFrom) add(dateColumn, '>=', filters.dateFrom);
     if (filters.dateTo) add(dateColumn, '<=', filters.dateTo);
+    this.applyDivisionScope(conds, params, `${alias}.`, filters);
     return conds;
   }
 
@@ -779,6 +844,7 @@ const params: any[] = [companyId];
     if (filters.departmentId) add('department_id', '=', filters.departmentId);
     if (filters.dateFrom) add(dateColumn, '>=', filters.dateFrom);
     if (filters.dateTo) add(dateColumn, '<=', filters.dateTo);
+    this.applyDivisionScope(conds, params, `${alias}.`, filters);
     return conds;
   }
 
@@ -798,6 +864,11 @@ const params: any[] = [companyId];
     if (filters.divisionId) add('division_id', filters.divisionId);
     if (filters.sectionId) add('section_id', filters.sectionId);
     if (filters.departmentId) add('department_id', filters.departmentId);
+    // Used for tables (goods receipts, transfers, adjustments, inventory
+    // balances) that carry no `division_id` of their own — `stores` is the only
+    // division-bearing relation, so it must be constrained even when no display
+    // filter is set.
+    this.applyDivisionScope(storeConditions, params, 'sto.', filters);
     if (!storeConditions.length) return '';
     return ` AND EXISTS (
       SELECT 1 FROM stores sto
@@ -817,6 +888,7 @@ const params: any[] = [companyId];
     if (filters.divisionId) add('division_id', filters.divisionId);
     if (filters.sectionId) add('section_id', filters.sectionId);
     if (filters.departmentId) add('department_id', filters.departmentId);
+    this.applyDivisionScope(conds, params, 's.', filters);
     return conds;
   }
 
@@ -845,6 +917,7 @@ const params: any[] = [companyId];
     if (filters.divisionId) add('division_id', filters.divisionId);
     if (filters.sectionId) add('section_id', filters.sectionId);
     if (filters.departmentId) add('department_id', filters.departmentId);
+    this.applyDivisionScope(conds, params, `${alias}.`, filters);
     return conds;
   }
 
@@ -858,6 +931,21 @@ const params: any[] = [companyId];
       params.push(filters.divisionId);
       const p = `$${params.length}`;
       conds.push(`((s.division_id = ${p} OR (s.division_id IS NULL AND i.division_id = ${p})) AND (i.division_id = ${p} OR i.division_id IS NULL))`);
+    }
+    // PROMPT #27 — same "store OR item, either side may carry it" semantics as
+    // the single-division display filter above, generalised to the caller's
+    // permitted set. `items` is master data, so an item with no division stays
+    // visible; an unattributed STORE does not, because a store is a physical
+    // asset of exactly one division.
+    if (!isUnrestricted(filters.allowedDivisionIds)) {
+      const ids = toDivisionList(filters.allowedDivisionIds);
+      if (ids.length === 0) {
+        conds.push('1 = 0');
+      } else {
+        params.push(ids);
+        const p = `$${params.length}`;
+        conds.push(`((s.division_id = ANY(${p}::uuid[]) OR (s.division_id IS NULL AND i.division_id = ANY(${p}::uuid[]))) AND (i.division_id = ANY(${p}::uuid[]) OR i.division_id IS NULL))`);
+      }
     }
     if (filters.sectionId) {
       params.push(filters.sectionId);

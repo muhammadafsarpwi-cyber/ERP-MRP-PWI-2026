@@ -195,7 +195,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         },
         Table: {
           headerBg: computedHeaderBg,
-          headerColor: '#ffffff',
+          headerColor: dark ? '#ffffff' : 'rgba(15, 23, 42, 0.92)',
           headerSplitColor: 'rgba(255, 255, 255, 0.15)',
           headerSortActiveBg: dark ? darkenHex(roles.primary, 0.30) : darkenHex(roles.primary, 0.26),
           headerSortHoverBg: dark ? darkenHex(roles.primary, 0.14) : darkenHex(roles.primary, 0.12),

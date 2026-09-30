@@ -128,7 +128,7 @@ function seedScopes(initial: Record<string, any[]>) {
 function seedApi() {
   apiMock.get.mockImplementation((url: string) => {
     if (url === '/auth/me') return Promise.resolve({ data: currentUser } as any);
-    if (url === '/admin/users') return Promise.resolve({ data: [listUser], total: 1 } as any);
+    if (url === '/admin/users') return Promise.resolve({ data: [{ ...listUser, organizationScopes: scopesByUser[listUser.id] || [] }], total: 1 } as any);
     if (url.startsWith('/admin/users/')) {
       const id = url.split('/')[3];
       const record = id === listUser.id ? listUser : { id, displayName: 'Division Access Test User' };
@@ -335,6 +335,48 @@ describe('Prompt #16B — Division Access from New User, Edit User and Actions',
     expect(scopesByUser[listUser.id]).toHaveLength(1);
   });
 
+  it('0a. Divisions column shows actual assigned division names from list endpoint', async () => {
+    seedScopes({ [listUser.id]: [divisionScope('scope-1', D_CCD), divisionScope('scope-2', D_SPD)] });
+    seedApi();
+
+    renderComponent();
+
+    await screen.findByText('Anas Test');
+    // The list endpoint now returns organizationScopes; column must render division names
+    expect(screen.getByText('Control Cable Division')).toBeInTheDocument();
+    expect(screen.getByText('Spoke Division')).toBeInTheDocument();
+  });
+
+  it('0b. Divisions column shows All Divisions for company-wide access', async () => {
+    seedScopes({ [listUser.id]: [companyScope()] });
+    seedApi();
+
+    renderComponent();
+
+    await screen.findByText('Anas Test');
+    expect(screen.getByText('All Divisions')).toBeInTheDocument();
+  });
+
+  it('0c. Divisions column shows No Division Access for deny-all marker', async () => {
+    const denyScope = {
+      id: 'scope-deny',
+      companyId: COMPANY_ID,
+      divisionId: null,
+      scopeLevel: 'NONE',
+      isFullScope: false,
+      status: 'ACTIVE',
+      company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+      division: null,
+    };
+    seedScopes({ [listUser.id]: [denyScope] });
+    seedApi();
+
+    renderComponent();
+
+    await screen.findByText('Anas Test');
+    expect(screen.getByText('No Division Access')).toBeInTheDocument();
+  });
+
   it('2. Edit User loads existing scopes, saves the profile, and changes survive reopening', async () => {
     seedScopes({ [listUser.id]: [divisionScope('scope-1', D_CCD), divisionScope('scope-2', D_SPD)] });
     seedApi();
@@ -342,7 +384,8 @@ describe('Prompt #16B — Division Access from New User, Edit User and Actions',
     renderComponent();
 
     fireEvent.click(await screen.findByRole('button', { name: /edit/i }));
-    expect(await screen.findByText(/Edit User — Anas Test/)).toBeInTheDocument();
+    expect(await screen.findByText('Edit User')).toBeInTheDocument();
+    expect(screen.getAllByText('Anas Test').length).toBeGreaterThan(0);
 
     // §3 — current access is shown inside the Edit form itself.
     expect(await screen.findByTestId('edit-division-access')).toBeInTheDocument();
@@ -545,7 +588,8 @@ describe('Prompt #16B — Division Access from New User, Edit User and Actions',
 
     // Edit form — §8 loads them through GET /admin/users/:id.
     fireEvent.click(await screen.findByRole('button', { name: /edit/i }));
-    expect(await screen.findByText(/Edit User — Anas Test/)).toBeInTheDocument();
+    expect(await screen.findByText('Edit User')).toBeInTheDocument();
+    expect(screen.getAllByText('Anas Test').length).toBeGreaterThan(0);
     expect(await screen.findByTestId('edit-division-access')).toBeInTheDocument();
 
     // §8 — the exact required wording, and no bogus counter / gold tag.

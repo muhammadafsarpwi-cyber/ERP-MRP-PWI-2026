@@ -2,6 +2,8 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req 
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { divisionScopeFromRequest } from '../../../common/division-scope.util';
 import { StoreService } from '../services/store.service';
 import { StoreDashboardService } from '../services/store-dashboard.service';
 import { StoreMaterialTraceService } from '../services/store-material-trace.service';
@@ -21,8 +23,14 @@ import {
   UpdateMaterialReturnLinesDto,
 } from '../dto/store.dto';
 
+// PROMPT #27 — every store document here (stores, store_items, material
+// requests / issues / returns) is division-scoped. The guard refuses an
+// explicit out-of-scope `divisionId` from query, BODY or route with 403 —
+// including on create, so a caller cannot mint a record attributed to a
+// division they do not hold — and publishes the server-derived scope that
+// `StoreService` intersects into every list and by-id lookup.
 @Controller('store')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard, PermissionGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, PermissionGuard, DivisionScopeGuard)
 @RequireOrgScope()
 export class StoreController {
   constructor(
@@ -39,18 +47,26 @@ export class StoreController {
     return req.erpUser?.id || req.user?.id;
   }
 
+  /**
+   * Effective division scope for this request, taken from the server-side
+   * auth context by `DivisionScopeGuard` — never from the query string.
+   */
+  private divisionScope(req: any): string[] | undefined {
+    return divisionScopeFromRequest(req);
+  }
+
   // ==================== STORE MASTER ====================
 
   @Get('stores')
   @RequirePermission('store.view')
   async findAllStores(@Req() req: any, @Query() query: any) {
-    return this.storeService.findAllStores(this.getCompanyId(req), query);
+    return this.storeService.findAllStores(this.getCompanyId(req), query, this.divisionScope(req));
   }
 
   @Get('stores/:id')
   @RequirePermission('store.view')
   async findStoreById(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.findStoreById(id, this.getCompanyId(req));
+    return this.storeService.findStoreById(id, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('stores')
@@ -63,13 +79,13 @@ export class StoreController {
   @Put('stores/:id')
   @RequirePermission('store.update')
   async updateStore(@Param('id') id: string, @Body() dto: UpdateStoreDto, @Req() req: any) {
-    return this.storeService.updateStore(id, dto, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.updateStore(id, dto, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Delete('stores/:id')
   @RequirePermission('store.delete')
   async deleteStore(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.deleteStore(id, this.getCompanyId(req));
+    return this.storeService.deleteStore(id, this.getCompanyId(req), this.divisionScope(req));
   }
 
   // ==================== STORE ITEMS ====================
@@ -77,7 +93,7 @@ export class StoreController {
   @Get('stores/:storeId/items')
   @RequirePermission('store.item.view')
   async findStoreItems(@Param('storeId') storeId: string, @Query() query: any, @Req() req: any) {
-    return this.storeService.findStoreItems(storeId, query, this.getCompanyId(req));
+    return this.storeService.findStoreItems(storeId, query, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('stores/:storeId/items')
@@ -89,7 +105,7 @@ export class StoreController {
   @Put('store-items/:id')
   @RequirePermission('store.item.update')
   async updateStoreItem(@Param('id') id: string, @Body() dto: UpdateStoreItemDto, @Req() req: any) {
-    return this.storeService.updateStoreItem(id, dto, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.updateStoreItem(id, dto, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   // ==================== MATERIAL REQUESTS ====================
@@ -101,25 +117,25 @@ export class StoreController {
       ...query,
       mine: query.mine === 'true',
       userId: query.mine === 'true' ? this.getUserId(req) : undefined,
-    });
+    }, this.divisionScope(req));
   }
 
   @Get('material-requests/:id')
   @RequirePermission('store.request.view')
   async findMaterialRequestById(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.findMaterialRequestById(id, this.getCompanyId(req));
+    return this.storeService.findMaterialRequestById(id, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Get('material-requests/:id/timeline')
   @RequirePermission('store.request.view')
   async getRequestTimeline(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.getRequestTimeline(id, this.getCompanyId(req));
+    return this.storeService.getRequestTimeline(id, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Get('material-requests/:id/eta')
   @RequirePermission('store.eta.view')
   async getEtaInfo(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.getEtaInfo(id, this.getCompanyId(req));
+    return this.storeService.getEtaInfo(id, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-requests')
@@ -131,37 +147,37 @@ export class StoreController {
   @Put('material-requests/:id')
   @RequirePermission('store.request.create')
   async updateMaterialRequest(@Param('id') id: string, @Body() dto: UpdateMaterialRequestDto, @Req() req: any) {
-    return this.storeService.updateMaterialRequest(id, dto, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.updateMaterialRequest(id, dto, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-requests/:id/submit')
   @RequirePermission('store.request.submit')
   async submitMaterialRequest(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.submitMaterialRequest(id, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.submitMaterialRequest(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-requests/:id/approve')
   @RequirePermission('store.request.approve')
   async approveMaterialRequest(@Param('id') id: string, @Req() req: any, @Body() body: ApproveRejectDto) {
-    return this.storeService.approveMaterialRequest(id, this.getUserId(req), body?.remarks, this.getCompanyId(req));
+    return this.storeService.approveMaterialRequest(id, this.getUserId(req), body?.remarks, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-requests/:id/gm-approve')
   @RequirePermission('store.request.gm_approve')
   async gmApproveMaterialRequest(@Param('id') id: string, @Req() req: any, @Body() body: ApproveRejectDto) {
-    return this.storeService.gmApproveMaterialRequest(id, this.getUserId(req), body?.remarks, this.getCompanyId(req));
+    return this.storeService.gmApproveMaterialRequest(id, this.getUserId(req), body?.remarks, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-requests/:id/reject')
   @RequirePermission('store.request.reject')
   async rejectMaterialRequest(@Param('id') id: string, @Req() req: any, @Body() body: ApproveRejectDto) {
-    return this.storeService.rejectMaterialRequest(id, this.getUserId(req), body?.remarks, this.getCompanyId(req));
+    return this.storeService.rejectMaterialRequest(id, this.getUserId(req), body?.remarks, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-requests/:id/cancel')
   @RequirePermission('store.request.create')
   async cancelMaterialRequest(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.cancelMaterialRequest(id, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.cancelMaterialRequest(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-requests/:id/convert-pr')
@@ -171,13 +187,13 @@ export class StoreController {
     @Req() req: any,
     @Body() body: ConvertToPrDto,
   ) {
-    return this.storeService.convertRequestToPr(id, this.getUserId(req), this.getCompanyId(req), body);
+    return this.storeService.convertRequestToPr(id, this.getUserId(req), this.getCompanyId(req), body, this.divisionScope(req));
   }
 
   @Post('material-requests/:id/acknowledge')
   @RequirePermission('store.request.acknowledge')
   async acknowledgeForProcurement(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.acknowledgeForProcurement(id, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.acknowledgeForProcurement(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-requests/:id/eta')
@@ -187,7 +203,7 @@ export class StoreController {
     @Req() req: any,
     @Body() body: UpdateEtaDto,
   ) {
-    return this.storeService.updateEta(id, this.getUserId(req), body, this.getCompanyId(req));
+    return this.storeService.updateEta(id, this.getUserId(req), body, this.getCompanyId(req), this.divisionScope(req));
   }
 
   // ==================== MATERIAL ISSUES ====================
@@ -195,13 +211,13 @@ export class StoreController {
   @Get('material-issues')
   @RequirePermission('store.issue.view')
   async findAllMaterialIssues(@Req() req: any, @Query() query: any) {
-    return this.storeService.findAllMaterialIssues(this.getCompanyId(req), query);
+    return this.storeService.findAllMaterialIssues(this.getCompanyId(req), query, this.divisionScope(req));
   }
 
   @Get('material-issues/:id')
   @RequirePermission('store.issue.view')
   async findMaterialIssueById(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.findMaterialIssueById(id, this.getCompanyId(req));
+    return this.storeService.findMaterialIssueById(id, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-issues')
@@ -213,19 +229,19 @@ export class StoreController {
   @Put('material-issues/:id')
   @RequirePermission('store.issue.create')
   async updateMaterialIssue(@Param('id') id: string, @Body() body: UpdateMaterialIssuelinesDto, @Req() req: any) {
-    return this.storeService.updateMaterialIssue(id, body.lines, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.updateMaterialIssue(id, body.lines, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-issues/:id/post')
   @RequirePermission('store.issue.post')
   async postMaterialIssue(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.postMaterialIssue(id, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.postMaterialIssue(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-issues/:id/cancel')
   @RequirePermission('store.issue.cancel')
   async cancelMaterialIssue(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.cancelMaterialIssue(id, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.cancelMaterialIssue(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   // ==================== MATERIAL RETURNS ====================
@@ -233,13 +249,13 @@ export class StoreController {
   @Get('material-returns')
   @RequirePermission('store.return.view')
   async findAllMaterialReturns(@Req() req: any, @Query() query: any) {
-    return this.storeService.findAllMaterialReturns(this.getCompanyId(req), query);
+    return this.storeService.findAllMaterialReturns(this.getCompanyId(req), query, this.divisionScope(req));
   }
 
   @Get('material-returns/:id')
   @RequirePermission('store.return.view')
   async findMaterialReturnById(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.findMaterialReturnById(id, this.getCompanyId(req));
+    return this.storeService.findMaterialReturnById(id, this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-returns')
@@ -251,19 +267,19 @@ export class StoreController {
   @Put('material-returns/:id')
   @RequirePermission('store.return.create')
   async updateMaterialReturn(@Param('id') id: string, @Body() body: UpdateMaterialReturnLinesDto, @Req() req: any) {
-    return this.storeService.updateMaterialReturn(id, body.lines, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.updateMaterialReturn(id, body.lines, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-returns/:id/post')
   @RequirePermission('store.return.post')
   async postMaterialReturn(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.postMaterialReturn(id, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.postMaterialReturn(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-returns/:id/cancel')
   @RequirePermission('store.return.create')
   async cancelMaterialReturn(@Param('id') id: string, @Req() req: any) {
-    return this.storeService.cancelMaterialReturn(id, this.getUserId(req), this.getCompanyId(req));
+    return this.storeService.cancelMaterialReturn(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   // ==================== DASHBOARD ====================
@@ -271,32 +287,42 @@ export class StoreController {
   @Get('dashboard')
   @RequirePermission('store.view')
   async getDashboard(@Req() req: any) {
-    return this.storeService.getDashboard(this.getCompanyId(req));
+    return this.storeService.getDashboard(this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Get('dashboard/summary')
   @RequirePermission('store.view')
   async getDashboardSummary(@Req() req: any, @Query() query: any) {
-    return this.storeDashboardService.getSummary(this.getCompanyId(req), query);
+    return this.storeDashboardService.getSummary(this.getCompanyId(req), query, this.divisionScope(req));
   }
 
   // ==================== MATERIAL LIFECYCLE HISTORY & ETA ====================
+  //
+  // PROMPT #27 — these three endpoints were the last unscoped surfaces in this
+  // controller. The two DELETEs are destructive writes against
+  // `stock_ledger`, which carries a real `division_id`, so a caller holding
+  // only `store.item.view` could previously delete another division's ledger
+  // row. All three now receive the server-derived scope.
 
   @Get('lifecycle/items/:itemId')
   @RequirePermission('store.item.view')
   async getItemLifecycle(@Req() req: any, @Param('itemId') itemId: string, @Query() query: any) {
-    return this.storeMaterialTraceService.getItemLifecycle(this.getCompanyId(req), itemId, query);
+    return this.storeMaterialTraceService.getItemLifecycle(
+      this.getCompanyId(req), itemId, query, this.divisionScope(req),
+    );
   }
 
   @Delete('lifecycle/ledger/:id')
   @RequirePermission('store.item.view')
   async deleteLedgerRow(@Req() req: any, @Param('id') id: string) {
-    return this.storeMaterialTraceService.deleteLedgerRow(this.getCompanyId(req), id);
+    return this.storeMaterialTraceService.deleteLedgerRow(this.getCompanyId(req), id, this.divisionScope(req));
   }
 
   @Delete('lifecycle/ledger/item/:itemId/dummy')
   @RequirePermission('store.item.view')
   async deleteDummyLedgerRows(@Req() req: any, @Param('itemId') itemId: string) {
-    return this.storeMaterialTraceService.deleteDummyLedgerRows(this.getCompanyId(req), itemId);
+    return this.storeMaterialTraceService.deleteDummyLedgerRows(
+      this.getCompanyId(req), itemId, this.divisionScope(req),
+    );
   }
 }

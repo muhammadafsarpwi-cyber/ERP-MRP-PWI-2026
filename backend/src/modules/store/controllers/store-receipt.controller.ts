@@ -5,6 +5,7 @@ import { CreateGoodsReceiptDto } from '../../procurement/dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
 
 /**
  * Store-facing goods-receipt surface.
@@ -14,10 +15,31 @@ import { PermissionGuard, RequirePermission } from '../../auth/guards/permission
  * store.receive.* permission gates. This lets store/inventory roles receive and
  * post goods into store stock without being granted the full procurement
  * permission set.
+ *
+ * PROMPT #27 — no division filter is applied here, deliberately. Proven
+ * against the live schema, not assumed:
+ *   - `goods_receipts` has NO `division_id` column (its full column list is
+ *     id, created_*, is_active, company_id, receipt_code, po_id, supplier_id,
+ *     warehouse_id, receipt_date, delivery_note_number, grn_number, status,
+ *     inspected_by, inspected_at, posted_by, posted_at, notes).
+ *   - Its only organisational FK is `warehouse_id`, and `warehouses` itself has
+ *     NO `division_id` — so there is no transitive path from a GRN to a
+ *     division, direct or indirect.
+ *   - A GRN is company-scoped: goods land in company stock and are attributed
+ *     to a division only later, by the issue / return / ledger documents, all
+ *     of which ARE division-scoped and enforced in `StoreService` and
+ *     `StockLedgerService`.
+ * The same holds for every other procurement table (purchase orders,
+ * requisitions, invoices, returns, RFQs, quotations, suppliers) — none has a
+ * `division_id`, and their only organisational FK is `warehouse_id`.
+ *
+ * The guard is still registered so that an explicit `?divisionId=` naming a
+ * division the caller does not hold is refused with 403 rather than silently
+ * ignored, and so the rule is uniform across every Store surface.
  */
 @ApiTags('store/receipts')
 @Controller('store/receipts')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard, PermissionGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, PermissionGuard, DivisionScopeGuard)
 @RequireOrgScope()
 @ApiBearerAuth()
 export class StoreReceiptController {

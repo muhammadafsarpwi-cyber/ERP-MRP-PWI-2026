@@ -5,13 +5,22 @@ import { CreateSalesDeliveryDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { divisionScopeFromRequest } from '../../../common/division-scope.util';
 
 @ApiTags('sales/deliveries')
 @Controller('sales/deliveries')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+// PROMPT #27 — deliveries inherit the source order's division; the guard
+// refuses an explicit out-of-scope `divisionId` before the service runs.
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class SalesDeliveryController {
   constructor(private readonly service: SalesDeliveryService) {}
+
+  /** Server-derived division scope for this request (see SalesOrderController). */
+  private divisionScope(req: any): string[] | undefined {
+    return divisionScopeFromRequest(req);
+  }
 
   @Get()
   @UseGuards(PermissionGuard)
@@ -27,6 +36,7 @@ export class SalesDeliveryController {
     const companyId = req.erpUser?.defaultCompanyId;
     const result = await this.service.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, customerId, status, sortField, sortOrder,
+      allowedDivisionIds: this.divisionScope(req),
     });
     return { success: true, ...result };
   }
@@ -38,7 +48,7 @@ export class SalesDeliveryController {
   @ApiOperation({ summary: 'Get sales delivery by ID' })
   async findOne(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.findOne(id, companyId);
+    const delivery = await this.service.findOne(id, companyId, this.divisionScope(req));
     return { success: true, data: delivery };
   }
 
@@ -62,7 +72,7 @@ export class SalesDeliveryController {
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: Partial<CreateSalesDeliveryDto>) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.update(id, dto, userId, companyId);
+    const delivery = await this.service.update(id, dto, userId, companyId, this.divisionScope(req));
     return { success: true, data: delivery, message: 'Sales delivery updated successfully' };
   }
 
@@ -75,7 +85,7 @@ export class SalesDeliveryController {
   async ship(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.ship(id, userId, companyId);
+    const delivery = await this.service.ship(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: delivery, message: 'Sales delivery shipped' };
   }
 
@@ -88,7 +98,7 @@ export class SalesDeliveryController {
   async deliver(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.deliver(id, userId, companyId);
+    const delivery = await this.service.deliver(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: delivery, message: 'Sales delivery delivered' };
   }
 
@@ -101,7 +111,7 @@ export class SalesDeliveryController {
   async confirm(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.confirm(id, userId, companyId);
+    const delivery = await this.service.confirm(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: delivery, message: 'Sales delivery confirmed' };
   }
 
@@ -114,7 +124,7 @@ export class SalesDeliveryController {
   async cancel(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.cancel(id, userId, companyId);
+    const delivery = await this.service.cancel(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: delivery, message: 'Sales delivery cancelled' };
   }
 
@@ -127,7 +137,7 @@ export class SalesDeliveryController {
   async convertToInvoice(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const invoice = await this.service.convertToInvoice(id, userId, companyId);
+    const invoice = await this.service.convertToInvoice(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: invoice, message: `Invoice ${invoice.invoiceNo} created successfully` };
   }
 }

@@ -11,6 +11,8 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { divisionScopeFromRequest } from '../../../common/division-scope.util';
 import { SalesAnalyticsService } from '../services/sales-analytics.service';
 import { CustomerLedgerService } from '../../customer/services/customer-ledger.service';
 import {
@@ -20,7 +22,12 @@ import {
 
 @ApiTags('sales/analytics')
 @Controller('sales/analytics')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+// PROMPT #27 — every route here aggregates `erp_sales.sales_orders`, which is
+// division-scoped. Registering the guard means an explicit `?divisionId=…`
+// naming a division the caller does not hold is refused with 403 instead of
+// being silently ignored, and it publishes the server-derived
+// `request.allowedDivisionIds` that `getSalesDashboard` then intersects.
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class SalesAnalyticsController {
   constructor(
@@ -41,13 +48,25 @@ export class SalesAnalyticsController {
     return companyId;
   }
 
+  /**
+   * Effective division scope for this request, from the server-side auth
+   * context only. Never read from the query string.
+   */
+  private divisionScope(req: any): string[] | undefined {
+    return divisionScopeFromRequest(req);
+  }
+
   @Get('dashboard')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
   @RequirePermission('sales.orders.view')
   @ApiOperation({ summary: 'Get Sales Dashboard KPIs, pipeline, and executive summaries' })
   async getDashboard(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
-    const data = await this.analyticsService.getSalesDashboard(this.resolveCompanyId(req), filter);
+    const data = await this.analyticsService.getSalesDashboard(
+      this.resolveCompanyId(req),
+      filter,
+      this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -57,7 +76,9 @@ export class SalesAnalyticsController {
   @RequirePermission('sales.orders.view')
   @ApiOperation({ summary: 'Get Customer-wise sales analytics' })
   async getCustomerAnalytics(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
-    const data = await this.analyticsService.getCustomerSalesAnalytics(this.resolveCompanyId(req), filter);
+    const data = await this.analyticsService.getCustomerSalesAnalytics(
+      this.resolveCompanyId(req), filter, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -67,7 +88,9 @@ export class SalesAnalyticsController {
   @RequirePermission('sales.orders.view')
   @ApiOperation({ summary: 'Get Finished Goods / Item-wise sales analysis' })
   async getItemAnalytics(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
-    const data = await this.analyticsService.getItemSalesAnalysis(this.resolveCompanyId(req), filter);
+    const data = await this.analyticsService.getItemSalesAnalysis(
+      this.resolveCompanyId(req), filter, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -77,7 +100,9 @@ export class SalesAnalyticsController {
   @RequirePermission('sales.orders.view')
   @ApiOperation({ summary: 'Get Customer × Item sales matrix' })
   async getCustomerItemMatrix(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
-    const data = await this.analyticsService.getCustomerItemMatrix(this.resolveCompanyId(req), filter);
+    const data = await this.analyticsService.getCustomerItemMatrix(
+      this.resolveCompanyId(req), filter, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -91,7 +116,9 @@ export class SalesAnalyticsController {
     @Query() filter: SalesAnalyticsFilterDto,
     @Request() req: any,
   ) {
-    const data = await this.analyticsService.getCustomerRankings(this.resolveCompanyId(req), metric, filter);
+    const data = await this.analyticsService.getCustomerRankings(
+      this.resolveCompanyId(req), metric, filter, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -101,7 +128,9 @@ export class SalesAnalyticsController {
   @RequirePermission('sales.orders.view')
   @ApiOperation({ summary: 'Get Sales Order Fulfillment and Finished Goods availability breakdown' })
   async getOrderFulfillment(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
-    const data = await this.analyticsService.getOrderFulfillmentAnalysis(this.resolveCompanyId(req), filter);
+    const data = await this.analyticsService.getOrderFulfillmentAnalysis(
+      this.resolveCompanyId(req), filter, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -111,7 +140,9 @@ export class SalesAnalyticsController {
   @RequirePermission('sales.orders.view')
   @ApiOperation({ summary: 'Get Finished Goods availability, open orders, and safety stock planning' })
   async getFinishedGoodsAvailability(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
-    const data = await this.analyticsService.getFinishedGoodsAvailability(this.resolveCompanyId(req), filter);
+    const data = await this.analyticsService.getFinishedGoodsAvailability(
+      this.resolveCompanyId(req), filter, this.divisionScope(req),
+    );
     return { success: true, data };
   }
 
@@ -125,9 +156,11 @@ export class SalesAnalyticsController {
     @Query() filter?: SalesAnalyticsFilterDto,
     @Request() req?: any,
   ) {
-    const data = await this.analyticsService.getCustomerOutstandingReport(this.resolveCompanyId(req), {
-      outstandingOnly: outstandingOnly === 'true',
-    });
+    const data = await this.analyticsService.getCustomerOutstandingReport(
+      this.resolveCompanyId(req),
+      { outstandingOnly: outstandingOnly === 'true' },
+      this.divisionScope(req),
+    );
     return { success: true, data };
   }
 

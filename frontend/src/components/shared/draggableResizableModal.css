@@ -107,6 +107,11 @@
 
 .erp-draggable-modal .ant-modal-footer {
   flex: 0 0 auto;
+  /* Sticky bottom on EVERY viewport: the action bar (Cancel / Save) must stay
+     visible while the form body scrolls, on desktop and mobile alike. */
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 5;
   border-top: 1px solid var(--theme-border, rgba(128, 128, 128, 0.2)) !important;
   padding: 10px 16px;
   background: var(--theme-surface, #ffffff) !important;
@@ -416,24 +421,29 @@
     margin: 0 !important;
     top: 0 !important;
     padding: 0 !important;
-    height: 100vh !important;
+    /* 100dvh (dynamic viewport height): when the mobile keyboard opens, the
+       viewport shrinks and the modal must shrink WITH it — a fixed 100vh would
+       push the action footer below the visible area behind the keyboard. */
+    height: 100dvh !important;
   }
   .erp-draggable-modal,
   .erp-draggable-modal--mobile {
     width: 100vw !important;
     max-width: 100vw !important;
     transform: none !important;
-    height: 100vh !important;
+    height: 100dvh !important;
   }
   .erp-draggable-modal-inner {
     width: 100vw !important;
-    height: 100vh !important;
-    max-height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
   }
   .erp-draggable-modal .ant-modal-content {
     border-radius: 0 !important;
-    height: 100vh !important;
-    max-height: 100vh !important;
+    /* 100% of the dvh-sized wrapper above, so header / body / footer always
+       share the CURRENT viewport height (keyboard open or closed). */
+    height: 100% !important;
+    max-height: 100% !important;
     display: flex !important;
     flex-direction: column !important;
     padding: 0 !important;

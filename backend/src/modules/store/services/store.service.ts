@@ -20,6 +20,12 @@ import {
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { PurchaseRequisitionService } from '../../procurement/services/purchase-requisition.service';
+import {
+  applyDivisionScopeFilter,
+  assertDivisionInScope,
+  narrowWhereByDivision,
+  DivisionAccess,
+} from '../../../common/division-scope.util';
 import { Department } from '../../organization/entities/department.entity';
 
 @Injectable()
@@ -62,7 +68,30 @@ export class StoreService {
     }
   }
 
-  async findAllStores(companyId: string, query?: { status?: string; divisionId?: string; search?: string }) {
+  /**
+   * PROMPT #27 — record-level DIVISION scoping, the second axis of isolation
+   * after company ownership above.
+   *
+   * `stores`, `material_requests`, `material_issues` and `material_returns` all
+   * carry a real `division_id` column, so they are genuinely division-scoped
+   * and the caller's effective scope (resolved server-side from the auth
+   * context) is enforced on both the list queries and every by-id lookup.
+   *
+   * `store_items` have no `division_id` of their own — they inherit their
+   * parent store's (see `findStoreItems`).
+   */
+  private assertDivisionOwned(
+    record: { divisionId?: string | null },
+    allowedDivisionIds: DivisionAccess | undefined,
+  ): void {
+    assertDivisionInScope(record.divisionId, allowedDivisionIds);
+  }
+
+  async findAllStores(
+    companyId: string,
+    query?: { status?: string; divisionId?: string; search?: string },
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const qb = this.storeRepo.createQueryBuilder('s')
       .where('s.company_id = :companyId', { companyId });
 
@@ -70,8 +99,16 @@ export class StoreService {
       qb.andWhere('s.status = :status', { status: query.status });
     }
     if (query?.divisionId) {
+      // Client-supplied display filter. `DivisionScopeGuard` has already
+      // refused it with 403 when it names a division the caller does not hold,
+      // and the clause below guarantees the result can never exceed the
+      // caller's own scope.
       qb.andWhere('s.division_id = :divisionId', { divisionId: query.divisionId });
     }
+    // PROMPT #27 — this is what makes the list safe when the client omits
+    // `divisionId` entirely. Not `includeUnassigned`: a store with no division
+    // is not inside any restricted caller's permitted set.
+    applyDivisionScopeFilter(qb as any, 's.division_id', allowedDivisionIds);
     if (query?.search) {
       qb.andWhere('(LOWER(s.store_code) LIKE LOWER(:search) OR LOWER(s.store_name) LIKE LOWER(:search))', { search: `%${query.search}%` });
     }
@@ -79,10 +116,11 @@ export class StoreService {
     return qb.orderBy('s.store_name', 'ASC').getMany();
   }
 
-  async findStoreById(id: string, companyId?: string) {
+  async findStoreById(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
     const store = await this.storeRepo.findOne({ where: { id } });
     if (!store) throw new NotFoundException(`Store ${id} not found`);
     this.assertCompanyOwned(store, companyId);
+    this.assertDivisionOwned(store, allowedDivisionIds);
     return store;
   }
 
@@ -104,8 +142,8 @@ export class StoreService {
     return this.storeRepo.save(store);
   }
 
-  async updateStore(id: string, dto: UpdateStoreDto, userId: string, companyId?: string) {
-    const store = await this.findStoreById(id, companyId);
+  async updateStore(id: string, dto: UpdateStoreDto, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const store = await this.findStoreById(id, companyId, allowedDivisionIds);
     if (dto.storeCode && dto.storeCode !== store.storeCode) {
       const existing = await this.storeRepo.findOne({ where: { companyId: store.companyId, storeCode: dto.storeCode } });
       if (existing && existing.id !== id) {
@@ -125,18 +163,27 @@ export class StoreService {
     return this.storeRepo.save(store);
   }
 
-  async deleteStore(id: string, companyId?: string) {
-    const store = await this.findStoreById(id, companyId);
+  async deleteStore(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const store = await this.findStoreById(id, companyId, allowedDivisionIds);
     store.status = 'INACTIVE';
     return this.storeRepo.save(store);
   }
 
   // ==================== STORE ITEMS ====================
 
-  async findStoreItems(storeId: string, query?: { search?: string; status?: string }, companyId?: string) {
+  async findStoreItems(
+    storeId: string,
+    query?: { search?: string; status?: string },
+    companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const store = await this.storeRepo.findOne({ where: { id: storeId } });
     if (!store) throw new NotFoundException(`Store ${storeId} not found`);
     this.assertCompanyOwned(store, companyId);
+    // PROMPT #27 — `store_items` have no `division_id`; they belong to a
+    // division through `store_id`. Asserting on the parent closes the indirect
+    // path (TEST E — guessing another division's store id).
+    this.assertDivisionOwned(store, allowedDivisionIds);
     const qb = this.storeItemRepo.createQueryBuilder('si')
       .leftJoinAndSelect('si.store', 's')
       .where('si.store_id = :storeId', { storeId });
@@ -148,13 +195,14 @@ export class StoreService {
     return qb.getMany();
   }
 
-  async findStoreItemById(id: string, companyId?: string) {
+  async findStoreItemById(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
     const item = await this.storeItemRepo.findOne({ where: { id } });
     if (!item) throw new NotFoundException(`Store item ${id} not found`);
     if (companyId) {
       const store = await this.storeRepo.findOne({ where: { id: item.storeId } });
       if (!store) throw new NotFoundException(`Store ${item.storeId} not found`);
       this.assertCompanyOwned(store, companyId);
+      this.assertDivisionOwned(store, allowedDivisionIds);
     }
     return item;
   }
@@ -170,15 +218,19 @@ export class StoreService {
     return this.storeItemRepo.save(storeItem);
   }
 
-  async updateStoreItem(id: string, dto: Partial<StoreItem>, userId: string, companyId?: string) {
-    const item = await this.findStoreItemById(id, companyId);
+  async updateStoreItem(id: string, dto: Partial<StoreItem>, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const item = await this.findStoreItemById(id, companyId, allowedDivisionIds);
     Object.assign(item, dto, { updatedBy: userId });
     return this.storeItemRepo.save(item);
   }
 
   // ==================== MATERIAL REQUESTS ====================
 
-  async findAllMaterialRequests(companyId: string, query?: { status?: string; storeId?: string; departmentId?: string; mine?: boolean; userId?: string }) {
+  async findAllMaterialRequests(
+    companyId: string,
+    query?: { status?: string; storeId?: string; departmentId?: string; mine?: boolean; userId?: string },
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const qb = this.materialRequestRepo.createQueryBuilder('mr')
       .where('mr.company_id = :companyId', { companyId });
 
@@ -194,6 +246,9 @@ export class StoreService {
     if (query?.mine && query.userId) {
       qb.andWhere('mr.created_by = :userId', { userId: query.userId });
     }
+    // PROMPT #27 — `material_requests.division_id` is a real column, so the
+    // request list is genuinely division-scoped.
+    applyDivisionScopeFilter(qb as any, 'mr.division_id', allowedDivisionIds);
 
     qb.loadRelationCountAndMap('mr.lineCount', 'mr.lines', 'lines')
       .orderBy('mr.created_at', 'DESC');
@@ -201,7 +256,7 @@ export class StoreService {
     return qb.getMany();
   }
 
-  async findMaterialRequestById(id: string, companyId?: string) {
+  async findMaterialRequestById(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
     const request = await this.materialRequestRepo.findOne({
       where: { id },
       relations: ['lines'],
@@ -209,6 +264,7 @@ export class StoreService {
     });
     if (!request) throw new NotFoundException(`Material request ${id} not found`);
     this.assertCompanyOwned(request, companyId, 'Material request');
+    this.assertDivisionOwned(request, allowedDivisionIds);
     const enriched = await this.enrichRequestLines(request);
     return enriched;
   }
@@ -262,8 +318,8 @@ export class StoreService {
     return this.findMaterialRequestById(saved.id);
   }
 
-  async updateMaterialRequest(id: string, dto: UpdateMaterialRequestDto, userId: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async updateMaterialRequest(id: string, dto: UpdateMaterialRequestDto, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (request.status !== 'DRAFT') {
       throw new BadRequestException('Only DRAFT requests can be edited');
     }
@@ -277,7 +333,7 @@ export class StoreService {
       await this.saveRequestLines(id, lines);
     }
 
-    return this.findMaterialRequestById(id, companyId);
+    return this.findMaterialRequestById(id, companyId, allowedDivisionIds);
   }
 
   private async saveRequestLines(requestId: string, lines: CreateMaterialRequestDto['lines'], manager?: EntityManager) {
@@ -303,8 +359,8 @@ export class StoreService {
     return savedLines;
   }
 
-  async submitMaterialRequest(id: string, userId: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async submitMaterialRequest(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (request.status !== 'DRAFT') throw new BadRequestException('Only DRAFT requests can be submitted');
     if (!request.lines || request.lines.length === 0) {
       throw new BadRequestException('Cannot submit a request with no line items');
@@ -315,8 +371,8 @@ export class StoreService {
     return this.materialRequestRepo.save(request);
   }
 
-  async approveMaterialRequest(id: string, userId: string, remarks?: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async approveMaterialRequest(id: string, userId: string, remarks?: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (request.status !== 'SUBMITTED') throw new BadRequestException('Only SUBMITTED requests can be approved');
 
     if (request.createdBy && request.createdBy === userId) {
@@ -330,8 +386,8 @@ export class StoreService {
     return this.materialRequestRepo.save(request);
   }
 
-  async gmApproveMaterialRequest(id: string, userId: string, remarks?: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async gmApproveMaterialRequest(id: string, userId: string, remarks?: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (request.status !== 'APPROVED') {
       throw new BadRequestException('Only manager-APPROVED requests can be GM approved');
     }
@@ -348,8 +404,8 @@ export class StoreService {
     return this.materialRequestRepo.save(request);
   }
 
-  async rejectMaterialRequest(id: string, userId: string, remarks?: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async rejectMaterialRequest(id: string, userId: string, remarks?: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (request.status !== 'SUBMITTED') throw new BadRequestException('Only SUBMITTED requests can be rejected');
 
     if (request.createdBy && request.createdBy === userId) {
@@ -363,8 +419,8 @@ export class StoreService {
     return this.materialRequestRepo.save(request);
   }
 
-  async cancelMaterialRequest(id: string, userId: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async cancelMaterialRequest(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (!['DRAFT', 'SUBMITTED'].includes(request.status)) throw new BadRequestException('Cannot cancel request in current status');
     request.status = 'CANCELLED';
     request.cancelledBy = userId;
@@ -379,8 +435,9 @@ export class StoreService {
     userId: string,
     companyId: string,
     dto?: { lineQuantities?: { lineId: string; quantity: number; estimatedUnitPrice?: number }[] },
+    allowedDivisionIds?: DivisionAccess,
   ) {
-    const request = await this.findMaterialRequestById(id, companyId);
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (!request.lines || request.lines.length === 0) {
       throw new BadRequestException('Request has no line items to convert');
     }
@@ -477,8 +534,8 @@ export class StoreService {
 
   // ==================== PROCUREMENT / ETA ====================
 
-  async acknowledgeForProcurement(id: string, userId: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async acknowledgeForProcurement(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (!['PARTIALLY_CONVERTED', 'FULLY_CONVERTED'].includes(request.status)) {
       throw new BadRequestException('Request must be converted to PR before procurement acknowledgement');
     }
@@ -493,8 +550,9 @@ export class StoreService {
     userId: string,
     dto: { expectedDeliveryDate?: string; supplierId?: string; supplierConfirmedDate?: string },
     companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
   ) {
-    const request = await this.findMaterialRequestById(id, companyId);
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     if (!['PARTIALLY_CONVERTED', 'FULLY_CONVERTED'].includes(request.status)) {
       throw new BadRequestException('Request must be converted before ETA update');
     }
@@ -510,8 +568,8 @@ export class StoreService {
     return this.materialRequestRepo.save(request);
   }
 
-  async getRequestTimeline(id: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async getRequestTimeline(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     const events: { action: string; user: string | null; date: Date | null; document: string; remarks?: string | null }[] = [];
 
     events.push({ action: 'Material Request Created', user: request.createdBy, date: request.createdAt, document: request.requestNumber });
@@ -529,8 +587,8 @@ export class StoreService {
     return events.sort((a, b) => (a.date?.getTime() || 0) - (b.date?.getTime() || 0));
   }
 
-  async getEtaInfo(id: string, companyId?: string) {
-    const request = await this.findMaterialRequestById(id, companyId);
+  async getEtaInfo(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
     const now = new Date();
 
     const leadTimes: Record<string, number | null> = {
@@ -610,7 +668,11 @@ export class StoreService {
 
   // ==================== MATERIAL ISSUES ====================
 
-  async findAllMaterialIssues(companyId: string, query?: { status?: string; storeId?: string }) {
+  async findAllMaterialIssues(
+    companyId: string,
+    query?: { status?: string; storeId?: string },
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const qb = this.materialIssueRepo.createQueryBuilder('mi')
       .where('mi.company_id = :companyId', { companyId });
 
@@ -620,6 +682,9 @@ export class StoreService {
     if (query?.storeId) {
       qb.andWhere('mi.store_id = :storeId', { storeId: query.storeId });
     }
+    // PROMPT #27 — issues move stock out of a store, so they are the most
+    // sensitive store document of the three; scope is mandatory.
+    applyDivisionScopeFilter(qb as any, 'mi.division_id', allowedDivisionIds);
 
     qb.loadRelationCountAndMap('mi.lineCount', 'mi.lines', 'lines')
       .orderBy('mi.created_at', 'DESC');
@@ -627,7 +692,7 @@ export class StoreService {
     return qb.getMany();
   }
 
-  async findMaterialIssueById(id: string, companyId?: string) {
+  async findMaterialIssueById(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
     const issue = await this.materialIssueRepo.findOne({
       where: { id },
       relations: ['lines'],
@@ -635,6 +700,7 @@ export class StoreService {
     });
     if (!issue) throw new NotFoundException(`Material issue ${id} not found`);
     this.assertCompanyOwned(issue, companyId, 'Material issue');
+    this.assertDivisionOwned(issue, allowedDivisionIds);
     return issue;
   }
 
@@ -667,8 +733,8 @@ export class StoreService {
     return this.findMaterialIssueById(saved.id);
   }
 
-  async updateMaterialIssue(id: string, lines: CreateMaterialIssueDto['lines'], userId: string, companyId?: string) {
-    const issue = await this.findMaterialIssueById(id, companyId);
+  async updateMaterialIssue(id: string, lines: CreateMaterialIssueDto['lines'], userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const issue = await this.findMaterialIssueById(id, companyId, allowedDivisionIds);
     if (issue.status !== 'DRAFT') throw new BadRequestException('Only DRAFT issues can be edited');
 
     if (lines && lines.length > 0) {
@@ -694,8 +760,8 @@ export class StoreService {
     return this.findMaterialIssueById(id);
   }
 
-  async postMaterialIssue(id: string, userId: string, companyId?: string) {
-    const issue = await this.findMaterialIssueById(id, companyId);
+  async postMaterialIssue(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const issue = await this.findMaterialIssueById(id, companyId, allowedDivisionIds);
     if (issue.status !== 'DRAFT') throw new BadRequestException('Only DRAFT issues can be posted');
     if (!issue.lines || issue.lines.length === 0) {
       throw new BadRequestException('Cannot post an issue with no line items');
@@ -777,8 +843,8 @@ export class StoreService {
     }
   }
 
-  async cancelMaterialIssue(id: string, userId: string, companyId?: string) {
-    const issue = await this.findMaterialIssueById(id, companyId);
+  async cancelMaterialIssue(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const issue = await this.findMaterialIssueById(id, companyId, allowedDivisionIds);
     if (issue.status !== 'DRAFT') throw new BadRequestException('Only DRAFT issues can be cancelled');
     issue.status = 'CANCELLED';
     issue.cancelledBy = userId;
@@ -788,7 +854,11 @@ export class StoreService {
 
   // ==================== MATERIAL RETURNS ====================
 
-  async findAllMaterialReturns(companyId: string, query?: { status?: string; storeId?: string }) {
+  async findAllMaterialReturns(
+    companyId: string,
+    query?: { status?: string; storeId?: string },
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const qb = this.materialReturnRepo.createQueryBuilder('mr')
       .where('mr.company_id = :companyId', { companyId });
 
@@ -798,6 +868,8 @@ export class StoreService {
     if (query?.storeId) {
       qb.andWhere('mr.store_id = :storeId', { storeId: query.storeId });
     }
+    // PROMPT #27 — returns move stock back into a store; scope is mandatory.
+    applyDivisionScopeFilter(qb as any, 'mr.division_id', allowedDivisionIds);
 
     qb.loadRelationCountAndMap('mr.lineCount', 'mr.lines', 'lines')
       .orderBy('mr.created_at', 'DESC');
@@ -805,7 +877,7 @@ export class StoreService {
     return qb.getMany();
   }
 
-  async findMaterialReturnById(id: string, companyId?: string) {
+  async findMaterialReturnById(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
     const returnRecord = await this.materialReturnRepo.findOne({
       where: { id },
       relations: ['lines'],
@@ -813,6 +885,7 @@ export class StoreService {
     });
     if (!returnRecord) throw new NotFoundException(`Material return ${id} not found`);
     this.assertCompanyOwned(returnRecord, companyId, 'Material return');
+    this.assertDivisionOwned(returnRecord, allowedDivisionIds);
     return returnRecord;
   }
 
@@ -844,8 +917,8 @@ export class StoreService {
     return this.findMaterialReturnById(saved.id);
   }
 
-  async updateMaterialReturn(id: string, lines: CreateMaterialReturnDto['lines'], userId: string, companyId?: string) {
-    const returnRecord = await this.findMaterialReturnById(id, companyId);
+  async updateMaterialReturn(id: string, lines: CreateMaterialReturnDto['lines'], userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const returnRecord = await this.findMaterialReturnById(id, companyId, allowedDivisionIds);
     if (returnRecord.status !== 'DRAFT') throw new BadRequestException('Only DRAFT returns can be edited');
 
     if (lines && lines.length > 0) {
@@ -870,8 +943,8 @@ export class StoreService {
     return this.findMaterialReturnById(id);
   }
 
-  async postMaterialReturn(id: string, userId: string, companyId?: string) {
-    const returnRecord = await this.findMaterialReturnById(id, companyId);
+  async postMaterialReturn(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const returnRecord = await this.findMaterialReturnById(id, companyId, allowedDivisionIds);
     if (returnRecord.status !== 'DRAFT') throw new BadRequestException('Only DRAFT returns can be posted');
     if (!returnRecord.lines || returnRecord.lines.length === 0) {
       throw new BadRequestException('Cannot post a return with no line items');
@@ -934,8 +1007,8 @@ export class StoreService {
     return this.findMaterialReturnById(id);
   }
 
-  async cancelMaterialReturn(id: string, userId: string, companyId?: string) {
-    const returnRecord = await this.findMaterialReturnById(id, companyId);
+  async cancelMaterialReturn(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const returnRecord = await this.findMaterialReturnById(id, companyId, allowedDivisionIds);
     if (returnRecord.status !== 'DRAFT') throw new BadRequestException('Only DRAFT returns can be cancelled');
     returnRecord.status = 'CANCELLED';
     returnRecord.cancelledBy = userId;
@@ -945,41 +1018,50 @@ export class StoreService {
 
   // ==================== DASHBOARD ====================
 
-  async getDashboard(companyId: string) {
-    const totalStores = await this.storeRepo.count({ where: { companyId, status: 'ACTIVE' } });
-    const totalStoreItems = await this.storeItemRepo.createQueryBuilder('si')
+  async getDashboard(companyId: string, allowedDivisionIds?: DivisionAccess) {
+    // PROMPT #27 — the store dashboard is a roll-up of division-scoped
+    // documents. A restricted caller must not see another division's pending
+    // approvals or today's issues/returns in their tile counts, so every count
+    // below is scoped rather than company-wide.
+    const totalStores = await this.storeRepo.count({
+      where: narrowWhereByDivision({ companyId, status: 'ACTIVE' }, 'divisionId', allowedDivisionIds),
+    });
+    const storeItemQb = this.storeItemRepo.createQueryBuilder('si')
       .innerJoin('si.store', 's')
-      .where('s.company_id = :companyId', { companyId })
-      .getCount();
+      .where('s.company_id = :companyId', { companyId });
+    applyDivisionScopeFilter(storeItemQb as any, 's.division_id', allowedDivisionIds);
+    const totalStoreItems = await storeItemQb.getCount();
 
     const pendingRequests = await this.materialRequestRepo.count({
-      where: { companyId, status: 'SUBMITTED' }
+      where: narrowWhereByDivision({ companyId, status: 'SUBMITTED' }, 'divisionId', allowedDivisionIds),
     });
 
     const pendingApprovals = await this.materialRequestRepo.count({
-      where: { companyId, status: 'SUBMITTED' }
+      where: narrowWhereByDivision({ companyId, status: 'SUBMITTED' }, 'divisionId', allowedDivisionIds),
     });
 
     const pendingPrConversion = await this.materialRequestRepo.count({
-      where: { companyId, status: 'APPROVED' }
+      where: narrowWhereByDivision({ companyId, status: 'APPROVED' }, 'divisionId', allowedDivisionIds),
     });
 
     const pendingEta = await this.materialRequestRepo.count({
-      where: { companyId, etaPending: true }
+      where: narrowWhereByDivision({ companyId, etaPending: true }, 'divisionId', allowedDivisionIds),
     });
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const todayIssues = await this.materialIssueRepo.createQueryBuilder('mi')
+    const todayIssueQb = this.materialIssueRepo.createQueryBuilder('mi')
       .where('mi.company_id = :companyId', { companyId })
-      .andWhere('mi.issue_date >= :today', { today: today.toISOString().split('T')[0] })
-      .getCount();
+      .andWhere('mi.issue_date >= :today', { today: today.toISOString().split('T')[0] });
+    applyDivisionScopeFilter(todayIssueQb as any, 'mi.division_id', allowedDivisionIds);
+    const todayIssues = await todayIssueQb.getCount();
 
-    const todayReturns = await this.materialReturnRepo.createQueryBuilder('mr')
+    const todayReturnQb = this.materialReturnRepo.createQueryBuilder('mr')
       .where('mr.company_id = :companyId', { companyId })
-      .andWhere('mr.return_date >= :today', { today: today.toISOString().split('T')[0] })
-      .getCount();
+      .andWhere('mr.return_date >= :today', { today: today.toISOString().split('T')[0] });
+    applyDivisionScopeFilter(todayReturnQb as any, 'mr.division_id', allowedDivisionIds);
+    const todayReturns = await todayReturnQb.getCount();
 
     return {
       totalStores,

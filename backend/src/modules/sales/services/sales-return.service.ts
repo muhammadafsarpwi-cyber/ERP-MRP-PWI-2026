@@ -16,6 +16,11 @@ import { CustomerLedgerService } from '../../customer/services/customer-ledger.s
 import { CreateSalesReturnDto } from '../dto';
 import { customerNameMatchKeys } from './customer-match.util';
 import { isCommittedReturnStatus } from './sales-return-status.util';
+import {
+  applyDivisionScopeFilter,
+  assertDivisionInScope,
+  DivisionAccess,
+} from '../../../common/division-scope.util';
 
 @Injectable()
 export class SalesReturnService {
@@ -188,8 +193,11 @@ export class SalesReturnService {
     return this.findOne(saved.id, dto.companyId);
   }
 
-  async update(id: string, dto: any, userId?: string, companyId?: string): Promise<SalesReturn> {
-    const salesReturn = await this.findOne(id, companyId);
+  async update(
+    id: string, dto: any, userId?: string, companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesReturn> {
+    const salesReturn = await this.findOne(id, companyId, allowedDivisionIds);
     if (salesReturn.status !== 'DRAFT') {
       throw new BadRequestException('Can only update returns in DRAFT status');
     }
@@ -256,7 +264,10 @@ export class SalesReturnService {
   async findAll(filter: any): Promise<{ data: SalesReturn[]; total: number }> {
     const page = Number(filter.page) || 1;
     const limit = Number(filter.limit) || 20;
-    const { companyId, status, search, customerId, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const {
+      companyId, status, search, customerId, sortField = 'createdAt', sortOrder = 'DESC',
+      allowedDivisionIds,
+    } = filter;
 
     const qb = this.repo.createQueryBuilder('sr')
       .leftJoinAndSelect('sr.customer', 'customer')
@@ -288,6 +299,11 @@ export class SalesReturnService {
       );
       hasWhere = true;
     }
+    // PROMPT #27 — `sales_returns` has no `division_id`; it inherits the
+    // source order's. The `salesOrder` join already existed here, so the scope
+    // filter needs no new join. A return with no linked order is not attributed
+    // to any division, so `includeUnassigned` is deliberately NOT set.
+    applyDivisionScopeFilter(qb as any, 'salesOrder.divisionId', allowedDivisionIds);
 
     const validSortFields = ['createdAt', 'returnNumber', 'returnDate', 'status', 'totalAmount'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
@@ -300,7 +316,7 @@ export class SalesReturnService {
     return { data, total };
   }
 
-  async findOne(id: string, companyId?: string): Promise<any> {
+  async findOne(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<any> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       throw new BadRequestException(`Invalid ID format: ${id}`);
     }
@@ -323,6 +339,9 @@ export class SalesReturnService {
     if (!salesReturn) {
       throw new NotFoundException(`Sales return with ID '${id}' not found`);
     }
+
+    // PROMPT #27 — inherits the source order's division (TEST E).
+    assertDivisionInScope(salesReturn.salesOrder?.divisionId, allowedDivisionIds);
 
     // Traceability lookups: Stock Ledger & Customer Ledger
     let stockLedgerEntries: StockLedger[] = [];
@@ -398,8 +417,8 @@ export class SalesReturnService {
     });
   }
 
-  async submit(id: string, userId?: string, companyId?: string): Promise<SalesReturn> {
-    const salesReturn = await this.findOne(id, companyId);
+  async submit(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesReturn> {
+    const salesReturn = await this.findOne(id, companyId, allowedDivisionIds);
     if (salesReturn.status === 'SUBMITTED') {
       return salesReturn;
     }
@@ -412,8 +431,8 @@ export class SalesReturnService {
     return this.repo.save(salesReturn);
   }
 
-  async approve(id: string, userId?: string, companyId?: string): Promise<SalesReturn> {
-    const salesReturn = await this.findOne(id, companyId);
+  async approve(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesReturn> {
+    const salesReturn = await this.findOne(id, companyId, allowedDivisionIds);
     if (salesReturn.status === 'APPROVED') {
       return salesReturn;
     }
@@ -440,8 +459,11 @@ export class SalesReturnService {
    * Runs inside a transaction with a pessimistic row lock so concurrent
    * receive/credit-note requests on the same return cannot double-post.
    */
-  async receiveStock(id: string, warehouseId?: string, userId?: string, companyId?: string): Promise<SalesReturn> {
-    const salesReturn = await this.findOne(id, companyId);
+  async receiveStock(
+    id: string, warehouseId?: string, userId?: string, companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesReturn> {
+    const salesReturn = await this.findOne(id, companyId, allowedDivisionIds);
 
     // Fast-path idempotency guard (re-checked under row lock inside the transaction)
     if (salesReturn.stockPosted) {
@@ -561,8 +583,8 @@ export class SalesReturnService {
    * or receive requests on the same return serialize) plus a per-company/year
    * advisory lock so CN-YYYY-NNNNN numbers are never duplicated.
    */
-  async generateCreditNote(id: string, userId?: string, companyId?: string): Promise<SalesReturn> {
-    const salesReturn = await this.findOne(id, companyId);
+  async generateCreditNote(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesReturn> {
+    const salesReturn = await this.findOne(id, companyId, allowedDivisionIds);
 
     // Fast-path idempotency guard (re-checked under row lock inside the transaction)
     if (salesReturn.creditPosted) {
@@ -672,8 +694,11 @@ export class SalesReturnService {
     return returns.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0);
   }
 
-  async reject(id: string, reason: string, userId?: string, companyId?: string): Promise<SalesReturn> {
-    const salesReturn = await this.findOne(id, companyId);
+  async reject(
+    id: string, reason: string, userId?: string, companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesReturn> {
+    const salesReturn = await this.findOne(id, companyId, allowedDivisionIds);
     if (salesReturn.stockPosted || salesReturn.creditPosted) {
       throw new BadRequestException('Cannot reject a return that has already posted stock or credit note');
     }
@@ -687,8 +712,8 @@ export class SalesReturnService {
     return this.repo.save(salesReturn);
   }
 
-  async cancel(id: string, userId?: string, companyId?: string): Promise<SalesReturn> {
-    const salesReturn = await this.findOne(id, companyId);
+  async cancel(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesReturn> {
+    const salesReturn = await this.findOne(id, companyId, allowedDivisionIds);
     if (salesReturn.stockPosted || salesReturn.creditPosted) {
       throw new BadRequestException('Cannot cancel a return that has already posted stock or credit note');
     }
@@ -708,7 +733,11 @@ export class SalesReturnService {
    * Returnable items calculation for an Invoice (Req #3, #10, #11)
    * Calculates Delivered Qty, Previously Returned Qty, and Maximum Returnable Qty per item.
    */
-  async getReturnableItems(invoiceId: string, companyId: string): Promise<any> {
+  async getReturnableItems(
+    invoiceId: string,
+    companyId: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<any> {
     const invoice = await this.invoiceRepo.findOne({
       where: { id: invoiceId, companyId },
       relations: ['customer', 'salesOrder'],
@@ -716,6 +745,13 @@ export class SalesReturnService {
     if (!invoice) {
       throw new NotFoundException(`Sales invoice with ID '${invoiceId}' not found`);
     }
+
+    // PROMPT #27 — this endpoint is reached by id (`/returns/invoice/:invoiceId/
+    // returnable-items`), so it is a TEST E hole: without this assertion a
+    // caller could pass another division's invoice UUID and read its delivered
+    // quantities, prices and taxes. The invoice inherits its division from the
+    // order it bills, exactly as `findOne` above does.
+    assertDivisionInScope(invoice.salesOrder?.divisionId, allowedDivisionIds);
 
     // Find deliveries for this sales order
     let deliveries: SalesDelivery[] = [];

@@ -5,13 +5,22 @@ import { CreateSalesReturnDto, ReceiveSalesReturnDto, RejectSalesReturnDto } fro
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { divisionScopeFromRequest } from '../../../common/division-scope.util';
 
 @ApiTags('sales/returns')
 @Controller('sales/returns')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+// PROMPT #27 — returns inherit the source order's division; the guard refuses
+// an explicit out-of-scope `divisionId` before the service runs.
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class SalesReturnController {
   constructor(private readonly service: SalesReturnService) {}
+
+  /** Server-derived division scope for this request (see SalesOrderController). */
+  private divisionScope(req: any): string[] | undefined {
+    return divisionScopeFromRequest(req);
+  }
 
   @Get()
   @UseGuards(PermissionGuard)
@@ -38,6 +47,7 @@ export class SalesReturnController {
       status,
       sortField,
       sortOrder,
+      allowedDivisionIds: this.divisionScope(req),
     });
     return { success: true, ...result };
   }
@@ -49,7 +59,7 @@ export class SalesReturnController {
   @ApiOperation({ summary: 'Get returnable items with delivered and returned quantities for an invoice' })
   async getReturnableItems(@Req() req: any, @Param('invoiceId') invoiceId: string) {
     const companyId = req.erpUser?.defaultCompanyId;
-    const data = await this.service.getReturnableItems(invoiceId, companyId);
+    const data = await this.service.getReturnableItems(invoiceId, companyId, this.divisionScope(req));
     return { success: true, data };
   }
 
@@ -60,7 +70,7 @@ export class SalesReturnController {
   @ApiOperation({ summary: 'Get sales return by ID with full traceability chain' })
   async findOne(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId;
-    const salesReturn = await this.service.findOne(id, companyId);
+    const salesReturn = await this.service.findOne(id, companyId, this.divisionScope(req));
     return { success: true, data: salesReturn };
   }
 
@@ -84,7 +94,7 @@ export class SalesReturnController {
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const salesReturn = await this.service.update(id, dto, userId, companyId);
+    const salesReturn = await this.service.update(id, dto, userId, companyId, this.divisionScope(req));
     return { success: true, data: salesReturn, message: 'Sales return updated successfully' };
   }
 
@@ -97,7 +107,7 @@ export class SalesReturnController {
   async submit(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const salesReturn = await this.service.submit(id, userId, companyId);
+    const salesReturn = await this.service.submit(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: salesReturn, message: 'Sales return submitted successfully' };
   }
 
@@ -110,7 +120,7 @@ export class SalesReturnController {
   async approve(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const salesReturn = await this.service.approve(id, userId, companyId);
+    const salesReturn = await this.service.approve(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: salesReturn, message: 'Sales return approved' };
   }
 
@@ -123,7 +133,7 @@ export class SalesReturnController {
   async receive(@Req() req: any, @Param('id') id: string, @Body() body?: ReceiveSalesReturnDto) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const salesReturn = await this.service.receiveStock(id, body?.warehouseId, userId, companyId);
+    const salesReturn = await this.service.receiveStock(id, body?.warehouseId, userId, companyId, this.divisionScope(req));
     return { success: true, data: salesReturn, message: 'Finished goods stock received into inventory successfully' };
   }
 
@@ -136,7 +146,7 @@ export class SalesReturnController {
   async generateCreditNote(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const salesReturn = await this.service.generateCreditNote(id, userId, companyId);
+    const salesReturn = await this.service.generateCreditNote(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: salesReturn, message: 'Credit Note generated and posted to Customer Ledger' };
   }
 
@@ -149,7 +159,7 @@ export class SalesReturnController {
   async reject(@Req() req: any, @Param('id') id: string, @Body() body: RejectSalesReturnDto) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const salesReturn = await this.service.reject(id, body?.reason, userId, companyId);
+    const salesReturn = await this.service.reject(id, body?.reason, userId, companyId, this.divisionScope(req));
     return { success: true, data: salesReturn, message: 'Sales return rejected' };
   }
 
@@ -162,7 +172,7 @@ export class SalesReturnController {
   async cancel(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const salesReturn = await this.service.cancel(id, userId, companyId);
+    const salesReturn = await this.service.cancel(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: salesReturn, message: 'Sales return cancelled' };
   }
 }

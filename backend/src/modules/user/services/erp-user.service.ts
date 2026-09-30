@@ -232,6 +232,9 @@ export class ErpUserService {
     queryBuilder.leftJoinAndSelect('user.defaultCompany', 'defaultCompany');
     queryBuilder.leftJoinAndSelect('user.userRoles', 'userRoles');
     queryBuilder.leftJoinAndSelect('userRoles.role', 'role');
+    queryBuilder.leftJoinAndSelect('user.organizationScopes', 'organizationScopes');
+    queryBuilder.leftJoinAndSelect('organizationScopes.division', 'scopeDivision');
+    queryBuilder.leftJoinAndSelect('organizationScopes.company', 'scopeCompany');
 
     if (search) {
       queryBuilder.where(

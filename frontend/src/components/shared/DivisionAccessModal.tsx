@@ -36,7 +36,7 @@ export interface DivisionAccessTarget {
   id: string;
   displayName?: string;
   defaultCompanyId?: string;
-  /** Only embedded by `GET /admin/users/:id`; the users LIST endpoint omits it. */
+  /** Available on both the user list and detail endpoints. */
   organizationScopes?: DivisionScope[];
 }
 
@@ -286,6 +286,13 @@ export interface DivisionAccessModalProps {
    */
   rawScopes?: DivisionScope[] | null;
   onClose: () => void;
+  /**
+   * Extra class for the inner antd Modal. The only caller (UserManagement)
+   * opens this popup FROM INSIDE a DraggableResizableModal (zIndex 1060), so
+   * the modal carries `zIndex={1100}` to stack above it — the antd-supported
+   * nested-modal mechanism, not a CSS override.
+   */
+  className?: string;
 }
 
 /**
@@ -304,6 +311,7 @@ export const DivisionAccessModal: React.FC<DivisionAccessModalProps> = ({
   effectiveAccess,
   rawScopes,
   onClose,
+  className,
 }) => {
   const [form] = Form.useForm();
   const [saveForm] = Form.useForm();
@@ -441,6 +449,8 @@ export const DivisionAccessModal: React.FC<DivisionAccessModalProps> = ({
         </Button>,
       ]}
       width={620}
+      zIndex={1100}
+      className={className}
       destroyOnHidden
     >
       <div

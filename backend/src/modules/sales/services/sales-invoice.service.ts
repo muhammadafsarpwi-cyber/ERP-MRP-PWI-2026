@@ -7,6 +7,11 @@ import { FinanceAutoPostingService } from '../../finance/services/finance-auto-p
 import { CustomerLedgerService } from '../../customer/services/customer-ledger.service';
 import { CustomerDocumentType } from '../../customer/entities/customer-ledger.entity';
 import { customerNameMatchKeys } from './customer-match.util';
+import {
+  applyDivisionScopeFilter,
+  assertDivisionInScope,
+  DivisionAccess,
+} from '../../../common/division-scope.util';
 
 @Injectable()
 export class SalesInvoiceService {
@@ -75,7 +80,10 @@ export class SalesInvoiceService {
   async findAll(filter: any): Promise<{ data: SalesInvoice[]; total: number }> {
     const page = Number(filter.page) || 1;
     const limit = Number(filter.limit) || 20;
-    const { companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const {
+      companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC',
+      allowedDivisionIds,
+    } = filter;
     const qb = this.repo.createQueryBuilder('si')
       .leftJoinAndSelect('si.customer', 'customer')
       .leftJoinAndSelect('si.salesOrder', 'salesOrder');
@@ -83,6 +91,12 @@ export class SalesInvoiceService {
     if (companyId) { qb.where('si.companyId = :companyId', { companyId }); hasWhere = true; }
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('si.status = :status', { status }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('si.invoiceNo ILIKE :search', { search: `%${search}%` }); hasWhere = true; }
+    // PROMPT #27 — `sales_invoices` has no `division_id` of its own; it
+    // inherits the division of the order it bills. That relation is ALREADY
+    // joined above, so the scope filter needs no new join and no schema change.
+    // An invoice with no linked order has no division attribution, so
+    // `includeUnassigned` is deliberately NOT set.
+    applyDivisionScopeFilter(qb as any, 'salesOrder.divisionId', allowedDivisionIds);
     const validSortFields = ['createdAt', 'invoiceNo', 'invoiceDate', 'dueDate', 'status', 'totalAmount'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -92,7 +106,7 @@ export class SalesInvoiceService {
     return { data, total };
   }
 
-  async findOne(id: string, companyId?: string): Promise<any> {
+  async findOne(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<any> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       throw new BadRequestException(`Invalid ID format: ${id}`);
     }
@@ -103,6 +117,9 @@ export class SalesInvoiceService {
       relations: ['customer', 'salesOrder', 'salesOrder.items'],
     });
     if (!invoice) throw new NotFoundException(`Sales invoice with ID '${id}' not found`);
+
+    // PROMPT #27 — inherits the billing order's division (TEST E).
+    assertDivisionInScope(invoice.salesOrder?.divisionId, allowedDivisionIds);
 
     let relatedDelivery: any = null;
     let relatedQuotation: any = null;
@@ -231,8 +248,11 @@ export class SalesInvoiceService {
     });
   }
 
-  async update(id: string, dto: any, userId?: string, companyId?: string): Promise<SalesInvoice> {
-    const invoice = await this.findOne(id, companyId);
+  async update(
+    id: string, dto: any, userId?: string, companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesInvoice> {
+    const invoice = await this.findOne(id, companyId, allowedDivisionIds);
     if (invoice.status !== 'Pending') {
       throw new BadRequestException('Can only update invoices in Pending status');
     }
@@ -252,8 +272,11 @@ export class SalesInvoiceService {
     return this.repo.save(invoice);
   }
 
-  async recordPayment(id: string, amount: number, userId?: string, companyId?: string): Promise<SalesInvoice> {
-    const invoice = await this.findOne(id, companyId);
+  async recordPayment(
+    id: string, amount: number, userId?: string, companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesInvoice> {
+    const invoice = await this.findOne(id, companyId, allowedDivisionIds);
     if (invoice.status === 'Cancelled') {
       throw new BadRequestException('Cannot record payment for a cancelled invoice');
     }
@@ -318,8 +341,8 @@ export class SalesInvoiceService {
     return saved;
   }
 
-  async post(id: string, userId?: string, companyId?: string): Promise<SalesInvoice> {
-    const invoice = await this.findOne(id, companyId);
+  async post(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesInvoice> {
+    const invoice = await this.findOne(id, companyId, allowedDivisionIds);
     if (invoice.status !== 'Pending') {
       throw new BadRequestException('Can only post invoices in Pending status');
     }
@@ -407,8 +430,8 @@ export class SalesInvoiceService {
     return salesCustomerId;
   }
 
-  async cancel(id: string, userId?: string, companyId?: string): Promise<SalesInvoice> {
-    const invoice = await this.findOne(id, companyId);
+  async cancel(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesInvoice> {
+    const invoice = await this.findOne(id, companyId, allowedDivisionIds);
     if (invoice.status === 'Cancelled') {
       throw new BadRequestException('Invoice is already cancelled');
     }

@@ -27,6 +27,18 @@ const mockUsers = [
       { id: 'ur-2', roleId: 'role-super', role: { id: 'role-super', roleCode: 'SUPER_ADMIN', name: 'Super Administrator' } },
       { id: 'ur-3', roleId: 'role-prod', role: { id: 'role-prod', roleCode: 'PRODUCTION', name: 'Production' } },
     ],
+    organizationScopes: [
+      {
+        id: 'scope-1',
+        companyId: 'comp-1',
+        divisionId: 'div-ccd',
+        scopeLevel: 'DIVISION',
+        isFullScope: false,
+        status: 'ACTIVE',
+        company: { id: 'comp-1', legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+        division: { id: 'div-ccd', divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
+      },
+    ],
     createdAt: '2026-09-10T10:00:00Z',
     lastLoginAt: '2026-09-12T10:00:00Z',
   },
@@ -130,6 +142,13 @@ describe('UserManagement', () => {
     expect(screen.getByText('PRODUCTION')).toBeInTheDocument();
   });
 
+  it('renders Divisions column with actual assigned division name', async () => {
+    renderComponent();
+
+    await screen.findByText('junaid');
+    expect(screen.getByText('Control Cable Division')).toBeInTheDocument();
+  });
+
   it('opens role assignment modal and calls assign/sync roles endpoint', async () => {
     apiMock.post.mockResolvedValue({ success: true, data: mockUsers[0], message: 'Roles updated successfully' } as any);
 
@@ -208,7 +227,8 @@ describe('UserManagement', () => {
     fireEvent.click(editBtn);
 
     // Modal title and split-view preview should be rendered
-    expect(await screen.findByText(/Edit User — junaid/i)).toBeInTheDocument();
+    expect(await screen.findByText('Edit User')).toBeInTheDocument();
+    expect(screen.getAllByText('junaid').length).toBeGreaterThan(0);
     expect(screen.getByTestId('edit-user-live-preview')).toBeInTheDocument();
     expect(screen.getByText('Live View Form')).toBeInTheDocument();
 
@@ -225,7 +245,8 @@ describe('UserManagement', () => {
     fireEvent.click(dockTab);
 
     // Modal should be restored
-    expect(await screen.findByText(/Edit User — junaid/i)).toBeInTheDocument();
+    expect(await screen.findByText('Edit User')).toBeInTheDocument();
+    expect(screen.getAllByText('junaid').length).toBeGreaterThan(0);
     expect(screen.getByTestId('edit-user-live-preview')).toBeInTheDocument();
   });
 

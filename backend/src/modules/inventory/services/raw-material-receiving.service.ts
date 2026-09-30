@@ -1,5 +1,5 @@
 import {
-  Injectable, BadRequestException, NotFoundException, ForbiddenException,
+  Injectable, BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -28,7 +28,7 @@ import {
   RawMaterialReceivingReportQuery, WhatsAppReceiptShareDto,
 } from '../dto/raw-material-receiving.dto';
 import { populateAuditNames } from '../../organization/helpers/audit-names';
-import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
+import { applyDivisionScopeFilter, assertDivisionInScope, isUnrestricted } from '../../../common/division-scope.util';
 
 interface LineArg {
   itemId: string;
@@ -134,13 +134,13 @@ export class RawMaterialReceivingService {
    * Refuse a single-document read/write whose division is outside the caller's
    * effective scope. Applied to every by-id endpoint so a leaked/guessed UUID
    * can never reach a document in another division.
+   *
+   * PROMPT #27 — this now delegates to the shared `assertDivisionInScope`
+   * helper so Sales / Store / Inventory cannot drift into three different
+   * definitions of "in scope". Behaviour is unchanged.
    */
   private static assertDivisionAllowed(divisionId: string | null | undefined, allowedDivisionIds: DivisionScope): void {
-    if (isUnrestricted(allowedDivisionIds)) return;
-    const ids = allowedDivisionIds as string[];
-    if (ids.length === 0 || !divisionId || !ids.includes(divisionId)) {
-      throw new ForbiddenException('You do not have access to this division.');
-    }
+    assertDivisionInScope(divisionId, allowedDivisionIds);
   }
 
   // ─────────────────────────────────────────────────────────────────────────

@@ -4,6 +4,11 @@ import { Repository } from 'typeorm';
 import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder, SalesOrderItem, SalesInvoice } from '../entities';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
+import {
+  applyDivisionScopeFilter,
+  assertDivisionInScope,
+  DivisionAccess,
+} from '../../../common/division-scope.util';
 
 @Injectable()
 export class SalesDeliveryService {
@@ -95,7 +100,10 @@ export class SalesDeliveryService {
   async findAll(filter: any): Promise<{ data: any[]; total: number }> {
     const page = Number(filter.page) || 1;
     const limit = Number(filter.limit) || 20;
-    const { companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const {
+      companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC',
+      allowedDivisionIds,
+    } = filter;
     const qb = this.repo.createQueryBuilder('sd')
       .leftJoinAndSelect('sd.customer', 'customer')
       .leftJoinAndSelect('sd.salesOrder', 'salesOrder')
@@ -105,6 +113,10 @@ export class SalesDeliveryService {
     if (companyId) { qb.where('sd.companyId = :companyId', { companyId }); hasWhere = true; }
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('sd.status ILIKE :status', { status }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(sd.deliveryNumber ILIKE :search OR customer.companyName ILIKE :search OR salesOrder.orderNumber ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
+    // PROMPT #27 — `sales_deliveries` has no `division_id`; it inherits the
+    // source order's. The `salesOrder` join already existed here for display
+    // (`divisionName` below), so enforcing scope costs no extra query.
+    applyDivisionScopeFilter(qb as any, 'salesOrder.divisionId', allowedDivisionIds);
     const validSortFields = ['createdAt', 'deliveryNumber', 'deliveryDate', 'status'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -120,7 +132,7 @@ export class SalesDeliveryService {
     return { data, total };
   }
 
-  async findOne(id: string, companyId?: string): Promise<any> {
+  async findOne(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<any> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       throw new BadRequestException(`Invalid ID format: ${id}`);
     }
@@ -140,6 +152,9 @@ export class SalesDeliveryService {
       ],
     });
     if (!delivery) throw new NotFoundException(`Sales delivery with ID '${id}' not found`);
+
+    // PROMPT #27 — inherits the source order's division (TEST E).
+    assertDivisionInScope(delivery.salesOrder?.divisionId, allowedDivisionIds);
 
     let relatedInvoices: any[] = [];
     try {
@@ -161,8 +176,11 @@ export class SalesDeliveryService {
     });
   }
 
-  async update(id: string, dto: any, userId?: string, companyId?: string): Promise<SalesDelivery> {
-    const delivery = await this.findOne(id, companyId);
+  async update(
+    id: string, dto: any, userId?: string, companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesDelivery> {
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
     if (delivery.status !== 'DRAFT') {
       throw new BadRequestException('Can only update deliveries in DRAFT status');
     }
@@ -219,8 +237,8 @@ export class SalesDeliveryService {
     return this.repo.save(delivery);
   }
 
-  async ship(id: string, userId?: string, companyId?: string): Promise<SalesDelivery> {
-    const delivery = await this.findOne(id, companyId);
+  async ship(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
     if (delivery.status !== 'DRAFT') {
       throw new BadRequestException('Can only ship deliveries in DRAFT status');
     }
@@ -229,8 +247,8 @@ export class SalesDeliveryService {
     return this.repo.save(delivery);
   }
 
-  async deliver(id: string, userId?: string, companyId?: string): Promise<SalesDelivery> {
-    const delivery = await this.findOne(id, companyId);
+  async deliver(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
     if (delivery.status !== 'SHIPPED') {
       throw new BadRequestException('Can only mark deliveries as delivered when in SHIPPED status');
     }
@@ -239,8 +257,8 @@ export class SalesDeliveryService {
     return this.repo.save(delivery);
   }
 
-  async confirm(id: string, userId?: string, companyId?: string): Promise<SalesDelivery> {
-    const delivery = await this.findOne(id, companyId);
+  async confirm(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
     if (delivery.status !== 'DELIVERED') {
       throw new BadRequestException('Can only confirm deliveries in DELIVERED status');
     }
@@ -322,8 +340,8 @@ export class SalesDeliveryService {
     return saved;
   }
 
-  async convertToInvoice(id: string, userId?: string, companyId?: string): Promise<SalesInvoice> {
-    const delivery = await this.findOne(id, companyId);
+  async convertToInvoice(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesInvoice> {
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
     const statusUpper = String(delivery.status || '').toUpperCase();
     if (statusUpper !== 'CONFIRMED' && statusUpper !== 'DELIVERED' && statusUpper !== 'SHIPPED') {
       throw new BadRequestException('Can only create invoices for DELIVERED or CONFIRMED deliveries');
@@ -369,8 +387,8 @@ export class SalesDeliveryService {
     return this.invoiceRepo.save(invoice);
   }
 
-  async cancel(id: string, userId?: string, companyId?: string): Promise<SalesDelivery> {
-    const delivery = await this.findOne(id, companyId);
+  async cancel(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
     if (delivery.status === 'CANCELLED' || delivery.status === 'CONFIRMED') {
       throw new BadRequestException('Cannot cancel a delivery that is already cancelled or confirmed');
     }

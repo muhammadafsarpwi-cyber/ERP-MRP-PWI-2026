@@ -5,13 +5,23 @@ import { CreateSalesInvoiceDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { divisionScopeFromRequest } from '../../../common/division-scope.util';
 
 @ApiTags('sales/invoices')
 @Controller('sales/invoices')
-@UseGuards(SupabaseJwtGuard, OrgScopeGuard)
+// PROMPT #27 — invoices carry no `division_id`; they inherit the billing
+// order's. The guard still belongs here so an explicit out-of-scope
+// `divisionId` is refused before the service ever runs.
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class SalesInvoiceController {
   constructor(private readonly service: SalesInvoiceService) {}
+
+  /** Server-derived division scope for this request (see SalesOrderController). */
+  private divisionScope(req: any): string[] | undefined {
+    return divisionScopeFromRequest(req);
+  }
 
   @Get()
   @UseGuards(PermissionGuard)
@@ -27,6 +37,7 @@ export class SalesInvoiceController {
     const companyId = req.erpUser?.defaultCompanyId;
     const result = await this.service.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, customerId, status, sortField, sortOrder,
+      allowedDivisionIds: this.divisionScope(req),
     });
     return { success: true, ...result };
   }
@@ -38,7 +49,7 @@ export class SalesInvoiceController {
   @ApiOperation({ summary: 'Get sales invoice by ID' })
   async findOne(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId;
-    const invoice = await this.service.findOne(id, companyId);
+    const invoice = await this.service.findOne(id, companyId, this.divisionScope(req));
     return { success: true, data: invoice };
   }
 
@@ -62,7 +73,7 @@ export class SalesInvoiceController {
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: Partial<CreateSalesInvoiceDto>) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const invoice = await this.service.update(id, dto, userId, companyId);
+    const invoice = await this.service.update(id, dto, userId, companyId, this.divisionScope(req));
     return { success: true, data: invoice, message: 'Sales invoice updated successfully' };
   }
 
@@ -75,7 +86,7 @@ export class SalesInvoiceController {
   async post(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const invoice = await this.service.post(id, userId, companyId);
+    const invoice = await this.service.post(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: invoice, message: 'Sales invoice posted' };
   }
 
@@ -88,7 +99,7 @@ export class SalesInvoiceController {
   async recordPayment(@Req() req: any, @Param('id') id: string, @Body('paidAmount') paidAmount: number) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const invoice = await this.service.recordPayment(id, paidAmount, userId, companyId);
+    const invoice = await this.service.recordPayment(id, paidAmount, userId, companyId, this.divisionScope(req));
     return { success: true, data: invoice, message: 'Payment recorded successfully' };
   }
 }

@@ -14,6 +14,11 @@ import { ProductionOrder, ProductionDemandSource } from '../../production/entiti
 import { ProductionOrderService } from '../../production/services/production-order.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { NotificationsService } from '../../notification/notifications.service';
+import {
+  applyDivisionScopeFilter,
+  assertDivisionInScope,
+  DivisionAccess,
+} from '../../../common/division-scope.util';
 
 @Injectable()
 export class SalesOrderService {
@@ -42,7 +47,16 @@ export class SalesOrderService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  async create(dto: any, userId?: string): Promise<SalesOrder> {
+  /**
+   * PROMPT #27 — a client-supplied `divisionId` on create must land inside the
+   * caller's permitted divisions. Without this a restricted caller could create
+   * an order attributed to a division they cannot read (and would then be
+   * unable to see their own creation).
+   */
+  async create(dto: any, userId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+    if (dto.divisionId) {
+      assertDivisionInScope(dto.divisionId, allowedDivisionIds);
+    }
     const customer = await this.customerRepo.findOne({
       where: { id: dto.customerId, companyId: dto.companyId },
     });
@@ -118,7 +132,11 @@ export class SalesOrderService {
   async findAll(filter: any): Promise<{ data: SalesOrder[]; total: number }> {
     const page = Number(filter.page) || 1;
     const limit = Number(filter.limit) || 50;
-    const { companyId, customerId, status, search, divisionId, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const {
+      companyId, customerId, status, search, divisionId,
+      sortField = 'createdAt', sortOrder = 'DESC',
+      allowedDivisionIds,
+    } = filter;
     const qb = this.repo.createQueryBuilder('so')
       .leftJoinAndSelect('so.customer', 'customer')
       .leftJoinAndSelect('so.division', 'division')
@@ -132,6 +150,19 @@ export class SalesOrderService {
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('so.status = :status', { status }); hasWhere = true; }
     if (divisionId) { qb[hasWhere ? 'andWhere' : 'where']('so.divisionId = :divisionId', { divisionId }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(so.orderNumber ILIKE :search OR customer.companyName ILIKE :search OR so.customerPo ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
+    // PROMPT #27 — server-authoritative division scope.
+    //
+    // The `divisionId` filter above is a client-supplied *display filter*; it
+    // must never widen visibility, and `SalesOrderController` now rejects an
+    // out-of-scope one with 403 before reaching here. This clause is what makes
+    // the list safe when the client omits `divisionId` entirely: a restricted
+    // caller can only ever see their own divisions' orders.
+    //
+    // Not `includeUnassigned`: an order with `division_id IS NULL` belongs to no
+    // division, so it is not inside any restricted caller's permitted set and
+    // must not be returned. This matches `assertDivisionInScope` below and the
+    // convention already proven by the Raw Material Receiving fix.
+    applyDivisionScopeFilter(qb as any, 'so.divisionId', allowedDivisionIds);
     const validSortFields = ['createdAt', 'orderNumber', 'orderDate', 'status', 'totalAmount'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -150,7 +181,7 @@ export class SalesOrderService {
     });
   }
 
-  async findOne(id: string, companyId?: string): Promise<any> {
+  async findOne(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<any> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       throw new BadRequestException(`Invalid ID format: ${id}`);
     }
@@ -161,6 +192,13 @@ export class SalesOrderService {
       relations: ['customer', 'division', 'section', 'items', 'items.item', 'items.uom'],
     });
     if (!order) throw new NotFoundException(`Sales order with ID '${id}' not found`);
+
+    // PROMPT #27 — by-id reads and every by-id mutation below funnel through
+    // this method, so asserting here closes TEST E (guessing another
+    // division's order UUID) for all of them at once. Runs AFTER the
+    // not-found check so a caller cannot use 403-vs-404 to probe for the
+    // existence of records in divisions they cannot read.
+    assertDivisionInScope(order.divisionId, allowedDivisionIds);
 
     let relatedQuotation = null;
     if (order.quotationId) {
@@ -268,10 +306,21 @@ export class SalesOrderService {
     });
   }
 
-  async update(id: string, dto: any, userId?: string, companyId?: string): Promise<SalesOrder> {
-    const order = await this.findOne(id, companyId);
+  async update(
+    id: string, dto: any, userId?: string, companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Draft') {
       throw new BadRequestException('Can only update orders in Draft status');
+    }
+
+    // PROMPT #27 — a client-supplied `divisionId` in the body must not be able
+    // to MOVE an order into (or out of) a division the caller does not hold.
+    // The guard validates the body's value up front; this asserts it again at
+    // the point of write so the rule holds for any future caller of the service.
+    if (dto.divisionId) {
+      assertDivisionInScope(dto.divisionId, allowedDivisionIds);
     }
 
     Object.assign(order, {
@@ -294,48 +343,54 @@ export class SalesOrderService {
     return this.repo.save(order);
   }
 
-  async confirm(id: string, userId?: string, companyId?: string): Promise<SalesOrder> {
-    const order = await this.findOne(id, companyId);
+  /**
+   * PROMPT #27 — `allowedDivisionIds` is threaded through the by-id methods
+   * below purely so each forwards it to {@link findOne}, which owns the single
+   * division assertion. Every handler is a thin status-transition wrapper, so
+   * asserting once in `findOne` covers all of them without duplicating logic.
+   */
+  async confirm(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Draft') throw new BadRequestException('Can only confirm orders in Draft status');
     order.status = 'Confirmed';
     order.updatedBy = userId || null;
     return this.repo.save(order);
   }
 
-  async process(id: string, userId?: string, companyId?: string): Promise<SalesOrder> {
-    const order = await this.findOne(id, companyId);
+  async process(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Confirmed') throw new BadRequestException('Can only process orders in Confirmed status');
     order.status = 'Processing';
     order.updatedBy = userId || null;
     return this.repo.save(order);
   }
 
-  async ship(id: string, userId?: string, companyId?: string): Promise<SalesOrder> {
-    const order = await this.findOne(id, companyId);
+  async ship(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Processing') throw new BadRequestException('Can only ship orders in Processing status');
     order.status = 'Shipped';
     order.updatedBy = userId || null;
     return this.repo.save(order);
   }
 
-  async deliver(id: string, userId?: string, companyId?: string): Promise<SalesOrder> {
-    const order = await this.findOne(id, companyId);
+  async deliver(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Shipped') throw new BadRequestException('Can only deliver orders in Shipped status');
     order.status = 'Delivered';
     order.updatedBy = userId || null;
     return this.repo.save(order);
   }
 
-  async close(id: string, userId?: string, companyId?: string): Promise<SalesOrder> {
-    const order = await this.findOne(id, companyId);
+  async close(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Delivered') throw new BadRequestException('Can only close orders in Delivered status');
     order.status = 'Closed';
     order.updatedBy = userId || null;
     return this.repo.save(order);
   }
 
-  async cancel(id: string, userId?: string, companyId?: string): Promise<SalesOrder> {
-    const order = await this.findOne(id, companyId);
+  async cancel(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status === 'Cancelled' || order.status === 'Closed') {
       throw new BadRequestException('Cannot cancel an order that is already cancelled or closed');
     }
@@ -349,8 +404,9 @@ export class SalesOrderService {
     dto?: { warehouseId?: string; deliveryDate?: string; carrier?: string; trackingNumber?: string; notes?: string; lines?: Array<{ itemId: string; quantity: number }> },
     userId?: string,
     companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
   ): Promise<SalesDelivery> {
-    const order = await this.findOne(id, companyId);
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Confirmed' && order.status !== 'Processing') {
       throw new BadRequestException(
         `Sales order must be in 'Confirmed' or 'Processing' status to create a delivery. Current status: ${order.status}`,
@@ -485,8 +541,9 @@ export class SalesOrderService {
     },
     userId?: string,
     companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
   ): Promise<ProductionOrder> {
-    const order = await this.findOne(id, companyId);
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     const orderItem = (order.items || []).find((it: any) => it.id === dto.orderItemId);
     if (!orderItem) {
       throw new BadRequestException(`Order line item with ID '${dto.orderItemId}' not found on order ${order.orderNumber}`);
@@ -524,8 +581,8 @@ export class SalesOrderService {
     return newPO;
   }
 
-  async getOrderTraceability(id: string, companyId?: string) {
-    const order = await this.findOne(id, companyId);
+  async getOrderTraceability(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,

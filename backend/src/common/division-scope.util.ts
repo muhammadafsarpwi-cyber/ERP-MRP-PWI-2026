@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import { SelectQueryBuilder, ObjectLiteral, In, IsNull, Or, Raw } from 'typeorm';
 
 /**
@@ -64,17 +65,65 @@ export function applyDivisionScopeFilter<T extends ObjectLiteral>(
   column: string,
   access: DivisionAccess | string[] | null | undefined,
   paramName = 'allowedDivisionIds',
+  options: { includeUnassigned?: boolean } = {},
 ): void {
   if (isUnrestricted(access)) return;
 
   const ids = toDivisionList(access);
   if (ids.length === 0) {
-    // Deny-all: caller has an empty effective division set.
+    // Deny-all: caller has an empty effective division set. `includeUnassigned`
+    // is deliberately ignored here — a deny-all caller sees no unassigned
+    // master rows either, otherwise "no access" would still return data.
     queryBuilder.andWhere('1 = 0');
     return;
   }
 
+  // Master data (Items, Customers, Suppliers) may legitimately be company-wide,
+  // i.e. assigned to no division. Such a row belongs to no division, so it
+  // cannot disclose another division's records and must stay visible.
+  // Transactional documents (orders, receipts, ledger) must NOT use this.
+  if (options.includeUnassigned) {
+    queryBuilder.andWhere(`(${column} IN (:...${paramName}) OR ${column} IS NULL)`, {
+      [paramName]: ids,
+    });
+    return;
+  }
+
   queryBuilder.andWhere(`${column} IN (:...${paramName})`, { [paramName]: ids });
+}
+
+/**
+ * PROMPT #27 — refuse a SINGLE record whose division is outside the caller's
+ * effective scope.
+ *
+ * This is the by-id counterpart of {@link applyDivisionScopeFilter}. Every
+ * `:id` endpoint must call it after loading the record, so a leaked or guessed
+ * UUID can never read, mutate, or even confirm the existence of a document in
+ * another division.
+ *
+ * Deliberate semantics, matching the convention already proven by
+ * `RawMaterialReceivingService.assertDivisionAllowed`:
+ *
+ *  - unrestricted caller  → allowed
+ *  - empty effective set  → denied (TEST G: no division access ⇒ no data)
+ *  - `divisionId` NULL    → DENIED. An unattributed document is not inside the
+ *    caller's permitted divisions, so a restricted caller must not see it.
+ *    Callers that legitimately need unassigned rows use
+ *    {@link applyDivisionScopeFilter} with `includeUnassigned` on master data.
+ *
+ * @param access the value produced by `divisionScopeFromRequest(request)` —
+ *   i.e. server-derived, never a client-supplied id.
+ */
+export function assertDivisionInScope(
+  divisionId: string | null | undefined,
+  access: DivisionAccess | string[] | null | undefined,
+  message = 'You do not have access to this division.',
+): void {
+  if (isUnrestricted(access)) return;
+  const ids = toDivisionList(access);
+  if (ids.length === 0 || !divisionId || !ids.includes(divisionId)) {
+    throw new ForbiddenException(message);
+  }
 }
 
 /** Same as {@link applyDivisionScopeFilter} but for raw SQL parameter arrays. */
