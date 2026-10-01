@@ -2,7 +2,7 @@ import React from 'react';
 import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd';
 import { findPalette, resolveRoles } from './palettes';
 import { useThemeStore } from './themeStore';
-import { darkenHex, lightenHex, mixHex, rgbaFromHex } from './colorUtils';
+import { darkenHex, lightenHex, mixHex, rgbaFromHex, getContrastText } from './colorUtils';
 import { OrbitalDualRingLoader } from '../components/shared/LoadingState';
 import './theme.css';
 
@@ -15,7 +15,53 @@ interface ThemeProviderProps {
 
 const DARK_ON_ACCENT = '#0f1526';
 
-const buildCssVars = (
+/**
+ * Green used by the System Settings shell (`--settings-accent*`).
+ * Mirrors the theme's `success` green in each mode so the settings accent
+ * always matches the ERP's own semantic green instead of a hardcoded colour
+ * that would only work in one theme.
+ */
+/**
+ * Semantic tokens of the System Settings shell.
+ * Dynamically re-derived per palette + mode using the active theme's accent and surface
+ * so settings immediately reflect theme changes (Cyan, Blue, Emerald, Amber, etc.).
+ */
+const buildSettingsCssVars = (
+  mode: 'light' | 'dark',
+  roles: { primary: string; surface: string; accent: string; background: string }
+): Record<string, string> => {
+  const dark = mode === 'dark';
+  const { surface, accent } = roles;
+  if (dark) {
+    return {
+      '--settings-accent': accent,
+      '--settings-accent-soft': rgbaFromHex(accent, 0.16),
+      '--settings-accent-border': rgbaFromHex(accent, 0.40),
+      '--settings-on-accent': getContrastText(accent),
+      '--settings-surface': surface,
+      '--settings-surface-elevated': lightenHex(surface, 0.08),
+      '--settings-border': mixHex(surface, '#ffffff', 0.11),
+      '--settings-text-primary': 'rgba(226, 232, 255, 0.95)',
+      '--settings-text-secondary': 'rgba(214, 221, 244, 0.80)',
+      '--settings-text-muted': 'rgba(199, 204, 235, 0.55)',
+    };
+  }
+  return {
+    '--settings-accent': accent,
+    '--settings-accent-soft': rgbaFromHex(accent, 0.14),
+    '--settings-accent-border': rgbaFromHex(accent, 0.35),
+    '--settings-on-accent': getContrastText(accent),
+    '--settings-surface': '#ffffff',
+    '--settings-surface-elevated': '#ffffff',
+    '--settings-border': mixHex(surface, '#0f172a', 0.10),
+    '--settings-text-primary': 'rgba(15, 23, 42, 0.92)',
+    '--settings-text-secondary': 'rgba(15, 23, 42, 0.68)',
+    '--settings-text-muted': 'rgba(15, 23, 42, 0.45)',
+  };
+};
+
+/** Exported for tests — the exact token map applied to `document.documentElement`. */
+export const buildCssVars = (
   mode: 'light' | 'dark',
   roles: { primary: string; surface: string; accent: string; background: string }
 ): Record<string, string> => {
@@ -26,7 +72,7 @@ const buildCssVars = (
       // In dark mode, primary brand/accent text & interactive elements should use accent (high-contrast, bright)
       // while primary represents the dark sider background
       '--theme-primary': accent,
-      '--theme-primary-deep': darkenHex(accent, 0.28),
+      '--theme-primary-deep': darkenHex(primary, 0.22),
       '--theme-sider-bg': primary,
       '--theme-sider-trigger-bg': darkenHex(primary, 0.24),
       '--theme-link': accent,
@@ -37,7 +83,7 @@ const buildCssVars = (
       '--theme-accent-hover': lightenHex(accent, 0.14),
       '--theme-accent-active': darkenHex(accent, 0.12),
       '--theme-accent-soft': rgbaFromHex(accent, 0.16),
-      '--theme-on-accent': DARK_ON_ACCENT,
+      '--theme-on-accent': getContrastText(accent),
       '--theme-background': background,
       '--theme-text': 'rgba(226, 232, 255, 0.92)',
       '--theme-text-muted': 'rgba(199, 204, 235, 0.55)',
@@ -57,6 +103,7 @@ const buildCssVars = (
       '--theme-surface-elevated': lightenHex(surface, 0.09),
       '--theme-bg-card': surface,
       '--theme-bg-secondary': surface,
+      '--theme-bg-subtle': darkenHex(surface, 0.15),
       '--theme-chart-grid': 'rgba(226, 232, 255, 0.09)',
       '--theme-chart-axis': 'rgba(199, 204, 235, 0.5)',
       '--theme-table-sticky-bg': surface,
@@ -77,6 +124,8 @@ const buildCssVars = (
       '--theme-table-border-strong': mixHex(surface, '#ffffff', 0.18),
       '--theme-table-scrollbar-thumb': mixHex(surface, accent, 0.38),
       '--theme-table-scrollbar-track': darkenHex(surface, 0.12),
+      // System Settings shell tokens (dark)
+      ...buildSettingsCssVars('dark', roles),
     };
   }
   return {
@@ -92,7 +141,7 @@ const buildCssVars = (
     '--theme-accent-hover': lightenHex(accent, 0.1),
     '--theme-accent-active': darkenHex(accent, 0.1),
     '--theme-accent-soft': rgbaFromHex(accent, 0.12),
-    '--theme-on-accent': '#ffffff',
+    '--theme-on-accent': getContrastText(accent),
     '--theme-background': background,
     '--theme-text': 'rgba(15, 23, 42, 0.92)',
     '--theme-text-muted': 'rgba(15, 23, 42, 0.62)',
@@ -112,6 +161,7 @@ const buildCssVars = (
     '--theme-surface-elevated': '#ffffff',
     '--theme-bg-card': '#ffffff',
     '--theme-bg-secondary': surface,
+    '--theme-bg-subtle': mixHex(surface, '#0f172a', 0.05),
     '--theme-chart-grid': 'rgba(15, 23, 42, 0.08)',
     '--theme-chart-axis': 'rgba(15, 23, 42, 0.5)',
     '--theme-table-sticky-bg': '#ffffff',
@@ -132,6 +182,8 @@ const buildCssVars = (
     '--theme-table-border-strong': mixHex(surface, '#0f172a', 0.18),
     '--theme-table-scrollbar-thumb': mixHex(surface, '#0f172a', 0.25),
     '--theme-table-scrollbar-track': mixHex(surface, '#0f172a', 0.04),
+    // System Settings shell tokens (light)
+    ...buildSettingsCssVars('light', roles),
   };
 };
 

@@ -345,43 +345,43 @@
   color: inherit !important;
 }
 
-/* ── TABLE BODY ROWS ── Theme-aware stripes ── */
-.crystal-table-card .ant-table-tbody > tr > td {
+/* ── TABLE BODY ROWS — ONE unified theme-aware pattern (THEME-FIX-03).
+   ROOT CAUSE of the "two visual patterns" bug: global erp-table.css parity
+   rules (e.g. `[data-theme] .ant-table-wrapper ... :nth-child(odd)`) carry
+   (0,5,2)+!important and outranked these base rules, while our fixed-cell
+   rules outranked global — so plain and fixed cells obeyed DIFFERENT
+   background systems (invisible whenever palettes coincided).
+   These selectors reach (0,6,2)+!important via the always-present
+   `.ant-table-wrapper` ancestor + `tr.ant-table-row`, deterministically
+   beating global for EVERY body cell (fixed included) in both themes.
+   Result: one stripe system, bg-tint-only hover, token dividers. ── */
+.user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row > td {
   background: var(--theme-surface-elevated, #ffffff) !important;
   border-bottom: 1px solid var(--theme-border, #e4e7f1) !important;
   padding: 11px 14px !important;
-  transition: background 0.18s ease, box-shadow 0.18s ease !important;
+  transition: background 0.18s ease !important;
   vertical-align: middle !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-top: none !important;
+  box-shadow: none !important;
 }
 
-/* Odd rows — subtle tint */
-.crystal-table-card .ant-table-tbody > tr:nth-child(odd) > td {
+.user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:nth-child(odd) > td {
   background: var(--theme-surface-alt, #eef0f9) !important;
 }
 
-/* Even rows — elevated surface */
-.crystal-table-card .ant-table-tbody > tr:nth-child(even) > td {
+.user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:nth-child(even) > td {
   background: var(--theme-surface-elevated, #ffffff) !important;
 }
 
-/* Row hover — accent highlight + left border */
-.crystal-table-card .ant-table-tbody > tr:hover > td {
+.user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:hover > td {
   background: var(--theme-accent-soft, rgba(79, 70, 229, 0.08)) !important;
-  box-shadow: inset 3px 0 0 var(--theme-accent, #4f46e5) !important;
-}
-
-/* Fixed right column (Actions) on hover */
-.crystal-table-card .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right {
-  background: var(--theme-accent-soft, rgba(79, 70, 229, 0.08)) !important;
-}
-
-/* Fixed right column (Actions) default */
-.crystal-table-card .ant-table-tbody > tr > td.ant-table-cell-fix-right {
-  background: inherit !important;
+  box-shadow: none !important;
 }
 
 /* Last row — no bottom border */
-.crystal-table-card .ant-table-tbody > tr:last-child > td {
+.user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:last-child > td {
   border-bottom: none !important;
 }
 
@@ -408,19 +408,28 @@
   color: var(--theme-text, #f8fafc) !important;
 }
 
-[data-theme='dark'] .crystal-table-card .ant-table-tbody > tr > td {
+/* ── DARK unified pattern (same (0,6,2)+ system as light above) ── */
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row > td {
   background: var(--theme-surface-elevated, #202544) !important;
   border-bottom: 1px solid var(--theme-border, #2a3054) !important;
   color: var(--theme-text, #f1f5f9) !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-top: none !important;
+  box-shadow: none !important;
 }
 
-[data-theme='dark'] .crystal-table-card .ant-table-tbody > tr:nth-child(odd) > td {
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:nth-child(odd) > td {
   background: var(--theme-surface-alt, #202544) !important;
 }
 
-[data-theme='dark'] .crystal-table-card .ant-table-tbody > tr:hover > td {
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:nth-child(even) > td {
+  background: var(--theme-surface-elevated, #202544) !important;
+}
+
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:hover > td {
   background: var(--theme-accent-soft, rgba(129, 140, 248, 0.12)) !important;
-  box-shadow: inset 3px 0 0 var(--theme-accent, #818cf8) !important;
+  box-shadow: none !important;
 }
 
 
@@ -506,17 +515,62 @@
   transition: all 0.2s ease;
 }
 
-.erp-btn-add-user {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
+/* PROMPT #28 — Add User: green success-style primary action.
+   Theme-aware via --theme-success tokens; white text stays readable in
+   both themes. Scoped class is used only by this page (verified).
+   NOTE: selectors intentionally beat the shared theme.css header language
+   (`.erp-header-extra .ant-btn`, 0,2,0, transparent+accent outline) with
+   0,3,0+ so the page-level primary action stays green — theme.css itself
+   is NOT modified. */
+.erp-header-extra .ant-btn.erp-btn-add-user {
+  background: linear-gradient(135deg, #22c55e 0%, #15803d 100%) !important;
   border: none !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35) !important;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35) !important;
 }
 
-.erp-btn-add-user:hover {
-  background: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%) !important;
-  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.45) !important;
+.erp-header-extra .ant-btn.erp-btn-add-user .anticon,
+.erp-header-extra .ant-btn.erp-btn-add-user svg {
+  color: #ffffff !important;
+  fill: currentColor !important;
+}
+
+.erp-header-extra .ant-btn.erp-btn-add-user:hover {
+  background: linear-gradient(135deg, #16a34a 0%, #166534 100%) !important;
+  border: none !important;
+  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.45) !important;
   transform: translateY(-1px);
+  color: #ffffff !important;
+}
+
+.erp-header-extra .ant-btn.erp-btn-add-user:hover .anticon,
+.erp-header-extra .ant-btn.erp-btn-add-user:hover svg {
+  color: #ffffff !important;
+  fill: currentColor !important;
+}
+
+.erp-header-extra .ant-btn.erp-btn-add-user:focus-visible {
+  outline: 2px solid var(--theme-success, #52c41a) !important;
+  outline-offset: 2px;
+}
+
+/* PROMPT #28 — filter toolbar: search focus ring + alignment polish.
+   Behaviour untouched; presentation only, page-scoped. */
+.user-management-container .um-search .ant-input-affix-wrapper:focus-within {
+  border-color: var(--theme-accent, #4f46e5) !important;
+  box-shadow: 0 0 0 2px var(--theme-focus, rgba(79, 70, 229, 0.35)) !important;
+}
+
+.user-management-container .um-filter-toolbar {
+  row-gap: 12px;
+}
+
+.user-management-container .um-filter-toolbar .um-filter-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* =====================================================================
@@ -875,5 +929,546 @@
     left: 12px;
     justify-content: center;
   }
+}
+
+/* =====================================================================
+   PROMPT #26 — Main User Management table professional redesign.
+   Scoped to this page only (.user-management-container /
+   .crystal-table-card). Global erp-table.css is NOT touched.
+   ===================================================================== */
+
+/* ── Compact ERP density: tighter but readable rows ── */
+.crystal-table-card .ant-table-tbody > tr > td {
+  padding: 9px 12px !important;
+}
+
+/* ── Inline cell icon+text alignment ── */
+.user-management-container .um-cell-inline {
+  flex-wrap: nowrap;
+}
+
+.user-management-container .um-cell-icon {
+  color: var(--theme-text-secondary, #64748b);
+  font-size: 12px;
+  flex: none;
+}
+
+[data-theme='dark'] .user-management-container .um-cell-icon {
+  color: var(--theme-text-secondary, #94a3b8);
+}
+
+.user-management-container .um-cell-icon-success {
+  color: var(--theme-icon-success, #3fb950);
+}
+
+.user-management-container .um-cell-icon-info {
+  color: var(--theme-icon-info, #54aeff);
+}
+
+.user-management-container .um-cell-strong {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* ── User column secondary identifier ── */
+.user-cell-username {
+  font-size: 12px;
+  color: var(--theme-text-secondary, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-theme='dark'] .user-cell-username {
+  color: var(--theme-text-secondary, #94a3b8);
+}
+
+/* ── PROMPT #29 — composite User cell: Name / Email / Phone stacked ── */
+.user-management-container .um-user-composite {
+  align-items: center;
+}
+
+.user-management-container .um-user-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.user-management-container .um-user-lines .user-cell-name {
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-cell-username-inline {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--theme-text-secondary, #64748b);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .user-cell-username-inline {
+  color: var(--theme-text-secondary, #94a3b8);
+}
+
+.user-management-container .um-user-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  min-width: 0;
+}
+
+.user-management-container .um-user-lines .um-email-link {
+  font-size: 12px;
+}
+
+.user-management-container .um-phone-line {
+  color: var(--theme-text-secondary, #64748b);
+}
+
+[data-theme='dark'] .user-management-container .um-phone-line {
+  color: var(--theme-text-secondary, #94a3b8);
+}
+
+.user-management-container .um-phone-line .um-cell-icon {
+  color: inherit;
+}
+
+.user-management-container .um-phone-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── MERGE — Employee ID line inside the composite User cell ── */
+.user-management-container .um-id-line {
+  color: var(--theme-text-secondary, #64748b);
+}
+
+[data-theme='dark'] .user-management-container .um-id-line {
+  color: var(--theme-text-secondary, #94a3b8);
+}
+
+.user-management-container .um-id-line .um-cell-icon {
+  color: inherit;
+}
+
+.user-management-container .um-id-text {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── MERGE — compact date + time stacks ── */
+.user-management-container .um-date-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.user-management-container .um-time-sub {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--theme-text-muted, #94a3b8);
+  padding-left: 18px;
+  white-space: nowrap;
+}
+
+/* ── MERGE — More Filters dropdown panel ── */
+.um-more-filters-menu {
+  background: var(--theme-surface-elevated, #ffffff);
+  border: 1px solid var(--theme-border, #e4e7f1);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 12px;
+  min-width: 250px;
+}
+
+.um-more-filters-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--theme-text-secondary, #64748b);
+  margin-bottom: 8px;
+}
+
+.um-more-filters-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.um-more-filters-label {
+  font-size: 13px;
+  color: var(--theme-text, #1e293b);
+}
+
+[data-theme='dark'] .um-more-filters-label {
+  color: var(--theme-text, #f1f5f9);
+}
+
+/* ── Email link: theme-aware blue, readable in both themes ── */
+.user-management-container .um-email-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--theme-link, #1677ff) !important;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.user-management-container .um-email-link:hover {
+  color: var(--theme-link, #1677ff) !important;
+  text-decoration: underline;
+}
+
+.user-management-container .um-email-link .um-cell-icon {
+  color: inherit;
+}
+
+.user-management-container .um-email-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Division tags: compact with ellipsis, tooltip overflow via title ── */
+.crystal-table-card .ant-table-tbody .um-div-tag {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.user-management-container .ant-table-cell-fix-right-first::after,
+.user-management-container .ant-table-cell-fix-left-last::after,
+.user-management-container .ant-table-cell-fix-right-first::before,
+.user-management-container .ant-table-cell-fix-left-last::before {
+  content: none !important;
+  box-shadow: none !important;
+}
+
+/* ── THEME-FIX-03: header inner title must inherit the strong-header color.
+   ROOT CAUSE: stale rule `.crystal-table-card .ant-table-thead > tr > th
+   .ant-table-column-title { color: <dark> }` sets the inner title div (and,
+   by inheritance, its icon + label) directly, defeating the white
+   `th` color — dark text on the dark band. Inherit restores one pattern. ── */
+.user-management-container .crystal-table-card .ant-table-thead > tr > th .ant-table-column-title,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th .ant-table-column-title {
+  color: inherit !important;
+}
+
+/* ── THEME-FIX-03: no fixed-column separator lines or ping shadows.
+   ROOT CAUSE: global erp-table.css forces
+   `.ant-table-wrapper .ant-table-cell-fix-right-first {
+      border-left: 1px solid ... !important;
+      box-shadow: ... -4px 0 8px -2px !important; }` (+ dark variant)
+   on the TD/TH itself. Neutralized page-scoped; global untouched.
+   Parity backgrounds (kept) carry the integrated look. ── */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right-first,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right,
+.user-management-container .crystal-table-card .ant-table thead tr th.ant-table-cell-fix-right-first,
+.user-management-container .crystal-table-card .ant-table thead tr th.ant-table-cell-fix-right {
+  border-left: none !important;
+  box-shadow: none !important;
+}
+
+/* ── THEME-FIX-03: single hover pattern — background tint ONLY.
+   ROOT CAUSE: two line-generators on hover — our own
+   `inset accent` bar plus global erp-table.css
+   `0 1px 0 / 0 -1px 0 inset` top/bottom lines (dark theme). Both removed
+   page-scoped; the accent-soft background tint (kept) is the hover cue. ── */
+.user-management-container .crystal-table-card .ant-table-tbody > tr:hover > td,
+.user-management-container .crystal-table-card .ant-table-tbody > tr.ant-table-row-hover > td,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-tbody > tr:hover > td,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-tbody > tr.ant-table-row-hover > td {
+  box-shadow: none !important;
+}
+.user-management-container .ant-table-cell-fix-right-first::after,
+.user-management-container .ant-table-cell-fix-left-last::after,
+.user-management-container .ant-table-cell-fix-right-first::before,
+.user-management-container .ant-table-cell-fix-left-last::before {
+  content: none !important;
+  box-shadow: none !important;
+}
+
+/* ── Restore sticky fixed Actions column — PAGE-SCOPED ONLY.
+   Root cause (proven in frontend/src/styles/erp-table.css lines 7-19):
+   the global ERP table system deliberately un-fixes ALL fixed columns
+   ERP-wide (`position: static !important; right: auto !important`) so that
+   tables scroll naturally. That global rule is intentional for every other
+   table and MUST NOT be changed. This higher-specificity override restores
+   antd sticky behavior for the User Management Actions column alone,
+   which is what makes the column sit flush at the container edge with a
+   continuous row divider instead of floating 80px short of it. ── */
+.user-management-container .crystal-table-card .ant-table thead tr th.ant-table-cell-fix-right,
+.user-management-container .crystal-table-card .ant-table thead tr th.ant-table-cell-fix-right-first {
+  position: sticky !important;
+  right: 0 !important;
+  z-index: 5 !important;
+}
+
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right-first {
+  position: sticky !important;
+  right: 0 !important;
+  z-index: 2 !important;
+}
+
+/* PROMPT MERGE — no vertical grid lines on the table (reference design).
+   The fixed Actions column keeps parity backgrounds + sticky positioning so
+   it stays integrated; the left separator border is removed. Row dividers
+   (bottom borders) + hover states remain the only separators. */
+
+/* ── Action icon buttons: subtle ghost default, semantic fill on hover.
+   Actions button group: force compact 2px gaps and zero item margins.
+   Root cause (proven via live CSSOM): global erp-table.css forces
+   `.ant-table-cell .ant-space { gap: 7px !important }` (plus item spacing),
+   inflating the 7-button group to ~234px inside a 208px column. The 39px
+   overflow expanded the table scroll area past the last column, which is
+   what left the dead gap after the fixed Actions column at max scroll.
+   This page-scoped override restores 7×24px + 6×2px = 180px ≤ 183px
+   available — global untouched. ── */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-actions-group {
+  column-gap: 2px !important;
+  row-gap: 2px !important;
+}
+
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-actions-group > .ant-space-item {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn {
+  border: 1px solid var(--theme-border, #e2e8f0) !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
+}
+
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"] { color: #0ea5e9 !important; }
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"] { color: #6366f1 !important; }
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"] { color: var(--theme-accent, #4f46e5) !important; }
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"] { color: #8b5cf6 !important; }
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"] { color: #0d9488 !important; }
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"] { color: #d97706 !important; }
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"] { color: #ef4444 !important; }
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"] { color: #22c55e !important; }
+
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"]:hover,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"]:focus-visible {
+  background: #0ea5e9 !important; border-color: #0ea5e9 !important; color: #ffffff !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"]:hover,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"]:focus-visible {
+  background: #6366f1 !important; border-color: #6366f1 !important; color: #ffffff !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"]:hover,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"]:focus-visible {
+  background: var(--theme-accent, #4f46e5) !important; border-color: var(--theme-accent, #4f46e5) !important; color: #ffffff !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"]:hover,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"]:focus-visible {
+  background: #8b5cf6 !important; border-color: #8b5cf6 !important; color: #ffffff !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"]:hover,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"]:focus-visible {
+  background: #0d9488 !important; border-color: #0d9488 !important; color: #ffffff !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"]:hover,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"]:focus-visible {
+  background: #d97706 !important; border-color: #d97706 !important; color: #ffffff !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"]:hover,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"]:focus-visible {
+  background: #ef4444 !important; border-color: #ef4444 !important; color: #ffffff !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"]:hover,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"]:focus-visible {
+  background: #22c55e !important; border-color: #22c55e !important; color: #ffffff !important;
+}
+
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn:disabled,
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn.ant-btn-disabled {
+  opacity: 0.4;
+  background: transparent !important;
+}
+
+.um-actions-group {
+  flex-wrap: nowrap !important;
+}
+
+/* =====================================================================
+   PROMPT #27 — Enterprise table visual redesign (reference-inspired).
+   Scoped to this page only. Global erp-table.css is NOT touched.
+   ===================================================================== */
+
+/* ── Table container density ── */
+.user-management-container .crystal-table-card .ant-card-body {
+  padding: 16px 18px !important;
+}
+
+/* ── STRONG HEADER — LIGHT theme: deep primary band, white text.
+   Uses theme tokens (--theme-primary-deep / --theme-on-primary), so a
+   future palette change propagates automatically. ── */
+.user-management-container .crystal-table-card .ant-table-thead > tr > th,
+.user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right,
+.user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
+.user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left,
+.user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
+.user-management-container .crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"] {
+  background: var(--theme-primary-deep, #303c8f) !important;
+  color: var(--theme-on-primary, #ffffff) !important;
+  border-bottom: 2px solid var(--theme-primary-deep, #303c8f) !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  letter-spacing: 0.3px !important;
+  padding: 10px 12px !important;
+  white-space: nowrap;
+}
+
+.user-management-container .crystal-table-card .ant-table-thead > tr > th .anticon {
+  color: inherit !important;
+}
+
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-up.active,
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-down.active {
+  color: #ffffff !important;
+}
+
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-filter-trigger {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-filter-trigger.active,
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-filter-trigger.open,
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-filter-trigger:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* ── STRONG HEADER — DARK theme: keep existing dark header language
+   (surface band + accent underline), NOT a bright header ── */
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"] {
+  background: var(--theme-surface, #181c33) !important;
+  color: var(--theme-text, #f8fafc) !important;
+  border-bottom: 2px solid var(--theme-accent, #818cf8) !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  letter-spacing: 0.3px !important;
+  padding: 10px 12px !important;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter {
+  color: rgba(248, 250, 252, 0.45) !important;
+}
+
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-up.active,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-down.active {
+  color: var(--theme-accent, #818cf8) !important;
+}
+
+/* ── Status pill: compact semantic badge, readable in both themes ── */
+.crystal-table-card .ant-table-tbody .um-status-tag {
+  margin: 0 !important;
+  border-radius: 999px !important;
+  padding: 1px 10px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.4px !important;
+  line-height: 18px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.crystal-table-card .ant-table-tbody .um-status-tag.ant-tag-success {
+  color: var(--theme-success, #15803d) !important;
+  border-color: currentColor !important;
+  background: var(--theme-success-soft, #dcfce7) !important;
+}
+
+.crystal-table-card .ant-table-tbody .um-status-tag.ant-tag-error {
+  color: var(--theme-danger, #b91c1c) !important;
+  border-color: currentColor !important;
+  background: var(--theme-danger-soft, #fee2e2) !important;
+}
+
+/* ── Division code chip inside division tags: saturated deterministic color ── */
+.crystal-table-card .ant-table-tbody .um-div-tag .um-div-code {
+  display: inline-block;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: #ffffff;
+  border-radius: 3px;
+  padding: 0 5px;
+  margin-right: 5px;
+  line-height: 16px;
+  vertical-align: 1px;
+}
+
+/* ── Roles overflow pill ── */
+.crystal-table-card .ant-table-tbody .um-overflow-pill {
+  font-weight: 700;
+}
+
+/* ── Table toolbar: Columns menu items (PROMPT #27 §4) ── */
+.user-management-container .um-column-toggle-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.user-management-container .um-column-toggle-check {
+  width: 14px;
+  flex: none;
+  color: var(--theme-accent, #4f46e5);
+}
+
+/* Hidden columns render an empty slot so every label stays left-aligned. */
+.user-management-container .um-column-toggle-check--off {
+  display: inline-block;
+}
+
+.user-management-container .um-column-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
 }
 

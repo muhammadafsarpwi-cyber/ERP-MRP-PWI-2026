@@ -6,16 +6,17 @@ import {
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
-  PlusOutlined, EditOutlined, CheckCircleOutlined, CloseCircleOutlined,
+  EditOutlined, CheckCircleOutlined, CloseCircleOutlined,
   KeyOutlined, EyeInvisibleOutlined, EyeTwoTone, UserOutlined,
-  SearchOutlined, ReloadOutlined, TeamOutlined,
+  SearchOutlined, ReloadOutlined, TeamOutlined, FilterOutlined,
   SafetyCertificateOutlined, ExclamationCircleOutlined,
   MailOutlined, PhoneOutlined, IdcardOutlined, FormOutlined,
   CameraOutlined, DeleteOutlined, DownloadOutlined,
   FilePdfOutlined, FileExcelOutlined, UploadOutlined,
   MinusOutlined, EyeOutlined, CloseOutlined, UserAddOutlined,
   ClockCircleOutlined, SettingOutlined, TagOutlined, BankOutlined,
-  ApartmentOutlined, CalendarOutlined,
+  ApartmentOutlined, CalendarOutlined, TableOutlined, CheckOutlined,
+  UsergroupAddOutlined, UnlockOutlined, LockOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -55,6 +56,59 @@ const formatDate = (dateStr?: string | null): string => {
   const d = dayjs(dateStr);
   return d.isValid() ? d.format('DD MMM YYYY') : '-';
 };
+
+/**
+ * Deterministic color mapping for Division tags.
+ * Uses a hash of the division code/name to ensure the same division
+ * always gets the same color across renders.
+ */
+const DIVISION_TAG_COLORS = [
+  'blue', 'green', 'orange', 'purple', 'cyan', 'magenta', 'gold', 'lime', 'geekblue', 'volcano',
+] as const;
+
+type DivisionTagColor = (typeof DIVISION_TAG_COLORS)[number] | 'default';
+
+function getDivisionColor(divisionCodeOrName?: string | null): DivisionTagColor {
+  if (!divisionCodeOrName) return 'default';
+  let hash = 0;
+  for (let i = 0; i < divisionCodeOrName.length; i++) {
+    hash = ((hash << 5) - hash) + divisionCodeOrName.charCodeAt(i);
+    hash |= 0;
+  }
+  return DIVISION_TAG_COLORS[Math.abs(hash) % DIVISION_TAG_COLORS.length];
+}
+
+/**
+ * Saturated companion palette for the division code chip (white text).
+ * Same hash index as getDivisionColor — same division always maps to the
+ * same pair. Darker preset shades keep white text readable in both themes.
+ */
+const DIVISION_SOLID_COLORS = [
+  '#1677ff', '#389e0d', '#d46b08', '#531dab', '#08979c',
+  '#c41d7f', '#ad6800', '#5b8c00', '#1d39c4', '#d4380d',
+] as const;
+
+function getDivisionSolidColor(divisionCodeOrName?: string | null): string {
+  if (!divisionCodeOrName) return '#64748b';
+  let hash = 0;
+  for (let i = 0; i < divisionCodeOrName.length; i++) {
+    hash = ((hash << 5) - hash) + divisionCodeOrName.charCodeAt(i);
+    hash |= 0;
+  }
+  return DIVISION_SOLID_COLORS[Math.abs(hash) % DIVISION_SOLID_COLORS.length];
+}
+
+/**
+ * Derives a compact deterministic code chip from a division name.
+ * Multi-word names use word initials (up to 3); single-word names use
+ * the first 3 characters. Display-only — source data is untouched.
+ */
+function getDivisionShortCode(divisionName?: string | null): string {
+  if (!divisionName) return 'DIV';
+  const words = divisionName.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words.slice(0, 3).map((w) => w[0]).join('').toUpperCase();
+}
 
 export interface ErpUser {
   id: string;
@@ -138,6 +192,9 @@ const UserManagement: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  /** PROMPT #27 §4 — column visibility for the table toolbar. Column keys the
+   *  reviewer has hidden; `actions` is never hideable (see `toggleColumn`). */
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [exportLoading, setExportLoading] = useState(false);
 
   // Modals visibility
@@ -1058,26 +1115,32 @@ const UserManagement: React.FC = () => {
       {can('admin.users.create') && (
         <Button
           type="primary"
-          icon={<PlusOutlined />}
+          icon={<UserAddOutlined />}
           onClick={openCreateModal}
           className="erp-header-action-btn erp-btn-add-user"
           size="middle"
+          aria-label="Add User"
         >
           Add User
         </Button>
       )}
       <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
-        <Button icon={<DownloadOutlined />} loading={exportLoading} className="erp-header-action-btn">
-          Export
-        </Button>
+        <Button
+          icon={<DownloadOutlined />}
+          loading={exportLoading}
+          className="erp-header-action-btn"
+          aria-label="Export users"
+          title="Export users as PDF or Excel/CSV"
+        />
       </Dropdown>
-      <Button
-        icon={<ReloadOutlined />}
-        onClick={() => fetchUsers(page, search || undefined, statusFilter)}
-        className="erp-header-action-btn"
-      >
-        Refresh
-      </Button>
+      <Tooltip title="Reload user list">
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => fetchUsers(page, search || undefined, statusFilter)}
+          className="erp-header-action-btn"
+          aria-label="Refresh user list"
+        />
+      </Tooltip>
     </Space>
   );
 
@@ -1090,10 +1153,10 @@ const UserManagement: React.FC = () => {
         </Space>
       ),
       key: 'user',
-      width: 280,
+      width: 300,
       sorter: (a, b) => (a.displayName || '').localeCompare(b.displayName || ''),
       render: (_, record) => (
-        <div className="user-cell-meta">
+        <div className="user-cell-meta um-user-composite">
           <Tooltip title="Click to view or change photo">
             <div
               className="user-avatar-trigger"
@@ -1109,39 +1172,38 @@ const UserManagement: React.FC = () => {
               </div>
             </div>
           </Tooltip>
-           <div style={{ minWidth: 0 }}>
-             <div className="user-cell-name">{record.displayName}</div>
-             <div className="user-cell-email">
-               <MailOutlined style={{ marginRight: 4, color: 'var(--theme-text-muted, #94a3b8)' }} />
-               {record.email}
+           <div className="um-user-lines">
+             <div className="user-cell-name">
+               {record.displayName}
+               {record.username ? (
+                 <span className="user-cell-username-inline">@{record.username}</span>
+               ) : null}
              </div>
+             {record.employeeId ? (
+               <span className="um-user-line um-id-line" title={record.employeeId}>
+                 <IdcardOutlined className="um-cell-icon" />
+                 <span className="um-id-text">{record.employeeId}</span>
+               </span>
+             ) : null}
+             {record.email ? (
+               <a className="um-email-link um-user-line" href={`mailto:${record.email}`} title={record.email}>
+                 <MailOutlined className="um-cell-icon" />
+                 <span className="um-email-text">{record.email}</span>
+               </a>
+             ) : (
+               <Text type="secondary" className="um-user-line">-</Text>
+             )}
+             {record.phone ? (
+               <span className="um-user-line um-phone-line" title={record.phone}>
+                 <PhoneOutlined className="um-cell-icon" />
+                 <span className="um-phone-text">{record.phone}</span>
+               </span>
+             ) : (
+               <Text type="secondary" className="um-user-line">-</Text>
+             )}
            </div>
         </div>
       ),
-    },
-    {
-      title: (
-        <Space size={6}>
-          <IdcardOutlined />
-          <span>Employee ID</span>
-        </Space>
-      ),
-      dataIndex: 'employeeId',
-      key: 'employeeId',
-      width: 140,
-      render: (v: string) => v || <Text type="secondary">-</Text>,
-    },
-    {
-      title: (
-        <Space size={6}>
-          <PhoneOutlined style={{ color: 'var(--theme-text-secondary, #64748b)' }} />
-          <span>Phone</span>
-        </Space>
-      ),
-      dataIndex: 'phone',
-      key: 'phone',
-      width: 130,
-      render: (v: string) => v || <Text type="secondary">-</Text>,
     },
     {
       title: (
@@ -1151,42 +1213,15 @@ const UserManagement: React.FC = () => {
         </Space>
       ),
       key: 'company',
-      width: 170,
+      width: 180,
       render: (_, record) => {
         const cName = record.defaultCompany?.trade_name || record.defaultCompany?.tradeName || record.defaultCompany?.legal_name;
         return (
-          <Tag color="cyan" style={{ borderRadius: 4, fontWeight: 500 }}>
+          <Tag icon={<BankOutlined />} color="cyan" style={{ borderRadius: 4, fontWeight: 500, margin: 0 }}>
             {cName || 'PakWiz Industries'}
           </Tag>
         );
       },
-    },
-    {
-      title: (
-        <Space size={6}>
-          <SafetyCertificateOutlined />
-          <span>Roles</span>
-        </Space>
-      ),
-      key: 'roles',
-      width: 260,
-      render: (_, record) => (
-        <Space size={[4, 4]} wrap>
-          {record.userRoles?.length ? (
-            record.userRoles.map(ur => (
-              <Tag
-                key={ur.id}
-                color={ROLE_COLORS[ur.role?.roleCode || ''] || 'default'}
-                className="role-pill"
-              >
-                {ur.role?.roleCode || 'Unknown'}
-              </Tag>
-            ))
-          ) : (
-            <Text type="secondary" style={{ fontSize: 12 }}>No roles</Text>
-          )}
-        </Space>
-      ),
     },
     {
       title: (
@@ -1226,9 +1261,16 @@ const UserManagement: React.FC = () => {
             {divScopes.slice(0, 3).map((s: any) => (
               <Tag
                 key={s.id}
-                color="cyan"
+                color={getDivisionColor(s.division?.divisionCode || s.division?.code || s.division?.name || '')}
+                className="um-div-tag"
                 style={{ borderRadius: 4, fontSize: 11, margin: 0 }}
               >
+                <span
+                  className="um-div-code"
+                  style={{ background: getDivisionSolidColor(s.division?.divisionCode || s.division?.code || s.division?.name || '') }}
+                >
+                  {getDivisionShortCode(s.division?.name || s.division?.code)}
+                </span>
                 {s.division?.name || s.division?.code || 'Division'}
               </Tag>
             ))}
@@ -1246,12 +1288,53 @@ const UserManagement: React.FC = () => {
     {
       title: (
         <Space size={6}>
+          <SafetyCertificateOutlined />
+          <span>Roles</span>
+        </Space>
+      ),
+      key: 'roles',
+      width: 200,
+      render: (_, record) => {
+        const roles = record.userRoles || [];
+        const visible = roles.length > 3 ? roles.slice(0, 2) : roles;
+        const hidden = roles.length > 3 ? roles.slice(2) : [];
+        return (
+          <Space size={[4, 4]} wrap>
+            {roles.length ? (
+              <>
+                {visible.map(ur => (
+                  <Tag
+                    key={ur.id}
+                    color={ROLE_COLORS[ur.role?.roleCode || ''] || 'default'}
+                    className="role-pill"
+                  >
+                    {ur.role?.roleCode || 'Unknown'}
+                  </Tag>
+                ))}
+                {hidden.length > 0 && (
+                  <Tooltip title={hidden.map(h => h.role?.roleCode || 'Unknown').join(', ')}>
+                    <Tag className="role-pill um-overflow-pill" style={{ cursor: 'pointer' }}>
+                      +{hidden.length}
+                    </Tag>
+                  </Tooltip>
+                )}
+              </>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 12 }}>No roles</Text>
+            )}
+          </Space>
+        );
+      },
+    },
+    {
+      title: (
+        <Space size={6}>
           <ClockCircleOutlined />
           <span>Last Login</span>
         </Space>
       ),
       key: 'lastLogin',
-      width: 130,
+      width: 150,
       sorter: (a, b) => {
         const da = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0;
         const db = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
@@ -1261,40 +1344,16 @@ const UserManagement: React.FC = () => {
         if (!record.lastLoginAt) return <Text type="secondary"><ClockCircleOutlined style={{ marginRight: 4 }} />Never</Text>;
         return (
           <Tooltip title={dayjs(record.lastLoginAt).format('DD MMM YYYY, HH:mm')}>
-            <Space size={4}>
-              <ClockCircleOutlined style={{ color: 'var(--theme-icon-success, #3fb950)' }} />
-              <Text style={{ fontSize: 13 }}>{formatDate(record.lastLoginAt)}</Text>
-            </Space>
+            <div className="um-date-stack">
+              <Space size={4} className="um-cell-inline">
+                <ClockCircleOutlined className="um-cell-icon um-cell-icon-success" />
+                <Text style={{ fontSize: 13 }}>{formatDate(record.lastLoginAt)}</Text>
+              </Space>
+              <span className="um-time-sub">{dayjs(record.lastLoginAt).format('HH:mm')}</span>
+            </div>
           </Tooltip>
         );
       },
-    },
-    {
-      title: (
-        <Space size={6}>
-          <CheckCircleOutlined />
-          <span>Status</span>
-        </Space>
-      ),
-      dataIndex: 'status',
-      key: 'status',
-      width: 110,
-      filters: [
-        { text: 'Active', value: 'ACTIVE' },
-        { text: 'Inactive', value: 'INACTIVE' },
-      ],
-      onFilter: (value, record) => record.status === value,
-       render: (s: string, record) => (
-        <Badge
-          status={s === 'ACTIVE' ? 'success' : 'error'}
-          text={
-            <Space size={4}>
-              <CheckCircleOutlined style={{ color: s === 'ACTIVE' ? 'var(--theme-icon-success, #3fb950)' : 'var(--theme-icon-danger, #f85149)' }} />
-              <Text style={{ fontSize: 12, fontWeight: 500 }}>{s}</Text>
-            </Space>
-          }
-        />
-      ),
     },
     {
       title: (
@@ -1312,10 +1371,45 @@ const UserManagement: React.FC = () => {
         return da - db;
       },
       render: (v: string) => (
-        <Space size={4}>
-          <ClockCircleOutlined style={{ color: 'var(--theme-icon-info, #54aeff)' }} />
-          <Text style={{ fontSize: 13 }}>{formatDate(v)}</Text>
+        <Tooltip title={dayjs(v).isValid() ? dayjs(v).format('DD MMM YYYY, HH:mm') : undefined}>
+          <div className="um-date-stack">
+            <Space size={4} className="um-cell-inline">
+              <CalendarOutlined className="um-cell-icon um-cell-icon-info" />
+              <Text style={{ fontSize: 13 }}>{formatDate(v)}</Text>
+            </Space>
+            {dayjs(v).isValid() ? (
+              <span className="um-time-sub">{dayjs(v).format('HH:mm')}</span>
+            ) : null}
+          </div>
+        </Tooltip>
+      ),
+    },
+    {
+      title: (
+        <Space size={6}>
+          <CheckCircleOutlined />
+          <span>Status</span>
         </Space>
+      ),
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
+      align: 'center',
+      filters: [
+        { text: 'Active', value: 'ACTIVE' },
+        { text: 'Inactive', value: 'INACTIVE' },
+      ],
+      onFilter: (value, record) => record.status === value,
+       render: (s: string, record) => (
+        <Tag
+          color={s === 'ACTIVE' ? 'success' : 'error'}
+          icon={s === 'ACTIVE'
+            ? <CheckCircleOutlined style={{ color: 'var(--theme-icon-success, #3fb950)' }} />
+            : <CloseCircleOutlined style={{ color: 'var(--theme-icon-danger, #f85149)' }} />}
+          className="um-status-tag"
+        >
+          {s}
+        </Tag>
       ),
     },
     {
@@ -1326,15 +1420,18 @@ const UserManagement: React.FC = () => {
         </Space>
       ),
       key: 'actions',
-      width: 210,
+      width: 208,
+      align: 'center',
       fixed: 'right',
       render: (_, record) => (
-        <Space size={4}>
+        <Space size={4} className="um-actions-group">
           <Tooltip title="View Profile">
             <Button
               type="text"
               size="small"
-              icon={<EyeOutlined style={{ color: '#0ea5e9' }} />}
+              className="um-action-btn"
+              data-action="view"
+              icon={<EyeOutlined />}
               onClick={() => openViewModal(record)}
             />
           </Tooltip>
@@ -1342,18 +1439,35 @@ const UserManagement: React.FC = () => {
             <Button
               type="text"
               size="small"
-              icon={<CameraOutlined style={{ color: '#6366f1' }} />}
+              className="um-action-btn"
+              data-action="photo"
+              icon={<CameraOutlined />}
               onClick={() => openAvatarModal(record)}
             />
           </Tooltip>
           {can('admin.users.update') && (
             <Tooltip title="Edit User">
-              <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+              <Button
+                type="text"
+                size="small"
+                className="um-action-btn"
+                data-action="edit"
+                icon={<EditOutlined />}
+                onClick={() => openEditModal(record)}
+              />
             </Tooltip>
           )}
           {can('admin.users.assign_roles') && (
             <Tooltip title="Manage Roles">
-              <Button type="text" size="small" icon={<SafetyCertificateOutlined />} aria-label="Roles" onClick={() => openRoleModal(record)} />
+              <Button
+                type="text"
+                size="small"
+                className="um-action-btn"
+                data-action="roles"
+                icon={<UsergroupAddOutlined />}
+                aria-label="Roles"
+                onClick={() => openRoleModal(record)}
+              />
             </Tooltip>
           )}
           {can('admin.users.manage_scope') && (
@@ -1361,6 +1475,8 @@ const UserManagement: React.FC = () => {
               <Button
                 type="text"
                 size="small"
+                className="um-action-btn"
+                data-action="division"
                 icon={<ApartmentOutlined />}
                 aria-label="Division Access"
                 data-testid="user-division-access"
@@ -1375,7 +1491,14 @@ const UserManagement: React.FC = () => {
                 onConfirm={() => openResetModal(record)}
                 okText="Reset"
               >
-                <Button type="text" size="small" icon={<KeyOutlined />} />
+                <Button
+                  type="text"
+                  size="small"
+                  className="um-action-btn"
+                  data-action="reset"
+                  icon={<KeyOutlined />}
+                  aria-label="Reset password"
+                />
               </Popconfirm>
             </Tooltip>
           )}
@@ -1387,7 +1510,15 @@ const UserManagement: React.FC = () => {
                 okText="Deactivate"
                 okButtonProps={{ danger: true }}
               >
-                <Button type="text" size="small" danger icon={<CloseCircleOutlined />} />
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  className="um-action-btn"
+                  data-action="deactivate"
+                  icon={<LockOutlined />}
+                  aria-label="Deactivate user"
+                />
               </Popconfirm>
             </Tooltip>
           )}
@@ -1398,7 +1529,14 @@ const UserManagement: React.FC = () => {
                 onConfirm={() => handleActivate(record.id)}
                 okText="Activate"
               >
-                <Button type="text" size="small" icon={<CheckCircleOutlined />} style={{ color: 'var(--theme-icon-success, #3fb950)' }} />
+                <Button
+                  type="text"
+                  size="small"
+                  className="um-action-btn"
+                  data-action="activate"
+                  icon={<UnlockOutlined />}
+                  aria-label="Activate user"
+                />
               </Popconfirm>
             </Tooltip>
           )}
@@ -1406,6 +1544,28 @@ const UserManagement: React.FC = () => {
       ),
     },
   ];
+
+  /** Columns after the reviewer's visibility choices are applied. The `actions`
+   *  column is fixed-right and is never hideable. */
+  const visibleColumns = hiddenColumns.length
+    ? columns.filter((c) => c.key === 'actions' || !hiddenColumns.includes(String(c.key)))
+    : columns;
+
+  const toggleColumn = (key: string) => {
+    if (key === 'actions') return;
+    setHiddenColumns((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  };
+
+  /** PROMPT #27 §4 — clears the existing filters (search + status) and the
+   *  column visibility choices. Resets state only; no data mutation. */
+  const resetTableFilters = () => {
+    setSearch('');
+    setStatusFilter(undefined);
+    setPage(1);
+    setHiddenColumns([]);
+  };
 
   return (
     <div className="user-management-container">
@@ -1505,7 +1665,7 @@ const UserManagement: React.FC = () => {
           </Space>
         }
       >
-        <Row style={{ marginBottom: 16 }} justify="space-between" align="middle" gutter={[12, 12]}>
+        <Row className="um-filter-toolbar" style={{ marginBottom: 16 }} justify="space-between" align="middle" gutter={[12, 12]}>
           <Col xs={24} sm={16} md={12}>
             <Space style={{ width: '100%' }} wrap>
               <Input
@@ -1516,23 +1676,103 @@ const UserManagement: React.FC = () => {
                 onPressEnter={(e) => handleSearch((e.target as HTMLInputElement).value)}
                 style={{ width: 260 }}
                 allowClear
+                aria-label="Search users"
+                className="um-search"
               />
-              <Select
-                placeholder="Filter by Status"
-                value={statusFilter}
-                onChange={(v) => { setStatusFilter(v); setPage(1); }}
-                allowClear
-                style={{ width: 150 }}
+              <Dropdown
+                trigger={['click']}
+                placement="bottomLeft"
+                popupRender={() => (
+                  <div className="um-more-filters-menu">
+                    <div className="um-more-filters-title">Filters</div>
+                    <div className="um-more-filters-row">
+                      <span className="um-more-filters-label">Status</span>
+                      <Select
+                        placeholder="All statuses"
+                        value={statusFilter}
+                        onChange={(v) => { setStatusFilter(v); setPage(1); }}
+                        allowClear
+                        style={{ width: 180 }}
+                        aria-label="Filter by status"
+                      >
+                        <Select.Option value="ACTIVE">Active Users</Select.Option>
+                        <Select.Option value="INACTIVE">Inactive Users</Select.Option>
+                      </Select>
+                    </div>
+                    {statusFilter ? (
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => { setStatusFilter(undefined); setPage(1); }}
+                      >
+                        Clear filters
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
               >
-                <Select.Option value="ACTIVE">Active Users</Select.Option>
-                <Select.Option value="INACTIVE">Inactive Users</Select.Option>
-              </Select>
+                <Button icon={<FilterOutlined />} aria-label="More Filters">
+                  More Filters{statusFilter ? ' (1)' : ''}
+                </Button>
+              </Dropdown>
             </Space>
           </Col>
           <Col xs={24} sm={8} md={12} style={{ textAlign: 'right' }}>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              Showing {users.length} of {total} registered users
-            </Text>
+            <Space
+              wrap
+              className="um-filter-right"
+              style={{ width: '100%', justifyContent: 'flex-end' }}
+            >
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                Showing {users.length} of {total} registered users
+              </Text>
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: columns
+                    .filter((c) => c.key !== 'actions')
+                    .map((c) => {
+                      const colKey = String(c.key);
+                      const hidden = hiddenColumns.includes(colKey);
+                      // `title` may be a render function; only node titles are
+                      // safe to render inline as a menu label.
+                      const titleNode = typeof c.title === 'function' ? null : c.title;
+                      return {
+                        key: colKey,
+                        label: (
+                          <span className="um-column-toggle-item">
+                            {hidden ? (
+                              <span className="um-column-toggle-check um-column-toggle-check--off" />
+                            ) : (
+                              <CheckOutlined className="um-column-toggle-check" />
+                            )}
+                            <span className="um-column-toggle-label">{titleNode}</span>
+                          </span>
+                        ),
+                      };
+                    }),
+                  onClick: ({ key }) => toggleColumn(key),
+                }}
+              >
+                <Button
+                  size="small"
+                  icon={<TableOutlined />}
+                  data-testid="um-columns-menu"
+                  aria-label="Columns"
+                >
+                  Columns
+                </Button>
+              </Dropdown>
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={resetTableFilters}
+                data-testid="um-reset-filters"
+                aria-label="Reset"
+              >
+                Reset
+              </Button>
+            </Space>
           </Col>
         </Row>
 
@@ -1545,11 +1785,11 @@ const UserManagement: React.FC = () => {
           />
         ) : (
           <Table
-            columns={columns}
+            columns={visibleColumns}
             dataSource={users}
             rowKey="id"
             loading={loading}
-            scroll={{ x: 1350 }}
+            scroll={{ x: 1450 }}
             pagination={{
               current: page,
               total,

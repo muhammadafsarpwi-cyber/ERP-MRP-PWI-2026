@@ -84,6 +84,14 @@ export class Item extends BaseEntity {
   @Column({ type: 'varchar', length: 20, default: ItemStatus.ACTIVE })
   status: ItemStatus;
 
+  /**
+   * DUMMY-DATA-CLEANUP: explicit demo/test classification. Source of truth
+   * for hard-delete eligibility (name patterns only find review candidates).
+   * Optional so existing object literals/mocks keep compiling.
+   */
+  @Column({ name: 'is_demo', type: 'boolean', nullable: true, default: false })
+  isDemo?: boolean | null;
+
   /** Material Role / Usage (e.g. 'Process Component Materials' for Raw Materials) */
   @Column({ name: 'material_role_usage', type: 'varchar', length: 150, nullable: true })
   materialRoleUsage?: string | null;

@@ -33,6 +33,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { BarcodeModule } from '../barcode/barcode.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
     forwardRef(() => BarcodeModule),
+    AuditModule,
   ],
   controllers: [
     UomController, UomConversionController, ItemCategoryController, ItemRouteTypeController,

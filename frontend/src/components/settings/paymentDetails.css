@@ -1,0 +1,465 @@
+/* ==========================================================================
+   Payment Details CSS
+   100% Theme Reactive (Light/Dark Modes & Dynamic Accent Palette)
+   ========================================================================== */
+
+:root {
+  --pd-accent: var(--theme-accent, #00e5ff);
+  --pd-accent-soft: var(--theme-accent-soft, rgba(0, 229, 255, 0.16));
+  --pd-card-bg: var(--settings-surface-elevated, #ffffff);
+  --pd-card-border: var(--theme-border, #e2e8f0);
+  --pd-subcard-bg: var(--theme-surface-alt, #f8fafc);
+  --pd-subcard-border: var(--theme-border, #e2e8f0);
+  --pd-text-primary: var(--settings-text-primary, #0f172a);
+  --pd-text-secondary: var(--settings-text-secondary, #64748b);
+  --pd-text-muted: var(--settings-text-muted, #94a3b8);
+  --pd-input-bg: rgba(0, 0, 0, 0.03);
+  --pd-input-color: var(--settings-text-primary, #0f172a);
+  --pd-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+}
+
+html[data-theme='dark'],
+:root[data-theme='dark'],
+[data-theme='dark'],
+.dark {
+  --pd-card-bg: var(--settings-surface-elevated, #131d2a);
+  --pd-card-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --pd-subcard-bg: var(--theme-surface-alt, #162232);
+  --pd-subcard-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --pd-text-primary: var(--settings-text-primary, #f1f5f9);
+  --pd-text-secondary: var(--settings-text-secondary, #cbd5e1);
+  --pd-text-muted: var(--settings-text-muted, #94a3b8);
+  --pd-input-bg: rgba(0, 0, 0, 0.45);
+  --pd-input-color: #f8fafc;
+  --pd-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+}
+
+.payment-details-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 12px 32px;
+  box-sizing: border-box;
+}
+
+/* ── Section Cards ─────────────────────────────────────────────────────── */
+.payment-settings-card {
+  background: var(--pd-card-bg);
+  border: 1px solid var(--pd-card-border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.payment-settings-card:hover {
+  border-color: var(--pd-accent);
+  box-shadow: 0 4px 18px var(--pd-accent-soft);
+}
+
+.payment-settings-card-header {
+  margin-bottom: 18px;
+}
+
+.payment-settings-card-title {
+  margin: 0 0 4px 0;
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--pd-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.payment-settings-card-title-icon {
+  color: var(--pd-accent);
+  font-size: 17px;
+}
+
+.payment-settings-card-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--pd-text-secondary);
+  line-height: 1.45;
+}
+
+/* ── Methods Grid (Pick up to 2) ───────────────────────────────────────── */
+.payment-methods-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.payment-method-card {
+  background: var(--pd-subcard-bg);
+  border: 1.5px solid var(--pd-subcard-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.payment-method-card:hover {
+  border-color: var(--pd-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--pd-accent-soft);
+}
+
+.payment-method-card--selected {
+  border-color: var(--pd-accent) !important;
+  background: var(--pd-accent-soft) !important;
+  box-shadow: 0 0 0 1px var(--pd-accent), 0 4px 14px var(--pd-accent-soft) !important;
+}
+
+.payment-method-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.payment-method-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--pd-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.payment-method-card--selected .payment-method-icon-wrap {
+  background: var(--pd-accent);
+  color: var(--theme-on-accent, #ffffff);
+}
+
+.payment-method-meta {
+  min-width: 0;
+}
+
+.payment-method-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--pd-text-primary);
+  margin-bottom: 2px;
+}
+
+.payment-method-card--selected .payment-method-name {
+  color: var(--pd-accent);
+}
+
+.payment-method-subtext {
+  font-size: 11px;
+  color: var(--pd-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.payment-method-warning-icon {
+  color: #f59e0b;
+}
+
+.payment-method-selector {
+  flex-shrink: 0;
+}
+
+.payment-method-checkbox-empty {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--pd-subcard-border);
+  border-radius: 4px;
+}
+
+.payment-method-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: var(--pd-accent);
+  color: var(--theme-on-accent, #ffffff);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px var(--pd-accent-soft);
+}
+
+/* Add method button card */
+.payment-method-card--add {
+  border-style: dashed;
+  justify-content: center;
+  text-align: center;
+}
+
+.payment-method-add-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.payment-method-add-icon {
+  font-size: 16px;
+  color: var(--pd-accent);
+}
+
+/* ── Methods Summary & Links ── */
+.payment-methods-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 14px;
+  font-size: 12px;
+}
+
+.payment-methods-count-badge {
+  color: var(--pd-text-secondary);
+  font-weight: 500;
+}
+
+.payment-methods-link {
+  color: var(--pd-accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ── Live Print Preview Box ── */
+.payment-invoice-preview-box {
+  background: var(--pd-subcard-bg);
+  border: 1px solid var(--pd-subcard-border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-top: 10px;
+}
+
+.payment-preview-header {
+  margin-bottom: 12px;
+}
+
+.payment-preview-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--pd-text-muted);
+  text-transform: uppercase;
+}
+
+.payment-preview-sheet {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 16px 20px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.payment-preview-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  color: #0f172a;
+}
+
+.payment-preview-note-line {
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #1e293b;
+}
+
+.payment-preview-methods-line {
+  font-size: 11px;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.payment-preview-method-label {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.payment-preview-method-desc {
+  color: #64748b;
+}
+
+.payment-preview-footer-ref {
+  font-size: 10px;
+  font-style: italic;
+  color: #64748b;
+  border-top: 1px dashed #e2e8f0;
+  padding-top: 6px;
+  margin-top: 6px;
+}
+
+/* ── Form Inputs & Glowing Fields ── */
+.payment-settings-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.payment-button-text-group {
+  max-width: 280px;
+  margin-bottom: 0;
+}
+
+.payment-settings-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--pd-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.payment-field-icon {
+  color: var(--pd-accent);
+}
+
+.payment-text-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--pd-accent);
+}
+
+.payment-field-tag {
+  font-size: 11px;
+  color: var(--pd-text-muted);
+  font-weight: 400;
+}
+
+.payment-field-hint {
+  font-size: 11px;
+  color: var(--pd-text-muted);
+  line-height: 1.35;
+}
+
+.payment-glowing-input,
+.payment-glowing-input input,
+.payment-glowing-input.ant-input {
+  background: var(--pd-input-bg) !important;
+  color: var(--pd-input-color) !important;
+  border: 1.5px solid var(--pd-input-border) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+.payment-glowing-input:focus,
+.payment-glowing-input:focus-within,
+.payment-glowing-input.ant-input:focus {
+  border-color: var(--pd-accent) !important;
+  box-shadow: 0 0 12px var(--pd-accent-soft) !important;
+  outline: none !important;
+}
+
+/* ── Proof Toggle Card ── */
+.payment-proof-toggle-card {
+  background: var(--pd-subcard-bg);
+  border: 1px solid var(--pd-subcard-border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  transition: border-color 0.2s ease;
+}
+
+.payment-proof-toggle-card:hover {
+  border-color: var(--pd-accent);
+}
+
+.payment-proof-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.payment-proof-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--pd-accent-soft);
+  color: var(--pd-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.payment-proof-meta {
+  min-width: 0;
+}
+
+.payment-proof-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--pd-text-primary);
+  margin-bottom: 2px;
+}
+
+.payment-proof-desc {
+  font-size: 11.5px;
+  color: var(--pd-text-secondary);
+}
+
+.payment-details-container .ant-switch.ant-switch-checked {
+  background: var(--pd-accent) !important;
+}
+
+/* ── Action Bar ── */
+.payment-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 22px;
+  background: var(--pd-card-bg);
+  border: 1px solid var(--pd-card-border);
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
+.payment-btn-secondary {
+  border-radius: 8px !important;
+}
+
+.payment-save-btn {
+  background: var(--pd-accent) !important;
+  border-color: var(--pd-accent) !important;
+  color: var(--theme-on-accent, #ffffff) !important;
+  box-shadow: 0 4px 14px var(--pd-accent-soft) !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  min-width: 170px !important;
+  transition: all 0.2s ease !important;
+}
+
+.payment-save-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}

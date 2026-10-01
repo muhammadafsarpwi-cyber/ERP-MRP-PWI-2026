@@ -1,0 +1,216 @@
+/* ==========================================================================
+   Document Numbering Settings CSS
+   100% Theme Reactive (Light/Dark Modes & Dynamic Accent Palette)
+   ========================================================================== */
+
+:root {
+  --dn-accent: var(--theme-accent, #00e5ff);
+  --dn-accent-soft: var(--theme-accent-soft, rgba(0, 229, 255, 0.16));
+  --dn-card-bg: var(--settings-surface-elevated, #ffffff);
+  --dn-card-border: var(--theme-border, #e2e8f0);
+  --dn-subcard-bg: var(--theme-surface-alt, #f8fafc);
+  --dn-subcard-border: var(--theme-border, #e2e8f0);
+  --dn-text-primary: var(--settings-text-primary, #0f172a);
+  --dn-text-secondary: var(--settings-text-secondary, #64748b);
+  --dn-text-muted: var(--settings-text-muted, #94a3b8);
+  --dn-input-bg: rgba(0, 0, 0, 0.03);
+  --dn-input-color: var(--settings-text-primary, #0f172a);
+  --dn-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+}
+
+html[data-theme='dark'],
+:root[data-theme='dark'],
+[data-theme='dark'],
+.dark {
+  --dn-card-bg: var(--settings-surface-elevated, #131d2a);
+  --dn-card-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --dn-subcard-bg: var(--theme-surface-alt, #162232);
+  --dn-subcard-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --dn-text-primary: var(--settings-text-primary, #f1f5f9);
+  --dn-text-secondary: var(--settings-text-secondary, #cbd5e1);
+  --dn-text-muted: var(--settings-text-muted, #94a3b8);
+  --dn-input-bg: rgba(0, 0, 0, 0.45);
+  --dn-input-color: #f8fafc;
+  --dn-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+}
+
+.document-numbering-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 12px 32px;
+  box-sizing: border-box;
+}
+
+.doc-num-card {
+  background: var(--dn-card-bg);
+  border: 1px solid var(--dn-card-border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.doc-num-card:hover {
+  border-color: var(--dn-accent);
+  box-shadow: 0 4px 18px var(--dn-accent-soft);
+}
+
+.doc-num-card-header {
+  margin-bottom: 20px;
+}
+
+.doc-num-card-title {
+  margin: 0 0 4px 0;
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--dn-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-num-card-title-icon {
+  color: var(--dn-accent);
+  font-size: 17px;
+}
+
+.doc-num-card-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dn-text-secondary);
+  line-height: 1.45;
+}
+
+/* ── Number Formats Table ── */
+.doc-num-table {
+  width: 100%;
+  border: 1px solid var(--dn-subcard-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.doc-num-table-header {
+  display: grid;
+  grid-template-columns: 2fr 1.6fr 1.6fr 2.2fr;
+  gap: 16px;
+  padding: 12px 18px;
+  background: var(--dn-subcard-bg);
+  border-bottom: 1px solid var(--dn-subcard-border);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--dn-text-muted);
+}
+
+@media (max-width: 768px) {
+  .doc-num-table-header {
+    display: none;
+  }
+}
+
+.doc-num-rows-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-num-row {
+  display: grid;
+  grid-template-columns: 2fr 1.6fr 1.6fr 2.2fr;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--dn-subcard-border);
+  transition: background 0.15s ease;
+}
+
+.doc-num-row:last-child {
+  border-bottom: none;
+}
+
+.doc-num-row:hover {
+  background: var(--dn-subcard-bg);
+}
+
+@media (max-width: 768px) {
+  .doc-num-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 16px;
+  }
+}
+
+.doc-num-doc-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--dn-text-primary);
+}
+
+.doc-num-glowing-input,
+.doc-num-glowing-input input,
+.doc-num-glowing-input.ant-input,
+.doc-num-glowing-input.ant-input-number {
+  width: 100%;
+  background: var(--dn-input-bg) !important;
+  color: var(--dn-input-color) !important;
+  border: 1.5px solid var(--dn-input-border) !important;
+  border-radius: 8px !important;
+  font-family: monospace;
+  font-size: 13px !important;
+  transition: all 0.2s ease !important;
+}
+
+.doc-num-glowing-input:focus,
+.doc-num-glowing-input:focus-within,
+.doc-num-glowing-input.ant-input:focus,
+.doc-num-glowing-input.ant-input-number-focused {
+  border-color: var(--dn-accent) !important;
+  box-shadow: 0 0 12px var(--dn-accent-soft) !important;
+  outline: none !important;
+}
+
+.doc-num-preview-tag {
+  background: var(--dn-accent-soft) !important;
+  border: 1px solid var(--dn-accent) !important;
+  color: var(--dn-accent) !important;
+  font-family: monospace;
+  font-size: 12px !important;
+  font-weight: 700;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+  letter-spacing: 0.05em;
+}
+
+/* ── Action Bar ── */
+.doc-num-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 22px;
+  background: var(--dn-card-bg);
+  border: 1px solid var(--dn-card-border);
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
+.doc-num-btn-secondary {
+  border-radius: 8px !important;
+}
+
+.doc-num-save-btn {
+  background: var(--dn-accent) !important;
+  border-color: var(--dn-accent) !important;
+  color: var(--theme-on-accent, #ffffff) !important;
+  box-shadow: 0 4px 14px var(--dn-accent-soft) !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  min-width: 210px !important;
+  transition: all 0.2s ease !important;
+}
+
+.doc-num-save-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}

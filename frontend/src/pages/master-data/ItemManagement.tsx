@@ -720,6 +720,44 @@ const ItemManagement: React.FC = () => {
   const [showFilters, setShowFilters] = useState(savedFilters?.showFilters ?? false);
   const [deleteTargetItem, setDeleteTargetItem] = useState<Item | null>(null);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deleteEligibility, setDeleteEligibility] = useState<{
+    totalDependents: number;
+    totalProtected: number;
+    reason: string;
+    companyName?: string | null;
+  } | null>(null);
+
+  const openDeleteModal = (record: Item) => {
+    setDeleteTargetItem(record);
+    setDeleteEligibility(null);
+    setDeleteModalVisible(true);
+    // Pre-delete eligibility preview for the confirmation dialog (§8).
+    // Best-effort: the modal still works with the static description on failure.
+    apiService
+      .get<{ data: {
+        totalDependents: number;
+        totalProtected: number;
+        reason: string;
+        companyName?: string | null;
+      } }>(`/master-data/items/${record.id}/delete-eligibility`)
+      .then((res) => setDeleteEligibility(res.data ?? null))
+      .catch(() => setDeleteEligibility(null));
+  };
+
+  const buildDeleteDescription = (): string => {
+    const base =
+      'Permanent deletion is blocked automatically if this item is referenced by BOM, production transactions, stock balances, routing, or inspection logs.';
+    if (!deleteTargetItem) return base;
+    if (!deleteEligibility) return `${base} Loading dependency check…`;
+    const parts = [
+      `Record: ${deleteTargetItem.itemCode} — ${deleteTargetItem.name}`,
+      deleteEligibility.companyName ? `Company: ${deleteEligibility.companyName}` : null,
+      `Dependencies: ${deleteEligibility.totalDependents} eligible`,
+      `Protected Transactions: ${deleteEligibility.totalProtected}`,
+      deleteEligibility.reason,
+    ].filter(Boolean);
+    return parts.join(' | ');
+  };
 
   const [fDivision, setFDivision] = useState<string | undefined>(savedFilters?.fDivision);
   const [fSection, setFSection] = useState<string | undefined>(savedFilters?.fSection);
@@ -3076,8 +3114,7 @@ const ItemManagement: React.FC = () => {
               danger: true,
               label: 'Delete Item',
               onClick: () => {
-                setDeleteTargetItem(record);
-                setDeleteModalVisible(true);
+                openDeleteModal(record);
               },
             }
           ] : []),
@@ -6635,13 +6672,14 @@ const ItemManagement: React.FC = () => {
         itemType="Item"
         itemCode={deleteTargetItem?.itemCode}
         itemName={deleteTargetItem?.name}
-        description="Permanent deletion is blocked automatically if this item is referenced by BOM, production transactions, stock balances, routing, or inspection logs."
+        description={buildDeleteDescription()}
         onConfirm={async () => {
           if (!deleteTargetItem) return;
           await apiService.delete(`/master-data/items/${deleteTargetItem.id}`);
           message.success(`Item '${deleteTargetItem.itemCode}' deleted successfully`);
           setDeleteModalVisible(false);
           setDeleteTargetItem(null);
+          setDeleteEligibility(null);
           fetchItems({ force: true });
         }}
         onForceDelete={async () => {
@@ -6650,12 +6688,14 @@ const ItemManagement: React.FC = () => {
           message.success(`Item '${deleteTargetItem.itemCode}' and all linked sample records permanently purged`);
           setDeleteModalVisible(false);
           setDeleteTargetItem(null);
+          setDeleteEligibility(null);
           fetchItems({ force: true });
         }}
         forceDeleteLabel="Admin Force Delete (Purge Dummy/Test Data)"
         onCancel={() => {
           setDeleteModalVisible(false);
           setDeleteTargetItem(null);
+          setDeleteEligibility(null);
         }}
         onDeactivateInstead={
           deleteTargetItem && deleteTargetItem.status === 'ACTIVE'

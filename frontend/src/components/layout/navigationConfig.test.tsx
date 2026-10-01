@@ -80,6 +80,13 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'whatsapp.settings.manage', 'whatsapp.template.manage', 'whatsapp.log.view',
   // visitor management (erp_00069 seeds)
   'visitor.entry.view', 'location.view',
+  // PROMPT #01-FIX — the settings.* codes are deliberately NOT listed here:
+  // this array is the canonical list of codes the RPC migrations actually seed,
+  // and `settings.view` / `settings.edit` / `settings.sensitive.manage` /
+  // `settings.organization.manage` / `settings.audit.view` do not exist in the
+  // backend catalog yet. Declaring them here would falsely claim they are
+  // granted to some role. The settings area falls back to authentication-only
+  // access instead (`SEEDED_SETTINGS_PERMISSIONS`).
 ];
 
 /** Every authenticated route registered in App.tsx / Production routers. */
@@ -93,7 +100,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/customers',
   '/sales/analytics',
   '/sales/finished-goods',
-  '/sales/quotations', '/sales/orders', '/sales/deliveries',
+  '/sales/quotations', '/sales/orders', '/sales/orders-division-review', '/sales/deliveries',
   '/sales/invoices', '/sales/returns',
   '/inventory', '/inventory/policies', '/inventory/batches',
   '/inventory/serial-numbers',

@@ -29,6 +29,7 @@
   --theme-surface-elevated: #ffffff;
   --theme-bg-card: var(--theme-surface-elevated, #ffffff);
   --theme-bg-secondary: var(--theme-surface-alt, #f7f8fd);
+  --theme-bg-subtle: #f1f3f9;
   --theme-chart-grid: rgba(15, 23, 42, 0.08);
   --theme-chart-axis: rgba(15, 23, 42, 0.5);
   --theme-icon-primary: #58a6ff;
@@ -42,6 +43,17 @@
   --theme-icon-indigo: #93a6ff;
   --theme-icon-violet: #a98cff;
   --theme-icon-neutral: #9aa8bc;
+
+  /* System Settings shell tokens — dynamic with palette accent */
+  --settings-accent: var(--theme-accent, #4f46e5);
+  --settings-accent-soft: var(--theme-accent-soft, rgba(79, 70, 229, 0.12));
+  --settings-accent-border: rgba(79, 70, 229, 0.38);
+  --settings-surface: var(--theme-surface, #ffffff);
+  --settings-surface-elevated: var(--theme-surface-elevated, #ffffff);
+  --settings-border: var(--theme-border, #e4e7f1);
+  --settings-text-primary: rgba(15, 23, 42, 0.92);
+  --settings-text-secondary: rgba(15, 23, 42, 0.68);
+  --settings-text-muted: rgba(15, 23, 42, 0.45);
 }
 
 html[data-theme='dark'] {
@@ -77,6 +89,7 @@ html[data-theme='dark'] {
   --theme-surface-elevated: #202544;
   --theme-bg-card: var(--theme-surface-elevated, #202544);
   --theme-bg-secondary: var(--theme-surface-alt, #202544);
+  --theme-bg-subtle: #1a1f3a;
   --theme-chart-grid: rgba(226, 232, 255, 0.09);
   --theme-chart-axis: rgba(199, 204, 235, 0.5);
   --theme-icon-primary: #7cc4ff;
@@ -90,6 +103,17 @@ html[data-theme='dark'] {
   --theme-icon-indigo: #aeb9ff;
   --theme-icon-violet: #c3a9ff;
   --theme-icon-neutral: #b6c2d6;
+
+  /* System Settings shell — dark theme dynamic tokens */
+  --settings-accent: var(--theme-accent, #818cf8);
+  --settings-accent-soft: var(--theme-accent-soft, rgba(129, 140, 248, 0.18));
+  --settings-accent-border: rgba(129, 140, 248, 0.42);
+  --settings-surface: var(--theme-surface, #181c33);
+  --settings-surface-elevated: var(--theme-surface-elevated, #202544);
+  --settings-border: var(--theme-border, #2a3054);
+  --settings-text-primary: rgba(226, 232, 255, 0.92);
+  --settings-text-secondary: rgba(214, 221, 244, 0.75);
+  --settings-text-muted: rgba(199, 204, 235, 0.5);
 }
 
 body {

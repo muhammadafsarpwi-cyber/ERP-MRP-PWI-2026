@@ -119,10 +119,9 @@ export class CreateCompanyDto {
   @MaxLength(20)
   numberFormat?: string;
 
-  @ApiPropertyOptional({ description: 'Logo URL' })
+  @ApiPropertyOptional({ description: 'Logo URL or data URI' })
   @IsString()
   @IsOptional()
-  @MaxLength(500)
   logoUrl?: string;
 }
 
@@ -242,9 +241,8 @@ export class UpdateCompanyDto {
   @MaxLength(20)
   numberFormat?: string;
 
-  @ApiPropertyOptional({ description: 'Logo URL' })
+  @ApiPropertyOptional({ description: 'Logo URL or data URI' })
   @IsString()
   @IsOptional()
-  @MaxLength(500)
   logoUrl?: string;
 }

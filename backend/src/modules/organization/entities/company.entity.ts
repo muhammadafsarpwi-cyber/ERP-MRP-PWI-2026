@@ -71,7 +71,7 @@ export class Company extends BaseEntity {
   @Column({ name: 'number_format', type: 'varchar', length: 20, default: '#,##0.00' })
   numberFormat: string;
 
-  @Column({ name: 'logo_url', type: 'varchar', length: 500, nullable: true })
+  @Column({ name: 'logo_url', type: 'text', nullable: true })
   logoUrl: string | null;
 
   @Column({ type: 'varchar', length: 20, default: CompanyStatus.ACTIVE })

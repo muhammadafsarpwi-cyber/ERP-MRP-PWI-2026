@@ -71,23 +71,17 @@
 
 /* Active Tab */
 .erp-workspace-tab--active {
-  background: #ffffff !important;
-  color: #4338ca !important;
+  background: var(--theme-surface, #ffffff) !important;
+  color: var(--theme-accent, #4338ca) !important;
   font-weight: 650 !important;
-  border-color: #c7d2fe !important;
-  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.08) !important;
+  border: 1.5px solid var(--theme-accent, #c7d2fe) !important;
+  border-radius: 8px 8px 0 0 !important;
+  box-shadow: 0 0 12px var(--theme-accent-soft, rgba(79, 70, 229, 0.18)) !important;
   position: relative;
 }
 
 .erp-workspace-tab--active::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 6px;
-  right: 6px;
-  height: 2.5px;
-  background: #4f46e5;
-  border-radius: 999px;
+  display: none !important;
 }
 
 /* Dark Theme Tabs */
@@ -104,14 +98,15 @@
 }
 
 [data-theme='dark'] .erp-workspace-tab--active {
-  background: #1e293b !important;
-  color: #ffffff !important;
-  border-color: #3b82f6 !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+  background: var(--theme-surface, #181c33) !important;
+  color: var(--theme-accent, #67e8f9) !important;
+  border: 1.5px solid var(--theme-accent, #38bdf8) !important;
+  border-radius: 8px 8px 0 0 !important;
+  box-shadow: 0 0 14px var(--theme-accent-soft, rgba(6, 182, 212, 0.35)) !important;
 }
 
 [data-theme='dark'] .erp-workspace-tab--active::after {
-  background: #818cf8;
+  display: none !important;
 }
 
 /* Tab Icon */

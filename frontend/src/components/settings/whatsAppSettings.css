@@ -1,0 +1,212 @@
+/* ==========================================================================
+   WhatsApp Messages Settings CSS
+   100% Theme Reactive (Light/Dark Modes & Dynamic Accent Palette)
+   ========================================================================== */
+
+:root {
+  --wa-accent: var(--theme-accent, #00e5ff);
+  --wa-accent-soft: var(--theme-accent-soft, rgba(0, 229, 255, 0.16));
+  --wa-card-bg: var(--settings-surface-elevated, #ffffff);
+  --wa-card-border: var(--theme-border, #e2e8f0);
+  --wa-subcard-bg: var(--theme-surface-alt, #f8fafc);
+  --wa-subcard-border: var(--theme-border, #e2e8f0);
+  --wa-text-primary: var(--settings-text-primary, #0f172a);
+  --wa-text-secondary: var(--settings-text-secondary, #64748b);
+  --wa-text-muted: var(--settings-text-muted, #94a3b8);
+  --wa-input-bg: rgba(0, 0, 0, 0.03);
+  --wa-input-color: var(--settings-text-primary, #0f172a);
+  --wa-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+}
+
+html[data-theme='dark'],
+:root[data-theme='dark'],
+[data-theme='dark'],
+.dark {
+  --wa-card-bg: var(--settings-surface-elevated, #131d2a);
+  --wa-card-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --wa-subcard-bg: var(--theme-surface-alt, #162232);
+  --wa-subcard-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --wa-text-primary: var(--settings-text-primary, #f1f5f9);
+  --wa-text-secondary: var(--settings-text-secondary, #cbd5e1);
+  --wa-text-muted: var(--settings-text-muted, #94a3b8);
+  --wa-input-bg: rgba(0, 0, 0, 0.45);
+  --wa-input-color: #f8fafc;
+  --wa-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+}
+
+.whatsapp-settings-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 12px 32px;
+  box-sizing: border-box;
+}
+
+.wa-settings-card {
+  background: var(--wa-card-bg);
+  border: 1px solid var(--wa-card-border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wa-settings-card:hover {
+  border-color: var(--wa-accent);
+  box-shadow: 0 4px 18px var(--wa-accent-soft);
+}
+
+.wa-settings-card-header {
+  margin-bottom: 18px;
+}
+
+.wa-settings-card-title {
+  margin: 0 0 4px 0;
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--wa-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wa-settings-card-title-icon {
+  color: var(--wa-accent);
+  font-size: 17px;
+}
+
+.wa-settings-card-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--wa-text-secondary);
+  line-height: 1.45;
+}
+
+.wa-settings-card-desc code {
+  background: var(--wa-subcard-bg);
+  border: 1px solid var(--wa-card-border);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--wa-accent);
+}
+
+/* ── Country Code Field ── */
+.wa-country-code-field {
+  max-width: 220px;
+}
+
+.wa-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wa-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--wa-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wa-field-icon {
+  color: var(--wa-accent);
+}
+
+/* ── Variables Row ── */
+.wa-variables-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.wa-variable-tag {
+  background: var(--wa-accent-soft) !important;
+  border: 1px solid var(--wa-accent) !important;
+  color: var(--wa-accent) !important;
+  border-radius: 6px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  padding: 2px 8px !important;
+}
+
+/* ── Templates Grid ── */
+.wa-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.wa-template-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wa-template-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--wa-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wa-glowing-input,
+.wa-glowing-input input,
+.wa-glowing-input.ant-input {
+  background: var(--wa-input-bg) !important;
+  color: var(--wa-input-color) !important;
+  border: 1.5px solid var(--wa-input-border) !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+  transition: all 0.2s ease !important;
+}
+
+.wa-glowing-input:focus,
+.wa-glowing-input:focus-within,
+.wa-glowing-input.ant-input:focus {
+  border-color: var(--wa-accent) !important;
+  box-shadow: 0 0 12px var(--wa-accent-soft) !important;
+  outline: none !important;
+}
+
+/* ── Action Bar ── */
+.wa-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 22px;
+  background: var(--wa-card-bg);
+  border: 1px solid var(--wa-card-border);
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
+.wa-btn-secondary {
+  border-radius: 8px !important;
+}
+
+.wa-save-btn {
+  background: var(--wa-accent) !important;
+  border-color: var(--wa-accent) !important;
+  color: var(--theme-on-accent, #ffffff) !important;
+  box-shadow: 0 4px 14px var(--wa-accent-soft) !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  min-width: 200px !important;
+  transition: all 0.2s ease !important;
+}
+
+.wa-save-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}

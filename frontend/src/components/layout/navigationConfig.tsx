@@ -56,6 +56,7 @@ TagsOutlined,
   FieldTimeOutlined,
   HistoryOutlined,
 } from '@ant-design/icons';
+import { SETTINGS_NAV_ENTRIES, SETTINGS_NAV_KEYS } from '../settings/settingsNavigationConfig';
 
 /**
  * Centralized navigation metadata — the single source of truth for every
@@ -264,6 +265,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/sales/finished-goods', label: 'Finished Goods Inventory', icon: DatabaseOutlined, color: 'purple', permissions: ['sales.orders.view'] },
       { key: '/sales/quotations', label: 'Quotations', icon: AppstoreOutlined, color: 'purple', permissions: ['sales.quotations.view'] },
       { key: '/sales/orders', label: 'Sales Orders', icon: ShoppingCartOutlined, color: 'purple', permissions: ['sales.orders.view'] },
+      { key: '/sales/orders-division-review', label: 'Order Division Review', icon: ApartmentOutlined, color: 'purple', permissions: ['sales.orders.view'] },
       { key: '/sales/deliveries', label: 'Deliveries', icon: InboxOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
       { key: '/dispatch/packages', label: 'Dispatch Packages', icon: QrcodeOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
       { key: '/sales/invoices', label: 'Invoices', icon: CalculatorOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
@@ -385,7 +387,16 @@ export const NAV_ENTRIES: NavEntry[] = [
     ],
   },
 
-  { key: '/settings', label: 'Settings', icon: SettingOutlined, color: 'neutral' },
+  // PROMPT #01-FIX — deliberately carries NO `permissions` field, exactly as
+  // before PROMPT #01. The top-level Settings entry has never been
+  // permission-gated: both `buildMenuItems` and `ProtectedRoute` treat an entry
+  // with no declared permission as protected by authentication alone, and the
+  // `settings.*` codes introduced by the Settings foundation are not present in
+  // the backend permission catalog yet (see `SEEDED_SETTINGS_PERMISSIONS`).
+  // Requiring one here made the existing Settings button disappear for every
+  // role — a regression. Per-category permissions stay in
+  // `settingsNavigationConfig.ts`.
+  { key: '/settings', label: 'Company Settings', icon: SettingOutlined, color: 'neutral' },
 
   {
     key: 'development',
@@ -529,6 +540,13 @@ function getNavItemByKey(key: string): NavItem | null {
       return entry;
     }
   }
+  // Settings categories are registered in their own registry so the main
+  // sidebar keeps a single flat "Settings" entry while `ProtectedRoute`
+  // (which resolves permissions through this lookup) still enforces each
+  // category's permission on a directly typed URL.
+  for (const settingsEntry of SETTINGS_NAV_ENTRIES) {
+    if (settingsEntry.key === key) return settingsEntry;
+  }
   return null;
 }
 
@@ -631,7 +649,14 @@ export interface ResolvedNavKeys {
 export function resolveNavActiveKeys(path: string, search = ''): ResolvedNavKeys {
   const combined = search ? `${path}?${search.replace(/^\?/, '')}` : path;
   const entry = findNavEntry(combined);
-  const selectedKey = entry ? entry.key : path;
+  // Every `/settings/*` category lives inside the settings shell, and the main
+  // sidebar exposes a single flat "Settings" entry — so all of them keep that
+  // entry selected instead of pointing the Menu at a key it never renders.
+  const selectedKey = entry
+    ? SETTINGS_NAV_KEYS.has(entry.key)
+      ? '/settings'
+      : entry.key
+    : path;
 
   const openKeys: string[] = [];
   if (entry) {

@@ -53,14 +53,14 @@ async function runFullVerify() {
   });
   console.log('MAIN TABLE HEADERS:', JSON.stringify(headerText));
 
-  // Check main table Division Access column data
+  // Check main table Division Access column data (class-based: column order
+  // changed in Prompt #29, positional indexing is no longer valid)
   const tableData = await page.evaluate(() => {
     const row = document.querySelector('.ant-table-tbody tr.ant-table-row-level-0');
     if (!row) return { error: 'No data row' };
-    const cells = row.querySelectorAll('td');
-    const divCell = cells[5]; // Division Access is column index 5
+    const tags = Array.from(row.querySelectorAll('.um-div-tag')).map(t => t.textContent.trim());
     return {
-      divAccessText: divCell ? divCell.textContent.trim() : 'NOT FOUND',
+      divAccessText: tags.length ? tags.join(' | ') : 'NOT FOUND',
     };
   });
   console.log('MAIN TABLE DIVISION ACCESS:', JSON.stringify(tableData));

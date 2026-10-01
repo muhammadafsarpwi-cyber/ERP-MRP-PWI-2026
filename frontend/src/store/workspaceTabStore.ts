@@ -67,23 +67,25 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
 
       openTab: (tabData) => {
         const { tabs } = get();
-        const canonicalId = tabData.id;
+        const isSettings = (tabData.id || tabData.pathname || '').startsWith('/settings');
+        const canonicalId = isSettings ? '/settings' : tabData.id;
         const navMeta = resolveNavMeta(tabData.pathname || canonicalId);
-        const canonicalTitle = navMeta?.label;
+        const canonicalTitle = isSettings ? 'Company Settings' : navMeta?.label;
 
         const existingIndex = tabs.findIndex((t) => t.id === canonicalId);
 
         if (existingIndex !== -1) {
           // Tab already exists! NEVER create duplicate.
           const existing = tabs[existingIndex];
-          const newTitle = tabData.title || canonicalTitle || existing.title;
+          const newTitle = isSettings ? 'Company Settings' : (tabData.title || canonicalTitle || existing.title);
           const newRoute = tabData.route;
 
           // Only update state if something actually changed to prevent render cascades
           const routeChanged = existing.route !== newRoute;
           const titleChanged = newTitle && existing.title !== newTitle;
+          const pathnameChanged = Boolean(tabData.pathname && existing.pathname !== tabData.pathname);
 
-          if (!routeChanged && !titleChanged) {
+          if (!routeChanged && !titleChanged && !pathnameChanged) {
             // Nothing changed — just ensure it's active, no set() if already active
             if (get().activeTabId !== canonicalId) {
               set({ activeTabId: canonicalId });
@@ -94,6 +96,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
           const updatedTab: WorkspaceTab = {
             ...existing,
             route: newRoute,
+            pathname: tabData.pathname || existing.pathname,
             title: newTitle,
             timestamp: Date.now(),
           };
@@ -113,7 +116,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
           id: canonicalId,
           route: tabData.route,
           pathname: tabData.pathname,
-          title: tabData.title || canonicalTitle || 'Page',
+          title: isSettings ? 'Company Settings' : (tabData.title || canonicalTitle || 'Page'),
           closable: canonicalId !== '/dashboard' ? (tabData.closable ?? true) : false,
           timestamp: Date.now(),
         };

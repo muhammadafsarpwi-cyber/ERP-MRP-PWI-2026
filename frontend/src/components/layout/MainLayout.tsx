@@ -66,7 +66,14 @@ const MAINTENANCE_HEADER_META: Record<string, { title: string }> = {
   '/maintenance/reports': { title: 'Maintenance Reports' },
 };
 
-function buildMenuItems(
+/**
+ * Builds the MAIN ERP SIDEBAR menu.
+ *
+ * Exported for the PROMPT #01-FIX regression suite so the test exercises the
+ * real sidebar rule (an entry with no `permissions` is shown to every
+ * authenticated user) instead of re-implementing it. No behaviour changed.
+ */
+export function buildMenuItems(
   hasPermission: (code: string) => boolean,
   navBadges: Record<string, number> = {},
 ): MenuProps['items'] {
@@ -316,11 +323,27 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     // Immediately sync header actions and meta for the newly navigated tab
     useHeaderActions.getState().syncHeaderForActiveTab(location.pathname);
 
+    const isSettings = location.pathname.startsWith('/settings');
+    const tabId = isSettings ? '/settings' : location.pathname;
     const navMeta = resolveNavMeta(location.pathname, location.search);
-    const initialTitle = navMeta?.label || (typeof pageTitle === 'string' ? pageTitle : 'Page');
+    const initialTitle = isSettings
+      ? 'Company Settings'
+      : (navMeta?.label || (typeof pageTitle === 'string' ? pageTitle : 'Page'));
 
-    useWorkspaceTabStore.getState().openTab({
-      id: location.pathname,
+    const tabStore = useWorkspaceTabStore.getState();
+
+    // Prune any legacy or duplicate /settings/* sub-tabs so only single canonical 'Company Settings' tab remains
+    if (isSettings) {
+      const duplicateTabs = tabStore.tabs.filter(
+        (t) => t.id !== '/settings' && t.id.startsWith('/settings')
+      );
+      if (duplicateTabs.length > 0) {
+        duplicateTabs.forEach((dup) => tabStore.closeTab(dup.id));
+      }
+    }
+
+    tabStore.openTab({
+      id: tabId,
       route: `${location.pathname}${location.search}`,
       pathname: location.pathname,
       title: initialTitle,
@@ -331,6 +354,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   // If a tab has a custom dynamic header title explicitly registered for ITSELF, update the tab title
   React.useEffect(() => {
+    const isSettings = location.pathname.startsWith('/settings');
+    if (isSettings) return; // Keep Settings tab label strictly 'Company Settings'
+
     const metaForThisTab = useHeaderActions.getState().tabMetaMap[location.pathname];
     if (metaForThisTab?.title && typeof metaForThisTab.title === 'string') {
       const store = useWorkspaceTabStore.getState();
@@ -345,25 +371,31 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const handleMenuClick = (info: { key: string }) => {
     setMobileOpen(false);
     const targetPath = navPathForKey(info.key);
+    const isSettings = targetPath.startsWith('/settings');
+    const canonicalKey = isSettings ? '/settings' : targetPath;
     const navMeta = resolveNavMeta(targetPath);
     // Seamlessly focus existing tab if already opened, or navigate to open a new tab
     const existing = useWorkspaceTabStore.getState().tabs.find(
-      (t) => t.id === targetPath || t.pathname === targetPath
+      (t) => t.id === canonicalKey || t.pathname === canonicalKey
     );
     if (existing) {
-      if (navMeta?.label && existing.title !== navMeta.label) {
+      if (isSettings) {
+        useWorkspaceTabStore.getState().activateTab(existing.id);
+        navigate(existing.route || targetPath);
+      } else if (navMeta?.label && existing.title !== navMeta.label) {
         useWorkspaceTabStore.getState().openTab({ ...existing, title: navMeta.label });
+        navigate(existing.route);
       } else {
         useWorkspaceTabStore.getState().activateTab(existing.id);
+        navigate(existing.route);
       }
-      navigate(existing.route);
     } else {
       useWorkspaceTabStore.getState().openTab({
-        id: targetPath,
+        id: canonicalKey,
         route: targetPath,
         pathname: targetPath,
-        title: navMeta?.label || 'Page',
-        closable: targetPath !== '/dashboard',
+        title: isSettings ? 'Company Settings' : (navMeta?.label || 'Page'),
+        closable: canonicalKey !== '/dashboard',
       });
       navigate(targetPath);
     }
@@ -421,7 +453,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             style={{
               flexShrink: 0,
               padding: effectivelyCollapsed ? '14px 8px' : '14px 14px',
-              background: isLight ? 'var(--theme-surface-alt, #f1f5f9)' : 'var(--theme-primary-deep, #070b14)',
+              background: isLight ? 'var(--theme-surface-alt, #f1f5f9)' : 'var(--theme-sider-bg, var(--theme-surface, #070b14))',
               borderBottom: isLight ? '1px solid #cbd5e1' : '1px solid var(--theme-border, rgba(255, 255, 255, 0.08))',
               display: 'flex',
               alignItems: 'center',

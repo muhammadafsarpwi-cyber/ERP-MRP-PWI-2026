@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ItemService } from '../services/item.service';
 import { ItemConversionService } from '../services/item-conversion.service';
@@ -16,6 +16,15 @@ export class ItemController {
     private readonly itemService: ItemService,
     private readonly conversionService: ItemConversionService,
   ) {}
+
+  private getCompanyId(req: any): string {
+    const companyId =
+      req.erpUser?.defaultCompanyId || req.orgScopes?.[0]?.companyId || req.user?.defaultCompanyId;
+    if (!companyId) {
+      throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
+    }
+    return companyId;
+  }
 
   @Post('bulk')
   @UseGuards(PermissionGuard)
@@ -325,19 +334,48 @@ export class ItemController {
     return { success: true, data: item, message: 'Item discontinued' };
   }
 
+  @Get('cleanup/dummy-candidates')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.delete')
+  @ApiOperation({ summary: 'List dummy/test/demo delete candidates for admin review (flagged + name-pattern matches with dependency counts)' })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  async dummyCandidates(
+    @Req() req: any,
+    @Query('search') search?: string,
+    @Query('limit') limit?: number,
+  ) {
+    const data = await this.itemService.findDummyCandidates(this.getCompanyId(req), search, limit ? Number(limit) : undefined);
+    return { success: true, data, total: data.length };
+  }
+
+  @Get(':id/delete-eligibility')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.delete')
+  @ApiOperation({ summary: 'Pre-delete eligibility report: dependency tree, protected history, and delete readiness' })
+  @ApiParam({ name: 'id' })
+  async deleteEligibility(@Param('id') id: string, @Req() req: any) {
+    const data = await this.itemService.getDeleteEligibility(id, this.getCompanyId(req));
+    return { success: true, data };
+  }
+
   @Delete(':id')
   @UseGuards(PermissionGuard)
   @RequirePermission('item.delete')
-  @ApiOperation({ summary: 'Delete item (supports cascade force purge for admins with ?force=true)' })
+  @ApiOperation({ summary: 'Delete item. ?force=true cascades eligible dependents (SUPER_ADMIN only); protected transactional history always blocks with 409.' })
   @ApiParam({ name: 'id' })
-  @ApiQuery({ name: 'force', required: false, type: Boolean, description: 'Force delete item and cascade clean linked test/dummy transactions' })
-  async remove(@Param('id') id: string, @Query('force') force?: string) {
+  @ApiQuery({ name: 'force', required: false, type: Boolean, description: 'Cascade eligible dependents (SUPER_ADMIN only, never purges protected history)' })
+  async remove(@Param('id') id: string, @Req() req: any, @Query('force') force?: string) {
     const isForce = force === 'true' || force === '1';
-    await this.itemService.remove(id, isForce);
+    await this.itemService.remove(id, {
+      companyId: this.getCompanyId(req),
+      force: isForce,
+      actor: { authUserId: req.user?.id, email: req.user?.email },
+    });
     return {
       success: true,
       message: isForce
-        ? 'Item and associated records permanently deleted'
+        ? 'Item and eligible dependent records permanently deleted'
         : 'Item deleted successfully',
     };
   }

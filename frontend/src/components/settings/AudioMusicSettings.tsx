@@ -114,7 +114,7 @@ export const AudioMusicSettings: React.FC = () => {
         style={{
           borderRadius: 12,
           marginBottom: 20,
-          background: 'var(--theme-card-bg, #ffffff)',
+          background: 'var(--theme-bg-card, var(--theme-surface-elevated))',
           boxShadow: '0 4px 16px rgba(0,0,0,0.04)',
         }}
       >
@@ -307,7 +307,7 @@ export const AudioMusicSettings: React.FC = () => {
                   : '1px solid var(--theme-border, #e2e8f0)',
                 background: activeTrackId === BUILT_IN_TRACK_ID
                   ? 'rgba(16, 185, 129, 0.06)'
-                  : 'var(--theme-card-bg, #ffffff)',
+                  : 'var(--theme-bg-card, var(--theme-surface-elevated))',
                 marginBottom: 14,
                 transition: 'all 0.2s ease',
               }}
@@ -414,7 +414,7 @@ export const AudioMusicSettings: React.FC = () => {
                             : '1px solid var(--theme-border, #e2e8f0)',
                           background: isSelected
                             ? 'rgba(16, 185, 129, 0.06)'
-                            : 'var(--theme-card-bg, #ffffff)',
+                            : 'var(--theme-bg-card, var(--theme-surface-elevated))',
                           transition: 'all 0.2s ease',
                         }}
                       >
@@ -522,7 +522,7 @@ export const AudioMusicSettings: React.FC = () => {
             title={
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <UploadOutlined style={{ color: '#2563eb' }} />
-                <span>Upload Music Track (نیا میوزک اپلوڈ کریں)</span>
+                <span>Upload Music Track</span>
               </div>
             }
             bordered
@@ -583,7 +583,7 @@ export const AudioMusicSettings: React.FC = () => {
                   <strong>Download Track:</strong> Click the <DownloadOutlined /> icon next to any custom track to export and download it to your computer.
                 </li>
                 <li>
-                  <strong>Volume Control:</strong> Adjust the volume slider above ("اندازہ تیز / زیادہ") or use the presets to set your desired sound level.
+                  <strong>Volume Control:</strong> Adjust the volume slider above or use the preset buttons to set your desired sound level.
                 </li>
               </ul>
             </div>

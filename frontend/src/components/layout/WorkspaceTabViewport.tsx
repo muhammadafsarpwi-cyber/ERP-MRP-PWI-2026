@@ -76,19 +76,26 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.m
   }, [activeTabId]);
 
   const isCurrentInTabs = useMemo(() => {
-    return tabs.some((t) => t.id === currentPathname || t.pathname === currentPathname);
+    return tabs.some((t) => {
+      if (t.id === currentPathname || t.pathname === currentPathname) return true;
+      if (t.route && t.route.split('?')[0] === currentPathname) return true;
+      if (t.id.startsWith('/settings') && currentPathname.startsWith('/settings')) return true;
+      if (t.id !== '/' && currentPathname.startsWith(t.id + '/')) return true;
+      return false;
+    });
   }, [tabs, currentPathname]);
 
   return (
     <div className="erp-tab-viewport-container">
       {tabs.map((tab) => {
         // Lazy-loading: Do not mount DOM nodes for tabs until first visited
-        const isVisited = visitedTabIds.has(tab.id) || tab.id === activeTabId || tab.id === currentPathname;
+        const isSettingsMatch = tab.id.startsWith('/settings') && currentPathname.startsWith('/settings');
+        const isVisited = visitedTabIds.has(tab.id) || tab.id === activeTabId || tab.id === currentPathname || isSettingsMatch;
         if (!isVisited) {
           return null;
         }
 
-        const isActive = tab.id === activeTabId;
+        const isActive = isCurrentInTabs && (tab.id === activeTabId || isSettingsMatch);
         const paneId = `erp-tab-pane-${tab.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
         return (
@@ -98,7 +105,7 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.m
             className={`erp-tab-pane ${isActive ? 'erp-tab-pane--active' : 'erp-tab-pane--offscreen'}`}
             aria-hidden={!isActive}
           >
-            <Routes location={tab.route}>
+            <Routes location={isActive ? location : tab.route}>
               {routeElements}
             </Routes>
           </div>

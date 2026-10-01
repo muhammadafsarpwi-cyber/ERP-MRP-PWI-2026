@@ -994,7 +994,7 @@ const ScanBarcode: React.FC = () => {
                   style={{ background: '#059669', borderColor: '#059669', fontWeight: 700 }}
                   onClick={() => handleNavigateToEntity(true)}
                 >
-                  View Complete Item History (ہسٹری)
+                  View Complete Item History
                 </Button>
               ),
               isMachine && (
@@ -1005,7 +1005,7 @@ const ScanBarcode: React.FC = () => {
                   style={{ background: '#722ed1', borderColor: '#722ed1', fontWeight: 700 }}
                   onClick={() => setMachineModalOpen(true)}
                 >
-                  View Machine Lifecycle History (ہسٹری)
+                  View Machine Lifecycle History
                 </Button>
               ),
               isCustomer && (
@@ -1016,7 +1016,7 @@ const ScanBarcode: React.FC = () => {
                   style={{ background: '#1d4ed8', borderColor: '#1d4ed8', fontWeight: 700 }}
                   onClick={() => handleNavigateToEntity(true)}
                 >
-                  View Customer 360 & Ledger History (ہسٹری)
+                  View Customer 360 & Ledger History
                 </Button>
               ),
               <Button type="default" key="print" icon={<PrinterOutlined />} onClick={() => setPrintOpen(true)}>

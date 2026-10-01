@@ -151,7 +151,16 @@ class ClassicalAmbientEngine {
         this.masterGain.gain.linearRampToValueAtTime(0.0001, now + fadeOutMs / 1000);
         window.setTimeout(() => {
           if (!this.isPlaying && this.masterGain && this.ctx) {
-            this.masterGain.gain.setValueAtTime(0.16, this.ctx.currentTime);
+            // Restore user's saved volume instead of hardcoded default
+            let restoreVol = 0.65;
+            try {
+              const saved = localStorage.getItem('pwi_classical_music_volume');
+              if (saved !== null) {
+                const parsed = parseFloat(saved);
+                if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) restoreVol = parsed;
+              }
+            } catch { /* ignore */ }
+            this.masterGain.gain.setValueAtTime(restoreVol, this.ctx.currentTime);
           }
         }, fadeOutMs + 50);
       } catch {

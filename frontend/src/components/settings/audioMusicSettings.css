@@ -10,7 +10,7 @@
 
 @keyframes erp-audio-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+    box-shadow: 0 0 0 0 var(--theme-accent-soft, rgba(16, 185, 129, 0.5));
   }
   70% {
     box-shadow: 0 0 0 14px rgba(16, 185, 129, 0);
@@ -32,7 +32,7 @@
 .erp-sound-wave-bars .bar {
   display: inline-block;
   width: 3px;
-  background: #10b981;
+  background: var(--theme-accent, #10b981);
   border-radius: 2px;
   animation: erp-sound-wave-anim 1.2s infinite ease-in-out alternate;
 }
@@ -55,6 +55,6 @@
 }
 
 .erp-track-item-card:hover {
-  border-color: #10b981 !important;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.08);
+  border-color: var(--theme-accent, #10b981) !important;
+  box-shadow: 0 2px 8px var(--theme-accent-soft, rgba(16, 185, 129, 0.08));
 }

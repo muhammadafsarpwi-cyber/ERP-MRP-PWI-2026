@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, Not, In, DataSource } from 'typeorm';
 import { populateAuditNames } from '../../organization/helpers/audit-names';
@@ -13,6 +13,61 @@ import { InventoryBalance } from '../../inventory/entities/inventory-balance.ent
 import { ProductionEntry } from '../../production/entities/production-entry.entity';
 import { BarcodeService } from '../../barcode/services/barcode.service';
 import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
+import { ActivityLogService } from '../../audit/services/activity-log.service';
+
+/**
+ * DUMMY-DATA-CLEANUP: one counted reference of an item in another table.
+ * `protected=true` = genuine transactional history or business document:
+ * blocks hard deletion unconditionally (409), even for SUPER_ADMIN force.
+ * `protected=false` = item-scoped config/master link: safe to cascade when
+ * the item itself is eligible (demo-flagged or SUPER_ADMIN force).
+ */
+export interface ItemDeleteDependency {
+  label: string;
+  table: string;
+  count: number;
+  isProtected: boolean;
+}
+
+export interface ItemDeleteActor {
+  authUserId?: string;
+  email?: string;
+}
+
+export interface ItemRemoveOptions {
+  companyId?: string;
+  force?: boolean;
+  actor?: ItemDeleteActor;
+}
+
+export interface ItemDeleteEligibility {
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  companyId: string;
+  companyName?: string | null;
+  isDemo: boolean;
+  candidateReason: 'flagged' | 'name-pattern' | null;
+  eligibleDependents: ItemDeleteDependency[];
+  protectedDependencies: ItemDeleteDependency[];
+  totalDependents: number;
+  totalProtected: number;
+  canDeleteNormal: boolean;
+  canDeleteForce: boolean;
+  reason: string;
+}
+
+export interface DummyCandidate {
+  id: string;
+  itemCode: string;
+  name: string;
+  companyId: string;
+  isDemo: boolean;
+  matchReason: 'flagged' | 'name-pattern';
+  protectedCount: number;
+  dependentCount: number;
+  status: string;
+}
 
 @Injectable()
 export class ItemService implements OnModuleInit {
@@ -40,6 +95,7 @@ export class ItemService implements OnModuleInit {
     private readonly barcodeService: BarcodeService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly activityLogService: ActivityLogService,
   ) {}
 
   async onModuleInit() {
@@ -947,139 +1003,297 @@ export class ItemService implements OnModuleInit {
   }
 
   /**
-   * Reference guard: never break transactional history. If BOMs, routings,
-   * production, stock, targets or balances reference this item, require
-   * deactivation instead of deletion. When force=true (Admin Force Purge),
-   * all related demo/historical transactions and references are safely cleaned up.
+   * Dependency catalog for delete eligibility. `isProtected=true` marks
+   * genuine transactional history / business documents: these block hard
+   * deletion unconditionally (HTTP 409), even for SUPER_ADMIN force purges.
+   * `isProtected=false` marks item-scoped config/master links that are safe
+   * to cascade once the item itself is eligible.
    */
-  async remove(id: string, force = false): Promise<void> {
+  private static readonly ELIGIBLE_DEPENDENCY_CHECKS: Array<{ label: string; table: string; sql: string }> = [
+    { label: 'BOM line', table: 'bom_lines', sql: 'SELECT COUNT(*)::int AS c FROM bom_lines WHERE item_id = $1' },
+    { label: 'bill of materials', table: 'bill_of_materials', sql: 'SELECT COUNT(*)::int AS c FROM bill_of_materials WHERE product_id = $1' },
+    { label: 'production routing', table: 'production_routings', sql: 'SELECT COUNT(*)::int AS c FROM production_routings WHERE product_id = $1' },
+    { label: 'routing operation', table: 'routing_operations', sql: 'SELECT COUNT(*)::int AS c FROM routing_operations WHERE input_item_id = $1 OR output_item_id = $1' },
+    { label: 'machine target', table: 'machine_targets', sql: 'SELECT COUNT(*)::int AS c FROM machine_targets WHERE item_id = $1' },
+    { label: 'machine component link', table: 'machine_component_items', sql: 'SELECT COUNT(*)::int AS c FROM machine_component_items WHERE item_id = $1' },
+    { label: 'supplier link', table: 'supplier_items', sql: 'SELECT COUNT(*)::int AS c FROM supplier_items WHERE item_id = $1' },
+    { label: 'store link', table: 'store_items', sql: 'SELECT COUNT(*)::int AS c FROM store_items WHERE item_id = $1' },
+  ];
+
+  private static readonly PROTECTED_DEPENDENCY_CHECKS: Array<{ label: string; table: string; sql: string }> = [
+    { label: 'production entry', table: 'production_entries', sql: 'SELECT COUNT(*)::int AS c FROM production_entries WHERE item_id = $1' },
+    { label: 'stock ledger entry', table: 'stock_ledger', sql: 'SELECT COUNT(*)::int AS c FROM stock_ledger WHERE item_id = $1' },
+    { label: 'inventory balance with stock', table: 'inventory_balances', sql: 'SELECT COUNT(*)::int AS c FROM inventory_balances WHERE item_id = $1 AND (on_hand > 0 OR reserved > 0)' },
+    { label: 'inventory reservation', table: 'inventory_reservations', sql: 'SELECT COUNT(*)::int AS c FROM inventory_reservations WHERE item_id = $1' },
+    { label: 'sales order line', table: 'sales_order_lines', sql: 'SELECT COUNT(*)::int AS c FROM sales_order_lines WHERE item_id = $1' },
+    { label: 'delivery note line', table: 'delivery_note_lines', sql: 'SELECT COUNT(*)::int AS c FROM delivery_note_lines WHERE item_id = $1' },
+    { label: 'sales invoice line', table: 'sales_invoice_lines', sql: 'SELECT COUNT(*)::int AS c FROM sales_invoice_lines WHERE item_id = $1' },
+    { label: 'purchase order line', table: 'purchase_order_lines', sql: 'SELECT COUNT(*)::int AS c FROM purchase_order_lines WHERE item_id = $1' },
+    { label: 'goods receipt line', table: 'goods_receipt_lines', sql: 'SELECT COUNT(*)::int AS c FROM goods_receipt_lines WHERE item_id = $1' },
+    { label: 'purchase requisition line', table: 'purchase_requisition_lines', sql: 'SELECT COUNT(*)::int AS c FROM purchase_requisition_lines WHERE item_id = $1' },
+    { label: 'purchase invoice line', table: 'purchase_invoice_lines', sql: 'SELECT COUNT(*)::int AS c FROM purchase_invoice_lines WHERE item_id = $1' },
+    { label: 'purchase return line', table: 'purchase_return_lines', sql: 'SELECT COUNT(*)::int AS c FROM purchase_return_lines WHERE item_id = $1' },
+    { label: 'material request line', table: 'material_request_lines', sql: 'SELECT COUNT(*)::int AS c FROM material_request_lines WHERE item_id = $1' },
+    { label: 'material issue line', table: 'material_issue_lines', sql: 'SELECT COUNT(*)::int AS c FROM material_issue_lines WHERE item_id = $1' },
+    { label: 'material return line', table: 'material_return_lines', sql: 'SELECT COUNT(*)::int AS c FROM material_return_lines WHERE item_id = $1' },
+    { label: 'stock adjustment line', table: 'stock_adjustment_lines', sql: 'SELECT COUNT(*)::int AS c FROM stock_adjustment_lines WHERE item_id = $1' },
+    { label: 'stock transfer line', table: 'stock_transfer_lines', sql: 'SELECT COUNT(*)::int AS c FROM stock_transfer_lines WHERE item_id = $1' },
+    { label: 'raw material receipt line', table: 'raw_material_receipt_lines', sql: 'SELECT COUNT(*)::int AS c FROM raw_material_receipt_lines WHERE item_id = $1' },
+    { label: 'raw material return line', table: 'raw_material_return_lines', sql: 'SELECT COUNT(*)::int AS c FROM raw_material_return_lines WHERE item_id = $1' },
+    { label: 'RFQ line', table: 'rfq_lines', sql: 'SELECT COUNT(*)::int AS c FROM rfq_lines WHERE item_id = $1' },
+    { label: 'quotation line', table: 'quotation_lines', sql: 'SELECT COUNT(*)::int AS c FROM quotation_lines WHERE item_id = $1' },
+    { label: 'maintenance job card part', table: 'maintenance_job_card_parts', sql: 'SELECT COUNT(*)::int AS c FROM maintenance_job_card_parts WHERE item_id = $1' },
+  ];
+
+  private static readonly ITEM_CHILD_TABLES = [
+    'item_barcodes',
+    'item_attribute_values',
+    'item_specifications',
+    'item_documents',
+  ];
+
+  /** Company-scoped loader: other-company ids resolve to 404 (no existence leak). */
+  private async findOneScoped(id: string, companyId?: string): Promise<Item> {
     const item = await this.findOne(id);
+    if (companyId && item.companyId !== companyId) {
+      throw new NotFoundException(`Item with ID '${id}' not found`);
+    }
+    return item;
+  }
 
-    if (!force) {
-      const guards: Array<{ label: string; sql: string }> = [
-        { label: 'BOM line', sql: 'SELECT COUNT(*)::int AS c FROM bom_lines WHERE item_id = $1' },
-        { label: 'bill of materials', sql: 'SELECT COUNT(*)::int AS c FROM bill_of_materials WHERE product_id = $1' },
-        { label: 'production routing', sql: 'SELECT COUNT(*)::int AS c FROM production_routings WHERE product_id = $1' },
-        { label: 'routing operation', sql: 'SELECT COUNT(*)::int AS c FROM routing_operations WHERE input_item_id = $1 OR output_item_id = $1' },
-        { label: 'production entry', sql: 'SELECT COUNT(*)::int AS c FROM production_entries WHERE item_id = $1' },
-        { label: 'machine target', sql: 'SELECT COUNT(*)::int AS c FROM machine_targets WHERE item_id = $1' },
-        { label: 'stock ledger entry', sql: 'SELECT COUNT(*)::int AS c FROM stock_ledger WHERE item_id = $1' },
-        { label: 'inventory balance with stock', sql: 'SELECT COUNT(*)::int AS c FROM inventory_balances WHERE item_id = $1 AND (on_hand > 0 OR reserved > 0)' },
-      ];
+  /**
+   * SUPER_ADMIN check mirroring permission.service's admin bypass: an ACTIVE
+   * user holding an ACTIVE SUPER_ADMIN/ADMIN/SYSTEM_ADMIN (or *-admin-named)
+   * role. authUserId is the JWT subject (erp_users.auth_user_id).
+   */
+  private async isSuperAdmin(authUserId?: string): Promise<boolean> {
+    if (!authUserId) return false;
+    try {
+      const rows = await this.dataSource.query(
+        `SELECT 1 FROM user_roles ur
+         INNER JOIN roles r ON r.id = ur.role_id
+         INNER JOIN erp_users u ON u.id = ur.user_id
+         WHERE u.auth_user_id = $1 AND u.status = 'ACTIVE' AND ur.status = 'ACTIVE'
+           AND (r.role_code IN ('SUPER_ADMIN', 'ADMIN', 'SYSTEM_ADMIN') OR r.name ILIKE '%admin%')
+         LIMIT 1`,
+        [authUserId],
+      );
+      return Array.isArray(rows) && rows.length > 0;
+    } catch {
+      return false;
+    }
+  }
 
-      const refs: string[] = [];
-      for (const guard of guards) {
-        try {
-          const result = await this.itemRepository.query(guard.sql, [id]);
-          const count = Number(result?.[0]?.c ?? 0);
-          if (count > 0) refs.push(`${count} ${guard.label}${count === 1 ? '' : 's'}`);
-        } catch {
-          // Table not present in this environment – skip that check.
-        }
-      }
-
-      if (refs.length > 0) {
-        throw new ConflictException(
-          `Item '${item.itemCode}' is referenced by ${refs.join(', ')} and cannot be deleted. Deactivate or discontinue it instead.`,
-        );
-      }
-
-      // Clean up empty zero-balance records and child records if any before deleting item
+  private async countDependencies(
+    runner: { query: (q: string, p?: any[]) => Promise<any> },
+    id: string,
+  ): Promise<{ eligible: ItemDeleteDependency[]; prot: ItemDeleteDependency[] }> {
+    const eligible: ItemDeleteDependency[] = [];
+    const prot: ItemDeleteDependency[] = [];
+    const runCheck = async (
+      check: { label: string; table: string; sql: string },
+      target: ItemDeleteDependency[],
+      isProtectedFlag: boolean,
+    ) => {
       try {
-        await this.itemRepository.query(
-          'DELETE FROM inventory_balances WHERE item_id = $1 AND (on_hand = 0 OR on_hand IS NULL) AND (reserved = 0 OR reserved IS NULL)',
-          [id],
-        );
-        await this.itemRepository.query('DELETE FROM item_barcodes WHERE item_id = $1', [id]);
-        await this.itemRepository.query('DELETE FROM item_attribute_values WHERE item_id = $1', [id]);
-        await this.itemRepository.query('DELETE FROM item_specifications WHERE item_id = $1', [id]);
-        await this.itemRepository.query('DELETE FROM item_documents WHERE item_id = $1', [id]);
+        const result = await runner.query(check.sql, [id]);
+        const count = Number(result?.[0]?.c ?? 0);
+        if (count > 0) target.push({ label: check.label, table: check.table, count, isProtected: isProtectedFlag });
       } catch {
-        // Ignore if table not present
+        // Table not present in this environment – skip that check.
       }
+    };
+    for (const check of ItemService.ELIGIBLE_DEPENDENCY_CHECKS) {
+      await runCheck(check, eligible, false);
+    }
+    for (const check of ItemService.PROTECTED_DEPENDENCY_CHECKS) {
+      await runCheck(check, prot, true);
+    }
+    return { eligible, prot };
+  }
 
-      await this.itemRepository.remove(item);
-      return;
+  private candidateReasonFor(item: Item): 'flagged' | 'name-pattern' | null {
+    if (item.isDemo === true) return 'flagged';
+    const haystack = `${item.itemCode || ''} ${item.name || ''} ${item.description || ''}`;
+    if (/(dummy|test|demo|sample|mock|seed)/i.test(haystack)) return 'name-pattern';
+    return null;
+  }
+
+  /**
+   * Pre-delete eligibility report for the confirmation modal. Never throws
+   * for missing tables; reports counts the admin must confirm.
+   */
+  async getDeleteEligibility(id: string, companyId?: string): Promise<ItemDeleteEligibility> {
+    const item = await this.findOneScoped(id, companyId);
+    const { eligible, prot } = await this.countDependencies(this.itemRepository, id);
+    const totalDependents = eligible.reduce((n, d) => n + d.count, 0);
+    const totalProtected = prot.reduce((n, d) => n + d.count, 0);
+    const canDeleteNormal = totalDependents === 0 && totalProtected === 0;
+    const canDeleteForce = totalProtected === 0;
+    let reason: string;
+    if (totalProtected > 0) {
+      reason = `Hard delete blocked because this record has protected transactional history: ${prot.map((d) => `${d.count} ${d.label}${d.count === 1 ? '' : 's'}`).join(', ')}. Deactivate or discontinue the item instead.`;
+    } else if (totalDependents > 0) {
+      reason = `${totalDependents} eligible dependent record(s) will also be removed. Requires explicit force confirmation by SUPER_ADMIN.`;
+    } else {
+      reason = 'No references found. Safe to delete.';
+    }
+    return {
+      itemId: item.id,
+      itemCode: item.itemCode,
+      itemName: item.name,
+      companyId: item.companyId,
+      companyName: (item as any)?.company?.legalName ?? (item as any)?.company?.tradeName ?? null,
+      isDemo: item.isDemo === true,
+      candidateReason: this.candidateReasonFor(item),
+      eligibleDependents: eligible,
+      protectedDependencies: prot,
+      totalDependents,
+      totalProtected,
+      canDeleteNormal,
+      canDeleteForce,
+      reason,
+    };
+  }
+
+  /**
+   * Admin review list of dummy/test/demo candidates. Name patterns only FIND
+   * candidates; ONLY the is_demo flag classifies. Real data is never flagged.
+   */
+  async findDummyCandidates(companyId: string, search?: string, limit = 100): Promise<DummyCandidate[]> {
+    const pattern = `%${(search || '').trim()}%`;
+    const rows: any[] = await this.itemRepository.query(
+      `SELECT id, item_code, name, company_id, COALESCE(is_demo, false) AS is_demo, status
+       FROM items
+       WHERE company_id = $1
+         AND (COALESCE(is_demo, false) = true
+           OR name ILIKE '%dummy%' OR name ILIKE '%test%' OR name ILIKE '%demo%'
+           OR name ILIKE '%sample%' OR name ILIKE '%mock%' OR name ILIKE '%seed%'
+           OR item_code ILIKE '%dummy%' OR item_code ILIKE '%test%' OR item_code ILIKE '%demo%'
+           OR item_code ILIKE '%sample%' OR item_code ILIKE '%mock%' OR item_code ILIKE '%seed%')
+         AND ($2 = '%%' OR name ILIKE $2 OR item_code ILIKE $2)
+       ORDER BY is_demo DESC, item_code ASC
+       LIMIT $3`,
+      [companyId, pattern, Math.min(Math.max(limit || 100, 1), 500)],
+    );
+    const candidates: DummyCandidate[] = [];
+    for (const row of rows || []) {
+      const { eligible, prot } = await this.countDependencies(this.itemRepository, row.id);
+      candidates.push({
+        id: row.id,
+        itemCode: row.item_code,
+        name: row.name,
+        companyId: row.company_id,
+        isDemo: row.is_demo === true,
+        matchReason: row.is_demo === true ? 'flagged' : 'name-pattern',
+        protectedCount: prot.reduce((n, d) => n + d.count, 0),
+        dependentCount: eligible.reduce((n, d) => n + d.count, 0),
+        status: row.status,
+      });
+    }
+    return candidates;
+  }
+
+  /**
+   * Company-scoped, eligibility-gated hard delete.
+   *
+   * - Normal path: allowed only with zero references (item-owned child rows
+   *   and zero-stock balances are cleaned up automatically), inside a
+   *   transaction, with an audit record.
+   * - Force path (`force=true`): SUPER_ADMIN only (403 otherwise). Cascades
+   *   ONLY eligible dependents. Protected transactional history blocks the
+   *   delete unconditionally (409) — force never purges real history.
+   */
+  async remove(id: string, options?: ItemRemoveOptions): Promise<void> {
+    const companyId = options?.companyId;
+    const force = options?.force === true;
+    const actor = options?.actor;
+    const item = await this.findOneScoped(id, companyId);
+    const { eligible, prot } = await this.countDependencies(this.itemRepository, id);
+
+    if (prot.length > 0) {
+      throw new ConflictException(
+        `Hard delete blocked because this record has protected transactional history: ` +
+          `${prot.map((d) => `${d.count} ${d.label}${d.count === 1 ? '' : 's'}`).join(', ')}. ` +
+          `Deactivate or discontinue item '${item.itemCode}' instead.`,
+      );
     }
 
-    // Force deletion requested (Admin Cascade / Force Purge)
-    const executeCleanup = async (runner: { query: (q: string, p?: any[]) => Promise<any>; remove: (e: any) => Promise<any> }) => {
+    let deletedDependents = 0;
+    if (force) {
+      const isSuper = await this.isSuperAdmin(actor?.authUserId);
+      if (!isSuper) {
+        throw new ForbiddenException('Force purge requires SUPER_ADMIN role.');
+      }
+      deletedDependents = eligible.reduce((n, d) => n + d.count, 0);
+    } else if (eligible.length > 0) {
+      throw new ConflictException(
+        `Item '${item.itemCode}' is referenced by ${eligible.map((d) => `${d.count} ${d.label}${d.count === 1 ? '' : 's'}`).join(', ')} and cannot be deleted. Deactivate or discontinue it instead.`,
+      );
+    }
+
+    const childTables = ItemService.ITEM_CHILD_TABLES;
+    // Capture identifiers BEFORE the transactional remove: TypeORM clears
+    // generated columns on the entity instance after remove().
+    const deletedItemId = item.id;
+    const deletedItemCode = item.itemCode;
+    const deletedItemName = item.name;
+    const deletedCompanyId = item.companyId;
+    const deletedIsDemo = item.isDemo === true;
+    await this.dataSource.transaction(async (manager) => {
       // 1. Unlink self/other item references
-      await runner.query('UPDATE items SET production_in_item_id = NULL WHERE production_in_item_id = $1', [id]).catch(() => {});
-      await runner.query('UPDATE items SET production_out_item_id = NULL WHERE production_out_item_id = $1', [id]).catch(() => {});
+      await manager.query('UPDATE items SET production_in_item_id = NULL WHERE production_in_item_id = $1', [id]);
+      await manager.query('UPDATE items SET production_out_item_id = NULL WHERE production_out_item_id = $1', [id]);
+      // 2. Eligible dependents first (children before parents)
+      if (force) {
+        await manager.query('DELETE FROM routing_operation_inputs WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM routing_operation_outputs WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM routing_operations WHERE input_item_id = $1 OR output_item_id = $1', [id]);
+        await manager.query('DELETE FROM production_routings WHERE product_id = $1', [id]);
+        await manager.query('DELETE FROM bom_lines WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM bill_of_materials WHERE product_id = $1', [id]);
+        await manager.query('DELETE FROM machine_targets WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM machine_component_items WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM machine_components WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM supplier_items WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM store_items WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM store_replenishments WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM inventory_policies WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM serial_numbers WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM batches WHERE item_id = $1', [id]);
+      }
+      // 3. Zero-stock balances are safe to clean in both paths
+      await manager.query(
+        'DELETE FROM inventory_balances WHERE item_id = $1 AND (on_hand = 0 OR on_hand IS NULL) AND (reserved = 0 OR reserved IS NULL)',
+        [id],
+      );
+      // 4. Item-owned child metadata
+      for (const table of childTables) {
+        await manager.query(`DELETE FROM ${table} WHERE item_id = $1`, [id]);
+      }
+      // 5. The item itself (loaded entity carries its PK; scoped above)
+      await manager.remove(item);
+    });
 
-      // 2. Production entry items & production entries
-      await runner.query('DELETE FROM production_entry_items WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM production_entries WHERE item_id = $1', [id]).catch(() => {});
-
-      // 3. Stock ledger, reservations, balances, policies
-      await runner.query('DELETE FROM stock_ledger WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM inventory_reservations WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM inventory_balances WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM inventory_policies WHERE item_id = $1', [id]).catch(() => {});
-
-      // 4. Batches & serial numbers
-      await runner.query('DELETE FROM serial_numbers WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM batches WHERE item_id = $1', [id]).catch(() => {});
-
-      // 5. Routing operations and routings
-      await runner.query('DELETE FROM routing_operation_inputs WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM routing_operation_outputs WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM routing_operations WHERE input_item_id = $1 OR output_item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM production_routings WHERE product_id = $1', [id]).catch(() => {});
-
-      // 6. BOM lines & BOM
-      await runner.query('DELETE FROM bom_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM bill_of_materials WHERE product_id = $1', [id]).catch(() => {});
-
-      // 7. Machine targets & machine components
-      await runner.query('DELETE FROM machine_targets WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM machine_component_items WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM machine_components WHERE item_id = $1', [id]).catch(() => {});
-
-      // 8. Stores & suppliers & maintenance
-      await runner.query('DELETE FROM store_replenishments WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM store_items WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM supplier_items WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM maintenance_job_card_parts WHERE item_id = $1', [id]).catch(() => {});
-
-      // 9. Purchasing / Receiving / Warehouse lines
-      await runner.query('DELETE FROM purchase_order_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM goods_receipt_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM purchase_requisition_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM rfq_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM quotation_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM purchase_return_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM purchase_invoice_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM material_request_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM material_issue_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM material_return_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM raw_material_receipt_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM raw_material_return_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM stock_adjustment_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM stock_transfer_lines WHERE item_id = $1', [id]).catch(() => {});
-
-      // 10. Sales lines
-      await runner.query('DELETE FROM sales_order_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM delivery_note_lines WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM sales_invoice_lines WHERE item_id = $1', [id]).catch(() => {});
-
-      // 11. Child metadata
-      await runner.query('DELETE FROM item_barcodes WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM item_attribute_values WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM item_specifications WHERE item_id = $1', [id]).catch(() => {});
-      await runner.query('DELETE FROM item_documents WHERE item_id = $1', [id]).catch(() => {});
-
-      // 12. Delete item
-      await runner.remove(item);
-    };
-
-    if (this.itemRepository.manager && typeof this.itemRepository.manager.transaction === 'function') {
-      await this.itemRepository.manager.transaction(async (manager) => {
-        await executeCleanup(manager);
+    try {
+      await this.activityLogService.log({
+        actorUserId: undefined,
+        actorEmail: actor?.email,
+        action: force ? 'ITEM_FORCE_DELETED' : 'ITEM_DELETED',
+        targetType: 'items',
+        targetId: deletedItemId,
+        targetName: deletedItemCode,
+        details: JSON.stringify({
+          itemName: deletedItemName,
+          companyId: deletedCompanyId,
+          isDemo: deletedIsDemo,
+          recursive: force,
+          deletedDependents: force ? deletedDependents : 0,
+        }),
       });
-    } else {
-      await executeCleanup(this.itemRepository);
+    } catch {
+      // Audit trail is best-effort; the delete itself already committed.
+      this.logger.warn(`Delete audit log failed for item ${deletedItemCode}`);
     }
   }
 
@@ -2452,4 +2666,5 @@ export class ItemService implements OnModuleInit {
     };
   }
 }
+
 

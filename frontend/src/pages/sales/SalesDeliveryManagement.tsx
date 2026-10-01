@@ -1676,7 +1676,7 @@ const SalesDeliveryManagement: React.FC = () => {
         </Form>
       </DraggableResizableModal>
 
-      {/* ── PROMINENT CONFIRMATION & WARNING MODAL (بڑی سی وارننگ) ── */}
+      {/* ── PROMINENT CONFIRMATION & WARNING MODAL ── */}
       <Modal
         open={warningModalVisible}
         onCancel={() => setWarningModalVisible(false)}
@@ -1695,7 +1695,7 @@ const SalesDeliveryManagement: React.FC = () => {
             onClick={() => setWarningModalVisible(false)}
             style={{ fontWeight: 600, height: 42, padding: '0 20px' }}
           >
-            Cancel & Adjust Quantities (منسوخ کریں اور درست کریں)
+            Cancel & Adjust Quantities
           </Button>,
           <Button
             key="confirm"
@@ -1705,7 +1705,7 @@ const SalesDeliveryManagement: React.FC = () => {
             onClick={() => executeSave()}
             style={{ fontWeight: 700, height: 42, padding: '0 20px', backgroundColor: '#dc2626', borderColor: '#dc2626' }}
           >
-            Confirm & Dispatch Anyway (پھر بھی کنفرم کریں)
+            Confirm & Dispatch Anyway
           </Button>,
         ]}
       >
@@ -1720,10 +1720,10 @@ const SalesDeliveryManagement: React.FC = () => {
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', marginBottom: 4 }}>
-              ⚠️ ارڈر کوانٹٹی سے زیادہ مقدار درج کی گئی ہے! (Order Excess Detected)
+              ⚠️ Dispatch quantity exceeds the approved order balance! (Order Excess Detected)
             </div>
             <div style={{ fontSize: 12.5, color: 'var(--inv-text-primary, #cbd5e1)', lineHeight: 1.5 }}>
-              درج ذیل آئٹمز کی کوانٹٹی ان کے منظور شدہ سیلز آرڈر (SOC) کے بیلنس سے تجاوز کر رہی ہے۔ اگر آپ اس ڈسپیچ کو آگے بڑھاتے ہیں تو آرڈر اوور-ڈسپیچ ہو جائے گا۔
+              The following items have quantities exceeding their approved Sales Order (SOC) balance. If you proceed with this dispatch, the order will be over-dispatched.
             </div>
           </div>
 
@@ -1783,7 +1783,7 @@ const SalesDeliveryManagement: React.FC = () => {
           />
 
           <div style={{ marginTop: 14, fontSize: 12.5, color: 'var(--inv-text-muted, #94a3b8)', textAlign: 'center' }}>
-            کیا آپ واقعی اس اضافی کوانٹٹی کے ساتھ ڈلیوری اور گیٹ پاس کنفرم کرنا چاہتے ہیں؟
+            Do you really want to confirm the delivery and gate pass with this excess quantity?
           </div>
         </div>
       </Modal>

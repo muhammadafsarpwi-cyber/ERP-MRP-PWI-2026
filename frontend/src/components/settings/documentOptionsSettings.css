@@ -1,0 +1,227 @@
+/* ==========================================================================
+   Document Options Settings CSS
+   100% Theme Reactive (Light/Dark Modes & Dynamic Accent Palette)
+   ========================================================================== */
+
+:root {
+  --do-accent: var(--theme-accent, #00e5ff);
+  --do-accent-soft: var(--theme-accent-soft, rgba(0, 229, 255, 0.16));
+  --do-card-bg: var(--settings-surface-elevated, #ffffff);
+  --do-card-border: var(--theme-border, #e2e8f0);
+  --do-subcard-bg: var(--theme-surface-alt, #f8fafc);
+  --do-subcard-border: var(--theme-border, #e2e8f0);
+  --do-text-primary: var(--settings-text-primary, #0f172a);
+  --do-text-secondary: var(--settings-text-secondary, #64748b);
+  --do-text-muted: var(--settings-text-muted, #94a3b8);
+  --do-input-bg: rgba(0, 0, 0, 0.03);
+  --do-input-color: var(--settings-text-primary, #0f172a);
+  --do-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+}
+
+html[data-theme='dark'],
+:root[data-theme='dark'],
+[data-theme='dark'],
+.dark {
+  --do-card-bg: var(--settings-surface-elevated, #131d2a);
+  --do-card-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --do-subcard-bg: var(--theme-surface-alt, #162232);
+  --do-subcard-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --do-text-primary: var(--settings-text-primary, #f1f5f9);
+  --do-text-secondary: var(--settings-text-secondary, #cbd5e1);
+  --do-text-muted: var(--settings-text-muted, #94a3b8);
+  --do-input-bg: rgba(0, 0, 0, 0.45);
+  --do-input-color: #f8fafc;
+  --do-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+}
+
+.document-options-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 12px 32px;
+  box-sizing: border-box;
+}
+
+.doc-opt-card {
+  background: var(--do-card-bg);
+  border: 1px solid var(--do-card-border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.doc-opt-card:hover {
+  border-color: var(--do-accent);
+  box-shadow: 0 4px 18px var(--do-accent-soft);
+}
+
+.doc-opt-card-header {
+  margin-bottom: 18px;
+}
+
+.doc-opt-card-title {
+  margin: 0 0 4px 0;
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--do-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-opt-card-title-icon {
+  color: var(--do-accent);
+  font-size: 17px;
+}
+
+.doc-opt-card-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--do-text-secondary);
+  line-height: 1.45;
+}
+
+.doc-opt-select-group {
+  max-width: 320px;
+}
+
+.doc-opt-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.doc-opt-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--do-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.doc-opt-field-icon {
+  color: var(--do-accent);
+}
+
+.doc-opt-glowing-select.ant-select .ant-select-selector {
+  background: var(--do-input-bg) !important;
+  color: var(--do-input-color) !important;
+  border: 1.5px solid var(--do-input-border) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+.doc-opt-glowing-select.ant-select-focused .ant-select-selector {
+  border-color: var(--do-accent) !important;
+  box-shadow: 0 0 12px var(--do-accent-soft) !important;
+  outline: none !important;
+}
+
+.doc-opt-glowing-select .ant-select-selection-item {
+  color: var(--do-input-color) !important;
+}
+
+.doc-opt-glowing-select .ant-select-arrow {
+  color: var(--do-accent) !important;
+}
+
+/* ── Toggles List ── */
+.doc-opt-toggles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-opt-toggle-card {
+  background: var(--do-subcard-bg);
+  border: 1px solid var(--do-subcard-border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  transition: all 0.2s ease;
+}
+
+.doc-opt-toggle-card:hover {
+  border-color: var(--do-accent);
+  transform: translateY(-1px);
+}
+
+.doc-opt-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.doc-opt-icon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: var(--do-accent-soft);
+  color: var(--do-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.doc-opt-toggle-meta {
+  min-width: 0;
+}
+
+.doc-opt-toggle-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--do-text-primary);
+  margin-bottom: 2px;
+}
+
+.doc-opt-toggle-desc {
+  font-size: 12px;
+  color: var(--do-text-secondary);
+  line-height: 1.35;
+}
+
+.document-options-container .ant-switch.ant-switch-checked {
+  background: var(--do-accent) !important;
+}
+
+/* ── Action Bar ── */
+.doc-opt-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 22px;
+  background: var(--do-card-bg);
+  border: 1px solid var(--do-card-border);
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
+.doc-opt-btn-secondary {
+  border-radius: 8px !important;
+}
+
+.doc-opt-save-btn {
+  background: var(--do-accent) !important;
+  border-color: var(--do-accent) !important;
+  color: var(--theme-on-accent, #ffffff) !important;
+  box-shadow: 0 4px 14px var(--do-accent-soft) !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  min-width: 190px !important;
+  transition: all 0.2s ease !important;
+}
+
+.doc-opt-save-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}

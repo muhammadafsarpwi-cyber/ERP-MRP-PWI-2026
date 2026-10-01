@@ -223,4 +223,34 @@ describe('workspaceTabStore', () => {
       '/tab-3',
     ]);
   });
+
+  it('keeps Company Settings tab title persistent and collapses settings sub-routes into single tab', () => {
+    // Open overview
+    useWorkspaceTabStore.getState().openTab({
+      id: '/settings',
+      route: '/settings',
+      pathname: '/settings',
+      title: 'Company Settings',
+    });
+
+    let state = useWorkspaceTabStore.getState();
+    expect(state.tabs).toHaveLength(2);
+    expect(state.tabs[1].id).toBe('/settings');
+    expect(state.tabs[1].title).toBe('Company Settings');
+
+    // Navigate to invoice settings subroute
+    useWorkspaceTabStore.getState().openTab({
+      id: '/settings/invoice',
+      route: '/settings/invoice',
+      pathname: '/settings/invoice',
+      title: 'Invoice Settings',
+    });
+
+    state = useWorkspaceTabStore.getState();
+    // Still only 2 tabs, id is /settings, title remains Company Settings
+    expect(state.tabs).toHaveLength(2);
+    expect(state.tabs[1].id).toBe('/settings');
+    expect(state.tabs[1].title).toBe('Company Settings');
+    expect(state.tabs[1].route).toBe('/settings/invoice');
+  });
 });

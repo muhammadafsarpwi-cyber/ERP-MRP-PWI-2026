@@ -62,3 +62,14 @@ export const gradientFor = (primary: string): string => {
   const dark = darkenHex(primary, 0.28);
   return `linear-gradient(135deg, ${light} 0%, ${normalizeHex(primary) ?? primary} 48%, ${dark} 100%)`;
 };
+
+/**
+ * Calculates whether black or white text offers higher contrast on the given hex background,
+ * following the standard W3C perceptual luminance formula.
+ */
+export const getContrastText = (hex: string): '#0f172a' | '#ffffff' => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return '#0f172a';
+  const luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
+  return luminance > 0.52 ? '#0f172a' : '#ffffff';
+};

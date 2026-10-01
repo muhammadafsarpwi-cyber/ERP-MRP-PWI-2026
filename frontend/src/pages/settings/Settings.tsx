@@ -77,7 +77,7 @@ const Settings: React.FC = () => {
             label: (
               <span style={{ fontSize: 14, fontWeight: 600 }}>
                 <CustomerServiceOutlined style={{ marginRight: 8, color: '#10b981' }} />
-                Background Music & Audio Setup (میوزک سیٹنگز)
+                Background Music & Audio Setup
               </span>
             ),
             children: <AudioMusicSettings />,

@@ -75,6 +75,14 @@ const getInitialLooping = (): boolean => {
   return true;
 };
 
+const getWasPlaying = (): boolean => {
+  try {
+    const saved = localStorage.getItem('pwi_music_was_playing');
+    return saved === 'true';
+  } catch {}
+  return false;
+};
+
 export const useMusicStore = create<MusicState>((set, get) => ({
   isPlaying: false,
   volume: getInitialVolume(),
@@ -108,6 +116,23 @@ export const useMusicStore = create<MusicState>((set, get) => ({
           isLoading: false,
         });
       }
+
+      // Auto-resume if music was playing before page navigation
+      if (getWasPlaying()) {
+        // Use a one-time click listener to satisfy browser autoplay policy
+        const tryResume = () => {
+          get().play();
+          document.removeEventListener('click', tryResume);
+          document.removeEventListener('keydown', tryResume);
+        };
+        // Try immediate resume (works if page was already interacted with)
+        const immediateOk = get().play();
+        if (!immediateOk) {
+          // Wait for next user interaction
+          document.addEventListener('click', tryResume, { once: true });
+          document.addEventListener('keydown', tryResume, { once: true });
+        }
+      }
     } catch {
       set({ isLoading: false });
     }
@@ -134,6 +159,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       classicalAmbientMusic.setVolume(volume);
       const ok = classicalAmbientMusic.start();
       set({ isPlaying: ok });
+      try { localStorage.setItem('pwi_music_was_playing', ok ? 'true' : 'false'); } catch {}
       return ok;
     } else {
       // Stop procedural audio
@@ -150,6 +176,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
         classicalAmbientMusic.setVolume(volume);
         const ok = classicalAmbientMusic.start();
         set({ isPlaying: ok });
+        try { localStorage.setItem('pwi_music_was_playing', ok ? 'true' : 'false'); } catch {}
         return ok;
       }
 
@@ -163,6 +190,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       audio.onended = () => {
         if (!get().isLooping) {
           set({ isPlaying: false });
+          try { localStorage.setItem('pwi_music_was_playing', 'false'); } catch {}
         }
       };
 
@@ -171,13 +199,16 @@ export const useMusicStore = create<MusicState>((set, get) => ({
         playPromise
           .then(() => {
             set({ isPlaying: true });
+            try { localStorage.setItem('pwi_music_was_playing', 'true'); } catch {}
           })
           .catch((err) => {
             console.warn('Audio playback blocked or failed:', err);
             set({ isPlaying: false });
+            try { localStorage.setItem('pwi_music_was_playing', 'false'); } catch {}
           });
       }
       set({ isPlaying: true });
+      try { localStorage.setItem('pwi_music_was_playing', 'true'); } catch {}
       return true;
     }
   },
@@ -192,6 +223,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       }
     }
     set({ isPlaying: false });
+    try { localStorage.setItem('pwi_music_was_playing', 'false'); } catch {}
   },
 
   stop: () => {
@@ -201,6 +233,7 @@ export const useMusicStore = create<MusicState>((set, get) => ({
       customAudioEl.currentTime = 0;
     }
     set({ isPlaying: false });
+    try { localStorage.setItem('pwi_music_was_playing', 'false'); } catch {}
   },
 
   setVolume: (v: number) => {

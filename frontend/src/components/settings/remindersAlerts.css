@@ -1,0 +1,325 @@
+/* ==========================================================================
+   Reminders & Alerts CSS
+   100% Theme Reactive (Light/Dark Modes & Dynamic Accent Palette)
+   ========================================================================== */
+
+:root {
+  --ra-accent: var(--theme-accent, #00e5ff);
+  --ra-accent-soft: var(--theme-accent-soft, rgba(0, 229, 255, 0.16));
+  --ra-card-bg: var(--settings-surface-elevated, #ffffff);
+  --ra-card-border: var(--theme-border, #e2e8f0);
+  --ra-subcard-bg: var(--theme-surface-alt, #f8fafc);
+  --ra-subcard-border: var(--theme-border, #e2e8f0);
+  --ra-text-primary: var(--settings-text-primary, #0f172a);
+  --ra-text-secondary: var(--settings-text-secondary, #64748b);
+  --ra-text-muted: var(--settings-text-muted, #94a3b8);
+  --ra-input-bg: rgba(0, 0, 0, 0.03);
+  --ra-input-color: var(--settings-text-primary, #0f172a);
+  --ra-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+  --ra-step-box-bg: #1e293b;
+  --ra-step-box-color: #ffffff;
+}
+
+html[data-theme='dark'],
+:root[data-theme='dark'],
+[data-theme='dark'],
+.dark {
+  --ra-card-bg: var(--settings-surface-elevated, #131d2a);
+  --ra-card-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --ra-subcard-bg: var(--theme-surface-alt, #162232);
+  --ra-subcard-border: var(--theme-border, rgba(255, 255, 255, 0.08));
+  --ra-text-primary: var(--settings-text-primary, #f1f5f9);
+  --ra-text-secondary: var(--settings-text-secondary, #cbd5e1);
+  --ra-text-muted: var(--settings-text-muted, #94a3b8);
+  --ra-input-bg: rgba(0, 0, 0, 0.45);
+  --ra-input-color: #f8fafc;
+  --ra-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
+  --ra-step-box-bg: #0f172a;
+  --ra-step-box-color: #f8fafc;
+}
+
+.reminders-alerts-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 12px 32px;
+  box-sizing: border-box;
+}
+
+/* ── Section Cards ─────────────────────────────────────────────────────── */
+.reminders-settings-card {
+  background: var(--ra-card-bg);
+  border: 1px solid var(--ra-card-border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.reminders-settings-card:hover {
+  border-color: var(--ra-accent);
+  box-shadow: 0 4px 18px var(--ra-accent-soft);
+}
+
+.reminders-settings-card-header {
+  margin-bottom: 18px;
+}
+
+.reminders-settings-card-title {
+  margin: 0 0 4px 0;
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--ra-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reminders-settings-card-title-icon {
+  color: var(--ra-accent);
+  font-size: 17px;
+}
+
+.reminders-settings-card-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ra-text-secondary);
+  line-height: 1.45;
+}
+
+/* ── Automation Toggles List ───────────────────────────────────────────── */
+.reminders-toggles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reminders-toggle-card {
+  background: var(--ra-subcard-bg);
+  border: 1px solid var(--ra-subcard-border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  transition: all 0.2s ease;
+}
+
+.reminders-toggle-card:hover {
+  border-color: var(--ra-accent);
+  transform: translateY(-1px);
+}
+
+.reminders-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.reminders-toggle-icon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: var(--ra-accent-soft);
+  color: var(--ra-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.reminders-toggle-meta {
+  min-width: 0;
+}
+
+.reminders-toggle-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ra-text-primary);
+  margin-bottom: 2px;
+}
+
+.reminders-toggle-desc {
+  font-size: 12px;
+  color: var(--ra-text-secondary);
+  line-height: 1.35;
+}
+
+.reminders-alerts-container .ant-switch.ant-switch-checked {
+  background: var(--ra-accent) !important;
+}
+
+/* ── Schedule Inputs ── */
+.reminders-schedule-inputs-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 768px) {
+  .reminders-schedule-inputs-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reminders-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reminders-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ra-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reminders-field-icon {
+  color: var(--ra-accent);
+}
+
+.reminders-glowing-input.ant-input-number {
+  width: 100%;
+  background: var(--ra-input-bg) !important;
+  color: var(--ra-input-color) !important;
+  border: 1.5px solid var(--ra-input-border) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+.reminders-glowing-input.ant-input-number:focus,
+.reminders-glowing-input.ant-input-number-focused {
+  border-color: var(--ra-accent) !important;
+  box-shadow: 0 0 12px var(--ra-accent-soft) !important;
+  outline: none !important;
+}
+
+.reminders-glowing-input input {
+  color: var(--ra-input-color) !important;
+}
+
+/* ── Visual Timeline Diagram ───────────────────────────────────────────── */
+.reminders-timeline-diagram {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 24px 10px 10px;
+  background: var(--ra-subcard-bg);
+  border: 1px solid var(--ra-subcard-border);
+  border-radius: 12px;
+}
+
+@media (max-width: 768px) {
+  .reminders-timeline-diagram {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+.reminders-timeline-line {
+  position: absolute;
+  top: 40px;
+  left: 12%;
+  right: 12%;
+  height: 2px;
+  background: var(--ra-subcard-border);
+  z-index: 1;
+}
+
+@media (max-width: 768px) {
+  .reminders-timeline-line {
+    display: none;
+  }
+}
+
+.reminders-timeline-step {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.reminders-step-box {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  background: var(--ra-step-box-bg);
+  color: var(--ra-step-box-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.reminders-timeline-step:hover .reminders-step-box {
+  transform: scale(1.1);
+}
+
+.reminders-step-box--warning {
+  background: #b45309 !important;
+  color: #ffffff !important;
+}
+
+.reminders-step-box--repeat {
+  background: #b91c1c !important;
+  color: #ffffff !important;
+}
+
+.reminders-step-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ra-text-primary);
+  margin-bottom: 2px;
+}
+
+.reminders-step-subtitle {
+  font-size: 11px;
+  color: var(--ra-text-muted);
+}
+
+/* ── Action Bar ── */
+.reminders-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 22px;
+  background: var(--ra-card-bg);
+  border: 1px solid var(--ra-card-border);
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
+.reminders-btn-secondary {
+  border-radius: 8px !important;
+}
+
+.reminders-save-btn {
+  background: var(--ra-accent) !important;
+  border-color: var(--ra-accent) !important;
+  color: var(--theme-on-accent, #ffffff) !important;
+  box-shadow: 0 4px 14px var(--ra-accent-soft) !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  min-width: 190px !important;
+  transition: all 0.2s ease !important;
+}
+
+.reminders-save-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}

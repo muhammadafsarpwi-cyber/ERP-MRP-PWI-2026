@@ -40,6 +40,7 @@ import {
 import {
   SalesQuotationManagement,
   SalesOrderManagement,
+  SalesOrderDivisionReview,
   SalesDeliveryManagement,
   SalesInvoiceManagement,
   SalesReturnManagement,
@@ -108,7 +109,7 @@ import {
   PurchaseInvoiceManagement,
 } from './pages/procurement';
 import DevelopmentStatus from './pages/development/DevelopmentStatus';
-import Settings from './pages/settings';
+import SettingsRoutes from './components/settings/SettingsRoutes';
 import ProfilePage from './pages/profile/ProfilePage';
 import { MaintenanceDashboard, JobCardList, JobCardCreate, JobCardDetail, PmPlansList, PmSchedules, TeamsList, CategoriesList, MaintenanceReports } from './pages/maintenance';
 import {
@@ -172,7 +173,7 @@ const App: React.FC = () => {
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/reports" element={<GeneralReports />} />
                   <Route path="/ai-assistant" element={<AiAssistantPage />} />
-                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/settings/*" element={<SettingsRoutes />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/change-password" element={<ChangePassword />} />
                   <Route path="/products/*" element={<Products />} />
@@ -182,6 +183,7 @@ const App: React.FC = () => {
                   <Route path="/sales/finished-goods" element={<FinishedGoodsInventory />} />
                   <Route path="/sales/quotations" element={<SalesQuotationManagement />} />
                   <Route path="/sales/orders" element={<SalesOrderManagement />} />
+                  <Route path="/sales/orders-division-review" element={<SalesOrderDivisionReview />} />
                   <Route path="/sales/deliveries" element={<SalesDeliveryManagement />} />
                   <Route path="/sales/packages" element={<DispatchPackagesPage />} />
                   <Route path="/dispatch/packages" element={<DispatchPackagesPage />} />

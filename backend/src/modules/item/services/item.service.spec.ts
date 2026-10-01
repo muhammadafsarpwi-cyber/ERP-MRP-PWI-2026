@@ -10,7 +10,8 @@ import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
 import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
 import { ProductionEntry } from '../../production/entities/production-entry.entity';
 import { BarcodeService } from '../../barcode/services/barcode.service';
-import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ConflictException, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ActivityLogService } from '../../audit/services/activity-log.service';
 
 describe('ItemService', () => {
   let service: ItemService;
@@ -146,6 +147,7 @@ describe('ItemService', () => {
         { provide: getRepositoryToken(InventoryBalance), useValue: { find: jest.fn().mockResolvedValue([]) } },
         { provide: getRepositoryToken(ProductionEntry), useValue: { findAndCount: jest.fn().mockResolvedValue([[], 0]) } },
         { provide: BarcodeService, useValue: { ensureBarcodeForEntity: jest.fn().mockResolvedValue({}), backfill: jest.fn().mockResolvedValue({}), generateBarcodeValue: jest.fn().mockResolvedValue('8901000000001') } },
+        { provide: ActivityLogService, useValue: { log: jest.fn().mockResolvedValue({}) } },
         {
           provide: DataSource,
           useValue: {
@@ -442,42 +444,182 @@ describe('ItemService', () => {
     });
   });
 
-  describe('remove', () => {
-    it('should delete an item with no business references', async () => {
-      repository.findOne.mockResolvedValue(mockItem);
+  describe('remove — company-scoped, eligibility-gated hard delete', () => {
+    const runnerMock = () => {
+      const runner = { query: jest.fn().mockResolvedValue([]), remove: jest.fn().mockResolvedValue(mockItem) };
+      return runner;
+    };
+    const wireTransaction = (runner: any, impl?: (cb: any) => Promise<any>) => {
+      const ds = (service as any).dataSource;
+      ds.transaction = impl || jest.fn((cb: any) => cb(runner));
+      return ds;
+    };
+    const wireSuperAdmin = (isSuper: boolean) => {
+      const ds = (service as any).dataSource;
+      ds.query = jest.fn().mockResolvedValue(isSuper ? [{ '?column?': 1 }] : []);
+    };
+    const wireAudit = () => {
+      const log = jest.fn().mockResolvedValue({});
+      (service as any).activityLogService = { log };
+      return log;
+    };
+    const zeroCounts = () => {
       repository.query = jest.fn().mockResolvedValue([{ c: 0 }]);
-      repository.remove.mockResolvedValue(mockItem);
+    };
 
-      await expect(service.remove('item-001')).resolves.toBeUndefined();
-      expect(repository.remove).toHaveBeenCalledWith(mockItem);
+    it('should delete an item with no business references (transactional + audited)', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      zeroCounts();
+      const runner = runnerMock();
+      wireTransaction(runner);
+      const auditLog = wireAudit();
+
+      await expect(service.remove('item-001', { companyId: 'company-001' })).resolves.toBeUndefined();
+      expect(runner.remove).toHaveBeenCalledWith(mockItem);
+      expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'ITEM_DELETED', targetId: 'item-001' }));
     });
 
-    it('should block deletion when referenced by BOM lines / production / stock', async () => {
+    it('should 404 for an item belonging to another company (no existence leak)', async () => {
+      repository.findOne.mockResolvedValue(mockItem); // company-001
+
+      await expect(service.remove('item-001', { companyId: 'company-OTHER' })).rejects.toThrow(NotFoundException);
+      expect(repository.remove).not.toHaveBeenCalled();
+    });
+
+    it('should block deletion when referenced by eligible dependents (409, no force)', async () => {
       repository.findOne.mockResolvedValue(mockItem);
       repository.query = jest.fn().mockImplementation((sql: string) => {
         if (sql.includes('bom_lines')) return Promise.resolve([{ c: 3 }]);
-        if (sql.includes('production_entries')) return Promise.resolve([{ c: 12 }]);
         return Promise.resolve([{ c: 0 }]);
       });
 
-      await expect(service.remove('item-001')).rejects.toThrow(ConflictException);
-      await expect(service.remove('item-001')).rejects.toThrow(/referenced by/);
+      await expect(service.remove('item-001', { companyId: 'company-001' })).rejects.toThrow(ConflictException);
+      await expect(service.remove('item-001', { companyId: 'company-001' })).rejects.toThrow(/referenced by/);
       expect(repository.remove).not.toHaveBeenCalled();
+    });
+
+    it('should block deletion with protected transactional history even without force', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      repository.query = jest.fn().mockImplementation((sql: string) => {
+        if (sql.includes('stock_ledger')) return Promise.resolve([{ c: 2 }]);
+        return Promise.resolve([{ c: 0 }]);
+      });
+
+      await expect(service.remove('item-001', { companyId: 'company-001' })).rejects.toThrow(/protected transactional history/);
     });
 
     it('should throw NotFoundException when the item does not exist', async () => {
       repository.findOne.mockResolvedValue(null);
 
-      await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
+      await expect(service.remove('missing', { companyId: 'company-001' })).rejects.toThrow(NotFoundException);
     });
 
-    it('should allow force deletion (admin purge) even when business references exist', async () => {
+    it('should 403 force purge for non-SUPER_ADMIN', async () => {
       repository.findOne.mockResolvedValue(mockItem);
-      repository.query = jest.fn().mockResolvedValue([{ c: 5 }]);
-      repository.remove.mockResolvedValue(mockItem);
+      zeroCounts();
+      wireSuperAdmin(false);
 
-      await expect(service.remove('item-001', true)).resolves.toBeUndefined();
-      expect(repository.remove).toHaveBeenCalledWith(mockItem);
+      await expect(
+        service.remove('item-001', { companyId: 'company-001', force: true, actor: { authUserId: 'auth-plain' } }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should force purge eligible dependents for SUPER_ADMIN (audited, recursive)', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      repository.query = jest.fn().mockImplementation((sql: string) => {
+        if (sql.includes('bom_lines')) return Promise.resolve([{ c: 2 }]);
+        if (sql.includes('bill_of_materials')) return Promise.resolve([{ c: 1 }]);
+        return Promise.resolve([{ c: 0 }]);
+      });
+      wireSuperAdmin(true);
+      const runner = runnerMock();
+      wireTransaction(runner);
+      const auditLog = wireAudit();
+
+      await expect(
+        service.remove('item-001', { companyId: 'company-001', force: true, actor: { authUserId: 'auth-super', email: 'root@erp.test' } }),
+      ).resolves.toBeUndefined();
+      expect(runner.remove).toHaveBeenCalledWith(mockItem);
+      expect(auditLog).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'ITEM_FORCE_DELETED', targetName: 'ITEM-001' }),
+      );
+    });
+
+    it('should block force purge when protected history exists (real data never purged)', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      repository.query = jest.fn().mockImplementation((sql: string) => {
+        if (sql.includes('sales_order_lines')) return Promise.resolve([{ c: 4 }]);
+        if (sql.includes('bom_lines')) return Promise.resolve([{ c: 2 }]);
+        return Promise.resolve([{ c: 0 }]);
+      });
+      wireSuperAdmin(true);
+      const runner = runnerMock();
+      wireTransaction(runner);
+
+      await expect(
+        service.remove('item-001', { companyId: 'company-001', force: true, actor: { authUserId: 'auth-super' } }),
+      ).rejects.toThrow(/protected transactional history/);
+      expect(runner.remove).not.toHaveBeenCalled();
+    });
+
+    it('should roll back and skip audit when the transaction fails', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      zeroCounts();
+      const ds = (service as any).dataSource;
+      ds.transaction = jest.fn().mockRejectedValue(new Error('deadlock'));
+      const auditLog = wireAudit();
+
+      await expect(service.remove('item-001', { companyId: 'company-001' })).rejects.toThrow('deadlock');
+      expect(auditLog).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getDeleteEligibility', () => {
+    it('should report a clean, deletable item', async () => {
+      repository.findOne.mockResolvedValue({ ...mockItem, company: { legalName: 'PakWiz' } } as any);
+      repository.query = jest.fn().mockResolvedValue([{ c: 0 }]);
+
+      const result = await service.getDeleteEligibility('item-001', 'company-001');
+      expect(result.canDeleteNormal).toBe(true);
+      expect(result.canDeleteForce).toBe(true);
+      expect(result.totalProtected).toBe(0);
+      expect(result.itemCode).toBe('ITEM-001');
+    });
+
+    it('should report protected blockers with counts', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      repository.query = jest.fn().mockImplementation((sql: string) => {
+        if (sql.includes('production_entries')) return Promise.resolve([{ c: 5 }]);
+        return Promise.resolve([{ c: 0 }]);
+      });
+
+      const result = await service.getDeleteEligibility('item-001', 'company-001');
+      expect(result.canDeleteNormal).toBe(false);
+      expect(result.canDeleteForce).toBe(false);
+      expect(result.totalProtected).toBe(5);
+      expect(result.reason).toMatch(/protected transactional history/);
+    });
+
+    it('should 404 cross-company eligibility lookups', async () => {
+      repository.findOne.mockResolvedValue(mockItem);
+      await expect(service.getDeleteEligibility('item-001', 'company-OTHER')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findDummyCandidates', () => {
+    it('should flag is_demo rows and name-pattern rows without flagging real data', async () => {
+      repository.query = jest.fn()
+        .mockResolvedValueOnce([
+          { id: 'd1', item_code: 'DEMO-001', name: 'Demo Item', company_id: 'company-001', is_demo: true, status: 'ACTIVE' },
+          { id: 'd2', item_code: 'WIDGET-9', name: 'Test Widget', company_id: 'company-001', is_demo: false, status: 'ACTIVE' },
+        ])
+        .mockResolvedValue([{ c: 0 }]);
+
+      const result = await service.findDummyCandidates('company-001');
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({ id: 'd1', matchReason: 'flagged' });
+      expect(result[1]).toMatchObject({ id: 'd2', matchReason: 'name-pattern' });
+      expect(repository.query).toHaveBeenCalledWith(expect.stringContaining('company_id = $1'), expect.arrayContaining(['company-001']));
     });
   });
 

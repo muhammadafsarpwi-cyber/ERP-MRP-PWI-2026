@@ -13,6 +13,7 @@ import {
   VerticalRightOutlined,
   VerticalLeftOutlined,
   CheckOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useWorkspaceTabStore, WorkspaceTab } from '../../store/workspaceTabStore';
 import { hasUnsavedChanges } from '../../store/unsavedChangesRegistry';
@@ -220,9 +221,10 @@ export const WorkspaceTabStrip: React.FC = () => {
     items: [
       ...tabs.map((tab) => {
         const isActive = tab.id === activeTabId;
-        const navMeta = resolveNavMeta(tab.pathname);
-        const displayTitle = navMeta?.label || tab.title || 'Page';
-        const IconComponent = navMeta?.icon || (tab.id === '/dashboard' ? HomeOutlined : null);
+        const isSettingsTab = tab.id === '/settings' || (Boolean(tab.pathname) && tab.pathname.startsWith('/settings'));
+        const navMeta = isSettingsTab ? null : resolveNavMeta(tab.pathname);
+        const displayTitle = isSettingsTab ? 'Company Settings' : (navMeta?.label || tab.title || 'Page');
+        const IconComponent = isSettingsTab ? SettingOutlined : (navMeta?.icon || (tab.id === '/dashboard' ? HomeOutlined : null));
 
         return {
           key: tab.id,
@@ -286,9 +288,10 @@ export const WorkspaceTabStrip: React.FC = () => {
       >
         {tabs.map((tab, index) => {
           const isActive = tab.id === activeTabId;
-          const navMeta = resolveNavMeta(tab.pathname);
-          const displayTitle = navMeta?.label || tab.title || 'Page';
-          const IconComponent = navMeta?.icon || (tab.id === '/dashboard' ? HomeOutlined : null);
+          const isSettingsTab = tab.id === '/settings' || (Boolean(tab.pathname) && tab.pathname.startsWith('/settings'));
+          const navMeta = isSettingsTab ? null : resolveNavMeta(tab.pathname);
+          const displayTitle = isSettingsTab ? 'Company Settings' : (navMeta?.label || tab.title || 'Page');
+          const IconComponent = isSettingsTab ? SettingOutlined : (navMeta?.icon || (tab.id === '/dashboard' ? HomeOutlined : null));
 
           return (
             <Dropdown

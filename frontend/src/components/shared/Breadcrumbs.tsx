@@ -2,6 +2,7 @@ import React from 'react';
 import { Breadcrumb } from 'antd';
 import { Link, useLocation } from 'react-router-dom';
 import { HomeOutlined } from '@ant-design/icons';
+import { SETTINGS_CATEGORIES } from '../settings/settingsNavigationConfig';
 
 interface RouteLabel {
   pattern: RegExp;
@@ -63,9 +64,16 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/hr\/dashboard/, label: 'HR Dashboard' },
   { pattern: /^\/hr\/my-attendance/, label: 'My Attendance' },
   { pattern: /^\/hr\/attendance-register/, label: 'Attendance Register' },
-  { pattern: /^\/settings$/, label: 'Settings' },
+  { pattern: /^\/settings$/, label: 'Company Settings' },
   { pattern: /^\/reports/, label: 'Reports' },
 ];
+
+// Settings categories carry their own display labels so the trail reads
+// "Company Settings / Invoice Settings" instead of title-casing the URL slug.
+// Generated from the single settings navigation registry.
+for (const item of SETTINGS_CATEGORIES) {
+  ROUTE_LABELS.push({ pattern: new RegExp(`^${item.path}$`), label: item.label });
+}
 
 const PARENT_LABELS: Record<string, string> = {
   'master-data': 'Master Data',
@@ -77,6 +85,7 @@ const PARENT_LABELS: Record<string, string> = {
   production: 'Production',
   qc: 'QC',
   hr: 'HR',
+  settings: 'Company Settings',
 };
 
 /** Prefix-based overrides: when the next child path starts with the key, show the value as parent label. */
