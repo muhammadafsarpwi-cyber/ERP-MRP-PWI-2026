@@ -4,3 +4,4 @@ export { ProductionEntryService } from './production-entry.service';
 export { ProductionInventoryReportService } from './production-inventory-report.service';
 export { PRODUCTION_MOVEMENT_TYPES, ProductionInventoryReportMovementType, ProductionInventoryReportFilters } from './production-inventory-report.service';
 export { ProductionUnitService } from './production-unit.service';
+export { ProductionOpenStockService } from './production-open-stock.service';

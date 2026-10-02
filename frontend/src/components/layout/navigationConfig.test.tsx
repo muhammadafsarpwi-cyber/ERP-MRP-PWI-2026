@@ -109,7 +109,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/procurement/suppliers', '/procurement/requisitions', '/procurement/rfqs',
   '/procurement/quotations', '/procurement/orders', '/procurement/receipts',
   '/procurement/returns', '/procurement/invoices',
-  '/production/dashboard', '/production/entries', '/production/receiving',
+  '/production/dashboard', '/production/open-stock', '/production/entries', '/production/receiving',
   '/production/returns', '/production/receiving-report',
   '/production/bom', '/production/routings', '/production/targets',
   '/production/traceability', '/production/reports', '/production/inventory-report',

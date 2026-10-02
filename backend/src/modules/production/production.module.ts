@@ -25,12 +25,14 @@ import {
   ProductionEntryService,
   ProductionInventoryReportService,
   ProductionUnitService,
+  ProductionOpenStockService,
 } from './services';
 import {
   ProductionOrderController,
   ProductionEntryController,
   ProductionInventoryReportController,
   ProductionUnitController,
+  ProductionOpenStockController,
 } from './controllers';
 import { InventoryModule } from '../inventory/inventory.module';
 import { MachineTargetModule } from '../machine-target/machine-target.module';
@@ -84,6 +86,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
     ProductionEntryController,
     ProductionInventoryReportController,
     ProductionUnitController,
+    ProductionOpenStockController,
   ],
   providers: [
     ProductionOrderService,
@@ -91,8 +94,15 @@ import { BarcodeModule } from '../barcode/barcode.module';
     ProductionEntryService,
     ProductionInventoryReportService,
     ProductionUnitService,
+    ProductionOpenStockService,
   ],
-  exports: [ProductionOrderService, ProductionPlanningService, ProductionEntryService, ProductionUnitService],
+  exports: [
+    ProductionOrderService,
+    ProductionPlanningService,
+    ProductionEntryService,
+    ProductionUnitService,
+    ProductionOpenStockService,
+  ],
 })
 export class ProductionModule {}
 

@@ -351,6 +351,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     color: 'cyan',
     children: [
       { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.production.orders.view'] },
+      { key: '/production/open-stock', label: 'Production Item Open Stock', icon: DatabaseOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
       { key: '/production/entries', label: 'Daily Production Entry', icon: EditOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
       { key: '/production/units', label: 'Unit Serialization & Labels', icon: BarcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
       { key: 'production:dispatch:packages', path: '/dispatch/packages', label: 'Dispatch Packages & QR Scan', icon: QrcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },

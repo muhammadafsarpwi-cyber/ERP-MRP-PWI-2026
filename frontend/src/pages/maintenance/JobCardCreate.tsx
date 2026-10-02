@@ -1742,19 +1742,19 @@ export const JobCardCreate: React.FC = () => {
               <div
                 className="erp-jc-resize-edge-r"
                 onMouseDown={(e) => handleResizeStart(e, 'width')}
-                title="Drag to resize width (چوڑائی چھوٹا یا بڑا کریں)"
+                title="Drag to resize width"
               />
               {/* Bottom edge resize handle */}
               <div
                 className="erp-jc-resize-edge-b"
                 onMouseDown={(e) => handleResizeStart(e, 'height')}
-                title="Drag to resize height (اونچائی چھوٹا یا بڑا کریں)"
+                title="Drag to resize height"
               />
               {/* Bottom-right corner resize handle */}
               <div
                 className="erp-jc-resize-handle"
                 onMouseDown={(e) => handleResizeStart(e, 'both')}
-                title="Drag to resize window (دونوں طرف سے چھوٹا یا بڑا کریں)"
+                title="Drag to resize window"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M10 2L2 10M10 6L6 10M10 10L10 10.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>

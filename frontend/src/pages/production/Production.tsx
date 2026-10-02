@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import ProductionDashboard from './ProductionDashboard';
 import ProductionReports from './ProductionReports';
 import ProductionOrders from './ProductionOrders';
+import ProductionItemOpenStock from './ProductionItemOpenStock';
 import BomManagement from './BOMManagement';
 import RoutingManagement from './RoutingManagement';
 import ProductionEntries from './ProductionEntries';
@@ -24,6 +25,7 @@ const Production: React.FC = () => (
   <Routes>
     <Route index element={<Navigate to="/production/dashboard" replace />} />
     <Route path="dashboard" element={<ProductionDashboard />} />
+    <Route path="open-stock" element={<ProductionItemOpenStock />} />
     <Route path="orders" element={<ProductionOrders />} />
     <Route path="reports" element={<ProductionReports />} />
     <Route path="entries/*" element={<ProductionEntries />} />
