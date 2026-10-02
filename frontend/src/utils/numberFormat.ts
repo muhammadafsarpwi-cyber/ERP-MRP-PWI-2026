@@ -26,7 +26,12 @@ export function toNum(value: unknown, fallback: number = 0): number {
  *   formatDecimal("not-a-number", 2)   → "0.00"
  */
 export function formatDecimal(value: unknown, decimals: number = 2): string {
-  return toNum(value).toFixed(decimals);
+  const n = toNum(value);
+  if (decimals === 0) return Math.round(n).toString();
+  const formatted = n.toFixed(decimals);
+  if (!formatted.includes('.')) return formatted;
+  const trimmed = formatted.replace(/\.?0+$/, '');
+  return trimmed === '-0' ? '0' : trimmed;
 }
 
 /**

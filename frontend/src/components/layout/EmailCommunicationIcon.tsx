@@ -48,7 +48,7 @@ const EmailCommunicationIcon: React.FC = () => {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await apiService.get<SummaryResponse>('/communication/settings/summary');
+      const res = await apiService.get<SummaryResponse>('/communication/settings/summary', undefined, { silent: true });
       if (mountedRef.current && res?.data?.email) setSummary(res.data.email);
     } catch { /* non-fatal */ }
   }, []);
@@ -56,7 +56,7 @@ const EmailCommunicationIcon: React.FC = () => {
   const loadRecent = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiService.get<any>('/notifications/admin/deliveries', { channel: 'EMAIL', limit: 5 });
+      const res = await apiService.get<any>('/notifications/admin/deliveries', { channel: 'EMAIL', limit: 5 }, { silent: true });
       if (mountedRef.current) setRecent(res.data || []);
     } catch { /* ignore */ } finally {
       if (mountedRef.current) setLoading(false);

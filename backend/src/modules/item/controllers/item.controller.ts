@@ -6,10 +6,12 @@ import { CreateItemDto, UpdateItemDto, ConvertUomDto, BulkCreateItemsDto } from 
 import { ItemStatus } from '../entities';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { OrgScopeGuard } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 
 @ApiTags('master-data/items')
 @Controller('master-data/items')
-@UseGuards(SupabaseJwtGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard)
 @ApiBearerAuth()
 export class ItemController {
   constructor(
@@ -17,13 +19,24 @@ export class ItemController {
     private readonly conversionService: ItemConversionService,
   ) {}
 
-  private getCompanyId(req: any): string {
-    const companyId =
-      req.erpUser?.defaultCompanyId || req.orgScopes?.[0]?.companyId || req.user?.defaultCompanyId;
-    if (!companyId) {
-      throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
+  /** Division list a service may filter with; `undefined` = unrestricted. */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
+  }
+
+  private async getCompanyId(req: any): Promise<string> {
+    const directCompanyId =
+      req.headers?.['x-company-id'] ||
+      req.query?.companyId ||
+      req.erpUser?.defaultCompanyId ||
+      req.orgScopes?.[0]?.companyId ||
+      req.user?.defaultCompanyId;
+
+    if (directCompanyId) {
+      return directCompanyId;
     }
-    return companyId;
+
+    return await this.itemService.resolveDefaultCompanyId(req.user?.id);
   }
 
   @Post('bulk')
@@ -74,6 +87,7 @@ export class ItemController {
   @ApiQuery({ name: 'sortField', required: false })
   @ApiQuery({ name: 'sortOrder', required: false })
   async findAll(
+    @Req() req: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
@@ -109,6 +123,7 @@ export class ItemController {
       active: active === 'true' ? true : active === 'false' ? false : undefined,
       isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory,
       sortField, sortOrder,
+      allowedDivisionIds: this.divisions(req),
     });
     return { success: true, ...result };
   }
@@ -118,9 +133,9 @@ export class ItemController {
   @RequirePermission('item.view')
   @ApiOperation({ summary: 'Fast item lookup for dropdowns and caches' })
   @ApiQuery({ name: 'departmentId', required: false })
-  async getLookup(@Query('departmentId') departmentId?: string) {
+  async getLookup(@Req() req: any, @Query('departmentId') departmentId?: string) {
     try {
-      const items = await this.itemService.getLookupItems(departmentId);
+      const items = await this.itemService.getLookupItems(departmentId, this.divisions(req));
       return { success: true, data: items, total: items.length };
     } catch (err: any) {
       return { success: false, error: err.message, stack: err.stack };
@@ -165,11 +180,12 @@ export class ItemController {
   @RequirePermission('item.view')
   @ApiOperation({ summary: 'Get distinct item types filtered by organization scope' })
   async getDistinctTypes(
+    @Req() req: any,
     @Query('divisionId') divisionId?: string,
     @Query('sectionId') sectionId?: string,
     @Query('departmentId') departmentId?: string,
   ) {
-    const types = await this.itemService.getDistinctItemTypes({ divisionId, sectionId, departmentId });
+    const types = await this.itemService.getDistinctItemTypes({ divisionId, sectionId, departmentId, allowedDivisionIds: this.divisions(req) });
     return { success: true, data: types };
   }
 
@@ -178,12 +194,13 @@ export class ItemController {
   @RequirePermission('item.view')
   @ApiOperation({ summary: 'Get item pipeline statistics scoped by division/section/department' })
   async getPipelineStats(
+    @Req() req: any,
     @Query('companyId') companyId?: string,
     @Query('divisionId') divisionId?: string,
     @Query('sectionId') sectionId?: string,
     @Query('departmentId') departmentId?: string,
   ) {
-    const stats = await this.itemService.getPipelineStats({ companyId, divisionId, sectionId, departmentId });
+    const stats = await this.itemService.getPipelineStats({ companyId, divisionId, sectionId, departmentId, allowedDivisionIds: this.divisions(req) });
     return { success: true, data: stats };
   }
 
@@ -286,8 +303,8 @@ export class ItemController {
   @RequirePermission('item.view')
   @ApiOperation({ summary: 'Get item by ID' })
   @ApiParam({ name: 'id' })
-  async findOne(@Param('id') id: string) {
-    const item = await this.itemService.findOne(id);
+  async findOne(@Req() req: any, @Param('id') id: string) {
+    const item = await this.itemService.findOne(id, this.divisions(req));
     return { success: true, data: item };
   }
 
@@ -345,8 +362,31 @@ export class ItemController {
     @Query('search') search?: string,
     @Query('limit') limit?: number,
   ) {
-    const data = await this.itemService.findDummyCandidates(this.getCompanyId(req), search, limit ? Number(limit) : undefined);
+    const companyId = await this.getCompanyId(req);
+    const data = await this.itemService.findDummyCandidates(companyId, search, limit ? Number(limit) : undefined);
     return { success: true, data, total: data.length };
+  }
+
+  @Post('cleanup/purge-all-dummy')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('item.delete')
+  @ApiOperation({ summary: 'Admin one-click purge of all dummy, test, and sample items across the system' })
+  async purgeAllDummy(@Req() req: any) {
+    let companyId: string | undefined;
+    try {
+      companyId = await this.getCompanyId(req);
+    } catch {
+      companyId = undefined;
+    }
+    const result = await this.itemService.purgeAllDummyItems(companyId, {
+      authUserId: req.user?.id,
+      email: req.user?.email,
+    });
+    return {
+      success: true,
+      message: `Successfully purged ${result.totalPurged} dummy/test item(s).`,
+      data: result,
+    };
   }
 
   @Get(':id/delete-eligibility')
@@ -355,27 +395,39 @@ export class ItemController {
   @ApiOperation({ summary: 'Pre-delete eligibility report: dependency tree, protected history, and delete readiness' })
   @ApiParam({ name: 'id' })
   async deleteEligibility(@Param('id') id: string, @Req() req: any) {
-    const data = await this.itemService.getDeleteEligibility(id, this.getCompanyId(req));
+    let companyId: string | undefined;
+    try {
+      companyId = await this.getCompanyId(req);
+    } catch {
+      companyId = undefined;
+    }
+    const data = await this.itemService.getDeleteEligibility(id, companyId);
     return { success: true, data };
   }
 
   @Delete(':id')
   @UseGuards(PermissionGuard)
   @RequirePermission('item.delete')
-  @ApiOperation({ summary: 'Delete item. ?force=true cascades eligible dependents (SUPER_ADMIN only); protected transactional history always blocks with 409.' })
+  @ApiOperation({ summary: 'Delete item. ?force=true cascades and purges all dependencies (Admin power)' })
   @ApiParam({ name: 'id' })
-  @ApiQuery({ name: 'force', required: false, type: Boolean, description: 'Cascade eligible dependents (SUPER_ADMIN only, never purges protected history)' })
+  @ApiQuery({ name: 'force', required: false, type: Boolean, description: 'Cascade all dependents (Admin power)' })
   async remove(@Param('id') id: string, @Req() req: any, @Query('force') force?: string) {
     const isForce = force === 'true' || force === '1';
+    let companyId: string | undefined;
+    try {
+      companyId = await this.getCompanyId(req);
+    } catch {
+      companyId = undefined;
+    }
     await this.itemService.remove(id, {
-      companyId: this.getCompanyId(req),
+      companyId,
       force: isForce,
       actor: { authUserId: req.user?.id, email: req.user?.email },
     });
     return {
       success: true,
       message: isForce
-        ? 'Item and eligible dependent records permanently deleted'
+        ? 'Item and all associated dependent records permanently deleted'
         : 'Item deleted successfully',
     };
   }

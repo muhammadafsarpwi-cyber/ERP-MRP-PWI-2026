@@ -340,7 +340,7 @@ class ApiService {
           // stack. The user is deliberately NOT logged out: a 403 means
           // "not allowed to do that", not "session invalid".
           const friendly = describeForbiddenMessage(backendMsg);
-          if (friendly) {
+          if (friendly && !originalRequest?.silent) {
             message.warning({ content: friendly, duration: 4, key: 'api-403' });
           }
         }

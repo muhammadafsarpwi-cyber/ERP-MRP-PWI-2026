@@ -145,7 +145,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
             gap: 10,
             paddingTop: 12,
             borderTop: '1px solid var(--theme-border, #e2e8f0)',
@@ -155,55 +156,57 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             Cancel
           </Button>
 
-          {/* If an error occurred and deactivate alternative exists, offer it directly in footer */}
-          {errorMsg && onDeactivateInstead && (
-            <Button
-              icon={<PauseCircleOutlined />}
-              onClick={handleDeactivate}
-              loading={deactivating}
-              disabled={loading || forceDeleting}
-              style={{
-                borderColor: 'var(--theme-warning, #f59e0b)',
-                color: 'var(--theme-warning, #d97706)',
-                fontWeight: 600,
-              }}
-            >
-              {deactivateLabel}
-            </Button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* If an error occurred and deactivate alternative exists, offer it directly in footer */}
+            {errorMsg && onDeactivateInstead && (
+              <Button
+                icon={<PauseCircleOutlined />}
+                onClick={handleDeactivate}
+                loading={deactivating}
+                disabled={loading || forceDeleting}
+                style={{
+                  borderColor: 'var(--theme-warning, #f59e0b)',
+                  color: 'var(--theme-warning, #d97706)',
+                  fontWeight: 600,
+                }}
+              >
+                {deactivateLabel}
+              </Button>
+            )}
 
-          {/* If deletion was blocked and force delete is enabled for Admin, offer it in footer */}
-          {errorMsg && onForceDelete && (
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={handleForceDelete}
-              loading={forceDeleting}
-              disabled={loading || deactivating}
-              style={{ fontWeight: 700 }}
-            >
-              {forceDeleteLabel}
-            </Button>
-          )}
+            {/* If deletion was blocked and force delete is enabled for Admin, offer it in footer */}
+            {errorMsg && onForceDelete && (
+              <Button
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={handleForceDelete}
+                loading={forceDeleting}
+                disabled={loading || deactivating}
+                style={{ fontWeight: 700 }}
+              >
+                Admin Force Delete
+              </Button>
+            )}
 
-          {!errorMsg && (
-            <Button
-              type="primary"
-              danger
-              icon={<DeleteOutlined />}
-              loading={loading}
-              disabled={deactivating || forceDeleting}
-              onClick={handleConfirm}
-              style={{ fontWeight: 700 }}
-            >
-              Confirm Delete
-            </Button>
-          )}
+            {!errorMsg && (
+              <Button
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                loading={loading}
+                disabled={deactivating || forceDeleting}
+                onClick={handleConfirm}
+                style={{ fontWeight: 700 }}
+              >
+                Confirm Delete
+              </Button>
+            )}
+          </div>
         </div>
       }
       centered
-      width={540}
+      width={620}
       destroyOnHidden
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '12px 0 8px' }}>

@@ -74,6 +74,13 @@ export const EditJobCardModal: React.FC<EditJobCardModalProps> = ({
         </Button>,
       ]}
       width={560}
+      styles={{
+        body: {
+          maxHeight: 'calc(85vh - 120px)',
+          overflowY: 'auto',
+          paddingRight: 8,
+        },
+      }}
     >
       <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
         <Form.Item

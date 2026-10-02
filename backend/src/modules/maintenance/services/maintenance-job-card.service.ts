@@ -447,7 +447,7 @@ export class MaintenanceJobCardService {
     return undefined;
   }
 
-  async findAll(query: JobCardQueryDto): Promise<{ data: MaintenanceJobCard[]; total: number }> {
+  async findAll(query: JobCardQueryDto, allowedDivisionIds?: string[]): Promise<{ data: MaintenanceJobCard[]; total: number }> {
     const { page = 1, limit = 20, search, companyId, machineId, divisionId, sectionId, assignedDepartmentId, currentStatus, statuses, priority, maintenanceType, technicianUserId, dateFrom, dateTo } = query;
 
     const qb = this.jobCardRepo.createQueryBuilder('jc');
@@ -455,11 +455,20 @@ export class MaintenanceJobCardService {
     qb.leftJoinAndSelect('jc.division', 'division');
     qb.leftJoinAndSelect('jc.section', 'section');
     qb.leftJoinAndSelect('jc.assignedDepartment', 'department');
+    qb.leftJoinAndSelect('machine.division', 'machineDivision');
+    qb.leftJoinAndSelect('machine.section', 'machineSection');
+    qb.leftJoinAndSelect('machine.department', 'machineDepartment');
     qb.leftJoinAndSelect('jc.requestedByUser', 'requester');
     qb.leftJoinAndSelect('jc.company', 'company');
     qb.leftJoinAndSelect('jc.technicians', 'technicians');
     qb.leftJoinAndSelect('technicians.technicianUser', 'technicianUser');
     qb.leftJoinAndSelect('technicians.technician', 'technicianMaster');
+
+    if (allowedDivisionIds && allowedDivisionIds.length > 0) {
+      qb.andWhere('(jc.divisionId IN (:...allowedDivisionIds) OR machine.divisionId IN (:...allowedDivisionIds))', { allowedDivisionIds });
+    } else if (allowedDivisionIds && allowedDivisionIds.length === 0) {
+      qb.andWhere('1 = 0');
+    }
 
     if (companyId) {
       qb.andWhere('jc.companyId = :companyId', { companyId });
@@ -467,8 +476,12 @@ export class MaintenanceJobCardService {
     if (machineId) {
       qb.andWhere('jc.machineId = :machineId', { machineId });
     }
-    if (divisionId) qb.andWhere('machine.divisionId = :divisionId', { divisionId });
-    if (sectionId) qb.andWhere('machine.sectionId = :sectionId', { sectionId });
+    if (divisionId) {
+      qb.andWhere('(jc.divisionId = :divisionId OR machine.divisionId = :divisionId)', { divisionId });
+    }
+    if (sectionId) {
+      qb.andWhere('(jc.sectionId = :sectionId OR machine.sectionId = :sectionId)', { sectionId });
+    }
     if (assignedDepartmentId) {
       qb.andWhere('jc.assignedDepartmentId = :assignedDepartmentId', { assignedDepartmentId });
     }
@@ -1279,11 +1292,12 @@ export class MaintenanceJobCardService {
     sectionId?: string,
     departmentId?: string,
     search?: string,
+    allowedDivisionIds?: string[],
   ): Promise<any> {
     const qb = this.jobCardRepo.createQueryBuilder('jc');
     qb.where('jc.companyId = :companyId', { companyId });
     qb.andWhere('jc.isActive = true');
-    this.applyDashboardFilters(qb, { machineId, divisionId, sectionId, departmentId, search });
+    this.applyDashboardFilters(qb, { machineId, divisionId, sectionId, departmentId, search, allowedDivisionIds });
 
     const total = await qb.getCount();
     const open = await qb.clone().andWhere('jc.currentStatus = :s', { s: JobCardStatus.OPEN }).getCount();
@@ -1310,7 +1324,7 @@ export class MaintenanceJobCardService {
       .groupBy('jc.maintenanceType')
       .getRawMany();
 
-    const breakdownFilter = this.buildDashboardFilterFragment({ machineId, divisionId, sectionId, departmentId, search });
+    const breakdownFilter = this.buildDashboardFilterFragment({ machineId, divisionId, sectionId, departmentId, search, allowedDivisionIds });
     if (breakdownFilter.sql) {
       byMaintenanceType = await this.jobCardRepo
         .createQueryBuilder('jc')
@@ -1349,7 +1363,15 @@ export class MaintenanceJobCardService {
     };
   }
 
-  private async computeKpis(opts: { companyId: string; machineId?: string; divisionId?: string; sectionId?: string; departmentId?: string; search?: string }): Promise<{
+  private async computeKpis(opts: {
+    companyId: string;
+    machineId?: string;
+    divisionId?: string;
+    sectionId?: string;
+    departmentId?: string;
+    search?: string;
+    allowedDivisionIds?: string[];
+  }): Promise<{
     mttrMinutes: number | null;
     mtbfMinutes: number | null;
     mpbfMinutes: number | null;
@@ -1374,7 +1396,14 @@ export class MaintenanceJobCardService {
     breakdownTrend: Array<{ month: string; count: number }>;
     mttrTrend: Array<{ month: string; mttr: number }>;
   }> {
-    const f = this.buildDashboardFilterFragment({ machineId: opts.machineId, divisionId: opts.divisionId, sectionId: opts.sectionId, departmentId: opts.departmentId, search: opts.search });
+    const f = this.buildDashboardFilterFragment({
+      machineId: opts.machineId,
+      divisionId: opts.divisionId,
+      sectionId: opts.sectionId,
+      departmentId: opts.departmentId,
+      search: opts.search,
+      allowedDivisionIds: opts.allowedDivisionIds,
+    });
     const baseParams = { ...f.params, companyId: opts.companyId };
 
     const cards = await this.jobCardRepo
@@ -1646,8 +1675,9 @@ export class MaintenanceJobCardService {
     sectionId?: string,
     departmentId?: string,
     search?: string,
+    allowedDivisionIds?: string[],
   ): Promise<any> {
-    const f = this.buildDashboardFilterFragment({ machineId, divisionId, sectionId, departmentId, search });
+    const f = this.buildDashboardFilterFragment({ machineId, divisionId, sectionId, departmentId, search, allowedDivisionIds });
     const mWhere = (): { sql: string; params: any } => ({ sql: f.sql, params: f.params });
 
     const typeBreakdown = await this.jobCardRepo
@@ -1693,7 +1723,7 @@ export class MaintenanceJobCardService {
       .groupBy('jc.currentStatus')
       .getRawMany();
 
-    const k = await this.computeKpis({ companyId, machineId, divisionId, sectionId, departmentId, search });
+    const k = await this.computeKpis({ companyId, machineId, divisionId, sectionId, departmentId, search, allowedDivisionIds });
 
     return {
       typeBreakdown,
@@ -1733,8 +1763,9 @@ export class MaintenanceJobCardService {
     sectionId?: string,
     departmentId?: string,
     search?: string,
+    allowedDivisionIds?: string[],
   ): Promise<any> {
-    const f = this.buildDashboardFilterFragment({ machineId, divisionId, sectionId, departmentId, search });
+    const f = this.buildDashboardFilterFragment({ machineId, divisionId, sectionId, departmentId, search, allowedDivisionIds });
     const machineFilter = (): string => f.sql;
     const params = (prev?: any): any => ({ ...f.params, ...(prev || {}) });
     const topProblemMachines = await this.jobCardRepo
@@ -1790,19 +1821,34 @@ export class MaintenanceJobCardService {
     return `(jc.jobCardNo ILIKE :search OR jc.complaint ILIKE :search OR EXISTS (SELECT 1 FROM machines m WHERE m.id = jc.machineId AND (m.machine_code ILIKE :search OR m.machine_number ILIKE :search OR m.machine_name ILIKE :search OR m.machine_id ILIKE :search)) OR EXISTS (SELECT 1 FROM maintenance_job_card_technicians t2 LEFT JOIN erp_users u2 ON u2.id = t2.technician_user_id WHERE t2.job_card_id = jc.id AND (u2.display_name ILIKE :search OR u2.first_name ILIKE :search OR u2.last_name ILIKE :search OR u2.email ILIKE :search)))`;
   }
 
-  private buildDashboardFilterFragment(opts: { machineId?: string; divisionId?: string; sectionId?: string; departmentId?: string; search?: string }): { sql: string; params: Record<string, unknown> } {
+  private buildDashboardFilterFragment(opts: {
+    machineId?: string;
+    divisionId?: string;
+    sectionId?: string;
+    departmentId?: string;
+    search?: string;
+    allowedDivisionIds?: string[];
+  }): { sql: string; params: Record<string, unknown> } {
     const clauses: string[] = [];
     const params: Record<string, unknown> = {};
+
+    if (opts.allowedDivisionIds && opts.allowedDivisionIds.length > 0) {
+      clauses.push('(jc.divisionId IN (:...allowedDivisionIds) OR EXISTS (SELECT 1 FROM machines m WHERE m.id = jc.machineId AND m.division_id IN (:...allowedDivisionIds)))');
+      params.allowedDivisionIds = opts.allowedDivisionIds;
+    } else if (opts.allowedDivisionIds && opts.allowedDivisionIds.length === 0) {
+      clauses.push('1 = 0');
+    }
+
     if (opts.machineId) {
       clauses.push('jc.machineId = :machineId');
       params.machineId = opts.machineId;
     }
     if (opts.divisionId) {
-      clauses.push('jc.divisionId = :divisionId');
+      clauses.push('(jc.divisionId = :divisionId OR EXISTS (SELECT 1 FROM machines m WHERE m.id = jc.machineId AND m.division_id = :divisionId))');
       params.divisionId = opts.divisionId;
     }
     if (opts.sectionId) {
-      clauses.push('jc.sectionId = :sectionId');
+      clauses.push('(jc.sectionId = :sectionId OR EXISTS (SELECT 1 FROM machines m WHERE m.id = jc.machineId AND m.section_id = :sectionId))');
       params.sectionId = opts.sectionId;
     }
     if (opts.departmentId) {
@@ -1818,7 +1864,14 @@ export class MaintenanceJobCardService {
 
   private applyDashboardFilters(
     qb: import('typeorm').SelectQueryBuilder<any>,
-    opts: { machineId?: string; divisionId?: string; sectionId?: string; departmentId?: string; search?: string },
+    opts: {
+      machineId?: string;
+      divisionId?: string;
+      sectionId?: string;
+      departmentId?: string;
+      search?: string;
+      allowedDivisionIds?: string[];
+    },
   ): void {
     const f = this.buildDashboardFilterFragment(opts);
     if (f.sql) {

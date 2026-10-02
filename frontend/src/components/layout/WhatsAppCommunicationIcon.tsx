@@ -49,7 +49,7 @@ const WhatsAppCommunicationIcon: React.FC = () => {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await apiService.get<SummaryResponse>('/communication/settings/summary');
+      const res = await apiService.get<SummaryResponse>('/communication/settings/summary', undefined, { silent: true });
       if (mountedRef.current && res?.data?.whatsapp) setSummary(res.data.whatsapp);
     } catch { /* non-fatal */ }
   }, []);
@@ -57,7 +57,7 @@ const WhatsAppCommunicationIcon: React.FC = () => {
   const loadRecent = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiService.get<any>('/notifications/admin/deliveries', { channel: 'WHATSAPP', limit: 5 });
+      const res = await apiService.get<any>('/notifications/admin/deliveries', { channel: 'WHATSAPP', limit: 5 }, { silent: true });
       if (mountedRef.current) setRecent(res.data || []);
     } catch { /* ignore */ } finally {
       if (mountedRef.current) setLoading(false);

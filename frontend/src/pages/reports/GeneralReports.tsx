@@ -19,6 +19,7 @@ import dayjs, { Dayjs } from 'dayjs';
 import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
 import { formatDecimal } from '../../utils/numberFormat';
+import { calcActualKg } from '../../utils/productionWeight';
 import './GeneralReports.css';
 
 // ==========================================
@@ -42,6 +43,7 @@ export type ReportId =
   | 'prod_department'
   | 'prod_target_vs_actual'
   | 'prod_scrap'
+  | 'prod_item'
   // Sales
   | 'sales_overview'
   | 'sales_product'
@@ -90,8 +92,12 @@ export interface RealProductionEntry {
   itemCode: string;
   itemName: string;
   coilSize?: string;
+  uomCode?: string;
+  weightPerPiece?: number | null;
+  weightPerMeter?: number | null;
   targetQuantity: number;
   actualQuantity: number;
+  actualKg?: number | null;
   varianceQuantity: number;
   scrapQuantity: number;
   efficiencyPercent: number;
@@ -100,6 +106,30 @@ export interface RealProductionEntry {
   status: 'Completed' | 'On Track' | 'Delayed';
   remarks?: string;
 }
+
+/**
+ * Calculates authoritative actual weight in KG for any production entry row.
+ * Respects item master per-piece/per-meter weight or fallback standard conversions.
+ */
+export const calcEntryActualKg = (r: RealProductionEntry): number => {
+  if (typeof r.actualKg === 'number' && !isNaN(r.actualKg) && r.actualKg > 0) return r.actualKg;
+  const dept = (r.departmentName || '').toLowerCase();
+  const uom = (r.uomCode || '').toUpperCase();
+
+  if (uom === 'KG' || uom === 'KGS' || dept.includes('flatten') || dept.includes('raw')) {
+    return r.actualQuantity;
+  }
+  if (uom.includes('GROSS') || dept.includes('spoke packing') || dept.includes('pack')) {
+    const w = r.weightPerPiece || 0.01049;
+    return Math.round(r.actualQuantity * 144 * w * 100) / 100;
+  }
+  if (dept.includes('spiral') || dept.includes('pvc')) {
+    const w = r.weightPerMeter || (dept.includes('spiral') ? 0.045 : 0.022);
+    return Math.round(r.actualQuantity * w * 100) / 100;
+  }
+  const w = r.weightPerPiece || 0.01049;
+  return Math.round(r.actualQuantity * w * 100) / 100;
+};
 
 // Real Sales Invoice structure mapped from Supabase `erp_sales.sales_invoices`
 export interface RealSalesInvoice {
@@ -120,6 +150,7 @@ export interface RealSalesInvoice {
 export interface BarChartItem {
   id: string;
   label: string;
+  shortLabel?: string;
   value: number;
   target?: number;
   unit?: string;
@@ -129,6 +160,19 @@ export interface BarChartItem {
   percentage: number;
   efficiency?: number;
 }
+
+export const getShortDeptLabel = (dept: string): string => {
+  const d = (dept || '').toLowerCase();
+  if (d.includes('straight')) return 'Straightener';
+  if (d.includes('swag')) return 'Swagging';
+  if (d.includes('plat')) return 'Plating';
+  if (d.includes('pack')) return 'Packing';
+  if (d.includes('spoke')) return 'Spoke';
+  if (d.includes('flatten')) return 'Flattening';
+  if (d.includes('spiral')) return 'Spiral';
+  if (d.includes('pvc')) return 'PVC';
+  return dept.split(' ')[0] || dept;
+};
 
 export interface MasterMachineDef {
   machineNo: string;
@@ -472,6 +516,9 @@ const SEEDED_PRODUCTION_ENTRIES: RealProductionEntry[] = [
     itemCode: 'WIP-ST-011',
     itemName: '250*17 Outer Straight Wire',
     coilSize: '3.14 mm',
+    uomCode: 'Pcs',
+    weightPerPiece: 0.01049,
+    actualKg: 524.50,
     targetQuantity: 63000.00,
     actualQuantity: 50000.00,
     varianceQuantity: -13000.00,
@@ -497,6 +544,9 @@ const SEEDED_PRODUCTION_ENTRIES: RealProductionEntry[] = [
     itemCode: 'WIP-ST-012',
     itemName: '300*18 Inner Spoke Wire',
     coilSize: '3.20 mm',
+    uomCode: 'Pcs',
+    weightPerPiece: 0.01049,
+    actualKg: 589.54,
     targetQuantity: 55000.00,
     actualQuantity: 56200.00,
     varianceQuantity: 1200.00,
@@ -522,6 +572,9 @@ const SEEDED_PRODUCTION_ENTRIES: RealProductionEntry[] = [
     itemCode: 'WIP-SP-004',
     itemName: 'Galvanized Spiral Cable 4.5mm',
     coilSize: '2.00 mm',
+    uomCode: 'Mtr',
+    weightPerMeter: 0.045,
+    actualKg: 20.93,
     targetQuantity: 450.00,
     actualQuantity: 465.00,
     varianceQuantity: 15.00,
@@ -547,6 +600,9 @@ const SEEDED_PRODUCTION_ENTRIES: RealProductionEntry[] = [
     itemCode: 'WIP-SW-001',
     itemName: 'Swaged Spoke Blank 10G',
     coilSize: '3.14 mm',
+    uomCode: 'Pcs',
+    weightPerPiece: 0.01049,
+    actualKg: 330.44,
     targetQuantity: 35000.00,
     actualQuantity: 31500.00,
     varianceQuantity: -3500.00,
@@ -572,6 +628,9 @@ const SEEDED_PRODUCTION_ENTRIES: RealProductionEntry[] = [
     itemCode: 'WIP-SPK-002',
     itemName: 'Polished Spoke 10G-250mm',
     coilSize: '3.14 mm',
+    uomCode: 'Pcs',
+    weightPerPiece: 0.01049,
+    actualKg: 308.41,
     targetQuantity: 30000.00,
     actualQuantity: 29400.00,
     varianceQuantity: -600.00,
@@ -597,6 +656,9 @@ const SEEDED_PRODUCTION_ENTRIES: RealProductionEntry[] = [
     itemCode: 'FG-SPK-PLT',
     itemName: 'Electroplated Spokes Grade A',
     coilSize: '3.14 mm',
+    uomCode: 'Pcs',
+    weightPerPiece: 0.01049,
+    actualKg: 463.66,
     targetQuantity: 45000.00,
     actualQuantity: 44200.00,
     varianceQuantity: -800.00,
@@ -622,6 +684,9 @@ const SEEDED_PRODUCTION_ENTRIES: RealProductionEntry[] = [
     itemCode: 'BOX-SPK-001',
     itemName: 'Spoke & Nipple Set 144 pcs/Box',
     coilSize: '1 Box',
+    uomCode: 'Gross (144 Pcs)',
+    weightPerPiece: 0.01049,
+    actualKg: 1888.20,
     targetQuantity: 1200.00,
     actualQuantity: 1250.00,
     varianceQuantity: 50.00,
@@ -742,8 +807,14 @@ export const GeneralReports: React.FC = () => {
   // Sub-view toggle for Target vs Actual: 'machine' | 'department'
   const [targetSubView, setTargetSubView] = useState<'machine' | 'department'>('machine');
 
-  // Sub-view toggle for Scrap & Rejection: 'machine' | 'department'
-  const [scrapSubView, setScrapSubView] = useState<'machine' | 'department'>('machine');
+  // Sub-view toggle for Scrap & Rejection: 'machine' | 'department' | 'item'
+  const [scrapSubView, setScrapSubView] = useState<'machine' | 'department' | 'item'>('machine');
+
+  // Interactive Filter for specific pipeline step/stage
+  const [selectedPipelineStep, setSelectedPipelineStep] = useState<string | null>(null);
+
+  // PDF Export progress state
+  const [pdfLoading, setPdfLoading] = useState<boolean>(false);
 
   // View mode toggle: 'summary' | 'detailed'
   const [detailMode, setDetailMode] = useState<'summary' | 'detailed'>('summary');
@@ -936,6 +1007,11 @@ export const GeneralReports: React.FC = () => {
             ? r.shift.name
             : (typeof r.shiftName === 'string' ? r.shiftName : (typeof r.shift === 'string' ? r.shift : 'General Shift'));
 
+          const uCode = r.uom?.code || r.uomCode || r.unit || '';
+          const wPiece = r.item?.weightPerPiece ?? r.item?.weight_per_piece ?? r.weightPerPiece ?? null;
+          const wMeter = r.item?.weightPerMeter ?? r.item?.weight_per_meter ?? r.weightPerMeter ?? null;
+          const computedKg = calcActualKg(uCode, aQty, wPiece, wMeter);
+
           return {
             id: r.id,
             entryNumber: r.entryNumber || r.entry_number || `PE-${String(r.id).slice(0, 6)}`,
@@ -951,8 +1027,12 @@ export const GeneralReports: React.FC = () => {
             itemCode: r.item?.itemCode || r.item?.item_code || r.itemCode || 'WIP-ITEM',
             itemName: r.item?.name || r.itemName || 'Production Item',
             coilSize: r.coilSize || r.coil_size || '1.45 mm',
+            uomCode: uCode,
+            weightPerPiece: wPiece,
+            weightPerMeter: wMeter,
             targetQuantity: tQty,
             actualQuantity: aQty,
+            actualKg: computedKg,
             varianceQuantity: aQty - tQty,
             scrapQuantity: sQty,
             efficiencyPercent: eff,
@@ -1067,12 +1147,17 @@ export const GeneralReports: React.FC = () => {
     }
   };
 
-  // Filtered Production Records (Filtered by Division & Search Text)
+  // Filtered Production Records (Filtered by Division, Pipeline Step & Search Text)
   const filteredProduction = useMemo(() => {
     return productionEntries.filter((row) => {
       if (selectedDivision !== 'all') {
         const divMatch = row.divisionId === selectedDivision || row.divisionName?.toLowerCase().includes(selectedDivision.toLowerCase());
         if (!divMatch) return false;
+      }
+      if (selectedPipelineStep) {
+        const s = selectedPipelineStep.toLowerCase().trim();
+        const d = (row.departmentName || '').toLowerCase().trim();
+        if (!d.includes(s) && !s.includes(d)) return false;
       }
       if (tableSearchText) {
         const q = tableSearchText.toLowerCase();
@@ -1087,7 +1172,7 @@ export const GeneralReports: React.FC = () => {
       }
       return true;
     });
-  }, [productionEntries, selectedDivision, tableSearchText]);
+  }, [productionEntries, selectedDivision, selectedPipelineStep, tableSearchText]);
 
   // Filtered Sales Invoices
   const filteredSales = useMemo(() => {
@@ -1104,20 +1189,24 @@ export const GeneralReports: React.FC = () => {
     });
   }, [salesInvoices, tableSearchText]);
 
-  // Production Summary KPIs
+  // Production Summary KPIs with kg-weight benchmark
   const prodSummary = useMemo(() => {
     const totalTarget = filteredProduction.reduce((a, b) => a + b.targetQuantity, 0);
     const totalActual = filteredProduction.reduce((a, b) => a + b.actualQuantity, 0);
+    const totalActualKg = filteredProduction.reduce((a, b) => a + calcEntryActualKg(b), 0);
     const totalVariance = totalActual - totalTarget;
     const avgEfficiency = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
     const totalScrap = filteredProduction.reduce((a, b) => a + b.scrapQuantity, 0);
+    const avgScrapRate = totalActualKg > 0 ? (totalScrap / totalActualKg) * 100 : 0;
     const totalDowntime = filteredProduction.reduce((a, b) => a + b.downtimeHours, 0);
     return {
       totalTarget,
       totalActual,
+      totalActualKg,
       totalVariance,
       avgEfficiency,
       totalScrap,
+      avgScrapRate,
       totalDowntime,
       count: filteredProduction.length,
     };
@@ -1252,6 +1341,7 @@ export const GeneralReports: React.FC = () => {
       shift: string;
       totalTarget: number;
       totalActual: number;
+      totalActualKg: number;
       totalScrap: number;
       totalRunning: number;
       totalDowntime: number;
@@ -1264,6 +1354,7 @@ export const GeneralReports: React.FC = () => {
         shift,
         totalTarget: 0,
         totalActual: 0,
+        totalActualKg: 0,
         totalScrap: 0,
         totalRunning: 0,
         totalDowntime: 0,
@@ -1271,6 +1362,7 @@ export const GeneralReports: React.FC = () => {
       };
       curr.totalTarget += r.targetQuantity;
       curr.totalActual += r.actualQuantity;
+      curr.totalActualKg += (r.actualKg || calcEntryActualKg(r));
       curr.totalScrap += r.scrapQuantity;
       curr.totalRunning += r.runningHours;
       curr.totalDowntime += r.downtimeHours;
@@ -1282,6 +1374,7 @@ export const GeneralReports: React.FC = () => {
       ...s,
       variance: s.totalActual - s.totalTarget,
       efficiency: s.totalTarget > 0 ? (s.totalActual / s.totalTarget) * 100 : 0,
+      scrapRate: s.totalActualKg > 0 ? (s.totalScrap / s.totalActualKg) * 100 : (s.totalActual > 0 ? (s.totalScrap / s.totalActual) * 100 : 0),
     }));
   }, [filteredProduction]);
 
@@ -1293,6 +1386,7 @@ export const GeneralReports: React.FC = () => {
       machines: Set<string>;
       totalTarget: number;
       totalActual: number;
+      totalActualKg: number;
       totalScrap: number;
       totalRunning: number;
       count: number;
@@ -1306,6 +1400,7 @@ export const GeneralReports: React.FC = () => {
         machines: new Set<string>(),
         totalTarget: 0,
         totalActual: 0,
+        totalActualKg: 0,
         totalScrap: 0,
         totalRunning: 0,
         count: 0,
@@ -1313,6 +1408,7 @@ export const GeneralReports: React.FC = () => {
       if (r.machineNo) curr.machines.add(r.machineNo);
       curr.totalTarget += r.targetQuantity;
       curr.totalActual += r.actualQuantity;
+      curr.totalActualKg += (r.actualKg || calcEntryActualKg(r));
       curr.totalScrap += r.scrapQuantity;
       curr.totalRunning += r.runningHours;
       curr.count += 1;
@@ -1324,8 +1420,72 @@ export const GeneralReports: React.FC = () => {
       machineList: Array.from(o.machines).sort(naturalSortMachines).join(', '),
       variance: o.totalActual - o.totalTarget,
       efficiency: o.totalTarget > 0 ? (o.totalActual / o.totalTarget) * 100 : 0,
+      scrapRate: o.totalActualKg > 0 ? (o.totalScrap / o.totalActualKg) * 100 : (o.totalActual > 0 ? (o.totalScrap / o.totalActual) * 100 : 0),
     }));
   }, [filteredProduction]);
+
+  // Item-wise Aggregated Data (SKU yield, actual weight, variance and scrap)
+  const itemSummary = useMemo(() => {
+    const map = new Map<string, {
+      itemCode: string;
+      itemName: string;
+      departmentName: string;
+      divisionName: string;
+      uom: string;
+      weightPerPiece?: number | null;
+      totalTarget: number;
+      totalActual: number;
+      totalActualKg: number;
+      totalScrap: number;
+      downtimeHours: number;
+      runningHours: number;
+      count: number;
+    }>();
+
+    filteredProduction.forEach((r) => {
+      const code = r.itemCode || 'ITEM-DEFAULT';
+      const name = r.itemName || 'Standard Item';
+      const key = `${code}_${name}`;
+
+      const curr = map.get(key) || {
+        itemCode: code,
+        itemName: name,
+        departmentName: r.departmentName || '',
+        divisionName: r.divisionName || activeDivisionObj.name,
+        uom: r.uomCode || getDepartmentUnit(r.departmentName || ''),
+        weightPerPiece: r.weightPerPiece,
+        totalTarget: 0,
+        totalActual: 0,
+        totalActualKg: 0,
+        totalScrap: 0,
+        downtimeHours: 0,
+        runningHours: 0,
+        count: 0,
+      };
+
+      curr.totalTarget += r.targetQuantity;
+      curr.totalActual += r.actualQuantity;
+      const actKg = r.actualKg || calcEntryActualKg(r);
+      curr.totalActualKg += actKg;
+      curr.totalScrap += r.scrapQuantity;
+      curr.downtimeHours += r.downtimeHours;
+      curr.runningHours += r.runningHours;
+      curr.count += 1;
+      map.set(key, curr);
+    });
+
+    return Array.from(map.values()).map((it) => {
+      const variance = it.totalActual - it.totalTarget;
+      const efficiency = it.totalTarget > 0 ? (it.totalActual / it.totalTarget) * 100 : (it.totalActual > 0 ? 100 : 0);
+      const scrapRate = it.totalActualKg > 0 ? (it.totalScrap / it.totalActualKg) * 100 : 0;
+      return {
+        ...it,
+        variance,
+        efficiency,
+        scrapRate,
+      };
+    }).sort((a, b) => b.totalActual - a.totalActual);
+  }, [filteredProduction, activeDivisionObj]);
 
   // Machine-wise Aggregated Data with Fleet Registry Integration & Natural Sorting
   const machineSummary = useMemo(() => {
@@ -1337,6 +1497,7 @@ export const GeneralReports: React.FC = () => {
       unit: string;
       totalTarget: number;
       totalActual: number;
+      totalActualKg: number;
       totalScrap: number;
       totalDowntime: number;
       totalRunning: number;
@@ -1360,6 +1521,7 @@ export const GeneralReports: React.FC = () => {
         unit: m.unit,
         totalTarget: m.standardCapacityPerShift || 0,
         totalActual: 0,
+        totalActualKg: 0,
         totalScrap: 0,
         totalDowntime: 0,
         totalRunning: 0,
@@ -1379,6 +1541,7 @@ export const GeneralReports: React.FC = () => {
         unit: getDepartmentUnit(r.departmentName || ''),
         totalTarget: 0,
         totalActual: 0,
+        totalActualKg: 0,
         totalScrap: 0,
         totalDowntime: 0,
         totalRunning: 0,
@@ -1394,7 +1557,9 @@ export const GeneralReports: React.FC = () => {
           existing.totalTarget += r.targetQuantity;
         }
       }
+      const entryKg = calcEntryActualKg(r);
       existing.totalActual += r.actualQuantity;
+      existing.totalActualKg += entryKg;
       existing.totalScrap += r.scrapQuantity;
       existing.totalDowntime += r.downtimeHours;
       existing.totalRunning += r.runningHours;
@@ -1405,11 +1570,12 @@ export const GeneralReports: React.FC = () => {
       map.set(key, existing);
     });
 
-    return Array.from(map.values())
+    const all = Array.from(map.values())
       .map((m) => {
         const variance = m.totalActual - m.totalTarget;
         const efficiency = m.totalTarget > 0 ? (m.totalActual / m.totalTarget) * 100 : (m.totalActual > 0 ? 100 : 0);
-        const scrapRate = m.totalActual > 0 ? (m.totalScrap / m.totalActual) * 100 : 0;
+        // Authoritative Scrap Rate: scrap in KG divided by actual output in KG
+        const scrapRate = m.totalActualKg > 0 ? (m.totalScrap / m.totalActualKg) * 100 : 0;
         const status: 'Completed' | 'On Track' | 'Delayed' | 'Idle / OFF' = m.count === 0
           ? 'Idle / OFF'
           : efficiency >= 95
@@ -1438,11 +1604,19 @@ export const GeneralReports: React.FC = () => {
         if (deptOrder !== 0) return deptOrder;
         return naturalSortMachines(a.machineNo, b.machineNo);
       });
-  }, [filteredProduction, selectedDivision, getDeptOrder]);
+
+    if (selectedPipelineStep) {
+      const s = selectedPipelineStep.toLowerCase().trim();
+      const filtered = all.filter(m => m.department.toLowerCase().includes(s) || s.includes(m.department.toLowerCase()));
+      return filtered.length > 0 ? filtered : all;
+    }
+
+    return all;
+  }, [filteredProduction, selectedDivision, selectedPipelineStep, getDeptOrder]);
 
   // Department-wise Aggregated Data with Chronological Workflow Sorting & Sub-Machines
   const departmentSummary = useMemo(() => {
-    // 1. Gather all department names for current division
+    // 1. Gather department names strictly from active pipeline sequence
     const deptsInDivision = new Set<string>();
 
     // a. From active pipeline steps (preserve pipeline sequence)
@@ -1453,30 +1627,14 @@ export const GeneralReports: React.FC = () => {
       }
     });
 
-    // b. From departments list for this division
-    departmentsList.forEach((d) => {
-      const divId = d.division_id || d.divisionId;
-      const isDivMatch = selectedDivision === 'all' || 
-        divId === activeDivisionObj.id ||
-        (selectedDivision === 'd1000000-0000-0000-0000-000000000001' && (d.name === 'Straightener' || d.name === 'Swagging' || d.name === 'Spoke' || d.name === 'Header' || d.name === 'Nipple' || d.name === 'Spoke Plating' || d.name === 'Nipple Plating' || d.name === 'Spoke Packing')) ||
-        (selectedDivision === 'd1000000-0000-0000-0000-000000000002' && (d.name === 'Flattening' || d.name === 'Spiral' || d.name === 'PVC' || d.name === 'Cutting & Packing' || d.name === 'Packing'));
-      
-      const lowerName = d.name.toLowerCase();
-      const isNonProduction = lowerName.includes('maintenance') || lowerName.includes('visitor') || lowerName.includes('facility') || (lowerName.includes('store') && !lowerName.includes('dispatch'));
-      
-      if (isDivMatch && !isNonProduction) {
-        deptsInDivision.add(d.name);
-      }
-    });
-
-    // c. From production entries for this division
+    // b. From production entries ONLY if actual production > 0 (excludes idle/unselected departments like Header)
     filteredProduction.forEach((r) => {
-      if (r.departmentName) {
+      if (r.departmentName && r.actualQuantity > 0) {
         deptsInDivision.add(r.departmentName);
       }
     });
 
-    // If division is spoke and set is empty, fallback to canonical
+    // If division is spoke and set is empty, fallback to canonical 5 steps
     if (deptsInDivision.size === 0) {
       if (selectedDivision === 'd1000000-0000-0000-0000-000000000001' || activeDivisionObj.name.toLowerCase().includes('spoke')) {
         ['Straightener', 'Swagging', 'Spoke', 'Spoke Plating', 'Spoke Packing'].forEach(d => deptsInDivision.add(d));
@@ -1485,7 +1643,12 @@ export const GeneralReports: React.FC = () => {
       }
     }
 
-    const allActiveDeptNames = Array.from(deptsInDivision);
+    let allActiveDeptNames = Array.from(deptsInDivision);
+    if (selectedPipelineStep) {
+      const s = selectedPipelineStep.toLowerCase().trim();
+      const filtered = allActiveDeptNames.filter(d => d.toLowerCase().includes(s) || s.includes(d.toLowerCase()));
+      if (filtered.length > 0) allActiveDeptNames = filtered;
+    }
 
     // Helper to match a machine to its department
     const isMachineInDept = (machineDept: string, targetDept: string): boolean => {
@@ -1532,6 +1695,7 @@ export const GeneralReports: React.FC = () => {
       // Calculate totals purely as the sum of its machines!
       const totalTarget = subMachines.reduce((sum, m) => sum + (m.totalTarget || 0), 0);
       const totalActual = subMachines.reduce((sum, m) => sum + (m.totalActual || 0), 0);
+      const totalActualKg = subMachines.reduce((sum, m) => sum + (m.totalActualKg || 0), 0);
       const totalScrap = subMachines.reduce((sum, m) => sum + (m.totalScrap || 0), 0);
       const totalDowntime = subMachines.reduce((sum, m) => sum + (m.totalDowntime || 0), 0);
       const count = subMachines.reduce((sum, m) => sum + (m.count || 0), 0);
@@ -1546,7 +1710,8 @@ export const GeneralReports: React.FC = () => {
 
       const variance = totalActual - totalTarget;
       const efficiency = totalTarget > 0 ? (totalActual / totalTarget) * 100 : (totalActual > 0 ? 100 : 0);
-      const scrapRate = totalActual > 0 ? (totalScrap / totalActual) * 100 : 0;
+      // Authoritative Scrap Rate: total scrap (KG) divided by total actual output (KG)
+      const scrapRate = totalActualKg > 0 ? (totalScrap / totalActualKg) * 100 : 0;
 
       return {
         department: dept,
@@ -1555,6 +1720,7 @@ export const GeneralReports: React.FC = () => {
         machines: new Set(subMachines.map((sm) => sm.machineNo)),
         totalTarget,
         totalActual,
+        totalActualKg,
         totalScrap,
         totalDowntime,
         count,
@@ -1568,14 +1734,118 @@ export const GeneralReports: React.FC = () => {
       };
     })
     .sort((a, b) => getDeptOrder(a.department) - getDeptOrder(b.department));
-  }, [activePipeline, departmentsList, filteredProduction, selectedDivision, activeDivisionObj, machineSummary, getDeptOrder]);
+  }, [activePipeline, filteredProduction, selectedDivision, selectedPipelineStep, activeDivisionObj, machineSummary, getDeptOrder]);
 
   // Horizontal Bar Chart Items with Target-Relative Attainment Scaling & Units
   const barChartItems: BarChartItem[] = useMemo(() => {
     if (selectedCategory === 'production') {
       const colors = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444'];
 
-      // 1. Shift-wise
+      // 1. Scrap & Rejection (MUST BE FIRST so groupBy does not hijack it)
+      if (selectedReport === 'prod_scrap') {
+        if (scrapSubView === 'department' || groupBy === 'department') {
+          const depts = departmentSummary;
+          return depts.map((d, idx) => ({
+            id: d.department,
+            label: `${d.department} (${d.divisionName})`,
+            shortLabel: getShortDeptLabel(d.department),
+            value: d.totalScrap,
+            target: d.totalActualKg,
+            unit: 'kg',
+            displayValue: `${formatDecimal(d.totalScrap)} kg Scrap`,
+            sublabel: `Scrap Rate: ${d.scrapRate.toFixed(2)}% | Actual: ${formatDecimal(d.totalActual)} ${d.unit} (${formatDecimal(d.totalActualKg)} kg) | Downtime: ${d.totalDowntime}h`,
+            color: d.scrapRate > 5 ? '#ef4444' : d.scrapRate > 2 ? '#f59e0b' : d.totalScrap > 0 ? '#3b82f6' : '#94a3b8',
+            percentage: Number(d.scrapRate.toFixed(2)),
+            efficiency: d.scrapRate,
+          }));
+        } else if (groupBy === 'shift') {
+          return shiftSummary.map((s, idx) => ({
+            id: s.shift,
+            label: s.shift,
+            shortLabel: s.shift,
+            value: s.totalScrap,
+            target: s.totalActualKg,
+            unit: 'kg',
+            displayValue: `${formatDecimal(s.totalScrap)} kg Scrap`,
+            sublabel: `Scrap Rate: ${s.scrapRate.toFixed(2)}% | Produced: ${formatDecimal(s.totalActual)} Qty (${formatDecimal(s.totalActualKg)} kg) | Downtime: ${s.totalDowntime}h`,
+            color: s.scrapRate > 5 ? '#ef4444' : s.scrapRate > 2 ? '#f59e0b' : s.totalScrap > 0 ? '#3b82f6' : '#94a3b8',
+            percentage: Number(s.scrapRate.toFixed(2)),
+            efficiency: s.scrapRate,
+          }));
+        } else if (groupBy === 'operator') {
+          return operatorSummary.map((o, idx) => ({
+            id: o.operator,
+            label: o.operator,
+            shortLabel: o.operator.split(' ')[0],
+            value: o.totalScrap,
+            target: o.totalActualKg,
+            unit: 'kg',
+            displayValue: `${formatDecimal(o.totalScrap)} kg Scrap`,
+            sublabel: `Scrap Rate: ${o.scrapRate.toFixed(2)}% | Supervisor: ${o.supervisor} | Machines: ${o.machineList}`,
+            color: o.scrapRate > 5 ? '#ef4444' : o.scrapRate > 2 ? '#f59e0b' : o.totalScrap > 0 ? '#3b82f6' : '#94a3b8',
+            percentage: Number(o.scrapRate.toFixed(2)),
+            efficiency: o.scrapRate,
+          }));
+        } else if (scrapSubView === 'item' || groupBy === 'item') {
+          const items = itemSummary;
+          const activeScrap = items.filter((it) => it.totalScrap > 0 || it.totalActual > 0);
+          const list = activeScrap.length > 0 ? activeScrap : items;
+          return list.slice(0, 10).map((it, idx) => ({
+            id: it.itemCode,
+            label: `${it.itemName} (${it.itemCode})`,
+            shortLabel: it.itemCode,
+            value: it.totalScrap,
+            target: it.totalActualKg,
+            unit: 'kg',
+            displayValue: `${formatDecimal(it.totalScrap)} kg Scrap`,
+            sublabel: `Scrap Rate: ${formatDecimal(it.scrapRate)}% | Actual: ${formatDecimal(it.totalActual)} ${it.uom} (${formatDecimal(it.totalActualKg)} kg) | Downtime: ${it.downtimeHours}h`,
+            color: it.scrapRate > 5 ? '#ef4444' : it.scrapRate > 2 ? '#f59e0b' : it.totalScrap > 0 ? '#3b82f6' : '#94a3b8',
+            percentage: Number(formatDecimal(it.scrapRate)),
+            efficiency: it.scrapRate,
+          }));
+        } else {
+          // Machine-wise scrap (default or groupBy === 'machine' or scrapSubView === 'machine')
+          const machines = machineSummary;
+          const activeScrap = machines.filter((m) => m.totalScrap > 0 || m.totalActual > 0);
+          const list = activeScrap.length > 0 ? activeScrap : machines;
+          return list.slice(0, 10).map((m, idx) => ({
+            id: m.machineNo,
+            label: `${m.machineName} (${m.machineNo})`,
+            shortLabel: m.machineNo,
+            value: m.totalScrap,
+            target: m.totalActualKg,
+            unit: 'kg',
+            displayValue: `${formatDecimal(m.totalScrap)} kg Scrap`,
+            sublabel: `Scrap Rate: ${formatDecimal(m.scrapRate)}% | Actual: ${formatDecimal(m.totalActual)} ${m.unit} (${formatDecimal(m.totalActualKg)} kg) | Downtime: ${m.totalDowntime}h`,
+            color: m.scrapRate > 5 ? '#ef4444' : m.scrapRate > 2 ? '#f59e0b' : m.totalScrap > 0 ? '#3b82f6' : '#94a3b8',
+            percentage: Number(formatDecimal(m.scrapRate)),
+            efficiency: m.scrapRate,
+          }));
+        }
+      }
+
+      // 1.5. Item-wise Production
+      if (selectedReport === 'prod_item' || groupBy === 'item') {
+        const maxVal = Math.max(...itemSummary.map((it) => it.totalActual), 1);
+        return itemSummary.slice(0, 10).map((it, idx) => {
+          const eff = it.efficiency;
+          return {
+            id: it.itemCode,
+            label: `${it.itemName} (${it.itemCode})`,
+            shortLabel: it.itemCode,
+            value: it.totalActual,
+            target: it.totalTarget,
+            unit: it.uom,
+            displayValue: `${formatDecimal(it.totalActual)} ${it.uom}`,
+            sublabel: `Target: ${formatDecimal(it.totalTarget)} ${it.uom} | Eff: ${formatDecimal(eff)}% | Scrap: ${formatDecimal(it.totalScrap)} kg (${formatDecimal(it.scrapRate)}%)`,
+            color: colors[idx % colors.length],
+            percentage: Math.min(100, Math.round((it.totalActual / maxVal) * 100)),
+            efficiency: eff,
+          };
+        });
+      }
+
+      // 2. Shift-wise
       if (selectedReport === 'prod_shift' || groupBy === 'shift') {
         const maxVal = Math.max(...shiftSummary.map((s) => s.totalActual), 1);
         return shiftSummary.map((s, idx) => ({
@@ -1592,7 +1862,7 @@ export const GeneralReports: React.FC = () => {
         }));
       }
 
-      // 2. Operator-wise
+      // 3. Operator-wise
       if (selectedReport === 'prod_operator' || groupBy === 'operator') {
         const maxVal = Math.max(...operatorSummary.map((o) => o.totalActual), 1);
         return operatorSummary.slice(0, 7).map((o, idx) => ({
@@ -1609,7 +1879,7 @@ export const GeneralReports: React.FC = () => {
         }));
       }
 
-      // 3. Department-wise: Unit-Aware and Target-Relative Progress Scaling (Kg vs Meters)
+      // 4. Department-wise: Unit-Aware and Target-Relative Progress Scaling (Kg vs Meters)
       if (selectedReport === 'prod_department' || groupBy === 'department') {
         return departmentSummary.map((d, idx) => {
           const unit = d.unit || 'Qty';
@@ -1629,7 +1899,7 @@ export const GeneralReports: React.FC = () => {
         });
       }
 
-      // 4. Target vs Actual (Department-wise or Machine-wise based on targetSubView)
+      // 5. Target vs Actual (Department-wise or Machine-wise based on targetSubView)
       if (selectedReport === 'prod_target_vs_actual') {
         if (targetSubView === 'department') {
           return departmentSummary.map((d, idx) => {
@@ -1666,42 +1936,6 @@ export const GeneralReports: React.FC = () => {
               efficiency: eff,
             };
           });
-        }
-      }
-
-      // 5. Scrap & Rejection (Department-wise or Machine-wise based on scrapSubView)
-      if (selectedReport === 'prod_scrap') {
-        if (scrapSubView === 'department') {
-          const maxVal = Math.max(...departmentSummary.map((d) => d.totalScrap), 1);
-          return departmentSummary.map((d, idx) => ({
-            id: d.department,
-            label: `${d.department} (${d.divisionName})`,
-            value: d.totalScrap,
-            target: d.totalActual,
-            unit: 'kg',
-            displayValue: `${formatDecimal(d.totalScrap)} kg Scrap`,
-            sublabel: `Produced: ${formatDecimal(d.totalActual)} ${d.unit} | Scrap Rate: ${d.scrapRate.toFixed(2)}%`,
-            color: ['#ef4444', '#f97316', '#dc2626', '#b91c1c'][idx % 4],
-            percentage: Math.min(100, Math.round((d.totalScrap / maxVal) * 100)),
-            efficiency: d.scrapRate,
-          }));
-        } else {
-          // Machine-wise scrap
-          const activeScrap = machineSummary.filter((m) => m.totalScrap > 0 || m.totalActual > 0);
-          const list = activeScrap.length > 0 ? activeScrap : machineSummary;
-          const maxVal = Math.max(...list.map((m) => m.totalScrap), 1);
-          return list.slice(0, 10).map((m, idx) => ({
-            id: m.machineNo,
-            label: `${m.machineName} (${m.machineNo})`,
-            value: m.totalScrap,
-            target: m.totalActual,
-            unit: 'kg',
-            displayValue: `${formatDecimal(m.totalScrap)} kg Scrap`,
-            sublabel: `Downtime: ${m.totalDowntime}h | Scrap Rate: ${m.scrapRate.toFixed(2)}%`,
-            color: ['#ef4444', '#f97316', '#e11d48', '#b91c1c', '#ea580c'][idx % 5],
-            percentage: Math.min(100, Math.round((m.totalScrap / maxVal) * 100)),
-            efficiency: m.scrapRate,
-          }));
         }
       }
 
@@ -1746,7 +1980,7 @@ export const GeneralReports: React.FC = () => {
     }
   }, [
     selectedCategory, selectedReport, groupBy, targetSubView, scrapSubView,
-    shiftSummary, operatorSummary, departmentSummary, machineSummary, filteredSales
+    shiftSummary, operatorSummary, departmentSummary, machineSummary, itemSummary, filteredSales
   ]);
 
   // Dynamic Chart Header Info (Title, Icon, Legend)
@@ -1785,9 +2019,15 @@ export const GeneralReports: React.FC = () => {
         };
       case 'prod_scrap':
         return {
-          title: `${scrapSubView === 'machine' ? 'Machine-wise' : 'Department-wise'} Scrap & Process Rejection Analysis`,
+          title: `${scrapSubView === 'machine' ? 'Machine-wise' : scrapSubView === 'department' ? 'Department-wise' : 'Item-wise'} Scrap & Process Rejection Analysis`,
           icon: <FallOutlined style={{ color: '#ef4444' }} />,
           legend: ['Process Scrap (kg)', 'Downtime Hours', 'Rejection Rate %'],
+        };
+      case 'prod_item':
+        return {
+          title: 'Item-wise Production Output & Scrap Breakdown',
+          icon: <AppstoreOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />,
+          legend: ['Production Output', 'Target Quantity', 'Rejection Scrap (kg)'],
         };
       case 'prod_machine':
       default:
@@ -1841,8 +2081,14 @@ export const GeneralReports: React.FC = () => {
       case 'prod_scrap':
         return {
           title: 'Scrap & Rejection Analysis',
-          desc: 'Scrap quantity, waste percentage and non-conformance records per machine and operator.',
+          desc: 'Scrap quantity, waste percentage and non-conformance records per machine, department, and item.',
           icon: <FallOutlined />,
+        };
+      case 'prod_item':
+        return {
+          title: 'Item-wise Production Report',
+          desc: 'Production yield, output weight (kg), target variance & process scrap by product SKU.',
+          icon: <AppstoreOutlined />,
         };
       case 'sales_overview':
         return {
@@ -1888,28 +2134,37 @@ export const GeneralReports: React.FC = () => {
         rows = operatorSummary.map((o) => [
           `"${o.operator}"`, `"${o.supervisor}"`, `"${o.machineList}"`, o.totalTarget, o.totalActual, o.variance, o.totalScrap, `${o.efficiency.toFixed(2)}%`, o.count
         ]);
+      } else if (detailMode === 'summary' && (selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item'))) {
+        headers = ['Item Code', 'Item Name', 'Department', 'Division', 'UOM', 'Target Qty', 'Actual Output', 'Actual Output (KG)', 'Variance', 'Scrap (kg)', 'Scrap Rate %', 'Efficiency %', 'Downtime Hours', 'Entries'];
+        rows = itemSummary.map((it) => [
+          it.itemCode, `"${it.itemName}"`, `"${it.departmentName}"`, `"${it.divisionName}"`, it.uom, it.totalTarget, it.totalActual, it.totalActualKg, it.variance, it.totalScrap, `${it.scrapRate.toFixed(2)}%`, `${it.efficiency.toFixed(2)}%`, it.downtimeHours, it.count
+        ]);
       } else if (detailMode === 'summary' && (selectedReport === 'prod_department' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'department') || (selectedReport === 'prod_scrap' && scrapSubView === 'department'))) {
-        headers = ['Department', 'Division', 'Active Lines', 'Target Qty', 'Actual Output', 'Variance', 'Scrap (kg)', 'Scrap Rate %', 'Efficiency %', 'Downtime Hours'];
+        headers = ['Department', 'Division', 'Active Lines', 'Target Qty', 'Actual Output', 'Actual Output (KG)', 'Variance', 'Scrap (kg)', 'Scrap Rate %', 'Efficiency %', 'Downtime Hours'];
         rows = departmentSummary.map((d) => [
-          `"${d.department}"`, `"${d.divisionName}"`, `"${d.machineList}"`, d.totalTarget, d.totalActual, d.variance, d.totalScrap, `${d.scrapRate.toFixed(2)}%`, `${d.efficiency.toFixed(2)}%`, d.totalDowntime
+          `"${d.department}"`, `"${d.divisionName}"`, `"${d.machineList}"`, d.totalTarget, d.totalActual, d.totalActualKg, d.variance, d.totalScrap, `${d.scrapRate.toFixed(2)}%`, `${d.efficiency.toFixed(2)}%`, d.totalDowntime
         ]);
       } else if (detailMode === 'summary' && (selectedReport === 'prod_machine' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'machine') || (selectedReport === 'prod_scrap' && scrapSubView === 'machine'))) {
-        headers = ['Machine No', 'Machine Name', 'Division', 'Target Qty', 'Actual Output', 'Variance', 'Scrap (kg)', 'Scrap Rate %', 'Attainment %', 'Downtime Hours', 'Entries'];
+        headers = ['Machine No', 'Machine Name', 'Department', 'Division', 'Target Qty', 'Actual Output', 'Actual Output (KG)', 'Variance', 'Scrap (kg)', 'Scrap Rate %', 'Attainment %', 'Downtime Hours', 'Entries'];
         rows = machineSummary.map((m) => [
-          m.machineNo, `"${m.machineName}"`, `"${m.divisionName}"`, m.totalTarget, m.totalActual, m.variance, m.totalScrap, `${m.scrapRate.toFixed(2)}%`, `${m.efficiency.toFixed(2)}%`, m.totalDowntime, m.count
+          m.machineNo, `"${m.machineName}"`, `"${m.department}"`, `"${m.divisionName}"`, m.totalTarget, m.totalActual, m.totalActualKg, m.variance, m.totalScrap, `${m.scrapRate.toFixed(2)}%`, `${m.efficiency.toFixed(2)}%`, m.totalDowntime, m.count
         ]);
       } else {
         headers = [
           'Entry Number', 'Date', 'Machine No', 'Machine Name', 'Shift', 'Operator',
           'Supervisor', 'Division', 'Item Code', 'Item Name', 'Coil Size', 'Target Qty',
-          'Actual Qty', 'Variance', 'Scrap (Rejection)', 'Efficiency %', 'Running Hours', 'Downtime Hours', 'Status'
+          'Actual Qty', 'Actual (KG)', 'Variance', 'Scrap (Rejection kg)', 'Scrap Rate %', 'Efficiency %', 'Running Hours', 'Downtime Hours', 'Status'
         ];
-        rows = filteredProduction.map((r) => [
-          r.entryNumber, r.entryDate, r.machineNo, `"${r.machineName}"`, r.shiftName,
-          `"${r.operatorName}"`, `"${r.supervisorName}"`, `"${r.divisionName}"`, r.itemCode,
-          `"${r.itemName}"`, r.coilSize || '', r.targetQuantity, r.actualQuantity, r.varianceQuantity,
-          r.scrapQuantity, `${r.efficiencyPercent}%`, r.runningHours, r.downtimeHours, r.status
-        ]);
+        rows = filteredProduction.map((r) => {
+          const actKg = calcEntryActualKg(r);
+          const sRate = actKg > 0 ? (r.scrapQuantity / actKg) * 100 : 0;
+          return [
+            r.entryNumber, r.entryDate, r.machineNo, `"${r.machineName}"`, r.shiftName,
+            `"${r.operatorName}"`, `"${r.supervisorName}"`, `"${r.divisionName}"`, r.itemCode,
+            `"${r.itemName}"`, r.coilSize || '', r.targetQuantity, r.actualQuantity, actKg, r.varianceQuantity,
+            r.scrapQuantity, `${sRate.toFixed(2)}%`, `${r.efficiencyPercent}%`, r.runningHours, r.downtimeHours, r.status
+          ];
+        });
       }
     } else {
       headers = ['Invoice No', 'Customer Name', 'Customer Code', 'Invoice Date', 'Due Date', 'Subtotal', 'Tax (GST)', 'Total', 'Paid', 'Due', 'Status'];
@@ -1928,7 +2183,399 @@ export const GeneralReports: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     message.success(`Exported ${rows.length} records to ${filename}`);
-  }, [selectedCategory, selectedReport, detailMode, targetSubView, scrapSubView, shiftSummary, operatorSummary, departmentSummary, machineSummary, filteredProduction, filteredSales]);
+  }, [selectedCategory, selectedReport, detailMode, targetSubView, scrapSubView, shiftSummary, operatorSummary, departmentSummary, machineSummary, itemSummary, filteredProduction, filteredSales]);
+
+  // PDF Export using jsPDF + autoTable
+  const handleExportPdf = useCallback(async () => {
+    setPdfLoading(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const doc = new jsPDF({ orientation: 'landscape', format: 'a4', unit: 'mm' });
+
+      // Title & Header Branding
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text('PAKISTAN WIRE INDUSTRIES (PVT) LTD.', 14, 12);
+
+      doc.setFontSize(11);
+      doc.setTextColor(30, 41, 59);
+      const subTitle = selectedCategory === 'production'
+        ? `${reportMeta.title} — ${activeDivisionObj.name}${selectedPipelineStep ? ` (${selectedPipelineStep})` : ''}`
+        : `Sales Report — ${reportMeta.title}`;
+      doc.text(subTitle, 14, 18);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      const dateText = fromDate && toDate
+        ? `Period: ${fromDate.format('DD-MMM-YYYY')} to ${toDate.format('DD-MMM-YYYY')}`
+        : 'Period: All Available Records';
+      const metaLine = `${dateText} | Generated: ${dayjs().format('DD-MMM-YYYY hh:mm A')} | Mode: ${detailMode === 'summary' ? 'Summary' : 'Detailed'}`;
+      doc.text(metaLine, 14, 23);
+
+      let head: string[][] = [];
+      let body: (string | number)[][] = [];
+
+      if (selectedCategory === 'production') {
+        if (detailMode === 'summary' && (selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item'))) {
+          head = [['#', 'Item Code', 'Item Name', 'Department', 'Target Qty', 'Actual Output', 'Actual (KG)', 'Variance', 'Rejection / Scrap', 'Scrap Rate %', 'Efficiency', 'Downtime', 'Entries']];
+          body = itemSummary.map((it, i) => [
+            i + 1,
+            it.itemCode,
+            it.itemName,
+            it.departmentName,
+            `${formatDecimal(it.totalTarget)} ${it.uom}`,
+            `${formatDecimal(it.totalActual)} ${it.uom}`,
+            `${formatDecimal(it.totalActualKg)} kg`,
+            `${it.variance >= 0 ? '+' : ''}${formatDecimal(it.variance)} ${it.uom}`,
+            `${formatDecimal(it.totalScrap)} kg`,
+            `${it.scrapRate.toFixed(2)}%`,
+            `${it.efficiency.toFixed(1)}%`,
+            `${it.downtimeHours}h`,
+            it.count,
+          ]);
+        } else if (detailMode === 'summary' && (selectedReport === 'prod_department' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'department') || (selectedReport === 'prod_scrap' && scrapSubView === 'department'))) {
+          head = [['#', 'Department', 'Division', 'Active Lines', 'Target Qty', 'Actual Output', 'Actual (KG)', 'Variance', 'Rejection / Scrap', 'Scrap Rate %', 'Efficiency', 'Downtime']];
+          body = departmentSummary.map((d, i) => [
+            i + 1,
+            d.department,
+            d.divisionName,
+            `${d.activeMachines}/${d.totalRegisteredMachines} (${d.machineList || 'None'})`,
+            `${formatDecimal(d.totalTarget)} ${d.unit}`,
+            `${formatDecimal(d.totalActual)} ${d.unit}`,
+            `${formatDecimal(d.totalActualKg)} kg`,
+            `${d.variance >= 0 ? '+' : ''}${formatDecimal(d.variance)} ${d.unit}`,
+            `${formatDecimal(d.totalScrap)} kg`,
+            `${d.scrapRate.toFixed(2)}%`,
+            `${d.efficiency.toFixed(1)}%`,
+            `${d.totalDowntime}h`,
+          ]);
+        } else if (detailMode === 'summary' && (selectedReport === 'prod_machine' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'machine') || (selectedReport === 'prod_scrap' && scrapSubView === 'machine'))) {
+          head = [['#', 'Machine #', 'Machine Name', 'Department', 'Target Qty', 'Actual Output', 'Actual (KG)', 'Variance', 'Rejection / Scrap', 'Scrap Rate %', 'Efficiency', 'Downtime', 'Status']];
+          body = machineSummary.map((m, i) => [
+            i + 1,
+            m.machineNo,
+            m.machineName,
+            m.department,
+            `${formatDecimal(m.totalTarget)} ${m.unit}`,
+            `${formatDecimal(m.totalActual)} ${m.unit}`,
+            `${formatDecimal(m.totalActualKg)} kg`,
+            `${m.variance >= 0 ? '+' : ''}${formatDecimal(m.variance)} ${m.unit}`,
+            `${formatDecimal(m.totalScrap)} kg`,
+            `${m.scrapRate.toFixed(2)}%`,
+            `${m.efficiency.toFixed(1)}%`,
+            `${m.totalDowntime}h`,
+            m.status,
+          ]);
+        } else if (detailMode === 'summary' && selectedReport === 'prod_shift') {
+          head = [['#', 'Shift', 'Target Qty', 'Actual Output', 'Variance', 'Scrap (kg)', 'Efficiency %', 'Running Hours', 'Downtime Hours']];
+          body = shiftSummary.map((s, i) => [
+            i + 1,
+            s.shift,
+            formatDecimal(s.totalTarget),
+            formatDecimal(s.totalActual),
+            `${s.variance >= 0 ? '+' : ''}${formatDecimal(s.variance)}`,
+            `${formatDecimal(s.totalScrap)} kg`,
+            `${s.efficiency.toFixed(1)}%`,
+            `${s.totalRunning}h`,
+            `${s.totalDowntime}h`,
+          ]);
+        } else if (detailMode === 'summary' && selectedReport === 'prod_operator') {
+          head = [['#', 'Operator', 'Supervisor', 'Assigned Machines', 'Target Qty', 'Actual Output', 'Variance', 'Scrap (kg)', 'Efficiency %']];
+          body = operatorSummary.map((o, i) => [
+            i + 1,
+            o.operator,
+            o.supervisor,
+            o.machineList,
+            formatDecimal(o.totalTarget),
+            formatDecimal(o.totalActual),
+            `${o.variance >= 0 ? '+' : ''}${formatDecimal(o.variance)}`,
+            `${formatDecimal(o.totalScrap)} kg`,
+            `${o.efficiency.toFixed(1)}%`,
+          ]);
+        } else {
+          head = [['#', 'Slip No', 'Date', 'Machine', 'Shift', 'Operator', 'Item Name', 'Target', 'Actual', 'Actual (KG)', 'Scrap (KG)', 'Scrap %', 'Status']];
+          body = filteredProduction.map((r, i) => {
+            const actKg = calcEntryActualKg(r);
+            const sRate = actKg > 0 ? (r.scrapQuantity / actKg) * 100 : 0;
+            return [
+              i + 1,
+              r.entryNumber,
+              r.entryDate,
+              r.machineNo,
+              r.shiftName,
+              r.operatorName,
+              r.itemName,
+              formatDecimal(r.targetQuantity),
+              formatDecimal(r.actualQuantity),
+              `${formatDecimal(actKg)} kg`,
+              `${formatDecimal(r.scrapQuantity)} kg`,
+              `${sRate.toFixed(2)}%`,
+              r.status,
+            ];
+          });
+        }
+      } else {
+        head = [['#', 'Invoice No', 'Customer Name', 'Invoice Date', 'Due Date', 'Subtotal', 'Tax', 'Total', 'Paid', 'Due Amount', 'Status']];
+        body = filteredSales.map((r, i) => [
+          i + 1,
+          r.invoiceNo,
+          r.customerName,
+          r.invoiceDate,
+          r.dueDate,
+          formatDecimal(r.subtotal),
+          formatDecimal(r.taxAmount),
+          formatDecimal(r.totalAmount),
+          formatDecimal(r.paidAmount),
+          formatDecimal(r.dueAmount),
+          r.status,
+        ]);
+      }
+
+      autoTable(doc, {
+        startY: 27,
+        head,
+        body,
+        styles: { fontSize: 7.5, cellPadding: 2 },
+        headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: 10, right: 10, bottom: 12 },
+      });
+
+      const filename = `${selectedReport}_${detailMode}_${dayjs().format('YYYY-MM-DD')}.pdf`;
+      doc.save(filename);
+      message.success(`PDF exported: ${filename}`);
+    } catch (err: any) {
+      console.error(err);
+      message.error('Failed to generate PDF');
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [
+    selectedCategory, selectedReport, detailMode, targetSubView, scrapSubView,
+    activeDivisionObj, selectedPipelineStep, fromDate, toDate, reportMeta,
+    departmentSummary, machineSummary, itemSummary, shiftSummary, operatorSummary, filteredProduction, filteredSales
+  ]);
+
+  // Clean Print View for Current Table
+  const handlePrintCurrentTable = useCallback(() => {
+    const printWindow = window.open('', '_blank', 'width=1150,height=800');
+    if (!printWindow) {
+      window.print();
+      return;
+    }
+
+    const title = `${reportMeta.title} — ${activeDivisionObj.name}${selectedPipelineStep ? ` (${selectedPipelineStep})` : ''}`;
+    const dateText = fromDate && toDate
+      ? `Period: ${fromDate.format('DD-MMM-YYYY')} to ${toDate.format('DD-MMM-YYYY')}`
+      : 'Period: All Available Records';
+
+    let tableHtml = '';
+
+    if (selectedCategory === 'production') {
+      if (detailMode === 'summary' && (selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item'))) {
+        const rows = itemSummary.map((it, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td><strong>${it.itemName}</strong><br><small style="color:#64748b">${it.itemCode} • ${it.departmentName}</small></td>
+            <td>${it.divisionName}</td>
+            <td style="text-align:right">${formatDecimal(it.totalTarget)} ${it.uom}</td>
+            <td style="text-align:right"><strong>${formatDecimal(it.totalActual)} ${it.uom}</strong><br><span style="color:#059669;font-weight:600">${formatDecimal(it.totalActualKg)} kg</span></td>
+            <td style="text-align:right;color:${it.variance >= 0 ? '#059669' : '#dc2626'}">${it.variance >= 0 ? '+' : ''}${formatDecimal(it.variance)} ${it.uom}</td>
+            <td style="text-align:right;color:#dc2626;font-weight:700">${formatDecimal(it.totalScrap)} kg</td>
+            <td style="text-align:center"><span style="background:${it.scrapRate > 2 ? '#fee2e2;color:#991b1b' : '#dcfce7;color:#166534'};padding:2px 6px;border-radius:4px;font-weight:700">${it.scrapRate.toFixed(2)}%</span></td>
+            <td style="text-align:center">${it.efficiency.toFixed(1)}%</td>
+            <td style="text-align:center">${it.downtimeHours}h</td>
+            <td style="text-align:center">${it.count}</td>
+          </tr>
+        `).join('');
+
+        tableHtml = `
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Item / SKU</th>
+                <th>Division</th>
+                <th style="text-align:right">Target</th>
+                <th style="text-align:right">Actual Output</th>
+                <th style="text-align:right">Variance</th>
+                <th style="text-align:right">Rejection / Scrap</th>
+                <th style="text-align:center">Scrap Rate %</th>
+                <th style="text-align:center">Eff. %</th>
+                <th style="text-align:center">Downtime</th>
+                <th style="text-align:center">Slips</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      } else if (detailMode === 'summary' && (selectedReport === 'prod_department' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'department') || (selectedReport === 'prod_scrap' && scrapSubView === 'department'))) {
+        const rows = departmentSummary.map((d, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td><strong>${d.department}</strong><br><small style="color:#64748b">${d.divisionName}</small></td>
+            <td>${d.activeMachines}/${d.totalRegisteredMachines} lines<br><small style="color:#64748b">(${d.machineList || 'None'})</small></td>
+            <td style="text-align:right">${formatDecimal(d.totalTarget)} ${d.unit}</td>
+            <td style="text-align:right"><strong>${formatDecimal(d.totalActual)} ${d.unit}</strong><br><span style="color:#059669;font-weight:600">${formatDecimal(d.totalActualKg)} kg</span></td>
+            <td style="text-align:right;color:${d.variance >= 0 ? '#059669' : '#dc2626'}">${d.variance >= 0 ? '+' : ''}${formatDecimal(d.variance)} ${d.unit}</td>
+            <td style="text-align:right;color:#dc2626;font-weight:700">${formatDecimal(d.totalScrap)} kg</td>
+            <td style="text-align:center"><span style="background:${d.scrapRate > 2 ? '#fee2e2;color:#991b1b' : '#dcfce7;color:#166534'};padding:2px 6px;border-radius:4px;font-weight:700">${d.scrapRate.toFixed(2)}%</span></td>
+            <td style="text-align:center">${d.efficiency.toFixed(1)}%</td>
+            <td style="text-align:center">${d.totalDowntime}h</td>
+          </tr>
+        `).join('');
+
+        tableHtml = `
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Department</th>
+                <th>Active Lines</th>
+                <th style="text-align:right">Target Qty</th>
+                <th style="text-align:right">Actual Output</th>
+                <th style="text-align:right">Variance</th>
+                <th style="text-align:right">Rejection / Scrap</th>
+                <th style="text-align:center">Scrap Rate %</th>
+                <th style="text-align:center">Efficiency</th>
+                <th style="text-align:center">Downtime</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      } else if (detailMode === 'summary' && (selectedReport === 'prod_machine' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'machine') || (selectedReport === 'prod_scrap' && scrapSubView === 'machine'))) {
+        const rows = machineSummary.map((m, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td><strong>${m.machineNo}</strong></td>
+            <td>${m.machineName}</td>
+            <td>${m.department}</td>
+            <td style="text-align:right">${formatDecimal(m.totalTarget)} ${m.unit}</td>
+            <td style="text-align:right"><strong>${formatDecimal(m.totalActual)} ${m.unit}</strong><br><span style="color:#059669;font-weight:600">${formatDecimal(m.totalActualKg)} kg</span></td>
+            <td style="text-align:right;color:${m.variance >= 0 ? '#059669' : '#dc2626'}">${m.variance >= 0 ? '+' : ''}${formatDecimal(m.variance)}</td>
+            <td style="text-align:right;color:#dc2626;font-weight:700">${formatDecimal(m.totalScrap)} kg</td>
+            <td style="text-align:center"><span style="background:${m.scrapRate > 2 ? '#fee2e2;color:#991b1b' : '#dcfce7;color:#166534'};padding:2px 6px;border-radius:4px;font-weight:700">${m.scrapRate.toFixed(2)}%</span></td>
+            <td style="text-align:center">${m.efficiency.toFixed(1)}%</td>
+            <td style="text-align:center">${m.totalDowntime}h</td>
+            <td style="text-align:center">${m.status}</td>
+          </tr>
+        `).join('');
+
+        tableHtml = `
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Machine #</th>
+                <th>Machine Name</th>
+                <th>Department</th>
+                <th style="text-align:right">Target</th>
+                <th style="text-align:right">Actual Output</th>
+                <th style="text-align:right">Variance</th>
+                <th style="text-align:right">Rejection / Scrap</th>
+                <th style="text-align:center">Scrap Rate %</th>
+                <th style="text-align:center">Eff. %</th>
+                <th style="text-align:center">Downtime</th>
+                <th style="text-align:center">Status</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      } else {
+        const rows = filteredProduction.map((r, i) => {
+          const actKg = calcEntryActualKg(r);
+          const sRate = actKg > 0 ? (r.scrapQuantity / actKg) * 100 : 0;
+          return `
+            <tr>
+              <td>${i + 1}</td>
+              <td><strong>${r.entryNumber}</strong></td>
+              <td>${r.entryDate}</td>
+              <td>${r.machineNo}</td>
+              <td>${r.shiftName}</td>
+              <td>${r.operatorName}</td>
+              <td>${r.itemName}</td>
+              <td style="text-align:right">${formatDecimal(r.targetQuantity)}</td>
+              <td style="text-align:right"><strong>${formatDecimal(r.actualQuantity)}</strong></td>
+              <td style="text-align:right;color:#059669;font-weight:600">${formatDecimal(actKg)} kg</td>
+              <td style="text-align:right;color:#dc2626;font-weight:700">${formatDecimal(r.scrapQuantity)} kg (${sRate.toFixed(2)}%)</td>
+              <td style="text-align:center">${formatDecimal(r.efficiencyPercent)}%</td>
+              <td style="text-align:center">${r.status}</td>
+            </tr>
+          `;
+        }).join('');
+
+        tableHtml = `
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Slip #</th>
+                <th>Date</th>
+                <th>Machine</th>
+                <th>Shift</th>
+                <th>Operator</th>
+                <th>Item Name</th>
+                <th style="text-align:right">Target</th>
+                <th style="text-align:right">Actual</th>
+                <th style="text-align:right">Actual (KG)</th>
+                <th style="text-align:right">Rejection / Scrap</th>
+                <th style="text-align:center">Eff. %</th>
+                <th style="text-align:center">Status</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      }
+    }
+
+    const fullHtml = `<!doctype html>
+<html>
+<head>
+  <title>${title}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 20px; color: #0f172a; }
+    .header { border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 16px; }
+    h1 { font-size: 18px; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+    h2 { font-size: 14px; margin: 0 0 6px 0; color: #334155; }
+    .meta { font-size: 11px; color: #64748b; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
+    th, td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top; }
+    th { background: #0f172a; color: #ffffff; text-align: left; font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.3px; }
+    tr:nth-child(even) { background-color: #f8fafc; }
+    @media print {
+      @page { size: landscape; margin: 10mm; }
+      body { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>PAKISTAN WIRE INDUSTRIES (PVT) LTD.</h1>
+    <h2>${title}</h2>
+    <div class="meta">${dateText} · Generated: ${dayjs().format('DD-MMM-YYYY, hh:mm A')} · ${detailMode === 'summary' ? 'Summary Table' : 'Detailed Records'}</div>
+  </div>
+  ${tableHtml}
+  <script>
+    window.onload = function() {
+      window.print();
+    };
+  </script>
+</body>
+</html>`;
+
+    printWindow.document.write(fullHtml);
+    printWindow.document.close();
+  }, [
+    reportMeta, activeDivisionObj, selectedPipelineStep, fromDate, toDate,
+    selectedCategory, detailMode, selectedReport, targetSubView, scrapSubView,
+    departmentSummary, machineSummary, itemSummary, filteredProduction
+  ]);
 
   return (
     <div className="reports-page-container">
@@ -2075,6 +2722,13 @@ export const GeneralReports: React.FC = () => {
             onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_department'); setGroupBy('department'); setDetailMode('summary'); }}
           >
             <ApartmentOutlined /> Department-wise
+          </div>
+          <div
+            className={`reports-nav-item ${selectedReport === 'prod_item' ? 'active' : ''}`}
+            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_item'); setGroupBy('item'); setDetailMode('summary'); }}
+          >
+            <AppstoreOutlined /> Item-wise
+            <span className="reports-nav-badge">Items</span>
           </div>
           <div
             className={`reports-nav-item ${selectedReport === 'prod_target_vs_actual' ? 'active' : ''}`}
@@ -2320,6 +2974,13 @@ export const GeneralReports: React.FC = () => {
                     >
                       <ApartmentOutlined style={{ marginRight: 4 }} /> Department-wise Scrap
                     </button>
+                    <button
+                      type="button"
+                      className={`reports-time-pill ${scrapSubView === 'item' ? 'active' : ''}`}
+                      onClick={() => { setScrapSubView('item'); setGroupBy('item'); }}
+                    >
+                      <AppstoreOutlined style={{ marginRight: 4 }} /> Item-wise Scrap
+                    </button>
                   </>
                 )}
               </div>
@@ -2384,6 +3045,13 @@ export const GeneralReports: React.FC = () => {
                       onClick={() => setGroupBy('department')}
                     >
                       Department
+                    </button>
+                    <button
+                      type="button"
+                      className={`reports-time-pill ${groupBy === 'item' ? 'active' : ''}`}
+                      onClick={() => setGroupBy('item')}
+                    >
+                      Item
                     </button>
                   </>
                 ) : (
@@ -2469,20 +3137,24 @@ export const GeneralReports: React.FC = () => {
 
             <div className="reports-pipeline-steps">
               {activePipeline.map((step, idx) => {
-                const isDept = Boolean(step.departmentKey);
-                const isSelected = selectedReport === 'prod_department' && groupBy === 'department';
+                const stepKey = step.departmentKey || step.name;
+                const isStepActive = selectedPipelineStep
+                  ? stepKey.toLowerCase().includes(selectedPipelineStep.toLowerCase()) || selectedPipelineStep.toLowerCase().includes(stepKey.toLowerCase())
+                  : false;
                 return (
                   <React.Fragment key={step.id || idx}>
                     {idx > 0 && <span className="reports-pipeline-arrow">➔</span>}
                     <div
-                      className={`reports-pipeline-step ${isSelected && isDept ? 'active' : ''}`}
-                      title={step.subtext ? `${step.name}: ${step.subtext}` : step.name}
+                      className={`reports-pipeline-step ${isStepActive ? 'active' : ''}`}
+                      style={isStepActive ? { borderColor: 'var(--theme-accent, #10b981)', boxShadow: '0 0 10px rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.08)' } : {}}
+                      title={step.subtext ? `${step.name}: ${step.subtext} (Click to filter)` : `${step.name} (Click to filter)`}
                       onClick={() => {
-                        if (isDept) {
-                          setSelectedCategory('production');
-                          setSelectedReport('prod_department');
-                          setGroupBy('department');
-                          setDetailMode('summary');
+                        if (isStepActive) {
+                          setSelectedPipelineStep(null);
+                          message.info('Showing all pipeline stages');
+                        } else {
+                          setSelectedPipelineStep(stepKey);
+                          message.info(`Filtered to ${step.name} stage`);
                         }
                       }}
                     >
@@ -2496,6 +3168,28 @@ export const GeneralReports: React.FC = () => {
                 );
               })}
             </div>
+
+            {selectedPipelineStep && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: 'rgba(16,185,129,0.06)', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text, #0f172a)' }}>Filtered Pipeline Stage:</span>
+                <Tag
+                  color="green"
+                  closable
+                  onClose={() => setSelectedPipelineStep(null)}
+                  style={{ fontWeight: 700, padding: '2px 10px' }}
+                >
+                  {selectedPipelineStep}
+                </Tag>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => setSelectedPipelineStep(null)}
+                  style={{ padding: 0, fontSize: 12, fontWeight: 600 }}
+                >
+                  Show All ({activePipeline.length}) Stages
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* ===================================================
@@ -2522,16 +3216,32 @@ export const GeneralReports: React.FC = () => {
                         {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
                       </span>
                     </div>
-                    <div className="reports-kpi-subtext">Net verified yield from entries</div>
+                    <div className="reports-kpi-subtext">
+                      {prodSummary.totalActualKg > 0
+                        ? `Net yield: ${formatDecimal(prodSummary.totalActualKg)} kg total weight`
+                        : 'Net verified yield from entries'}
+                    </div>
                   </div>
 
                   <div className="reports-kpi-card green">
-                    <div className="reports-kpi-title">PLANT EFFICIENCY</div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">{formatDecimal(prodSummary.avgEfficiency)}%</span>
-                      <span className="reports-kpi-trend positive">Average</span>
+                    <div className="reports-kpi-title">
+                      {selectedReport === 'prod_scrap' ? 'PROCESS SCRAP RATE' : 'PLANT EFFICIENCY'}
                     </div>
-                    <div className="reports-kpi-subtext">Target attainment percentage</div>
+                    <div className="reports-kpi-value-row">
+                      <span className="reports-kpi-value">
+                        {selectedReport === 'prod_scrap'
+                          ? `${(prodSummary.avgScrapRate || 0).toFixed(2)}%`
+                          : `${formatDecimal(prodSummary.avgEfficiency)}%`}
+                      </span>
+                      <span className={`reports-kpi-trend ${selectedReport === 'prod_scrap' ? ((prodSummary.avgScrapRate || 0) > 2 ? 'negative' : 'positive') : 'positive'}`}>
+                        {selectedReport === 'prod_scrap' ? 'Kg Benchmark' : 'Average'}
+                      </span>
+                    </div>
+                    <div className="reports-kpi-subtext">
+                      {selectedReport === 'prod_scrap'
+                        ? `Scrap wt vs produced wt (${formatDecimal(prodSummary.totalScrap)} kg / ${formatDecimal(prodSummary.totalActualKg)} kg)`
+                        : 'Target attainment percentage'}
+                    </div>
                   </div>
 
                   <div className="reports-kpi-card red">
@@ -2695,7 +3405,7 @@ export const GeneralReports: React.FC = () => {
                 </svg>
               </div>
             ) : chartType === 'column' ? (
-              /* ALTERNATE PATTERN 1: SVG VERTICAL COLUMN CHART (Target vs Actual) */
+              /* ALTERNATE PATTERN 1: SVG VERTICAL COLUMN CHART (Target vs Actual / Rejection Scrap) */
               <div className="reports-columns-wrap">
                 <svg className="reports-column-svg" viewBox="0 0 800 240">
                   <line x1="40" y1="20" x2="780" y2="20" stroke="var(--theme-border, #e2e8f0)" strokeDasharray="4 4" />
@@ -2703,61 +3413,106 @@ export const GeneralReports: React.FC = () => {
                   <line x1="40" y1="140" x2="780" y2="140" stroke="var(--theme-border, #e2e8f0)" strokeDasharray="4 4" />
                   <line x1="40" y1="200" x2="780" y2="200" stroke="var(--theme-border, #cbd5e1)" strokeWidth="1.5" />
 
-                  {barChartItems.map((item, idx) => {
-                    const colWidth = Math.min(65, Math.floor(700 / (barChartItems.length || 1)));
-                    const x = 60 + idx * (colWidth + 30);
-                    const targetHeight = Math.min(170, Math.max(10, Math.round(((item.target || item.value) / (item.target || item.value || 1)) * 160)));
-                    const actualHeight = Math.min(170, Math.max(6, Math.round((item.percentage / 100) * targetHeight)));
-                    const yActual = 200 - actualHeight;
-                    const yTarget = 200 - targetHeight;
+                  {(() => {
+                    const isScrap = selectedReport === 'prod_scrap';
+                    const maxScrapKg = Math.max(...barChartItems.map((it) => it.value), 1);
 
-                    return (
-                      <g key={item.id}>
-                        {/* Target baseline bar outline */}
-                        <rect
-                          x={x}
-                          y={yTarget}
-                          width={colWidth}
-                          height={targetHeight}
-                          fill="rgba(100, 116, 139, 0.08)"
-                          stroke="rgba(100, 116, 139, 0.3)"
-                          strokeDasharray="3 3"
-                          rx="4"
-                        />
-                        {/* Actual yield filled bar */}
-                        <rect
-                          x={x + 4}
-                          y={yActual}
-                          width={colWidth - 8}
-                          height={actualHeight}
-                          fill={item.color}
-                          rx="3"
-                        />
-                        {/* Percentage on top */}
-                        <text
-                          x={x + colWidth / 2}
-                          y={yActual - 6}
-                          textAnchor="middle"
-                          fill="var(--theme-text, #0f172a)"
-                          fontSize="11"
-                          fontWeight="700"
-                        >
-                          {item.percentage}%
-                        </text>
-                        {/* Label at bottom */}
-                        <text
-                          x={x + colWidth / 2}
-                          y={218}
-                          textAnchor="middle"
-                          fill="var(--theme-text-muted, #64748b)"
-                          fontSize="11"
-                          fontWeight="600"
-                        >
-                          {item.label.split(' ')[0]}
-                        </text>
-                      </g>
-                    );
-                  })}
+                    return barChartItems.map((item, idx) => {
+                      const colWidth = Math.min(65, Math.floor(700 / (barChartItems.length || 1)));
+                      const x = 60 + idx * (colWidth + 30);
+                      
+                      let actualHeight = 0;
+                      let targetHeight = 150;
+
+                      if (isScrap) {
+                        actualHeight = item.value > 0 ? Math.min(145, Math.max(22, Math.round((item.value / maxScrapKg) * 135))) : 0;
+                        targetHeight = 145;
+                      } else {
+                        targetHeight = Math.min(170, Math.max(10, Math.round(((item.target || item.value) / (item.target || item.value || 1)) * 160)));
+                        actualHeight = Math.min(170, Math.max(6, Math.round((item.percentage / 100) * targetHeight)));
+                      }
+
+                      const yActual = 200 - actualHeight;
+                      const yTarget = 200 - targetHeight;
+                      const rateVal = item.efficiency ?? item.percentage ?? 0;
+
+                      return (
+                        <g key={item.id}>
+                          {/* Target / Reference baseline bar outline */}
+                          <rect
+                            x={x}
+                            y={yTarget}
+                            width={colWidth}
+                            height={targetHeight}
+                            fill="rgba(100, 116, 139, 0.05)"
+                            stroke="rgba(100, 116, 139, 0.25)"
+                            strokeDasharray="3 3"
+                            rx="4"
+                          />
+                          {/* Actual filled bar (only if yield or scrap > 0) */}
+                          {actualHeight > 0 && (
+                            <rect
+                              x={x + 4}
+                              y={yActual}
+                              width={colWidth - 8}
+                              height={actualHeight}
+                              fill={item.color}
+                              rx="3"
+                            />
+                          )}
+
+                          {/* Top values: Quantity AND Percentage */}
+                          {isScrap ? (
+                            <g>
+                              <text
+                                x={x + colWidth / 2}
+                                y={actualHeight > 0 ? yActual - 18 : 176}
+                                textAnchor="middle"
+                                fill={item.value > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)'}
+                                fontSize="11"
+                                fontWeight="800"
+                              >
+                                {formatDecimal(item.value)} kg
+                              </text>
+                              <text
+                                x={x + colWidth / 2}
+                                y={actualHeight > 0 ? yActual - 6 : 190}
+                                textAnchor="middle"
+                                fill={rateVal > 2 ? '#ef4444' : rateVal > 0 ? '#f59e0b' : 'var(--theme-text-muted, #94a3b8)'}
+                                fontSize="10"
+                                fontWeight="700"
+                              >
+                                {rateVal.toFixed(2)}%
+                              </text>
+                            </g>
+                          ) : (
+                            <text
+                              x={x + colWidth / 2}
+                              y={yActual - 6}
+                              textAnchor="middle"
+                              fill="var(--theme-text, #0f172a)"
+                              fontSize="11"
+                              fontWeight="700"
+                            >
+                              {item.percentage}%
+                            </text>
+                          )}
+
+                          {/* Label at bottom */}
+                          <text
+                            x={x + colWidth / 2}
+                            y={218}
+                            textAnchor="middle"
+                            fill="var(--theme-text-muted, #64748b)"
+                            fontSize="11"
+                            fontWeight="600"
+                          >
+                            {item.shortLabel || item.label.split(' ')[0]}
+                          </text>
+                        </g>
+                      );
+                    });
+                  })()}
                 </svg>
               </div>
             ) : chartType === 'donut' ? (
@@ -2793,24 +3548,37 @@ export const GeneralReports: React.FC = () => {
                       );
                     });
                   })()}
-                  <text x="110" y="105" textAnchor="middle" fontSize="12" fontWeight="600" fill="var(--theme-text-muted, #64748b)">TOTAL YIELD</text>
-                  <text x="110" y="125" textAnchor="middle" fontSize="15" fontWeight="800" fill="var(--theme-text, #0f172a)">
-                    {formatDecimal(barChartItems.reduce((acc, it) => acc + (it.value || 0), 0))}
+                  <text x="110" y="102" textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--theme-text-muted, #64748b)">
+                    {selectedReport === 'prod_scrap' ? 'TOTAL SCRAP' : 'TOTAL YIELD'}
                   </text>
+                  <text x="110" y="122" textAnchor="middle" fontSize="15" fontWeight="800" fill={selectedReport === 'prod_scrap' ? '#ef4444' : 'var(--theme-text, #0f172a)'}>
+                    {selectedReport === 'prod_scrap'
+                      ? `${formatDecimal(prodSummary.totalScrap)} kg`
+                      : formatDecimal(barChartItems.reduce((acc, it) => acc + (it.value || 0), 0))}
+                  </text>
+                  {selectedReport === 'prod_scrap' && (
+                    <text x="110" y="138" textAnchor="middle" fontSize="10" fontWeight="700" fill="#ef4444">
+                      {(prodSummary.avgScrapRate || 0).toFixed(2)}% rate
+                    </text>
+                  )}
                 </svg>
 
                 <div className="reports-donut-legend">
                   {barChartItems.map((it) => {
                     const totalVal = barChartItems.reduce((acc, x) => acc + (x.value || 0), 0) || 1;
                     const share = Math.round(((it.value || 0) / totalVal) * 100);
+                    const rateVal = it.efficiency ?? it.percentage ?? 0;
                     return (
                       <div key={it.id} className="reports-donut-legend-row">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: it.color }} />
-                          <span style={{ fontWeight: 600 }}>{it.label}</span>
+                          <span style={{ fontWeight: 600 }}>{it.shortLabel || it.label}</span>
                         </div>
                         <span style={{ fontWeight: 700 }}>
-                          {it.displayValue} <Tag color="blue" style={{ fontSize: 10, marginLeft: 4 }}>{share}%</Tag>
+                          {selectedReport === 'prod_scrap' ? `${formatDecimal(it.value)} kg` : it.displayValue}
+                          <Tag color={selectedReport === 'prod_scrap' ? (rateVal > 2 ? 'error' : 'success') : 'blue'} style={{ fontSize: 10, marginLeft: 4 }}>
+                            {selectedReport === 'prod_scrap' ? `${rateVal.toFixed(2)}% rate` : `${share}%`}
+                          </Tag>
                         </span>
                       </div>
                     );
@@ -2821,19 +3589,28 @@ export const GeneralReports: React.FC = () => {
               /* ALTERNATE PATTERN 3: EFFICIENCY ATTAINMENT GRID */
               <div className="reports-efficiency-grid">
                 {barChartItems.map((it) => {
+                  const isScrap = selectedReport === 'prod_scrap';
+                  const rateVal = it.efficiency ?? it.percentage ?? 0;
                   const eff = it.efficiency ?? it.percentage;
-                  const circleBg = eff >= 95 ? '#10b981' : eff >= 75 ? '#2563eb' : eff > 0 ? '#f59e0b' : '#ef4444';
+                  const circleBg = isScrap
+                    ? (rateVal > 5 ? '#ef4444' : rateVal > 2 ? '#f59e0b' : '#10b981')
+                    : (eff >= 95 ? '#10b981' : eff >= 75 ? '#2563eb' : eff > 0 ? '#f59e0b' : '#ef4444');
+
                   return (
                     <div key={it.id} className="reports-efficiency-card">
                       <div className="reports-efficiency-circle" style={{ backgroundColor: circleBg }}>
-                        {eff.toFixed(0)}%
+                        {isScrap ? `${rateVal.toFixed(2)}%` : `${eff.toFixed(0)}%`}
                       </div>
                       <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>{it.label}</div>
                       <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
-                        {it.displayValue} {it.target ? `/ ${formatDecimal(it.target)} ${it.unit || ''}` : ''}
+                        {isScrap
+                          ? `${formatDecimal(it.value)} kg scrap / ${formatDecimal(it.target || 0)} kg output`
+                          : `${it.displayValue} ${it.target ? `/ ${formatDecimal(it.target)} ${it.unit || ''}` : ''}`}
                       </div>
-                      <Tag color={eff >= 95 ? 'success' : eff >= 75 ? 'processing' : eff > 0 ? 'warning' : 'error'} style={{ marginTop: 4 }}>
-                        {eff >= 95 ? 'Completed' : eff >= 75 ? 'On Track' : eff > 0 ? 'Delayed' : 'Idle / OFF'}
+                      <Tag color={isScrap ? (rateVal > 5 ? 'error' : rateVal > 2 ? 'warning' : 'success') : (eff >= 95 ? 'success' : eff >= 75 ? 'processing' : eff > 0 ? 'warning' : 'error')} style={{ marginTop: 4 }}>
+                        {isScrap
+                          ? (rateVal > 5 ? 'High Scrap (>5%)' : rateVal > 2 ? 'Moderate Scrap' : 'Low Scrap (<2%)')
+                          : (eff >= 95 ? 'Completed' : eff >= 75 ? 'On Track' : eff > 0 ? 'Delayed' : 'Idle / OFF')}
                       </Tag>
                     </div>
                   );
@@ -2842,27 +3619,43 @@ export const GeneralReports: React.FC = () => {
             ) : (
               /* DEFAULT PATTERN: HORIZONTAL TARGET PROGRESS BARS */
               <div className="reports-bars-container">
-                {barChartItems.map((item) => (
-                  <div key={item.id} className="reports-bar-row">
-                    <div className="reports-bar-label-line">
-                      <span>{item.label}</span>
-                      <span style={{ fontWeight: 700 }}>
-                        {item.displayValue} {item.sublabel && <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>({item.sublabel})</span>}
-                      </span>
-                    </div>
-                    <div className="reports-bar-track">
-                      <div
-                        className="reports-bar-fill"
-                        style={{
-                          width: `${item.percentage}%`,
-                          backgroundColor: item.color,
-                        }}
-                      >
-                        {item.percentage}%
+                {(() => {
+                  const isScrap = selectedReport === 'prod_scrap';
+                  const maxScrapKg = Math.max(...barChartItems.map((it) => it.value), 1);
+
+                  return barChartItems.map((item) => {
+                    const rateVal = item.efficiency ?? item.percentage ?? 0;
+                    const fillPercent = isScrap
+                      ? (item.value > 0 ? Math.max(14, Math.min(100, Math.round((item.value / maxScrapKg) * 100))) : 0)
+                      : item.percentage;
+
+                    return (
+                      <div key={item.id} className="reports-bar-row">
+                        <div className="reports-bar-label-line">
+                          <span>{item.label}</span>
+                          <span style={{ fontWeight: 700 }}>
+                            {isScrap
+                              ? `${formatDecimal(item.value)} kg Scrap (${rateVal.toFixed(2)}%)`
+                              : `${item.displayValue} ${item.sublabel && <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>({item.sublabel})</span>}`}
+                          </span>
+                        </div>
+                        <div className="reports-bar-track">
+                          <div
+                            className="reports-bar-fill"
+                            style={{
+                              width: `${fillPercent}%`,
+                              backgroundColor: item.color,
+                            }}
+                          >
+                            {isScrap
+                              ? (item.value > 0 ? `${formatDecimal(item.value)} kg (${rateVal.toFixed(2)}%)` : '0 kg (0%)')
+                              : `${item.percentage}%`}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -2883,6 +3676,8 @@ export const GeneralReports: React.FC = () => {
                               ? shiftSummary.length
                               : selectedReport === 'prod_operator'
                               ? operatorSummary.length
+                              : selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item')
+                              ? itemSummary.length
                               : selectedReport === 'prod_department' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'department') || (selectedReport === 'prod_scrap' && scrapSubView === 'department')
                               ? departmentSummary.length
                               : machineSummary.length
@@ -2910,6 +3705,21 @@ export const GeneralReports: React.FC = () => {
                     </button>
                   </div>
                 )}
+                <Button
+                  size="small"
+                  icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                  onClick={handleExportPdf}
+                  loading={pdfLoading}
+                >
+                  Export PDF
+                </Button>
+                <Button
+                  size="small"
+                  icon={<PrinterOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />}
+                  onClick={handlePrintCurrentTable}
+                >
+                  Print
+                </Button>
                 <Button
                   size="small"
                   icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
@@ -2950,7 +3760,16 @@ export const GeneralReports: React.FC = () => {
                       title: 'Actual Output',
                       dataIndex: 'totalActual',
                       key: 'totalActual',
-                      render: (v) => <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>,
+                      render: (v, row) => (
+                        <div>
+                          <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
+                          {row.totalActualKg > 0 && (
+                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                              {formatDecimal(row.totalActualKg)} kg
+                            </div>
+                          )}
+                        </div>
+                      ),
                     },
                     {
                       title: 'Variance',
@@ -2966,7 +3785,16 @@ export const GeneralReports: React.FC = () => {
                       title: 'Rejection / Scrap',
                       dataIndex: 'totalScrap',
                       key: 'totalScrap',
-                      render: (v) => <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>,
+                      render: (v, row) => (
+                        <div>
+                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                          {row.scrapRate > 0 && (
+                            <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                              {row.scrapRate.toFixed(2)}% rate
+                            </div>
+                          )}
+                        </div>
+                      ),
                     },
                     {
                       title: 'Efficiency',
@@ -3034,7 +3862,16 @@ export const GeneralReports: React.FC = () => {
                       title: 'Total Produced',
                       dataIndex: 'totalActual',
                       key: 'totalActual',
-                      render: (v) => <strong>{formatDecimal(v)}</strong>,
+                      render: (v, row) => (
+                        <div>
+                          <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
+                          {row.totalActualKg > 0 && (
+                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                              {formatDecimal(row.totalActualKg)} kg
+                            </div>
+                          )}
+                        </div>
+                      ),
                     },
                     {
                       title: 'Variance',
@@ -3050,7 +3887,16 @@ export const GeneralReports: React.FC = () => {
                       title: 'Rejection / Scrap',
                       dataIndex: 'totalScrap',
                       key: 'totalScrap',
-                      render: (v) => <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>,
+                      render: (v, row) => (
+                        <div>
+                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                          {row.scrapRate > 0 && (
+                            <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                              {row.scrapRate.toFixed(2)}% rate
+                            </div>
+                          )}
+                        </div>
+                      ),
                     },
                     {
                       title: 'Plant Efficiency',
@@ -3114,7 +3960,16 @@ export const GeneralReports: React.FC = () => {
                               title: `Actual Output (${deptRecord.unit})`,
                               dataIndex: 'totalActual',
                               key: 'totalActual',
-                              render: (v) => <strong>{formatDecimal(v)} {deptRecord.unit}</strong>,
+                              render: (v, row) => (
+                                <div>
+                                  <strong>{formatDecimal(v)} {deptRecord.unit}</strong>
+                                  {row.totalActualKg > 0 && deptRecord.unit !== 'kg' && (
+                                    <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                      {formatDecimal(row.totalActualKg)} kg
+                                    </div>
+                                  )}
+                                </div>
+                              ),
                             },
                             {
                               title: 'Variance',
@@ -3130,7 +3985,16 @@ export const GeneralReports: React.FC = () => {
                               title: 'Rejection / Scrap',
                               dataIndex: 'totalScrap',
                               key: 'totalScrap',
-                              render: (v) => <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatDecimal(v)} kg</span>,
+                              render: (v, row) => (
+                                <div>
+                                  <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatDecimal(v)} kg</span>
+                                  {row.scrapRate > 0 && (
+                                    <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                                      {row.scrapRate.toFixed(2)}% rate
+                                    </div>
+                                  )}
+                                </div>
+                              ),
                             },
                             {
                               title: 'Efficiency',
@@ -3222,7 +4086,16 @@ export const GeneralReports: React.FC = () => {
                       title: 'Actual Output',
                       dataIndex: 'totalActual',
                       key: 'totalActual',
-                      render: (v, row) => <strong>{formatDecimal(v)} {row.unit}</strong>,
+                      render: (v, row) => (
+                        <div>
+                          <strong>{formatDecimal(v)} {row.unit}</strong>
+                          {row.totalActualKg > 0 && row.unit !== 'kg' && (
+                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                              {formatDecimal(row.totalActualKg)} kg
+                            </div>
+                          )}
+                        </div>
+                      ),
                     },
                     {
                       title: 'Variance',
@@ -3287,7 +4160,16 @@ export const GeneralReports: React.FC = () => {
                       title: 'Actual Output',
                       dataIndex: 'totalActual',
                       key: 'totalActual',
-                      render: (v, row) => <strong>{formatDecimal(v)} {row.unit}</strong>,
+                      render: (v, row) => (
+                        <div>
+                          <strong>{formatDecimal(v)} {row.unit}</strong>
+                          {row.totalActualKg > 0 && row.unit !== 'kg' && (
+                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                              {formatDecimal(row.totalActualKg)} kg
+                            </div>
+                          )}
+                        </div>
+                      ),
                     },
                     {
                       title: 'Variance',
@@ -3303,7 +4185,16 @@ export const GeneralReports: React.FC = () => {
                       title: 'Rejection / Scrap',
                       dataIndex: 'totalScrap',
                       key: 'totalScrap',
-                      render: (v) => <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>,
+                      render: (v, row) => (
+                        <div>
+                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                          {row.scrapRate > 0 && (
+                            <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                              {row.scrapRate.toFixed(2)}% rate
+                            </div>
+                          )}
+                        </div>
+                      ),
                     },
                     {
                       title: selectedReport === 'prod_scrap' ? 'Scrap Rate' : 'Attainment',
@@ -3358,6 +4249,138 @@ export const GeneralReports: React.FC = () => {
                     },
                   ]}
                 />
+              ) : detailMode === 'summary' && (selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item')) ? (
+                /* 4B. ITEM-WISE SUMMARY TABLE (Item yield, output weight kg, rejection kg & %) */
+                <Table
+                  className="reports-data-table"
+                  dataSource={itemSummary}
+                  rowKey={(r) => `${r.itemCode}_${r.itemName}`}
+                  pagination={false}
+                  size="small"
+                  summary={() => (
+                    <Table.Summary.Row className="reports-total-summary-row">
+                      <Table.Summary.Cell index={0}>TOTAL</Table.Summary.Cell>
+                      <Table.Summary.Cell index={1}><strong>{formatDecimal(prodSummary.totalTarget)}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={2}>
+                        <strong>{formatDecimal(prodSummary.totalActual)}</strong>
+                        {prodSummary.totalActualKg > 0 && (
+                          <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 700 }}>
+                            {formatDecimal(prodSummary.totalActualKg)} kg
+                          </div>
+                        )}
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={3}>
+                        <span style={{ color: prodSummary.totalVariance >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+                          {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
+                        </span>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={4}>
+                        <strong style={{ color: '#ef4444' }}>{formatDecimal(prodSummary.totalScrap)} kg</strong>
+                        {prodSummary.avgScrapRate > 0 && (
+                          <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>
+                            {prodSummary.avgScrapRate.toFixed(2)}% rate
+                          </div>
+                        )}
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={5}>
+                        <Tag color={selectedReport === 'prod_scrap' ? (prodSummary.avgScrapRate > 2 ? 'error' : 'success') : 'blue'} style={{ fontWeight: 700 }}>
+                          {selectedReport === 'prod_scrap' ? `${prodSummary.avgScrapRate.toFixed(2)}%` : `${formatDecimal(prodSummary.avgEfficiency)}%`}
+                        </Tag>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={6}>
+                        <strong>{prodSummary.totalDowntime}h</strong>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={7}>
+                        <Tag color="cyan">{itemSummary.reduce((acc, it) => acc + it.count, 0)} slips</Tag>
+                      </Table.Summary.Cell>
+                    </Table.Summary.Row>
+                  )}
+                  columns={[
+                    {
+                      title: 'Item / Product',
+                      dataIndex: 'itemName',
+                      key: 'itemName',
+                      render: (name, row) => (
+                        <div>
+                          <div style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>{name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                            <Tag color="geekblue" style={{ fontSize: 10, padding: '0 4px', marginRight: 4 }}>{row.itemCode}</Tag>
+                            {row.departmentName} • {row.divisionName}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'Target Qty',
+                      dataIndex: 'totalTarget',
+                      key: 'totalTarget',
+                      render: (v, row) => `${formatDecimal(v)} ${row.uom}`,
+                    },
+                    {
+                      title: 'Actual Output',
+                      dataIndex: 'totalActual',
+                      key: 'totalActual',
+                      render: (v, row) => (
+                        <div>
+                          <strong>{formatDecimal(v)} {row.uom}</strong>
+                          {row.totalActualKg > 0 && row.uom !== 'kg' && (
+                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                              {formatDecimal(row.totalActualKg)} kg
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'Variance',
+                      dataIndex: 'variance',
+                      key: 'variance',
+                      render: (v, row) => (
+                        <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
+                          {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)} {row.uom}
+                        </span>
+                      ),
+                    },
+                    {
+                      title: 'Rejection / Scrap',
+                      dataIndex: 'totalScrap',
+                      key: 'totalScrap',
+                      render: (v, row) => (
+                        <div>
+                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                          {row.scrapRate > 0 && (
+                            <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                              {row.scrapRate.toFixed(2)}% rate
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    },
+                    {
+                      title: selectedReport === 'prod_scrap' ? 'Scrap Rate' : 'Efficiency',
+                      key: 'rateOrEff',
+                      render: (_, row) => (
+                        <Tag color={selectedReport === 'prod_scrap' ? (row.scrapRate > 5 ? 'error' : row.scrapRate > 2 ? 'warning' : 'success') : (row.efficiency >= 95 ? 'success' : row.efficiency >= 75 ? 'processing' : 'error')}>
+                          {selectedReport === 'prod_scrap' ? `${row.scrapRate.toFixed(2)}%` : `${formatDecimal(row.efficiency)}%`}
+                        </Tag>
+                      ),
+                    },
+                    {
+                      title: 'Downtime',
+                      dataIndex: 'downtimeHours',
+                      key: 'downtimeHours',
+                      render: (v) => `${v}h`,
+                    },
+                    {
+                      title: 'Entries',
+                      dataIndex: 'count',
+                      key: 'count',
+                      render: (cnt) => (
+                        <Tag color="blue">{cnt} slips</Tag>
+                      ),
+                    },
+                  ]}
+                />
               ) : (
                 /* 5. FULL DETAILED PRODUCTION SLIPS TABLE (Default & Detailed Mode) */
                 <Table
@@ -3373,7 +4396,14 @@ export const GeneralReports: React.FC = () => {
                       <Table.Summary.Cell index={2}>-</Table.Summary.Cell>
                       <Table.Summary.Cell index={3}>-</Table.Summary.Cell>
                       <Table.Summary.Cell index={4}><strong>{formatDecimal(prodSummary.totalTarget)}</strong></Table.Summary.Cell>
-                      <Table.Summary.Cell index={5}><strong>{formatDecimal(prodSummary.totalActual)}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={5}>
+                        <strong>{formatDecimal(prodSummary.totalActual)}</strong>
+                        {prodSummary.totalActualKg > 0 && (
+                          <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 700 }}>
+                            {formatDecimal(prodSummary.totalActualKg)} kg
+                          </div>
+                        )}
+                      </Table.Summary.Cell>
                       <Table.Summary.Cell index={6}>
                         <span style={{ color: prodSummary.totalVariance >= 0 ? '#10b981' : '#ef4444' }}>
                           {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
@@ -3381,6 +4411,11 @@ export const GeneralReports: React.FC = () => {
                       </Table.Summary.Cell>
                       <Table.Summary.Cell index={7}>
                         <strong style={{ color: '#ef4444' }}>{formatDecimal(prodSummary.totalScrap)} kg</strong>
+                        {prodSummary.avgScrapRate > 0 && (
+                          <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>
+                            {prodSummary.avgScrapRate.toFixed(2)}% rate
+                          </div>
+                        )}
                       </Table.Summary.Cell>
                       <Table.Summary.Cell index={8}><strong>{formatDecimal(prodSummary.avgEfficiency)}%</strong></Table.Summary.Cell>
                       <Table.Summary.Cell index={9}>-</Table.Summary.Cell>
@@ -3442,7 +4477,19 @@ export const GeneralReports: React.FC = () => {
                       title: 'Actual',
                       dataIndex: 'actualQuantity',
                       key: 'actualQuantity',
-                      render: (v) => <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>,
+                      render: (v, row) => {
+                        const kg = row.actualKg || calcEntryActualKg(row);
+                        return (
+                          <div>
+                            <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
+                            {kg > 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                {formatDecimal(kg)} kg
+                              </div>
+                            )}
+                          </div>
+                        );
+                      },
                     },
                     {
                       title: 'Variance',
@@ -3458,12 +4505,21 @@ export const GeneralReports: React.FC = () => {
                       title: 'Rejection / Scrap',
                       dataIndex: 'scrapQuantity',
                       key: 'scrapQuantity',
-                      render: (v, row) => (
-                        <div>
-                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>Down: {row.downtimeHours}h</div>
-                        </div>
-                      ),
+                      render: (v, row) => {
+                        const kg = row.actualKg || calcEntryActualKg(row);
+                        const rate = kg > 0 ? (v / kg) * 100 : 0;
+                        return (
+                          <div>
+                            <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                            {rate > 0 && (
+                              <div style={{ fontSize: 10, color: rate > 5 ? '#ef4444' : rate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                                {rate.toFixed(2)}% rate
+                              </div>
+                            )}
+                            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>Down: {row.downtimeHours}h</div>
+                          </div>
+                        );
+                      },
                     },
                     {
                       title: 'Efficiency',

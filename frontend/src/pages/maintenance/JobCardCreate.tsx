@@ -19,6 +19,7 @@ import {
   Typography,
 } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import {
   ApartmentOutlined,
   BarcodeOutlined,
@@ -140,20 +141,48 @@ export const JobCardCreate: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   // Window State: Draggable, Resizable, Maximizable, Minimizable, Toggle Detail Sheet
+  const DEFAULT_DESKTOP_WIDTH = 960;
+  const DEFAULT_DESKTOP_HEIGHT = 440;
+  const [customSize, setCustomSize] = useState<{ width: number; height: number } | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [showPreviewPane, setShowPreviewPane] = useState(true);
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0, initialX: 0, initialY: 0 });
+  const isResizingRef = useRef(false);
+  const resizeStartRef = useRef({ x: 0, y: 0, startW: 0, startH: 0 });
+  const modalContainerRef = useRef<HTMLDivElement>(null);
+
+  const activeTabId = useWorkspaceTabStore((s) => s.activeTabId);
+  const isRouteActive =
+    !activeTabId ||
+    activeTabId === '/maintenance/job-cards/new' ||
+    location.pathname === '/maintenance/job-cards/new';
+
+  const handleClose = useCallback(() => {
+    setIsMinimized(false);
+    try {
+      useWorkspaceTabStore.getState().closeTab('/maintenance/job-cards/new');
+    } catch {
+      // ignore
+    }
+    navigate('/maintenance/job-cards', { replace: true });
+  }, [navigate]);
+
+  useEffect(() => {
+    if (location.pathname === '/maintenance/job-cards/new') {
+      setIsMinimized(false);
+    }
+  }, [location.pathname]);
 
   // Mobile View Tab: 'form' | 'preview'
   const [mobileActiveTab, setMobileActiveTab] = useState<'form' | 'preview'>('form');
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 960);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
 
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 960);
+      setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 768);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -620,6 +649,49 @@ export const JobCardCreate: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
+  // Window corner & edge resize handler (drag to make bigger or smaller from any side)
+  const handleResizeStart = useCallback((e: React.MouseEvent, mode: 'both' | 'width' | 'height' = 'both') => {
+    if (isMaximized) return;
+    e.preventDefault();
+    e.stopPropagation();
+    isResizingRef.current = true;
+
+    const el = modalContainerRef.current;
+    const currentW = el ? el.offsetWidth : (customSize?.width || DEFAULT_DESKTOP_WIDTH);
+    const currentH = el ? el.offsetHeight : (customSize?.height || DEFAULT_DESKTOP_HEIGHT);
+
+    resizeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      startW: currentW,
+      startH: currentH,
+    };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const dx = ev.clientX - resizeStartRef.current.x;
+      const dy = ev.clientY - resizeStartRef.current.y;
+      const minW = Math.min(520, window.innerWidth - 30);
+      const maxW = window.innerWidth - 30;
+      const minH = 320;
+      const maxH = window.innerHeight - 30;
+
+      setCustomSize((prev) => ({
+        width: mode === 'height' ? (prev?.width || currentW) : Math.max(minW, Math.min(maxW, resizeStartRef.current.startW + dx)),
+        height: mode === 'width' ? (prev?.height || currentH) : Math.max(minH, Math.min(maxH, resizeStartRef.current.startH + dy)),
+      }));
+    };
+
+    const handleMouseUp = () => {
+      isResizingRef.current = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [isMaximized, customSize, DEFAULT_DESKTOP_WIDTH, DEFAULT_DESKTOP_HEIGHT]);
+
   // Submit Job Card - Validates and opens in-modal confirmation popup
   const submit = (values: JobCard) => {
     try {
@@ -761,40 +833,52 @@ export const JobCardCreate: React.FC = () => {
       {isMinimized && (
         <div
           className="erp-jc-docked-pill"
+          style={{ zIndex: 1300 }}
           onClick={() => setIsMinimized(false)}
           title="Click to restore Open Job Card form"
         >
           <Badge status="processing" color="#3b82f6" />
           <ToolOutlined style={{ color: '#60a5fa', fontSize: 18 }} />
-          <div>
+          <div style={{ marginRight: 6 }}>
             <div className="erp-jc-docked-pill-title">Open Job Card (In Progress)</div>
             <div className="erp-jc-docked-pill-sub">
               {selectedMachine ? `Asset: ${selectedMachine.machineName || selectedMachine.machineCode}` : 'Drafting new ticket...'}
             </div>
           </div>
-          <Button size="small" type="primary" shape="round" style={{ fontWeight: 600 }}>
+          <Button size="small" type="primary" shape="round" style={{ fontWeight: 600 }} onClick={() => setIsMinimized(false)}>
             Restore
           </Button>
+          <Button
+            size="small"
+            type="text"
+            icon={<CloseOutlined style={{ color: '#ffffff', fontSize: 12 }} />}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleClose();
+            }}
+            title="Close and discard"
+            style={{ padding: '0 4px', height: 24, minWidth: 24 }}
+          />
         </div>
       )}
 
       {/* Main Draggable & Resizable Popup Modal */}
       <Modal
-        wrapClassName={`erp-jc-modal-wrap ${isMobile ? 'erp-jc-mobile-view' : ''}`}
+        wrapClassName={`erp-jc-modal-wrap ${isMobile ? 'erp-jc-mobile-view' : ''} ${customSize ? 'erp-jc-modal-custom-size' : ''}`}
         rootClassName={isMobile ? 'erp-jc-mobile-root' : undefined}
-        open={!isMinimized}
+        open={!isMinimized && isRouteActive}
         closable={false}
         footer={null}
         zIndex={1250}
-        width={isMobile || isMaximized ? '100vw' : 1180}
+        width={isMobile ? '100vw' : isMaximized ? '96vw' : (customSize?.width || DEFAULT_DESKTOP_WIDTH)}
         styles={{
           content: {
-            height: isMobile || isMaximized ? '100vh' : undefined,
-            maxHeight: isMobile || isMaximized ? '100vh' : undefined,
+            height: isMobile ? '100dvh' : isMaximized ? '92vh' : `${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px`,
+            maxHeight: isMobile ? '100dvh' : isMaximized ? '95vh' : '92vh',
             display: 'flex',
             flexDirection: 'column',
             padding: 0,
-            borderRadius: isMobile || isMaximized ? 0 : 16,
+            borderRadius: isMobile ? 0 : 16,
             overflow: 'hidden',
           },
           body: {
@@ -808,27 +892,40 @@ export const JobCardCreate: React.FC = () => {
           },
         }}
         style={
-          isMobile || isMaximized
+          isMobile
             ? {
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                padding: 0,
-                margin: 0,
-                maxWidth: '100vw',
-                width: '100vw',
-                height: '100vh',
                 position: 'fixed',
+                inset: 0,
+                margin: 0,
+                padding: 0,
+                width: '100vw',
+                maxWidth: '100vw',
+                height: '100dvh',
+                maxHeight: '100dvh',
+              }
+            : isMaximized
+            ? {
+                top: 20,
+                margin: '0 auto',
+                padding: 0,
+                width: '96vw',
+                maxWidth: '96vw',
+                height: '92vh',
+                position: 'relative',
               }
             : {
-                top: 24,
+                top: 28,
+                height: customSize?.height || DEFAULT_DESKTOP_HEIGHT,
+                maxHeight: '92vh',
+                margin: '0 auto',
                 transform: `translate(${modalPos.x}px, ${modalPos.y}px)`,
-                maxWidth: 'calc(100vw - 32px)',
+                maxWidth: 'calc(100vw - 48px)',
+                width: customSize?.width || DEFAULT_DESKTOP_WIDTH,
               }
         }
       >
         <div
+          ref={modalContainerRef}
           className="erp-jc-modal-root-container"
           style={{
             display: 'flex',
@@ -882,6 +979,26 @@ export const JobCardCreate: React.FC = () => {
                 </Tooltip>
               )}
 
+              {!isMobile && !isMaximized && (
+                <Tooltip title={customSize?.height && customSize.height > 480 ? 'Switch to Compact Height (440px)' : 'Expand Window Height (600px)'}>
+                  <button
+                    type="button"
+                    className="erp-jc-header-ctrl-btn"
+                    onClick={() => {
+                      if (customSize?.height && customSize.height > 480) {
+                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 440 });
+                      } else {
+                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 600 });
+                      }
+                    }}
+                    aria-label="Toggle Window Height"
+                    style={{ fontSize: 11, fontWeight: 700, padding: '0 8px', width: 'auto' }}
+                  >
+                    {customSize?.height && customSize.height > 480 ? '↕ Compact' : '↕ Expand'}
+                  </button>
+                </Tooltip>
+              )}
+
               {!isMobile && (
                 <Tooltip title={isMaximized ? 'Restore Window Size' : 'Maximize Fullscreen'}>
                   <button
@@ -910,7 +1027,7 @@ export const JobCardCreate: React.FC = () => {
                 <button
                   type="button"
                   className="erp-jc-header-ctrl-btn erp-jc-header-ctrl-btn--close"
-                  onClick={() => navigate('/maintenance/job-cards')}
+                  onClick={handleClose}
                   aria-label="Close"
                 >
                   <CloseOutlined />
@@ -948,7 +1065,9 @@ export const JobCardCreate: React.FC = () => {
               display: 'flex',
               flexDirection: isMobile ? 'column' : 'row',
               flex: '1 1 0%',
+              height: '100%',
               minHeight: 0,
+              maxHeight: '100%',
               overflow: 'hidden',
             }}
           >
@@ -957,13 +1076,17 @@ export const JobCardCreate: React.FC = () => {
               <div
                 className="erp-jc-form-pane"
                 style={{
-                  flex: isMobile ? '1 1 100%' : (showPreviewPane ? '1 1 60%' : '1 1 100%'),
+                  flex: isMobile ? '1 1 0%' : (showPreviewPane ? '1 1 60%' : '1 1 100%'),
                   height: '100%',
-                  overflowY: 'auto',
+                  maxHeight: '100%',
+                  minHeight: 0,
+                  overflowY: 'scroll',
+                  overflowX: 'hidden',
                   WebkitOverflowScrolling: 'touch',
                   borderRight: !isMobile && showPreviewPane ? '1px solid var(--theme-border)' : 'none',
                   width: isMobile ? '100%' : undefined,
                   display: isMobile && mobileActiveTab !== 'form' ? 'none' : 'block',
+                  boxSizing: 'border-box',
                 }}
               >
               <Form
@@ -1375,9 +1498,11 @@ export const JobCardCreate: React.FC = () => {
               <div
                 className="erp-jc-preview-pane"
                 style={{
-                  flex: isMobile ? '1 1 100%' : undefined,
+                  flex: isMobile ? '1 1 0%' : undefined,
                   height: '100%',
+                  minHeight: 0,
                   overflowY: 'auto',
+                  overflowX: 'hidden',
                   WebkitOverflowScrolling: 'touch',
                   width: isMobile ? '100%' : undefined,
                   maxWidth: isMobile ? '100%' : 480,
@@ -1547,9 +1672,10 @@ export const JobCardCreate: React.FC = () => {
             className="erp-jc-footer"
             style={{
               flexShrink: 0,
-              marginTop: 'auto',
+              marginTop: 0,
               position: 'relative',
-              zIndex: 20,
+              width: '100%',
+              zIndex: 1000,
             }}
           >
             <div
@@ -1563,7 +1689,7 @@ export const JobCardCreate: React.FC = () => {
             >
               <Button
                 style={isMobile ? { flex: 1 } : undefined}
-                onClick={() => navigate('/maintenance/job-cards')}
+                onClick={handleClose}
               >
                 Cancel &amp; Return
               </Button>
@@ -1609,6 +1735,33 @@ export const JobCardCreate: React.FC = () => {
               </Button>
             </Space>
           </div>
+
+          {!isMobile && !isMaximized && (
+            <>
+              {/* Right edge resize handle */}
+              <div
+                className="erp-jc-resize-edge-r"
+                onMouseDown={(e) => handleResizeStart(e, 'width')}
+                title="Drag to resize width (چوڑائی چھوٹا یا بڑا کریں)"
+              />
+              {/* Bottom edge resize handle */}
+              <div
+                className="erp-jc-resize-edge-b"
+                onMouseDown={(e) => handleResizeStart(e, 'height')}
+                title="Drag to resize height (اونچائی چھوٹا یا بڑا کریں)"
+              />
+              {/* Bottom-right corner resize handle */}
+              <div
+                className="erp-jc-resize-handle"
+                onMouseDown={(e) => handleResizeStart(e, 'both')}
+                title="Drag to resize window (دونوں طرف سے چھوٹا یا بڑا کریں)"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M10 2L2 10M10 6L6 10M10 10L10 10.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                </svg>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
 
@@ -1833,7 +1986,7 @@ export const JobCardCreate: React.FC = () => {
               style={{ backgroundColor: '#10b981', borderColor: '#10b981', color: '#ffffff', fontWeight: 700 }}
               onClick={() => {
                 setSuccessModalOpen(false);
-                navigate('/maintenance/job-cards');
+                handleClose();
               }}
             >
               Done / OK

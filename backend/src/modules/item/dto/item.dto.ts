@@ -1054,6 +1054,14 @@ export class ItemFilterDto {
   @IsOptional()
   divisionId?: string;
 
+  /**
+   * Internal division scoping: if set, limits query to items belonging to these division UUIDs.
+   * Undefined means unrestricted.
+   */
+  @IsOptional()
+  @IsArray()
+  allowedDivisionIds?: string[];
+
   @ApiPropertyOptional({ description: 'Filter by section ID' })
   @IsUUID('loose')
   @IsOptional()

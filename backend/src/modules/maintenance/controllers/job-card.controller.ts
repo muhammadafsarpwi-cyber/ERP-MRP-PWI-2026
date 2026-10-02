@@ -1,11 +1,13 @@
 import {
-  Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards,
+  Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, Req,
   UseInterceptors, UploadedFile, ParseFilePipeBuilder,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam, ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { SupabaseJwtGuard } from '../../auth/guards';
 import { PermissionGuard, RequirePermission } from '../../auth/guards';
+import { OrgScopeGuard } from '../../auth/guards/org-scope.guard';
+import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { CurrentUser, CurrentUserId } from '../../../common/decorators/user.decorator';
 import { MaintenanceJobCardService } from '../services';
 import {
@@ -15,10 +17,15 @@ import {
 
 @ApiTags('Maintenance - Job Cards')
 @ApiBearerAuth()
-@UseGuards(SupabaseJwtGuard, PermissionGuard)
+@UseGuards(SupabaseJwtGuard, OrgScopeGuard, DivisionScopeGuard, PermissionGuard)
 @Controller('master-data/maintenance/job-cards')
 export class MaintenanceJobCardController {
   constructor(private readonly jobCardService: MaintenanceJobCardService) {}
+
+  /** Divisions the caller may see; undefined = unrestricted. */
+  private divisions(req: any): string[] | undefined {
+    return divisionFilterFromRequest(req.allowedDivisionIds);
+  }
 
   @Post('import')
   @RequirePermission('maintenance.job_card.create')
@@ -58,14 +65,15 @@ export class MaintenanceJobCardController {
   @Get()
   @RequirePermission('maintenance.job_card.view')
   @ApiOperation({ summary: 'List job cards with filters' })
-  findAll(@Query() query: JobCardQueryDto) {
-    return this.jobCardService.findAll(query);
+  findAll(@Query() query: JobCardQueryDto, @Req() req: any) {
+    return this.jobCardService.findAll(query, this.divisions(req));
   }
 
   @Get('dashboard')
   @RequirePermission('maintenance.job_card.view')
   @ApiOperation({ summary: 'Job card dashboard summary' })
   dashboard(
+    @Req() req: any,
     @Query('companyId') companyId: string,
     @Query('machineId') machineId?: string,
     @Query('divisionId') divisionId?: string,
@@ -73,13 +81,14 @@ export class MaintenanceJobCardController {
     @Query('departmentId') departmentId?: string,
     @Query('search') search?: string,
   ) {
-    return this.jobCardService.getDashboard(companyId, machineId, divisionId, sectionId, departmentId, search);
+    return this.jobCardService.getDashboard(companyId, machineId, divisionId, sectionId, departmentId, search, this.divisions(req));
   }
 
   @Get('chart-data')
   @RequirePermission('maintenance.job_card.view')
   @ApiOperation({ summary: 'Chart data for maintenance dashboard' })
   chartData(
+    @Req() req: any,
     @Query('companyId') companyId: string,
     @Query('machineId') machineId?: string,
     @Query('divisionId') divisionId?: string,
@@ -87,13 +96,14 @@ export class MaintenanceJobCardController {
     @Query('departmentId') departmentId?: string,
     @Query('search') search?: string,
   ) {
-    return this.jobCardService.getChartData(companyId, machineId, divisionId, sectionId, departmentId, search);
+    return this.jobCardService.getChartData(companyId, machineId, divisionId, sectionId, departmentId, search, this.divisions(req));
   }
 
   @Get('reports')
   @RequirePermission('maintenance.reports.view')
   @ApiOperation({ summary: 'Maintenance reports data' })
   reports(
+    @Req() req: any,
     @Query('companyId') companyId: string,
     @Query('machineId') machineId?: string,
     @Query('divisionId') divisionId?: string,
@@ -101,7 +111,7 @@ export class MaintenanceJobCardController {
     @Query('departmentId') departmentId?: string,
     @Query('search') search?: string,
   ) {
-    return this.jobCardService.getReports(companyId, machineId, divisionId, sectionId, departmentId, search);
+    return this.jobCardService.getReports(companyId, machineId, divisionId, sectionId, departmentId, search, this.divisions(req));
   }
 
   @Get('machine/:machineId/stats')

@@ -7,7 +7,7 @@ import {
 import type { MenuProps } from 'antd';
 import {
   ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DollarOutlined, DownloadOutlined, EditOutlined,
-  EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined, MoreOutlined,
+  EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined, MoreOutlined, ExclamationCircleOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined, CloseCircleOutlined,
   ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
   BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
@@ -1305,7 +1305,13 @@ const ItemManagement: React.FC = () => {
 
       if (uomSettled.status === 'fulfilled') setUoms(uomSettled.value.data || []);
       if (catSettled.status === 'fulfilled') setCategories(catSettled.value.data || []);
-      if (divSettled.status === 'fulfilled') setDivisions(divSettled.value.data || []);
+      if (divSettled.status === 'fulfilled') {
+        const loadedDivs = divSettled.value.data || [];
+        setDivisions(loadedDivs);
+        if (loadedDivs.length === 1 && !fDivision) {
+          setFDivision(loadedDivs[0].id);
+        }
+      }
       if (secSettled.status === 'fulfilled') setSections(secSettled.value.data || []);
       if (depSettled.status === 'fulfilled') setDepartments(depSettled.value.data || []);
       if (rtSettled.status === 'fulfilled') {
@@ -2835,35 +2841,90 @@ const ItemManagement: React.FC = () => {
       title: <HeaderCell icon={<TagOutlined />} first="Item" second="Code" />,
       dataIndex: 'itemCode',
       key: 'itemCode',
-      width: 85,
+      width: 125,
       fixed: screens.md ? 'left' : undefined,
       sorter: true,
-      render: (v: string, r: Item) => (
-        <Button
-          type="link"
-          size="small"
-          style={{ padding: 0, height: 'auto', fontSize: 12, fontWeight: 700, color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}
-          onClick={() => openDetail(r)}
-          aria-label={`View item ${v}`}
-        >
-          {v}
-        </Button>
-      ),
+      render: (v: string, r: Item) => {
+        if (!v) return <Text type="secondary">—</Text>;
+        const dashIdx = v.indexOf('-');
+        const prefix = dashIdx > 0 ? v.substring(0, dashIdx) : '';
+        const rest = dashIdx > 0 ? v.substring(dashIdx + 1) : v;
+
+        return (
+          <Button
+            type="link"
+            size="small"
+            style={{
+              padding: 0,
+              height: 'auto',
+              textAlign: 'left',
+              display: 'inline-block',
+              lineHeight: 1.25,
+            }}
+            onClick={() => openDetail(r)}
+            aria-label={`View item ${v}`}
+          >
+            {prefix ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <span
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: 800,
+                    color: '#2563eb',
+                    background: 'rgba(37, 99, 235, 0.1)',
+                    border: '1px solid rgba(37, 99, 235, 0.25)',
+                    padding: '0 4px',
+                    borderRadius: 3,
+                    letterSpacing: '0.4px',
+                    lineHeight: '15px',
+                  }}
+                >
+                  {prefix}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    color: 'var(--theme-accent, #0284c7)',
+                    fontFamily: 'monospace',
+                    letterSpacing: '0.2px',
+                    marginTop: 2,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {rest}
+                </span>
+              </div>
+            ) : (
+              <span
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  color: 'var(--theme-accent, #0284c7)',
+                  fontFamily: 'monospace',
+                }}
+              >
+                {v}
+              </span>
+            )}
+          </Button>
+        );
+      },
     },
     {
       title: <HeaderCell icon={<AppstoreOutlined />} first="Item" second="Name" />,
       dataIndex: 'name',
       key: 'name',
-      width: 140,
+      width: 175,
       sorter: true,
       render: (_: unknown, r: Item) => (
         <Tooltip title={r.name}>
           <div style={{ lineHeight: 1.25 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 135 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 170 }}>
               {r.name}
             </div>
             {r.shortName && (
-              <span style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 135, color: 'var(--theme-text-muted, #64748b)' }}>
+              <span style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 170, color: 'var(--theme-text-muted, #64748b)' }}>
                 {r.shortName}
               </span>
             )}
@@ -2874,18 +2935,38 @@ const ItemManagement: React.FC = () => {
     {
       title: <HeaderCell icon={<ApartmentOutlined />} first="Division /" second="Section" />,
       key: 'divisionSection',
-      width: 105,
+      width: 135,
       render: (_: unknown, r: Item) => {
         const d = divisionName(r);
         const s = sectionName(r);
         return (
-          <div style={{ lineHeight: 1.25 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>
+          <div style={{ lineHeight: 1.3 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130, color: 'var(--theme-text)' }}>
               {d ?? <Text type="secondary">—</Text>}
             </div>
-            <span style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100, color: 'var(--theme-text-muted, #64748b)' }}>
-              {s ?? '—'}
-            </span>
+            {s && s !== '—' ? (
+              <span
+                style={{
+                  display: 'inline-block',
+                  marginTop: 2,
+                  padding: '1px 6px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  borderRadius: 4,
+                  background: s.toLowerCase().includes('spiral') ? 'rgba(217, 70, 239, 0.12)' : 'rgba(99, 102, 241, 0.1)',
+                  color: s.toLowerCase().includes('spiral') ? '#a21caf' : '#4f46e5',
+                  border: s.toLowerCase().includes('spiral') ? '1px solid rgba(217, 70, 239, 0.28)' : '1px solid rgba(99, 102, 241, 0.25)',
+                  whiteSpace: 'nowrap',
+                  maxWidth: 125,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {s}
+              </span>
+            ) : (
+              <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>—</span>
+            )}
           </div>
         );
       },
@@ -2893,12 +2974,70 @@ const ItemManagement: React.FC = () => {
     {
       title: <HeaderCell icon={<FolderOutlined />} first="Dept" second="Name" />,
       key: 'department',
-      width: 90,
+      width: 110,
       render: (_: unknown, r: Item) => {
         const d = departmentName(r);
-        return d ? (
-          <span style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 85 }}>{d}</span>
-        ) : <Text type="secondary">—</Text>;
+        if (!d) return <Text type="secondary">—</Text>;
+        const lower = d.toLowerCase();
+        let bg = 'rgba(100, 116, 139, 0.1)';
+        let color = '#475569';
+        let border = 'rgba(100, 116, 139, 0.25)';
+
+        if (lower.includes('flatten')) {
+          bg = 'rgba(249, 115, 22, 0.12)';
+          color = '#c2410c';
+          border = 'rgba(249, 115, 22, 0.35)';
+        } else if (lower.includes('outer') || lower.includes('casing') || lower.includes('extru')) {
+          bg = 'rgba(2, 132, 199, 0.12)';
+          color = '#0369a1';
+          border = 'rgba(2, 132, 199, 0.35)';
+        } else if (lower.includes('wire') || lower.includes('draw')) {
+          bg = 'rgba(147, 51, 234, 0.12)';
+          color = '#7e22ce';
+          border = 'rgba(147, 51, 234, 0.35)';
+        } else if (lower.includes('pack')) {
+          bg = 'rgba(16, 185, 129, 0.12)';
+          color = '#047857';
+          border = 'rgba(16, 185, 129, 0.35)';
+        } else if (lower.includes('inner') || lower.includes('spiral')) {
+          bg = 'rgba(225, 29, 72, 0.12)';
+          color = '#be123c';
+          border = 'rgba(225, 29, 72, 0.35)';
+        } else {
+          const palettes = [
+            { color: '#1d4ed8', bg: 'rgba(29, 78, 216, 0.1)', border: 'rgba(29, 78, 216, 0.25)' },
+            { color: '#0f766e', bg: 'rgba(15, 118, 110, 0.1)', border: 'rgba(15, 118, 110, 0.25)' },
+            { color: '#b45309', bg: 'rgba(180, 83, 9, 0.1)', border: 'rgba(180, 83, 9, 0.25)' },
+            { color: '#6d28d9', bg: 'rgba(109, 40, 217, 0.1)', border: 'rgba(109, 40, 217, 0.25)' },
+          ];
+          let hash = 0;
+          for (let i = 0; i < d.length; i++) hash = (hash << 5) - hash + d.charCodeAt(i);
+          const p = palettes[Math.abs(hash) % palettes.length];
+          color = p.color;
+          bg = p.bg;
+          border = p.border;
+        }
+
+        return (
+          <span
+            style={{
+              display: 'inline-block',
+              padding: '2px 7px',
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 4,
+              background: bg,
+              color: color,
+              border: `1px solid ${border}`,
+              whiteSpace: 'nowrap',
+              maxWidth: 105,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {d}
+          </span>
+        );
       },
     },
     {
@@ -2954,19 +3093,55 @@ const ItemManagement: React.FC = () => {
       title: <HeaderCell icon={<ProjectOutlined />} first="Item" second="Type" />,
       dataIndex: 'itemType',
       key: 'itemType',
-      width: 85,
+      width: 115,
       render: (v: string) => {
         const label = typeName(v);
-        const parts = label.split(' ');
-        if (parts.length === 2) {
-          return (
-            <Tag style={{ marginInlineEnd: 0, padding: '1px 4px', fontSize: 10, lineHeight: 1.2, textAlign: 'center' }}>
-              <div>{parts[0]}</div>
-              <div>{parts[1]}</div>
-            </Tag>
-          );
+        const norm = (v || label || '').toUpperCase();
+
+        let color = '#475569';
+        let bg = 'rgba(100, 116, 139, 0.1)';
+        let border = 'rgba(100, 116, 139, 0.25)';
+
+        if (norm.includes('RAW')) {
+          color = '#b45309';
+          bg = 'rgba(245, 158, 11, 0.12)';
+          border = 'rgba(245, 158, 11, 0.35)';
+        } else if (norm.includes('SEMI') || norm.includes('PROGRESS') || norm.includes('WIP')) {
+          color = '#4f46e5';
+          bg = 'rgba(99, 102, 241, 0.12)';
+          border = 'rgba(99, 102, 241, 0.35)';
+        } else if (norm.includes('FINISH')) {
+          color = '#047857';
+          bg = 'rgba(16, 185, 129, 0.12)';
+          border = 'rgba(16, 185, 129, 0.35)';
+        } else if (norm.includes('PACKAG')) {
+          color = '#0284c7';
+          bg = 'rgba(2, 132, 199, 0.12)';
+          border = 'rgba(2, 132, 199, 0.35)';
+        } else if (norm.includes('CONSUMABLE') || norm.includes('SPARE')) {
+          color = '#0d9488';
+          bg = 'rgba(13, 148, 136, 0.12)';
+          border = 'rgba(13, 148, 136, 0.35)';
         }
-        return <Tag style={{ marginInlineEnd: 0, padding: '1px 5px', fontSize: 10.5 }}>{label}</Tag>;
+
+        return (
+          <span
+            style={{
+              display: 'inline-block',
+              padding: '2px 7px',
+              fontSize: 10.5,
+              fontWeight: 700,
+              borderRadius: 4,
+              background: bg,
+              color: color,
+              border: `1px solid ${border}`,
+              whiteSpace: 'nowrap',
+              textAlign: 'center',
+            }}
+          >
+            {label}
+          </span>
+        );
       },
     },
     {
@@ -3239,6 +3414,37 @@ const ItemManagement: React.FC = () => {
     []
   );
 
+  const handlePurgeAllDummyConfirm = useCallback(() => {
+    Modal.confirm({
+      title: 'Admin Force Purge: Delete All Dummy & Sample Items?',
+      icon: <ExclamationCircleOutlined style={{ color: '#ef4444' }} />,
+      content: (
+        <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+          <p>
+            This Administrator command will permanently delete <strong>all dummy, test, and sample items</strong> (e.g. CBL-PACK-DEMO, DEMO-*, SAMPLE-*) along with all their linked demo transactions, BOMs, and routing logs.
+          </p>
+          <p style={{ color: '#ef4444', fontWeight: 600 }}>
+            This action cannot be undone. Genuine production items will NOT be affected.
+          </p>
+        </div>
+      ),
+      okText: 'Purge All Dummy Items Now',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          const hide = message.loading('Purging dummy and sample items across system...', 0);
+          const res = await apiService.post<any>('/master-data/items/cleanup/purge-all-dummy');
+          hide();
+          message.success(res?.message || 'Dummy items purged successfully');
+          fetchItems({ force: true });
+        } catch (err: any) {
+          message.error(err?.response?.data?.message || err?.message || 'Purge failed');
+        }
+      },
+    });
+  }, [message, fetchItems]);
+
   const headerExtra = useMemo(
     () => (
       <Space wrap size={8}>
@@ -3260,6 +3466,19 @@ const ItemManagement: React.FC = () => {
           onClick={() => fetchItems({ force: true })}
           title="Refresh"
         />
+        {can('item.delete') && (
+          <Button
+            size="middle"
+            danger
+            className="erp-toolbar-action-btn"
+            icon={<ClearOutlined />}
+            onClick={handlePurgeAllDummyConfirm}
+            style={{ fontWeight: 600, borderColor: '#ef4444' }}
+            title="Purge All Dummy/Test Items"
+          >
+            Purge Dummy Items
+          </Button>
+        )}
         {can('item.view') && (
           <Button size="middle" className="erp-toolbar-action-btn" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
             Scan Barcode
@@ -3288,7 +3507,7 @@ const ItemManagement: React.FC = () => {
         )}
       </Space>
     ),
-    [can, openCreate, fetchItems, setScannerOpen, handleExport, exporting, pdfing, handlePdf, printing, handlePrint, setImportOpen, setImportRows, setImportSummary, setImportFileName]
+    [can, openCreate, fetchItems, handlePurgeAllDummyConfirm, setScannerOpen, handleExport, exporting, pdfing, handlePdf, printing, handlePrint, setImportOpen, setImportRows, setImportSummary, setImportFileName]
   );
 
   useEffect(() => {
@@ -3322,6 +3541,24 @@ const ItemManagement: React.FC = () => {
         />
       ),
     });
+    if (can('item.delete')) {
+      actions.push({
+        key: 'purge-dummy',
+        node: (
+          <Button
+            size="middle"
+            danger
+            className="erp-toolbar-action-btn"
+            icon={<ClearOutlined />}
+            onClick={handlePurgeAllDummyConfirm}
+            style={{ fontWeight: 600, borderColor: '#ef4444' }}
+            title="Purge All Dummy/Test Items"
+          >
+            Purge Dummy Items
+          </Button>
+        ),
+      });
+    }
     if (can('item.view')) {
       actions.push({
         key: 'scan',
@@ -3370,7 +3607,7 @@ const ItemManagement: React.FC = () => {
 
     setHeaderActions(actions, '/master-data/items');
     setHeaderActions(actions, '/master-data/products-items');
-  }, [can, openCreate, fetchItems, setScannerOpen, handleExport, exporting, pdfing, handlePdf, printing, handlePrint, setImportOpen, setImportRows, setImportSummary, setImportFileName]);
+  }, [can, openCreate, fetchItems, handlePurgeAllDummyConfirm, setScannerOpen, handleExport, exporting, pdfing, handlePdf, printing, handlePrint, setImportOpen, setImportRows, setImportSummary, setImportFileName]);
 
   return (
     <TabKeepAlive
@@ -3783,7 +4020,7 @@ const ItemManagement: React.FC = () => {
           // itemManagement.css — opaque theme token, backdrop-filter: none,
           // no antd .ant-spin-blur fade (interaction block stays in place).
           containerClassName="items-loading-surface"
-          scroll={{ x: 1045 }}
+          scroll={{ x: 1550 }}
           sticky
           size="small"
           pagination={pagination}
@@ -6691,7 +6928,7 @@ const ItemManagement: React.FC = () => {
           setDeleteEligibility(null);
           fetchItems({ force: true });
         }}
-        forceDeleteLabel="Admin Force Delete (Purge Dummy/Test Data)"
+        forceDeleteLabel="Admin Force Delete"
         onCancel={() => {
           setDeleteModalVisible(false);
           setDeleteTargetItem(null);

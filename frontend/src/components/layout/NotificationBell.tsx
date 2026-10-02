@@ -89,7 +89,7 @@ const NotificationBell: React.FC = () => {
   const refresh = useCallback(async () => {
     const seq = ++countReqRef.current;
     try {
-      const countRes = await apiService.get<UnreadCountResponse>('/notifications/unread-count');
+      const countRes = await apiService.get<UnreadCountResponse>('/notifications/unread-count', undefined, { silent: true });
       if (mountedRef.current && seq === countReqRef.current) {
         setUnreadCount(countRes.data?.count ?? 0);
       }
@@ -101,7 +101,7 @@ const NotificationBell: React.FC = () => {
   const loadList = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiService.get<ListResponse>('/notifications', { limit: 20 });
+      const res = await apiService.get<ListResponse>('/notifications', { limit: 20 }, { silent: true });
       if (mountedRef.current) setItems(res.data ?? []);
     } catch {
       /* ignore */

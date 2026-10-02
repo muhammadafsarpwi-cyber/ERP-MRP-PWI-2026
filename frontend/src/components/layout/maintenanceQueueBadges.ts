@@ -61,7 +61,7 @@ export async function syncMaintenanceQueueBadges(companyId: string): Promise<voi
   };
 
   try {
-    const d = await apiService.get<any>('/master-data/maintenance/job-cards/dashboard', { companyId });
+    const d = await apiService.get<any>('/master-data/maintenance/job-cards/dashboard', { companyId }, { silent: true });
     if (!d || typeof d !== 'object' || typeof d.total !== 'number') {
       clearAll();
       return;
@@ -76,7 +76,7 @@ export async function syncMaintenanceQueueBadges(companyId: string): Promise<voi
     navBadges.clearNavBadge(MAINTENANCE_QUEUE_NAV_KEYS.open);
 
     // Keep the PM Schedules sidebar badge in sync too.
-    const pm = await apiService.get<any>('/master-data/maintenance/pm/schedules', { companyId }).catch(() => null);
+    const pm = await apiService.get<any>('/master-data/maintenance/pm/schedules', { companyId }, { silent: true }).catch(() => null);
     if (Array.isArray(pm)) {
       navBadges.setNavBadge('/maintenance/pm-schedules', pm.filter((s: any) => s && s.id).length);
     } else if (pm && Array.isArray(pm.data)) {

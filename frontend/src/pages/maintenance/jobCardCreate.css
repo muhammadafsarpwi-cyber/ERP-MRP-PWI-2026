@@ -7,6 +7,7 @@
 /* ── Modal Window Shell ─────────────────────────────────────────────────── */
 .erp-jc-modal-wrap {
   z-index: 1250 !important;
+  overflow: hidden !important;
 }
 
 /* The Job Card dialog is raised to 1250 above, but Ant Design portals every
@@ -21,23 +22,31 @@
   z-index: 1300 !important;
 }
 
-@media (min-width: 992px) {
-  /* Default well-balanced, comfortable modal size centered in main workspace */
+@media (min-width: 769px) {
+  /* Default compact, comfortable modal size matching user red line */
   .erp-jc-modal-wrap .ant-modal:not(.erp-jc-modal-custom-size) {
-    margin-left: calc(var(--erp-sidebar-width, 275px) + max(16px, (100vw - var(--erp-sidebar-width, 275px) - 1040px) / 2)) !important;
+    margin-left: auto !important;
     margin-right: auto !important;
-    width: min(1040px, calc(100vw - var(--erp-sidebar-width, 275px) - 32px)) !important;
-    max-width: min(1040px, calc(100vw - var(--erp-sidebar-width, 275px) - 32px)) !important;
-    transition: margin-left 0.22s cubic-bezier(0.4, 0, 0.2, 1), width 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    width: 960px !important;
+    max-width: calc(100vw - 48px) !important;
+    height: 440px !important;
+    max-height: 82vh !important;
+    top: 28px !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+    transition: width 0.18s ease !important;
   }
 
+  /* When user is resizing with mouse or has set custom size */
   .erp-jc-modal-wrap .ant-modal.erp-jc-modal-custom-size {
     margin-left: auto !important;
     margin-right: auto !important;
+    max-width: calc(100vw - 30px) !important;
+    max-height: calc(100vh - 30px) !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
   }
 }
-
-
 
 .erp-jc-modal-wrap .ant-modal-content {
   padding: 0 !important;
@@ -47,8 +56,21 @@
   border: 1px solid var(--theme-border, #e2e8f0) !important;
   background: var(--theme-surface, #ffffff) !important;
   color: var(--theme-text, #0f172a) !important;
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+.erp-jc-modal-wrap .ant-modal-body {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 /* ── Modal Header Bar ───────────────────────────────────────────────────── */
@@ -169,20 +191,47 @@
 /* ── Modal Body Layout (Two Pane) ───────────────────────────────────────── */
 .erp-jc-body-container {
   display: flex;
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
   background: var(--theme-background, #f8fafc);
 }
 
 /* Left Form Pane */
 .erp-jc-form-pane {
-  flex: 1 1 58%;
-  min-width: 0;
-  padding: 18px 22px;
-  overflow-y: auto;
+  flex: 1 1 58% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  padding: 18px 22px 28px !important;
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
   border-right: 1px solid var(--theme-border, #e2e8f0);
-  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto !important;
+  scrollbar-color: #2563eb rgba(148, 163, 184, 0.22);
+  box-sizing: border-box !important;
+}
+
+.erp-jc-form-pane::-webkit-scrollbar {
+  width: 10px !important;
+  display: block !important;
+}
+
+.erp-jc-form-pane::-webkit-scrollbar-track {
+  background: rgba(148, 163, 184, 0.12) !important;
+  border-radius: 6px !important;
+}
+
+.erp-jc-form-pane::-webkit-scrollbar-thumb {
+  background: #2563eb !important;
+  border-radius: 6px !important;
+  border: 2px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.erp-jc-form-pane::-webkit-scrollbar-thumb:hover {
+  background: #1d4ed8 !important;
 }
 
 /* Right Live Sheet Preview Pane */
@@ -190,14 +239,35 @@
   flex: 1 1 42%;
   min-width: 360px;
   max-width: 480px;
+  height: 100%;
   padding: 18px 20px;
-  overflow-y: auto;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   background: var(--theme-surface, #ffffff);
   display: flex;
   flex-direction: column;
   gap: 16px;
   scrollbar-width: thin;
+  scrollbar-color: #3b82f6 rgba(148, 163, 184, 0.15);
   border-left: 1px solid var(--theme-border, #e2e8f0);
+}
+
+.erp-jc-preview-pane::-webkit-scrollbar {
+  width: 8px;
+}
+
+.erp-jc-preview-pane::-webkit-scrollbar-track {
+  background: rgba(148, 163, 184, 0.08);
+  border-radius: 4px;
+}
+
+.erp-jc-preview-pane::-webkit-scrollbar-thumb {
+  background: #3b82f6;
+  border-radius: 4px;
+}
+
+.erp-jc-preview-pane::-webkit-scrollbar-thumb:hover {
+  background: #1d4ed8;
 }
 
 /* ── 2027 Executive View Layout (Cockpit & Spec Sheet) ─────────── */
@@ -1280,9 +1350,12 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
 }
 
 /* ── Mobile Full-Screen Layout & Bottom Actions ───────────────────────── */
-@media (max-width: 960px) {
+@media (max-width: 768px) {
   .erp-jc-modal-wrap,
   .erp-jc-modal-wrap.erp-jc-mobile-view {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-end !important;
     padding: 0 !important;
     overflow: hidden !important;
     inset: 0 !important;
@@ -1291,32 +1364,33 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     height: 100vh !important;
     height: 100dvh !important;
   }
+
   .erp-jc-modal-wrap .ant-modal,
   .erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal {
     margin: 0 !important;
     max-width: 100vw !important;
     width: 100vw !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
+    position: fixed !important;
+    inset: 0 !important;
     padding: 0 !important;
     transform: none !important;
-    position: fixed !important;
     height: 100vh !important;
     height: 100dvh !important;
-    max-height: 100vh !important;
     max-height: 100dvh !important;
     overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
+
   .erp-jc-modal-wrap .ant-modal-content,
   .erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal-content {
     border-radius: 0 !important;
-    position: absolute !important;
+    position: fixed !important;
     inset: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    max-height: 100% !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
     display: flex !important;
     flex-direction: column !important;
     padding: 0 !important;
@@ -1324,6 +1398,7 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     border: none !important;
     overflow: hidden !important;
   }
+
   .erp-jc-modal-wrap .ant-modal-body,
   .erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal-body {
     position: relative !important;
@@ -1337,9 +1412,9 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     padding: 0 !important;
     margin: 0 !important;
   }
-  .erp-jc-modal-root-container {
-    position: absolute !important;
-    inset: 0 !important;
+
+  .erp-jc-modal-root-container,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-modal-root-container {
     height: 100% !important;
     max-height: 100% !important;
     flex: 1 1 0% !important;
@@ -1347,139 +1422,187 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     display: flex !important;
     flex-direction: column !important;
     overflow: hidden !important;
+    position: relative !important;
   }
-  .erp-jc-body-container {
+
+  .erp-jc-modal-header {
+    padding: 10px 14px;
+    flex-shrink: 0 !important;
+  }
+
+  .erp-jc-mobile-tab-bar {
+    display: block !important;
+    flex-shrink: 0 !important;
+  }
+
+  .erp-jc-header-title-text h4 {
+    font-size: 14px;
+  }
+
+  .erp-jc-header-title-text span {
+    font-size: 11px;
+  }
+
+  .erp-jc-body-container,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-body-container {
     flex: 1 1 0% !important;
     min-height: 0 !important;
     height: 100% !important;
+    max-height: 100% !important;
     overflow: hidden !important;
     display: flex !important;
     flex-direction: column !important;
   }
-  .erp-jc-form-pane {
+
+  .erp-jc-form-pane,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-pane {
     flex: 1 1 0% !important;
     width: 100% !important;
     max-width: 100% !important;
     height: 100% !important;
     min-height: 0 !important;
-    padding: 12px 14px 28px !important;
+    max-height: 100% !important;
+    padding: 14px 16px 24px !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
     border-right: none !important;
     border-bottom: none !important;
     box-sizing: border-box !important;
+    background: var(--theme-surface, #ffffff) !important;
   }
-  .erp-jc-preview-pane {
+
+  /* On mobile: Form sections seamlessly blend into the continuous full-screen card */
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-section,
+  .erp-jc-form-section {
+    background: var(--theme-surface, #ffffff) !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 6px 0 18px !important;
+    margin-bottom: 12px !important;
+    border-bottom: 1px solid var(--theme-border, #f1f5f9) !important;
+    border-radius: 0 !important;
+  }
+
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-section:last-child {
+    border-bottom: none !important;
+    margin-bottom: 0 !important;
+  }
+
+  .erp-jc-preview-pane,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-preview-pane {
     flex: 1 1 0% !important;
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
     height: 100% !important;
     min-height: 0 !important;
-    padding: 12px 14px 28px !important;
+    max-height: 100% !important;
+    padding: 14px 16px 24px !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
     border-left: none !important;
     box-sizing: border-box !important;
   }
-  .erp-jc-modal-header {
-    padding: 10px 14px;
-    flex-shrink: 0 !important;
-  }
-  .erp-jc-mobile-tab-bar {
-    flex-shrink: 0 !important;
-  }
-  .erp-jc-header-title-text h4 {
-    font-size: 14px;
-  }
-  .erp-jc-header-title-text span {
-    font-size: 11px;
-  }
+
   .erp-jc-priority-grid {
     grid-template-columns: repeat(2, 1fr);
   }
-  .erp-jc-footer {
-    padding: 12px 14px max(14px, env(safe-area-inset-bottom, 14px)) !important;
-    flex-direction: column-reverse !important;
+
+  .erp-jc-footer,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-footer {
+    position: relative !important;
+    bottom: auto !important;
+    left: auto !important;
+    right: auto !important;
+    width: 100% !important;
+    margin-top: 0 !important;
+    z-index: 100 !important;
+    padding: 10px 14px max(14px, env(safe-area-inset-bottom, 14px)) !important;
+    display: flex !important;
+    flex-direction: column !important;
     gap: 8px !important;
     flex-shrink: 0 !important;
-    margin-top: auto !important;
-    position: relative !important;
-    z-index: 30 !important;
-    background: var(--theme-surface, #ffffff);
+    background: var(--theme-surface, #ffffff) !important;
     border-top: 1px solid var(--theme-border, #e2e8f0) !important;
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12) !important;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08) !important;
   }
+
   html[data-theme='dark'] .erp-jc-footer,
   [data-theme='dark'] .erp-jc-footer {
     background: #141b30 !important;
     border-top-color: #253358 !important;
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35) !important;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.35) !important;
   }
+
   .erp-jc-footer > div {
     width: 100% !important;
     justify-content: space-between !important;
   }
+
   .erp-jc-footer .ant-space {
     width: 100% !important;
   }
+
   .erp-jc-footer button {
     font-size: 13px !important;
   }
 }
 
-/* Also support explicit .erp-jc-mobile-view class regardless of screen width */
-.erp-jc-modal-wrap.erp-jc-mobile-view {
-  padding: 0 !important;
-  overflow: hidden !important;
-  inset: 0 !important;
-  position: fixed !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  height: 100dvh !important;
+/* ── Window Edge & Corner Resize Handles (Desktop) ────────────────────────── */
+.erp-jc-resize-edge-r {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 100%;
+  cursor: ew-resize !important;
+  z-index: 1090;
+  touch-action: none;
 }
-.erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal {
-  margin: 0 !important;
-  max-width: 100vw !important;
-  width: 100vw !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  padding: 0 !important;
-  transform: none !important;
-  position: fixed !important;
-  height: 100vh !important;
-  height: 100dvh !important;
-  max-height: 100vh !important;
-  max-height: 100dvh !important;
-  overflow: hidden !important;
+
+.erp-jc-resize-edge-r:hover {
+  background: rgba(37, 99, 235, 0.25);
 }
-.erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal-content {
-  border-radius: 0 !important;
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  max-height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-  border: none !important;
-  overflow: hidden !important;
+
+.erp-jc-resize-edge-b {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 7px;
+  cursor: ns-resize !important;
+  z-index: 1090;
+  touch-action: none;
 }
-.erp-jc-modal-wrap.erp-jc-mobile-view .ant-modal-body {
-  position: relative !important;
-  flex: 1 1 0% !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 0 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  overflow: hidden !important;
-  padding: 0 !important;
-  margin: 0 !important;
+
+.erp-jc-resize-edge-b:hover {
+  background: rgba(37, 99, 235, 0.25);
+}
+
+.erp-jc-resize-handle {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: nwse-resize !important;
+  color: #3b82f6;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  border-radius: 6px;
+  z-index: 1100;
+  user-select: none;
+  touch-action: none;
+  transition: all 0.15s ease;
+}
+
+.erp-jc-resize-handle:hover {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.45);
 }
 
 

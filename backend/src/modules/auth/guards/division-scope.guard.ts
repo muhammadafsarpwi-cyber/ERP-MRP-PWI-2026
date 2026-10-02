@@ -90,8 +90,19 @@ export class DivisionScopeGuard implements CanActivate {
       for (const bucket of source) {
         if (!bucket || typeof bucket !== 'object') continue;
         const raw = bucket[key];
-        if (typeof raw === 'string' && raw.trim() !== '' && raw.toLowerCase() !== 'null') {
-          return raw.trim();
+        if (typeof raw === 'string') {
+          const val = raw.trim();
+          const lower = val.toLowerCase();
+          if (
+            val !== '' &&
+            lower !== 'null' &&
+            lower !== 'undefined' &&
+            lower !== '__all__' &&
+            lower !== 'all' &&
+            lower !== 'none'
+          ) {
+            return val;
+          }
         }
       }
     }

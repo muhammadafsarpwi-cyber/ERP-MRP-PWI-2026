@@ -78,6 +78,7 @@ const COLUMN_META: Record<string, { label: string }> = {
   type: { label: 'Type' },
   priority: { label: 'Priority' },
   assigned: { label: 'Assigned To' },
+  divisionSection: { label: 'Division / Section' },
   dept: { label: 'Department' },
   status: { label: 'Status' },
   next: { label: 'Next Action' },
@@ -318,6 +319,7 @@ export const JobCardList: React.FC = () => {
     type: true,
     priority: true,
     assigned: true,
+    divisionSection: true,
     dept: true,
     status: true,
     next: true,
@@ -596,6 +598,12 @@ export const JobCardList: React.FC = () => {
       return next;
     });
   }, [divisions, sections, departments, machines]);
+
+  useEffect(() => {
+    if (divisions.length === 1 && !filters.divisionId) {
+      setFilters(f => ({ ...f, divisionId: divisions[0].id }));
+    }
+  }, [divisions, filters.divisionId]);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSearchChange = (value: string) => {
@@ -1160,6 +1168,39 @@ export const JobCardList: React.FC = () => {
           <span className="erp-pill-badge erp-pill-badge--unassigned">
             Unassigned
           </span>
+        );
+      },
+    },
+    {
+      title: 'Division / Section',
+      key: 'divisionSection',
+      width: 165,
+      render: (_: any, r: JobCard) => {
+        const divName = r.division?.name || r.machine?.division?.name || r.machineDivision?.name || '—';
+        const secName = r.section?.name || r.machine?.section?.name || r.machineSection?.name || '';
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ fontWeight: 600, fontSize: 13, color: token.colorText, lineHeight: '18px' }}>
+              {divName}
+            </span>
+            {secName ? (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                width: 'fit-content',
+                fontSize: 11,
+                fontWeight: 500,
+                padding: '1px 6px',
+                borderRadius: 4,
+                backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                color: '#2563eb',
+                border: '1px solid rgba(59, 130, 246, 0.2)',
+                lineHeight: '16px'
+              }}>
+                {secName}
+              </span>
+            ) : null}
+          </div>
         );
       },
     },

@@ -155,7 +155,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const cid = user?.defaultCompanyId;
     if (!cid) return;
     void syncMaintenanceQueueBadges(String(cid));
-    apiService.get<{ data: { pendingApproval: number } }>('/inventory/adjustments/counts', { companyId: cid })
+    apiService.get<{ data: { pendingApproval: number } }>('/inventory/adjustments/counts', { companyId: cid }, { silent: true })
       .then((res) => {
         if (res?.data?.pendingApproval !== undefined) {
           useNavBadgeStore.getState().setNavBadge('/inventory/adjustments/pending-approval', res.data.pendingApproval);
