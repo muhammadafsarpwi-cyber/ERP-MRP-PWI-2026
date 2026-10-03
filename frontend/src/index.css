@@ -148,6 +148,7 @@ html, body {
 }
 
 /* ERP Smart Field Guidance: Red when empty/unfilled, Green when filled */
+/* Light Mode (default) */
 .erp-field-unfilled .ant-select-selector,
 .erp-field-unfilled.ant-input,
 .erp-field-unfilled.ant-input-number,
@@ -156,16 +157,16 @@ html, body {
 .erp-field-unfilled textarea,
 .erp-field-unfilled.ant-input-affix-wrapper {
   border-color: #ef4444 !important;
-  background-color: #fee2e2 !important;
-  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.35) !important;
+  background-color: #fef2f2 !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25) !important;
   transition: all 0.25s ease-in-out;
 }
 
 .erp-field-unfilled .ant-select-selection-placeholder,
 .erp-field-unfilled input::placeholder,
 .erp-field-unfilled textarea::placeholder {
-  color: #7f1d1d !important;
-  opacity: 0.9 !important;
+  color: #991b1b !important;
+  opacity: 0.8 !important;
 }
 
 .erp-field-unfilled .ant-select-selection-item,
@@ -176,16 +177,15 @@ html, body {
 .erp-field-unfilled .ant-input-number-input,
 .erp-field-unfilled input,
 .erp-field-unfilled textarea {
-  color: #000000 !important;
-  -webkit-text-fill-color: #000000 !important;
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a !important;
   font-weight: 500 !important;
 }
 
 .erp-field-unfilled .ant-select-arrow {
-  color: #991b1b !important;
+  color: #ef4444 !important;
 }
 
-/* Filled fields: solid light emerald with bold, pitch black text */
 .erp-field-filled .ant-select-selector,
 .erp-field-filled.ant-input,
 .erp-field-filled.ant-input-number,
@@ -194,8 +194,8 @@ html, body {
 .erp-field-filled textarea,
 .erp-field-filled.ant-input-affix-wrapper {
   border-color: #10b981 !important;
-  background-color: #dcfce7 !important;
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.35) !important;
+  background-color: #f0fdf4 !important;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.25) !important;
   transition: all 0.25s ease-in-out;
 }
 
@@ -208,12 +208,115 @@ html, body {
 .erp-field-filled .ant-input-number-input,
 .erp-field-filled input,
 .erp-field-filled textarea {
-  color: #000000 !important;
-  -webkit-text-fill-color: #000000 !important;
+  color: #064e3b !important;
+  -webkit-text-fill-color: #064e3b !important;
   font-weight: 600 !important;
 }
 
 .erp-field-filled .ant-select-arrow {
-  color: #065f46 !important;
+  color: #059669 !important;
+}
+
+/* ── Dark Theme Refinements (Sleek dark shading, glowing borders, high-contrast light text) ── */
+[data-theme='dark'] .erp-field-unfilled .ant-select-selector,
+[data-theme='dark'] .erp-field-unfilled.ant-input,
+[data-theme='dark'] .erp-field-unfilled.ant-input-number,
+[data-theme='dark'] .erp-field-unfilled .ant-input-number-input,
+[data-theme='dark'] .erp-field-unfilled input,
+[data-theme='dark'] .erp-field-unfilled textarea,
+[data-theme='dark'] .erp-field-unfilled.ant-input-affix-wrapper,
+.dark .erp-field-unfilled .ant-select-selector,
+.dark .erp-field-unfilled.ant-input,
+.dark .erp-field-unfilled.ant-input-number,
+.dark .erp-field-unfilled .ant-input-number-input,
+.dark .erp-field-unfilled input,
+.dark .erp-field-unfilled textarea,
+.dark .erp-field-unfilled.ant-input-affix-wrapper {
+  border-color: #ef4444 !important;
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.25) !important;
+}
+
+[data-theme='dark'] .erp-field-unfilled .ant-select-selection-placeholder,
+[data-theme='dark'] .erp-field-unfilled input::placeholder,
+[data-theme='dark'] .erp-field-unfilled textarea::placeholder,
+.dark .erp-field-unfilled .ant-select-selection-placeholder,
+.dark .erp-field-unfilled input::placeholder,
+.dark .erp-field-unfilled textarea::placeholder {
+  color: rgba(254, 202, 202, 0.7) !important;
+  opacity: 0.85 !important;
+}
+
+[data-theme='dark'] .erp-field-unfilled .ant-select-selection-item,
+[data-theme='dark'] .erp-field-unfilled .ant-select-selection-item *,
+[data-theme='dark'] .erp-field-unfilled.ant-input,
+[data-theme='dark'] .erp-field-unfilled .ant-input,
+[data-theme='dark'] .erp-field-unfilled.ant-input-number input,
+[data-theme='dark'] .erp-field-unfilled .ant-input-number-input,
+[data-theme='dark'] .erp-field-unfilled input,
+[data-theme='dark'] .erp-field-unfilled textarea,
+.dark .erp-field-unfilled .ant-select-selection-item,
+.dark .erp-field-unfilled .ant-select-selection-item *,
+.dark .erp-field-unfilled.ant-input,
+.dark .erp-field-unfilled .ant-input,
+.dark .erp-field-unfilled.ant-input-number input,
+.dark .erp-field-unfilled .ant-input-number-input,
+.dark .erp-field-unfilled input,
+.dark .erp-field-unfilled textarea {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-weight: 500 !important;
+}
+
+[data-theme='dark'] .erp-field-unfilled .ant-select-arrow,
+.dark .erp-field-unfilled .ant-select-arrow {
+  color: #f87171 !important;
+}
+
+[data-theme='dark'] .erp-field-filled .ant-select-selector,
+[data-theme='dark'] .erp-field-filled.ant-input,
+[data-theme='dark'] .erp-field-filled.ant-input-number,
+[data-theme='dark'] .erp-field-filled .ant-input-number-input,
+[data-theme='dark'] .erp-field-filled input,
+[data-theme='dark'] .erp-field-filled textarea,
+[data-theme='dark'] .erp-field-filled.ant-input-affix-wrapper,
+.dark .erp-field-filled .ant-select-selector,
+.dark .erp-field-filled.ant-input,
+.dark .erp-field-filled.ant-input-number,
+.dark .erp-field-filled .ant-input-number-input,
+.dark .erp-field-filled input,
+.dark .erp-field-filled textarea,
+.dark .erp-field-filled.ant-input-affix-wrapper {
+  border-color: #10b981 !important;
+  background-color: rgba(16, 185, 129, 0.16) !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25) !important;
+}
+
+[data-theme='dark'] .erp-field-filled .ant-select-selection-item,
+[data-theme='dark'] .erp-field-filled .ant-select-selection-item *,
+[data-theme='dark'] .erp-field-filled .ant-select-selection-search-input,
+[data-theme='dark'] .erp-field-filled.ant-input,
+[data-theme='dark'] .erp-field-filled .ant-input,
+[data-theme='dark'] .erp-field-filled.ant-input-number input,
+[data-theme='dark'] .erp-field-filled .ant-input-number-input,
+[data-theme='dark'] .erp-field-filled input,
+[data-theme='dark'] .erp-field-filled textarea,
+.dark .erp-field-filled .ant-select-selection-item,
+.dark .erp-field-filled .ant-select-selection-item *,
+.dark .erp-field-filled .ant-select-selection-search-input,
+.dark .erp-field-filled.ant-input,
+.dark .erp-field-filled .ant-input,
+.dark .erp-field-filled.ant-input-number input,
+.dark .erp-field-filled .ant-input-number-input,
+.dark .erp-field-filled input,
+.dark .erp-field-filled textarea {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] .erp-field-filled .ant-select-arrow,
+.dark .erp-field-filled .ant-select-arrow {
+  color: #34d399 !important;
 }
 

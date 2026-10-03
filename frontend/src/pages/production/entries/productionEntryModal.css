@@ -427,3 +427,208 @@
   }
 }
 
+/* ══════════════════════════════════════════════════════════
+   Theme-Adaptive Totals Metric Cards & Downtime Summary Cards
+   ══════════════════════════════════════════════════════════ */
+
+/* Totals Bar Cards */
+.totals-actual-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  color: #1e40af;
+  transition: all 0.2s ease;
+}
+
+[data-theme='dark'] .totals-actual-card,
+.dark .totals-actual-card {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+  color: #93c5fd !important;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.12);
+}
+
+.totals-target-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: #f5f3ff;
+  border: 1px solid #c4b5fd;
+  color: #5b21b6;
+  transition: all 0.2s ease;
+}
+
+[data-theme='dark'] .totals-target-card,
+.dark .totals-target-card {
+  background: rgba(168, 85, 247, 0.12) !important;
+  border: 1px solid rgba(168, 85, 247, 0.35) !important;
+  color: #d8b4fe !important;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.12);
+}
+
+.totals-achievement-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 6px;
+  padding: 8px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  transition: all 0.2s ease;
+}
+
+.totals-achievement-card.met {
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  color: #065f46;
+}
+
+.totals-achievement-card.empty {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+
+[data-theme='dark'] .totals-achievement-card,
+.dark .totals-achievement-card {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+  color: #fde68a !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.12);
+}
+
+[data-theme='dark'] .totals-achievement-card.met,
+.dark .totals-achievement-card.met {
+  background: rgba(16, 185, 129, 0.14) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #6ee7b7 !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+
+[data-theme='dark'] .totals-achievement-card.empty,
+.dark .totals-achievement-card.empty {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #94a3b8 !important;
+}
+
+/* Downtime Summary Cards in Step 6 */
+.downtime-summary-card {
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s ease;
+}
+
+.downtime-summary-card.planned {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+}
+[data-theme='dark'] .downtime-summary-card.planned,
+.dark .downtime-summary-card.planned {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+.downtime-summary-card.running {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+}
+[data-theme='dark'] .downtime-summary-card.running,
+.dark .downtime-summary-card.running {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+
+.downtime-summary-card.downtime-has {
+  background: #ffedd5;
+  border: 1px solid #fdba74;
+}
+[data-theme='dark'] .downtime-summary-card.downtime-has,
+.dark .downtime-summary-card.downtime-has {
+  background: rgba(249, 115, 22, 0.12) !important;
+  border: 1px solid rgba(249, 115, 22, 0.35) !important;
+}
+
+.downtime-summary-card.downtime-zero {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+[data-theme='dark'] .downtime-summary-card.downtime-zero,
+.dark .downtime-summary-card.downtime-zero {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.downtime-summary-card.balanced {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+}
+[data-theme='dark'] .downtime-summary-card.balanced,
+.dark .downtime-summary-card.balanced {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+
+.downtime-summary-card.unbalanced {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+}
+[data-theme='dark'] .downtime-summary-card.unbalanced,
+.dark .downtime-summary-card.unbalanced {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+}
+
+/* Downtime Calculation Formula Pills */
+.downtime-pill {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.downtime-pill.planned {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+}
+[data-theme='dark'] .downtime-pill.planned,
+.dark .downtime-pill.planned {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  color: #f1f5f9 !important;
+}
+
+.downtime-pill.running {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  color: #14532d;
+}
+[data-theme='dark'] .downtime-pill.running,
+.dark .downtime-pill.running {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #6ee7b7 !important;
+}
+
+.downtime-pill.downtime {
+  background: #ffedd5;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+}
+[data-theme='dark'] .downtime-pill.downtime,
+.dark .downtime-pill.downtime {
+  background: rgba(249, 115, 22, 0.16) !important;
+  border: 1px solid rgba(249, 115, 22, 0.4) !important;
+  color: #fdba74 !important;
+}
+
+

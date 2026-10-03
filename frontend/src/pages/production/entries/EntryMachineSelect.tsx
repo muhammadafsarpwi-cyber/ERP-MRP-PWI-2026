@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
-import { useLookups } from './lookups';
+import { useLookups, ShiftLk } from './lookups';
 import { GlobalLoading } from '../../../components/shared';
 import { useEntryDockStore } from './entryDockStore';
 
@@ -91,6 +91,47 @@ const EntryMachineSelect: React.FC = () => {
   const [sectionId, setSectionId] = useState<string | undefined>(searchParams.get('sectionId') || undefined);
   const [departmentId, setDepartmentId] = useState<string | undefined>(searchParams.get('departmentId') || undefined);
 
+  // ── department-specific target shifts ──
+  const [deptShifts, setDeptShifts] = useState<ShiftLk[] | null>(null);
+  const [deptShiftsLoading, setDeptShiftsLoading] = useState(false);
+
+  // When departmentId changes, fetch shifts matching targets for that department
+  useEffect(() => {
+    let cancelled = false;
+    if (!departmentId) {
+      setDeptShifts(null);
+      return;
+    }
+    setDeptShiftsLoading(true);
+    apiService
+      .get<{ success?: boolean; data?: ShiftLk[] }>('/production/shifts', { departmentId })
+      .then((res) => {
+        if (cancelled) return;
+        const shiftsData = Array.isArray(res) ? res : (res as any)?.data;
+        if (Array.isArray(shiftsData) && shiftsData.length > 0) {
+          setDeptShifts(shiftsData);
+          setShiftId((prevShiftId) => {
+            const exists = shiftsData.some((s: ShiftLk) => s.id === prevShiftId);
+            return exists ? prevShiftId : shiftsData[0].id;
+          });
+        } else {
+          setDeptShifts(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDeptShifts(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDeptShiftsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [departmentId]);
+
+  const availableShifts = deptShifts && deptShifts.length > 0 ? deptShifts : lookups.shifts;
+
   // ── machine status state ──
   const [machines, setMachines] = useState<MachineStatusRow[]>([]);
   const [meta, setMeta] = useState<MachineStatusResponse['meta'] | null>(null);
@@ -105,10 +146,10 @@ const EntryMachineSelect: React.FC = () => {
 
   // Auto-select first shift when loaded if not yet chosen
   useEffect(() => {
-    if (!shiftId && lookups.shifts && lookups.shifts.length > 0) {
-      setShiftId(lookups.shifts[0].id);
+    if (!shiftId && availableShifts && availableShifts.length > 0) {
+      setShiftId(availableShifts[0].id);
     }
-  }, [shiftId, lookups.shifts]);
+  }, [shiftId, availableShifts]);
 
   // Auto-select first division when loaded if not yet chosen
   useEffect(() => {
@@ -270,8 +311,11 @@ const EntryMachineSelect: React.FC = () => {
           <Col>
             <Text type="secondary" style={{ display: 'block' }}>Shift</Text>
             <Select
-              placeholder="Select Shift" style={{ width: 200 }} value={shiftId}
-              options={lookups.shifts.map((s) => ({
+              placeholder="Select Shift"
+              style={{ width: 220 }}
+              value={shiftId}
+              loading={deptShiftsLoading}
+              options={availableShifts.map((s) => ({
                 value: s.id,
                 label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''})`,
               }))}

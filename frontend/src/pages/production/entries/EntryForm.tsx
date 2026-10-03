@@ -44,58 +44,30 @@ const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; r
     <div style={{ marginTop: 14, marginBottom: 6 }}>
       <div className="downtime-summary-grid">
         {/* Planned */}
-        <div style={{
-          background: '#f1f5f9',
-          border: '1px solid #cbd5e1',
-          borderRadius: 6,
-          padding: '6px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#475569', fontWeight: 700, letterSpacing: 0.5 }}>Planned Shift</span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>{formatNumber(plannedHours, 2)}h</span>
+        <div className="downtime-summary-card planned">
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-secondary, #64748b)', fontWeight: 700, letterSpacing: 0.5 }}>Planned Shift</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>{formatNumber(plannedHours, 2)}h</span>
         </div>
 
         {/* Running */}
-        <div style={{
-          background: '#dcfce7',
-          border: '1px solid #86efac',
-          borderRadius: 6,
-          padding: '6px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#14532d', fontWeight: 700, letterSpacing: 0.5 }}>Running</span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#000000' }}>{formatNumber(runningHours, 2)}h</span>
+        <div className="downtime-summary-card running">
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#10b981', fontWeight: 700, letterSpacing: 0.5 }}>Running</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--theme-text, #000000)' }}>{formatNumber(runningHours, 2)}h</span>
         </div>
 
         {/* Downtime */}
-        <div style={{
-          background: totalDowntime > 0 ? '#ffedd5' : '#f8fafc',
-          border: `1px solid ${totalDowntime > 0 ? '#fdba74' : '#e2e8f0'}`,
-          borderRadius: 6,
-          padding: '6px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: totalDowntime > 0 ? '#9a3412' : '#64748b', fontWeight: 700, letterSpacing: 0.5 }}>Total Downtime</span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: totalDowntime > 0 ? '#c2410c' : '#000000' }}>{formatNumber(totalDowntime, 2)}h</span>
+        <div className={`downtime-summary-card ${totalDowntime > 0 ? 'downtime-has' : 'downtime-zero'}`}>
+          <span style={{ fontSize: 10, textTransform: 'uppercase', color: totalDowntime > 0 ? '#f97316' : 'var(--theme-text-muted, #64748b)', fontWeight: 700, letterSpacing: 0.5 }}>Total Downtime</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: totalDowntime > 0 ? '#f97316' : 'var(--theme-text, #000000)' }}>{formatNumber(totalDowntime, 2)}h</span>
         </div>
 
         {/* Remaining / Balance */}
         {plannedHours > 0 && (
-          <div style={{
-            background: isBalanced ? '#dcfce7' : '#fee2e2',
-            border: `1px solid ${isBalanced ? '#86efac' : '#fca5a5'}`,
-            borderRadius: 6,
-            padding: '6px 10px',
-            display: 'flex',
-            flexDirection: 'column',
-          }}>
-            <span style={{ fontSize: 10, textTransform: 'uppercase', color: isBalanced ? '#14532d' : '#991b1b', fontWeight: 700, letterSpacing: 0.5 }}>
+          <div className={`downtime-summary-card ${isBalanced ? 'balanced' : 'unbalanced'}`}>
+            <span style={{ fontSize: 10, textTransform: 'uppercase', color: isBalanced ? '#10b981' : '#ef4444', fontWeight: 700, letterSpacing: 0.5 }}>
               {isBalanced ? 'Shift Balanced' : 'Unaccounted'}
             </span>
-            <span style={{ fontSize: 15, fontWeight: 700, color: isBalanced ? '#15803d' : '#b91c1c' }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: isBalanced ? '#10b981' : '#ef4444' }}>
               {isBalanced ? <><CheckOutlined style={{ marginRight: 4 }} />OK (0.00h)</> : `${formatNumber(remaining, 2)}h`}
             </span>
           </div>
@@ -2075,64 +2047,31 @@ const EntryForm: React.FC<EntryFormProps> = ({
                             {/* Row 1: Actual (50%) & Target (50%) divided equally */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, width: '100%' }}>
                               {/* 1. Actual Production */}
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  background: '#eff6ff',
-                                  border: '1px solid #93c5fd',
-                                  color: '#1e40af',
-                                  borderRadius: 6,
-                                  padding: '7px 12px',
-                                }}
-                              >
-                                <span style={{ color: '#475569', fontSize: 12, fontWeight: 600 }}>Actual:</span>
+                              {/* 1. Actual Production */}
+                              <div className="totals-actual-card">
+                                <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 12, fontWeight: 600 }}>Actual:</span>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>
+                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#3b82f6' }}>
                                     {formatNumber(multiItemAggregate.totalActual, 2)}
                                   </span>
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#3b82f6' }}>{uomLabel}</span>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#60a5fa' }}>{uomLabel}</span>
                                 </div>
                               </div>
 
                               {/* 2. Target Production */}
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  background: '#f5f3ff',
-                                  border: '1px solid #c4b5fd',
-                                  color: '#5b21b6',
-                                  borderRadius: 6,
-                                  padding: '7px 12px',
-                                }}
-                              >
-                                <span style={{ color: '#475569', fontSize: 12, fontWeight: 600 }}>Target:</span>
+                              <div className="totals-target-card">
+                                <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 12, fontWeight: 600 }}>Target:</span>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#6d28d9' }}>
+                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#a855f7' }}>
                                     {tgtVal !== null && tgtVal !== undefined ? formatNumber(tgtVal, 2) : '—'}
                                   </span>
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#8b5cf6' }}>{uomLabel}</span>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#c084fc' }}>{uomLabel}</span>
                                 </div>
                               </div>
                             </div>
 
                             {/* Row 2: Target Achievement (100% full width card) */}
-                            <div
-                              style={{
-                                width: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                background: achievement === null ? '#f8fafc' : isTargetMet ? '#ecfdf5' : '#fffbeb',
-                                border: `1px solid ${achievement === null ? '#cbd5e1' : isTargetMet ? '#6ee7b7' : '#fcd34d'}`,
-                                color: achievement === null ? '#475569' : isTargetMet ? '#065f46' : '#92400e',
-                                borderRadius: 6,
-                                padding: '8px 14px',
-                              }}
-                            >
+                            <div className={`totals-achievement-card ${achievement === null ? 'empty' : isTargetMet ? 'met' : ''}`}>
                               <span style={{ fontSize: 12, fontWeight: 600 }}>Achievement:</span>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <span style={{ fontSize: 15, fontWeight: 800 }}>
@@ -2325,15 +2264,15 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     flexWrap: 'wrap',
                     fontSize: 12,
                   }}>
-                    <span style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0f172a', fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>
+                    <span className="downtime-pill planned">
                       Planned: {formatNumber(plannedHours, 2)}h
                     </span>
                     <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>−</span>
-                    <span style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#000000', fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>
+                    <span className="downtime-pill running">
                       Running: {formatNumber(derivedRunning, 2)}h
                     </span>
                     <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>=</span>
-                    <span style={{ background: derivedDowntime > 0 ? '#ffedd5' : '#f8fafc', border: `1px solid ${derivedDowntime > 0 ? '#fdba74' : '#cbd5e1'}`, color: '#000000', fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>
+                    <span className={`downtime-pill ${derivedDowntime > 0 ? 'downtime' : 'planned'}`}>
                       Downtime: {formatNumber(derivedDowntime, 2)}h
                     </span>
                   </div>

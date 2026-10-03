@@ -710,7 +710,31 @@ addToDept(org, {
     return this.machineRepo.save(saved);
   }
 
-  async findShifts(companyId: string): Promise<Shift[]> {
+  async findShifts(companyId: string, departmentId?: string): Promise<Shift[]> {
+    if (departmentId) {
+      const targetShifts = await this.shiftRepo
+        .createQueryBuilder('s')
+        .innerJoin(
+          'machine_targets',
+          'mt',
+          'mt.shift_id = s.id AND mt.is_active = true AND mt.status = :status',
+          { status: 'ACTIVE' },
+        )
+        .innerJoin(
+          'machines',
+          'm',
+          'mt.machine_id = m.id AND m.is_active = true AND m.department_id = :departmentId',
+          { departmentId },
+        )
+        .where('s.company_id = :companyId AND s.is_active = true', { companyId })
+        .orderBy('s.shift_code', 'ASC')
+        .getMany();
+
+      if (targetShifts.length > 0) {
+        return targetShifts;
+      }
+    }
+
     return this.shiftRepo.find({
       where: { companyId, isActive: true },
       order: { shiftCode: 'ASC' },
