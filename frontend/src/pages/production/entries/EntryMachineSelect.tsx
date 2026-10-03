@@ -12,6 +12,7 @@ import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { useLookups } from './lookups';
 import { GlobalLoading } from '../../../components/shared';
+import { useEntryDockStore } from './entryDockStore';
 
 const { Title, Text } = Typography;
 
@@ -162,7 +163,7 @@ const EntryMachineSelect: React.FC = () => {
     const secName = secObj?.name;
     const shiftName = effectiveShift?.name;
 
-    const qs = new URLSearchParams({
+    useEntryDockStore.getState().openEntry({
       from: 'select',
       machineId: m.id,
       machineCode: m.machineCode,
@@ -176,8 +177,8 @@ const EntryMachineSelect: React.FC = () => {
       ...(secName && { sectionName: secName }),
       ...(ctxDepartment && { departmentId: ctxDepartment }),
       ...(depName && { departmentName: depName }),
+      mode: 'create',
     });
-    navigate(`/production/entries/new?${qs.toString()}`);
   };
 
   const deleteEntry = useCallback(

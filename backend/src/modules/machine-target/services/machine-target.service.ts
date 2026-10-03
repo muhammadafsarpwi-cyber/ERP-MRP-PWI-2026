@@ -975,7 +975,11 @@ export class MachineTargetService {
       .andWhere('mt.machineId = :machineId', { machineId })
       .andWhere('mt.shiftId = :shiftId', { shiftId });
     if (uomId) qb.andWhere('mt.uomId = :uomId', { uomId });
-    if (itemId) qb.andWhere('mt.itemId = :itemId', { itemId });
+    if (itemId) {
+      qb.andWhere('mt.itemId = :itemId', { itemId });
+    } else {
+      qb.andWhere('mt.itemId IS NULL');
+    }
     qb.andWhere('mt.status = :status', { status: MachineTargetStatus.ACTIVE })
       .andWhere('mt.isActive = true')
       .andWhere('mt.effectiveFrom <= :date', { date: productionDate })

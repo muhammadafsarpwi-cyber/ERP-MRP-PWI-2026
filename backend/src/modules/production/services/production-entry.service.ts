@@ -1028,7 +1028,7 @@ addToDept(org, {
       itemId: dto.itemId,
       uomId: mt ? mt.uomId : (dto.uomId as string),
       targetQuantity: mt ? mt.calculatedTarget : (dto.targetQuantity as number),
-      machineTargetId: mt?.machineTargetId ?? null,
+      machineTargetId: (mt?.machineTargetId && mt.machineTargetId !== '00000000-0000-0000-0000-000000000000') ? mt.machineTargetId : null,
       standardHours: mt?.standardHours ?? null,
       calculatedTarget: mt?.calculatedTarget ?? null,
       actualQuantity: dto.actualQuantity,
@@ -1163,7 +1163,7 @@ addToDept(org, {
       operatorName: dto.operatorName?.trim() ?? entry.operatorName,
       supervisorName: dto.supervisorName !== undefined ? (dto.supervisorName?.trim() ?? null) : entry.supervisorName,
       coilSize: dto.coilSize !== undefined ? (dto.coilSize?.trim() ?? null) : entry.coilSize,
-      machineTargetId: mt?.machineTargetId ?? null,
+      machineTargetId: (mt?.machineTargetId && mt.machineTargetId !== '00000000-0000-0000-0000-000000000000') ? mt.machineTargetId : null,
       standardHours: mt?.standardHours ?? null,
       calculatedTarget: mt?.calculatedTarget ?? null,
       achievementPercentage: this.computeAchievement(merged.actualQuantity, merged.targetQuantity),
@@ -1271,7 +1271,7 @@ addToDept(org, {
       manualTargetQuantity?: number | null;
     },
   ): Promise<{
-    machineTargetId: string;
+    machineTargetId: string | null;
     uomId: string;
     uomCode: string;
     standardHours: number;
@@ -1281,6 +1281,62 @@ addToDept(org, {
     itemScoped: boolean;
   } | null> {
     if (!v.machineId) return null;
+
+    if (Number(v.workingHours) <= 0) {
+      let resolvedTarget: any = null;
+      let usedGeneralFallback = false;
+      let itemScoped = false;
+      try {
+        if (v.itemId) {
+          const res = await this.machineTargetService.resolveEffectiveEntity(
+            companyId, v.machineId, v.shiftId, v.entryDate, true, undefined, v.itemId,
+          );
+          if (res?.target) {
+            resolvedTarget = res.target;
+            usedGeneralFallback = res.usedGeneralFallback;
+            itemScoped = true;
+          }
+        }
+        if (!resolvedTarget) {
+          const res = await this.machineTargetService.resolveEffectiveEntity(
+            companyId, v.machineId, v.shiftId, v.entryDate, true,
+          );
+          if (res?.target) {
+            resolvedTarget = res.target;
+            usedGeneralFallback = res.usedGeneralFallback;
+            itemScoped = false;
+          }
+        }
+      } catch {
+        // Target resolution is optional for 100% downtime shifts
+      }
+
+      let fallbackUomId = resolvedTarget?.uomId || v.requestedUomId;
+      let fallbackUomCode = resolvedTarget?.uom?.code || 'KG';
+      if (!fallbackUomId && v.itemId) {
+        const item = await this.itemRepo.findOne({ where: { id: v.itemId, companyId } });
+        if (item?.baseUomId) {
+          fallbackUomId = item.baseUomId;
+          const uom = await this.uomRepo.findOne({ where: { id: fallbackUomId } });
+          fallbackUomCode = uom?.code || 'KG';
+        }
+      }
+      if (!fallbackUomId) {
+        const defaultUom = await this.uomRepo.findOne({ where: { companyId, isActive: true } });
+        fallbackUomId = defaultUom?.id || null as any;
+        fallbackUomCode = defaultUom?.code || 'KG';
+      }
+      return {
+        machineTargetId: resolvedTarget?.id ?? null,
+        uomId: fallbackUomId,
+        uomCode: fallbackUomCode,
+        standardHours: resolvedTarget ? Number(resolvedTarget.standardHours) : 8,
+        standardTarget: 0,
+        calculatedTarget: 0,
+        usedGeneralFallback,
+        itemScoped,
+      };
+    }
 
     let resolution = v.itemId
       ? await this.machineTargetService.resolveEffectiveEntity(
@@ -1313,7 +1369,7 @@ addToDept(org, {
         'targetQuantity is auto-resolved from the Machine Target Master and must not be entered manually',
       );
     }
-    if (v.requestedUomId && v.requestedUomId !== t.uomId) {
+    if (v.requestedUomId && v.requestedUomId !== t.uomId && Number(v.workingHours) > 0) {
       const uomCode = (t as any).uom?.code ?? t.uomId;
       throw new BadRequestException(
         `Incompatible UOM for this entry: the resolved machine target for item '${t.item?.itemCode ?? 'generic'}' is configured in '${uomCode}'. Record production in the target's UOM.`,
@@ -1353,13 +1409,20 @@ addToDept(org, {
     postToInventory?: boolean;
     warehouseId?: string | null;
   }, opts?: { uomExempt?: boolean }): Promise<{ machineNo: string; plannedHours: number; shouldPostInventory: boolean; warehouseId: string | null }> {
+    const isZeroProdShift = Number(v.runningHours || 0) <= 0 && Number(v.actualQuantity || 0) <= 0;
     // Numeric guards (DTO covers create; update merges raw values)
     if (v.targetQuantity === undefined || v.targetQuantity === null) {
-      throw new BadRequestException(
-        'targetQuantity is required when the entry is not linked to a machine with a configured target',
-      );
+      if (isZeroProdShift) {
+        v.targetQuantity = 0;
+      } else {
+        throw new BadRequestException(
+          'targetQuantity is required when the entry is not linked to a machine with a configured target',
+        );
+      }
     }
-    if (!(v.targetQuantity > 0)) throw new BadRequestException('targetQuantity must be greater than 0');
+    if (!isZeroProdShift && !(v.targetQuantity > 0)) {
+      throw new BadRequestException('targetQuantity must be greater than 0');
+    }
     if (!(v.actualQuantity >= 0)) throw new BadRequestException('actualQuantity must be >= 0');
     if (!(v.scrapQuantity >= 0)) throw new BadRequestException('scrapQuantity must be >= 0');
     if (!(v.runningHours >= 0)) throw new BadRequestException('runningHours must be >= 0');
@@ -1458,10 +1521,12 @@ addToDept(org, {
           'postToInventory is not allowed for order-linked entries: inventory is posted once when the Production Order is completed',
         );
       }
-      if (!v.warehouseId) {
-        throw new BadRequestException('warehouseId is required when postToInventory is true');
+      if (!isZeroProdShift) {
+        if (!v.warehouseId) {
+          throw new BadRequestException('warehouseId is required when postToInventory is true');
+        }
+        shouldPostInventory = true;
       }
-      shouldPostInventory = true;
     }
 
     // Planned hours come from the Shift master (ERP-00013). When the shift row
@@ -1689,6 +1754,10 @@ addToDept(org, {
     const consumedInputs: Array<{ itemId: string; uomId: string; required: number; warehouseId: string }> = [];
 
     for (const output of outputs) {
+      if (Number(output.actualQuantity) <= 0 && Number(output.scrapQuantity || 0) <= 0) {
+        // Zero production / 100% downtime: no raw material consumption or inventory receipt needed
+        continue;
+      }
       const configuredInputs = this.resolveRoutingInputsForOutput(routing, output.itemId);
       const consumed = await this.consumeForProductionItem(
         manager, companyId, output, entry, sourceStoreId, configuredInputs, userId,

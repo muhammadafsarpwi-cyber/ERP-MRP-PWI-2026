@@ -107,8 +107,8 @@ html, body {
 }
 
 @media (min-width: 1200px) {
-  [data-testid="kpi-row"] > .ant-col,
-  .erp-kpi-col {
+  :not(.entry-book-view-pane) > [data-testid="kpi-row"] > .ant-col,
+  .erp-kpi-col:not(.kpi-col-percent):not(.kpi-col-weight) {
     flex: 1 1 0 !important;
     max-width: 20% !important;
   }

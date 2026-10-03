@@ -158,7 +158,7 @@ export class CreateProductionEntryDto {
    */
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 4 })
-  @IsPositive()
+  @Min(0)
   targetQuantity?: number;
 
   @IsNumber({ maxDecimalPlaces: 4 })
@@ -288,7 +288,7 @@ export class UpdateProductionEntryDto {
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 4 })
-  @IsPositive()
+  @Min(0)
   targetQuantity?: number;
 
   @IsOptional()

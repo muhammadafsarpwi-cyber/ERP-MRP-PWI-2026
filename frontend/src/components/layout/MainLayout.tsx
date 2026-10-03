@@ -10,6 +10,8 @@ import EmailCommunicationIcon from './EmailCommunicationIcon';
 import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
 import ProfileMenu from './ProfileMenu';
 import RawReceiptMinimizedDock from './RawReceiptMinimizedDock';
+import ProductionEntryDockPill from '../../pages/production/entries/ProductionEntryDockPill';
+import ProductionEntryModal from '../../pages/production/entries/ProductionEntryModal';
 import WorkspaceTabStrip from './WorkspaceTabStrip';
 import WorkspaceTabViewport from './WorkspaceTabViewport';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
@@ -780,6 +782,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       {/* Application-level persistent minimized receipt bar (RMR-01-A).
           Lives outside the routed <Content> so it survives page changes. */}
       <RawReceiptMinimizedDock />
+      {/* Application-level persistent modal window & dock pill for Daily Production Entry */}
+      <ProductionEntryDockPill />
+      <ProductionEntryModal />
     </Layout>
   );
 };

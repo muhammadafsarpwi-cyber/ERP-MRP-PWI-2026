@@ -425,11 +425,17 @@ export const ProductionItemOpenStock: React.FC = () => {
     loadWarehouses();
   }, [loadWarehouses]);
 
+  // The warehouse whose inventory balances govern the active screen
+  const currentActiveWarehouseId = useMemo(() => {
+    if (activeTab === 'adjustment') return adjWarehouseId || selectedWarehouseId;
+    return selectedWarehouseId;
+  }, [activeTab, adjWarehouseId, selectedWarehouseId]);
+
   useEffect(() => {
-    if (selectedWarehouseId) {
-      loadItems(selectedWarehouseId);
+    if (currentActiveWarehouseId) {
+      loadItems(currentActiveWarehouseId);
     }
-  }, [selectedWarehouseId, loadItems]);
+  }, [currentActiveWarehouseId, loadItems]);
 
   useEffect(() => {
     if (activeTab === 'analytics') {
@@ -447,6 +453,38 @@ export const ProductionItemOpenStock: React.FC = () => {
     items.forEach((it) => map.set(it.id, it));
     return map;
   }, [items]);
+
+  // Auto-sync system balances and weights for adjustment lines if items finish loading or warehouse changes
+  useEffect(() => {
+    if (items.length > 0) {
+      setAdjLines((prev) => {
+        if (!prev || prev.length === 0) return prev;
+        let changed = false;
+        const updatedLines = prev.map((line) => {
+          if (!line.itemId) return line;
+          const it = itemsMap.get(line.itemId);
+          if (it && line.systemQuantity !== (it.currentBalance ?? 0)) {
+            changed = true;
+            const uom = line.uomCode || it.uomCode || 'PCS';
+            const isKg = (uom || '').toUpperCase() === 'KG';
+            const wt = line.weightPerPiece || (it.weightPerPiece ? Number(it.weightPerPiece) : 0);
+            const sysQty = it.currentBalance ?? 0;
+            const sysWt = isKg ? sysQty : (wt > 0 ? Number((sysQty * wt).toFixed(4)) : 0);
+            const wasAtOldSys = line.physicalQuantity === line.systemQuantity || (line.physicalQuantity === 0 && line.systemQuantity === 0);
+            return {
+              ...line,
+              systemQuantity: sysQty,
+              systemWeightKg: sysWt,
+              physicalQuantity: wasAtOldSys ? sysQty : line.physicalQuantity,
+              physicalWeightKg: wasAtOldSys ? sysWt : line.physicalWeightKg,
+            };
+          }
+          return line;
+        });
+        return changed ? updatedLines : prev;
+      });
+    }
+  }, [items, itemsMap]);
 
   // Auto-sync item weights if lines are present and items finish loading
   useEffect(() => {
@@ -775,44 +813,62 @@ export const ProductionItemOpenStock: React.FC = () => {
   // -------------------------------------------------------------------------
   // Tab 2 Actions: Stock Adjustment & Variance
   // -------------------------------------------------------------------------
-  const handleLoadItemsForAdjustment = () => {
-    if (items.length === 0) {
-      message.warning('No items loaded. Please select a department/warehouse first.');
+  const handleLoadItemsForAdjustment = async () => {
+    const targetWhId = adjWarehouseId || selectedWarehouseId;
+    if (!targetWhId) {
+      message.warning('No department/warehouse selected. Please select one first.');
       return;
     }
-    const lines: StockAdjustmentLine[] = items.map((it) => {
-      const itemName = it.itemName || it.name || it.itemCode;
-      const uom = it.uomCode || (it as any).baseUom?.code || 'PCS';
-      const isKg = (uom || '').toUpperCase() === 'KG';
-      const cost = it.unitCost ?? (it as any).costPrice ?? 0;
-      const weightPerPiece = it.weightPerPiece && Number(it.weightPerPiece) > 0 ? Number(it.weightPerPiece) : 0;
-      const sysQty = it.currentBalance || 0;
-      // If item is already in KG (like coils), system weight is the balance itself.
-      // If item is in PCS, system weight is sysQty * weightPerPiece.
-      const sysWt = isKg
-        ? sysQty
-        : (weightPerPiece > 0 ? Number((sysQty * weightPerPiece).toFixed(4)) : 0);
+    setLoadingItems(true);
+    try {
+      const res = await apiService.get<{ success: boolean; data: ProductionItem[] }>('/production/open-stock/items', {
+        warehouseId: targetWhId,
+      });
+      const freshItems = res?.data || [];
+      if (freshItems.length > 0) {
+        setItems(freshItems);
+      }
+      const sourceItems = freshItems.length > 0 ? freshItems : items;
+      if (sourceItems.length === 0) {
+        message.warning('No production items found for this department/warehouse.');
+        return;
+      }
+      const lines: StockAdjustmentLine[] = sourceItems.map((it) => {
+        const itemName = it.itemName || it.name || it.itemCode;
+        const uom = it.uomCode || (it as any).baseUom?.code || 'PCS';
+        const isKg = (uom || '').toUpperCase() === 'KG';
+        const cost = it.unitCost ?? (it as any).costPrice ?? 0;
+        const weightPerPiece = it.weightPerPiece && Number(it.weightPerPiece) > 0 ? Number(it.weightPerPiece) : 0;
+        const sysQty = it.currentBalance || 0;
+        const sysWt = isKg
+          ? sysQty
+          : (weightPerPiece > 0 ? Number((sysQty * weightPerPiece).toFixed(4)) : 0);
 
-      return {
-        key: `adj-${it.id}-${Date.now()}`,
-        itemId: it.id,
-        itemCode: it.itemCode,
-        itemName: itemName,
-        itemType: it.itemType,
-        uomId: it.uomId || it.baseUomId || '',
-        uomCode: uom,
-        systemQuantity: sysQty,
-        physicalQuantity: sysQty,
-        weightPerPiece,
-        systemWeightKg: sysWt,
-        physicalWeightKg: sysWt,
-        unitCost: cost,
-        reason: adjDefaultReason,
-        notes: '',
-      };
-    });
-    setAdjLines(lines);
-    message.success(`Loaded ${lines.length} items for floor physical count verification.`);
+        return {
+          key: `adj-${it.id}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          itemId: it.id,
+          itemCode: it.itemCode,
+          itemName: itemName,
+          itemType: it.itemType,
+          uomId: it.uomId || it.baseUomId || '',
+          uomCode: uom,
+          systemQuantity: sysQty,
+          physicalQuantity: sysQty,
+          weightPerPiece,
+          systemWeightKg: sysWt,
+          physicalWeightKg: sysWt,
+          unitCost: cost,
+          reason: adjDefaultReason,
+          notes: '',
+        };
+      });
+      setAdjLines(lines);
+      message.success(`Loaded ${lines.length} items for floor physical count verification.`);
+    } catch (err: any) {
+      message.error(err?.message || 'Failed to load items for adjustment');
+    } finally {
+      setLoadingItems(false);
+    }
   };
 
   const handleZeroOutPhysicalCount = () => {
@@ -1762,6 +1818,7 @@ export const ProductionItemOpenStock: React.FC = () => {
                           value={selectedWarehouseId || undefined}
                           onChange={(val) => {
                             setSelectedWarehouseId(val);
+                            setAdjWarehouseId(val);
                             setOpenStockLines([]);
                           }}
                           loading={loadingWarehouses}
@@ -1990,9 +2047,10 @@ export const ProductionItemOpenStock: React.FC = () => {
                         <div className="prod-control-label">Department / Warehouse *</div>
                         <Select
                           showSearch
-                          value={adjWarehouseId || undefined}
+                          value={adjWarehouseId || selectedWarehouseId || undefined}
                           onChange={(val) => {
                             setAdjWarehouseId(val);
+                            setSelectedWarehouseId(val);
                             setAdjLines([]);
                           }}
                           placeholder="Select Department / Warehouse..."
@@ -2000,7 +2058,7 @@ export const ProductionItemOpenStock: React.FC = () => {
                         >
                           {warehouses.map((w) => (
                             <Option key={w.id} value={w.id}>
-                              {w.warehouseCode} - {w.warehouseName || w.name}
+                              {w.warehouseCode} - {w.warehouseName || w.name} ({w.divisionName || 'Floor'})
                             </Option>
                           ))}
                         </Select>
