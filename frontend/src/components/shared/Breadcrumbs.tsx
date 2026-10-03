@@ -55,9 +55,21 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/production\/inventory-report/, label: 'Inventory Report' },
   { pattern: /^\/production\/reports/, label: 'Production Reports' },
   { pattern: /^\/production\/targets/, label: 'Machine Targets' },
+  { pattern: /^\/production\/receiving-report/, label: 'Receiving & Return Report' },
   { pattern: /^\/production\/receiving/, label: 'Raw Material Receiving' },
+  { pattern: /^\/production\/returns/, label: 'Raw Material Return' },
   { pattern: /^\/production\/routings/, label: 'Routing' },
-  { pattern: /^\/production/, label: 'Production' },
+  { pattern: /^\/production\/bom/, label: 'Bill of Materials' },
+  { pattern: /^\/production\/traceability/, label: 'Traceability' },
+  { pattern: /^\/production\/units/, label: 'Unit Serialization & Labels' },
+  { pattern: /^\/production\/open-stock/, label: 'Production Item Open Stock' },
+  { pattern: /^\/production\/dashboard/, label: 'Production Dashboard' },
+  { pattern: /^\/production\/entries\/new$/, label: 'New Daily Production Entry' },
+  { pattern: /^\/production\/entries\/select$/, label: 'New Daily Production Entry' },
+  { pattern: /^\/production\/entries\/[^/]+\/edit$/, label: 'Edit Daily Production Entry' },
+  { pattern: /^\/production\/entries\/[^/]+$/, label: 'Production Entry Details' },
+  { pattern: /^\/production\/entries$/, label: 'Daily Production Entry' },
+  { pattern: /^\/production$/, label: 'Production' },
   { pattern: /^\/qc\/inspections/, label: 'Inspections' },
   { pattern: /^\/qc\/ncr/, label: 'NCR' },
   { pattern: /^\/qc\/capa/, label: 'CAPA' },
@@ -125,6 +137,7 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
     builtPaths.push('/' + segments.slice(0, i + 1).join('/'));
   }
 
+  let prevLabel = 'Home';
   for (let i = 0; i < builtPaths.length; i++) {
     const path = builtPaths[i];
     const segment = segments[i];
@@ -140,6 +153,10 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
         .replace(/[-_]+/g, ' ')
         .replace(/\b\w/g, (c) => c.toUpperCase());
     }
+
+    // Deduplicate adjacent identical breadcrumb labels (safeguard against "Production / Production")
+    if (label === prevLabel) continue;
+    prevLabel = label;
 
     const isLast = i === builtPaths.length - 1;
     items.push({

@@ -59,6 +59,19 @@ interface WorkspaceTabState {
   resetWorkspace: () => void;
 }
 
+export function getWorkspaceTabDisplayTitle(tab: { id: string; pathname?: string; title?: string }): string {
+  const path = tab.pathname || tab.id || '';
+  if (tab.id === '/settings' || path.startsWith('/settings')) return 'Company Settings';
+  if (/^\/production\/entries\/new\b/.test(path)) return 'New Daily Production Entry';
+  if (/^\/production\/entries\/select\b/.test(path)) return 'New Daily Production Entry';
+  if (/^\/production\/entries\/[^/]+\/edit\b/.test(path)) return 'Edit Daily Production Entry';
+  if (/^\/production\/entries\/[^/]+$/.test(path)) return 'Production Entry Details';
+  if (path === '/production/entries') return 'Daily Production Entry';
+  if (tab.title && tab.title !== 'Page') return tab.title;
+  const navMeta = resolveNavMeta(path);
+  return navMeta?.label || tab.title || 'Page';
+}
+
 export const useWorkspaceTabStore = create<WorkspaceTabState>()(
   persist(
     (set, get) => ({
@@ -70,14 +83,23 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
         const isSettings = (tabData.id || tabData.pathname || '').startsWith('/settings');
         const canonicalId = isSettings ? '/settings' : tabData.id;
         const navMeta = resolveNavMeta(tabData.pathname || canonicalId);
-        const canonicalTitle = isSettings ? 'Company Settings' : navMeta?.label;
+        const path = tabData.pathname || canonicalId || '';
+
+        let canonicalTitle: string | undefined;
+        if (isSettings) canonicalTitle = 'Company Settings';
+        else if (/^\/production\/entries\/new\b/.test(path)) canonicalTitle = 'New Daily Production Entry';
+        else if (/^\/production\/entries\/select\b/.test(path)) canonicalTitle = 'New Daily Production Entry';
+        else if (/^\/production\/entries\/[^/]+\/edit\b/.test(path)) canonicalTitle = 'Edit Daily Production Entry';
+        else if (/^\/production\/entries\/[^/]+$/.test(path)) canonicalTitle = 'Production Entry Details';
+        else if (path === '/production/entries') canonicalTitle = 'Daily Production Entry';
+        else canonicalTitle = tabData.title || navMeta?.label;
 
         const existingIndex = tabs.findIndex((t) => t.id === canonicalId);
 
         if (existingIndex !== -1) {
           // Tab already exists! NEVER create duplicate.
           const existing = tabs[existingIndex];
-          const newTitle = isSettings ? 'Company Settings' : (tabData.title || canonicalTitle || existing.title);
+          const newTitle = canonicalTitle || (isSettings ? 'Company Settings' : (tabData.title || existing.title));
           const newRoute = tabData.route;
 
           // Only update state if something actually changed to prevent render cascades
@@ -116,7 +138,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
           id: canonicalId,
           route: tabData.route,
           pathname: tabData.pathname,
-          title: isSettings ? 'Company Settings' : (tabData.title || canonicalTitle || 'Page'),
+          title: canonicalTitle || (isSettings ? 'Company Settings' : (tabData.title || 'Page')),
           closable: canonicalId !== '/dashboard' ? (tabData.closable ?? true) : false,
           timestamp: Date.now(),
         };
@@ -313,10 +335,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
           );
           // Rectify any corrupt cached titles from localStorage
           state.tabs.forEach((tab) => {
-            const meta = resolveNavMeta(tab.pathname || tab.id);
-            if (meta?.label) {
-              tab.title = meta.label;
-            }
+            tab.title = getWorkspaceTabDisplayTitle(tab);
           });
           const hasDashboard = state.tabs.some((t) => t.id === '/dashboard');
           if (!hasDashboard) {

@@ -116,6 +116,11 @@ export class ProductionOpenStockService {
         weightPerPiece = Number((1 / Number(item.piecesPerKg)).toFixed(6));
       }
 
+      let weightPerMeter: number | null = null;
+      if (item.weightPerMeter && Number(item.weightPerMeter) > 0) {
+        weightPerMeter = Number(Number(item.weightPerMeter).toFixed(6));
+      }
+
       return {
         id: item.id,
         itemCode: item.itemCode,
@@ -127,6 +132,8 @@ export class ProductionOpenStockService {
         unitCost: Number(item.costPrice) || 0,
         weightPerPiece,
         piecesPerKg: item.piecesPerKg ? Number(item.piecesPerKg) : null,
+        weightPerMeter,
+        lengthPerPiece: item.lengthPerPiece ? Number(item.lengthPerPiece) : null,
         baseUomId: item.baseUomId,
         uomId: item.baseUomId,
         uomCode: item.baseUom?.code || item.baseUom?.symbol || 'PCS',

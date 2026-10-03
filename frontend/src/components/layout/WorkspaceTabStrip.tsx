@@ -15,7 +15,7 @@ import {
   CheckOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { useWorkspaceTabStore, WorkspaceTab } from '../../store/workspaceTabStore';
+import { useWorkspaceTabStore, WorkspaceTab, getWorkspaceTabDisplayTitle } from '../../store/workspaceTabStore';
 import { hasUnsavedChanges } from '../../store/unsavedChangesRegistry';
 import { resolveNavMeta } from './navigationConfig';
 import './workspaceTabStrip.css';
@@ -223,7 +223,7 @@ export const WorkspaceTabStrip: React.FC = () => {
         const isActive = tab.id === activeTabId;
         const isSettingsTab = tab.id === '/settings' || (Boolean(tab.pathname) && tab.pathname.startsWith('/settings'));
         const navMeta = isSettingsTab ? null : resolveNavMeta(tab.pathname);
-        const displayTitle = isSettingsTab ? 'Company Settings' : (navMeta?.label || tab.title || 'Page');
+        const displayTitle = getWorkspaceTabDisplayTitle(tab);
         const IconComponent = isSettingsTab ? SettingOutlined : (navMeta?.icon || (tab.id === '/dashboard' ? HomeOutlined : null));
 
         return {
@@ -290,7 +290,7 @@ export const WorkspaceTabStrip: React.FC = () => {
           const isActive = tab.id === activeTabId;
           const isSettingsTab = tab.id === '/settings' || (Boolean(tab.pathname) && tab.pathname.startsWith('/settings'));
           const navMeta = isSettingsTab ? null : resolveNavMeta(tab.pathname);
-          const displayTitle = isSettingsTab ? 'Company Settings' : (navMeta?.label || tab.title || 'Page');
+          const displayTitle = getWorkspaceTabDisplayTitle(tab);
           const IconComponent = isSettingsTab ? SettingOutlined : (navMeta?.icon || (tab.id === '/dashboard' ? HomeOutlined : null));
 
           return (

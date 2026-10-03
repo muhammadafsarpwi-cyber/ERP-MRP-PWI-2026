@@ -6,7 +6,7 @@ import {
 import {
   ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined,
   AimOutlined, AppstoreFilled, DeleteFilled, TrophyFilled, ThunderboltFilled, ClockCircleFilled, FieldTimeOutlined,
-  ExclamationCircleOutlined, ArrowDownOutlined, ArrowUpOutlined, BarcodeOutlined, PrinterOutlined,
+  ExclamationCircleOutlined, ArrowDownOutlined, ArrowUpOutlined, BarcodeOutlined, PrinterOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -15,7 +15,9 @@ import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeigh
 import { ITEM_TYPES } from '../../master-data/items/itemTypes';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 import { GlobalLoading } from '../../../components/shared';
+import PageHeader from '../../../components/shared/PageHeader';
 import { ProductionUnitsPage } from '../units';
+import { convertProductToComponentQty } from './downtimeHours';
 
 const { Title, Text } = Typography;
 
@@ -82,6 +84,7 @@ interface DetailData {
   itemId: string;
   item?: {
     itemCode: string; name: string; wireSizeMm?: number | null; baseUom?: { code: string; symbol?: string } | null;
+    weightPerPiece?: number | null; weightPerMeter?: number | null;
     /** TASK #34B: the exact input material consumed by the current item's production stage. */
     productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; itemType?: string | null } | null;
   };
@@ -204,93 +207,99 @@ const InventoryImpactReport: React.FC<{
   outItemCode, outItemName, outStoreName, outBefore, outProduced, outAfter, outUom,
   outCompanyBefore, outCompanyTotal,
 }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
     {/* LINE 1: INPUT (RAW MATERIAL INFLOW & DEDUCTION) */}
     <div style={{
-      background: 'rgba(239, 68, 68, 0.04)',
-      border: '1px solid rgba(239, 68, 68, 0.28)',
+      background: 'rgba(239, 68, 68, 0.03)',
+      border: '1px solid rgba(239, 68, 68, 0.22)',
       borderRadius: 8,
-      padding: '10px 14px',
+      padding: '12px 14px',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{
             background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
-            fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '2px 8px', letterSpacing: 0.3,
+            fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '3px 8px', letterSpacing: 0.3,
             display: 'inline-flex', alignItems: 'center', gap: 4,
           }}>
-            <ArrowDownOutlined style={{ fontSize: 11 }} /> INPUT (RAW MATERIAL INFLOW)
+            <ArrowDownOutlined style={{ fontSize: 11 }} /> INPUT (RAW MATERIAL)
           </span>
-          <Text strong style={{ fontSize: 12 }}>{rawItemName ?? rawItemCode ?? 'Raw Material'}</Text>
-          {rawItemCode && rawItemName && rawItemCode !== rawItemName && (
-            <Text type="secondary" style={{ fontSize: 12 }}>({rawItemCode})</Text>
-          )}
+          <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+            {rawItemCode ? `${rawItemCode} — ` : ''}{rawItemName ?? 'Raw Material'}
+          </Text>
         </div>
-        <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', background: 'var(--theme-surface-alt)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
-          Source: <strong style={{ color: 'var(--theme-text)' }}>{rawStoreName ?? '—'}</strong>
+        <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', background: 'var(--theme-surface-alt, #f8fafc)', padding: '3px 10px', borderRadius: 4, border: '1px solid var(--theme-border, #e2e8f0)' }}>
+          Source: <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{rawStoreName ?? '—'}</strong>
         </span>
       </div>
 
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1fr auto 1fr auto 1fr',
-        gap: 6,
+        gap: 8,
         alignItems: 'center',
         textAlign: 'center',
       }}>
         {/* Before */}
-        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 8px' }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block' }}>
+        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             {posted ? 'Opening Available' : 'Current Available'}
           </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{formatNumber(rawBefore, 3)} {rawUom}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+            {formatNumber(rawBefore, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
+          </span>
         </div>
-        <span style={{ fontSize: 18, fontWeight: 800, color: '#ef4444' }}>−</span>
+        <span style={{ fontSize: 20, fontWeight: 800, color: '#ef4444' }}>−</span>
         {/* Consumed */}
-        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '6px 8px' }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#991b1b', fontWeight: 700, display: 'block' }}>
+        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 10px' }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#991b1b', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             Consumed (Out)
           </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#b91c1c' }}>−{formatNumber(rawConsumed, 3)} {rawUom}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>
+            −{formatNumber(rawConsumed, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
+          </span>
         </div>
-        <span style={{ fontSize: 18, fontWeight: 800, color: '#64748b' }}>=</span>
+        <span style={{ fontSize: 20, fontWeight: 800, color: '#64748b' }}>=</span>
         {/* After */}
-        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, padding: '6px 8px' }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>
+        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '8px 10px' }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             {posted ? 'Remaining Balance' : 'Projected Balance'}
           </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>{formatNumber(rawAfter, 3)} {rawUom}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#15803d', fontVariantNumeric: 'tabular-nums' }}>
+            {formatNumber(rawAfter, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
+          </span>
         </div>
       </div>
     </div>
 
     {/* LINE 2: OUTPUT (GOOD PRODUCTION OUTFLOW & ADDITION) */}
     <div style={{
-      background: 'rgba(16, 185, 129, 0.04)',
-      border: '1px solid rgba(16, 185, 129, 0.28)',
+      background: 'rgba(16, 185, 129, 0.03)',
+      border: '1px solid rgba(16, 185, 129, 0.22)',
       borderRadius: 8,
-      padding: '10px 14px',
+      padding: '12px 14px',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{
             background: '#dcfce7', color: '#166534', border: '1px solid #86efac',
-            fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '2px 8px', letterSpacing: 0.3,
+            fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '3px 8px', letterSpacing: 0.3,
             display: 'inline-flex', alignItems: 'center', gap: 4,
           }}>
-            <ArrowUpOutlined style={{ fontSize: 11 }} /> OUTPUT (GOOD PRODUCTION OUTFLOW)
+            <ArrowUpOutlined style={{ fontSize: 11 }} /> OUTPUT (GOOD PRODUCTION)
           </span>
-          <Text strong style={{ fontSize: 12 }}>{outItemName ?? outItemCode ?? 'Produced Item'}</Text>
-          {outItemCode && outItemName && outItemCode !== outItemName && (
-            <Text type="secondary" style={{ fontSize: 12 }}>({outItemCode})</Text>
-          )}
+          <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+            {outItemCode ? `${outItemCode} — ` : ''}{outItemName ?? 'Produced Item'}
+          </Text>
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', background: 'var(--theme-surface-alt)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--theme-border)' }}>
-            Receipt: <strong style={{ color: 'var(--theme-text)' }}>{outStoreName ?? '—'}</strong>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', background: 'var(--theme-surface-alt, #f8fafc)', padding: '3px 10px', borderRadius: 4, border: '1px solid var(--theme-border, #e2e8f0)' }}>
+            Receipt: <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{outStoreName ?? '—'}</strong>
           </span>
           {outCompanyBefore != null && outCompanyBefore > outBefore && (
-            <span style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', padding: '2px 8px', borderRadius: 4, border: '1px solid #7dd3fc', fontWeight: 600 }}>
+            <span style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', padding: '3px 8px', borderRadius: 4, border: '1px solid #7dd3fc', fontWeight: 600 }}>
               Company Prior: {formatNumber(outCompanyBefore, 3)} {outUom}
             </span>
           )}
@@ -300,36 +309,42 @@ const InventoryImpactReport: React.FC<{
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1fr auto 1fr auto 1fr',
-        gap: 6,
+        gap: 8,
         alignItems: 'center',
         textAlign: 'center',
       }}>
         {/* Before */}
-        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 8px' }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block' }}>
+        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             {posted ? 'Opening Balance' : 'Current Balance'}
           </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{formatNumber(outBefore, 3)} {outUom}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+            {formatNumber(outBefore, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
+          </span>
         </div>
-        <span style={{ fontSize: 18, fontWeight: 800, color: '#10b981' }}>+</span>
+        <span style={{ fontSize: 20, fontWeight: 800, color: '#10b981' }}>+</span>
         {/* Produced */}
-        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 6, padding: '6px 8px' }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>
+        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 8, padding: '8px 10px' }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             Produced (In)
           </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>+{formatNumber(outProduced, 3)} {outUom}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#15803d', fontVariantNumeric: 'tabular-nums' }}>
+            +{formatNumber(outProduced, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
+          </span>
         </div>
-        <span style={{ fontSize: 18, fontWeight: 800, color: '#64748b' }}>=</span>
+        <span style={{ fontSize: 20, fontWeight: 800, color: '#64748b' }}>=</span>
         {/* After */}
-        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, padding: '6px 8px' }}>
-          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>
+        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '8px 10px' }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             {posted ? 'New Balance in Store' : 'Projected Balance'}
           </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d', textDecoration: 'underline' }}>{formatNumber(outAfter, 3)} {outUom}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#15803d', fontVariantNumeric: 'tabular-nums', textDecoration: 'underline' }}>
+            {formatNumber(outAfter, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
+          </span>
         </div>
       </div>
       {outCompanyBefore != null && outCompanyBefore > outBefore && (
-        <div style={{ marginTop: 6, padding: '5px 10px', background: 'rgba(2, 132, 199, 0.08)', borderRadius: 5, fontSize: 11, color: '#0284c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ marginTop: 8, padding: '6px 12px', background: 'rgba(2, 132, 199, 0.08)', borderRadius: 6, fontSize: 11.5, color: '#0284c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
           <span>
             ℹ️ <strong>Store Notice:</strong> Store <em>{outStoreName}</em> had 0 {outUom} prior opening balance.
           </span>
@@ -476,7 +491,6 @@ const EntryDetail: React.FC = () => {
   // ── TASK #41 Part E/H: real inventory reconciliation ─────────────────────
   const goodQty = toNum(entry.actualQuantity);
   const scrapQty = toNum(entry.scrapQuantity);
-  const demandTotal = goodQty + scrapQty;
   const posted = !!entry.inventoryReferenceId;
   const outputReceiptTotal = movements
     .filter((m) => m.transactionType === 'PRODUCTION_RECEIPT' && m.direction === 'IN')
@@ -487,22 +501,57 @@ const EntryDetail: React.FC = () => {
   const consumptionOutTotal = movements
     .filter((m) => m.transactionType === 'PRODUCTION_CONSUMPTION' && m.direction === 'OUT')
     .reduce((s, m) => s + toNum(m.quantity), 0);
-  const near = (a: number, b: number) => Math.abs(a - b) <= 0.001;
-  const expectedConsumption = productionInItemId ? demandTotal : 0;
+
+  const rawItem = productionInItem;
+  const rawUom = rawItem?.wireSizeMm != null ? 'KG' : (entry.uom?.code ?? 'KG');
+
+  // Derive raw material consumption in KG:
+  // Convert good quantity (pieces/meters) to raw material KG using calcActualKg + scrap.
+  let calculatedRawDemand = 0;
+  if (entry.items && entry.items.length > 0) {
+    for (const line of entry.items) {
+      const lineItem = line.item || entry.item;
+      const lUom = line.uom?.code || entry.uom?.code || '';
+      const lGood = toNum(line.actualQuantity);
+      const lScrap = toNum(line.scrapQuantity);
+      const kgGood = calcActualKg(lUom, lGood, lineItem?.weightPerPiece, lineItem?.weightPerMeter);
+      const kgScrap = (rawUom === 'KG' || lineItem?.wireSizeMm != null)
+        ? lScrap
+        : (calcActualKg(lUom, lScrap, lineItem?.weightPerPiece, lineItem?.weightPerMeter) ?? lScrap);
+      calculatedRawDemand += (kgGood ?? lGood) + kgScrap;
+    }
+  }
+  if (calculatedRawDemand <= 0) {
+    const entryUom = entry.uom?.code || '';
+    const kgGood = calcActualKg(entryUom, goodQty, entry.item?.weightPerPiece, entry.item?.weightPerMeter);
+    const kgScrap = (rawUom === 'KG' || entry.item?.wireSizeMm != null)
+      ? scrapQty
+      : (calcActualKg(entryUom, scrapQty, entry.item?.weightPerPiece, entry.item?.weightPerMeter) ?? scrapQty);
+    calculatedRawDemand = (kgGood ?? goodQty) + kgScrap;
+  }
+  calculatedRawDemand = Math.round(calculatedRawDemand * 10000) / 10000;
+
+  // The actual consumed raw material in KG (authoritative from ledger if posted, or calculated)
+  const rawConsumed = consumptionOutTotal > 0
+    ? consumptionOutTotal
+    : (calculatedRawDemand > 0 ? calculatedRawDemand : (productionInItem ? 0 : goodQty + scrapQty));
+
+  const rawDemandTotal = consumptionOutTotal > 0 ? consumptionOutTotal : calculatedRawDemand;
+  const demandTotal = rawDemandTotal; // backward-compat
+
+  const near = (a: number, b: number) => Math.abs(a - b) <= 0.005;
+  const expectedConsumption = productionInItemId ? (calculatedRawDemand > 0 ? calculatedRawDemand : consumptionOutTotal) : 0;
   const reconciliationOk =
     !posted ? movements.length === 0
       : near(outputReceiptTotal, goodQty) && near(scrapOutTotal, scrapQty) && near(consumptionOutTotal, expectedConsumption);
   const sourceShortage =
-    posted && productionInItemId && sourceStoreId && sourceStoreAvail !== null && sourceStoreAvail + 0.001 < demandTotal;
+    posted && productionInItemId && sourceStoreId && sourceStoreAvail !== null && sourceStoreAvail + 0.001 < rawDemandTotal;
   const aggregateShortage =
-    posted && productionInItemId && aggregateInputAvail + 0.001 < demandTotal;
+    posted && productionInItemId && aggregateInputAvail + 0.001 < rawDemandTotal;
   const noBalancesAnywhere = inputBalances.length === 0;
 
   // ── Calculations for 2-Line Material Movement & Balance Impact Report ──
-  const rawItem = productionInItem;
   const rawStoreName = sourceStoreRow?.warehouse?.name ?? (entry as any).rawMaterialWarehouse?.name ?? 'CCD Stores';
-  const rawConsumed = demandTotal;
-  const rawUom = rawItem?.wireSizeMm != null ? 'KG' : (entry.uom?.code ?? 'KG');
   const rawCurrentAvail = sourceStoreAvail ?? 0;
   const rawBefore = posted ? rawCurrentAvail + rawConsumed : rawCurrentAvail;
   const rawAfter = posted ? rawCurrentAvail : Math.max(0, rawCurrentAvail - rawConsumed);
@@ -625,24 +674,24 @@ const EntryDetail: React.FC = () => {
                 Aggregate available (all ACTIVE stores):{' '}
                 <Text strong style={{ color: noBalancesAnywhere ? undefined : (aggregateInputAvail > 0 ? 'var(--theme-success)' : undefined) }}>
                   {noBalancesAnywhere ? 'no balance rows' : formatNumber(aggregateInputAvail, 3)}
-                </Text>
-                <Text type="secondary"> · Demand this stage: <Text strong>{formatNumber(demandTotal, 3)}</Text> {entry.uom?.code ?? ''}</Text>
+                </Text>{!noBalancesAnywhere ? ` ${rawUom}` : ''}
+                <Text type="secondary"> · Demand this stage: <Text strong>{formatNumber(rawDemandTotal, 3)}</Text> {rawUom}</Text>
               </Text>
               {aggregateShortage && (
                 <Alert type="error" showIcon style={{ marginTop: 6 }} data-testid="aggregate-shortage-alert"
-                  message={`Company-wide availability (${formatNumber(aggregateInputAvail, 3)}) is below this stage's consumption demand (${formatNumber(demandTotal, 3)}).`}
+                  message={`Company-wide availability (${formatNumber(aggregateInputAvail, 3)}) is below this stage's consumption demand (${formatNumber(rawDemandTotal, 3)}).`}
                 />
               )}
               {!aggregateShortage && sourceShortage && (
                 <Alert type="warning" showIcon style={{ marginTop: 6 }} data-testid="source-shortage-alert"
-                  message={`Source store availability (${formatNumber(sourceStoreAvail!, 3)}) is below this stage's consumption demand (${formatNumber(demandTotal, 3)}), but ${formatNumber(aggregateInputAvail, 3)} is available across other stores.`}
+                  message={`Source store availability (${formatNumber(sourceStoreAvail!, 3)}) is below this stage's consumption demand (${formatNumber(rawDemandTotal, 3)}), but ${formatNumber(aggregateInputAvail, 3)} is available across other stores.`}
                 />
               )}
             </div>
           )}
           <div style={{ marginTop: 6 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              The consumption basis for this stage is Good output + Scrap, deducted 1:1 from this store by the backend.
+              The consumption basis for this stage is Good output converted to weight + Scrap in KG, deducted from this store by the backend.
             </Text>
           </div>
         </div>
@@ -693,8 +742,8 @@ const EntryDetail: React.FC = () => {
                 <Text type="secondary" style={{ fontSize: 12 }}>· {formatDimension(productionInItem.wireSizeMm)} mm</Text>
               )}
             </div>
-            <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 14, lineHeight: '16px' }}>
-              ▾ consumed {formatNumber(toNum(entry.actualQuantity) + toNum(entry.scrapQuantity), 3)} {flowUnits} (good + scrap)
+            <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 13, lineHeight: '18px', padding: '4px 0' }}>
+              ▾ consumed <strong style={{ color: '#b91c1c' }}>{formatNumber(rawConsumed, 3)} {rawUom}</strong> (good converted + scrap)
             </div>
           </React.Fragment>
         )}
@@ -900,9 +949,9 @@ const EntryDetail: React.FC = () => {
             </Descriptions.Item>
             {productionInItemId && (
               <Descriptions.Item label="Raw Material Consumption (OUT)">
-                <Text strong>{formatNumber(demandTotal, 3)}</Text>
+                <Text strong>{formatNumber(rawDemandTotal, 3)} {rawUom}</Text>
                 <Text type="secondary"> demanded · </Text>
-                <Text strong>{formatNumber(consumptionOutTotal, 3)}</Text>
+                <Text strong>{formatNumber(consumptionOutTotal, 3)} {rawUom}</Text>
                 <Text type="secondary"> in ledger</Text>
               </Descriptions.Item>
             )}
@@ -933,8 +982,17 @@ const EntryDetail: React.FC = () => {
     <div>
       <style>{`
         .erp-detail-descriptions .ant-descriptions-item-label {
-          min-width: 120px;
-          font-weight: 500;
+          min-width: 135px;
+          font-weight: 600 !important;
+          color: var(--theme-text-muted, #475569) !important;
+          background: var(--theme-surface-alt, #f8fafc) !important;
+          font-size: 12.5px;
+          padding: 8px 12px !important;
+        }
+        .erp-detail-descriptions .ant-descriptions-item-content {
+          font-size: 13px;
+          color: var(--theme-text, #0f172a);
+          padding: 8px 12px !important;
         }
         @media (max-width: 640px) {
           .erp-detail-descriptions .ant-descriptions-item-label {
@@ -950,7 +1008,14 @@ const EntryDetail: React.FC = () => {
         }
       `}</style>
 
-      {/* ── Global header: identity + machine/department + date + actions ── */}
+      {/* ── PageHeader provider for application header & tabs ── */}
+      <PageHeader
+        icon={<FileTextOutlined />}
+        title="Production Entry Details"
+        subtitle={`Shift production details, raw material reconciliation, and inventory impacts for ${entry.entryNumber || entry.id.slice(0, 8)}`}
+      />
+
+      {/* ── Action bar: identity + machine/department + date + actions ── */}
       <div style={{ marginBottom: 12, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <Space style={{ flexWrap: 'wrap' }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>

@@ -112,8 +112,77 @@ export interface ProductionItem {
   currentBalance: number;
   weightPerPiece?: number | null;
   piecesPerKg?: number | null;
+  weightPerMeter?: number | null;
+  lengthPerPiece?: number | null;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
   unitCost?: number;
   costPrice?: number;
+}
+
+export function getItemWeightMeta(it?: ProductionItem | null) {
+  if (!it) return { mode: 'PCS' as const, rate: 0, weightUnit: 'Kg/pc', qtyUnit: 'Pcs' };
+  const hasMeter = it.weightPerMeter !== undefined && it.weightPerMeter !== null && Number(it.weightPerMeter) > 0;
+  const hasPiece = it.weightPerPiece !== undefined && it.weightPerPiece !== null && Number(it.weightPerPiece) > 0;
+  const uom = (it.uomCode || '').toUpperCase();
+  const divName = (it.divisionName || '').toLowerCase();
+
+  // If item explicitly has weightPerMeter, or division is Control Cable, or UOM is M/MTR/METER
+  const isMeter = hasMeter || uom === 'M' || uom === 'MTR' || uom === 'METER' || divName.includes('control');
+
+  if (isMeter && (hasMeter || !hasPiece)) {
+    return {
+      mode: 'METER' as const,
+      rate: hasMeter ? Number(it.weightPerMeter) : 0,
+      weightUnit: 'Kg/M',
+      qtyUnit: uom === 'KG' ? 'KG' : (uom || 'M'),
+    };
+  }
+
+  const pcRate = hasPiece
+    ? Number(it.weightPerPiece)
+    : (it.piecesPerKg && Number(it.piecesPerKg) > 0 ? Number((1 / Number(it.piecesPerKg)).toFixed(6)) : 0);
+
+  return {
+    mode: 'PCS' as const,
+    rate: pcRate,
+    weightUnit: 'Kg/pc',
+    qtyUnit: uom || 'Pcs',
+  };
+}
+
+export function computeWeightAndMeters(
+  qty: number,
+  unitWeight: number,
+  uomCode?: string,
+  weightMode?: 'METER' | 'PCS'
+) {
+  const uom = (uomCode || '').toUpperCase();
+  const isKg = uom === 'KG';
+  const isMeterUom = uom === 'M' || uom === 'MTR' || uom === 'METER';
+
+  let totalWeightKg = 0;
+  let calculatedMeters: number | undefined = undefined;
+  let calculatedPieces: number | undefined = undefined;
+
+  if (isKg) {
+    totalWeightKg = qty;
+    if (unitWeight > 0 && weightMode === 'METER') {
+      calculatedMeters = Number((qty / unitWeight).toFixed(2));
+    } else if (unitWeight > 0 && weightMode === 'PCS') {
+      calculatedPieces = Math.round(qty / unitWeight);
+    }
+  } else if (isMeterUom) {
+    calculatedMeters = qty;
+    totalWeightKg = unitWeight > 0 ? Number((qty * unitWeight).toFixed(4)) : 0;
+  } else {
+    calculatedPieces = qty;
+    totalWeightKg = unitWeight > 0 ? Number((qty * unitWeight).toFixed(4)) : 0;
+  }
+
+  return { totalWeightKg, calculatedMeters, calculatedPieces };
 }
 
 export interface OpenStockLine {
@@ -125,10 +194,16 @@ export interface OpenStockLine {
   uomId: string;
   uomCode: string;
   currentBalance: number;
-  quantity: number; // Pieces or base units
-  weightPerPiece: number; // Weight per piece in Kg (e.g. 0.009670)
-  totalWeightKg: number; // Calculated: quantity * weightPerPiece
-  unitCost: number; // Rate per Kg (or per piece if no weight)
+  quantity: number; // Stock UOM quantity (KG for coils/strips, PCS for spokes, M for meters)
+  weightPerPiece: number; // Unit weight in Kg (per piece or per meter)
+  weightPerMeter?: number; // Weight per meter in Kg/M
+  weightMode?: 'METER' | 'PCS';
+  weightUnitLabel?: string; // 'Kg/M' or 'Kg/pc'
+  qtyUnitLabel?: string; // 'KG', 'M', or 'Pcs'
+  calculatedMeters?: number; // Calculated equivalent meters: KG / weightPerMeter
+  calculatedPieces?: number; // Calculated equivalent pieces: KG / weightPerPiece
+  totalWeightKg: number; // Total weight in Kg
+  unitCost: number; // Rate per Kg
   batchNumber?: string;
   notes?: string;
 }
@@ -144,6 +219,12 @@ export interface StockAdjustmentLine {
   systemQuantity: number;
   physicalQuantity: number;
   weightPerPiece: number;
+  weightPerMeter?: number;
+  weightMode?: 'METER' | 'PCS';
+  weightUnitLabel?: string;
+  qtyUnitLabel?: string;
+  calculatedMeters?: number;
+  calculatedPieces?: number;
   systemWeightKg: number;
   physicalWeightKg: number;
   unitCost: number;
@@ -454,6 +535,33 @@ export const ProductionItemOpenStock: React.FC = () => {
     return map;
   }, [items]);
 
+  const selectedWh = useMemo(() => {
+    return warehouses.find((w) => w.id === selectedWarehouseId);
+  }, [warehouses, selectedWarehouseId]);
+
+  const adjWh = useMemo(() => {
+    return warehouses.find((w) => w.id === (adjWarehouseId || selectedWarehouseId));
+  }, [warehouses, adjWarehouseId, selectedWarehouseId]);
+
+  // Determine if active warehouse belongs to Control Cable Division or Spoke Division
+  const isCcdDivision = useMemo(() => {
+    const wh = activeTab === 'adjustment' ? adjWh : selectedWh;
+    if (!wh) return false;
+    const code = (wh.warehouseCode || (wh as any).code || '').toUpperCase();
+    const name = (wh.warehouseName || (wh as any).name || '').toUpperCase();
+    const div = (wh.divisionName || (wh as any).division?.name || '').toUpperCase();
+    return code.startsWith('CCD') || name.includes('CONTROL CABLE') || div.includes('CONTROL CABLE');
+  }, [activeTab, adjWh, selectedWh]);
+
+  const isSpokeDivision = useMemo(() => {
+    const wh = activeTab === 'adjustment' ? adjWh : selectedWh;
+    if (!wh) return false;
+    const code = (wh.warehouseCode || (wh as any).code || '').toUpperCase();
+    const name = (wh.warehouseName || (wh as any).name || '').toUpperCase();
+    const div = (wh.divisionName || (wh as any).division?.name || '').toUpperCase();
+    return code.startsWith('SPI') || name.includes('SPOKE') || div.includes('SPOKE');
+  }, [activeTab, adjWh, selectedWh]);
+
   // Auto-sync system balances and weights for adjustment lines if items finish loading or warehouse changes
   useEffect(() => {
     if (items.length > 0) {
@@ -463,21 +571,34 @@ export const ProductionItemOpenStock: React.FC = () => {
         const updatedLines = prev.map((line) => {
           if (!line.itemId) return line;
           const it = itemsMap.get(line.itemId);
-          if (it && line.systemQuantity !== (it.currentBalance ?? 0)) {
-            changed = true;
-            const uom = line.uomCode || it.uomCode || 'PCS';
-            const isKg = (uom || '').toUpperCase() === 'KG';
-            const wt = line.weightPerPiece || (it.weightPerPiece ? Number(it.weightPerPiece) : 0);
+          if (it) {
+            const meta = getItemWeightMeta(it);
+            const lineWt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
+            const uom = line.uomCode || it.uomCode || meta.qtyUnit;
             const sysQty = it.currentBalance ?? 0;
-            const sysWt = isKg ? sysQty : (wt > 0 ? Number((sysQty * wt).toFixed(4)) : 0);
+            const mode = line.weightMode || meta.mode;
+            const { totalWeightKg: sysWt, calculatedMeters: sysMeters, calculatedPieces: sysPieces } = computeWeightAndMeters(sysQty, lineWt, uom, mode);
             const wasAtOldSys = line.physicalQuantity === line.systemQuantity || (line.physicalQuantity === 0 && line.systemQuantity === 0);
-            return {
-              ...line,
-              systemQuantity: sysQty,
-              systemWeightKg: sysWt,
-              physicalQuantity: wasAtOldSys ? sysQty : line.physicalQuantity,
-              physicalWeightKg: wasAtOldSys ? sysWt : line.physicalWeightKg,
-            };
+            const physQty = wasAtOldSys ? sysQty : line.physicalQuantity;
+            const { totalWeightKg: physWt, calculatedMeters: physMeters, calculatedPieces: physPieces } = computeWeightAndMeters(physQty, lineWt, uom, mode);
+
+            if (line.systemQuantity !== sysQty || (!line.weightPerPiece && meta.rate > 0) || !line.weightMode || line.systemWeightKg !== sysWt) {
+              changed = true;
+              return {
+                ...line,
+                systemQuantity: sysQty,
+                systemWeightKg: sysWt,
+                physicalQuantity: physQty,
+                physicalWeightKg: physWt,
+                weightPerPiece: lineWt,
+                weightPerMeter: it.weightPerMeter ? Number(it.weightPerMeter) : undefined,
+                weightMode: mode,
+                weightUnitLabel: meta.weightUnit,
+                qtyUnitLabel: uom,
+                calculatedMeters: physMeters ?? sysMeters,
+                calculatedPieces: physPieces ?? sysPieces,
+              };
+            }
           }
           return line;
         });
@@ -493,15 +614,26 @@ export const ProductionItemOpenStock: React.FC = () => {
       const updatedLines = openStockLines.map((line) => {
         if (!line.itemId) return line;
         const it = itemsMap.get(line.itemId);
-        if (it && it.weightPerPiece && Number(it.weightPerPiece) > 0 && (!line.weightPerPiece || line.weightPerPiece === 0)) {
-          changed = true;
-          const wt = Number(it.weightPerPiece);
-          const totWt = Number(((line.quantity || 0) * wt).toFixed(4));
-          return {
-            ...line,
-            weightPerPiece: wt,
-            totalWeightKg: totWt,
-          };
+        if (it) {
+          const meta = getItemWeightMeta(it);
+          if (meta.rate > 0 && (!line.weightPerPiece || line.weightPerPiece === 0 || !line.weightMode || !line.calculatedMeters)) {
+            changed = true;
+            const wt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
+            const uom = line.uomCode || it.uomCode || meta.qtyUnit;
+            const mode = line.weightMode || meta.mode;
+            const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(line.quantity || 0, wt, uom, mode);
+            return {
+              ...line,
+              weightPerPiece: wt,
+              weightPerMeter: it.weightPerMeter ? Number(it.weightPerMeter) : undefined,
+              weightMode: mode,
+              weightUnitLabel: meta.weightUnit,
+              qtyUnitLabel: uom,
+              totalWeightKg,
+              calculatedMeters,
+              calculatedPieces,
+            };
+          }
         }
         return line;
       });
@@ -522,10 +654,13 @@ export const ProductionItemOpenStock: React.FC = () => {
       itemName: '',
       itemType: filterItemType !== 'ALL' ? filterItemType : '',
       uomId: '',
-      uomCode: '',
+      uomCode: 'KG',
       currentBalance: 0,
       quantity: 0,
       weightPerPiece: 0,
+      weightMode: isCcdDivision ? 'METER' : 'PCS',
+      weightUnitLabel: isCcdDivision ? 'Kg/M' : 'Kg/pc',
+      qtyUnitLabel: 'KG',
       totalWeightKg: 0,
       unitCost: 0,
       batchNumber: `BAT-${dayjs().format('YYMM')}`,
@@ -541,13 +676,12 @@ export const ProductionItemOpenStock: React.FC = () => {
     }
     const populatedLines: OpenStockLine[] = items.map((it) => {
       const itemName = it.itemName || it.name || it.itemCode;
-      const uom = it.uomCode || (it as any).baseUom?.code || (it as any).baseUom?.symbol || 'PCS';
+      const meta = getItemWeightMeta(it);
+      const uom = it.uomCode || (it as any).baseUom?.code || (it as any).baseUom?.symbol || meta.qtyUnit;
       const cost = it.unitCost ?? (it as any).costPrice ?? 0;
-      const weightPerPiece = it.weightPerPiece && Number(it.weightPerPiece) > 0 ? Number(it.weightPerPiece) : 0;
+      const unitWeight = meta.rate;
       const qty = it.currentBalance > 0 ? it.currentBalance : 0;
-      const totalWeightKg = weightPerPiece > 0
-        ? Number((qty * weightPerPiece).toFixed(4))
-        : (uom.toUpperCase() === 'KG' ? qty : 0);
+      const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(qty, unitWeight, uom, meta.mode);
 
       return {
         key: `auto-${it.id}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
@@ -559,7 +693,13 @@ export const ProductionItemOpenStock: React.FC = () => {
         uomCode: uom,
         currentBalance: it.currentBalance || 0,
         quantity: qty,
-        weightPerPiece,
+        weightPerPiece: unitWeight,
+        weightPerMeter: it.weightPerMeter ? Number(it.weightPerMeter) : undefined,
+        weightMode: meta.mode,
+        weightUnitLabel: meta.weightUnit,
+        qtyUnitLabel: uom,
+        calculatedMeters,
+        calculatedPieces,
         totalWeightKg,
         unitCost: cost,
         batchNumber: `OPN-${dayjs().format('YYMM')}`,
@@ -581,13 +721,12 @@ export const ProductionItemOpenStock: React.FC = () => {
           const selected = itemsMap.get(value);
           if (selected) {
             const itemName = selected.itemName || selected.name || selected.itemCode;
-            const uom = selected.uomCode || (selected as any).baseUom?.code || (selected as any).baseUom?.symbol || 'PCS';
+            const meta = getItemWeightMeta(selected);
+            const uom = selected.uomCode || (selected as any).baseUom?.code || (selected as any).baseUom?.symbol || meta.qtyUnit;
             const cost = selected.unitCost ?? (selected as any).costPrice ?? 0;
-            const weightPerPiece = selected.weightPerPiece && Number(selected.weightPerPiece) > 0 ? Number(selected.weightPerPiece) : 0;
+            const unitWeight = meta.rate;
             const qty = line.quantity || 0;
-            const totalWeightKg = weightPerPiece > 0
-              ? Number((qty * weightPerPiece).toFixed(4))
-              : (uom.toUpperCase() === 'KG' ? qty : 0);
+            const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(qty, unitWeight, uom, meta.mode);
 
             updated = {
               ...line,
@@ -598,23 +737,28 @@ export const ProductionItemOpenStock: React.FC = () => {
               uomId: selected.uomId || selected.baseUomId || '',
               uomCode: uom,
               currentBalance: selected.currentBalance || 0,
-              weightPerPiece,
+              weightPerPiece: unitWeight,
+              weightPerMeter: selected.weightPerMeter ? Number(selected.weightPerMeter) : undefined,
+              weightMode: meta.mode,
+              weightUnitLabel: meta.weightUnit,
+              qtyUnitLabel: uom,
+              calculatedMeters,
+              calculatedPieces,
               totalWeightKg,
               unitCost: cost,
             };
           }
         } else if (field === 'quantity') {
           const newQty = Number(value) || 0;
-          const totalWeightKg = line.weightPerPiece > 0
-            ? Number((newQty * line.weightPerPiece).toFixed(4))
-            : (line.uomCode?.toUpperCase() === 'KG' ? newQty : 0);
-          updated = { ...line, quantity: newQty, totalWeightKg };
+          const meta = getItemWeightMeta(itemsMap.get(line.itemId));
+          const effectiveWt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
+          const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(newQty, effectiveWt, line.uomCode, line.weightMode || meta.mode);
+          updated = { ...line, quantity: newQty, totalWeightKg, calculatedMeters, calculatedPieces };
         } else if (field === 'weightPerPiece') {
           const newWeight = Number(value) || 0;
-          const totalWeightKg = newWeight > 0
-            ? Number(((line.quantity || 0) * newWeight).toFixed(4))
-            : (line.uomCode?.toUpperCase() === 'KG' ? (line.quantity || 0) : 0);
-          updated = { ...line, weightPerPiece: newWeight, totalWeightKg };
+          const meta = getItemWeightMeta(itemsMap.get(line.itemId));
+          const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(line.quantity || 0, newWeight, line.uomCode, line.weightMode || meta.mode);
+          updated = { ...line, weightPerPiece: newWeight, totalWeightKg, calculatedMeters, calculatedPieces };
         } else {
           updated = { ...line, [field]: value };
         }
@@ -649,9 +793,10 @@ export const ProductionItemOpenStock: React.FC = () => {
     ];
     const sampleRows = items.slice(0, 15).map((it) => {
       const name = it.itemName || it.name || it.itemCode;
-      const uom = it.uomCode || (it as any).baseUom?.code || 'PCS';
+      const meta = getItemWeightMeta(it);
+      const uom = it.uomCode || (it as any).baseUom?.code || meta.qtyUnit;
       const cost = it.unitCost ?? (it as any).costPrice ?? 0;
-      const wt = it.weightPerPiece && Number(it.weightPerPiece) > 0 ? Number(it.weightPerPiece) : 0;
+      const wt = meta.rate;
       const qty = it.currentBalance || 100;
       const totWt = wt > 0 ? (qty * wt).toFixed(4) : (uom.toUpperCase() === 'KG' ? qty : 0);
       return [
@@ -699,16 +844,17 @@ export const ProductionItemOpenStock: React.FC = () => {
             const itemCode = cols[0];
             const matchingItem = items.find((it) => it.itemCode.toLowerCase() === itemCode.toLowerCase());
             const qty = parseFloat(cols[4]) || 0;
-            const wtPerPc = cols[5] !== undefined && cols[5] !== '' ? parseFloat(cols[5]) : (matchingItem?.weightPerPiece || 0);
+            const meta = getItemWeightMeta(matchingItem);
+            const wtPerUnit = cols[5] !== undefined && cols[5] !== '' ? parseFloat(cols[5]) : meta.rate;
             const rate = cols[7] !== undefined && cols[7] !== '' ? parseFloat(cols[7]) : (matchingItem?.unitCost ?? (matchingItem as any)?.costPrice ?? 0);
             const batch = cols[8] || '';
             const notes = cols[9] || '';
 
             if (matchingItem) {
               const itemName = matchingItem.itemName || matchingItem.name || matchingItem.itemCode;
-              const uom = matchingItem.uomCode || (matchingItem as any).baseUom?.code || 'PCS';
-              const totalWeightKg = wtPerPc > 0
-                ? Number((qty * wtPerPc).toFixed(4))
+              const uom = matchingItem.uomCode || (matchingItem as any).baseUom?.code || meta.qtyUnit;
+              const totalWeightKg = wtPerUnit > 0
+                ? Number((qty * wtPerUnit).toFixed(4))
                 : (uom.toUpperCase() === 'KG' ? qty : 0);
 
               newLines.push({
@@ -721,7 +867,11 @@ export const ProductionItemOpenStock: React.FC = () => {
                 uomCode: uom,
                 currentBalance: matchingItem.currentBalance || 0,
                 quantity: qty,
-                weightPerPiece: wtPerPc,
+                weightPerPiece: wtPerUnit,
+                weightPerMeter: matchingItem.weightPerMeter ? Number(matchingItem.weightPerMeter) : undefined,
+                weightMode: meta.mode,
+                weightUnitLabel: meta.weightUnit,
+                qtyUnitLabel: meta.qtyUnit,
                 totalWeightKg,
                 unitCost: rate,
                 batchNumber: batch,
@@ -768,12 +918,19 @@ export const ProductionItemOpenStock: React.FC = () => {
         referenceNumber: referenceNumber.trim() || undefined,
         notes: generalNotes.trim() || undefined,
         lines: validLines.map((l) => {
-          const masterWt = itemsMap.get(l.itemId)?.weightPerPiece || 0;
+          const itemObj = itemsMap.get(l.itemId);
+          const masterMeta = getItemWeightMeta(itemObj);
+          const masterWt = masterMeta.rate;
           const effectiveWt = l.weightPerPiece > 0 ? l.weightPerPiece : masterWt;
-          const calculatedTotWt = effectiveWt > 0 ? Number(((l.quantity || 0) * effectiveWt).toFixed(4)) : (Number(l.totalWeightKg) || 0);
-          const totVal = calculatedTotWt > 0 ? (calculatedTotWt * l.unitCost) : (l.quantity * l.unitCost);
-          const weightRemark = calculatedTotWt > 0
-            ? ` (${fmtNum(calculatedTotWt)} Kg @ ${l.unitCost} Rs/Kg)`
+          const uom = (l.uomCode || itemObj?.uomCode || '').toUpperCase();
+          const mode = l.weightMode || masterMeta.mode;
+          const { totalWeightKg, calculatedMeters } = computeWeightAndMeters(Number(l.quantity) || 0, effectiveWt, uom, mode);
+          const totVal = totalWeightKg > 0 ? (totalWeightKg * l.unitCost) : (l.quantity * l.unitCost);
+          const isMeter = mode === 'METER';
+          const unitLbl = l.weightUnitLabel || masterMeta.weightUnit;
+          const lengthRemark = calculatedMeters && calculatedMeters > 0 ? `, ≈ ${fmtNum(calculatedMeters, 1)} M` : '';
+          const weightRemark = totalWeightKg > 0
+            ? ` (${fmtNum(totalWeightKg)} Kg @ ${l.unitCost} Rs/Kg [${unitLbl}: ${effectiveWt}${lengthRemark}])`
             : '';
           const effectiveUnitCost = l.quantity > 0 ? Number((totVal / l.quantity).toFixed(4)) : l.unitCost;
 
@@ -782,8 +939,9 @@ export const ProductionItemOpenStock: React.FC = () => {
             uomId: l.uomId || undefined,
             quantity: Number(l.quantity),
             unitCost: effectiveUnitCost,
-            weightPerPiece: effectiveWt > 0 ? Number(effectiveWt) : undefined,
-            totalWeightKg: calculatedTotWt > 0 ? Number(calculatedTotWt) : undefined,
+            weightPerPiece: !isMeter && effectiveWt > 0 ? Number(effectiveWt) : undefined,
+            weightPerMeter: isMeter && effectiveWt > 0 ? Number(effectiveWt) : undefined,
+            totalWeightKg: totalWeightKg > 0 ? Number(totalWeightKg) : undefined,
             ratePerKg: l.unitCost > 0 ? Number(l.unitCost) : undefined,
             batchNumber: l.batchNumber || undefined,
             notes: (l.notes ? `${l.notes}${weightRemark}` : weightRemark.trim()) || undefined,
@@ -835,14 +993,12 @@ export const ProductionItemOpenStock: React.FC = () => {
       }
       const lines: StockAdjustmentLine[] = sourceItems.map((it) => {
         const itemName = it.itemName || it.name || it.itemCode;
-        const uom = it.uomCode || (it as any).baseUom?.code || 'PCS';
-        const isKg = (uom || '').toUpperCase() === 'KG';
+        const meta = getItemWeightMeta(it);
+        const uom = it.uomCode || (it as any).baseUom?.code || meta.qtyUnit;
         const cost = it.unitCost ?? (it as any).costPrice ?? 0;
-        const weightPerPiece = it.weightPerPiece && Number(it.weightPerPiece) > 0 ? Number(it.weightPerPiece) : 0;
+        const unitWeight = meta.rate;
         const sysQty = it.currentBalance || 0;
-        const sysWt = isKg
-          ? sysQty
-          : (weightPerPiece > 0 ? Number((sysQty * weightPerPiece).toFixed(4)) : 0);
+        const { totalWeightKg: sysWt, calculatedMeters, calculatedPieces } = computeWeightAndMeters(sysQty, unitWeight, uom, meta.mode);
 
         return {
           key: `adj-${it.id}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
@@ -854,7 +1010,13 @@ export const ProductionItemOpenStock: React.FC = () => {
           uomCode: uom,
           systemQuantity: sysQty,
           physicalQuantity: sysQty,
-          weightPerPiece,
+          weightPerPiece: unitWeight,
+          weightPerMeter: it.weightPerMeter ? Number(it.weightPerMeter) : undefined,
+          weightMode: meta.mode,
+          weightUnitLabel: meta.weightUnit,
+          qtyUnitLabel: uom,
+          calculatedMeters,
+          calculatedPieces,
           systemWeightKg: sysWt,
           physicalWeightKg: sysWt,
           unitCost: cost,
@@ -877,6 +1039,8 @@ export const ProductionItemOpenStock: React.FC = () => {
         ...line,
         physicalQuantity: 0,
         physicalWeightKg: 0,
+        calculatedMeters: 0,
+        calculatedPieces: 0,
       }))
     );
     message.info('All physical counts set to 0. Review variances and click Save to post.');
@@ -890,10 +1054,13 @@ export const ProductionItemOpenStock: React.FC = () => {
       itemName: '',
       itemType: '',
       uomId: '',
-      uomCode: '',
+      uomCode: 'KG',
       systemQuantity: 0,
       physicalQuantity: 0,
       weightPerPiece: 0,
+      weightMode: isCcdDivision ? 'METER' : 'PCS',
+      weightUnitLabel: isCcdDivision ? 'Kg/M' : 'Kg/pc',
+      qtyUnitLabel: 'KG',
       systemWeightKg: 0,
       physicalWeightKg: 0,
       unitCost: 0,
@@ -914,13 +1081,13 @@ export const ProductionItemOpenStock: React.FC = () => {
           const selected = itemsMap.get(value);
           if (selected) {
             const itemName = selected.itemName || selected.name || selected.itemCode;
-            const uom = selected.uomCode || (selected as any).baseUom?.code || 'PCS';
-            const isKg = (uom || '').toUpperCase() === 'KG';
+            const meta = getItemWeightMeta(selected);
+            const uom = selected.uomCode || (selected as any).baseUom?.code || meta.qtyUnit;
             const cost = selected.unitCost ?? (selected as any).costPrice ?? 0;
-            const weightPerPiece = selected.weightPerPiece && Number(selected.weightPerPiece) > 0 ? Number(selected.weightPerPiece) : 0;
+            const unitWeight = meta.rate;
             const sysQty = selected.currentBalance || 0;
             const physQty = selected.currentBalance || 0;
-            const sysWt = isKg ? sysQty : (weightPerPiece > 0 ? Number((sysQty * weightPerPiece).toFixed(4)) : 0);
+            const { totalWeightKg: sysWt, calculatedMeters, calculatedPieces } = computeWeightAndMeters(sysQty, unitWeight, uom, meta.mode);
             const physWt = sysWt;
 
             updated = {
@@ -933,7 +1100,13 @@ export const ProductionItemOpenStock: React.FC = () => {
               uomCode: uom,
               systemQuantity: sysQty,
               physicalQuantity: physQty,
-              weightPerPiece,
+              weightPerPiece: unitWeight,
+              weightPerMeter: selected.weightPerMeter ? Number(selected.weightPerMeter) : undefined,
+              weightMode: meta.mode,
+              weightUnitLabel: meta.weightUnit,
+              qtyUnitLabel: uom,
+              calculatedMeters,
+              calculatedPieces,
               systemWeightKg: sysWt,
               physicalWeightKg: physWt,
               unitCost: cost,
@@ -941,17 +1114,18 @@ export const ProductionItemOpenStock: React.FC = () => {
           }
         } else if (field === 'physicalQuantity') {
           const physQty = Number(value) || 0;
-          const isKg = (line.uomCode || '').toUpperCase() === 'KG';
-          const physWt = isKg
-            ? physQty
-            : (line.weightPerPiece > 0 ? Number((physQty * line.weightPerPiece).toFixed(4)) : 0);
-          updated = { ...line, physicalQuantity: physQty, physicalWeightKg: physWt };
+          const meta = getItemWeightMeta(itemsMap.get(line.itemId));
+          const effectiveWt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
+          const mode = line.weightMode || meta.mode;
+          const { totalWeightKg: physWt, calculatedMeters, calculatedPieces } = computeWeightAndMeters(physQty, effectiveWt, line.uomCode, mode);
+          updated = { ...line, physicalQuantity: physQty, physicalWeightKg: physWt, calculatedMeters, calculatedPieces };
         } else if (field === 'weightPerPiece') {
           const wt = Number(value) || 0;
-          const isKg = (line.uomCode || '').toUpperCase() === 'KG';
-          const sysWt = isKg ? line.systemQuantity : (wt > 0 ? Number((line.systemQuantity * wt).toFixed(4)) : 0);
-          const physWt = isKg ? line.physicalQuantity : (wt > 0 ? Number((line.physicalQuantity * wt).toFixed(4)) : 0);
-          updated = { ...line, weightPerPiece: wt, systemWeightKg: sysWt, physicalWeightKg: physWt };
+          const meta = getItemWeightMeta(itemsMap.get(line.itemId));
+          const mode = line.weightMode || meta.mode;
+          const { totalWeightKg: sysWt } = computeWeightAndMeters(line.systemQuantity, wt, line.uomCode, mode);
+          const { totalWeightKg: physWt, calculatedMeters, calculatedPieces } = computeWeightAndMeters(line.physicalQuantity, wt, line.uomCode, mode);
+          updated = { ...line, weightPerPiece: wt, systemWeightKg: sysWt, physicalWeightKg: physWt, calculatedMeters, calculatedPieces };
         } else {
           updated = { ...line, [field]: value };
         }
@@ -991,6 +1165,9 @@ export const ProductionItemOpenStock: React.FC = () => {
         lines: varianceLines.map((l) => {
           const wtDiff = l.physicalWeightKg - l.systemWeightKg;
           const wtNote = l.physicalWeightKg > 0 ? ` (Phys: ${fmtNum(l.physicalWeightKg)} Kg, Var: ${fmtNum(wtDiff)} Kg)` : '';
+          const meta = getItemWeightMeta(itemsMap.get(l.itemId));
+          const isMeter = l.weightMode === 'METER' || meta.mode === 'METER';
+          const effectiveWt = l.weightPerPiece > 0 ? l.weightPerPiece : meta.rate;
 
           return {
             itemId: l.itemId,
@@ -1000,7 +1177,8 @@ export const ProductionItemOpenStock: React.FC = () => {
             physicalStock: Number(l.physicalQuantity),
             physicalQuantity: Number(l.physicalQuantity),
             unitCost: Number(l.unitCost) || 0,
-            weightPerPiece: l.weightPerPiece > 0 ? Number(l.weightPerPiece) : undefined,
+            weightPerPiece: !isMeter && effectiveWt > 0 ? Number(effectiveWt) : undefined,
+            weightPerMeter: isMeter && effectiveWt > 0 ? Number(effectiveWt) : undefined,
             physicalWeightKg: l.physicalWeightKg > 0 ? Number(l.physicalWeightKg) : undefined,
             ratePerKg: l.unitCost > 0 ? Number(l.unitCost) : undefined,
             reason: l.reason || adjDefaultReason,
@@ -1040,13 +1218,16 @@ export const ProductionItemOpenStock: React.FC = () => {
     let totalQty = 0;
     let totalWeight = 0;
     let totalValue = 0;
+    let totalMeters = 0;
     openStockLines.forEach((line) => {
       const q = Number(line.quantity) || 0;
       const w = Number(line.totalWeightKg) || 0;
       const c = Number(line.unitCost) || 0;
+      const m = Number(line.calculatedMeters) || 0;
       totalQty += q;
       totalWeight += w;
       totalValue += w > 0 ? (w * c) : (q * c);
+      totalMeters += m;
     });
     return {
       lineCount: openStockLines.length,
@@ -1054,6 +1235,7 @@ export const ProductionItemOpenStock: React.FC = () => {
       totalQty,
       totalWeight,
       totalValue,
+      totalMeters,
     };
   }, [openStockLines]);
 
@@ -1175,41 +1357,52 @@ export const ProductionItemOpenStock: React.FC = () => {
       ),
     },
     {
-      title: 'Opening Qty (Pcs)',
+      title: 'Opening Qty',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 140,
-      render: (val, record) => (
-        <InputNumber
-          min={0}
-          step={1}
-          value={val}
-          onChange={(newVal) => handleUpdateLine(record.key, 'quantity', newVal || 0)}
-          style={{ width: '100%', borderColor: '#52c41a', fontWeight: 'bold' }}
-          placeholder="0"
-        />
-      ),
+      width: 145,
+      render: (val, record) => {
+        const itemObj = itemsMap.get(record.itemId);
+        const meta = getItemWeightMeta(itemObj);
+        const uom = record.qtyUnitLabel || record.uomCode || itemObj?.uomCode || meta.qtyUnit || 'PCS';
+        return (
+          <InputNumber
+            min={0}
+            step={uom.toUpperCase() === 'KG' ? 0.1 : 1}
+            value={val}
+            addonAfter={<span style={{ fontSize: 11, fontWeight: 700 }}>{uom}</span>}
+            onChange={(newVal) => handleUpdateLine(record.key, 'quantity', newVal || 0)}
+            style={{ width: '100%', borderColor: '#52c41a', fontWeight: 'bold' }}
+            placeholder="0"
+          />
+        );
+      },
     },
     {
       title: (
-        <Tooltip title="Fixed weight per single piece in kilograms (loaded automatically from Item Master). Multiplies with Pcs to calculate Total Weight.">
+        <Tooltip title="Unit weight rate loaded automatically from Item Master. For Meters: Kg per Meter (Kg/M). For Pieces: Kg per Piece (Kg/pc).">
           <span>
-            Per Pc Wt (Kg) <Tag color="blue" style={{ fontSize: 10, marginLeft: 4, padding: '0 4px', lineHeight: '16px' }}>AUTO</Tag>
+            Per Unit Wt (Kg) <Tag color="blue" style={{ fontSize: 10, marginLeft: 2, padding: '0 4px', lineHeight: '16px' }}>AUTO</Tag>
+            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>(Kg/pc or Kg/M)</div>
           </span>
         </Tooltip>
       ),
       dataIndex: 'weightPerPiece',
       key: 'weightPerPiece',
-      width: 140,
+      width: 160,
       render: (val, record) => {
-        const masterWt = itemsMap.get(record.itemId)?.weightPerPiece || 0;
+        const itemObj = itemsMap.get(record.itemId);
+        const meta = getItemWeightMeta(itemObj);
+        const masterWt = meta.rate;
         const currentVal = (val !== undefined && Number(val) > 0) ? Number(val) : (masterWt > 0 ? Number(masterWt) : undefined);
+        const unitLabel = record.weightUnitLabel || meta.weightUnit || (meta.mode === 'METER' ? 'Kg/M' : 'Kg/pc');
         return (
           <InputNumber
             min={0}
             step={0.0001}
             precision={6}
             value={currentVal}
+            addonAfter={<span style={{ fontSize: 11, fontWeight: 600 }}>{unitLabel}</span>}
             onChange={(newVal) => handleUpdateLine(record.key, 'weightPerPiece', newVal || 0)}
             style={{ width: '100%', borderColor: '#1890ff', fontWeight: 500 }}
             placeholder={masterWt > 0 ? masterWt.toFixed(6) : "0.000000"}
@@ -1219,23 +1412,40 @@ export const ProductionItemOpenStock: React.FC = () => {
     },
     {
       title: (
-        <Tooltip title="Calculated Total Weight in Kg = Quantity (Pcs) × Per Piece Weight (Kg)">
-          <span>Total Wt (Kg)</span>
+        <Tooltip title="Total Weight in Kg, plus calculated Equivalent Length in Meters (for meters) or Pieces based on Unit Weight rate.">
+          <span>
+            Total Wt (Kg)
+            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>& Equiv Length / Pcs</div>
+          </span>
         </Tooltip>
       ),
       key: 'totalWeightKg',
-      width: 120,
+      width: 150,
       render: (_, record) => {
-        const masterWt = itemsMap.get(record.itemId)?.weightPerPiece || 0;
-        const effectiveWt = (record.weightPerPiece && Number(record.weightPerPiece) > 0) ? Number(record.weightPerPiece) : Number(masterWt);
+        const itemObj = itemsMap.get(record.itemId);
+        const meta = getItemWeightMeta(itemObj);
+        const effectiveWt = (record.weightPerPiece && Number(record.weightPerPiece) > 0) ? Number(record.weightPerPiece) : Number(meta.rate);
         const qty = Number(record.quantity) || 0;
-        const wt = Number(record.totalWeightKg) > 0
-          ? Number(record.totalWeightKg)
-          : (effectiveWt > 0 ? Number((qty * effectiveWt).toFixed(4)) : (record.uomCode?.toUpperCase() === 'KG' ? qty : 0));
+        const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
+        const mode = record.weightMode || meta.mode;
+        const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(qty, effectiveWt, uom, mode);
+
         return (
-          <Tag color={wt > 0 ? 'cyan' : 'default'} style={{ fontWeight: 600, fontSize: 12 }}>
-            {fmtNum(wt, 3)} Kg
-          </Tag>
+          <div>
+            <Tag color={totalWeightKg > 0 ? 'cyan' : 'default'} style={{ fontWeight: 700, fontSize: 13, padding: '2px 8px' }}>
+              {fmtNum(totalWeightKg, 2)} Kg
+            </Tag>
+            {calculatedMeters !== undefined && calculatedMeters > 0 && (
+              <div style={{ fontSize: 11, color: '#13c2c2', marginTop: 3, fontWeight: 600 }}>
+                ≈ {fmtNum(calculatedMeters, 1)} M
+              </div>
+            )}
+            {calculatedPieces !== undefined && calculatedPieces > 0 && uom === 'KG' && (
+              <div style={{ fontSize: 11, color: '#1890ff', marginTop: 3, fontWeight: 500 }}>
+                ≈ {fmtNum(calculatedPieces)} PCS
+              </div>
+            )}
+          </div>
         );
       },
     },
@@ -1266,17 +1476,18 @@ export const ProductionItemOpenStock: React.FC = () => {
         </Tooltip>
       ),
       key: 'totalValue',
-      width: 130,
+      width: 135,
       render: (_, record) => {
-        const masterWt = itemsMap.get(record.itemId)?.weightPerPiece || 0;
-        const effectiveWt = (record.weightPerPiece && Number(record.weightPerPiece) > 0) ? Number(record.weightPerPiece) : Number(masterWt);
+        const itemObj = itemsMap.get(record.itemId);
+        const meta = getItemWeightMeta(itemObj);
+        const effectiveWt = (record.weightPerPiece && Number(record.weightPerPiece) > 0) ? Number(record.weightPerPiece) : Number(meta.rate);
         const qty = Number(record.quantity) || 0;
-        const wt = Number(record.totalWeightKg) > 0
-          ? Number(record.totalWeightKg)
-          : (effectiveWt > 0 ? Number((qty * effectiveWt).toFixed(4)) : (record.uomCode?.toUpperCase() === 'KG' ? qty : 0));
+        const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
+        const mode = record.weightMode || meta.mode;
+        const { totalWeightKg } = computeWeightAndMeters(qty, effectiveWt, uom, mode);
         const rate = Number(record.unitCost) || 0;
-        const total = wt > 0 ? (wt * rate) : (qty * rate);
-        return <Text strong style={{ color: '#096dd9' }}>{fmtNum(total)} Rs</Text>;
+        const total = totalWeightKg > 0 ? (totalWeightKg * rate) : (qty * rate);
+        return <Text strong style={{ color: '#096dd9', fontSize: 13 }}>{fmtNum(total)} Rs</Text>;
       },
     },
     {
@@ -1389,24 +1600,31 @@ export const ProductionItemOpenStock: React.FC = () => {
       key: 'systemQuantity',
       width: 140,
       render: (val, record) => {
-        const isKg = (record.uomCode || '').toUpperCase() === 'KG';
-        const wt = Number(record.weightPerPiece) || 0;
-        const equivPcs = isKg && wt > 0 ? Math.round(val / wt) : 0;
-        const equivKg = !isKg && wt > 0 ? Number((val * wt).toFixed(2)) : 0;
+        const itemObj = itemsMap.get(record.itemId);
+        const meta = getItemWeightMeta(itemObj);
+        const wt = Number(record.weightPerPiece) || Number(meta.rate) || 0;
+        const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
+        const mode = record.weightMode || meta.mode;
+        const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(Number(val) || 0, wt, uom, mode);
 
         return (
           <div>
             <Tag color="geekblue" style={{ fontSize: 13, fontWeight: 600 }}>
               {fmtNum(val)} {record.uomCode || 'PCS'}
             </Tag>
-            {isKg && equivPcs > 0 && (
-              <div style={{ fontSize: 11, color: '#1890ff', marginTop: 3, fontWeight: 500 }}>
-                ≈ {fmtNum(equivPcs)} PCS
+            {calculatedMeters !== undefined && calculatedMeters > 0 && (
+              <div style={{ fontSize: 11, color: '#13c2c2', marginTop: 3, fontWeight: 600 }}>
+                ≈ {fmtNum(calculatedMeters, 1)} M
               </div>
             )}
-            {!isKg && equivKg > 0 && (
+            {calculatedPieces !== undefined && calculatedPieces > 0 && uom === 'KG' && (
+              <div style={{ fontSize: 11, color: '#1890ff', marginTop: 3, fontWeight: 500 }}>
+                ≈ {fmtNum(calculatedPieces)} PCS
+              </div>
+            )}
+            {uom !== 'KG' && totalWeightKg > 0 && (
               <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 3 }}>
-                {fmtNum(equivKg, 2)} Kg
+                {fmtNum(totalWeightKg, 2)} Kg
               </div>
             )}
           </div>
@@ -1415,7 +1633,7 @@ export const ProductionItemOpenStock: React.FC = () => {
     },
     {
       title: (
-        <Tooltip title="Verified floor physical stock. For KG items (wire coils) enter weight in KG; for Piece items (spokes/nipples) enter pieces.">
+        <Tooltip title="Verified floor physical stock. For KG items (wire coils/strips) enter weight in KG; for Piece items (spokes/nipples) enter pieces.">
           <span>Physical Count (Stock UOM)</span>
         </Tooltip>
       ),
@@ -1423,11 +1641,14 @@ export const ProductionItemOpenStock: React.FC = () => {
       key: 'physicalQuantity',
       width: 175,
       render: (val, record) => {
-        const isKg = (record.uomCode || '').toUpperCase() === 'KG';
-        const wt = Number(record.weightPerPiece) || 0;
+        const itemObj = itemsMap.get(record.itemId);
+        const meta = getItemWeightMeta(itemObj);
+        const wt = Number(record.weightPerPiece) || Number(meta.rate) || 0;
         const numVal = Number(val) || 0;
-        const equivPcs = isKg && wt > 0 ? Math.round(numVal / wt) : 0;
-        const equivKg = !isKg && wt > 0 ? Number((numVal * wt).toFixed(2)) : 0;
+        const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
+        const isKg = uom === 'KG';
+        const mode = record.weightMode || meta.mode;
+        const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(numVal, wt, uom, mode);
 
         return (
           <div>
@@ -1440,14 +1661,19 @@ export const ProductionItemOpenStock: React.FC = () => {
               onChange={(newVal) => handleUpdateAdjLine(record.key, 'physicalQuantity', newVal !== null && newVal !== undefined ? newVal : 0)}
               style={{ width: '100%', fontWeight: 'bold' }}
             />
-            {isKg && wt > 0 && (
-              <div style={{ fontSize: 11, color: '#1890ff', marginTop: 2, fontWeight: 500 }}>
-                ≈ {fmtNum(equivPcs)} PCS
+            {calculatedMeters !== undefined && calculatedMeters > 0 && (
+              <div style={{ fontSize: 11, color: '#13c2c2', marginTop: 2, fontWeight: 600 }}>
+                ≈ {fmtNum(calculatedMeters, 1)} M
               </div>
             )}
-            {!isKg && wt > 0 && (
+            {calculatedPieces !== undefined && calculatedPieces > 0 && isKg && (
+              <div style={{ fontSize: 11, color: '#1890ff', marginTop: 2, fontWeight: 500 }}>
+                ≈ {fmtNum(calculatedPieces)} PCS
+              </div>
+            )}
+            {!isKg && totalWeightKg > 0 && (
               <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
-                {fmtNum(equivKg, 2)} Kg
+                {fmtNum(totalWeightKg, 2)} Kg
               </div>
             )}
           </div>
@@ -1455,20 +1681,32 @@ export const ProductionItemOpenStock: React.FC = () => {
       },
     },
     {
-      title: 'Per Pc Wt (Kg)',
+      title: (
+        <Tooltip title="Unit weight rate loaded from Item Master (Kg/pc or Kg/M)">
+          <span>
+            Per Unit Wt (Kg) <Tag color="blue" style={{ fontSize: 10, marginLeft: 2, padding: '0 4px', lineHeight: '16px' }}>AUTO</Tag>
+            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>(Kg/pc or Kg/M)</div>
+          </span>
+        </Tooltip>
+      ),
       dataIndex: 'weightPerPiece',
       key: 'weightPerPiece',
-      width: 125,
-      render: (val, record) => (
-        <InputNumber
-          min={0}
-          step={0.0001}
-          precision={6}
-          value={val}
-          onChange={(newVal) => handleUpdateAdjLine(record.key, 'weightPerPiece', newVal || 0)}
-          style={{ width: '100%' }}
-        />
-      ),
+      width: 155,
+      render: (val, record) => {
+        const meta = getItemWeightMeta(itemsMap.get(record.itemId));
+        const unit = record.weightUnitLabel || meta.weightUnit || (meta.mode === 'METER' ? 'Kg/M' : 'Kg/pc');
+        return (
+          <InputNumber
+            min={0}
+            step={0.0001}
+            precision={6}
+            value={val}
+            addonAfter={<span style={{ fontSize: 11 }}>{unit}</span>}
+            onChange={(newVal) => handleUpdateAdjLine(record.key, 'weightPerPiece', newVal || 0)}
+            style={{ width: '100%' }}
+          />
+        );
+      },
     },
     {
       title: 'Variance (+ Surplus / - Shortage)',
@@ -1476,10 +1714,13 @@ export const ProductionItemOpenStock: React.FC = () => {
       width: 180,
       render: (_, record) => {
         const diff = (Number(record.physicalQuantity) || 0) - (Number(record.systemQuantity) || 0);
-        const isKg = (record.uomCode || '').toUpperCase() === 'KG';
-        const wt = Number(record.weightPerPiece) || 0;
-        const equivDiffPcs = isKg && wt > 0 ? Math.round(diff / wt) : 0;
-        const equivDiffKg = !isKg && wt > 0 ? Number((diff * wt).toFixed(2)) : 0;
+        const itemObj = itemsMap.get(record.itemId);
+        const meta = getItemWeightMeta(itemObj);
+        const wt = Number(record.weightPerPiece) || Number(meta.rate) || 0;
+        const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
+        const isKg = uom === 'KG';
+        const mode = record.weightMode || meta.mode;
+        const { totalWeightKg: diffKg, calculatedMeters: diffMeters, calculatedPieces: diffPieces } = computeWeightAndMeters(Math.abs(diff), wt, uom, mode);
 
         if (diff === 0) {
           return <Tag color="default"><CheckCircleOutlined /> Exact Match</Tag>;
@@ -1490,14 +1731,19 @@ export const ProductionItemOpenStock: React.FC = () => {
               <Tag color="success" style={{ fontWeight: 'bold' }}>
                 <ArrowUpOutlined /> +{fmtNum(diff)} {record.uomCode || 'PCS'}
               </Tag>
-              {isKg && equivDiffPcs > 0 && (
-                <div style={{ fontSize: 11, color: '#389e0d', marginTop: 2, fontWeight: 500 }}>
-                  ≈ +{fmtNum(equivDiffPcs)} PCS
+              {diffMeters !== undefined && diffMeters > 0 && (
+                <div style={{ fontSize: 11, color: '#13c2c2', marginTop: 2, fontWeight: 600 }}>
+                  ≈ +{fmtNum(diffMeters, 1)} M
                 </div>
               )}
-              {!isKg && equivDiffKg > 0 && (
+              {diffPieces !== undefined && diffPieces > 0 && isKg && (
+                <div style={{ fontSize: 11, color: '#389e0d', marginTop: 2, fontWeight: 500 }}>
+                  ≈ +{fmtNum(diffPieces)} PCS
+                </div>
+              )}
+              {!isKg && diffKg > 0 && (
                 <div style={{ fontSize: 11, color: '#389e0d', marginTop: 2 }}>
-                  +{fmtNum(equivDiffKg, 2)} Kg
+                  +{fmtNum(diffKg, 2)} Kg
                 </div>
               )}
             </div>
@@ -1508,14 +1754,19 @@ export const ProductionItemOpenStock: React.FC = () => {
             <Tag color="error" style={{ fontWeight: 'bold' }}>
               <ArrowDownOutlined /> {fmtNum(diff)} {record.uomCode || 'PCS'}
             </Tag>
-            {isKg && wt > 0 && (
-              <div style={{ fontSize: 11, color: '#cf1322', marginTop: 2, fontWeight: 500 }}>
-                ≈ {fmtNum(equivDiffPcs)} PCS
+            {diffMeters !== undefined && diffMeters > 0 && (
+              <div style={{ fontSize: 11, color: '#cf1322', marginTop: 2, fontWeight: 600 }}>
+                ≈ -{fmtNum(diffMeters, 1)} M
               </div>
             )}
-            {!isKg && equivDiffKg < 0 && (
+            {diffPieces !== undefined && diffPieces > 0 && isKg && (
+              <div style={{ fontSize: 11, color: '#cf1322', marginTop: 2, fontWeight: 500 }}>
+                ≈ -{fmtNum(diffPieces)} PCS
+              </div>
+            )}
+            {!isKg && diffKg > 0 && (
               <div style={{ fontSize: 11, color: '#cf1322', marginTop: 2 }}>
-                {fmtNum(equivDiffKg, 2)} Kg
+                -{fmtNum(diffKg, 2)} Kg
               </div>
             )}
           </div>
@@ -1986,8 +2237,9 @@ export const ProductionItemOpenStock: React.FC = () => {
                             valueStyle={{ fontSize: 18 }}
                           />
                           <Statistic
-                            title="Total Quantity (Pcs)"
+                            title="Total Quantity"
                             value={fmtNum(openStockSummary.totalQty)}
+                            suffix={isCcdDivision ? 'Kg / M' : isSpokeDivision ? 'Pcs' : ''}
                             valueStyle={{ fontSize: 18, color: '#389e0d' }}
                           />
                           <Statistic
@@ -1996,6 +2248,14 @@ export const ProductionItemOpenStock: React.FC = () => {
                             suffix="Kg"
                             valueStyle={{ fontSize: 18, color: '#08979c' }}
                           />
+                          {openStockSummary.totalMeters > 0 && (
+                            <Statistic
+                              title="Total Length (M)"
+                              value={fmtNum(openStockSummary.totalMeters, 1)}
+                              suffix="M"
+                              valueStyle={{ fontSize: 18, color: '#13c2c2' }}
+                            />
+                          )}
                           <Statistic
                             title="Total Estimated Value"
                             value={fmtNum(openStockSummary.totalValue)}
@@ -2195,7 +2455,7 @@ export const ProductionItemOpenStock: React.FC = () => {
                           <Statistic
                             title="Net Quantity Variance"
                             value={fmtNum(adjSummary.netVarianceQty)}
-                            suffix="Pcs"
+                            suffix={isCcdDivision ? 'M' : isSpokeDivision ? 'Pcs' : 'Pcs / M'}
                             valueStyle={{
                               fontSize: 18,
                               color: adjSummary.netVarianceQty >= 0 ? '#389e0d' : '#cf1322',

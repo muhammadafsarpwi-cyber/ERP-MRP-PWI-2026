@@ -327,10 +327,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
     const isSettings = location.pathname.startsWith('/settings');
     const tabId = isSettings ? '/settings' : location.pathname;
-    const navMeta = resolveNavMeta(location.pathname, location.search);
-    const initialTitle = isSettings
-      ? 'Company Settings'
-      : (navMeta?.label || (typeof pageTitle === 'string' ? pageTitle : 'Page'));
+
+    let initialTitle = isSettings ? 'Company Settings' : undefined;
+    if (!initialTitle) {
+      if (/^\/production\/entries\/new\b/.test(location.pathname)) initialTitle = 'New Daily Production Entry';
+      else if (/^\/production\/entries\/select\b/.test(location.pathname)) initialTitle = 'New Daily Production Entry';
+      else if (/^\/production\/entries\/[^/]+\/edit\b/.test(location.pathname)) initialTitle = 'Edit Daily Production Entry';
+      else if (/^\/production\/entries\/[^/]+$/.test(location.pathname)) initialTitle = 'Production Entry Details';
+      else if (location.pathname === '/production/entries') initialTitle = 'Daily Production Entry';
+      else {
+        const navMeta = resolveNavMeta(location.pathname, location.search);
+        initialTitle = (typeof pageTitle === 'string' ? pageTitle : navMeta?.label) || 'Page';
+      }
+    }
 
     const tabStore = useWorkspaceTabStore.getState();
 
@@ -376,6 +385,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const isSettings = targetPath.startsWith('/settings');
     const canonicalKey = isSettings ? '/settings' : targetPath;
     const navMeta = resolveNavMeta(targetPath);
+    let menuTabTitle = isSettings ? 'Company Settings' : undefined;
+    if (!menuTabTitle) {
+      if (targetPath === '/production/entries') menuTabTitle = 'Daily Production Entry';
+      else menuTabTitle = navMeta?.label || 'Page';
+    }
     // Seamlessly focus existing tab if already opened, or navigate to open a new tab
     const existing = useWorkspaceTabStore.getState().tabs.find(
       (t) => t.id === canonicalKey || t.pathname === canonicalKey
@@ -384,8 +398,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       if (isSettings) {
         useWorkspaceTabStore.getState().activateTab(existing.id);
         navigate(existing.route || targetPath);
-      } else if (navMeta?.label && existing.title !== navMeta.label) {
-        useWorkspaceTabStore.getState().openTab({ ...existing, title: navMeta.label });
+      } else if (menuTabTitle && existing.title !== menuTabTitle) {
+        useWorkspaceTabStore.getState().openTab({ ...existing, title: menuTabTitle });
         navigate(existing.route);
       } else {
         useWorkspaceTabStore.getState().activateTab(existing.id);
@@ -396,7 +410,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         id: canonicalKey,
         route: targetPath,
         pathname: targetPath,
-        title: isSettings ? 'Company Settings' : (navMeta?.label || 'Page'),
+        title: menuTabTitle,
         closable: canonicalKey !== '/dashboard',
       });
       navigate(targetPath);

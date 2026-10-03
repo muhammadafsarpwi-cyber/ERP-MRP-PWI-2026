@@ -11,6 +11,7 @@ import {
   CheckOutlined, UndoOutlined, DatabaseOutlined, CalendarOutlined,
   ToolOutlined, TeamOutlined, ApartmentOutlined, CheckCircleFilled,
   ArrowDownOutlined, ArrowUpOutlined, EyeOutlined, EyeInvisibleOutlined, UserOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -27,6 +28,7 @@ import {
 } from './downtimeHours';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 import { GlobalLoading } from '../../../components/shared';
+import PageHeader from '../../../components/shared/PageHeader';
 import ProductionSaveSuccessModal, { SavedEntrySummary } from './ProductionSaveSuccessModal';
 
 const { Title, Text } = Typography;
@@ -1771,11 +1773,22 @@ const EntryForm: React.FC<EntryFormProps> = ({
   return (
     <div style={isModal ? { height: '100%', display: 'flex', flexDirection: 'column' } : undefined}>
       {!isModal && (
+        <PageHeader
+          icon={<EditOutlined />}
+          title={mode === 'create' ? 'New Daily Production Entry' : 'Edit Daily Production Entry'}
+          subtitle={
+            mode === 'create'
+              ? 'Record daily shift production figures, operational outputs, and metrics.'
+              : 'Modify shift production record and operational outputs.'
+          }
+        />
+      )}
+      {!isModal && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <Space>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
             <Title level={4} style={{ margin: 0 }}>
-              {mode === 'create' ? 'New Production Entry' : 'Edit Production Entry'}
+              {mode === 'create' ? 'New Daily Production Entry' : 'Edit Daily Production Entry'}
             </Title>
           </Space>
           <button

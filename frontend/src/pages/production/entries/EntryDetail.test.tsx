@@ -201,7 +201,7 @@ describe('EntryDetail — raw material availability at the exact source store (T
 
   it('C2: when the source store has a real balance the UI shows that number — never a fabricated zero', async () => {
     renderDetail(entry, { outBalances, inBalances });
-    await waitFor(async () => expect((await screen.findAllByText('5,000')).length).toBeGreaterThan(0));
+    expect((await screen.findAllByText('5,000')).length).toBeGreaterThan(0);
     // Stock parked in a different store (90) must NOT be reported as the source
     // store's availability — the exact store row wins.
     expect(screen.queryByText('90')).not.toBeInTheDocument();

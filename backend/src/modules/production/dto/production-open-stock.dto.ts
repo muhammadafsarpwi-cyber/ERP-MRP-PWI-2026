@@ -38,6 +38,12 @@ export class ProductionOpenStockLineDto {
   @Min(0)
   weightPerPiece?: number;
 
+  @ApiPropertyOptional({ description: 'Weight per meter in Kg/M', example: 0.0017 })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  weightPerMeter?: number;
+
   @ApiPropertyOptional({ description: 'Total calculated weight in Kg', example: 62.67 })
   @IsNumber()
   @IsOptional()
@@ -159,6 +165,12 @@ export class ProductionStockAdjustmentLineDto {
   @IsOptional()
   @Min(0)
   weightPerPiece?: number;
+
+  @ApiPropertyOptional({ description: 'Weight per meter in Kg/M', example: 0.0017 })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  weightPerMeter?: number;
 
   @ApiPropertyOptional({ description: 'Total physical weight in Kg', example: 62.67 })
   @IsNumber()
