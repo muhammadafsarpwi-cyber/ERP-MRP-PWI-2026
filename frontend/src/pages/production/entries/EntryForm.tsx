@@ -442,13 +442,16 @@ const EntryForm: React.FC<EntryFormProps> = ({
   }, [lookups.machines]);
 
   /** Ask the backend which ACTIVE Machine Target applies to machine+shift+date (+item scope). */
-  const lastResolvedItemRef = useRef<string | null | undefined>(undefined);
+  const lastResolvedKeyRef = useRef<string>('');
   const resolveTarget = useCallback(async (
     machineId: string,
     mShiftId: string,
     productionDate: string,
     opts?: { itemId?: string },
   ) => {
+    const key = `${machineId}:${mShiftId}:${productionDate}:${opts?.itemId ?? ''}`;
+    if (lastResolvedKeyRef.current === key) return;
+    lastResolvedKeyRef.current = key;
     setResolvingMt(true);
     setMtError(null);
     try {
@@ -459,12 +462,10 @@ const EntryForm: React.FC<EntryFormProps> = ({
           ...(opts?.itemId ? { itemId: opts.itemId } : {}),
         },
       );
-      lastResolvedItemRef.current = opts?.itemId ?? null;
       setMtResolution(res.data);
       // The machine target's UOM is authoritative for the entry (server enforces it).
       if (res.data.uom?.id) form.setFieldValue('uomId', res.data.uom.id);
     } catch (err: unknown) {
-      setMtResolution(null);
       const axiosErr = err as { response?: { data?: { message?: string | string[] } } };
       const msg = Array.isArray(axiosErr.response?.data?.message)
         ? axiosErr.response!.data!.message!.join(', ')
@@ -593,11 +594,9 @@ const EntryForm: React.FC<EntryFormProps> = ({
     // item must never replace Item 1's target (no averaging).
     const targetItemId = firstProdItemId ?? itemId;
     if (!machineLinked || !targetItemId || !mId || !sId || !d) return;
-    if (lastResolvedItemRef.current === targetItemId && !mtError) return;
-    lastResolvedItemRef.current = targetItemId;
     void resolveTarget(mId, sId, d, { itemId: targetItemId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firstProdItemId, itemId, machineLinked, mtError, ctxIds.machineId, ctxShiftId, ctxIds.entryDate]);
+  }, [firstProdItemId, itemId, machineLinked, ctxIds.machineId, ctxShiftId, ctxIds.entryDate]);
 
   useEffect(() => {
     if (mode === 'create' && departmentId) {
@@ -821,9 +820,62 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return mfg.length > 0 ? mfg : lookups.items;
   }, [effectiveDeptId, lookups.deptItemsMap, lookups.items, ctxIds.divisionId, divisionId]);
 
+  // ── Machine Target Items: Load active target configurations for this machine
+  //    so the item dropdown prioritizes/scopes to items designated for this machine.
+  const [machineTargets, setMachineTargets] = useState<any[]>([]);
+  useEffect(() => {
+    const mId = mode === 'edit' ? entry?.machineId : ctxIds.machineId;
+    if (!mId) {
+      setMachineTargets([]);
+      return;
+    }
+    let active = true;
+    void (async () => {
+      try {
+        const res = await apiService.get<{ data: any[] }>('/production/machine-targets', {
+          machineId: mId,
+          status: 'ACTIVE',
+          limit: 100,
+        });
+        if (active) {
+          setMachineTargets(res.data || []);
+        }
+      } catch {
+        // fallback
+      }
+    })();
+    return () => { active = false; };
+  }, [mode, entry?.machineId, ctxIds.machineId]);
+
+  const machineTargetItems = useMemo(() => {
+    if (!machineTargets.length) return [];
+    const seen = new Set<string>();
+    const result: ItemLk[] = [];
+    for (const mt of machineTargets) {
+      const itId = mt.itemId || mt.item?.id;
+      if (!itId || seen.has(itId)) continue;
+      seen.add(itId);
+      const full = departmentItems.find((i) => i.id === itId)
+        || lookups.items.find((i) => i.id === itId);
+      if (full) {
+        result.push(full);
+      } else if (mt.item) {
+        result.push({
+          id: mt.item.id,
+          itemCode: mt.item.code || mt.item.itemCode,
+          name: mt.item.name,
+          baseUomId: mt.item.baseUomId || mt.uomId,
+          wireSizeMm: mt.item.wireSizeMm ?? null,
+          isManufacturable: true,
+        } as any);
+      }
+    }
+    return result;
+  }, [machineTargets, departmentItems, lookups.items]);
+
   const selectedItem = useMemo(
-    () => lookups.items.find((i) => i.id === itemId) || departmentItems.find((i) => i.id === itemId) || null,
-    [lookups.items, departmentItems, itemId],
+    () => (machineTargetItems.find((i) => i.id === itemId)) || departmentItems.find((i) => i.id === itemId) || lookups.items.find((i) => i.id === itemId) || null,
+    [machineTargetItems, departmentItems, lookups.items, itemId],
   );
 
   // ── Primary item = first production item (historically used for the legacy
@@ -833,12 +885,13 @@ const EntryForm: React.FC<EntryFormProps> = ({
     const items = (productionItemsWatch ?? []) as Array<{ itemId?: string }>;
     const first = items.find((it) => !!it.itemId);
     if (first?.itemId) {
-      return lookups.items.find((i) => i.id === first.itemId)
+      return (machineTargetItems.find((i) => i.id === first.itemId))
         || departmentItems.find((i) => i.id === first.itemId)
+        || lookups.items.find((i) => i.id === first.itemId)
         || null;
     }
     return selectedItem;
-  }, [productionItemsWatch, lookups.items, departmentItems, selectedItem]);
+  }, [productionItemsWatch, machineTargetItems, departmentItems, lookups.items, selectedItem]);
 
   // Auto-fill Coil Size from primary item's Wire Size (Wire Size == Coil Size)
   const lastAutoCoilRef = useRef<string | null>(null);
@@ -904,13 +957,20 @@ const EntryForm: React.FC<EntryFormProps> = ({
   }, [isFullDowntime, form, departmentItems, machineLinked, mtResolution]);
 
   // Ensure at least 1 production item row is always open by default on create,
-  // and auto-selects the first available department item once loaded.
+  // and auto-selects the machine target item (or first department item) once loaded.
   useEffect(() => {
     if (mode !== 'create') return;
     const current = form.getFieldValue('productionItems');
     const firstRowMissingItem = !current || !Array.isArray(current) || current.length === 0 || !current[0]?.itemId;
-    if (firstRowMissingItem && departmentItems.length > 0) {
-      const defaultItem = departmentItems[0];
+    if (firstRowMissingItem && (machineTargetItems.length > 0 || departmentItems.length > 0)) {
+      const resolvedTargetItemId = mtResolution?.item?.id;
+      const defaultItem = (resolvedTargetItemId && (
+        machineTargetItems.find((i) => i.id === resolvedTargetItemId) ||
+        departmentItems.find((i) => i.id === resolvedTargetItemId) ||
+        lookups.items.find((i) => i.id === resolvedTargetItemId)
+      )) || machineTargetItems[0] || departmentItems[0];
+
+      if (!defaultItem) return;
       const targetUomId = (machineLinked && mtResolution?.uom?.id) ? mtResolution.uom.id : defaultItem.baseUomId;
       const existing0 = (Array.isArray(current) && current[0]) || {};
       form.setFieldValue('productionItems', [
@@ -929,7 +989,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
         form.setFieldValue('itemId', defaultItem.id);
       }
     }
-  }, [mode, departmentItems, machineLinked, mtResolution, isFullDowntime, form]);
+  }, [mode, machineTargetItems, departmentItems, machineLinked, mtResolution, isFullDowntime, form, lookups.items]);
 
   const operatorOptions = useMemo(() => {
     const list = lookups.employeesForDepartment(effectiveDeptId);
@@ -1783,7 +1843,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
           </Card>
         )}
         {!loadingEntry && (
-          <div className="entry-book-container">
+          <>
+            <div className="entry-book-container">
             {/* ── LEFT PANE: Data Entry Form (کتاب کا بایاں صفحہ - فارم بھرنے کی چیز) ── */}
             <div className={`entry-book-form-pane ${!effectiveShowLinked ? 'full-width' : ''}`}>
               {/* ── STEP 1: Operator ── */}
@@ -1925,19 +1986,20 @@ const EntryForm: React.FC<EntryFormProps> = ({
                 style={{ marginTop: 16 }}
                 extra={
                   <Space>
-                    <Tag color={isStep3Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep3Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 3 OK</> : 'STEP 3'}</Tag>
+                    <Tag color={isStep3Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px', height: 26, display: 'inline-flex', alignItems: 'center' }}>{isStep3Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 3 OK</> : 'STEP 3'}</Tag>
                     {maxItemsReached ? (
                       <Tooltip title="Maximum 2 production items are allowed.">
                         <span>
-                          <Button type="primary" size="small" icon={<PlusOutlined />} disabled>
+                          <Button type="primary" size="middle" icon={<PlusOutlined />} disabled style={{ height: 32, padding: '0 16px', fontWeight: 600, borderRadius: 6 }}>
                             + Add Item
                           </Button>
                         </span>
                       </Tooltip>
                     ) : (
                       <Button
-                        type="primary" size="small" icon={<PlusOutlined />}
+                        type="primary" size="middle" icon={<PlusOutlined />}
                         onClick={() => addProductionItemRef.current()}
+                        style={{ height: 32, padding: '0 16px', fontWeight: 600, borderRadius: 6 }}
                       >
                         + Add Item
                       </Button>
@@ -1956,15 +2018,15 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     addProductionItemRef.current = () => add({});
                     return (
                     <>
-                      {/* Header row: # | Item/Product | Wire Size | Quantity | UOM | Action */}
+                      {/* Header row: hidden on mobile (xs=0) to prevent vertical stack, cleanly aligned on desktop (sums to 24 cols) */}
                       {fields.length > 0 && (
-                        <Row gutter={6} style={{ marginBottom: 4, paddingBottom: 4, borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
-                          <Col xs={24} sm={1} lg={1}><Text type="secondary" style={{ fontSize: 11 }}>#</Text></Col>
-                          <Col xs={24} sm={9} lg={11}><Text type="secondary" style={{ fontSize: 11 }}>Item / Product</Text></Col>
-                          <Col xs={24} sm={4} lg={3}><Text type="secondary" style={{ fontSize: 11 }}>Wire Size</Text></Col>
-                          <Col xs={24} sm={4} lg={4}><Text type="secondary" style={{ fontSize: 11 }}>Quantity</Text></Col>
-                          <Col xs={24} sm={4} lg={3}><Text type="secondary" style={{ fontSize: 11 }}>UOM</Text></Col>
-                          <Col xs={24} sm={2} lg={2}></Col>
+                        <Row gutter={6} style={{ marginBottom: 6, paddingBottom: 4, borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
+                          <Col xs={0} sm={1} md={1}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>#</Text></Col>
+                          <Col xs={0} sm={11} md={10}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Item / Product</Text></Col>
+                          <Col xs={0} sm={3} md={3}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Wire Size</Text></Col>
+                          <Col xs={0} sm={4} md={5}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Quantity</Text></Col>
+                          <Col xs={0} sm={3} md={3}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>UOM</Text></Col>
+                          <Col xs={0} sm={2} md={2}></Col>
                         </Row>
                       )}
                       {fields.map((f, idx) => (
@@ -1976,6 +2038,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           machineLinked={machineLinked}
                           mtResolution={mtResolution}
                           departmentItems={departmentItems}
+                          machineTargetItems={machineTargetItems}
                           isFullDowntime={isFullDowntime}
                           remove={() => remove(f.name)}
                         />
@@ -1988,95 +2051,95 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           <div
                             data-testid="production-items-totals-bar"
                             style={{
-                              marginTop: 10,
-                              padding: '10px 12px',
+                              marginTop: 12,
+                              padding: '12px 14px',
                               borderRadius: 8,
-                              background: 'var(--theme-surface-alt, #f8fafc)',
-                              border: '1px solid var(--theme-border, #e2e8f0)',
+                              background: 'var(--theme-surface-alt, #0f172a)',
+                              border: '1px solid var(--theme-border, #1e293b)',
                               display: 'flex',
-                              flexWrap: 'wrap',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: 8,
+                              flexDirection: 'column',
+                              gap: 10,
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                              <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #ffffff)' }}>
                                 Totals ({fields.length} {fields.length === 1 ? 'item' : 'items'})
                               </Text>
+                              {multiItemAggregate.totalKg > 0 && (
+                                <span style={{ fontSize: 11.5, color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                                  Weight: <strong>{formatNumber(multiItemAggregate.totalKg, 2)}</strong> KG
+                                </span>
+                              )}
                             </div>
 
-                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                            {/* Row 1: Actual (50%) & Target (50%) divided equally */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, width: '100%' }}>
                               {/* 1. Actual Production */}
-                              <span
+                              <div
                                 style={{
-                                  display: 'inline-flex',
+                                  display: 'flex',
                                   alignItems: 'center',
-                                  gap: 4,
+                                  justifyContent: 'space-between',
                                   background: '#eff6ff',
                                   border: '1px solid #93c5fd',
                                   color: '#1e40af',
                                   borderRadius: 6,
-                                  padding: '3px 10px',
-                                  fontSize: 12,
-                                  fontWeight: 600,
+                                  padding: '7px 12px',
                                 }}
                               >
-                                <span style={{ color: '#64748b', fontWeight: 500 }}>Actual:</span>
-                                <span style={{ fontSize: 13, fontWeight: 700 }}>{formatNumber(multiItemAggregate.totalActual, 2)}</span>
-                                <span style={{ fontSize: 11, color: '#3b82f6' }}>{uomLabel}</span>
-                              </span>
+                                <span style={{ color: '#475569', fontSize: 12, fontWeight: 600 }}>Actual:</span>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>
+                                    {formatNumber(multiItemAggregate.totalActual, 2)}
+                                  </span>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#3b82f6' }}>{uomLabel}</span>
+                                </div>
+                              </div>
 
                               {/* 2. Target Production */}
-                              <span
+                              <div
                                 style={{
-                                  display: 'inline-flex',
+                                  display: 'flex',
                                   alignItems: 'center',
-                                  gap: 4,
+                                  justifyContent: 'space-between',
                                   background: '#f5f3ff',
                                   border: '1px solid #c4b5fd',
                                   color: '#5b21b6',
                                   borderRadius: 6,
-                                  padding: '3px 10px',
-                                  fontSize: 12,
-                                  fontWeight: 600,
+                                  padding: '7px 12px',
                                 }}
                               >
-                                <span style={{ color: '#64748b', fontWeight: 500 }}>Target:</span>
-                                <span style={{ fontSize: 13, fontWeight: 700 }}>
-                                  {tgtVal !== null && tgtVal !== undefined ? formatNumber(tgtVal, 2) : '—'}
-                                </span>
-                                <span style={{ fontSize: 11, color: '#8b5cf6' }}>{uomLabel}</span>
-                              </span>
+                                <span style={{ color: '#475569', fontSize: 12, fontWeight: 600 }}>Target:</span>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#6d28d9' }}>
+                                    {tgtVal !== null && tgtVal !== undefined ? formatNumber(tgtVal, 2) : '—'}
+                                  </span>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#8b5cf6' }}>{uomLabel}</span>
+                                </div>
+                              </div>
+                            </div>
 
-                              {/* 3. Target Achievement % */}
-                              <span
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  background: achievement === null ? '#f1f5f9' : isTargetMet ? '#ecfdf5' : '#fffbeb',
-                                  border: `1px solid ${achievement === null ? '#cbd5e1' : isTargetMet ? '#6ee7b7' : '#fcd34d'}`,
-                                  color: achievement === null ? '#475569' : isTargetMet ? '#065f46' : '#92400e',
-                                  borderRadius: 6,
-                                  padding: '3px 10px',
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                }}
-                              >
-                                <span style={{ fontWeight: 500 }}>Achievement:</span>
-                                <span style={{ fontSize: 13 }}>
+                            {/* Row 2: Target Achievement (100% full width card) */}
+                            <div
+                              style={{
+                                width: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                background: achievement === null ? '#f8fafc' : isTargetMet ? '#ecfdf5' : '#fffbeb',
+                                border: `1px solid ${achievement === null ? '#cbd5e1' : isTargetMet ? '#6ee7b7' : '#fcd34d'}`,
+                                color: achievement === null ? '#475569' : isTargetMet ? '#065f46' : '#92400e',
+                                borderRadius: 6,
+                                padding: '8px 14px',
+                              }}
+                            >
+                              <span style={{ fontSize: 12, fontWeight: 600 }}>Achievement:</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 15, fontWeight: 800 }}>
                                   {achievement !== null ? `${formatNumber(achievement, 1)}%` : '—'}
                                 </span>
-                                {isTargetMet && <CheckCircleFilled style={{ color: '#10b981', fontSize: 13 }} />}
-                              </span>
-
-                              {/* Scrap & KG Details */}
-                              <span style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', paddingLeft: 4 }}>
-                                Scrap: <strong>{formatNumber(multiItemAggregate.totalScrap, 2)}</strong> {uomLabel}
-                                {' · '}
-                                Weight: <strong>{formatNumber(multiItemAggregate.totalKg, 2)}</strong> KG
-                              </span>
+                                {isTargetMet && <CheckCircleFilled style={{ color: '#10b981', fontSize: 15 }} />}
+                              </div>
                             </div>
                           </div>
                         );
@@ -2549,64 +2612,6 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   <Alert type="error" showIcon message="Selected item differs from this order's product. Save will be rejected." />
                 )}
               </Card>
-
-              {/* ── ACTION BAR (Finalize & Submit) - Pinned Sticky Footer ── */}
-              <div className="entry-form-sticky-footer">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-                  <Space size={6} wrap>
-                    <Tag
-                      color={isAllPriorStepsDone ? '#16a34a' : '#f59e0b'}
-                      style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px', fontSize: 12 }}
-                    >
-                      {isAllPriorStepsDone ? (
-                        <>
-                          <CheckCircleFilled style={{ marginRight: 4 }} />
-                          ALL 8 STEPS OK · 100% READY
-                        </>
-                      ) : (
-                        `ALL 8 STEPS · ${8 - completedStepsCount} STEP(S) REMAINING`
-                      )}
-                    </Tag>
-                    <Text strong style={{ fontSize: 12.5, color: 'var(--theme-text, #ffffff)' }}>
-                      {isAllPriorStepsDone ? 'All 8 Steps Complete — Ready to Save' : 'Finalize & Submit Production Entry'}
-                    </Text>
-                  </Space>
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {isAllPriorStepsDone ? 'All verification criteria met (100%)' : 'Complete all steps to verify'}
-                  </Text>
-                </div>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  icon={isAllPriorStepsDone ? <CheckCircleFilled /> : <SaveOutlined />}
-                  loading={saving}
-                  disabled={submitBlocked}
-                  onClick={() => {
-                    form.submit();
-                  }}
-                  block
-                  size="large"
-                  style={{
-                    background: isAllPriorStepsDone ? '#16a34a' : undefined,
-                    borderColor: isAllPriorStepsDone ? '#16a34a' : undefined,
-                    boxShadow: isAllPriorStepsDone ? '0 4px 16px rgba(22, 163, 74, 0.4)' : undefined,
-                    fontSize: 15,
-                    fontWeight: 700,
-                    height: 46,
-                    borderRadius: 8,
-                    transition: 'all 0.3s ease',
-                  }}
-                >
-                  {isAllPriorStepsDone
-                    ? (mode === 'create' ? 'Save Production Entry (All 8 Steps OK · 100%)' : 'Update Production Entry (All 8 Steps OK · 100%)')
-                    : (mode === 'create' ? 'Save Production Entry' : 'Update Production Entry')}
-                </Button>
-                {submitBlocked && !resolvingMt && !isFullDowntime && (
-                  <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 6, fontSize: 11.5 }}>
-                    Saving is unavailable until an active Machine Target resolves for this machine and shift.
-                  </Text>
-                )}
-              </div>
             </div>
 
             {/* ── RIGHT PANE: Linked Details & Live View (کتاب کا دایاں صفحہ - ویو اور منسلک تفصیلات) ── */}
@@ -2928,6 +2933,63 @@ const EntryForm: React.FC<EntryFormProps> = ({
               </div>
             )}
           </div>
+
+          {/* ── ACTION BAR (Finalize & Submit) - Pinned Stationary Bottom Bar ── */}
+          <div className="entry-form-sticky-footer">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
+                <Tag
+                  color={isAllPriorStepsDone ? '#16a34a' : '#f59e0b'}
+                  style={{ fontWeight: 700, borderRadius: 12, padding: '2px 8px', fontSize: 11.5, margin: 0 }}
+                >
+                  {isAllPriorStepsDone ? (
+                    <>
+                      <CheckCircleFilled style={{ marginRight: 4 }} />
+                      ALL 8 STEPS OK · 100% READY
+                    </>
+                  ) : (
+                    `ALL 8 STEPS · ${8 - completedStepsCount} STEP(S) REMAINING`
+                  )}
+                </Tag>
+                <Text strong style={{ fontSize: 12.5, color: 'var(--theme-text, #ffffff)', whiteSpace: 'nowrap' }}>
+                  {isAllPriorStepsDone ? 'All 8 Steps Complete — Ready to Save' : 'Finalize & Submit Production Entry'}
+                </Text>
+                {submitBlocked && !resolvingMt && !isFullDowntime && (
+                  <span style={{ fontSize: 11, color: '#f87171', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                    Target Missing
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  icon={isAllPriorStepsDone ? <CheckCircleFilled /> : <SaveOutlined />}
+                  loading={saving}
+                  disabled={submitBlocked}
+                  onClick={() => {
+                    form.submit();
+                  }}
+                  style={{
+                    background: isAllPriorStepsDone ? '#16a34a' : undefined,
+                    borderColor: isAllPriorStepsDone ? '#16a34a' : undefined,
+                    boxShadow: isAllPriorStepsDone ? '0 2px 10px rgba(22, 163, 74, 0.4)' : undefined,
+                    fontSize: 13.5,
+                    fontWeight: 700,
+                    height: 36,
+                    padding: '0 16px',
+                    borderRadius: 6,
+                    transition: 'all 0.25s ease',
+                  }}
+                >
+                  {isAllPriorStepsDone
+                    ? (mode === 'create' ? 'Save Production Entry (All 8 Steps OK · 100%)' : 'Update Production Entry (All 8 Steps OK · 100%)')
+                    : (mode === 'create' ? 'Save Production Entry' : 'Update Production Entry')}
+                </Button>
+              </div>
+            </div>
+          </div>
+          </>
         )}
       </Form>
 
@@ -4110,15 +4172,20 @@ const RawMaterialAvailability: React.FC<{
               <div style={{
                 marginTop: 10,
                 padding: '10px 12px',
-                background: 'var(--theme-surface-alt, #f9fafb)',
-                border: '1px solid var(--theme-border, #e5e7eb)',
-                borderRadius: 6,
+                background: 'var(--theme-surface-alt, #0f172a)',
+                borderRadius: 8,
+                border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.08))',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
               }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #6b7280)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Stock Balance & Movement Impact (Before → Movement → After)
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 4, borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.06))' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text, #e2e8f0)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Stock Movement & Balance Impact
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                    Before → Movement → After
+                  </span>
                 </div>
 
                 {/* Line 1: INPUT Raw Material */}
@@ -4130,40 +4197,39 @@ const RawMaterialAvailability: React.FC<{
                   return (
                     <div key={rawLine.lineId || rIdx} style={{
                       background: 'rgba(239, 68, 68, 0.04)',
-                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      border: 'none',
+                      borderLeft: '3px solid #ef4444',
                       borderRadius: 6,
                       padding: '8px 10px',
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 4 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{
-                            background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
-                            fontWeight: 700, fontSize: 10, borderRadius: 3, padding: '1px 6px',
+                            background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: 'none',
+                            fontWeight: 700, fontSize: 9.5, borderRadius: 3, padding: '1px 6px',
                             display: 'inline-flex', alignItems: 'center', gap: 4,
                           }}>
-                            <ArrowDownOutlined style={{ fontSize: 10 }} /> INPUT (RAW MATERIAL)
+                            <ArrowDownOutlined style={{ fontSize: 9 }} /> INPUT (RAW MATERIAL)
                           </span>
-                          <Text strong style={{ fontSize: 11 }}>{rawLine.itemCode}</Text>
+                          <Text strong style={{ fontSize: 11.5 }}>{rawLine.itemCode}</Text>
                           {rawLine.itemName && <Text type="secondary" style={{ fontSize: 11 }}>— {rawLine.itemName}</Text>}
                         </div>
-                        <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', background: 'var(--theme-surface)', padding: '1px 6px', borderRadius: 3, border: '1px solid var(--theme-border)' }}>
+                        <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', background: 'rgba(255, 255, 255, 0.06)', padding: '1px 6px', borderRadius: 3, border: 'none' }}>
                           Source: <strong style={{ color: 'var(--theme-text)' }}>{sourceStoreLabel || rawLine.rawDepartmentName || 'Source Store'}</strong>
                         </span>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', gap: 4, alignItems: 'center', textAlign: 'center' }}>
-                        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 6px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block' }}>Opening Available</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{formatNumber(rawBefore, 3)} {rawUom}</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, textAlign: 'center' }}>
+                        <div style={{ background: 'rgba(255, 255, 255, 0.04)', borderRadius: 5, padding: '5px 4px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Opening</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>{formatNumber(rawBefore, 3)} {rawUom}</span>
                         </div>
-                        <span style={{ fontSize: 15, fontWeight: 800, color: '#ef4444' }}>−</span>
-                        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, padding: '4px 6px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#991b1b', fontWeight: 700, display: 'block' }}>Deducted (Inflow Consumed)</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>−{formatNumber(rawConsumed, 3)} {rawUom}</span>
+                        <div style={{ background: 'rgba(239, 68, 68, 0.08)', borderRadius: 5, padding: '5px 4px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#f87171', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Consumed</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#ef4444' }}>−{formatNumber(rawConsumed, 3)} {rawUom}</span>
                         </div>
-                        <span style={{ fontSize: 15, fontWeight: 800, color: '#64748b' }}>=</span>
-                        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 4, padding: '4px 6px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>Remaining Balance</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{formatNumber(rawAfter, 3)} {rawUom}</span>
+                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', borderRadius: 5, padding: '5px 4px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#34d399', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Remaining</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>{formatNumber(rawAfter, 3)} {rawUom}</span>
                         </div>
                       </div>
                     </div>
@@ -4181,40 +4247,39 @@ const RawMaterialAvailability: React.FC<{
                   return (
                     <div style={{
                       background: 'rgba(16, 185, 129, 0.04)',
-                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      border: 'none',
+                      borderLeft: '3px solid #10b981',
                       borderRadius: 6,
                       padding: '8px 10px',
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 4 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{
-                            background: '#dcfce7', color: '#166534', border: '1px solid #86efac',
-                            fontWeight: 700, fontSize: 10, borderRadius: 3, padding: '1px 6px',
+                            background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: 'none',
+                            fontWeight: 700, fontSize: 9.5, borderRadius: 3, padding: '1px 6px',
                             display: 'inline-flex', alignItems: 'center', gap: 4,
                           }}>
-                            <ArrowUpOutlined style={{ fontSize: 10 }} /> OUTPUT (GOOD PRODUCTION)
+                            <ArrowUpOutlined style={{ fontSize: 9 }} /> OUTPUT (GOOD PRODUCTION)
                           </span>
-                          <Text strong style={{ fontSize: 11 }}>{info.itemCode}</Text>
+                          <Text strong style={{ fontSize: 11.5 }}>{info.itemCode}</Text>
                           {info.itemName && <Text type="secondary" style={{ fontSize: 11 }}>— {info.itemName}</Text>}
                         </div>
-                        <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', background: 'var(--theme-surface)', padding: '1px 6px', borderRadius: 3, border: '1px solid var(--theme-border)' }}>
+                        <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', background: 'rgba(255, 255, 255, 0.06)', padding: '1px 6px', borderRadius: 3, border: 'none' }}>
                           Receipt: <strong style={{ color: 'var(--theme-text)' }}>{receiptStoreLabel || 'Receipt Warehouse'}</strong>
                         </span>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', gap: 4, alignItems: 'center', textAlign: 'center' }}>
-                        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 6px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block' }}>Current Stock</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{formatNumber(outBefore, 3)} {outUom}</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, textAlign: 'center' }}>
+                        <div style={{ background: 'rgba(255, 255, 255, 0.04)', borderRadius: 5, padding: '5px 4px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Current Stock</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>{formatNumber(outBefore, 3)} {outUom}</span>
                         </div>
-                        <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981' }}>+</span>
-                        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, padding: '4px 6px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>Produced (Addition)</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>+{formatNumber(outProduced, 3)} {outUom}</span>
+                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', borderRadius: 5, padding: '5px 4px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#34d399', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Produced (+)</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>+{formatNumber(outProduced, 3)} {outUom}</span>
                         </div>
-                        <span style={{ fontSize: 15, fontWeight: 800, color: '#64748b' }}>=</span>
-                        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 4, padding: '4px 6px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block' }}>Projected Stock in Store</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d', textDecoration: 'underline' }}>{formatNumber(outAfter, 3)} {outUom}</span>
+                        <div style={{ background: 'rgba(16, 185, 129, 0.14)', borderRadius: 5, padding: '5px 4px' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', letterSpacing: 0.3 }}>Projected</span>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: '#34d399' }}>{formatNumber(outAfter, 3)} {outUom}</span>
                         </div>
                       </div>
                     </div>
@@ -4305,17 +4370,22 @@ const ProductionItemLine: React.FC<{
   machineLinked: boolean;
   mtResolution: MachineTargetResolution | null;
   departmentItems: ItemLk[];
+  machineTargetItems?: ItemLk[];
   isFullDowntime?: boolean;
   remove: () => void;
-}> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, isFullDowntime = false, remove }) => {
+}> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, machineTargetItems = [], isFullDowntime = false, remove }) => {
   const lineItemId = Form.useWatch(['productionItems', fieldName, 'itemId']);
   const lineActualQty = Form.useWatch(['productionItems', fieldName, 'actualQuantity']);
   const lineScrapQty = Form.useWatch(['productionItems', fieldName, 'scrapQuantity']);
   const lineUomId = Form.useWatch(['productionItems', fieldName, 'uomId']);
 
   const lineItem = useMemo(
-    () => lookups.items.find((i) => i.id === lineItemId) ?? null,
-    [lookups.items, lineItemId],
+    () =>
+      (machineTargetItems && machineTargetItems.find((i) => i.id === lineItemId)) ||
+      departmentItems.find((i) => i.id === lineItemId) ||
+      lookups.items.find((i) => i.id === lineItemId) ||
+      null,
+    [machineTargetItems, departmentItems, lookups.items, lineItemId],
   );
 
   const validLineUoms = useMemo(() => {
@@ -4333,13 +4403,13 @@ const ProductionItemLine: React.FC<{
     if (prevLineItemRef.current === lineItemId && lineUomId) return;
     prevLineItemRef.current = lineItemId;
     if (!lineUomId) {
-      const item = lookups.items.find((i) => i.id === lineItemId) || departmentItems.find((i) => i.id === lineItemId);
+      const item = (machineTargetItems && machineTargetItems.find((i) => i.id === lineItemId)) || departmentItems.find((i) => i.id === lineItemId) || lookups.items.find((i) => i.id === lineItemId);
       const targetUomId = (machineLinked && mtResolution?.uom?.id) ? mtResolution.uom.id : item?.baseUomId;
       if (targetUomId) {
         form.setFieldValue(['productionItems', fieldName, 'uomId'], targetUomId);
       }
     }
-  }, [lineItemId, lineUomId, machineLinked, mtResolution, departmentItems]); // eslint-disable-line
+  }, [lineItemId, lineUomId, machineLinked, mtResolution, machineTargetItems, departmentItems, lookups.items]); // eslint-disable-line
 
   // KG conversion: family-aware (LENGTH × weightPerMeter, COUNT × piece weight,
   // WEIGHT stays as-is so M and KG are never mixed). No fabricated conversions.
@@ -4356,9 +4426,23 @@ const ProductionItemLine: React.FC<{
   // calculated from another field, never fabricated. Always 2+ decimals (1.20 mm,
   // 0.00 mm); neutral "—" when absent.
   const wireSizeDisplay = useMemo(() => {
-    if (!lineItem || lineItem.wireSizeMm == null) return null;
-    return `${formatDimension(lineItem.wireSizeMm)} mm`;
-  }, [lineItem]);
+    const w = lineItem?.wireSizeMm ?? (lineItem as any)?.wireSize;
+    if (w != null && String(w).trim() !== '') {
+      return `${formatDimension(w)} mm`;
+    }
+    const resolvedItem = mtResolution?.item as any;
+    if (resolvedItem?.id === lineItemId) {
+      const mtw = resolvedItem?.wireSizeMm ?? resolvedItem?.wireSize;
+      if (mtw != null && String(mtw).trim() !== '') return `${formatDimension(mtw)} mm`;
+    }
+    const anyMatch = (machineTargetItems && machineTargetItems.find((i) => i.id === lineItemId))
+      || departmentItems.find((i) => i.id === lineItemId)
+      || lookups.items.find((i) => i.id === lineItemId);
+    if (anyMatch?.wireSizeMm != null) {
+      return `${formatDimension(anyMatch.wireSizeMm)} mm`;
+    }
+    return null;
+  }, [lineItem, mtResolution, machineTargetItems, departmentItems, lookups.items, lineItemId]);
 
   // KG is kept for the aggregate tooltip only (no separate visible column).
   const kgNote = kgConversion
@@ -4369,16 +4453,54 @@ const ProductionItemLine: React.FC<{
   // (KG / METER / PCS) — never the generic literal "UOM".
   const lineUomPlaceholder = lineItem?.baseUom?.code ?? '—';
 
+  // Group items in dropdown: machine target items first!
+  const selectOptions = useMemo(() => {
+    if (machineTargetItems && machineTargetItems.length > 0) {
+      const targetIds = new Set(machineTargetItems.map((i) => i.id));
+      const otherItems = departmentItems.filter((i) => !targetIds.has(i.id));
+      return [
+        {
+          label: `🎯 Configured Machine Targets (${machineTargetItems.length})`,
+          options: machineTargetItems.map((i: ItemLk) => ({
+            value: i.id,
+            label: `${i.name} (${i.itemCode})`,
+            title: `${i.name} (${i.itemCode})`,
+          })),
+        },
+        ...(otherItems.length > 0
+          ? [
+              {
+                label: 'Other Department Items',
+                options: otherItems.map((i: ItemLk) => ({
+                  value: i.id,
+                  label: `${i.name} (${i.itemCode})`,
+                  title: `${i.name} (${i.itemCode})`,
+                })),
+              },
+            ]
+          : []),
+      ];
+    }
+    return departmentItems.map((i: ItemLk) => ({
+      value: i.id,
+      label: `${i.name} (${i.itemCode})`,
+      title: `${i.name} (${i.itemCode})`,
+    }));
+  }, [machineTargetItems, departmentItems]);
+
   return (
-    <div data-testid={`production-item-row-${rowNumber}`} style={{ padding: '6px 0', borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
-      <Row gutter={6} align="middle">
-        <Col xs={24} sm={1} lg={1} style={{ display: 'flex', alignItems: 'center' }}>
-          <Text type="secondary" style={{ fontSize: 11, lineHeight: '32px' }}>{rowNumber}</Text>
+    <div data-testid={`production-item-row-${rowNumber}`} style={{ padding: '8px 0', borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
+      <Row gutter={[6, 8]} align="middle">
+        {/* Col 1: Row Number */}
+        <Col xs={2} sm={1} md={1} style={{ display: 'flex', alignItems: 'center' }}>
+          <Text type="secondary" style={{ fontSize: 11, fontWeight: 700 }}>{rowNumber}</Text>
         </Col>
-        <Col xs={24} sm={10} lg={12}>
+
+        {/* Col 2: Item / Product Selection */}
+        <Col xs={22} sm={11} md={10}>
           <Form.Item name={[fieldName, 'itemId']} noStyle rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }]}>
             <Select
-              style={{ width: '100%' }}
+              style={{ width: '100%', height: 38 }}
               showSearch
               optionFilterProp="label"
               placeholder="Select item"
@@ -4387,63 +4509,96 @@ const ProductionItemLine: React.FC<{
               popupClassName="production-item-select-popup"
               className={lineItemId ? 'erp-field-filled' : 'erp-field-unfilled'}
               dropdownStyle={{ zIndex: 99999 }}
-              styles={{ popup: { root: { minWidth: 260, maxWidth: '92vw' } } }}
+              styles={{ popup: { root: { maxWidth: '96vw' } } }}
               onChange={(val) => {
                 if (val) {
-                  const item = lookups.items.find((i) => i.id === val) || departmentItems.find((i) => i.id === val);
+                  const item = (machineTargetItems && machineTargetItems.find((i) => i.id === val)) || departmentItems.find((i) => i.id === val) || lookups.items.find((i) => i.id === val);
                   const targetUomId = (machineLinked && mtResolution?.uom?.id) ? mtResolution.uom.id : item?.baseUomId;
                   if (targetUomId) {
                     form.setFieldValue(['productionItems', fieldName, 'uomId'], targetUomId);
                   }
                 }
               }}
-              options={departmentItems.map((i: ItemLk) => ({
-                value: i.id,
-                label: `${i.name} (${i.itemCode})`,
-                title: `${i.name} (${i.itemCode})`,
-              }))}
+              options={selectOptions as any}
             />
           </Form.Item>
         </Col>
-        <Col xs={24} sm={4} lg={3}>
-          <Tooltip title={wireSizeDisplay || undefined}>
-            <Text
+
+        {/* Col 3: Wire Size */}
+        <Col xs={6} sm={3} md={3}>
+          <Tooltip title={wireSizeDisplay || 'Wire Size'}>
+            <div
               data-testid={`wire-size-row-${rowNumber}`}
-              type={wireSizeDisplay ? undefined : 'secondary'}
-              style={{ fontSize: 11, lineHeight: '32px', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{
+                height: 38,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 6px',
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid var(--theme-border, #334155)',
+                borderRadius: 6,
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: wireSizeDisplay ? 'var(--theme-text, #f1f5f9)' : 'var(--theme-text-muted, #94a3b8)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
             >
               {wireSizeDisplay || '—'}
-            </Text>
+            </div>
           </Tooltip>
         </Col>
-        <Col xs={24} sm={4} lg={4}>
+
+        {/* Col 4: Quantity Input */}
+        <Col xs={9} sm={4} md={5}>
           <Form.Item name={[fieldName, 'actualQuantity']} noStyle>
             <InputNumber
-              size="small"
               min={0}
               placeholder={isFullDowntime ? "0" : "Qty"}
-              style={{ width: '100%' }}
+              style={{ width: '100%', height: 38 }}
               className={(lineActualQty !== undefined && lineActualQty !== null && lineActualQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}
               aria-label="Item quantity"
             />
           </Form.Item>
         </Col>
-        <Col xs={24} sm={4} lg={3}>
+
+        {/* Col 5: UOM Selection */}
+        <Col xs={5} sm={3} md={3}>
           <Form.Item name={[fieldName, 'uomId']} noStyle>
             <Select
-              size="small"
               data-testid={`line-uom-${rowNumber}`}
               placeholder={lineUomPlaceholder}
               aria-label={`Production item UOM ${rowNumber}`}
               disabled={machineLinked}
               dropdownStyle={{ zIndex: 99999 }}
               popupClassName="production-select-popup"
+              style={{ width: '100%', height: 38 }}
               options={validLineUoms.map((u) => ({ value: u.id, label: u.code }))}
             />
           </Form.Item>
         </Col>
-        <Col xs={24} sm={2} lg={2}>
-          <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={remove} aria-label={`Remove production item ${rowNumber}`} />
+
+        {/* Col 6: Delete Button */}
+        <Col xs={4} sm={2} md={2} style={{ display: 'flex', justifyContent: 'center' }}>
+          <Button
+            type="text"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={remove}
+            aria-label={`Remove production item ${rowNumber}`}
+            style={{
+              height: 38,
+              width: '100%',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 6,
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              background: 'rgba(239, 68, 68, 0.05)',
+            }}
+          />
         </Col>
       </Row>
       {/* Hidden persisted fields — kept so buildProductionItemsPayload, per-line

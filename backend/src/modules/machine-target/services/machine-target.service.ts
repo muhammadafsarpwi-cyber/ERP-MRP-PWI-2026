@@ -483,13 +483,30 @@ export class MachineTargetService {
     uomId?: string,
     itemId?: string,
   ): Promise<EffectiveResolution> {
-    let candidates = await this.findEffectiveCandidates(companyId, machineId, shiftId, productionDate, uomId, itemId);
-    if (candidates.length > 1) {
-      throw new ConflictException(
-        `Ambiguous target configuration for machine/shift on ${productionDate}: ${candidates.map((c) => c.id).join(', ')}. Close or deactivate duplicate periods, or pass a uomId/itemId to disambiguate.`,
-      );
+    let candidates: MachineTarget[] = [];
+
+    if (itemId) {
+      // 1. Try item-specific candidate first
+      candidates = await this.findEffectiveCandidates(companyId, machineId, shiftId, productionDate, uomId, itemId);
+      // 2. If no item-specific target, try generic target (itemId IS NULL)
+      if (candidates.length === 0) {
+        candidates = await this.findEffectiveCandidates(companyId, machineId, shiftId, productionDate, uomId, null);
+      }
+      // 3. If machine has only item-scoped targets and none match this item, fall back to any active target on this machine
+      if (candidates.length === 0) {
+        candidates = await this.findEffectiveCandidates(companyId, machineId, shiftId, productionDate, uomId, undefined);
+      }
+    } else {
+      // No item specified yet (initial machine context):
+      // Try generic target (itemId IS NULL) first
+      candidates = await this.findEffectiveCandidates(companyId, machineId, shiftId, productionDate, uomId, null);
+      // If no generic target, fall back to any active target on this machine
+      if (candidates.length === 0) {
+        candidates = await this.findEffectiveCandidates(companyId, machineId, shiftId, productionDate, uomId, undefined);
+      }
     }
-    if (candidates.length === 1) {
+
+    if (candidates.length >= 1) {
       return { target: candidates[0], usedGeneralFallback: false };
     }
 
@@ -501,12 +518,23 @@ export class MachineTargetService {
     if (!generalShift || generalShift.id === shiftId) {
       return { target: null, usedGeneralFallback: false };
     }
-    candidates = await this.findEffectiveCandidates(companyId, machineId, generalShift.id, productionDate, uomId, itemId);
-    if (candidates.length > 1) {
-      throw new ConflictException(
-        `Ambiguous GENERAL-shift target configuration for machine on ${productionDate}: ${candidates.map((c) => c.id).join(', ')}.`,
-      );
+
+    // GENERAL shift fallback
+    if (itemId) {
+      candidates = await this.findEffectiveCandidates(companyId, machineId, generalShift.id, productionDate, uomId, itemId);
+      if (candidates.length === 0) {
+        candidates = await this.findEffectiveCandidates(companyId, machineId, generalShift.id, productionDate, uomId, null);
+      }
+      if (candidates.length === 0) {
+        candidates = await this.findEffectiveCandidates(companyId, machineId, generalShift.id, productionDate, uomId, undefined);
+      }
+    } else {
+      candidates = await this.findEffectiveCandidates(companyId, machineId, generalShift.id, productionDate, uomId, null);
+      if (candidates.length === 0) {
+        candidates = await this.findEffectiveCandidates(companyId, machineId, generalShift.id, productionDate, uomId, undefined);
+      }
     }
+
     return { target: candidates[0] ?? null, usedGeneralFallback: !!candidates[0] };
   }
 
@@ -965,7 +993,7 @@ export class MachineTargetService {
     shiftId: string,
     productionDate: string,
     uomId?: string,
-    itemId?: string,
+    itemId?: string | null,
   ): Promise<MachineTarget[]> {
     const qb = this.targetRepo
       .createQueryBuilder('mt')
@@ -975,10 +1003,12 @@ export class MachineTargetService {
       .andWhere('mt.machineId = :machineId', { machineId })
       .andWhere('mt.shiftId = :shiftId', { shiftId });
     if (uomId) qb.andWhere('mt.uomId = :uomId', { uomId });
-    if (itemId) {
-      qb.andWhere('mt.itemId = :itemId', { itemId });
-    } else {
-      qb.andWhere('mt.itemId IS NULL');
+    if (itemId !== undefined) {
+      if (itemId === null) {
+        qb.andWhere('mt.itemId IS NULL');
+      } else {
+        qb.andWhere('mt.itemId = :itemId', { itemId });
+      }
     }
     qb.andWhere('mt.status = :status', { status: MachineTargetStatus.ACTIVE })
       .andWhere('mt.isActive = true')

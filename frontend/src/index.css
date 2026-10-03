@@ -115,9 +115,23 @@ html, body {
 }
 
 /* Production item select dropdown full-width and readable figures */
+@media (min-width: 769px) {
+  .production-item-select-popup {
+    min-width: 540px !important;
+    max-width: 95vw !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .production-item-select-popup,
+  .production-select-popup {
+    min-width: 0 !important;
+    max-width: calc(100vw - 20px) !important;
+    width: calc(100vw - 20px) !important;
+  }
+}
+
 .production-item-select-popup {
-  min-width: 540px !important;
-  max-width: 95vw !important;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
 }
 
