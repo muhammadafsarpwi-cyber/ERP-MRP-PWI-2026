@@ -6,7 +6,7 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined, ReloadOutlined, SelectOutlined, EditOutlined,
-  EyeOutlined, DeleteOutlined, FormOutlined,
+  EyeOutlined, DeleteOutlined, FormOutlined, InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -264,13 +264,22 @@ const EntryMachineSelect: React.FC = () => {
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
           <Title level={4} style={{ margin: 0 }}>New Production Entry</Title>
         </Space>
-        <Button
-          icon={<FormOutlined />}
-          onClick={() => navigate('/production/entries/new')}
-          style={{ fontWeight: 600 }}
-        >
-          Direct Entry Form (Skip Machine Pre-Select)
-        </Button>
+        <Space>
+          <Button
+            icon={<InboxOutlined />}
+            onClick={() => navigate('/production/packing')}
+            style={{ fontWeight: 600, borderColor: 'var(--theme-success, #10b981)', color: 'var(--theme-success, #10b981)' }}
+          >
+            Hand Packing (No Machine)
+          </Button>
+          <Button
+            icon={<FormOutlined />}
+            onClick={() => navigate('/production/entries/new')}
+            style={{ fontWeight: 600 }}
+          >
+            Direct Entry Form (Skip Machine Pre-Select)
+          </Button>
+        </Space>
       </div>
       <Steps
         size="small"

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Divider, Spin, Alert,
@@ -6,6 +7,7 @@ import {
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined,
   SearchOutlined, DollarCircleOutlined, InfoCircleOutlined, ThunderboltOutlined,
+  AppstoreAddOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -86,6 +88,7 @@ interface BomTabCache {
 }
 
 const BomManagement: React.FC = () => {
+  const navigate = useNavigate();
   const { message } = App.useApp();
   const cachedTab = useMemo(() => tabSessionCache.get<BomTabCache>(BOM_TAB_ID), []);
 
@@ -638,6 +641,9 @@ const BomManagement: React.FC = () => {
               <Select.Option value="ACTIVE">Active</Select.Option>
               <Select.Option value="OBSOLETE">Obsolete</Select.Option>
             </Select>
+            <Button icon={<AppstoreAddOutlined />} onClick={() => navigate('/production/bom/config')} style={{ borderColor: 'var(--theme-border-primary, #1890ff)', color: '#1890ff', fontWeight: 600 }}>
+              FG BOM Setup
+            </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>New BOM</Button>
             <Button icon={<ReloadOutlined />} onClick={fetchBoms}>Refresh</Button>
           </Space>

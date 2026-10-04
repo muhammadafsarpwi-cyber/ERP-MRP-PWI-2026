@@ -51,6 +51,7 @@ import {
   SyncOutlined,
   MinusOutlined,
   CloseOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -1455,6 +1456,20 @@ const EntryList: React.FC = () => {
         style={{ fontWeight: 600 }}
       >
         Add Entry
+      </Button>
+
+      <Button
+        icon={<InboxOutlined />}
+        onClick={() => {
+          navigate('/production/packing');
+        }}
+        style={{
+          fontWeight: 600,
+          borderColor: 'var(--theme-success, #10b981)',
+          color: 'var(--theme-success, #10b981)',
+        }}
+      >
+        Hand Packing
       </Button>
 
       <Button

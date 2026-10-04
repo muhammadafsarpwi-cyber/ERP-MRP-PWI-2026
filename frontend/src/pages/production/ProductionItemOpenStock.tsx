@@ -43,6 +43,10 @@ import {
   LockOutlined,
   UnlockOutlined,
   BranchesOutlined,
+  PlusCircleOutlined,
+  MinusCircleOutlined,
+  DownCircleOutlined,
+  RightCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -2853,18 +2857,32 @@ export const ProductionItemOpenStock: React.FC = () => {
                       <Col xs={24} lg={10} style={{ textAlign: 'right' }}>
                         <Space wrap size="small">
                           <Button
-                            icon={<PlusOutlined />}
+                            icon={<PlusCircleOutlined style={{ color: '#0284c7' }} />}
                             onClick={handleExpandAllWh}
-                            size="small"
+                            style={{
+                              borderRadius: 20,
+                              background: '#f0f9ff',
+                              borderColor: '#bae6fd',
+                              fontWeight: 600,
+                              color: '#0369a1',
+                              boxShadow: '0 1px 2px rgba(2, 132, 199, 0.08)',
+                            }}
                           >
-                            Expand All [+]
+                            Expand All
                           </Button>
                           <Button
-                            icon={<MinusOutlined />}
+                            icon={<MinusCircleOutlined style={{ color: '#64748b' }} />}
                             onClick={handleCollapseAllWh}
-                            size="small"
+                            style={{
+                              borderRadius: 20,
+                              background: '#f8fafc',
+                              borderColor: '#cbd5e1',
+                              fontWeight: 600,
+                              color: '#475569',
+                              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+                            }}
                           >
-                            Collapse All [-]
+                            Collapse All
                           </Button>
 
                           {isReorderMode ? (
@@ -3008,17 +3026,32 @@ export const ProductionItemOpenStock: React.FC = () => {
                                 </div>
                               )}
 
-                              {/* Prominent [+] / [-] Expand Button */}
-                              <button
-                                type="button"
-                                className={`matrix-expand-btn ${isExpanded ? 'btn-minus' : 'btn-plus'}`}
+                              {/* Prominent Expand Button with Modern Circle Icon */}
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={
+                                  isExpanded ? (
+                                    <DownCircleOutlined style={{ fontSize: 20, color: '#059669' }} />
+                                  ) : (
+                                    <RightCircleOutlined style={{ fontSize: 20, color: '#0284c7' }} />
+                                  )
+                                }
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleToggleExpandWh(wh.warehouseId);
                                 }}
-                              >
-                                {isExpanded ? '−' : '+'}
-                              </button>
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: '50%',
+                                  background: isExpanded ? '#ecfdf5' : '#f0f9ff',
+                                  border: isExpanded ? '1px solid #a7f3d0' : '1px solid #bae6fd',
+                                }}
+                              />
 
                               <Tag color="blue" style={{ fontSize: 13, fontWeight: 700, padding: '2px 8px' }}>
                                 {wh.warehouseCode}

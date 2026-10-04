@@ -166,6 +166,10 @@ async function fetchList<T>(url: string, params?: Record<string, unknown>, confi
     const res = await apiService.get<any>(url, params, { silent: true, ...config });
     if (Array.isArray(res)) return res as T[];
     if (Array.isArray(res?.data)) return res.data as T[];
+    if (Array.isArray(res?.items)) return res.items as T[];
+    if (Array.isArray(res?.data?.items)) return res.data.items as T[];
+    if (Array.isArray(res?.warehouses)) return res.warehouses as T[];
+    if (Array.isArray(res?.data?.data)) return res.data.data as T[];
     return [];
   } catch {
     return [];

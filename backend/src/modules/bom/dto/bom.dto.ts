@@ -138,6 +138,11 @@ export class CreateBomDto {
   @Min(0.0001)
   baseQuantity?: number;
 
+  @ApiPropertyOptional({ description: 'Initial BOM status', enum: BomStatus, default: BomStatus.DRAFT })
+  @IsEnum(BomStatus)
+  @IsOptional()
+  status?: BomStatus;
+
   @ApiProperty({ description: 'Product (finished good) item ID' })
   @IsUUID()
   @IsNotEmpty()
@@ -176,6 +181,11 @@ export class UpdateBomDto {
   @IsOptional()
   @Min(0.0001)
   baseQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'BOM status', enum: BomStatus })
+  @IsEnum(BomStatus)
+  @IsOptional()
+  status?: BomStatus;
 
   @ApiPropertyOptional({ description: 'Product item ID' })
   @IsUUID()

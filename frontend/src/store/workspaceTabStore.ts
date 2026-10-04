@@ -67,6 +67,7 @@ export function getWorkspaceTabDisplayTitle(tab: { id: string; pathname?: string
   if (/^\/production\/entries\/[^/]+\/edit\b/.test(path)) return 'Edit Daily Production Entry';
   if (/^\/production\/entries\/[^/]+$/.test(path)) return 'Production Entry Details';
   if (path === '/production/entries') return 'Daily Production Entry';
+  if (/^\/production\/(entries\/)?packing\b/.test(path)) return 'Packing Production Entry';
   if (tab.title && tab.title !== 'Page') return tab.title;
   const navMeta = resolveNavMeta(path);
   return navMeta?.label || tab.title || 'Page';
@@ -92,6 +93,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
         else if (/^\/production\/entries\/[^/]+\/edit\b/.test(path)) canonicalTitle = 'Edit Daily Production Entry';
         else if (/^\/production\/entries\/[^/]+$/.test(path)) canonicalTitle = 'Production Entry Details';
         else if (path === '/production/entries') canonicalTitle = 'Daily Production Entry';
+        else if (/^\/production\/(entries\/)?packing\b/.test(path)) canonicalTitle = 'Packing Production Entry';
         else canonicalTitle = tabData.title || navMeta?.label;
 
         const existingIndex = tabs.findIndex((t) => t.id === canonicalId);

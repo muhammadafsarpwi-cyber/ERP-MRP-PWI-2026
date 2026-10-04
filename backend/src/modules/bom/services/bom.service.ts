@@ -38,7 +38,7 @@ export class BomService {
   async findOne(id: string, companyId: string): Promise<BillOfMaterials> {
     const bom = await this.bomRepo.findOne({
       where: { id, companyId, isActive: true },
-      relations: ['lines', 'lines.item', 'lines.uom', 'product'],
+      relations: ['lines', 'lines.item', 'lines.uom', 'product', 'product.baseUom'],
     });
     if (!bom) {
       throw new NotFoundException(`Bill of Materials not found with id ${id}`);
@@ -47,10 +47,24 @@ export class BomService {
   }
 
   async findByProduct(productId: string, companyId: string): Promise<BillOfMaterials | null> {
-    return this.bomRepo.findOne({
+    const boms = await this.bomRepo.find({
       where: { productId, companyId, status: BomStatus.ACTIVE, isActive: true },
-      relations: ['lines', 'lines.item', 'lines.uom', 'product'],
+      relations: ['lines', 'lines.item', 'lines.uom', 'product', 'product.baseUom'],
+      order: { createdAt: 'DESC' },
     });
+    if (!boms.length) return null;
+    const now = new Date();
+    const valid = boms.filter((b) =>
+      (!b.effectiveFrom || new Date(b.effectiveFrom) <= now) &&
+      (!b.effectiveTo || new Date(b.effectiveTo) >= now),
+    );
+    const chosen = valid.length ? valid[0] : boms[0];
+    if (chosen?.lines) {
+      chosen.lines = chosen.lines
+        .filter((l) => l.isActive !== false)
+        .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0));
+    }
+    return chosen;
   }
 
   async create(dto: CreateBomDto, userId?: string): Promise<BillOfMaterials> {
@@ -73,7 +87,7 @@ export class BomService {
       bomCode,
       name: dto.name,
       description: dto.description || null,
-      status: BomStatus.DRAFT,
+      status: dto.status || BomStatus.DRAFT,
       baseQuantity: dto.baseQuantity || 1,
       productId: dto.productId,
       effectiveFrom: dto.effectiveFrom || null,
@@ -96,8 +110,8 @@ export class BomService {
   async update(id: string, dto: UpdateBomDto, companyId: string, userId?: string): Promise<BillOfMaterials> {
     const bom = await this.findOne(id, companyId);
 
-    if (bom.status !== BomStatus.DRAFT) {
-      throw new BadRequestException('Only DRAFT BOMs can be edited');
+    if (bom.status === BomStatus.OBSOLETE) {
+      throw new BadRequestException('OBSOLETE BOMs cannot be edited');
     }
 
     if (dto.productId && dto.productId !== bom.productId) {
@@ -120,6 +134,7 @@ export class BomService {
       description: dto.description ?? bom.description,
       baseQuantity: dto.baseQuantity ?? bom.baseQuantity,
       productId: dto.productId ?? bom.productId,
+      status: dto.status ?? bom.status,
       effectiveFrom: dto.effectiveFrom ?? bom.effectiveFrom,
       effectiveTo: dto.effectiveTo ?? bom.effectiveTo,
       updatedBy: userId || null,

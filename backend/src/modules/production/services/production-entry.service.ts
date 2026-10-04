@@ -32,6 +32,8 @@ import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 
 const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
+const HAND_PACKING_PCS_PER_GROSS = 144;
+const HAND_PACKING_PCS_PER_CARTON = 1440;
 
 /* ── Report weight model (authoritative UOM-aware conversions) ────────────
    The production report's Scrap is stored/displayed in KG and the Actual
@@ -1016,7 +1018,12 @@ addToDept(org, {
       warehouseId: dto.warehouseId ?? null,
     }, { uomExempt: !!mt });
 
-    await this.assertNoDuplicate(companyId, dto.departmentId, dto.entryDate, dto.shiftId, resolved.machineNo, dto.itemId);
+    if (this.isHandPackingRef(resolved.machineNo) || this.isHandPackingRef(dto.remarks)) {
+      const batchCode = (dto.remarks?.match(/Batch:\s*([A-Za-z0-9-_]+)/i)?.[1]) || 'PKG';
+      resolved.machineNo = `HAND-PACK-${batchCode}-${Date.now()}`;
+    }
+
+    await this.assertNoDuplicate(companyId, dto.departmentId, dto.entryDate, dto.shiftId, resolved.machineNo, dto.itemId, dto.remarks);
 
     // Raw Material Source Warehouse — where the exact Item Master production IN
     // items are deducted when the entry posts to inventory. TASK #37: resolved
@@ -1081,7 +1088,7 @@ addToDept(org, {
       saved = await this.entryRepo.manager.transaction(async (manager) => {
         const saved = await manager.getRepository(ProductionEntry).save(entry);
         await this.postInventoryAndConsume(
-          manager, companyId, saved, resolved.warehouseId!, sourceStoreId, dto.items ?? [], userId,
+          manager, companyId, saved, resolved.warehouseId!, sourceStoreId, dto.items ?? [], userId, dto.componentWarehouses,
         );
         return saved;
       });
@@ -1634,7 +1641,12 @@ addToDept(org, {
     shiftId: string,
     machineNo: string,
     itemId: string,
+    remarks?: string | null,
   ): Promise<void> {
+    if (this.isHandPackingRef(machineNo) || this.isHandPackingRef(remarks)) {
+      // Hand packing operations allow multiple batch entries for the same product in a single shift
+      return;
+    }
     const dup = await this.entryRepo.findOne({
       where: { companyId, departmentId, entryDate, shiftId, machineNo, itemId, isActive: true },
     });
@@ -1737,7 +1749,12 @@ addToDept(org, {
       });
     }
     const result = [...outputs.values()];
-    if (result.length > 2) {
+    const isHandPacking = !entry.machineId ||
+      entry.machineNo === 'N/A (Hand Packing)' ||
+      (entry.machineNo && entry.machineNo.toLowerCase().includes('hand packing')) ||
+      (entry.remarks && entry.remarks.includes('[HAND PACKING]'));
+
+    if (!isHandPacking && result.length > 2) {
       throw new BadRequestException('A maximum of 2 production items per entry is allowed');
     }
     return result;
@@ -1756,6 +1773,7 @@ addToDept(org, {
       scrapQuantity?: number;
     }>,
     userId?: string,
+    componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
   ): Promise<void> {
     // TASK #35/#37: idempotency guard — inventory movement happens EXACTLY ONCE per
     // production entry. When the receipt ledger id is already recorded this entry
@@ -1784,7 +1802,7 @@ addToDept(org, {
       }
       const configuredInputs = this.resolveRoutingInputsForOutput(routing, output.itemId);
       const consumed = await this.consumeForProductionItem(
-        manager, companyId, output, entry, sourceStoreId, configuredInputs, userId,
+        manager, companyId, output, entry, sourceStoreId, configuredInputs, userId, componentWarehouses,
       );
       consumedInputs.push(...consumed);
 
@@ -1925,10 +1943,12 @@ addToDept(org, {
     sourceStoreId: string | null,
     routingInputs?: Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }> | null,
     userId?: string,
+    componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
   ): Promise<Array<{ itemId: string; uomId: string; required: number; warehouseId: string }>> {
     // Routing-configured materials take precedence (exact Item IDs + source
     // warehouses from the operation's inputs, scaled by good + scrap).
-    if (routingInputs && routingInputs.length) {
+    // Manual Hand Packing entries always use the BOM configuration per Finished Good carton.
+    if (routingInputs && routingInputs.length && !this.isHandPackingRef(entryRef)) {
       return this.consumeRoutingInputs(manager, companyId, output, entryRef, sourceStoreId, routingInputs, userId);
     }
 
@@ -1946,31 +1966,99 @@ addToDept(org, {
       }
       return [];
     }
-    if (!sourceStoreId) {
+    if (!sourceStoreId && (!componentWarehouses || !componentWarehouses.length)) {
       throw new BadRequestException(
         'Raw Material Source Warehouse could not be determined for this company. Assign an ACTIVE RAW MATERIAL warehouse or pass rawMaterialWarehouseId.',
       );
     }
 
+    const compWarehouseMap = new Map((componentWarehouses || []).map((cw) => [cw.itemId, cw.warehouseId]));
     const lines = bom ? await this.bomLineRepo.find({ where: { bomId: bom.id }, order: { lineNumber: 'ASC' } }) : [];
     // Production basis includes scrap: both the good output and the rejected
     // output consumed raw material.
     const productionQty = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
 
-    const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number }> = [];
+    // Hand Packing: BOM is defined per 1 Finished Good Carton (10 GRS / 1,440 PCS).
+    const isHandPacking = this.isHandPackingRef(entryRef);
+    const handPackingCartons = isHandPacking && bom
+      ? (await this.toPcs(output.uomId, Number(output.actualQuantity))) / HAND_PACKING_PCS_PER_CARTON / Number(bom.baseQuantity || 1)
+      : 0;
+
+    const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number; warehouseId: string }> = [];
     for (const line of lines) {
-      const required = await this.computeBomRequirement(companyId, output, bom!, line, productionQty);
+      const required = isHandPacking
+        ? await this.computeHandPackingRequirement(line, handPackingCartons)
+        : await this.computeBomRequirement(companyId, output, bom!, line, productionQty);
       const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
       const uomCode = component?.baseUom?.code ?? (await this.uomRepo.findOne({ where: { id: line.uomId } }))?.code ?? '';
-      const available = await this.inventoryBalanceService.getAvailableStock(
-        companyId, line.itemId, sourceStoreId, undefined, undefined, manager,
+      let effectiveWh = compWarehouseMap.get(line.itemId);
+      if (!effectiveWh && componentWarehouses && componentWarehouses.length > 0) {
+        const lineItem = component || (await this.itemRepo.findOne({ where: { id: line.itemId } }));
+        if (lineItem) {
+          for (const cw of componentWarehouses) {
+            const cwItem = await this.itemRepo.findOne({ where: { id: cw.itemId } });
+            if (cwItem) {
+              const isLineNipple = (lineItem.itemCode?.toLowerCase().includes('np') || lineItem.name?.toLowerCase().includes('nipple'));
+              const isCwNipple = (cwItem.itemCode?.toLowerCase().includes('np') || cwItem.name?.toLowerCase().includes('nipple'));
+              if ((isLineNipple && isCwNipple) || cwItem.itemCode === lineItem.itemCode) {
+                effectiveWh = cw.warehouseId;
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (!effectiveWh && isHandPacking) {
+        const lineItem = component || (await this.itemRepo.findOne({ where: { id: line.itemId } }));
+        const isLineNipple = lineItem && (lineItem.itemCode?.toLowerCase().includes('np') || lineItem.name?.toLowerCase().includes('nipple'));
+        if (isLineNipple) {
+          const nippleWh = await this.warehouseRepo.findOne({
+            where: [
+              { warehouseCode: 'WH-002', companyId },
+              { warehouseCode: 'WH-001', companyId },
+            ],
+          });
+          if (nippleWh) effectiveWh = nippleWh.id;
+        }
+      }
+      if (!effectiveWh) {
+        effectiveWh = sourceStoreId ?? undefined;
+      }
+      if (!effectiveWh) {
+        throw new BadRequestException(
+          `Raw Material Source Warehouse could not be determined for component '${component?.itemCode ?? line.itemId}'. Assign an ACTIVE RAW MATERIAL warehouse or select a source store for this component.`,
+        );
+      }
+      let available = await this.inventoryBalanceService.getAvailableStock(
+        companyId, line.itemId, effectiveWh, undefined, undefined, manager,
       );
-      requirements.push({ line, required, uomCode, available });
+      if (available < required) {
+        // Fallback: check if the component exists in WH-002 or main warehouse
+        const alternateWhs = await this.warehouseRepo.find({
+          where: [
+            { warehouseCode: 'WH-002', companyId },
+            { warehouseCode: 'WH-001', companyId },
+          ],
+        });
+        for (const altWh of alternateWhs) {
+          if (altWh.id !== effectiveWh) {
+            const altStock = await this.inventoryBalanceService.getAvailableStock(
+              companyId, line.itemId, altWh.id, undefined, undefined, manager,
+            );
+            if (altStock >= required) {
+              effectiveWh = altWh.id;
+              available = altStock;
+              break;
+            }
+          }
+        }
+      }
+      requirements.push({ line, required, uomCode, available, warehouseId: effectiveWh });
     }
 
     // The exact IN Item is always consumed. When the ACTIVE BOM does not already
     // deduct it, add a converted per-unit requirement (scrap in KG inclusive basis).
-    if (authoritativeInItemId && !requirements.some((r) => r.line.itemId === authoritativeInItemId)) {
+    if (authoritativeInItemId && !(isHandPacking && bom) && !requirements.some((r) => r.line.itemId === authoritativeInItemId)) {
       const component = await this.itemRepo.findOne({ where: { id: authoritativeInItemId }, relations: ['baseUom'] });
       const compUom = (component?.baseUom?.code || '').toUpperCase();
       const productBaseUomId = product?.baseUomId ?? output.uomId;
@@ -1991,8 +2079,14 @@ addToDept(org, {
       const convertedRequired = convertedGood + scrapInComp;
       const uomId = component?.baseUomId ?? output.uomId;
       const uomCode = component?.baseUom?.code ?? '';
+      const effectiveInWh = compWarehouseMap.get(authoritativeInItemId) || sourceStoreId;
+      if (!effectiveInWh) {
+        throw new BadRequestException(
+          `Raw Material Source Warehouse could not be determined for authoritative IN item '${component?.itemCode ?? authoritativeInItemId}'.`,
+        );
+      }
       const available = await this.inventoryBalanceService.getAvailableStock(
-        companyId, authoritativeInItemId, sourceStoreId, undefined, undefined, manager,
+        companyId, authoritativeInItemId, effectiveInWh, undefined, undefined, manager,
       );
       requirements.push({
         line: {
@@ -2007,6 +2101,7 @@ addToDept(org, {
         required: this.round4(convertedRequired),
         uomCode,
         available,
+        warehouseId: effectiveInWh,
       });
     }
 
@@ -2020,13 +2115,16 @@ addToDept(org, {
 
     const consumed: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }> = [];
     for (const r of requirements) {
+      const effectiveWh = r.warehouseId || sourceStoreId!;
+      const compItem = await this.itemRepo.findOne({ where: { id: r.line.itemId }, select: ['id', 'baseUomId'] });
+      const targetUomId = compItem?.baseUomId || r.line.uomId;
       await this.stockLedgerService.create({
         companyId,
         transactionType: 'PRODUCTION_CONSUMPTION',
         itemId: r.line.itemId,
-        warehouseId: sourceStoreId,
+        warehouseId: effectiveWh,
         quantity: r.required,
-        uomId: r.line.uomId,
+        uomId: targetUomId,
         direction: 'OUT',
         referenceType: ENTRY_REFERENCE_TYPE,
         referenceId: entryRef.id,
@@ -2035,7 +2133,7 @@ addToDept(org, {
         createdBy: userId ?? undefined,
       }, manager);
       await this.inventoryBalanceService.updateBalance(
-        companyId, r.line.itemId, sourceStoreId, null, null, r.line.uomId, r.required, 'OUT', manager,
+        companyId, r.line.itemId, effectiveWh, null, null, targetUomId, r.required, 'OUT', manager,
       );
     }
     return [];
@@ -2137,6 +2235,60 @@ addToDept(org, {
       (!b.effectiveTo || new Date(b.effectiveTo) >= now),
     );
     return (valid.length ? valid : boms)[0];
+  }
+
+  /** True when the production entry is a manual Hand Packing entry (no machine). */
+  private isHandPackingRef(entryRef: any): boolean {
+    if (!entryRef) return false;
+    if (typeof entryRef === 'string') {
+      const s = entryRef.toLowerCase();
+      return s.includes('hand packing') || s.includes('hand-pack') || s.includes('[hand packing]') || s.includes('pkg-');
+    }
+    const machineNo = String(entryRef?.machineNo || '').toLowerCase();
+    const remarks = String(entryRef?.remarks || '').toLowerCase();
+    return (
+      machineNo.includes('hand packing') ||
+      machineNo.includes('hand-pack') ||
+      remarks.includes('[hand packing]') ||
+      remarks.includes('hand packing') ||
+      remarks.includes('pkg-')
+    );
+  }
+
+  /** Factory packing unit factors by UOM code (PCS / GRS / CTN). */
+  private packingFactorToPcs(code: string): number | null {
+    const c = (code || '').toUpperCase();
+    if (c === 'PCS' || c === 'PC' || c === 'EA' || c === 'NOS') return 1;
+    if (c === 'GRS' || c === 'GROSS') return HAND_PACKING_PCS_PER_GROSS;
+    if (c === 'CTN' || c === 'CARTON') return HAND_PACKING_PCS_PER_CARTON;
+    return null;
+  }
+
+  /** Converts a quantity expressed in the given UOM into PCS. */
+  private async toPcs(uomId: string | null, qty: number): Promise<number> {
+    if (!uomId) return qty;
+    const uom = await this.uomRepo.findOne({ where: { id: uomId } });
+    const factor = this.packingFactorToPcs(uom?.code || '');
+    return factor !== null ? qty * factor : qty;
+  }
+
+  /**
+   * Hand Packing requirement: BOM line quantity is per 1 Finished Good Carton.
+   * Result is expressed in the component's base UOM (the unit its stock is kept in).
+   */
+  private async computeHandPackingRequirement(line: BomLine, cartons: number): Promise<number> {
+    const qtyInLineUom = Number(line.quantity) * cartons;
+    const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
+    const lineUom = await this.uomRepo.findOne({ where: { id: line.uomId } });
+    const lineFactor = this.packingFactorToPcs(lineUom?.code || '');
+    const compFactor = this.packingFactorToPcs(component?.baseUom?.code || '');
+    if (lineFactor !== null && compFactor !== null) {
+      return this.round4((qtyInLineUom * lineFactor) / compFactor);
+    }
+    if (component?.baseUomId && component.baseUomId !== line.uomId) {
+      return this.round4(await this.convertQty(line.uomId, component.baseUomId, qtyInLineUom));
+    }
+    return this.round4(qtyInLineUom);
   }
 
   /**

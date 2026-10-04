@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
-  App, Typography, Switch, Alert, AutoComplete, Tooltip, Tag, Progress,
+  App, Typography, Switch, Alert, AutoComplete, Tooltip, Tag, Progress, Segmented,
 } from 'antd';
 import {
   ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined,
@@ -1785,11 +1785,26 @@ const EntryForm: React.FC<EntryFormProps> = ({
       )}
       {!isModal && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-          <Space>
+          <Space wrap align="center">
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
             <Title level={4} style={{ margin: 0 }}>
               {mode === 'create' ? 'New Daily Production Entry' : 'Edit Daily Production Entry'}
             </Title>
+            {mode === 'create' && (
+              <Segmented
+                value="machine"
+                onChange={(val) => {
+                  if (val === 'packing') {
+                    navigate('/production/packing');
+                  }
+                }}
+                options={[
+                  { label: 'Machine Production', value: 'machine' },
+                  { label: 'Hand Packing', value: 'packing' },
+                ]}
+                style={{ fontWeight: 600 }}
+              />
+            )}
           </Space>
           <button
             type="button"
@@ -1830,7 +1845,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
         {!loadingEntry && (
           <>
             <div className="entry-book-container">
-            {/* ── LEFT PANE: Data Entry Form (کتاب کا بایاں صفحہ - فارم بھرنے کی چیز) ── */}
+            {/* ── LEFT PANE: Data Entry Form (Left page of Entry Book) ── */}
             <div className={`entry-book-form-pane ${!effectiveShowLinked ? 'full-width' : ''}`}>
               {/* ── STEP 1: Operator ── */}
               <Card
@@ -2566,7 +2581,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
               </Card>
             </div>
 
-            {/* ── RIGHT PANE: Linked Details & Live View (کتاب کا دایاں صفحہ - ویو اور منسلک تفصیلات) ── */}
+            {/* ── RIGHT PANE: Linked Details & Live View (Right page of Entry Book) ── */}
             {effectiveShowLinked && (
               <div className="entry-book-view-pane">
                 {/* ── Production Context (compact; replaces duplicated full-size fields) ── */}

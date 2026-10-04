@@ -216,9 +216,17 @@
   padding: 0 12px;
   position: relative;
   z-index: 10;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .prod-folder-tab-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -678,3 +686,147 @@
   border-color: var(--theme-border, #2a3054) !important;
   color: var(--theme-text, #e2e8f0) !important;
 }
+
+/* ── Mobile Responsive Optimizations for Production & Packing Hub ── */
+@media (max-width: 768px) {
+  .prod-open-stock-container,
+  .erp-packing-department-hub,
+  .erp-hand-packing-page {
+    padding: 6px 4px 16px !important;
+  }
+
+  .erp-hub-breadcrumbs {
+    display: none !important;
+  }
+
+  .prod-open-stock-compact-header {
+    padding: 6px 10px !important;
+    margin-bottom: 6px !important;
+    border-radius: 8px !important;
+  }
+
+  .prod-open-stock-compact-header .prod-header-title {
+    font-size: 13.5px !important;
+  }
+
+  .prod-open-stock-compact-header .prod-header-subtitle {
+    display: none !important;
+  }
+
+  .prod-folder-nav-wrapper {
+    margin-top: 6px !important;
+    padding-bottom: 2px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .prod-folder-tab {
+    padding: 6px 10px !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+  }
+
+  .erp-hand-packing-executive .ant-card-body {
+    padding: 8px 10px !important;
+  }
+
+  .erp-hand-packing-executive .ant-card-head {
+    padding: 0 10px !important;
+    min-height: 38px !important;
+  }
+}
+
+/* --- Framed Checkmark Result Dialog (Corporate Standard for Production & Packing) --- */
+.prod-result-dialog-wrap .ant-modal-content {
+  border-radius: 14px !important;
+  padding: 34px 28px 28px !important;
+  text-align: center !important;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.22) !important;
+  background-color: var(--theme-surface, #ffffff) !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+.prod-result-icon-box {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 16px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prod-result-corner-svg {
+  width: 76px;
+  height: 76px;
+}
+
+.prod-result-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 6px;
+  letter-spacing: -0.3px;
+}
+
+.prod-result-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 auto 18px;
+  line-height: 1.5;
+  max-width: 420px;
+}
+
+.prod-result-details-card {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 18px;
+  text-align: left;
+  margin: 0 auto 22px;
+}
+
+.prod-result-details-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 12.5px;
+  border-bottom: 1px dashed #f1f5f9;
+}
+
+.prod-result-details-row:last-child {
+  border-bottom: none;
+}
+
+.prod-result-details-label {
+  color: #64748b;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.prod-result-details-val {
+  color: #0f172a;
+  font-weight: 700;
+  text-align: right;
+  max-width: 320px;
+}
+
+.prod-result-btn-ok {
+  background-color: #059669 !important;
+  border-color: #059669 !important;
+  border-radius: 8px !important;
+  height: 42px !important;
+  padding: 0 44px !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3) !important;
+  transition: all 0.2s ease !important;
+}
+
+.prod-result-btn-ok:hover {
+  background-color: #047857 !important;
+  border-color: #047857 !important;
+  transform: translateY(-1px) !important;
+}
+

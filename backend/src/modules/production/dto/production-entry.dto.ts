@@ -209,10 +209,14 @@ export class CreateProductionEntryDto {
   @IsUUID('loose')
   rawMaterialWarehouseId?: string | null;
 
+  @IsOptional()
+  @IsArray()
+  componentWarehouses?: Array<{ itemId: string; warehouseId: string }>;
+
   /** Repeatable production item lines (multi-item shift; max 2 independent production items). */
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(2, { message: 'A maximum of 2 production items per entry is allowed' })
+  @ArrayMaxSize(50, { message: 'A maximum of 50 production items per entry is allowed' })
   @ValidateNested({ each: true })
   @Type(() => ProductionEntryItemDto)
   items?: ProductionEntryItemDto[];
@@ -333,7 +337,7 @@ export class UpdateProductionEntryDto {
   /** Repeatable production item lines (multi-item shift; max 2 independent production items). */
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(2, { message: 'A maximum of 2 production items per entry is allowed' })
+  @ArrayMaxSize(50, { message: 'A maximum of 50 production items per entry is allowed' })
   @ValidateNested({ each: true })
   @Type(() => ProductionEntryItemDto)
   items?: ProductionEntryItemDto[];

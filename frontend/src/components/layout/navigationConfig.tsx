@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import {
   AimOutlined,
   ApartmentOutlined,
+  AppstoreAddOutlined,
   AppstoreOutlined,
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -346,7 +347,7 @@ export const NAV_ENTRIES: NavEntry[] = [
 
   {
     key: 'production',
-    label: 'Production',
+    label: 'Production Department',
     icon: BuildOutlined,
     color: 'cyan',
     children: [
@@ -364,6 +365,14 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/production/reports', label: 'Production Reports', icon: BarChartOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
       { key: '/production/inventory-report', label: 'Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['manufacturing.production.entries.report'] },
     ],
+  },
+
+  {
+    key: '/production/packing',
+    label: 'Packing Department',
+    icon: InboxOutlined,
+    color: 'success',
+    permissions: ['manufacturing.production.entries.view'],
   },
 
   {

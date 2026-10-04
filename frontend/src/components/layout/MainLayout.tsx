@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Drawer, Grid, Button } from 'antd';
-import { MenuOutlined } from '@ant-design/icons';
+import { Layout, Menu, Drawer, Grid, Button, Avatar } from 'antd';
+import { MenuOutlined, SettingOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
+import { useUserStore } from '../../store/userStore';
 import ThemeSettingsButton from './ThemeCustomizer';
 import HeaderSearch from './HeaderSearch';
 import NotificationBell from './NotificationBell';
@@ -243,6 +244,14 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       setHoverOpen(false);
     }, 250);
   };
+
+  const handleLogout = React.useCallback(() => {
+    useUserStore.getState().clearUser();
+    localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('erp_user');
+    navigate('/login');
+  }, [navigate]);
 
   React.useEffect(
     () => () => {
@@ -545,6 +554,105 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 paddingBottom: 96,
               }}
             />
+          </div>
+
+          {/* PINNED SIDEBAR FOOTER (Matches Approved Mockup) */}
+          <div
+            className="erp-sidebar-footer-fixed"
+            style={{
+              flexShrink: 0,
+              marginTop: 'auto',
+              borderTop: isLight ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+              background: isLight ? '#f8fafc' : 'rgba(0, 0, 0, 0.2)',
+              padding: effectivelyCollapsed ? '10px 4px' : '10px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            {/* Settings */}
+            <div
+              onClick={() => handleMenuClick({ key: '/settings' })}
+              title="Settings"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                cursor: 'pointer',
+                padding: '6px 8px',
+                borderRadius: 6,
+                color: isLight ? '#475569' : '#94a3b8',
+                fontSize: 13,
+                fontWeight: 500,
+                justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.06)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              <SettingOutlined style={{ fontSize: 16 }} />
+              {!effectivelyCollapsed && <span>Settings</span>}
+            </div>
+
+            {/* User */}
+            <div
+              onClick={() => navigate('/profile')}
+              title="User Profile"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                cursor: 'pointer',
+                padding: '6px 8px',
+                borderRadius: 6,
+                color: isLight ? '#0f172a' : '#ffffff',
+                fontSize: 13,
+                fontWeight: 600,
+                justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.06)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              <Avatar size={24} icon={<UserOutlined />} style={{ backgroundColor: '#0284c7' }} />
+              {!effectivelyCollapsed && (
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {user?.displayName || user?.firstName || 'Muhammad Afsar'}
+                </span>
+              )}
+            </div>
+
+            {/* Logout */}
+            <div
+              onClick={handleLogout}
+              title="Logout"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                cursor: 'pointer',
+                padding: '6px 8px',
+                borderRadius: 6,
+                color: '#ef4444',
+                fontSize: 13,
+                fontWeight: 500,
+                justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = isLight ? '#fee2e2' : 'rgba(239,68,68,0.1)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              <LogoutOutlined style={{ fontSize: 16 }} />
+              {!effectivelyCollapsed && <span>Logout</span>}
+            </div>
+
+            {/* Connected Status Pill */}
+            {!effectivelyCollapsed && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 11, color: '#16a34a', fontWeight: 600 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                <span>Connected</span>
+              </div>
+            )}
           </div>
         </Sider>
       )}
