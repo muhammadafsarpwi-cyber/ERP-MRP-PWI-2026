@@ -690,6 +690,117 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         }
       }
 
+      // ── CACHE-FIRST LOOKUPS ────────────────────────────────────────────────
+      // Use the global lookupsCache (already fetched by MainLayout on login).
+      // Only fall back to individual API calls when the cache is empty/stale.
+      const cachedSnap = getLookupsSnapshot();
+      const cacheIsUsable =
+        cachedSnap.divisions.length > 0 &&
+        cachedSnap.sections.length > 0 &&
+        cachedSnap.uoms.length > 0;
+
+      if (cacheIsUsable) {
+        // ✅ Use cached data instantly — zero API calls, zero loading time
+        if (!mounted) return;
+
+        const loadedDivs = cachedSnap.divisions.length > 0 ? cachedSnap.divisions : [
+          { id: 'd1000000-0000-0000-0000-000000000001', divisionCode: 'DIV-SPD', name: 'Spoke Division' },
+          { id: 'd1000000-0000-0000-0000-000000000002', divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
+        ];
+        const loadedSecs = cachedSnap.sections.length > 0 ? cachedSnap.sections : [
+          { id: 'd2000000-0000-0000-0000-000000000004', sectionCode: 'SEC-013', name: 'SPD Packing', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+        ];
+        const loadedDeps = cachedSnap.departments.length > 0 ? cachedSnap.departments : [
+          { id: 'd3000000-0000-0000-0000-000000000008', departmentCode: 'SPD-DEPT008', name: 'Spoke Packing', sectionId: 'd2000000-0000-0000-0000-000000000004', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+        ];
+        const loadedShifts = cachedSnap.shifts.length > 0 ? cachedSnap.shifts : [
+          { id: 'shift-1', name: 'General Shift (8 AM - 5 PM)', shiftCode: 'GS', plannedHours: 8 },
+        ];
+        const loadedWhs = DEFAULT_FACTORY_WAREHOUSES;
+
+        setDivisions(loadedDivs);
+        setSections(loadedSecs);
+        setDepartments(loadedDeps);
+        setShifts(loadedShifts);
+        setWarehouses(loadedWhs);
+
+        if (cachedSnap.uoms.length > 0) setUoms(cachedSnap.uoms);
+        if (cachedSnap.uomConversions.length > 0) setUomConversions(cachedSnap.uomConversions);
+
+        // Finished Goods from cache
+        let resolvedFgItems: typeof DEFAULT_SPOKE_FINISHED_GOODS = DEFAULT_SPOKE_FINISHED_GOODS;
+        if (cachedSnap.items.length > 0) {
+          const fg = cachedSnap.items.filter(
+            (i: any) => i.itemType === 'FINISHED_GOOD' || i.itemType === 'FINISHED_GOODS' || i.itemType === 'FG'
+          ) as any[];
+          resolvedFgItems = (fg.length > 0 ? fg : (cachedSnap.items as any[])) as typeof DEFAULT_SPOKE_FINISHED_GOODS;
+          for (const std of DEFAULT_SPOKE_FINISHED_GOODS) {
+            if (!resolvedFgItems.some((f: any) => f.itemCode === std.itemCode)) {
+              resolvedFgItems = [std, ...resolvedFgItems] as typeof DEFAULT_SPOKE_FINISHED_GOODS;
+            }
+          }
+        }
+        setFgItems(resolvedFgItems);
+
+        const defaultDivision = loadedDivs.find((d: any) =>
+          d.id === SPD_DIVISION_ID || (d.divisionCode || '').toUpperCase() === 'DIV-SPD' || (d.name || '').toLowerCase().includes('spoke')
+        ) || loadedDivs[0];
+        const defaultSection = loadedSecs.find((s: any) =>
+          s.id === SPD_PACKING_SECTION_ID || (s.divisionId === defaultDivision?.id && (s.name || '').toLowerCase().includes('pack'))
+        ) || loadedSecs.find((s: any) => s.divisionId === defaultDivision?.id) || loadedSecs[0];
+        const defaultDept = loadedDeps.find((d: any) =>
+          d.id === SPD_PACKING_DEPT_ID || (d.divisionId === defaultDivision?.id && (d.name || '').toLowerCase().includes('pack'))
+        ) || loadedDeps.find((d: any) => d.divisionId === defaultDivision?.id) || loadedDeps[0];
+        const defaultShift = loadedShifts[0];
+        const fgWarehouse = loadedWhs.find((w: any) => w.warehouseCode === 'WH-001' || w.warehouseType === 'FINISHED_GOODS') || loadedWhs[0];
+        const rmWarehouse = loadedWhs.find((w: any) => w.warehouseCode === 'SPI-PL-004' || w.warehouseType === 'WORK_IN_PROGRESS') || loadedWhs[1] || loadedWhs[0];
+
+        setSelectedDivisionId(defaultDivision?.id || SPD_DIVISION_ID);
+        setSelectedSectionId(defaultSection?.id || SPD_PACKING_SECTION_ID);
+
+        if (!existingDraft) {
+          const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
+          form.setFieldsValue({
+            packingNo: autoNo,
+            entryDate: dayjs(),
+            shiftId: defaultShift?.id,
+            divisionId: defaultDivision?.id,
+            sectionId: defaultSection?.id,
+            departmentId: defaultDept?.id,
+            warehouseId: fgWarehouse?.id,
+            rawMaterialWarehouseId: rmWarehouse?.id,
+            packingStation: 'Hand Packing Line 01 (8-Worker Chain)',
+            operatorName: currentUserName,
+            supervisorName: currentUserName,
+            notes: 'BOM-based manual hand packing to finished goods inventory',
+          });
+
+          const preferredFg = (urlProductId && resolvedFgItems.find((f: any) => f.id === urlProductId || f.itemCode === urlProductId)) ||
+            resolvedFgItems.find((f: any) => f.itemCode === 'SPI-FG-SPK-007' || f.itemCode === 'SPI-FG-SPK-003') ||
+            resolvedFgItems[0];
+          const initialKey = `fg-${Date.now()}`;
+          const initialRow: PackingMasterItemRow = {
+            key: initialKey,
+            itemId: preferredFg.id,
+            itemCode: preferredFg.itemCode,
+            itemName: preferredFg.name,
+            unit: 'PCS',
+            destinationWarehouseId: fgWarehouse?.id,
+            cartons: 50, gross: 500, quantityPcs: 72000, targetCartons: 50,
+            status: 'IN_PROGRESS', bom: null, bomLoading: true, bomError: null, components: [],
+          };
+          setMasterItems([initialRow]);
+          setExpandedKeys([initialKey]);
+          setInspectedItemId(preferredFg.id);
+          expandBomForMasterItem(initialKey, preferredFg.id, 72000, rmWarehouse?.id);
+        }
+
+        setLoadingLookups(false);
+        return; // ← EXIT EARLY: no API calls needed
+      }
+      // ── END CACHE-FIRST ────────────────────────────────────────────────────
+
+      // Cache was empty — fall back to API (first time only, e.g. hard refresh)
       setLoadingLookups(true);
 
       const safeFetch = async (url: string, altUrl?: string) => {

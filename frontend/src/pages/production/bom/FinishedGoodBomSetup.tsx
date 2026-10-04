@@ -39,6 +39,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiService from '../../../services/api';
+import { getLookupsSnapshot, prefetchAllLookups } from '../../../services/lookupsCache';
 import PageHeader from '../../../components/shared/PageHeader';
 import Breadcrumbs from '../../../components/shared/Breadcrumbs';
 
@@ -221,10 +222,60 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
     return [];
   };
 
-  // Load existing ERP lookups
+  // Load existing ERP lookups — CACHE-FIRST for instant rendering
   useEffect(() => {
     let mounted = true;
     async function loadLookups() {
+      // ── CACHE-FIRST ────────────────────────────────────────────────────────
+      // getLookupsSnapshot() returns data from memory/localStorage in 0ms.
+      // MainLayout already fetched this on login — no need to repeat API calls.
+      const cachedSnap = getLookupsSnapshot();
+      const cacheHasItems = cachedSnap.items.length > 0;
+      const cacheHasUoms  = cachedSnap.uoms.length > 0;
+
+      if (cacheHasItems || cacheHasUoms) {
+        if (!mounted) return;
+
+        let loadedItems: any[] = cacheHasItems ? cachedSnap.items : DEFAULT_BOM_FINISHED_GOODS;
+        // Ensure all standard BOM finished goods are present
+        for (const std of DEFAULT_BOM_FINISHED_GOODS) {
+          if (!loadedItems.some((i: any) => i.id === std.id || i.itemCode === std.itemCode)) {
+            loadedItems.push(std);
+          }
+        }
+        setItems(loadedItems);
+        itemsRef.current = loadedItems;
+
+        if (cacheHasUoms) {
+          const mergedUoms = [...DEFAULT_CORE_UOMS];
+          for (const u of cachedSnap.uoms) {
+            if (!u || !u.id) continue;
+            const existingIdx = mergedUoms.findIndex(
+              (m) => m.id === u.id || (m.code && u.code && m.code.toUpperCase() === u.code.toUpperCase())
+            );
+            if (existingIdx !== -1) mergedUoms[existingIdx] = { ...mergedUoms[existingIdx], ...u };
+            else mergedUoms.push(u as any);
+          }
+          setUoms(mergedUoms);
+          uomsRef.current = mergedUoms;
+        }
+
+        if (cachedSnap.uomConversions.length > 0) {
+          setUomConversions(cachedSnap.uomConversions as any);
+        }
+
+        setLoadingLookups(false);
+
+        // Trigger a background refresh of the global cache if it's stale (> 15 min)
+        const CACHE_TTL = 15 * 60 * 1000;
+        if (Date.now() - cachedSnap.timestamp > CACHE_TTL) {
+          prefetchAllLookups().catch(() => {});
+        }
+        return; // ← EXIT EARLY — no API calls needed
+      }
+      // ── END CACHE-FIRST ────────────────────────────────────────────────────
+
+      // Cache empty (first load / hard refresh) — fetch from API
       setLoadingLookups(true);
       try {
         const [itemsRes, sfRes, fgRes, wipRes, uomRes, convRes] = await Promise.allSettled([
