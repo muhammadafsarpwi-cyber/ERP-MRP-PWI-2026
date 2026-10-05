@@ -296,6 +296,7 @@ export interface ProductionEntryRow {
   achievementPercentage: number | string;
   efficiencyPercentage: number | string;
   runningHours: number | string;
+  overtimeHours?: number | string;
   downtimeHours: number | string;
   downtimeReasonText: string | null;
   scrapQuantity: number | string;
@@ -561,12 +562,16 @@ const EntryList: React.FC = () => {
     const target = displayedRows.reduce((s, r) => s + toNum(r.targetQuantity), 0);
     const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
     const scrap = displayedRows.reduce((s, r) => s + toNum(r.scrapQuantity), 0);
+    const overtime = displayedRows.reduce((s, r) => s + toNum(r.overtimeHours), 0);
+    const downtime = displayedRows.reduce((s, r) => s + toNum(r.downtimeHours), 0);
     const ach = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
     return {
       total: total || rows.length,
       actual,
       target,
       scrap,
+      overtime,
+      downtime,
       ach: ach !== null ? `${ach}%` : '0%',
     };
   }, [displayedRows, total, rows.length]);
@@ -1218,6 +1223,33 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <FieldTimeOutlined style={{ color: '#8b5cf6' }} />
+          <span>OT (h)</span>
+        </span>
+      ),
+      align: 'right',
+      width: 85,
+      ellipsis: true,
+      sorter: (a, b) => toNum(a.overtimeHours) - toNum(b.overtimeHours),
+      render: (_t, r) => {
+        const ot = toNum(r.overtimeHours);
+        return (
+          <span
+            style={{
+              whiteSpace: 'nowrap',
+              fontVariantNumeric: 'tabular-nums',
+              fontWeight: ot > 0 ? 600 : 400,
+              color: ot > 0 ? '#8b5cf6' : 'var(--theme-text-muted, #94a3b8)',
+            }}
+          >
+            {ot > 0 ? `${formatNumber(ot, 1)}h` : '—'}
+          </span>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
           <span>Run / Down</span>
         </span>
@@ -1533,7 +1565,7 @@ const EntryList: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: screens.lg ? 'repeat(5, 1fr)' : screens.sm ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
+          gridTemplateColumns: screens.xl ? 'repeat(7, 1fr)' : screens.lg ? 'repeat(4, 1fr)' : screens.sm ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
           gap: 10,
           marginBottom: 12,
         }}
@@ -1561,6 +1593,22 @@ const EntryList: React.FC = () => {
           icon={AimOutlined}
           tone="#6366f1"
           toneSoft="rgba(99, 102, 241, 0.12)"
+        />
+        <KpiCard
+          testId="kpi-total-overtime"
+          label="OVERTIME (OT)"
+          value={`${formatNumber(kpiData.overtime, 1)} h`}
+          icon={FieldTimeOutlined}
+          tone="#8b5cf6"
+          toneSoft="rgba(139, 92, 246, 0.12)"
+        />
+        <KpiCard
+          testId="kpi-total-downtime"
+          label="TOTAL DOWNTIME"
+          value={`${formatNumber(kpiData.downtime, 1)} h`}
+          icon={ClockCircleOutlined}
+          tone="#f59e0b"
+          toneSoft="rgba(245, 158, 11, 0.12)"
         />
         <KpiCard
           testId="kpi-scrap-rejection"

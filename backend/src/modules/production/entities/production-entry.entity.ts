@@ -159,6 +159,9 @@ export class ProductionEntry extends BaseEntity {
   @Column({ name: 'running_hours', type: 'decimal', precision: 6, scale: 2, default: 0 })
   runningHours: number;
 
+  @Column({ name: 'overtime_hours', type: 'decimal', precision: 6, scale: 2, default: 0 })
+  overtimeHours: number;
+
   @Column({ name: 'downtime_hours', type: 'decimal', precision: 6, scale: 2, default: 0 })
   downtimeHours: number;
 

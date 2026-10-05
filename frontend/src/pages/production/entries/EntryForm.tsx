@@ -38,9 +38,10 @@ const { Title, Text } = Typography;
  *  authoritative shift-derived planned hours used everywhere else — NOT read
  *  from the form store (there is no `plannedHours` form field, so a
  *  Form.useWatch would always resolve to 0 and show "Planned 0h"). */
-const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; runningHours: number }> = ({ totalDowntime, plannedHours, runningHours }) => {
-  const remaining = Math.max(0, plannedHours - runningHours - totalDowntime);
-  const isBalanced = plannedHours > 0 && Math.abs(runningHours + totalDowntime - plannedHours) < 0.01;
+const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; runningHours: number; overtimeHours?: number }> = ({ totalDowntime, plannedHours, runningHours, overtimeHours = 0 }) => {
+  const totalPlanned = plannedHours + overtimeHours;
+  const remaining = Math.max(0, totalPlanned - runningHours - totalDowntime);
+  const isBalanced = totalPlanned > 0 && Math.abs(runningHours + totalDowntime - totalPlanned) < 0.01;
 
   return (
     <div style={{ marginTop: 14, marginBottom: 6 }}>
@@ -50,6 +51,14 @@ const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; r
           <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-secondary, #64748b)', fontWeight: 700, letterSpacing: 0.5 }}>Planned Shift</span>
           <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>{formatNumber(plannedHours, 2)}h</span>
         </div>
+
+        {/* Overtime */}
+        {overtimeHours > 0 && (
+          <div className="downtime-summary-card" style={{ borderColor: "rgba(139, 92, 246, 0.4)", background: "rgba(139, 92, 246, 0.08)" }}>
+            <span style={{ fontSize: 10, textTransform: "uppercase", color: "#8b5cf6", fontWeight: 700, letterSpacing: 0.5 }}>Overtime</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#8b5cf6" }}>{formatNumber(overtimeHours, 2)}h</span>
+          </div>
+        )}
 
         {/* Running */}
         <div className="downtime-summary-card running">
@@ -99,7 +108,7 @@ interface EntryDetailData {
   itemId: string; uomId: string;
   uom?: { id: string; code: string; symbol: string };
   targetQuantity: number | string; actualQuantity: number | string;
-  runningHours: number | string; downtimeHours: number | string;
+  runningHours: number | string; overtimeHours?: number | string; downtimeHours: number | string;
   downtimeReasonId: string | null; scrapQuantity: number | string;
   remarks: string | null;
   productionOrderId: string | null; productionOrderOperationId: string | null;
@@ -211,6 +220,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
   const uomId = Form.useWatch('uomId', form);
   const actualQty = Form.useWatch('actualQuantity', form);
   const runningHours = Form.useWatch('runningHours', form);
+  const overtimeHoursWatch = Form.useWatch('overtimeHours', form);
+  const overtimeHours = toNum(overtimeHoursWatch, 0);
   const productionOrderId = Form.useWatch('productionOrderId', form);
   const shiftId = Form.useWatch('shiftId', form);
   const targetQty = Form.useWatch('targetQuantity', form);
@@ -508,6 +519,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
           targetQuantity: toNum(e.targetQuantity),
           actualQuantity: toNum(e.actualQuantity),
           runningHours: toNum(e.runningHours),
+          overtimeHours: toNum((e as any).overtimeHours, 0),
           scrapQuantity: toNum(e.scrapQuantity),
           remarks: e.remarks ?? undefined,
           productionOrderId: e.productionOrderId ?? undefined,
@@ -663,10 +675,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
   // Called whenever any downtime line hours change.
   const setRunningFromDowntimeLines = useCallback((total: number) => {
     if (plannedHours > 0) {
-      const clamped = round2(Math.max(0, Math.min(plannedHours, total)));
-      form.setFieldsValue({ runningHours: round2(Math.max(0, plannedHours - clamped)) });
+      const totalAvailable = plannedHours + overtimeHours;
+      const clamped = round2(Math.max(0, Math.min(totalAvailable, total)));
+      form.setFieldsValue({ runningHours: round2(Math.max(0, totalAvailable - clamped)) });
     }
-  }, [form, plannedHours]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [form, plannedHours, overtimeHours]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Switching AUTO ↔ MANUAL preserves the current split and keeps the pair
   // consistent with the shift plan.
@@ -716,14 +729,14 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
   // When downtime entries change in MANUAL mode or whenever downtime is entered, re-derive running hours.
   useEffect(() => {
-    if (plannedHours > 0 && (downtimeMode === 'manual' || totalDowntime > 0)) {
+    if (plannedHours > 0) {
       setRunningFromDowntimeLines(totalDowntime);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalDowntime, downtimeMode, plannedHours]);
+  }, [totalDowntime, downtimeMode, plannedHours, overtimeHours, setRunningFromDowntimeLines]);
 
-  const derivedRunning = effectiveRunning(toNum(runningHours), totalDowntime, plannedHours);
-  const derivedDowntime = effectiveDowntime(toNum(runningHours), totalDowntime, plannedHours);
+  const derivedRunning = effectiveRunning(toNum(runningHours), totalDowntime, plannedHours, overtimeHours);
+  const derivedDowntime = effectiveDowntime(toNum(runningHours), totalDowntime, plannedHours, overtimeHours);
 
   // Full-shift downtime (e.g. 8h Power Outage, Maintenance, No Material when planned hours = 8h)
   const isFullDowntime = Boolean(
@@ -1177,7 +1190,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     }
 
     if (plannedHours > 0) {
-      return Math.abs(round2(derivedRunning + totalDowntime) - plannedHours) <= 0.05;
+      return Math.abs(round2(derivedRunning + totalDowntime) - (plannedHours + overtimeHours)) <= 0.05;
     }
     return derivedRunning > 0 || totalDowntime > 0;
   }, [downtimeEntriesWatch, plannedHours, derivedRunning, totalDowntime]);
@@ -1212,6 +1225,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
     setSavedEntry(null);
     try {
       const payload: Record<string, unknown> = { ...values };
+      payload.overtimeHours = overtimeHours;
+      payload.runningHours = derivedRunning;
       if (isFullDowntime) {
         payload.actualQuantity = 0;
         payload.scrapQuantity = 0;
@@ -2155,64 +2170,87 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   </Row>
                 )}
 
-                <Row gutter={8}>
-                  <Col span={12}>
-                    {plannedHours > 0 && (downtimeMode === 'manual' || totalDowntime > 0 || isFullDowntime) ? (
-                      <div style={{ marginBottom: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span>Running Hours <InputBadge type="auto" /></span>
-                          <span style={{ fontSize: 10.5, color: '#3b82f6', fontWeight: 600 }}>Tracked in Live View</span>
-                        </div>
-                        <div style={{
-                          padding: '5px 11px',
-                          borderRadius: 6,
-                          background: 'rgba(59, 130, 246, 0.08)',
-                          border: '1px solid rgba(59, 130, 246, 0.3)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          height: 32,
-                        }}>
-                          <span style={{ fontWeight: 700, color: '#2563eb', fontSize: 13 }}>
-                            {formatNumber(derivedRunning, 2)} h
-                          </span>
-                          <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '18px', padding: '0 6px' }}>Auto</Tag>
-                        </div>
-                        <Form.Item name="runningHours" noStyle>
-                          <Input type="hidden" />
-                        </Form.Item>
+                <Row gutter={10}>
+                  <Col xs={24} md={15}>
+                    <div style={{ marginBottom: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>Shift & Production Hours</span>
+                        <span style={{ fontSize: 10.5, color: '#3b82f6', fontWeight: 600 }}>Tracked in Live View</span>
                       </div>
-                    ) : (
-                      <Form.Item
-                        name="runningHours"
-                        label={<span>Running Hours <InputBadge type="input" /></span>}
-                        rules={isFullDowntime ? [] : [
-                          { required: true, message: 'Required' },
-                          { type: 'number', min: 0, message: 'Running hours cannot be negative' },
-                          () => ({
-                            validator: (_r: unknown, v: number | null) => {
-                              if (v === null || v === undefined) return Promise.resolve();
-                              if (v < 0) return Promise.reject(new Error('Running hours cannot be negative'));
-                              if (plannedHours > 0 && v > plannedHours) {
-                                return Promise.reject(new Error('Running hours cannot exceed planned shift hours.'));
-                              }
-                              return Promise.resolve();
-                            },
-                          }),
-                        ]}
-                        style={{ marginBottom: 0 }}
-                      >
-                        <InputNumber
-                          style={{ width: '100%' }}
-                          min={0} max={plannedHours > 0 ? plannedHours : 24} step={0.25}
-                          disabled={runningReadOnly}
-                          className={(runningHours !== undefined && runningHours !== null && runningHours !== '') ? 'erp-field-filled' : 'erp-field-unfilled'}
-                          onChange={setHoursFromRunning}
-                        />
-                      </Form.Item>
-                    )}
+                      <Row gutter={6}>
+                        {/* Box 1: Shift Hours [AUTO] */}
+                        <Col span={8}>
+                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <span>Shift Hours</span>
+                            <Tag color="default" style={{ fontSize: 9, padding: '0 3px', lineHeight: '14px', margin: 0 }}>Auto</Tag>
+                          </div>
+                          <div style={{
+                            padding: '4px 6px',
+                            borderRadius: 6,
+                            background: 'rgba(100, 116, 139, 0.08)',
+                            border: '1px solid rgba(100, 116, 139, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            height: 32,
+                            fontWeight: 700,
+                            fontSize: 13,
+                            color: 'var(--theme-text, #334155)',
+                          }}>
+                            {formatNumber(plannedHours, 2)} h
+                          </div>
+                        </Col>
+
+                        {/* Box 2: Overtime (OT) [INPUT] */}
+                        <Col span={8}>
+                          <div style={{ fontSize: 11, color: '#8b5cf6', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600 }}>
+                            <span>Overtime (OT)</span>
+                            <Tag color="purple" style={{ fontSize: 9, padding: '0 3px', lineHeight: '14px', margin: 0 }}>Input</Tag>
+                          </div>
+                          <Form.Item name="overtimeHours" noStyle initialValue={0}>
+                            <InputNumber
+                              style={{ width: '100%' }}
+                              min={0}
+                              max={16}
+                              step={0.5}
+                              placeholder="0"
+                              className={overtimeHours > 0 ? 'erp-field-filled' : 'erp-field-unfilled'}
+                            />
+                          </Form.Item>
+                        </Col>
+
+                        {/* Box 3: Total Running Hours [AUTO] */}
+                        <Col span={8}>
+                          <div style={{ fontSize: 11, color: '#2563eb', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600 }}>
+                            <span>Running Hours</span>
+                            <Tag color="blue" style={{ fontSize: 9, padding: '0 3px', lineHeight: '14px', margin: 0 }}>Auto</Tag>
+                          </div>
+                          <div style={{
+                            padding: '4px 6px',
+                            borderRadius: 6,
+                            background: 'rgba(59, 130, 246, 0.1)',
+                            border: '1px solid rgba(59, 130, 246, 0.4)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            height: 32,
+                            fontWeight: 800,
+                            fontSize: 13.5,
+                            color: '#2563eb',
+                          }}>
+                            {formatNumber(derivedRunning, 2)} h
+                          </div>
+                          <Form.Item name="runningHours" noStyle>
+                            <Input type="hidden" />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
+                        Target based on: {formatNumber(derivedRunning, 2)}h running ({plannedHours}h shift + {overtimeHours}h OT - {totalDowntime}h downtime)
+                      </div>
+                    </div>
                   </Col>
-                  <Col span={12}>
+                  <Col xs={24} md={9}>
                     <Form.Item
                       name="scrapQuantity"
                       label={<span>Rejection / Scrap (KG) <InputBadge type={isFullDowntime ? 'auto' : 'input'} /></span>}
@@ -2295,6 +2333,14 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     <span className="downtime-pill planned">
                       Planned: {formatNumber(plannedHours, 2)}h
                     </span>
+                    {overtimeHours > 0 && (
+                      <>
+                        <span style={{ fontWeight: 700, color: '#8b5cf6' }}>+</span>
+                        <span className="downtime-pill" style={{ background: 'rgba(139, 92, 246, 0.12)', color: '#8b5cf6', borderColor: 'rgba(139, 92, 246, 0.4)' }}>
+                          OT: {formatNumber(overtimeHours, 2)}h
+                        </span>
+                      </>
+                    )}
                     <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>−</span>
                     <span className="downtime-pill running">
                       Running: {formatNumber(derivedRunning, 2)}h
@@ -2520,7 +2566,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     }}
                 </Form.List>
 
-                <DowntimeSummary totalDowntime={totalDowntime} plannedHours={plannedHours} runningHours={derivedRunning} />
+                <DowntimeSummary totalDowntime={totalDowntime} plannedHours={plannedHours} runningHours={derivedRunning} overtimeHours={overtimeHours} />
 
                 <Form.Item name="remarks" label="Remarks" style={{ marginTop: 12 }}>
                   <Input.TextArea rows={2} maxLength={500} showCount placeholder="Notes about this shift's production" />
@@ -2808,7 +2854,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       <span>
                         <ClockCircleOutlined style={{ marginRight: 4 }} />
                         Planned Shift: <strong style={{ color: 'var(--theme-text)' }}>{formatNumber(plannedHours, 2)}h</strong>
-                        {plannedHours > 0 && ` (Running ${formatNumber(toNum(runningHours), 2)}h + Downtime ${formatNumber(totalDowntime, 2)}h)`}
+                        {plannedHours > 0 && ` (${overtimeHours > 0 ? `+${formatNumber(overtimeHours, 2)}h OT · ` : ''}Running ${formatNumber(derivedRunning, 2)}h + Downtime ${formatNumber(totalDowntime, 2)}h)`}
                       </span>
                       <span>
                         {mtResolution?.item

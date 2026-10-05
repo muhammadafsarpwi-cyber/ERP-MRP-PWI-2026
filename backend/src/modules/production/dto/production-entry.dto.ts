@@ -170,6 +170,12 @@ export class CreateProductionEntryDto {
   @Max(24)
   runningHours!: number;
 
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(24)
+  overtimeHours?: number;
+
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(24)
@@ -305,6 +311,12 @@ export class UpdateProductionEntryDto {
   @Min(0)
   @Max(24)
   runningHours?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(24)
+  overtimeHours?: number;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })

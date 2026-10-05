@@ -467,14 +467,16 @@ const EntryDetail: React.FC = () => {
     ? toNum(entry.shift.plannedHours)
     : null;
   const planned = shiftPlanned ?? (entry.downtime?.plannedHours != null && toNum(entry.downtime.plannedHours) > 0 ? toNum(entry.downtime.plannedHours) : null);
+  const ot = toNum((entry as any).overtimeHours);
+  const totalAvailableHours = planned != null ? planned + ot : null;
   // Re-derive effective running if planned hours exist and downtime is recorded
-  const effectiveRunning = (planned != null && planned > 0 && totalDowntime > 0 && running + totalDowntime > planned)
-    ? Math.max(0, planned - totalDowntime)
+  const effectiveRunning = (totalAvailableHours != null && totalAvailableHours > 0 && totalDowntime > 0 && running + totalDowntime > totalAvailableHours)
+    ? Math.max(0, totalAvailableHours - totalDowntime)
     : running;
-  const remaining = planned != null ? Math.max(0, planned - effectiveRunning - totalDowntime) : null;
+  const remaining = totalAvailableHours != null ? Math.max(0, totalAvailableHours - effectiveRunning - totalDowntime) : null;
   // If downtime > 0 and running + downtime exceeded planned (stale/bad saved DB row), re-derive efficiency from effectiveRunning
-  const eff = (planned != null && planned > 0 && totalDowntime > 0 && running + totalDowntime > planned)
-    ? Math.round((effectiveRunning / planned) * 10000) / 100
+  const eff = (totalAvailableHours != null && totalAvailableHours > 0 && totalDowntime > 0 && running + totalDowntime > totalAvailableHours)
+    ? Math.round((effectiveRunning / totalAvailableHours) * 10000) / 100
     : toNum(entry.efficiencyPercentage);
   const wireSize = entry.item?.wireSizeMm != null ? `${formatDimension(entry.item.wireSizeMm)} mm` : '—';
   const productionInItem = entry.item?.productionInItem ?? null;
@@ -614,6 +616,7 @@ const EntryDetail: React.FC = () => {
       <Descriptions.Item label="Actual Good Production"><Text strong>{formatNumber(entry.actualQuantity, 3)}</Text></Descriptions.Item>
       <Descriptions.Item label="Rejection / Scrap">{formatNumber(entry.scrapQuantity, 3)}</Descriptions.Item>
       <Descriptions.Item label="Running Hours">{formatNumber(effectiveRunning, 2)}h</Descriptions.Item>
+      <Descriptions.Item label="Overtime Hours">{formatNumber(ot, 2)}h</Descriptions.Item>
       <Descriptions.Item
         label="Downtime Hours"
         contentStyle={totalDowntime > 0 ? { background: 'var(--theme-warning-soft)' } : undefined}

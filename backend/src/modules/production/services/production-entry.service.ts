@@ -1037,8 +1037,10 @@ addToDept(org, {
       ? await this.resolveRawMaterialSourceStore(companyId, requestedSource)
       : null;
 
-    const effectiveRunning = (resolved.plannedHours > 0 && dto.downtimeHours > 0 && (dto.runningHours + dto.downtimeHours > resolved.plannedHours))
-      ? this.round2(Math.max(0, resolved.plannedHours - dto.downtimeHours))
+    const ot = dto.overtimeHours ? Number(dto.overtimeHours) : 0;
+    const totalPlanned = (resolved.plannedHours > 0) ? (resolved.plannedHours + ot) : 0;
+    const effectiveRunning = (totalPlanned > 0 && dto.downtimeHours > 0 && (dto.runningHours + dto.downtimeHours > totalPlanned))
+      ? this.round2(Math.max(0, totalPlanned - dto.downtimeHours))
       : dto.runningHours;
 
     const entry = this.entryRepo.create({
@@ -1067,8 +1069,9 @@ addToDept(org, {
         dto.actualQuantity,
         mt ? mt.calculatedTarget : (dto.targetQuantity as number),
       ),
-      efficiencyPercentage: this.computeEfficiency(effectiveRunning, resolved.plannedHours),
+      efficiencyPercentage: this.computeEfficiency(effectiveRunning, totalPlanned > 0 ? totalPlanned : resolved.plannedHours),
       runningHours: effectiveRunning,
+      overtimeHours: ot,
       downtimeHours: dto.downtimeHours,
       downtimeReasonId: dto.downtimeReasonId ?? null,
       downtimeReasonText: dto.downtimeReason ?? null,
@@ -1143,6 +1146,7 @@ addToDept(org, {
       actualQuantity: dto.actualQuantity ?? Number(entry.actualQuantity),
       scrapQuantity: dto.scrapQuantity ?? Number(entry.scrapQuantity),
       runningHours: dto.runningHours ?? Number(entry.runningHours),
+      overtimeHours: dto.overtimeHours !== undefined ? Number(dto.overtimeHours) : Number(entry.overtimeHours || 0),
       downtimeHours: dto.downtimeHours ?? Number(entry.downtimeHours),
       rawMaterialWarehouseId: dto.rawMaterialWarehouseId !== undefined ? (dto.rawMaterialWarehouseId ?? null) : entry.rawMaterialWarehouseId ?? null,
     };
@@ -1183,13 +1187,16 @@ addToDept(org, {
       );
     }
 
-    const effectiveRunning = (resolved.plannedHours > 0 && merged.downtimeHours > 0 && (merged.runningHours + merged.downtimeHours > resolved.plannedHours))
-      ? this.round2(Math.max(0, resolved.plannedHours - merged.downtimeHours))
+    const ot = merged.overtimeHours ? Number(merged.overtimeHours) : 0;
+    const totalPlanned = (resolved.plannedHours > 0) ? (resolved.plannedHours + ot) : 0;
+    const effectiveRunning = (totalPlanned > 0 && merged.downtimeHours > 0 && (merged.runningHours + merged.downtimeHours > totalPlanned))
+      ? this.round2(Math.max(0, totalPlanned - merged.downtimeHours))
       : merged.runningHours;
 
     Object.assign(entry, {
       ...merged,
       runningHours: effectiveRunning,
+      overtimeHours: ot,
       machineNo: resolved.machineNo,
       operatorName: dto.operatorName?.trim() ?? entry.operatorName,
       supervisorName: dto.supervisorName !== undefined ? (dto.supervisorName?.trim() ?? null) : entry.supervisorName,
