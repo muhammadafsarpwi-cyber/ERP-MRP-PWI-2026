@@ -40,6 +40,64 @@ export const SPD_PACKING_SECTION_ID = 'd2000000-0000-0000-0000-000000000004';
 export const SPD_PACKING_DEPT_ID = 'd3000000-0000-0000-0000-000000000008';
 
 const TAB_CACHE_KEY = '/production/packing/v2026_wip_spl_v4';
+const RECENT_CACHE_KEY = `${TAB_CACHE_KEY}:recent_logs`;
+
+export interface RecentPackingLog {
+  id: string;
+  batchNo: string;
+  entryDate: string;
+  entryTime: string;
+  customerName: string;
+  socNo: string;
+  fgItemCode: string;
+  fgItemName: string;
+  cartons: number;
+  gross: number;
+  pcs: number;
+  weightKg: number;
+  overtimeHours: number;
+  shiftName: string;
+  status: string;
+  createdAtMs: number;
+  components: Array<{ code: string; gross: number }>;
+}
+
+/** Parse a saved Production Entry (hand packing) back into a shift-log row using its structured remarks. */
+const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
+  if (!e) return null;
+  const remarks = String(e.remarks || '');
+  const machineNo = String(e.machineNo || e.machine_no || '');
+  if (!remarks.includes('[HAND PACKING]') && !machineNo.toUpperCase().startsWith('HAND-PACK')) return null;
+  const pick = (label: string) => {
+    const m = remarks.match(new RegExp(`${label}:\\s*([^|]+)`));
+    return m ? m[1].trim() : '';
+  };
+  const qtyMatch = remarks.match(/Cartons:\s*([\d.]+)\s*\(([\d.]+)\s*Gross\s*\/\s*([\d.]+)\s*PCS/i);
+  const pcs = toNum(e.actualQuantity ?? e.actual_quantity) || (qtyMatch ? toNum(qtyMatch[3]) : 0);
+  const gross = qtyMatch ? toNum(qtyMatch[2]) : Math.round((pcs / PCS_PER_GROSS) * 100) / 100;
+  const cartons = qtyMatch ? toNum(qtyMatch[1]) : Math.round((pcs / PCS_PER_CARTON) * 100) / 100;
+  const created = dayjs(e.createdAt || e.created_at || e.entryDate || e.entry_date);
+  const entryDay = dayjs(e.entryDate || e.entry_date || e.createdAt);
+  return {
+    id: String(e.id),
+    batchNo: pick('Batch') || e.entryNo || e.entryNumber || machineNo,
+    entryDate: entryDay.isValid() ? entryDay.format('DD/MM/YYYY') : '',
+    entryTime: created.isValid() ? created.format('hh:mm A') : '',
+    customerName: pick('Customer') || '—',
+    socNo: pick('SOC') || '—',
+    fgItemCode: e.item?.itemCode || '',
+    fgItemName: e.item?.name || '',
+    cartons,
+    gross,
+    pcs,
+    weightKg: Math.round(pcs * 0.009 * 10) / 10,
+    overtimeHours: parseFloat(pick('OT')) || 0,
+    shiftName: e.shift?.name || 'General (8:30 AM - 5:30 PM)',
+    status: 'SAVED',
+    createdAtMs: created.isValid() ? created.valueOf() : 0,
+    components: [],
+  };
+};
 
 export interface BomComponentItem {
   key: string;
@@ -206,12 +264,13 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [fgStockPcs, setFgStockPcs] = useState<number>(72000);
 
   // Controlled executive form fields
-  const [currentBatchNo, setCurrentBatchNo] = useState<string>('PKG-2026-0239');
-  const [socNo, setSocNo] = useState<string>('SOC-2026-0842');
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('Crown Motors (Pvt) Ltd');
-  const [selectedBagStyle, setSelectedBagStyle] = useState<string>('White Poly Bag with Brand Sticker');
+  const [currentBatchNo, setCurrentBatchNo] = useState<string>(`PKG-${dayjs().format('YYYY')}-0001`);
+  const [socNo, setSocNo] = useState<string>('');
+  const [selectedCustomer, setSelectedCustomer] = useState<string | undefined>(undefined);
+  const [selectedBagStyle, setSelectedBagStyle] = useState<string | undefined>(undefined);
   const [selectedLine, setSelectedLine] = useState<string>('Hand Packing Line');
   const [overtimeHours, setOvertimeHours] = useState<number>(0);
+  const [selectedShiftId, setSelectedShiftId] = useState<string | undefined>(undefined);
   const [saveReviewModalVisible, setSaveReviewModalVisible] = useState<boolean>(false);
 
   // Big Success Result Dialog State (Corporate Standard)
@@ -235,71 +294,95 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     department: '',
   });
 
-  // Shift logs: Recent saved entries displayed directly below the form
-  const [recentSavedEntries, setRecentSavedEntries] = useState<Array<{
-    id: string;
-    batchNo: string;
-    entryDate: string;
-    entryTime: string;
-    customerName: string;
-    socNo: string;
-    fgItemCode: string;
-    fgItemName: string;
-    cartons: number;
-    gross: number;
-    pcs: number;
-    weightKg: number;
-    overtimeHours: number;
-    shiftName: string;
-    status: string;
-    components: Array<{ code: string; gross: number }>;
-  }>>([
-    {
-      id: 'log-seed-1',
-      batchNo: 'PKG-2026-0238',
-      entryDate: '04/10/2026',
-      entryTime: '04:30 PM',
-      overtimeHours: 0,
-      shiftName: 'General (8:30 AM - 5:30 PM)',
-      weightKg: 129.6,
-      customerName: 'Crown Motors (Pvt) Ltd',
-      socNo: 'SOC-2026-0842',
-      fgItemCode: 'SPI-FG-SPK-011',
-      fgItemName: 'DS Front Inn / Out Spoke Straight_225X17 Nipple',
-      cartons: 10,
-      gross: 100,
-      pcs: 14400,
-      status: 'SAVED',
-      components: [
-        { code: 'WIP-SPL-017', gross: 50 },
-        { code: 'WIP-SPL-018', gross: 50 },
-        { code: 'SPI-FG-NP-001', gross: 100 },
-      ],
-    },
-  ]);
+  // Shift logs: Recent saved entries displayed directly below the form.
+  // Source of truth = backend (production entries with machineNo HAND-PACK-*); session cache only for instant paint.
+  const [recentSavedEntries, setRecentSavedEntries] = useState<RecentPackingLog[]>(
+    () => tabSessionCache.get<RecentPackingLog[]>(RECENT_CACHE_KEY) || []
+  );
+  const [recentLoading, setRecentLoading] = useState<boolean>(false);
+
+  const loadRecentEntries = useCallback(async () => {
+    setRecentLoading(true);
+    try {
+      const res: any = await apiService.get(
+        `/production/entries?machineNo=HAND-PACK&limit=100&sortBy=createdAt&sortDir=DESC`
+      );
+      const rows = extractArray(res)
+        .map(parseHandPackingEntry)
+        .filter((r): r is RecentPackingLog => !!r)
+        .sort((a, b) => b.createdAtMs - a.createdAtMs);
+      setRecentSavedEntries(rows);
+      tabSessionCache.set(RECENT_CACHE_KEY, rows);
+
+      // Prevent duplicate batch numbers: next batch = highest saved batch + 1
+      const year = dayjs().format('YYYY');
+      const maxNo = rows.reduce((mx, r) => {
+        const m = r.batchNo.match(new RegExp(`^PKG-${year}-(\\d+)$`));
+        return m ? Math.max(mx, parseInt(m[1], 10)) : mx;
+      }, 0);
+      if (maxNo > 0) {
+        setCurrentBatchNo((prev) => {
+          const pm = prev.match(new RegExp(`^PKG-${year}-(\\d+)$`));
+          const prevNo = pm ? parseInt(pm[1], 10) : 0;
+          if (prevNo > maxNo) return prev;
+          const next = `PKG-${year}-${String(maxNo + 1).padStart(4, '0')}`;
+          form.setFieldsValue({ packingNo: next });
+          return next;
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to load recent packing entries', err);
+    } finally {
+      setRecentLoading(false);
+    }
+  }, [form]);
+
+  useEffect(() => {
+    loadRecentEntries();
+  }, [loadRecentEntries]);
+
+  /** Clear every entry field (customer, SOC, bag style, OT, FG item, cartons, BOM). Shift & Line are kept. */
+  const clearEntryForm = (nextBatchNo?: string) => {
+    tabSessionCache.remove(TAB_CACHE_KEY);
+    const batch = nextBatchNo || currentBatchNo;
+    if (nextBatchNo) setCurrentBatchNo(nextBatchNo);
+    setSelectedCustomer(undefined);
+    setSocNo('');
+    setSelectedBagStyle(undefined);
+    setOvertimeHours(0);
+    form.setFieldsValue({
+      packingNo: batch,
+      customerName: undefined,
+      customerSocNo: undefined,
+      packagingStyle: undefined,
+    });
+    setMasterItems((prev) => {
+      const base = prev[0];
+      return [
+        {
+          key: base?.key || `fg-${Date.now()}`,
+          itemId: '',
+          itemCode: '',
+          itemName: '',
+          unit: 'PCS',
+          destinationWarehouseId: base?.destinationWarehouseId || form.getFieldValue('warehouseId'),
+          quantityPcs: 0,
+          gross: 0,
+          cartons: 0,
+          targetCartons: base?.targetCartons || 50,
+          status: 'PENDING',
+          bom: null,
+          bomLoading: false,
+          bomError: null,
+          components: [],
+        },
+      ];
+    });
+  };
 
   const handleResetForm = () => {
-    tabSessionCache.remove(TAB_CACHE_KEY);
-    form.resetFields();
-    form.setFieldsValue({ packingNo: currentBatchNo, customerSocNo: socNo, customerName: selectedCustomer });
-    setMasterItems((prev) => [
-      {
-        ...prev[0],
-        cartons: 0,
-        gross: 0,
-        quantityPcs: 0,
-        components: (prev[0]?.components || []).map((c) => ({
-          ...c,
-          requiredGross: 0,
-          requiredPcs: 0,
-          remainingGross: c.availableGross,
-          remainingPcs: c.availablePcs,
-          remainingStock: c.availableGross,
-          stockStatus: 'AVAILABLE',
-        })),
-      },
-    ]);
-    message.info('Packing entry form reset to fresh state.');
+    clearEntryForm();
+    message.info('Packing entry form cleared.');
   };
 
   // Derived conversions based on authoritative UOM conversions from ERP
@@ -602,18 +685,34 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       );
 
       setMasterItems((prev) =>
-        prev.map((row) =>
-          row.key === rowKey
-            ? {
-              ...row,
-              bom: bomData,
-              bomLoading: false,
-              bomError: null,
-              components: componentRows,
-              status: 'ON_TRACK',
-            }
-            : row
-        )
+        prev.map((row) => {
+          if (row.key !== rowKey) return row;
+          // Recompute requirements with the LATEST cartons (user may have typed while BOM was loading)
+          const ctn = toNum(row.cartons);
+          const comps = componentRows.map((c) => {
+            const reqGross = Math.round(c.grossPerCarton * ctn * 100) / 100;
+            const reqPcs = Math.round(reqGross * conversionFactors.pcsPerGross);
+            const remGross = Math.round((c.availableGross - reqGross) * 10) / 10;
+            return {
+              ...c,
+              requiredGross: reqGross,
+              requiredPcs: reqPcs,
+              requiredQuantity: reqPcs,
+              remainingGross: remGross,
+              remainingPcs: Math.round(c.availablePcs - reqPcs),
+              remainingStock: remGross,
+              stockStatus: (remGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT') as 'AVAILABLE' | 'INSUFFICIENT',
+            };
+          });
+          return {
+            ...row,
+            bom: bomData,
+            bomLoading: false,
+            bomError: null,
+            components: comps,
+            status: 'ON_TRACK',
+          };
+        })
       );
     } catch (err: any) {
       console.error('Failed to load BOM for product', productId, err);
@@ -632,7 +731,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         )
       );
     }
-  }, [fgItems, form, warehouses, fetchComponentStock]);
+  }, [fgItems, form, warehouses, fetchComponentStock, conversionFactors]);
+
+  // Stable ref so the one-time init effect never re-runs when this callback's identity changes
+  const expandBomRef = useRef(expandBomForMasterItem);
+  expandBomRef.current = expandBomForMasterItem;
+
 
   // Load existing ERP lookups & restore tab draft
   useEffect(() => {
@@ -678,6 +782,22 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         setTargetCartons(existingDraft.targetCartons || 50);
         setTargetUnit(existingDraft.targetUnit || 'CTN');
         if (existingDraft.inspectedItemId) setInspectedItemId(existingDraft.inspectedItemId);
+        const hdr = existingDraft.header;
+        if (hdr) {
+          if (hdr.currentBatchNo) setCurrentBatchNo(hdr.currentBatchNo);
+          setSocNo(hdr.socNo || '');
+          setSelectedCustomer(hdr.selectedCustomer || undefined);
+          setSelectedBagStyle(hdr.selectedBagStyle || undefined);
+          if (hdr.selectedLine) setSelectedLine(hdr.selectedLine);
+          setOvertimeHours(Number(hdr.overtimeHours) || 0);
+          if (hdr.selectedShiftId) setSelectedShiftId(hdr.selectedShiftId);
+        }
+        // Rows that were cached while their BOM was still loading have no components — re-expand them
+        sanitized.forEach((row: PackingMasterItemRow) => {
+          if (row.itemId && (!row.bom || !row.components?.length) && !row.bomError) {
+            expandBomRef.current(row.key, row.itemId, row.quantityPcs || 0);
+          }
+        });
         if (existingDraft.formValues) {
           const restoredValues = { ...existingDraft.formValues };
           if (restoredValues.entryDate) {
@@ -792,7 +912,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           setMasterItems([initialRow]);
           setExpandedKeys([initialKey]);
           setInspectedItemId(preferredFg.id);
-          expandBomForMasterItem(initialKey, preferredFg.id, 72000, rmWarehouse?.id);
+          expandBomRef.current(initialKey, preferredFg.id, 72000, rmWarehouse?.id);
         }
 
         setLoadingLookups(false);
@@ -952,7 +1072,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           setExpandedKeys([initialKey]);
           setInspectedItemId(preferredFg.id);
 
-          expandBomForMasterItem(initialKey, preferredFg.id, 72000, rmWarehouse?.id);
+          expandBomRef.current(initialKey, preferredFg.id, 72000, rmWarehouse?.id);
         }
       } catch (err) {
         console.error('Failed to load packing lookups', err);
@@ -963,18 +1083,31 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
     loadData();
     return () => { mounted = false; };
-  }, [form, currentUserName, expandBomForMasterItem, urlProductId]);
+    // IMPORTANT: run ONCE on mount. Depending on expandBomForMasterItem caused an endless
+    // re-init loop (page flickering between two states) because this effect itself updates
+    // fgItems/warehouses, which recreates that callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Save current working state to tab session cache so switching tabs NEVER loses data
   useEffect(() => {
     if (masterItems.length === 0) return;
-    const currentValues = form.getFieldsValue();
+    const currentValues = form.getFieldsValue(true) || {};
     const draft = {
       formValues: {
         ...currentValues,
         entryDate: currentValues.entryDate
           ? (dayjs.isDayjs(currentValues.entryDate) ? currentValues.entryDate.toISOString() : String(currentValues.entryDate))
           : dayjs().toISOString(),
+      },
+      header: {
+        currentBatchNo,
+        socNo,
+        selectedCustomer,
+        selectedBagStyle,
+        selectedLine,
+        overtimeHours,
+        selectedShiftId,
       },
       targetCartons,
       targetUnit,
@@ -983,7 +1116,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       inspectedItemId,
     };
     tabSessionCache.set(TAB_CACHE_KEY, draft);
-  }, [masterItems, targetCartons, targetUnit, expandedKeys, inspectedItemId, form]);
+  }, [masterItems, targetCartons, targetUnit, expandedKeys, inspectedItemId, form,
+      currentBatchNo, socNo, selectedCustomer, selectedBagStyle, selectedLine, overtimeHours, selectedShiftId]);
 
   // Filtered sections and departments based on user selection
   const availableSections = useMemo(() => {
@@ -1268,12 +1402,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     [fgItems, masterItems, expandBomForMasterItem]
   );
 
-  // Synchronize when urlProductId changes (e.g. user clicked "Use for Packing" on FG BOM Catalog)
+  // Synchronize when urlProductId changes (e.g. user clicked "Use for Packing" on FG BOM Catalog).
+  // Applied ONCE per URL value so it never overrides the user's later selection / post-save clear.
+  const appliedUrlProductRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!urlProductId || fgItems.length === 0) return;
+    if (!urlProductId || fgItems.length === 0 || masterItems.length === 0) return;
+    if (appliedUrlProductRef.current === urlProductId) return;
     const target = fgItems.find((f) => f.id === urlProductId || f.itemCode === urlProductId);
     if (!target) return;
-    if (masterItems.length > 0 && masterItems[0].itemId !== target.id) {
+    appliedUrlProductRef.current = urlProductId;
+    if (masterItems[0].itemId !== target.id) {
       handleProductSelect(masterItems[0].key, target.id);
     }
   }, [urlProductId, fgItems, masterItems, handleProductSelect]);
@@ -1415,8 +1553,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       // allow fallback
     }
     const primaryItem = masterItems[0];
+    if (layoutMode === 'executive' && !selectedCustomer) {
+      message.warning('Please select a Customer before saving.');
+      return;
+    }
     if (!primaryItem || !primaryItem.itemId) {
       message.error('Please select a Finished Good Item before saving.');
+      return;
+    }
+    if (primaryItem.bomLoading) {
+      message.info('BOM components are still loading. Please wait a moment.');
       return;
     }
     if (!primaryItem.cartons || primaryItem.cartons <= 0) {
@@ -1505,13 +1651,13 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         ? formValues.departmentId
         : (packingDept?.id || SPD_PACKING_DEPT_ID);
 
-      const activeShift = shifts.find((s: any) => s.id === formValues.shiftId) || shifts[0];
-      const rawShiftId = formValues.shiftId || activeShift?.id;
+      const activeShift = shifts.find((s: any) => s.id === (selectedShiftId || formValues.shiftId)) || shifts[0];
+      const rawShiftId = selectedShiftId || formValues.shiftId || activeShift?.id;
       const resolvedShiftId = (rawShiftId && rawShiftId.length === 36) ? rawShiftId : '7b376b7c-e668-48ba-8914-ab04d06709d2';
 
-      const activeBatchNo = currentBatchNo || formValues.packingNo || 'PKG-2026-0239';
-      const activeSocNo = socNo || formValues.customerSocNo || 'SOC-2026-0842';
-      const activeCust = selectedCustomer || formValues.customerName || 'Crown Motors (Pvt) Ltd';
+      const activeBatchNo = currentBatchNo || formValues.packingNo || `PKG-${dayjs().format('YYYY')}-0001`;
+      const activeSocNo = socNo || formValues.customerSocNo || 'N/A';
+      const activeCust = selectedCustomer || formValues.customerName || 'Open Market / General Stock';
       const activeStyle = selectedBagStyle || formValues.packagingStyle || 'White Poly Bag with Brand Sticker';
 
       const payload: any = {
@@ -1568,68 +1714,47 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         if (!res) throw postErr;
       }
 
-      // Clear draft on successful save
-      tabSessionCache.remove(TAB_CACHE_KEY);
-
       // Auto-increment Batch Number (e.g. PKG-2026-0239 -> PKG-2026-0240)
       const match = activeBatchNo.match(/(\d+)$/);
-      const currentNum = match ? parseInt(match[1], 10) : 239;
+      const currentNum = match ? parseInt(match[1], 10) : 0;
       const nextNum = currentNum + 1;
-      const nextBatchNo = activeBatchNo.replace(/(\d+)$/, String(nextNum).padStart(match ? match[1].length : 4, '0'));
+      const nextBatchNo = match
+        ? activeBatchNo.replace(/(\d+)$/, String(nextNum).padStart(match[1].length, '0'))
+        : `${activeBatchNo}-0001`;
 
-      // Append to Recent Saved Entries (Shift Log)
-      const newSavedLog = {
-        id: `saved-${Date.now()}`,
+      // Optimistically show the new row immediately; the backend re-fetch below replaces it with DB truth
+      const savedId = res?.data?.id || res?.id || `saved-${Date.now()}`;
+      const newSavedLog: RecentPackingLog = {
+        id: String(savedId),
         batchNo: activeBatchNo,
         entryDate: formValues.entryDate ? dayjs(formValues.entryDate).format('DD/MM/YYYY') : dayjs().format('DD/MM/YYYY'),
         entryTime: dayjs().format('hh:mm A'),
         overtimeHours: overtimeHours,
-        shiftName: 'General (8:30 AM - 5:30 PM)',
+        shiftName: activeShift?.name || 'General (8:30 AM - 5:30 PM)',
         weightKg: Math.round(primaryItem.quantityPcs * 0.0090 * 10) / 10,
         customerName: activeCust,
         socNo: activeSocNo,
-        fgItemCode: primaryItem.itemCode || 'SPI-FG-SPK-011',
-        fgItemName: primaryItem.itemName || 'DS Front Inn / Out Spoke Straight',
+        fgItemCode: primaryItem.itemCode || '',
+        fgItemName: primaryItem.itemName || '',
         cartons: primaryItem.cartons,
         gross: primaryItem.gross,
         pcs: primaryItem.quantityPcs,
         status: 'SAVED',
+        createdAtMs: Date.now(),
         components: primaryItem.components.map((c) => ({
           code: c.componentItemCode,
           gross: c.requiredGross,
         })),
       };
-      setRecentSavedEntries((prev) => [newSavedLog, ...prev]);
+      setRecentSavedEntries((prev) => [newSavedLog, ...prev.filter((p) => p.id !== newSavedLog.id)]);
 
-      // Update state for next entry
-      setCurrentBatchNo(nextBatchNo);
-      form.setFieldsValue({
-        packingNo: nextBatchNo,
-        customerSocNo: activeSocNo.startsWith('SOC-2026-') ? activeSocNo : 'SOC-2026-',
-        customerName: activeCust,
-        packagingStyle: activeStyle,
-      });
-
-      // Reset carton counter and component requirement
-      setMasterItems((prev) => [
-        {
-          ...prev[0],
-          cartons: 0,
-          gross: 0,
-          quantityPcs: 0,
-          components: (prev[0]?.components || []).map((c) => ({
-            ...c,
-            requiredGross: 0,
-            requiredPcs: 0,
-            remainingGross: c.availableGross,
-            remainingPcs: c.availablePcs,
-            remainingStock: c.availableGross,
-            stockStatus: 'AVAILABLE',
-          })),
-        },
-      ]);
-
+      // Clear the whole form for the next entry (Shift & Line are kept)
+      clearEntryForm(nextBatchNo);
       setSaveReviewModalVisible(false);
+      message.success(`Packing entry ${activeBatchNo} saved successfully. Form cleared for next entry.`);
+
+      // Re-sync the shift log with the database (shows ALL saved entries, not just this session)
+      loadRecentEntries();
 
       // Trigger the large, framed checkmark corporate result modal
       setPackingSuccessModal({
@@ -1637,9 +1762,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         batchNo: activeBatchNo,
         fgCode: primaryItem.itemCode || 'FG-SPK',
         fgName: primaryItem.itemName || primaryItem.itemCode,
-        customerName: `${selectedCustomer || 'Crown Motors (Pvt) Ltd'} | ${socNo || 'SOC-2026-0842'}`,
+        customerName: `${activeCust} | ${activeSocNo}`,
         packedText: `${primaryItem.cartons} Cartons (${primaryItem.gross} Gross / ${formatNumber(primaryItem.quantityPcs)} PCS)`,
-        deductionsSummary: `${primaryItem.components?.length || 3} Components Deducted (Spokes & Nipples)`,
+        deductionsSummary: `${primaryItem.components?.length || 0} Components Deducted (Spokes & Nipples)`,
         department: 'Spoke Division (SPD) > SPD Packing Dept',
       });
 
@@ -2226,13 +2351,13 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <Text type="secondary">Batch Number:</Text>
             <Tag color="blue" style={{ fontWeight: 800 }}>
-              {currentBatchNo || 'PKG-2026-0239'}
+              {currentBatchNo || '—'}
             </Tag>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <Text type="secondary">Customer & SOC:</Text>
             <Text strong style={{ color: '#0f172a' }}>
-              {selectedCustomer || 'Crown Motors (Pvt) Ltd'} | {socNo || 'SOC-2026-0842'}
+              {selectedCustomer || '—'} | {socNo || 'N/A'}
             </Text>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -2467,10 +2592,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
           }}
         >
-          <Row gutter={[16, 12]} align="middle">
-            <Col xs={24} sm={8}>
+          <Row gutter={[12, 12]} align="middle">
+            <Col xs={24} sm={8} lg={6}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 70 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 62 }}>
                   Batch No:
                 </span>
                 <Input
@@ -2483,38 +2608,43 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
             </Col>
-            <Col xs={24} sm={8}>
+            <Col xs={24} sm={8} lg={9}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 38 }}>
                   Shift:
                 </span>
                 <Select
-                  style={{ flex: '1 1 140px' }}
-                  value={form.getFieldValue('shiftId') || shifts[0]?.id}
-                  onChange={(val) => form.setFieldsValue({ shiftId: val })}
+                  style={{ flex: '1 1 150px', minWidth: 0 }}
+                  value={selectedShiftId || form.getFieldValue('shiftId') || shifts[0]?.id}
+                  onChange={(val) => {
+                    setSelectedShiftId(val);
+                    form.setFieldsValue({ shiftId: val });
+                  }}
+                  popupMatchSelectWidth={false}
                   options={shifts.map((s) => ({
                     value: s.id,
                     label: s.name?.includes('General') ? 'General (8:30 AM - 5:30 PM)' : s.name,
                   }))}
                 />
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#b45309', minWidth: 26, marginLeft: 2 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: '#b45309', marginLeft: 2 }}>
                   OT:
                 </span>
                 <Select
-                  style={{ width: 95 }}
+                  style={{ width: 68, flexShrink: 0 }}
                   value={overtimeHours}
                   onChange={(val) => setOvertimeHours(val)}
+                  popupMatchSelectWidth={false}
                   options={[
-                    { value: 0, label: '0h (None)' },
-                    { value: 1, label: '1h OT' },
-                    { value: 2, label: '2h OT' },
-                    { value: 3, label: '3h OT' },
-                    { value: 4, label: '4h OT' },
+                    { value: 0, label: '0h' },
+                    { value: 1, label: '1h' },
+                    { value: 2, label: '2h' },
+                    { value: 3, label: '3h' },
+                    { value: 4, label: '4h' },
                   ]}
                 />
               </div>
             </Col>
-            <Col xs={24} sm={8}>
+            <Col xs={24} sm={8} lg={9}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 45 }}>
                   Line:
@@ -2547,11 +2677,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 </span>
                 <Select
                   showSearch
+                  allowClear
                   placeholder="Select Customer..."
                   style={{ width: '100%', fontWeight: 700 }}
                   value={selectedCustomer}
                   onChange={(val) => {
-                    setSelectedCustomer(val);
+                    setSelectedCustomer(val || undefined);
                     form.setFieldsValue({ customerName: val });
                   }}
                   options={[
@@ -2587,10 +2718,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   Bag Style:
                 </span>
                 <Select
+                  allowClear
+                  placeholder="Select Bag Style..."
                   style={{ width: '100%', fontWeight: 600 }}
                   value={selectedBagStyle}
                   onChange={(val) => {
-                    setSelectedBagStyle(val);
+                    setSelectedBagStyle(val || undefined);
                     form.setFieldsValue({ packagingStyle: val });
                   }}
                   options={[
@@ -2631,7 +2764,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  value={primaryItem.itemId}
+                  placeholder="Select Finished Good Item..."
+                  value={primaryItem.itemId || undefined}
                   onChange={(newId) => handleProductSelect(primaryItem.key, newId)}
                   style={{ width: '100%', fontWeight: 700 }}
                   options={itemOptions}
@@ -2835,9 +2969,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   Recent Packing Production Entries (Shift Log Details)
                 </span>
               </Space>
-              <Tag color="cyan" style={{ fontWeight: 700, margin: 0 }}>
-                {recentSavedEntries.length} Saved Entries
-              </Tag>
+              <Space size={8}>
+                <Tag color="cyan" style={{ fontWeight: 700, margin: 0 }}>
+                  {recentSavedEntries.length} Saved Entries
+                </Tag>
+                <Button size="small" icon={<SyncOutlined spin={recentLoading} />} onClick={loadRecentEntries}>
+                  Refresh
+                </Button>
+              </Space>
             </div>
           }
           style={{
@@ -2851,7 +2990,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           <Table
             dataSource={recentSavedEntries}
             rowKey="id"
-            pagination={false}
+            loading={recentLoading && recentSavedEntries.length === 0}
+            pagination={recentSavedEntries.length > 10 ? { pageSize: 10, size: 'small', showSizeChanger: false } : false}
+            locale={{ emptyText: 'No packing entries saved yet' }}
             size="small"
             bordered
             columns={[
