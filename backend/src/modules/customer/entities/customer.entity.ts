@@ -1,6 +1,7 @@
 import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
+import { Division } from '../../organization/entities/division.entity';
 import { CustomerContact } from './customer-contact.entity';
 import { CustomerAddress } from './customer-address.entity';
 import { CustomerLedgerEntry } from './customer-ledger.entity';
@@ -13,6 +14,13 @@ export class Customer extends BaseEntity {
   @ManyToOne(() => Company)
   @JoinColumn({ name: 'company_id' })
   company: Company;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
+  @ManyToOne(() => Division, { nullable: true })
+  @JoinColumn({ name: 'division_id' })
+  division: Division | null;
 
   @Column({ name: 'customer_code', type: 'varchar', length: 50 })
   customerCode: string;

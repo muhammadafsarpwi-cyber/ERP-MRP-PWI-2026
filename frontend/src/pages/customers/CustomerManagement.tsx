@@ -33,6 +33,7 @@ import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import './CustomerManagement.css';
 import { printCustomerStatementDocument, printInvoiceDocument, printTableList } from '../../utils/printTemplates';
+import { useUserStore } from '../../store/userStore';
 
 const { TabPane } = Tabs;
 
@@ -43,11 +44,15 @@ interface DivisionOption {
 }
 
 const DEFAULT_DIVISIONS: DivisionOption[] = [
-  { id: 'div-wd', code: 'WD', name: 'Wire Drawing Division' },
-  { id: 'div-galv', code: 'GALV', name: 'Galvanizing Division' },
-  { id: 'div-ccd', code: 'CCD', name: 'Control Cable Division' },
-  { id: 'div-nail', code: 'NAIL', name: 'Nail & Fastener Division' },
-  { id: 'div-corp', code: 'CORP', name: 'Corporate & Master Division' },
+  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-CCD', name: 'Control Cable Division' },
+  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-SPD', name: 'Spoke Division' },
+  { id: '0653339b-94d0-4cc5-b880-e07908b2015f', code: 'DIV-NB', name: 'NB Division' },
+  { id: '50824516-9c24-4122-86e7-c8e6fa1c5869', code: 'DIV-001', name: 'Manufacturing Division' },
+  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-PWI', name: 'Main Division E-51' },
+  { id: 'b28f9d4f-53f3-4883-afb4-2af73c4dcca7', code: 'DIV-002', name: 'Sales & Marketing Division' },
+  { id: '3f222d46-6f96-44f6-9ead-27467c7e93a1', code: 'DIV-003', name: 'Supply Chain Division' },
+  { id: '9efc527e-811d-4b45-92ea-4a562ab212cc', code: 'DIV-004', name: 'Finance & Administration Division' },
+  { id: 'a6b0f919-fcfc-4e31-85e0-ebd35766f9c2', code: 'DIV-005', name: 'Quality & Engineering Division' },
 ];
 
 interface Customer {
@@ -55,6 +60,7 @@ interface Customer {
   companyId?: string;
   divisionId?: string;
   divisionName?: string;
+  division?: { id: string; name: string; divisionCode?: string };
   customerCode: string;
   name: string;
   legalName?: string;
@@ -211,6 +217,7 @@ const CustomerManagement: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [filterBalance, setFilterBalance] = useState<string | undefined>(undefined);
   const [filterCustomerType, setFilterCustomerType] = useState<string | undefined>(undefined);
+  const [filterDivision, setFilterDivision] = useState<string | undefined>(undefined);
   const [search, setSearch] = useState('');
 
   // Modals
@@ -300,6 +307,7 @@ const CustomerManagement: React.FC = () => {
       if (search) params.search = search;
       if (filterStatus) params.status = filterStatus;
       if (filterCustomerType) params.customerType = filterCustomerType;
+      if (filterDivision) params.divisionId = filterDivision;
       const response = await apiService.get<{ data: Customer[]; total: number }>('/customer/customers', params);
       setCustomers(response.data || []);
       setTotal(response.total || 0);
@@ -308,7 +316,7 @@ const CustomerManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, filterCustomerType, pageSize, message]);
+  }, [search, filterStatus, filterCustomerType, filterDivision, pageSize, message]);
 
   useEffect(() => {
     fetchCustomers(page, pageSize);
@@ -380,6 +388,10 @@ const CustomerManagement: React.FC = () => {
       if (masterChevron === 'HOLD' && !c.creditHold) return false;
       if (masterChevron === 'BALANCE' && Number(c.totalRevenue || 0) <= 0) return false;
 
+      if (filterDivision) {
+        const matchesDiv = c.divisionId === filterDivision || c.division?.id === filterDivision;
+        if (!matchesDiv) return false;
+      }
       if (filterState) {
         const matchesState = (c.state && c.state.toLowerCase() === filterState.toLowerCase()) ||
                              (c.city && c.city.toLowerCase() === filterState.toLowerCase());
@@ -393,11 +405,12 @@ const CustomerManagement: React.FC = () => {
       }
       return true;
     });
-  }, [customers, filterState, filterBalance, masterChevron]);
+  }, [customers, filterDivision, filterState, filterBalance, masterChevron]);
 
   // Clear all filters handler
   const handleClearAll = () => {
     setMasterChevron('ALL');
+    setFilterDivision(undefined);
     setFilterState(undefined);
     setFilterStatus(undefined);
     setFilterBalance(undefined);
@@ -557,7 +570,7 @@ const CustomerManagement: React.FC = () => {
     setEditingCustomer(null);
     form.resetFields();
     form.setFieldsValue({
-      divisionId: divisions[0]?.id || 'div-wd',
+      divisionId: divisions[0]?.id || DEFAULT_DIVISIONS[0]?.id,
       name: '',
       contactPerson: '',
       phone: '',
@@ -686,7 +699,7 @@ const CustomerManagement: React.FC = () => {
     setEditingCustomer(record);
     form.setFieldsValue({
       ...record,
-      divisionId: record.divisionId || divisions[0]?.id || 'div-wd',
+      divisionId: record.divisionId || record.division?.id || divisions[0]?.id || DEFAULT_DIVISIONS[0]?.id,
       isActive: record.status === 'ACTIVE',
       customerSince: record.customerSince ? dayjs(record.customerSince) : null,
       lastContactDate: record.lastContactDate ? dayjs(record.lastContactDate) : null,
@@ -737,20 +750,24 @@ const CustomerManagement: React.FC = () => {
     setSaveResultError(undefined);
 
     const status = values.isActive === false ? 'INACTIVE' : 'ACTIVE';
-    const chosenDiv = divisions.find(d => d.id === values.divisionId);
+    const chosenDiv = divisions.find(d => d.id === values.divisionId) || DEFAULT_DIVISIONS.find(d => d.id === values.divisionId);
     const payload: any = {
       ...values,
-      companyId: editingCustomer?.companyId || '00000000-0000-0000-0000-000000000001',
-      divisionId: values.divisionId || divisions[0]?.id || 'div-wd',
-      divisionName: chosenDiv?.name || 'Wire Drawing Division',
       status,
       isActive: values.isActive !== false,
       customerSince: values.customerSince ? dayjs(values.customerSince).toISOString() : undefined,
       lastContactDate: values.lastContactDate ? dayjs(values.lastContactDate).toISOString() : undefined,
       nextFollowUpDate: values.nextFollowUpDate ? dayjs(values.nextFollowUpDate).toISOString() : undefined,
     };
+    const user = useUserStore.getState().user;
+    const resolvedCompanyId = editingCustomer?.companyId || user?.defaultCompanyId || user?.defaultCompany?.id || '7725aa04-a270-4314-9e82-90949cbe7791';
+    payload.companyId = resolvedCompanyId;
+    payload.divisionId = values.divisionId || null;
+    delete payload.divisionName;
     if (!payload.email) delete payload.email;
     if (!payload.website) delete payload.website;
+    if (!payload.customerCode) delete payload.customerCode;
+    if (!payload.assignedTo) delete payload.assignedTo;
 
     try {
       let res: any;
@@ -771,7 +788,7 @@ const CustomerManagement: React.FC = () => {
         userName: payload.contactPerson || payload.name,
         userEmail: payload.email || undefined,
         tags: [
-          { label: chosenDiv?.name || payload.divisionName || 'Wire Drawing Division', color: 'purple' },
+          { label: chosenDiv?.name || 'General Division', color: 'purple' },
           { label: payload.state || 'Local', color: 'blue' },
           { label: payload.customerType || 'Customer', color: 'cyan' },
           { label: status, color: status === 'ACTIVE' ? 'green' : 'default' },
@@ -910,14 +927,10 @@ const CustomerManagement: React.FC = () => {
       key: 'customer',
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (_, record) => {
-        const divName = record.divisionName || divisions.find(d => d.id === record.divisionId)?.name || 'Wire Drawing Division';
         return (
           <div className="customer-cell-wrapper">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <span className="customer-name-text">{record.name}</span>
-              <Tag color="purple" style={{ fontSize: 10, padding: '0 4px', lineHeight: '18px' }}>
-                <ApartmentOutlined /> {divName}
-              </Tag>
               {record.creditHold && (
                 <Tag color="error" icon={<StopOutlined />} style={{ fontSize: 10, padding: '0 4px' }}>
                   HOLD
@@ -945,6 +958,28 @@ const CustomerManagement: React.FC = () => {
       );
     },
   },
+    {
+      title: 'Division',
+      key: 'division',
+      width: 175,
+      render: (_, record) => {
+        const divName = record.division?.name || record.divisionName || divisions.find(d => d.id === record.divisionId)?.name || 'General Division';
+        const divCode = record.division?.divisionCode || divisions.find(d => d.id === record.divisionId)?.code;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Tag color="purple" style={{ fontWeight: 600, fontSize: 12, padding: '2px 8px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', width: 'fit-content' }}>
+              <ApartmentOutlined style={{ marginRight: 5 }} />
+              {divName}
+            </Tag>
+            {divCode && (
+              <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', paddingLeft: 4 }}>
+                {divCode}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
     {
       title: 'Classification & Code',
       key: 'type-code',
@@ -1644,7 +1679,31 @@ const CustomerManagement: React.FC = () => {
           </div>
 
           <div className="filter-boxes-grid">
-            {/* Box 1: STATE */}
+            {/* Box 1: DIVISION */}
+            <div className="filter-box-item">
+              <div className="filter-box-label">
+                <ApartmentOutlined className="label-icon" />
+                <span>DIVISION</span>
+              </div>
+              <Select
+                placeholder="All Divisions"
+                allowClear
+                className="filter-box-select"
+                value={filterDivision}
+                onChange={(val) => {
+                  setFilterDivision(val);
+                  setPage(1);
+                }}
+              >
+                {divisions.map(d => (
+                  <Select.Option key={d.id} value={d.id}>
+                    {d.name} {d.code ? `(${d.code})` : ''}
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
+
+            {/* Box 2: STATE */}
             <div className="filter-box-item">
               <div className="filter-box-label">
                 <BankOutlined className="label-icon" />
@@ -1663,7 +1722,7 @@ const CustomerManagement: React.FC = () => {
               </Select>
             </div>
 
-            {/* Box 2: STATUS */}
+            {/* Box 3: STATUS */}
             <div className="filter-box-item">
               <div className="filter-box-label">
                 <CheckCircleOutlined className="label-icon" />
@@ -1685,7 +1744,7 @@ const CustomerManagement: React.FC = () => {
               </Select>
             </div>
 
-            {/* Box 3: BALANCE */}
+            {/* Box 4: BALANCE */}
             <div className="filter-box-item">
               <div className="filter-box-label">
                 <WalletOutlined className="label-icon" />
@@ -1704,7 +1763,7 @@ const CustomerManagement: React.FC = () => {
               </Select>
             </div>
 
-            {/* Box 4: CUSTOMER TYPE */}
+            {/* Box 5: CUSTOMER TYPE */}
             <div className="filter-box-item">
               <div className="filter-box-label">
                 <AuditOutlined className="label-icon" />

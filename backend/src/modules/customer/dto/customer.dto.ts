@@ -16,6 +16,11 @@ export class CreateCustomerDto {
   @IsOptional()
   companyId?: string;
 
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
+
   @ApiPropertyOptional({ description: 'Customer code (auto-generated if omitted)' })
   @IsString()
   @IsOptional()
@@ -407,6 +412,11 @@ export class CustomerFilterDto {
   @IsUUID()
   @IsOptional()
   companyId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by division ID' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by status' })
   @IsString()

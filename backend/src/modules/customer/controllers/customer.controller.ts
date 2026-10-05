@@ -25,8 +25,8 @@ export class CustomerController {
   @RequirePermission('customer.customer.create')
   @ApiOperation({ summary: 'Create a customer' })
   async create(@Body() dto: CreateCustomerDto, @Request() req: any) {
-    const companyId = req.user?.defaultCompanyId || dto.companyId;
-    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId || req.user?.defaultCompanyId || dto.companyId;
+    const userId = req.erpUser?.id || req.user?.id;
     const customer = await this.customerService.create({ ...dto, companyId }, userId);
     return { success: true, data: customer, message: 'Customer created successfully' };
   }
@@ -40,6 +40,7 @@ export class CustomerController {
     @Query('limit') limit?: number,
     @Query('search') search?: string,
     @Query('companyId') companyId?: string,
+    @Query('divisionId') divisionId?: string,
     @Query('status') status?: string,
     @Query('customerType') customerType?: string,
     @Query('customerCategory') customerCategory?: string,
@@ -56,6 +57,7 @@ export class CustomerController {
       limit: Number(limit) || 20,
       search,
       companyId: activeCompanyId,
+      divisionId,
       status,
       customerType,
       customerCategory,

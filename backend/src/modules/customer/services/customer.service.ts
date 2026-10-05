@@ -106,8 +106,25 @@ export class CustomerService implements OnModuleInit {
     return `${prefix}${String(nextNum).padStart(6, '0')}`;
   }
 
+  /**
+   * Resolve a company id that actually exists. Tries the candidate(s) in order; falls back to the
+   * first company in the database (single-company installs). Never returns a placeholder id.
+   */
+  async resolveCompanyId(...candidates: Array<string | undefined | null>): Promise<string> {
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    for (const cand of candidates) {
+      if (!cand || !uuidRe.test(cand)) continue;
+      const rows = await this.repo.manager.query('SELECT id FROM companies WHERE id = $1 LIMIT 1', [cand]);
+      if (rows?.length) return rows[0].id;
+    }
+    const first = await this.repo.manager.query('SELECT id FROM companies ORDER BY created_at ASC LIMIT 1');
+    if (first?.length) return first[0].id;
+    throw new ConflictException('No company is configured. Please create a company before adding customers.');
+  }
+
   async create(dto: CreateCustomerDto, userId?: string): Promise<Customer> {
-    const companyId = dto.companyId || 'company-default';
+    const companyId = await this.resolveCompanyId(dto.companyId);
+    dto = { ...dto, companyId };
     const finalCode = dto.customerCode?.trim() || (await this.generateCustomerCode(companyId));
 
     const existing = await this.repo.findOne({
@@ -120,6 +137,7 @@ export class CustomerService implements OnModuleInit {
     const customer = this.repo.create({
       ...dto,
       customerCode: finalCode,
+      divisionId: dto.divisionId || null,
       status: dto.status || 'ACTIVE',
       currencyCode: dto.currencyCode || 'PKR',
       customerSince: dto.customerSince ? new Date(dto.customerSince) : new Date(),
@@ -177,6 +195,7 @@ export class CustomerService implements OnModuleInit {
       page = 1,
       limit = 20,
       companyId,
+      divisionId,
       status,
       search,
       customerType,
@@ -188,11 +207,15 @@ export class CustomerService implements OnModuleInit {
       sortOrder = 'DESC',
     } = filter;
 
-    const qb = this.repo.createQueryBuilder('c');
+    const qb = this.repo.createQueryBuilder('c').leftJoinAndSelect('c.division', 'division');
     let hasWhere = false;
 
     if (companyId) {
       qb.where('c.companyId = :companyId', { companyId });
+      hasWhere = true;
+    }
+    if (divisionId) {
+      qb[hasWhere ? 'andWhere' : 'where']('c.divisionId = :divisionId', { divisionId });
       hasWhere = true;
     }
     if (status) {
@@ -254,7 +277,7 @@ export class CustomerService implements OnModuleInit {
   async findOne(id: string): Promise<Customer> {
     const customer = await this.repo.findOne({
       where: { id },
-      relations: ['contacts', 'addresses', 'ledgerEntries'],
+      relations: ['contacts', 'addresses', 'ledgerEntries', 'division'],
     });
     if (!customer) throw new NotFoundException(`Customer with ID '${id}' not found`);
     return customer;
@@ -269,6 +292,10 @@ export class CustomerService implements OnModuleInit {
     if (dto.isActive !== undefined) {
       customer.isActive = dto.isActive;
       customer.status = dto.isActive ? 'ACTIVE' : 'INACTIVE';
+    }
+
+    if (dto.divisionId !== undefined) {
+      customer.divisionId = dto.divisionId || null;
     }
 
     Object.assign(customer, dto, {
