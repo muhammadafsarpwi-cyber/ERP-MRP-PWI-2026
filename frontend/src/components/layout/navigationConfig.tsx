@@ -364,6 +364,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/production/traceability', label: 'Traceability', icon: BranchesOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
       { key: '/production/reports', label: 'Production Reports', icon: BarChartOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
       { key: '/production/inventory-report', label: 'Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['manufacturing.production.entries.report'] },
+      { key: '/production/item-wise-ledger', label: 'Item-Wise Production Ledger', icon: HistoryOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
     ],
   },
 

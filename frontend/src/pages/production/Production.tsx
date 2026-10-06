@@ -10,6 +10,7 @@ import RoutingManagement from './RoutingManagement';
 import ProductionEntries from './ProductionEntries';
 import TargetManagement from './TargetManagement';
 import Traceability from './Traceability';
+import ItemWiseProductionLedger from './ItemWiseProductionLedger';
 import ProductionInventoryReport from './ProductionInventoryReport';
 import RawMaterialReceiving from './receiving/RawMaterialReceiving';
 import RawMaterialReturn from './returns/RawMaterialReturn';
@@ -50,6 +51,7 @@ const Production: React.FC = () => (
     <Route path="targets/:id" element={<TargetManagement />} />
     <Route path="traceability" element={<Traceability />} />
     <Route path="inventory-report" element={<ProductionInventoryReport />} />
+    <Route path="item-wise-ledger" element={<ItemWiseProductionLedger />} />
     <Route path="machines" element={<Navigate to="/master-data/machines" replace />} />
     <Route path="machines/:machineId" element={<MachineMasterDeepLink />} />
     <Route path="*" element={<Navigate to="/production/dashboard" replace />} />

@@ -113,6 +113,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/production/returns', '/production/receiving-report',
   '/production/bom', '/production/routings', '/production/targets',
   '/production/traceability', '/production/reports', '/production/inventory-report',
+  '/production/item-wise-ledger',
   '/production/orders',
   '/maintenance', '/maintenance/job-cards', '/maintenance/job-cards/new',
   '/maintenance/teams',
