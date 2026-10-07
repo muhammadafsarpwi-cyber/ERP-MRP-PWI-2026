@@ -352,6 +352,19 @@ export const fmtKg = (v: number | null | undefined): string => {
 };
 
 /**
+ * §6 — SCRAP on a KG row states its unit. Row 1 (Raw Material) is measured in
+ * KG, so a bare `2.50` sitting under a rejection column reads as a piece count;
+ * `2.50 KG` / `0 KG` cannot be mistaken for one. PCS and GRS rows stay bare —
+ * their column already is a count. One helper feeds the screen matrix, the
+ * print window and the PDF body rows so the three can never drift apart.
+ * (The workbook keeps the raw numeric cell — it must stay sortable/summable.)
+ */
+export const fmtScrap = (v: number | null | undefined, uom: string | null | undefined): string => {
+  const base = fmtQty(v, uom);
+  return (uom ?? '').trim().toUpperCase() === 'KG' ? `${base} KG` : base;
+};
+
+/**
  * §1 — PER PIECE WEIGHT is the one column that keeps 4 decimals, ALWAYS:
  * `0.00967` must read `0.0097`, never collapse to `0.01`. Piece counts stay
  * whole integers; this is the sole exception to the smart-decimal rule.
@@ -623,16 +636,18 @@ export const COL = {
   subTotal: 4,
   issuance: 5,
   closing: 6,
-  perPieceWeight: 7,
-  totalWeight: 8,
-  uom: 9,
+  // §6 — UoM sits directly against the balance it qualifies, so the matrix
+  // reads `… Closing Pieces → UoM → Per Piece Weight → Total Weight → Scrap`.
+  uom: 7,
+  perPieceWeight: 8,
+  totalWeight: 9,
   scrapToday: 10,
   scrapMonth: 11,
 } as const;
 
 const EXPORT_HEADERS = [
   'Stage', 'Item (Code / Name)', 'Op Balance', 'Production', 'Sub-Total', 'Issuance',
-  'Closing Pieces', 'Per Piece Weight', 'Total Weight', 'UoM', 'Today Scrap', 'Total Month Scrap',
+  'Closing Pieces', 'UoM', 'Per Piece Weight', 'Total Weight', 'Today Scrap', 'Total Month Scrap',
 ];
 
 /** §3 — exports carry the very same full department title the grid shows. */
@@ -650,11 +665,13 @@ const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => [
   fmtQty(r.subTotal, r.uomCode),
   fmtQty(r.issuance, r.uomCode),
   fmtQty(r.closingPieces, r.uomCode),
+  // §6 — UoM travels with the balance it qualifies.
+  r.uomCode ?? '—',
   fmtPpw(r.perPieceWeight),
   fmtKg(r.totalWeight),
-  r.uomCode ?? '—',
-  fmtQty(r.scrapToday, r.uomCode),
-  fmtQty(r.scrapMonth, r.uomCode),
+  // §6 — KG rows carry the suffix, exactly like the grid and the sheet.
+  fmtScrap(r.scrapToday, r.uomCode),
+  fmtScrap(r.scrapMonth, r.uomCode),
 ];
 
 /** Numeric cells for Excel — integers for PCS/GRS, 2 dp for weights. */
@@ -666,10 +683,12 @@ const exportNumericRow = (r: LedgerMetrics): (string | number | null)[] => [
   exportCell(r.subTotal, r.uomCode),
   exportCell(r.issuance, r.uomCode),
   exportCell(r.closingPieces, r.uomCode),
+  // §6 — same slot as the display row so header and cell never misalign.
+  r.uomCode ?? '—',
   // §1 — raw precision: Excel shows the stored value, not a 2-dp rounding.
   r.perPieceWeight ?? null,
   exportCell(r.totalWeight, null),
-  r.uomCode ?? '—',
+  // §6 — deliberately UN-suffixed: the sheet cell must stay a real number.
   exportCell(r.scrapToday, r.uomCode),
   exportCell(r.scrapMonth, r.uomCode),
 ];
@@ -1102,9 +1121,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §2 — Item Code sits ON TOP of Item Name inside one cell.
         title: 'Item (Code / Name)',
         key: 'item',
-        // §2 — absorbs the width the compact SCRAP sub-headers gave back
-        // (84 → 70 and 96 → 68) so the 1642 contract still holds exactly.
-        width: 304,
+        // §6 — TIGHT LEDGER: the stack gave 44px back to the flow columns so
+        // the name runs straight into Op Balance instead of leaving a gutter.
+        width: 260,
         // §2 — the ONLY column that stays flush left, header and body alike.
         align: 'left' as const,
         onHeaderCell: () => ({ className: 'iwl-cell-item-head' }),
@@ -1130,7 +1149,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'opBalance',
         key: 'opBalance',
         align: 'center' as const,
-        width: 136,
+        // §6 — trimmed to the figure, so its centring slack no longer sits
+        // between the item name and the opening balance.
+        width: 116,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Tooltip title="Net closing of every day BEFORE the End Date">
@@ -1143,7 +1164,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'production',
         key: 'production',
         align: 'center' as const,
-        width: 144,
+        // §6 — takes the width the tightened Item / Op cells released.
+        width: 160,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-prod iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1163,7 +1185,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'subTotal',
         key: 'subTotal',
         align: 'center' as const,
-        width: 136,
+        width: 152,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Text strong>{fmtQty(v, row.uomCode)}</Text>
@@ -1174,7 +1196,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'issuance',
         key: 'issuance',
         align: 'center' as const,
-        width: 154,
+        width: 170,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) =>
           row.issuanceDriven ? (
@@ -1192,7 +1214,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'closingPieces',
         key: 'closingPieces',
         align: 'center' as const,
-        width: 154,
+        width: 170,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-close iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1200,6 +1222,16 @@ const ItemWiseProductionLedger: React.FC = () => {
             <span>{fmtQty(v, row.uomCode)}</span>
           </Tooltip>
         ),
+      },
+      {
+        // §6 — RE-POSITIONED: the unit now sits against the balance it
+        // qualifies instead of being exiled to the far right of the grid.
+        title: 'UoM',
+        dataIndex: 'uomCode',
+        key: 'uomCode',
+        align: 'center' as const,
+        width: 52,
+        render: (v: string | null) => v ?? '—',
       },
       {
         // Stacked two-line header to reclaim horizontal space.
@@ -1249,16 +1281,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         ),
       },
       {
-        title: 'UoM',
-        dataIndex: 'uomCode',
-        key: 'uomCode',
-        align: 'center' as const,
-        width: 52,
-        render: (v: string | null) => v ?? '—',
-      },
-      {
-        // §5 — two scrap trackers under one grouped header.
-        title: 'Scrap',
+        // §5/§7 — two scrap trackers under one grouped parent header. The
+        // parent cell carries NOTHING but this single word: no qualifier, no
+        // suffix, no nested node, so the slate band reads exactly `SCRAP`
+        // like every other primary header above the matrix.
+        title: 'SCRAP',
         key: 'scrapGroup',
         align: 'center' as const,
         children: [
@@ -1272,9 +1299,10 @@ const ItemWiseProductionLedger: React.FC = () => {
             width: 70,
             // §3 — the whole column is forced crimson, zeros included.
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
+            // §6 — a KG row prints `2.50 KG`, never a bare count.
             render: (v: number, row: LedgerMetrics) => (
               <Tooltip title={`Rejections recorded on ${endDate}`}>
-                <span>{fmtQty(v, row.uomCode)}</span>
+                <span>{fmtScrap(v, row.uomCode)}</span>
               </Tooltip>
             ),
           },
@@ -1287,7 +1315,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             render: (v: number, row: LedgerMetrics) => (
               <Tooltip title={`Cumulative from ${monthFrom} to ${endDate}`}>
-                <span>{fmtQty(v, row.uomCode)}</span>
+                <span>{fmtScrap(v, row.uomCode)}</span>
               </Tooltip>
             ),
           },
@@ -1605,7 +1633,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           font-size: 14px !important;
           line-height: 1.25 !important;
           letter-spacing: 0.2px;
-          padding: 4px 8px !important;
+          padding: 4px 6px !important;
         }
 
         /* ── §2 UNIFIED GLOBAL CENTRE ALIGNMENT ───────────────────────────
@@ -1617,6 +1645,16 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-grid .ant-table-tbody > tr > td { text-align: center !important; }
         .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item { text-align: left !important; }
         .iwl-grid .ant-table-tbody > tr > td .ant-space { justify-content: center !important; }
+
+        /* ── §6 TIGHT LEDGER GUTTERS ──────────────────────────────────────
+           antd's stock cell padding is what opens the dead run between the
+           item name and Op Balance. Every data cell is pulled in to 6px, and
+           the Item cell is pulled to 4px on its right edge, so the stack and
+           the opening balance read as one continuous line of the ledger. */
+        .iwl-grid .ant-table-tbody > tr > td { padding: 5px 6px !important; }
+        .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item {
+          padding: 5px 4px 5px 7px !important;
+        }
 
         /* ── §4 14px reading baseline with roomy line-heights for wrapping ─ */
         .iwl-grid .ant-table-tbody > tr > td { font-size: 14px; line-height: 1.45; }
@@ -1648,7 +1686,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         [data-theme='dark'] .iwl-cell-prod { background: rgba(16, 185, 129, 0.20) !important; color: #34d399 !important; }
         [data-theme='dark'] .iwl-cell-close { background: rgba(245, 158, 11, 0.18) !important; color: #fbbf24 !important; }
 
-        @page { size: A4 landscape; margin: 8mm 9mm; }
+        @page { size: A4 landscape; margin: 7mm 7mm; }
 
         @media print {
           /* ══ §2 ABSOLUTE WHITE PAGE ══════════════════════════════════════
@@ -1694,47 +1732,128 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-no-print, .iwl-toolbar { display: none !important; }
 
           /* Letterhead replaces the raw title line — colours mirror jsPDF
-             exactly so the printed sheet and the PDF are one document. */
+             exactly so the printed sheet and the PDF are one document.
+             §6 — COMPACT CORNER SLOTS: the date / metadata block is lifted
+             out of flow and parked in the top-right corner, riding beside the
+             company line. The masthead therefore costs the height of the
+             company line alone instead of a full-width metadata ROW — that
+             is the vertical space the second chain needs. */
           .iwl-letterhead {
+            position: relative !important;
             border: 0 !important;
-            border-bottom: 1.6px solid #0f172a !important;
+            border-bottom: 1.4px solid #0f172a !important;
             border-radius: 0 !important;
             background: #ffffff !important;
-            padding: 0 0 7px !important;
-            margin: 0 0 10px !important;
+            /* §7 — a little extra bottom padding so the enlarged date line
+               inside the corner slot still lands above this rule. */
+            padding: 0 0 5px !important;
+            margin: 0 0 4px !important;
           }
-          .iwl-lh-company { font-size: 19pt !important; color: #0f172a !important; }
-          .iwl-lh-subtitle { font-size: 9pt !important; color: #5b6472 !important; margin-top: 2px !important; }
+          .iwl-lh-company {
+            font-size: 16pt !important;
+            line-height: 1.1 !important;
+            color: #0f172a !important;
+          }
+          .iwl-lh-subtitle {
+            font-size: 7.5pt !important;
+            line-height: 1.2 !important;
+            color: #5b6472 !important;
+            margin-top: 1px !important;
+          }
           .iwl-lh-rule { display: none !important; }
-          .iwl-lh-meta { gap: 4px 34px !important; margin-top: 7px !important; }
-          .iwl-lh-item { min-width: 0 !important; }
-          .iwl-lh-label { font-size: 6.5pt !important; color: #444444 !important; }
-          .iwl-lh-value { font-size: 9.5pt !important; color: #0f172a !important; }
+          /* §7 — METADATA CORNER SLOT, tightened:
+             • the block is a column flex box so the Production Date can be
+               pulled to the head of the stack (order: -1) instead of
+               trailing Report Title / Selected Division. It therefore sits
+               level with the company line — no longer slipped down the right
+               margin;
+             • line boxes are cut to 1.1 so the whole slot stays inside the
+               letterhead's padding and never pushes the bottom rule down;
+             • the date pair is scaled up hard and set at 800 so it carries
+               visual priority over the two quiet rows beneath it. */
+          .iwl-lh-meta {
+            position: absolute !important;
+            top: 0 !important;
+            right: 0 !important;
+            width: 46% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            flex-wrap: nowrap !important;
+            align-items: flex-end !important;
+            gap: 0 !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+            text-align: right !important;
+          }
+          .iwl-lh-item {
+            min-width: 0 !important;
+            margin: 0 !important;
+            line-height: 1.1 !important;
+          }
+          .iwl-lh-label {
+            display: inline !important;
+            font-size: 6pt !important;
+            color: #444444 !important;
+            margin-right: 5px !important;
+          }
+          .iwl-lh-value {
+            display: inline !important;
+            font-size: 7.5pt !important;
+            color: #0f172a !important;
+            margin-top: 0 !important;
+          }
+          /* The date rides at the TOP of the metadata grid. */
+          .iwl-lh-meta > .iwl-lh-item--date {
+            order: -1 !important;
+            margin: 0 0 1px !important;
+            line-height: 1.1 !important;
+          }
+          .iwl-lh-item--date .iwl-lh-label {
+            font-size: 8pt !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.02em !important;
+            color: #0f172a !important;
+            margin-right: 6px !important;
+          }
+          .iwl-lh-item--date .iwl-lh-value {
+            font-size: 11pt !important;
+            font-weight: 800 !important;
+            color: #0f172a !important;
+          }
 
-          /* A chain is an atomic page unit; never split it */
+          /* A chain is an atomic page unit; never split it.
+             §6 — the vertical belt is pulled in: 4px between chains, 2px
+             under the identifier and a single-line title. */
           .iwl-grid {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
             min-height: 200px;
-            margin-bottom: 10px !important;
+            margin-bottom: 4px !important;
           }
           .iwl-grid--off { display: none !important; }
           /* §4 — the chain identifier sits dead-centre as a bold sub-header */
           .iwl-grid-head {
             position: static !important;
             justify-content: center !important;
-            margin-bottom: 5px !important;
+            margin-bottom: 2px !important;
+            line-height: 1.05 !important;
           }
           .iwl-grid-title {
             text-align: center !important;
             font-size: 12pt !important;
+            line-height: 1.05 !important;
+            margin: 0 !important;
             font-weight: 800 !important;
             letter-spacing: 0.3px !important;
             color: #0f172a !important;
           }
           .iwl-grid-sub, .iwl-grid-off-note { font-size: 8pt !important; color: #444444 !important; }
-          .iwl-item-code { font-size: 13px !important; color: #000000 !important; line-height: 1.3 !important; }
-          .iwl-item-name { font-size: 12px !important; color: #444444 !important; line-height: 1.3 !important; }
+          /* §6 — the stacked cell is the tallest thing in a row, so it is the
+             lever: line-heights and the stack gap are pulled to one crisp
+             pass each. Nine rows × a few pixels is a whole chain. */
+          .iwl-grid .iwl-item-stack { gap: 0 !important; line-height: 1.05 !important; }
+          .iwl-item-code { font-size: 13px !important; color: #000000 !important; line-height: 1.05 !important; }
+          .iwl-item-name { font-size: 12px !important; color: #444444 !important; line-height: 1.05 !important; }
 
           /* Premium pre-formatted financial grid */
           .iwl-grid .ant-table-wrapper,
@@ -1777,22 +1896,30 @@ const ItemWiseProductionLedger: React.FC = () => {
             border-bottom: 2px solid #0f172a !important;
             font-weight: 800 !important;
             font-size: 12.5px !important;
-            line-height: 1.2 !important;
+            line-height: 1.1 !important;
             letter-spacing: 0.3px;
-            padding: 3px 6px !important;
+            /* §6 — row padding is the single biggest consumer of paper. */
+            padding: 1px 3px !important;
             white-space: normal !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
           .iwl-grid .ant-table-thead > tr > th::before { display: none !important; }
-          /* §3 — ultra-thin hairlines, collapsed so no double-weight seams */
+          /* §3 — ultra-thin hairlines, collapsed so no double-weight seams.
+             §6 — SHRUNK ROW PADDING: 1px vertical / 3px horizontal is what
+             lets nine rows plus the header and the identifier sit on the
+             lower half of a landscape sheet alongside a second chain. */
           .iwl-grid .ant-table-tbody > tr > td {
             border: 1px solid #e2e8f0 !important;
-            padding: 4px 6px !important;
+            padding: 1px 3px !important;
             font-size: 12.5px !important;
-            line-height: 1.45 !important;
+            line-height: 1.3 !important;
             white-space: normal !important;
             word-break: break-word;
+          }
+          /* §6 — the ledger cell keeps the narrowest gutter of them all. */
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item {
+            padding: 1px 3px 1px 4px !important;
           }
           /* §2 — ONE centre rule for every figure on the paper, and the
              stacked Item column is the single exception that stays left. */
@@ -1894,6 +2021,17 @@ const ItemWiseProductionLedger: React.FC = () => {
             border-color: #e2e8f0 !important;
           }
 
+          /* §6 — ELIMINATE PRINT WARNINGS: "Some chain items were not
+             returned" (and its sibling chain-rule notice) are screen-only
+             diagnostics. Both are dropped from the paper with display:none,
+             so a banner can never steal the height a second chain needs.
+             The PDF draws only its own letterhead, its tables and its
+             footer — it never emits an alert — so nothing to remove there. */
+          .iwl-page .ant-alert-warning,
+          .iwl-page .iwl-remarks .ant-alert-warning {
+            display: none !important;
+          }
+
           /* §2 — a crisp uniform hairline under every row; the 1px #e2e8f0
              border on each td (set above) does the same across all columns,
              collapsing into one even spreadsheet grid. */
@@ -1916,11 +2054,20 @@ const ItemWiseProductionLedger: React.FC = () => {
             font-weight: 800 !important;
           }
 
-          /* §1 remarks sit under the grid, kept together */
-          .iwl-remarks { margin-top: 8px !important; break-inside: avoid; page-break-inside: avoid; }
+          /* §1 remarks sit under the grid, kept together.
+             §6 — the container is empty on a healthy run (info is screen
+             only, warnings are dropped above), so it no longer bills the
+             page for a top margin, and the footnote travels whole. */
+          .iwl-remarks { margin-top: 0 !important; break-inside: avoid; page-break-inside: avoid; }
           .iwl-remarks .ant-alert { margin-bottom: 6px !important; font-size: 7.5pt !important; }
 
-          .iwl-note, .iwl-note .ant-typography { font-size: 7.5pt !important; color: #444444 !important; }
+          .iwl-note, .iwl-note .ant-typography {
+            font-size: 7.5pt !important;
+            color: #444444 !important;
+            margin-top: 6px !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
         }
       `}</style>
       {/* §3 — the raw title line is gone; the letterhead below is the heading */}
@@ -1964,7 +2111,11 @@ const ItemWiseProductionLedger: React.FC = () => {
               <span className="iwl-lh-label">Selected Division</span>
               <span className="iwl-lh-value">{LETTERHEAD.division}</span>
             </div>
-            <div className="iwl-lh-item">
+            {/* §7 — the modifier is print-only ink: on screen this item keeps
+                the plain `.iwl-lh-item` look. In print it is lifted to the
+                head of the metadata stack (see `order: -1`) and rendered as
+                the heavy hero line of the masthead. */}
+            <div className="iwl-lh-item iwl-lh-item--date">
               <span className="iwl-lh-label">Production Date</span>
               <span className="iwl-lh-value">{endDate}</span>
             </div>
