@@ -4,7 +4,7 @@ import {
   Typography, message,
 } from 'antd';
 import {
-  DownloadOutlined, FileExcelOutlined, LeftOutlined, PrinterOutlined, ReloadOutlined,
+  FileExcelOutlined, FilePdfOutlined, LeftOutlined, PrinterOutlined, ReloadOutlined,
   RightOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -1719,6 +1719,37 @@ const ItemWiseProductionLedger: React.FC = () => {
           padding-left: 0 !important;
         }
 
+        /* ── §10 CONTROL BARS — a tightly grouped upper structure ──────────
+           Header band (title left / action toolbar right) → one unified
+           filter line → metric cards → matrix. Screen only: both bars carry
+           iwl-no-print, so the sheet keeps the letterhead as its sole
+           masthead and nothing here can steal from the 2-chain page budget. */
+        .iwl-headbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 12px 16px;
+          margin-bottom: 16px;
+        }
+        .iwl-headbar-titles { display: flex; flex-direction: column; gap: 0; }
+        .iwl-headbar-title { margin: 0 !important; line-height: 1.25; }
+        .iwl-headbar-sub { font-size: 12px; line-height: 1.3; }
+        .iwl-headbar-actions { flex: 0 0 auto; }
+
+        /* The chain block carries its own caption, so the strip is bottom
+           aligned: select, checkbox, picker and both day buttons all share
+           the same control baseline — ONE line, one rhythm. */
+        .iwl-filters {
+          display: flex;
+          align-items: flex-end;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+        .iwl-filters-chain { display: flex; flex-direction: column; gap: 4px; }
+        .iwl-filters-note { display: flex; align-items: center; gap: 6px; }
+
         /* ── §4 14px reading baseline with roomy line-heights for wrapping ─ */
         .iwl-grid .ant-table-tbody > tr > td { font-size: 14px; line-height: 1.45; }
         .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num { font-weight: 600; }
@@ -2177,32 +2208,45 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
       `}</style>
       {/* §3 — the raw title line is gone; the letterhead below is the heading */}
-      <Card
-        className="iwl-card"
-        bordered={false}
-        title={null}
-        extra={
-          <Space wrap className="iwl-no-print">
-            <RangePicker
-              value={range}
-              allowClear={false}
-              format="YYYY-MM-DD"
-              onChange={(v) => {
-                if (v && v[0] && v[1]) setRange([v[0], v[1]]);
-              }}
-            />
-            <Button icon={<LeftOutlined />} onClick={() => shiftEndDay(-1)}>
-              Previous Day
+      {/* ── §10 MAIN HEADER BAND ─────────────────────────────────────────
+          Page title on the left, the four actions on the ABSOLUTE top-right
+          of the component, in one tight flex toolbar. Screen only: the
+          printed sheet keeps the letterhead as its sole masthead, and the
+          card head is dropped entirely in print. */}
+      <div className="iwl-headbar iwl-no-print">
+        <div className="iwl-headbar-titles">
+          <Title level={4} className="iwl-headbar-title">
+            Item-Wise Production Ledger
+          </Title>
+          <Text type="secondary" className="iwl-headbar-sub">
+            {LETTERHEAD.subtitle}
+          </Text>
+        </div>
+        <Space wrap size={8} className="iwl-headbar-actions">
+          <Tooltip title="Download exactly what is on screen as an Excel workbook">
+            <Button type="primary" icon={<FileExcelOutlined />} onClick={handleExcel}>
+              Export to Excel
             </Button>
-            <Button onClick={() => shiftEndDay(1)}>
-              Next Day <RightOutlined />
+          </Tooltip>
+          <Tooltip title="Landscape PDF, one page per item chain">
+            <Button icon={<FilePdfOutlined />} onClick={handlePdf}>
+              Download PDF
             </Button>
+          </Tooltip>
+          <Tooltip title="Open the browser print dialog (Landscape)">
+            <Button icon={<PrinterOutlined />} onClick={handlePrint}>
+              Print Ledger
+            </Button>
+          </Tooltip>
+          <Tooltip title="Reload the ledger for the selected window">
             <Button icon={<ReloadOutlined />} onClick={() => setTick((t) => t + 1)} loading={loading}>
               Refresh
             </Button>
-          </Space>
-        }
-      >
+          </Tooltip>
+        </Space>
+      </div>
+
+      <Card className="iwl-card" bordered={false} title={null}>
         {/* ── §3 corporate letterhead ───────────────────────────────────── */}
         <div className="iwl-letterhead">
           <div className="iwl-lh-company">{LETTERHEAD.company}</div>
@@ -2228,44 +2272,60 @@ const ItemWiseProductionLedger: React.FC = () => {
           </div>
         </div>
 
-        {/* §1 print — the whole metric strip is screen-only. On paper the
-            letterhead + its 3-column metadata grid is the sole masthead. */}
-        <Row gutter={[16, 16]} className="iwl-no-print" style={{ marginBottom: 16 }}>
-          {/* §4 — chain picker + toggles are interactive; never print them */}
-          <Col xs={24} lg={9} className="iwl-no-print">
+        {/* ── §10 UNIFIED FILTER STRIP ───────────────────────────────────
+            One horizontal line, left to right: chain select → show-all →
+            date window → previous day → next day. Sits directly under the
+            header band and above the metric cards. Screen only. */}
+        <div className="iwl-filters iwl-no-print">
+          <div className="iwl-filters-chain">
             <Text type="secondary">Select Production Item Chain</Text>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-              <Select
-                style={{ width: '100%' }}
-                showSearch
-                placeholder="Select Production Item Chain"
-                value={chainKey}
-                onChange={(v) => setChainKey(v)}
-                optionFilterProp="label"
-                disabled={showAll}
-                options={chainOptions}
-              />
-              <Checkbox
-                checked={showAll}
-                onChange={(e) => setShowAll(e.target.checked)}
-                className="iwl-no-print"
-              >
-                Show All Item Chains on One Page
-              </Checkbox>
-              {showAll && excludedCount > 0 ? (
-                <div className="iwl-no-print" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {excludedCount} chain{excludedCount > 1 ? 's' : ''} excluded from the sheet and every
-                    export.
-                  </Text>
-                  <Button type="link" size="small" style={{ padding: 0 }} onClick={restoreAllChains}>
-                    Restore all
-                  </Button>
-                </div>
-              ) : null}
+            <Select
+              style={{ width: 260 }}
+              showSearch
+              placeholder="Select Production Item Chain"
+              value={chainKey}
+              onChange={(v) => setChainKey(v)}
+              optionFilterProp="label"
+              disabled={showAll}
+              options={chainOptions}
+            />
+          </div>
+          <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>
+            Show All Item Chains on One Page
+          </Checkbox>
+          <RangePicker
+            value={range}
+            allowClear={false}
+            format="YYYY-MM-DD"
+            onChange={(v) => {
+              if (v && v[0] && v[1]) setRange([v[0], v[1]]);
+            }}
+          />
+          <Button icon={<LeftOutlined />} onClick={() => shiftEndDay(-1)}>
+            Previous Day
+          </Button>
+          <Button onClick={() => shiftEndDay(1)}>
+            Next Day <RightOutlined />
+          </Button>
+          {showAll && excludedCount > 0 ? (
+            <div className="iwl-filters-note">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {excludedCount} chain{excludedCount > 1 ? 's' : ''} excluded from the sheet and every
+                export.
+              </Text>
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={restoreAllChains}>
+                Restore all
+              </Button>
             </div>
-          </Col>
-          <Col xs={24} lg={5}>
+          ) : null}
+        </div>
+
+        {/* §1 print — the metric strip is screen-only. On paper the
+            letterhead + its 3-column metadata grid is the sole masthead.
+            §10 — it now sits under the unified filter row, immediately
+            before the data tables. */}
+        <Row gutter={[16, 16]} className="iwl-no-print" style={{ marginBottom: 16 }}>
+          <Col xs={24} lg={6}>
             <Card size="small">
               <Text type="secondary">{showAll ? 'Stages Shown' : 'Stages in Chain'}</Text>
               <div style={{ fontSize: 24, fontWeight: 600 }}>
@@ -2277,7 +2337,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               </div>
             </Card>
           </Col>
-          <Col xs={24} lg={5}>
+          <Col xs={24} lg={6}>
             <Card size="small">
               <Text type="secondary">As-On (End Date)</Text>
               <div style={{ fontSize: 20, fontWeight: 600 }}>{endDate}</div>
@@ -2286,7 +2346,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               </Text>
             </Card>
           </Col>
-          <Col xs={24} lg={5}>
+          <Col xs={24} lg={6}>
             <Card size="small">
               <Tooltip
                 title={
@@ -2300,7 +2360,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               <div style={{ fontSize: 24, fontWeight: 600 }}>{fmtQty(summary.totalPacked, 'PCS')}</div>
             </Card>
           </Col>
-          <Col xs={24} lg={4}>
+          <Col xs={24} lg={6}>
             <Card size="small">
               <Text type="secondary">Reconciliation</Text>
               <div style={{ marginTop: 4 }}>
@@ -2312,27 +2372,9 @@ const ItemWiseProductionLedger: React.FC = () => {
           </Col>
         </Row>
 
-        {/* §4 — export & print row, top right of the ledger sheet */}
-        <div
-          className="iwl-toolbar"
-          style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}
-        >
-          <Tooltip title="Download exactly what is on screen as an Excel workbook">
-            <Button type="primary" icon={<FileExcelOutlined />} onClick={handleExcel}>
-              Export to Excel (.xlsx)
-            </Button>
-          </Tooltip>
-          <Tooltip title="Landscape PDF, one page per item chain">
-            <Button icon={<DownloadOutlined />} onClick={handlePdf}>
-              Download PDF
-            </Button>
-          </Tooltip>
-          <Tooltip title="Open the browser print dialog (Landscape)">
-            <Button icon={<PrinterOutlined />} onClick={handlePrint}>
-              Print Ledger
-            </Button>
-          </Tooltip>
-        </div>
+        {/* §10 — the export row that used to sit at the bottom right of the
+            sheet is gone: Excel / PDF / Print / Refresh now live in the main
+            header band at the absolute top of the component. */}
 
         <Spin spinning={loading}>
           {grids.length === 0 && !loading ? (
