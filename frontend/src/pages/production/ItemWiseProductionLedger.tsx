@@ -370,6 +370,31 @@ const STAGE_COLOR: Record<string, string> = {
   DP: 'volcano',
 };
 
+/**
+ * §3 — the STAGE column speaks in full manufacturing department names, never
+ * in floor codes. A split stage names its branch outright, so `SP` + `INNER`
+ * reads `Spoke Inner` and `PL` + `OUTER` reads `Plating Outer`. One map feeds
+ * the grid, the print render, the PDF and the Excel sheet.
+ */
+const DEPARTMENT_NAME: Record<string, string> = {
+  RM: 'Raw Material',
+  ST: 'Straightening',
+  SW: 'Swaging',
+  SP: 'Spoke',
+  PL: 'Plating',
+  FG: 'Hand Packing',
+  DP: 'Dispatch',
+};
+
+/** Full industrial department title for one ledger row. */
+export const departmentName = (
+  r: Pick<LedgerMetrics, 'stage' | 'stageLabel' | 'splitSide'>,
+): string => {
+  const base = DEPARTMENT_NAME[r.stage] ?? r.stageLabel.replace(' Stage', '');
+  if (!r.splitSide) return base;
+  return `${base} ${r.splitSide === 'INNER' ? 'Inner' : 'Outer'}`;
+};
+
 /** Rows 2-8: PCS/GRS multiply by weight; KG and unknown units pass through. */
 const resolveWeight = (
   uomCode: string | null,
@@ -607,8 +632,8 @@ const EXPORT_HEADERS = [
   'Closing Pieces', 'Per Piece Weight', 'Total Weight', 'UoM', 'Today Scrap', 'Total Month Scrap',
 ];
 
-const stageLabel = (r: LedgerMetrics): string =>
-  `${r.stage}${r.splitSide ? ` (${r.splitSide === 'INNER' ? 'Inner' : 'Outer'})` : ''} — ${r.stageLabel}`;
+/** §3 — exports carry the very same full department title the grid shows. */
+const stageLabel = (r: LedgerMetrics): string => departmentName(r);
 
 /** §2 — one cell, code over name, so nothing can overlap in the sheet. */
 const stackItem = (r: LedgerMetrics): string => `${r.itemCode}\n${r.itemName}`;
@@ -1058,17 +1083,15 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Stage',
         dataIndex: 'stageLabel',
         key: 'stageLabel',
-        width: 124,
+        // §3 — sized for the FULL department titles, not the old two-letter codes.
+        width: 140,
         fixed: 'left' as const,
+        // §2 — the Stage column centres with everything else.
+        align: 'center' as const,
         render: (_: unknown, row: LedgerMetrics) => (
           <Space size={4} wrap>
-            <Tag color={STAGE_COLOR[row.stage] ?? 'default'}>{row.stage}</Tag>
-            <Text type="secondary">{row.stageLabel.replace(' Stage', '')}</Text>
-            {row.splitSide ? (
-              <Tag color={row.splitSide === 'INNER' ? 'cyan' : 'magenta'}>
-                {row.splitSide === 'INNER' ? 'Inner' : 'Outer'}
-              </Tag>
-            ) : null}
+            {/* §3 — the full department title replaces the old RM / ST codes. */}
+            <Tag color={STAGE_COLOR[row.stage] ?? 'default'}>{departmentName(row)}</Tag>
           </Space>
         ),
       },
@@ -1076,7 +1099,10 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §2 — Item Code sits ON TOP of Item Name inside one cell.
         title: 'Item (Code / Name)',
         key: 'item',
-        width: 306,
+        width: 290,
+        // §2 — the ONLY column that stays flush left, header and body alike.
+        align: 'left' as const,
+        onHeaderCell: () => ({ className: 'iwl-cell-item-head' }),
         onCell: () => ({
           className: 'iwl-cell-item',
           style: { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const },
@@ -1098,7 +1124,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Op Balance',
         dataIndex: 'opBalance',
         key: 'opBalance',
-        align: 'right' as const,
+        align: 'center' as const,
         width: 136,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1111,7 +1137,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Production',
         dataIndex: 'production',
         key: 'production',
-        align: 'right' as const,
+        align: 'center' as const,
         width: 144,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-prod iwl-cell-num' }),
@@ -1131,7 +1157,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Sub-Total',
         dataIndex: 'subTotal',
         key: 'subTotal',
-        align: 'right' as const,
+        align: 'center' as const,
         width: 136,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1142,7 +1168,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Issuance',
         dataIndex: 'issuance',
         key: 'issuance',
-        align: 'right' as const,
+        align: 'center' as const,
         width: 154,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) =>
@@ -1160,7 +1186,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Closing Pieces',
         dataIndex: 'closingPieces',
         key: 'closingPieces',
-        align: 'right' as const,
+        align: 'center' as const,
         width: 154,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-close iwl-cell-num' }),
@@ -1173,14 +1199,14 @@ const ItemWiseProductionLedger: React.FC = () => {
       {
         // Stacked two-line header to reclaim horizontal space.
         title: (
-          <div style={{ textAlign: 'right', lineHeight: 1.1 }}>
+          <div style={{ textAlign: 'center', lineHeight: 1.1 }}>
             <div>Per Piece</div>
             <div>Weight</div>
           </div>
         ),
         dataIndex: 'perPieceWeight',
         key: 'perPieceWeight',
-        align: 'right' as const,
+        align: 'center' as const,
         width: 116,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => {
@@ -1202,7 +1228,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Total Weight',
         dataIndex: 'totalWeight',
         key: 'totalWeight',
-        align: 'right' as const,
+        align: 'center' as const,
         width: 140,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => (
@@ -1229,12 +1255,13 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §5 — two scrap trackers under one grouped header.
         title: 'Scrap',
         key: 'scrapGroup',
+        align: 'center' as const,
         children: [
           {
             title: 'Today Scrap',
             dataIndex: 'scrapToday',
             key: 'scrapToday',
-            align: 'right' as const,
+            align: 'center' as const,
             width: 84,
             // §3 — the whole column is forced crimson, zeros included.
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
@@ -1248,7 +1275,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             title: 'Total Month Scrap',
             dataIndex: 'scrapMonth',
             key: 'scrapMonth',
-            align: 'right' as const,
+            align: 'center' as const,
             width: 96,
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             render: (v: number, row: LedgerMetrics) => (
@@ -1413,9 +1440,11 @@ const ItemWiseProductionLedger: React.FC = () => {
           },
           theme: 'grid',
           styles: {
-            fontSize: 8,
+            fontSize: 9,
             cellPadding: 3,
             overflow: 'linebreak',
+            // §2 — one uniform centre alignment across the whole data matrix.
+            halign: 'center',
             // §3 — ultra-thin slate hairlines, matching the print grid exactly.
             lineWidth: 0.2,
             lineColor: [226, 232, 240],
@@ -1428,6 +1457,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             fillColor: [30, 41, 59],
             textColor: [255, 255, 255],
             fontStyle: 'bold',
+            halign: 'center',
             lineColor: [15, 23, 42],
             lineWidth: { top: 0.2, bottom: 2, left: 0.2, right: 0.2 },
           },
@@ -1436,11 +1466,14 @@ const ItemWiseProductionLedger: React.FC = () => {
           columnStyles: {
             // §3 — Stage / UoM compressed, the space handed to Item + balances.
             [COL.stage]: { cellWidth: 78 },
-            [COL.item]: { cellWidth: 204 },
+            // §2 — the stacked Item column is the sole flush-left column.
+            [COL.item]: { cellWidth: 204, halign: 'left' },
             [COL.uom]: { cellWidth: 30 },
           },
           // §3 — the same colour pathways the screen uses.
           didParseCell: (data) => {
+            // §2 — Item stays flush left in the head AND the body.
+            if (data.column.index === COL.item) data.cell.styles.halign = 'left';
             if (data.section === 'head') return;
             const idx = data.column.index;
             if (idx === COL.production) {
@@ -1515,28 +1548,40 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-remarks { margin-top: 20px; }
 
         /* ── §2 stacked Item cell: CODE over NAME, never overlapping ──── */
-        .iwl-item-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1.3; }
+        .iwl-item-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1.4; }
         .iwl-item-code {
-          font-weight: 700; font-size: 13px; color: #1677ff; letter-spacing: -0.1px;
+          font-weight: 700; font-size: 14px; color: #1677ff; letter-spacing: -0.1px;
           font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
         .iwl-item-code--missing { color: #faad14; }
-        .iwl-item-name { font-size: 12px; color: #8a94a6; }
+        .iwl-item-name { font-size: 13px; line-height: 1.35; color: #8a94a6; }
 
-        /* ── §2 commanding slate header: dark band, white ultra-bold type ─ */
+        /* ── §1 SLIM slate header: compact accent band, zero dead space ── */
         .iwl-grid .ant-table-thead > tr > th {
           background: #1e293b !important;
           color: #ffffff !important;
           font-weight: 800 !important;
-          font-size: 12.5px !important;
+          font-size: 14px !important;
+          line-height: 1.25 !important;
           letter-spacing: 0.2px;
-          padding: 9px 10px !important;
+          padding: 4px 8px !important;
         }
 
-        /* ── §3 12–13px reading baseline; the balances lead the grid ───── */
-        .iwl-grid .ant-table-tbody > tr > td { font-size: 12.5px; }
-        .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item,
-        .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num { font-size: 13px; font-weight: 600; }
+        /* ── §2 UNIFIED GLOBAL CENTRE ALIGNMENT ───────────────────────────
+           One rule drives every header and every data cell across all nine
+           rows. The stacked Item column is the sole exception and stays
+           flush left so the code/name stack keeps a clean reading edge. */
+        .iwl-grid .ant-table-thead > tr > th { text-align: center !important; }
+        .iwl-grid .ant-table-thead > tr > th.iwl-cell-item-head { text-align: left !important; }
+        .iwl-grid .ant-table-tbody > tr > td { text-align: center !important; }
+        .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item { text-align: left !important; }
+        .iwl-grid .ant-table-tbody > tr > td .ant-space { justify-content: center !important; }
+
+        /* ── §4 14px reading baseline with roomy line-heights for wrapping ─ */
+        .iwl-grid .ant-table-tbody > tr > td { font-size: 14px; line-height: 1.45; }
+        .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num { font-weight: 600; }
+        /* Department chips scale with the matrix instead of sitting a notch under it */
+        .iwl-grid .ant-tag { font-size: inherit; line-height: 1.35; }
 
         /* ── §3 colour pathways — a light pair and a dark pair ────────── */
         .iwl-cell-prod {
@@ -1647,8 +1692,8 @@ const ItemWiseProductionLedger: React.FC = () => {
             color: #0f172a !important;
           }
           .iwl-grid-sub, .iwl-grid-off-note { font-size: 8pt !important; color: #444444 !important; }
-          .iwl-item-code { font-size: 12px !important; color: #000000 !important; }
-          .iwl-item-name { font-size: 11px !important; color: #444444 !important; }
+          .iwl-item-code { font-size: 13px !important; color: #000000 !important; line-height: 1.3 !important; }
+          .iwl-item-name { font-size: 12px !important; color: #444444 !important; line-height: 1.3 !important; }
 
           /* Premium pre-formatted financial grid */
           .iwl-grid .ant-table-wrapper,
@@ -1668,7 +1713,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             border-collapse: collapse !important;
             border: 1px solid #e2e8f0 !important;
             background: #ffffff !important;
-            font-size: 11px !important;
+            font-size: 12.5px !important;
             font-variant-numeric: tabular-nums;
           }
           .iwl-grid col { width: auto !important; }
@@ -1681,6 +1726,8 @@ const ItemWiseProductionLedger: React.FC = () => {
             background-color: #1e293b !important;
             background-image: none !important;
           }
+          /* §1 — SLIM accent band: compact padding and a tight line-height so
+             the slate row reads as one crisp rule, not a slab. */
           .iwl-grid .ant-table-thead > tr > th {
             background-color: #1e293b !important;
             background-image: none !important;
@@ -1688,9 +1735,10 @@ const ItemWiseProductionLedger: React.FC = () => {
             border: 1px solid #334155 !important;
             border-bottom: 2px solid #0f172a !important;
             font-weight: 800 !important;
-            font-size: 10.5px !important;
+            font-size: 12.5px !important;
+            line-height: 1.2 !important;
             letter-spacing: 0.3px;
-            padding: 7px 8px !important;
+            padding: 3px 6px !important;
             white-space: normal !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
@@ -1700,23 +1748,34 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-grid .ant-table-tbody > tr > td {
             border: 1px solid #e2e8f0 !important;
             padding: 4px 6px !important;
-            font-size: 11px !important;
+            font-size: 12.5px !important;
+            line-height: 1.45 !important;
             white-space: normal !important;
             word-break: break-word;
           }
-          /* §3 — numerics right-align as one column and never wrap mid-figure */
+          /* §2 — ONE centre rule for every figure on the paper, and the
+             stacked Item column is the single exception that stays left. */
+          .iwl-grid .ant-table-thead > tr > th {
+            text-align: center !important;
+          }
+          .iwl-grid .ant-table-thead > tr > th.iwl-cell-item-head {
+            text-align: left !important;
+          }
+          .iwl-grid .ant-table-tbody > tr > td {
+            text-align: center !important;
+          }
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num {
-            font-size: 12px !important;
-            text-align: right !important;
+            font-size: 13px !important;
+            text-align: center !important;
             white-space: nowrap !important;
             word-break: normal !important;
             overflow-wrap: normal !important;
             font-variant-numeric: tabular-nums;
           }
-          .iwl-grid .ant-table-thead > tr > th.iwl-cell-num { text-align: right !important; }
+          .iwl-grid .ant-table-tbody > tr > td .ant-space { justify-content: center !important; }
           /* §3 — stacked Item cell: code over name, flush left, never clipped */
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item {
-            font-size: 12px !important;
+            font-size: 13px !important;
             text-align: left !important;
             white-space: normal !important;
             word-break: normal !important;
