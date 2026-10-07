@@ -1102,7 +1102,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §2 — Item Code sits ON TOP of Item Name inside one cell.
         title: 'Item (Code / Name)',
         key: 'item',
-        width: 262,
+        // §2 — absorbs the width the compact SCRAP sub-headers gave back
+        // (84 → 70 and 96 → 68) so the 1642 contract still holds exactly.
+        width: 304,
         // §2 — the ONLY column that stays flush left, header and body alike.
         align: 'left' as const,
         onHeaderCell: () => ({ className: 'iwl-cell-item-head' }),
@@ -1261,11 +1263,13 @@ const ItemWiseProductionLedger: React.FC = () => {
         align: 'center' as const,
         children: [
           {
-            title: 'Today Scrap',
+            // §2 — the merged SCRAP block above already says the word, so the
+            // leaf reads strictly 'Today'. Same for 'Total' underneath.
+            title: 'Today',
             dataIndex: 'scrapToday',
             key: 'scrapToday',
             align: 'center' as const,
-            width: 84,
+            width: 70,
             // §3 — the whole column is forced crimson, zeros included.
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             render: (v: number, row: LedgerMetrics) => (
@@ -1275,11 +1279,11 @@ const ItemWiseProductionLedger: React.FC = () => {
             ),
           },
           {
-            title: 'Total Month Scrap',
+            title: 'Total',
             dataIndex: 'scrapMonth',
             key: 'scrapMonth',
             align: 'center' as const,
-            width: 96,
+            width: 68,
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             render: (v: number, row: LedgerMetrics) => (
               <Tooltip title={`Cumulative from ${monthFrom} to ${endDate}`}>
@@ -1430,7 +1434,30 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
 
         autoTable(doc, {
-          head: [EXPORT_HEADERS],
+          // §1 — the Item Chain identifier, dead-centre at the head of its
+          // own table, mirroring the printed sheet exactly. It is a merged,
+          // full-width HEAD row rather than a floating caption so it travels
+          // with the table and can never be orphaned on a page break.
+          head: [
+            [
+              {
+                content: g.def.label,
+                colSpan: EXPORT_HEADERS.length,
+                styles: {
+                  halign: 'center',
+                  fontStyle: 'bold',
+                  fontSize: 12,
+                  fillColor: [255, 255, 255],
+                  textColor: [15, 23, 42],
+                  cellPadding: 4,
+                  // One heavy statement rule under the title, no box around it.
+                  lineWidth: { top: 0, left: 0, right: 0, bottom: 2 },
+                  lineColor: [15, 23, 42],
+                },
+              },
+            ],
+            EXPORT_HEADERS,
+          ],
           body: g.rows.map((r) => exportDisplayRow(r)),
           startY,
           // §2 — autotable's own guard: a chain table is never split.
@@ -1484,12 +1511,20 @@ const ItemWiseProductionLedger: React.FC = () => {
             // from `styles` (0.2pt), so all rows carry identical borders.
             data.cell.styles.fillColor = [255, 255, 255];
             const idx = data.column.index;
+            const isNumeric =
+              idx !== COL.stage && idx !== COL.item && idx !== COL.uom;
+            if (isNumeric) {
+              // §4 — NUMERIC SCALE-UP: every figure is set at 12pt bold on
+              // dark black, the same 12pt the sheet uses, so the balances
+              // read at arm's length. The descriptive columns keep 9pt.
+              data.cell.styles.fontSize = 12;
+              data.cell.styles.fontStyle = 'bold';
+              data.cell.styles.textColor = [0, 0, 0];
+            }
             if (idx === COL.production) {
               data.cell.styles.textColor = [4, 120, 87];
-              data.cell.styles.fontStyle = 'bold';
             } else if (idx === COL.closing) {
               data.cell.styles.textColor = [180, 83, 9];
-              data.cell.styles.fontStyle = 'bold';
             } else if (idx === COL.scrapToday || idx === COL.scrapMonth) {
               data.cell.styles.textColor = [255, 77, 79];
             }
@@ -1770,13 +1805,27 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-grid .ant-table-tbody > tr > td {
             text-align: center !important;
           }
+          /* §4 — NUMERIC SCALE-UP: every figure on paper is set to 12pt
+             (16px, well past the requested 12px floor) at weight 800 on
+             dark black, so the balances survive a physical page. Inner
+             wrappers inherit size but had to be told about the weight and
+             the black — <Text strong> and <Text type="warning"> ship their
+             own stronger declarations. */
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num,
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num * {
+            font-size: 12pt !important;
+            font-weight: 800 !important;
+          }
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num {
-            font-size: 13px !important;
+            color: #000000 !important;
             text-align: center !important;
             white-space: nowrap !important;
             word-break: normal !important;
             overflow-wrap: normal !important;
             font-variant-numeric: tabular-nums;
+          }
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num .ant-typography-warning {
+            color: #000000 !important;
           }
           .iwl-grid .ant-table-tbody > tr > td .ant-space { justify-content: center !important; }
           /* §3 — stacked Item cell: code over name, flush left, never clipped */
@@ -1815,17 +1864,34 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-grid .ant-table-cell-fix-right::after { display: none !important; }
           .iwl-grid tr, .iwl-grid td, .iwl-grid th { break-inside: avoid; page-break-inside: avoid; }
 
-          /* §5 — ACCOUNTING / AUDIT RULE: paper carries NO row fills. The
-             emerald and amber tints the screen uses are stripped here and
-             every tbody cell — accent classes and Dark Theme tints included —
-             is forced to pure #ffffff, so only the hairline grid survives. */
-          .iwl-grid .ant-table-tbody > tr,
-          .iwl-grid .ant-table-tbody > tr > td,
-          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-prod,
-          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close,
-          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-scrap {
+          /* §3 + §5 — ABSOLUTE PURGE: not one amber or yellow pixel reaches
+             the paper. The row, the cell AND every wrapper inside the cell
+             are flattened to #ffffff, at a specificity that outranks every
+             screen declaration — the emerald/amber accents, BOTH
+             [data-theme='dark'] pairs, the fixed-cell paints, the antd
+             preset chips (PL renders a gold one) and the warning banners.
+             Only the #e2e8f0 hairline grid survives. */
+          body .iwl-page .iwl-grid .ant-table-tbody,
+          body .iwl-page .iwl-grid .ant-table-tbody > tr,
+          body .iwl-page .iwl-grid .ant-table-tbody > tr:hover,
+          body .iwl-page .iwl-grid .ant-table-tbody > tr > td,
+          body .iwl-page .iwl-grid .ant-table-tbody > tr > td:hover,
+          body .iwl-page .iwl-grid .ant-table-tbody > tr > td *,
+          body .iwl-page .iwl-grid .ant-table-tbody > tr > td[class*='iwl-cell-'] {
+            background: #ffffff !important;
             background-color: #ffffff !important;
             background-image: none !important;
+          }
+          /* The banners parked under the grid are filled amber too. */
+          body .iwl-page .ant-alert,
+          body .iwl-page .ant-alert-warning,
+          body .iwl-page .iwl-remarks .ant-alert,
+          body .iwl-page .ant-tag {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            background-image: none !important;
+            color: #000000 !important;
+            border-color: #e2e8f0 !important;
           }
 
           /* §2 — a crisp uniform hairline under every row; the 1px #e2e8f0
@@ -1843,11 +1909,11 @@ const ItemWiseProductionLedger: React.FC = () => {
           }
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close {
             color: #b45309 !important;
-            font-weight: 700 !important;
+            font-weight: 800 !important;
           }
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-scrap {
             color: #ff4d4f !important;
-            font-weight: 700 !important;
+            font-weight: 800 !important;
           }
 
           /* §1 remarks sit under the grid, kept together */
