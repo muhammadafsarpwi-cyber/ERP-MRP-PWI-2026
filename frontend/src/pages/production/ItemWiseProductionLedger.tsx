@@ -371,10 +371,11 @@ const STAGE_COLOR: Record<string, string> = {
 };
 
 /**
- * §3 — the STAGE column speaks in full manufacturing department names, never
- * in floor codes. A split stage names its branch outright, so `SP` + `INNER`
- * reads `Spoke Inner` and `PL` + `OUTER` reads `Plating Outer`. One map feeds
- * the grid, the print render, the PDF and the Excel sheet.
+ * §3 — COMPOSITE STAGE LABEL: the short operational code first, an em-dash,
+ * then the full manufacturing department name. `SP` + `INNER` reads
+ * `SP — Spoke Inner`, `PL` + `OUTER` reads `PL — Plating Outer`. One string
+ * feeds the interactive screen matrix, the printed window layout, the PDF
+ * autotable rows and the Excel sheet, so all four can never drift apart.
  */
 const DEPARTMENT_NAME: Record<string, string> = {
   RM: 'Raw Material',
@@ -386,13 +387,15 @@ const DEPARTMENT_NAME: Record<string, string> = {
   DP: 'Dispatch',
 };
 
-/** Full industrial department title for one ledger row. */
+/** `RM — Raw Material` / `SP — Spoke Inner` for one ledger row. */
 export const departmentName = (
   r: Pick<LedgerMetrics, 'stage' | 'stageLabel' | 'splitSide'>,
 ): string => {
   const base = DEPARTMENT_NAME[r.stage] ?? r.stageLabel.replace(' Stage', '');
-  if (!r.splitSide) return base;
-  return `${base} ${r.splitSide === 'INNER' ? 'Inner' : 'Outer'}`;
+  const branch = r.splitSide ? ` ${r.splitSide === 'INNER' ? 'Inner' : 'Outer'}` : '';
+  // Operators scan the floor code; directors read the department. Both live
+  // in the cell, so nobody has to decode an abbreviation to find a stage.
+  return `${r.stage} — ${base}${branch}`;
 };
 
 /** Rows 2-8: PCS/GRS multiply by weight; KG and unknown units pass through. */
@@ -1083,14 +1086,14 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Stage',
         dataIndex: 'stageLabel',
         key: 'stageLabel',
-        // §3 — sized for the FULL department titles, not the old two-letter codes.
-        width: 140,
+        // §3 — sized for the COMPOSITE label (code — full department name).
+        width: 168,
         fixed: 'left' as const,
         // §2 — the Stage column centres with everything else.
         align: 'center' as const,
         render: (_: unknown, row: LedgerMetrics) => (
           <Space size={4} wrap>
-            {/* §3 — the full department title replaces the old RM / ST codes. */}
+            {/* §3 — composite label: floor code, em-dash, full department. */}
             <Tag color={STAGE_COLOR[row.stage] ?? 'default'}>{departmentName(row)}</Tag>
           </Space>
         ),
@@ -1099,7 +1102,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §2 — Item Code sits ON TOP of Item Name inside one cell.
         title: 'Item (Code / Name)',
         key: 'item',
-        width: 290,
+        width: 262,
         // §2 — the ONLY column that stays flush left, header and body alike.
         align: 'left' as const,
         onHeaderCell: () => ({ className: 'iwl-cell-item-head' }),
@@ -1464,8 +1467,8 @@ const ItemWiseProductionLedger: React.FC = () => {
           tableLineWidth: 0.4,
           tableLineColor: [226, 232, 240],
           columnStyles: {
-            // §3 — Stage / UoM compressed, the space handed to Item + balances.
-            [COL.stage]: { cellWidth: 78 },
+            // §3 — Stage holds the composite code — name on ONE line at 9pt.
+            [COL.stage]: { cellWidth: 96 },
             // §2 — the stacked Item column is the sole flush-left column.
             [COL.item]: { cellWidth: 204, halign: 'left' },
             [COL.uom]: { cellWidth: 30 },
