@@ -1473,18 +1473,21 @@ const ItemWiseProductionLedger: React.FC = () => {
             [COL.item]: { cellWidth: 204, halign: 'left' },
             [COL.uom]: { cellWidth: 30 },
           },
-          // §3 — the same colour pathways the screen uses.
+          // §3 — the same colour pathways the screen uses, but with the §5
+          // accounting rule on top: a clean white cell, never a tinted fill.
           didParseCell: (data) => {
             // §2 — Item stays flush left in the head AND the body.
             if (data.column.index === COL.item) data.cell.styles.halign = 'left';
             if (data.section === 'head') return;
+            // §5 — NO colour fills on data rows: every body cell is painted
+            // pure white and separated only by the shared #e2e8f0 hairline
+            // from `styles` (0.2pt), so all rows carry identical borders.
+            data.cell.styles.fillColor = [255, 255, 255];
             const idx = data.column.index;
             if (idx === COL.production) {
-              data.cell.styles.fillColor = [231, 248, 241];
               data.cell.styles.textColor = [4, 120, 87];
               data.cell.styles.fontStyle = 'bold';
             } else if (idx === COL.closing) {
-              data.cell.styles.fillColor = [255, 246, 229];
               data.cell.styles.textColor = [180, 83, 9];
               data.cell.styles.fontStyle = 'bold';
             } else if (idx === COL.scrapToday || idx === COL.scrapMonth) {
@@ -1794,6 +1797,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             word-break: normal !important;
             overflow-wrap: anywhere;
           }
+          .iwl-grid .ant-table-tbody > tr:hover > td,
           .iwl-grid .ant-table-tbody > tr:hover > td:not([class*='iwl-cell-']) {
             background-color: #ffffff !important;
           }
@@ -1811,19 +1815,33 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-grid .ant-table-cell-fix-right::after { display: none !important; }
           .iwl-grid tr, .iwl-grid td, .iwl-grid th { break-inside: avoid; page-break-inside: avoid; }
 
-          /* §3 accents, re-applied ABOVE the white reset */
+          /* §5 — ACCOUNTING / AUDIT RULE: paper carries NO row fills. The
+             emerald and amber tints the screen uses are stripped here and
+             every tbody cell — accent classes and Dark Theme tints included —
+             is forced to pure #ffffff, so only the hairline grid survives. */
+          .iwl-grid .ant-table-tbody > tr,
+          .iwl-grid .ant-table-tbody > tr > td,
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-prod,
-          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close,
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-scrap {
+            background-color: #ffffff !important;
+            background-image: none !important;
           }
+
+          /* §2 — a crisp uniform hairline under every row; the 1px #e2e8f0
+             border on each td (set above) does the same across all columns,
+             collapsing into one even spreadsheet grid. */
+          .iwl-grid .ant-table-tbody > tr {
+            border-bottom: 1px solid #e2e8f0 !important;
+          }
+
+          /* §3 — the colour pathways keep their SEMANTICS (hue + weight) but
+             have lost their fill; the figures now read on white paper. */
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-prod {
-            background: #e7f8f1 !important;
             color: #047857 !important;
             font-weight: 800 !important;
           }
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close {
-            background: #fff6e5 !important;
             color: #b45309 !important;
             font-weight: 700 !important;
           }
