@@ -354,17 +354,20 @@ export const fmtKg = (v: number | null | undefined): string => {
 };
 
 /**
- * §6 — SCRAP on a KG row states its unit. Row 1 (Raw Material) is measured in
- * KG, so a bare `2.50` sitting under a rejection column reads as a piece count;
- * `2.50 KG` / `0 KG` cannot be mistaken for one. PCS and GRS rows stay bare —
- * their column already is a count. One helper feeds the screen matrix, the
- * print window and the PDF body rows so the three can never drift apart.
- * (The workbook keeps the raw numeric cell — it must stay sortable/summable.)
+ * §12 — SCRAP cells hold BARE numbers, never a unit suffix.
+ *
+ * The merged parent header already names the unit on every surface
+ * (`SCRAP — KG` on the grid, on the sheet and in the PDF), so `2.5 KG`
+ * inside a cell said the same thing twice — and worse, jsPDF-autotable
+ * sizes an auto column from its WIDEST cell, so those three extra glyphs
+ * used to widen the scrap gutters until the crimson figures were sitting
+ * against their own walls and the grid lines fell out of register.
+ *
+ * The screen matrix, the printed sheet and the PDF body therefore call
+ * `fmtQty` for both scrap columns; the workbook keeps its raw numeric cell
+ * (sortable / summable) exactly as before. One helper still feeds all
+ * three surfaces, so they can never drift apart.
  */
-export const fmtScrap = (v: number | null | undefined, uom: string | null | undefined): string => {
-  const base = fmtQty(v, uom);
-  return (uom ?? '').trim().toUpperCase() === 'KG' ? `${base} KG` : base;
-};
 
 /**
  * §1 — PER PIECE WEIGHT is the one column that keeps 4 decimals, ALWAYS:
@@ -657,6 +660,47 @@ const EXPORT_HEADERS = [
  *  three surfaces can never drift apart again. */
 const SCRAP_HEADER = 'SCRAP — KG';
 
+/**
+ * §12 — the PDF's printable content width: A4 landscape minus BOTH x-margins,
+ * written in the exact same order jsPDF-autotable's own `table.getWidth()`
+ * evaluates it. The twelve pinned gutters below sum to this value, so the
+ * table's outer frame and the inner column rules land on the same coordinates
+ * to the last floating-point decimal — a grid line can never be left hanging.
+ */
+const PDF_TABLE_W = PDF_PAGE_W - PDF_MARGIN_X - PDF_MARGIN_X;
+
+/**
+ * §12 — ABSOLUTE COLUMN WIDTHS (pt), one entry per `COL` index.
+ *
+ * Every gutter is PINNED, which is the whole point: jsPDF-autotable otherwise
+ * sizes an auto column from its WIDEST cell, so a stray glyph inside a data
+ * cell re-flowed the entire grid. That is precisely what the old `2.5 KG`
+ * suffix did — the scrap gutters widened, the crimson figures crowded their
+ * own walls and the hairlines stopped lining up. Fixed widths make content
+ * incapable of moving a border.
+ *
+ * Index 1 (the stacked Item column) is the single elastic gutter: it absorbs
+ * the exact remainder, landing on 173.89pt ≈ the 236px it occupies on screen,
+ * and guaranteeing the twelve widths total `PDF_TABLE_W`.
+ */
+const PDF_W: number[] = [
+  96, // stage — the ruled left margin
+  0, // item — filled below (the one elastic gutter)
+  50, // op balance
+  58, // production
+  50, // sub-total
+  48, // issuance
+  66, // closing pieces
+  30, // uom
+  72, // per piece weight (4 dp, 12pt bold)
+  52, // total weight
+  45, // today scrap
+  45, // total scrap
+];
+PDF_W[COL.item] =
+  PDF_TABLE_W -
+  PDF_W.reduce((sum, w, i) => (i === COL.item ? sum : sum + w), 0);
+
 /** §3 — exports carry the very same full department title the grid shows. */
 const stageLabel = (r: LedgerMetrics): string => departmentName(r);
 
@@ -676,9 +720,9 @@ const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => [
   r.uomCode ?? '—',
   fmtPpw(r.perPieceWeight),
   fmtKg(r.totalWeight),
-  // §6 — KG rows carry the suffix, exactly like the grid and the sheet.
-  fmtScrap(r.scrapToday, r.uomCode),
-  fmtScrap(r.scrapMonth, r.uomCode),
+  // §12 — bare numbers; the `SCRAP — KG` parent already names the unit.
+  fmtQty(r.scrapToday, r.uomCode),
+  fmtQty(r.scrapMonth, r.uomCode),
 ];
 
 /** Numeric cells for Excel — integers for PCS/GRS, 2 dp for weights. */
@@ -1317,10 +1361,11 @@ const ItemWiseProductionLedger: React.FC = () => {
             width: 70,
             // §3 — the whole column is forced crimson, zeros included.
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
-            // §6 — a KG row prints `2.50 KG`, never a bare count.
+            // §12 — a bare, centre-aligned crimson figure; the parent band
+            // already reads `SCRAP — KG`, so no suffix is repeated here.
             render: (v: number, row: LedgerMetrics) => (
               <Tooltip title={`Rejections recorded on ${endDate}`}>
-                <span>{fmtScrap(v, row.uomCode)}</span>
+                <span>{fmtQty(v, row.uomCode)}</span>
               </Tooltip>
             ),
           },
@@ -1333,7 +1378,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             render: (v: number, row: LedgerMetrics) => (
               <Tooltip title={`Cumulative from ${monthFrom} to ${endDate}`}>
-                <span>{fmtScrap(v, row.uomCode)}</span>
+                <span>{fmtQty(v, row.uomCode)}</span>
               </Tooltip>
             ),
           },
@@ -1551,12 +1596,26 @@ const ItemWiseProductionLedger: React.FC = () => {
           tableLineWidth: 0.4,
           tableLineColor: [226, 232, 240],
           columnStyles: {
-            // §3 — Stage holds the composite code — name on ONE line at 9pt.
-            // §9 — and it is the sheet's ruled left margin, never centred.
-            [COL.stage]: { cellWidth: 96, halign: 'left' },
+            // §12 — ABSOLUTE WIDTHS: all twelve gutters pinned to `PDF_W`, so
+            // the data itself can no longer resize a column. Their total is
+            // exactly `PDF_TABLE_W`, which is the same figure autotable draws
+            // its outer frame with — frame and inner rules therefore coincide,
+            // and no grid line is ever left hanging or truncated.
+            // §3 — Stage holds the composite code — name on ONE line at 9pt,
+            // and §9 makes it the sheet's ruled left margin, never centred.
+            [COL.stage]: { cellWidth: PDF_W[COL.stage], halign: 'left' },
             // §2 — the stacked Item column is the sole flush-left column.
-            [COL.item]: { cellWidth: 204, halign: 'left' },
-            [COL.uom]: { cellWidth: 30 },
+            [COL.item]: { cellWidth: PDF_W[COL.item], halign: 'left' },
+            [COL.op]: { cellWidth: PDF_W[COL.op] },
+            [COL.production]: { cellWidth: PDF_W[COL.production] },
+            [COL.subTotal]: { cellWidth: PDF_W[COL.subTotal] },
+            [COL.issuance]: { cellWidth: PDF_W[COL.issuance] },
+            [COL.closing]: { cellWidth: PDF_W[COL.closing] },
+            [COL.uom]: { cellWidth: PDF_W[COL.uom] },
+            [COL.perPieceWeight]: { cellWidth: PDF_W[COL.perPieceWeight] },
+            [COL.totalWeight]: { cellWidth: PDF_W[COL.totalWeight] },
+            [COL.scrapToday]: { cellWidth: PDF_W[COL.scrapToday] },
+            [COL.scrapMonth]: { cellWidth: PDF_W[COL.scrapMonth] },
           },
           // §3 — the same colour pathways the screen uses, but with the §5
           // accounting rule on top: a clean white cell, never a tinted fill.
@@ -1576,6 +1635,12 @@ const ItemWiseProductionLedger: React.FC = () => {
             // pure white and separated only by the shared #e2e8f0 hairline
             // from `styles` (0.2pt), so all rows carry identical borders.
             data.cell.styles.fillColor = [255, 255, 255];
+            // §12 — PERFECT HAIRLINES: re-assert the shared theme border on
+            // all four sides of EVERY data cell (0.2pt ≈ the printed 1px
+            // solid #e2e8f0). Nothing downstream may drop a line, so the
+            // grid stays fully continuous row after row.
+            data.cell.styles.lineWidth = 0.2;
+            data.cell.styles.lineColor = [226, 232, 240];
             const idx = data.column.index;
             const isNumeric =
               idx !== COL.stage && idx !== COL.item && idx !== COL.uom;
@@ -1593,6 +1658,38 @@ const ItemWiseProductionLedger: React.FC = () => {
               data.cell.styles.textColor = [180, 83, 9];
             } else if (idx === COL.scrapToday || idx === COL.scrapMonth) {
               data.cell.styles.textColor = [255, 77, 79];
+            }
+          },
+          // §12 — LUXURY STACKED ITEM TYPE: the code is a heavily bold deep
+          // corporate navy (#0f172a); the name sits directly beneath it in
+          // muted slate (#64748b), regular weight. jsPDF-autotable can only
+          // apply ONE font/weight/colour per cell, so the pair is drawn by
+          // hand — and it has to span two hooks, because the built-in text
+          // is painted between them.
+          willDrawCell: (data) => {
+            if (data.section !== 'body' || data.column.index !== COL.item) return;
+            // Row heights were already resolved from the genuine two-line
+            // text (calculateWidths runs before any drawing), so blanking the
+            // built-in draw loses no height — didDrawCell repaints it below.
+            data.cell.text = [''];
+          },
+          didDrawCell: (data) => {
+            if (data.section !== 'body' || data.column.index !== COL.item) return;
+            const cell = data.cell;
+            const [code = '', name = ''] = String(cell.raw ?? '').split('\n');
+            const fs = 9; // the same 9pt the descriptive columns are set at
+            // Identical placement maths to autotable's own top/left-aligned
+            // text, so the stack still starts on the grid's first text line.
+            const x = cell.x + cell.padding('left');
+            const y = cell.y + cell.padding('top') + fs * 0.85;
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(fs);
+            doc.setTextColor(15, 23, 42); // #0f172a — deep corporate navy
+            doc.text(code, x, y);
+            if (name) {
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(100, 116, 139); // #64748b — muted slate
+              doc.text(name, x, y + fs * 1.15);
             }
           },
           didDrawPage: () => {
@@ -1741,13 +1838,21 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-remarks { margin-top: 20px; }
 
         /* ── §2 stacked Item cell: CODE over NAME, never overlapping ──── */
+        /* §12 — LUXURY STACK: a heavily bold DEEP NAVY identifier sitting on
+           a MUTED SLATE, regular-weight description. The two tones are what
+           separate the key from its label at a glance; the name is also free
+           to wrap anywhere, so a long description never runs into the
+           Op Balance column. */
         .iwl-item-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1.4; }
         .iwl-item-code {
-          font-weight: 700; font-size: 14px; color: #1677ff; letter-spacing: -0.1px;
+          font-weight: 700; font-size: 14px; color: #0f172a; letter-spacing: -0.1px;
           font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
         .iwl-item-code--missing { color: #faad14; }
-        .iwl-item-name { font-size: 13px; line-height: 1.35; color: #8a94a6; }
+        .iwl-item-name {
+          font-size: 13px; font-weight: 400; line-height: 1.35; color: #64748b;
+          overflow-wrap: anywhere;
+        }
 
         /* ── §1 SLIM slate header: compact accent band, zero dead space ── */
         .iwl-grid .ant-table-thead > tr > th {
