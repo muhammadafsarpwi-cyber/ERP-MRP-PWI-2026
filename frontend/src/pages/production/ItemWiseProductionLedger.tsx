@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Button, Card, Checkbox, Col, DatePicker, Empty, Row, Select, Space, Spin, Table, Tag, Tooltip,
   Typography, message,
@@ -10,7 +10,9 @@ import {
 import dayjs, { Dayjs } from 'dayjs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { useLocation } from 'react-router-dom';
 import apiService from '../../services/api';
+import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
 
 const { RangePicker } = DatePicker;
 const { Text, Title } = Typography;
@@ -924,6 +926,9 @@ export const buildXlsx = (matrix: SheetCell[][], sheetName: string): Uint8Array 
 /* ── Component ────────────────────────────────────────────────────────── */
 
 const ItemWiseProductionLedger: React.FC = () => {
+  // Tab id of this route — the key the shared global header is registered
+  // under (MainLayout opens a workspace tab keyed by `location.pathname`).
+  const { pathname: routePath } = useLocation();
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1615,6 +1620,92 @@ const ItemWiseProductionLedger: React.FC = () => {
     window.print();
   };
 
+  /**
+   * ── §11 GLOBAL HEADER ACTIONS ──────────────────────────────────────────
+   * The four utilities are mounted on the MAIN ERP header, not in the page
+   * body: MainLayout renders them in `.erp-header-extra`, the band of the
+   * global top navbar that sits directly under the breadcrumb / profile row
+   * (the avatar + "Muhammad Afsar" slot). A per-page banner would only
+   * duplicate the title and spend vertical viewport space, so the page no
+   * longer owns an action bar at all.
+   *
+   * Every control is its own `HeaderAction`; `.erp-header-extra` supplies the
+   * tight horizontal rhythm itself (`display:flex; gap:8; flex-wrap`), which
+   * is exactly what the old `<Space wrap size={8}>` did.
+   *
+   * Handlers are read through a ref so a node kept alive in a background
+   * keep-alive pane always calls the CURRENT closure (the store treats
+   * function props as structurally equal, so a plain capture could go stale).
+   * Registration is keyed by the tab id (the pathname) so a background render
+   * only ever writes into its own slot, and claiming that slot makes the
+   * store drop anonymous writes from other panes while this tab is visible.
+   */
+  const actionsRef = useRef({ handleExcel, handlePdf, handlePrint });
+  useEffect(() => {
+    actionsRef.current = { handleExcel, handlePdf, handlePrint };
+  });
+
+  useEffect(() => {
+    const store = useHeaderActions.getState();
+    store.claimActionsSlot(routePath);
+    return () => {
+      store.clearHeaderActions(routePath);
+      store.releaseActionsSlot(routePath);
+    };
+  }, [routePath]);
+
+  useEffect(() => {
+    const actions: HeaderAction[] = [
+      {
+        key: 'iwl-excel',
+        node: (
+          <Tooltip title="Download exactly what is on screen as an Excel workbook">
+            <Button
+              type="primary"
+              icon={<FileExcelOutlined />}
+              onClick={() => actionsRef.current.handleExcel()}
+            >
+              Export to Excel
+            </Button>
+          </Tooltip>
+        ),
+      },
+      {
+        key: 'iwl-pdf',
+        node: (
+          <Tooltip title="Landscape PDF, one page per item chain">
+            <Button icon={<FilePdfOutlined />} onClick={() => actionsRef.current.handlePdf()}>
+              Download PDF
+            </Button>
+          </Tooltip>
+        ),
+      },
+      {
+        key: 'iwl-print',
+        node: (
+          <Tooltip title="Open the browser print dialog (Landscape)">
+            <Button icon={<PrinterOutlined />} onClick={() => actionsRef.current.handlePrint()}>
+              Print Ledger
+            </Button>
+          </Tooltip>
+        ),
+      },
+      {
+        key: 'iwl-refresh',
+        node: (
+          <Tooltip title="Reload the ledger for the selected window">
+            <Button icon={<ReloadOutlined />} loading={loading} onClick={() => setTick((t) => t + 1)}>
+              Refresh
+            </Button>
+          </Tooltip>
+        ),
+      },
+    ];
+    useHeaderActions.getState().setHeaderActions(actions, routePath);
+    // `loading` must re-publish the Refresh spinner; the handlers travel via
+    // actionsRef, so the effect does not need to re-run on every render.
+  }, [routePath, loading]);
+
   return (
     <div className="iwl-page" style={{ padding: 24 }}>
       <style>{`
@@ -1720,22 +1811,21 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
 
         /* ── §10 CONTROL BARS — a tightly grouped upper structure ──────────
-           Header band (title left / action toolbar right) → one unified
-           filter line → metric cards → matrix. Screen only: both bars carry
-           iwl-no-print, so the sheet keeps the letterhead as its sole
-           masthead and nothing here can steal from the 2-chain page budget. */
-        .iwl-headbar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          flex-wrap: wrap;
-          gap: 12px 16px;
-          margin-bottom: 16px;
+           Letterhead → page title → one unified filter line → metric cards
+           → matrix. Both bars carry iwl-no-print, so the sheet keeps the
+           letterhead as its sole masthead and nothing here can steal from
+           the 2-chain page budget. The action toolbar no longer exists in
+           the page at all: Excel / PDF / Print / Refresh are mounted on the
+           MAIN ERP header through the shared action registry (§11). */
+
+        /* ── §11 PAGE TITLE — the single "Item-Wise Production Ledger"
+           heading, tucked under the letterhead rather than stacked above
+           the card as its own band. */
+        .iwl-title {
+          margin: 0 0 12px !important;
+          font-weight: 800 !important;
+          letter-spacing: 0.2px;
         }
-        .iwl-headbar-titles { display: flex; flex-direction: column; gap: 0; }
-        .iwl-headbar-title { margin: 0 !important; line-height: 1.25; }
-        .iwl-headbar-sub { font-size: 12px; line-height: 1.3; }
-        .iwl-headbar-actions { flex: 0 0 auto; }
 
         /* The chain block carries its own caption, so the strip is bottom
            aligned: select, checkbox, picker and both day buttons all share
@@ -2208,43 +2298,6 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
       `}</style>
       {/* §3 — the raw title line is gone; the letterhead below is the heading */}
-      {/* ── §10 MAIN HEADER BAND ─────────────────────────────────────────
-          Page title on the left, the four actions on the ABSOLUTE top-right
-          of the component, in one tight flex toolbar. Screen only: the
-          printed sheet keeps the letterhead as its sole masthead, and the
-          card head is dropped entirely in print. */}
-      <div className="iwl-headbar iwl-no-print">
-        <div className="iwl-headbar-titles">
-          <Title level={4} className="iwl-headbar-title">
-            Item-Wise Production Ledger
-          </Title>
-          <Text type="secondary" className="iwl-headbar-sub">
-            {LETTERHEAD.subtitle}
-          </Text>
-        </div>
-        <Space wrap size={8} className="iwl-headbar-actions">
-          <Tooltip title="Download exactly what is on screen as an Excel workbook">
-            <Button type="primary" icon={<FileExcelOutlined />} onClick={handleExcel}>
-              Export to Excel
-            </Button>
-          </Tooltip>
-          <Tooltip title="Landscape PDF, one page per item chain">
-            <Button icon={<FilePdfOutlined />} onClick={handlePdf}>
-              Download PDF
-            </Button>
-          </Tooltip>
-          <Tooltip title="Open the browser print dialog (Landscape)">
-            <Button icon={<PrinterOutlined />} onClick={handlePrint}>
-              Print Ledger
-            </Button>
-          </Tooltip>
-          <Tooltip title="Reload the ledger for the selected window">
-            <Button icon={<ReloadOutlined />} onClick={() => setTick((t) => t + 1)} loading={loading}>
-              Refresh
-            </Button>
-          </Tooltip>
-        </Space>
-      </div>
 
       <Card className="iwl-card" bordered={false} title={null}>
         {/* ── §3 corporate letterhead ───────────────────────────────────── */}
@@ -2272,10 +2325,21 @@ const ItemWiseProductionLedger: React.FC = () => {
           </div>
         </div>
 
+        {/* ── §11 THE PAGE TITLE ───────────────────────────────────────────
+            The one and only "Item-Wise Production Ledger" heading, living in
+            the lower core structure directly beneath the letterhead — the
+            master printable metadata section — instead of a floating band
+            above the card. Screen only: the printed sheet already inks its
+            own Report Title row inside that metadata grid, so printing this
+            line as well would stack two near-identical titles. */}
+        <Title level={4} className="iwl-title iwl-no-print">
+          Item-Wise Production Ledger
+        </Title>
+
         {/* ── §10 UNIFIED FILTER STRIP ───────────────────────────────────
             One horizontal line, left to right: chain select → show-all →
             date window → previous day → next day. Sits directly under the
-            header band and above the metric cards. Screen only. */}
+            page title and above the metric cards. Screen only. */}
         <div className="iwl-filters iwl-no-print">
           <div className="iwl-filters-chain">
             <Text type="secondary">Select Production Item Chain</Text>
