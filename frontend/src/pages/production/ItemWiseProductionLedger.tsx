@@ -351,6 +351,15 @@ export const fmtKg = (v: number | null | undefined): string => {
   return trimZeros(v.toFixed(2));
 };
 
+/**
+ * §1 — PER PIECE WEIGHT is the one column that keeps 4 decimals, ALWAYS:
+ * `0.00967` must read `0.0097`, never collapse to `0.01`. Piece counts stay
+ * whole integers; this is the sole exception to the smart-decimal rule.
+ * Shared by the grid, the print render and the PDF body rows.
+ */
+export const fmtPpw = (v: number | null | undefined): string =>
+  v === null || v === undefined || Number.isNaN(v) ? '—' : v.toFixed(4);
+
 const STAGE_COLOR: Record<string, string> = {
   RM: 'default',
   ST: 'blue',
@@ -370,9 +379,12 @@ const resolveWeight = (
   return weightPerPiece ?? null;
 };
 
-/** Distinctive tint for the PRODUCTION column. */
-const PROD_TINT = 'rgba(22, 119, 255, 0.10)';
-const PROD_TINT_HEADER = 'rgba(22, 119, 255, 0.18)';
+/**
+ * §3 — the semantic colour pathways (Production / Closing / Rejection) live
+ * in CSS, not here, so they can key off `[data-theme='dark']` and off the
+ * print reset from a single place: `.iwl-cell-prod`, `.iwl-cell-close` and
+ * `.iwl-cell-scrap`.
+ */
 
 /* ── Ledger construction (pure — one grid per registered chain) ───────── */
 
@@ -570,25 +582,47 @@ const PDF_MARGIN_X = 28;
 const PDF_RULE_TOP = 90; // bottom of the full letterhead on page 1
 const PDF_RULE_BOTTOM = 44; // bottom of the running header on later pages
 
+/**
+ * §2 — the Item Code / Item Name pair is a SINGLE column on screen and in
+ * both exports. This index table is the one source of truth for column
+ * styling across the grid, the PDF and the workbook.
+ */
+export const COL = {
+  stage: 0,
+  item: 1,
+  op: 2,
+  production: 3,
+  subTotal: 4,
+  issuance: 5,
+  closing: 6,
+  perPieceWeight: 7,
+  totalWeight: 8,
+  uom: 9,
+  scrapToday: 10,
+  scrapMonth: 11,
+} as const;
+
 const EXPORT_HEADERS = [
-  'Stage', 'Item Code', 'Item Name', 'Op Balance', 'Production', 'Sub-Total', 'Issuance',
+  'Stage', 'Item (Code / Name)', 'Op Balance', 'Production', 'Sub-Total', 'Issuance',
   'Closing Pieces', 'Per Piece Weight', 'Total Weight', 'UoM', 'Today Scrap', 'Total Month Scrap',
 ];
 
 const stageLabel = (r: LedgerMetrics): string =>
   `${r.stage}${r.splitSide ? ` (${r.splitSide === 'INNER' ? 'Inner' : 'Outer'})` : ''} — ${r.stageLabel}`;
 
+/** §2 — one cell, code over name, so nothing can overlap in the sheet. */
+const stackItem = (r: LedgerMetrics): string => `${r.itemCode}\n${r.itemName}`;
+
 /** Values exactly as the screen shows them (PDF / CSV-style fidelity). */
 const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => [
   stageLabel(r),
-  r.itemCode,
-  r.itemName,
+  stackItem(r),
   fmtQty(r.opBalance, r.uomCode),
   fmtQty(r.production, r.uomCode),
   fmtQty(r.subTotal, r.uomCode),
   fmtQty(r.issuance, r.uomCode),
   fmtQty(r.closingPieces, r.uomCode),
-  fmtKg(r.perPieceWeight),
+  fmtPpw(r.perPieceWeight),
   fmtKg(r.totalWeight),
   r.uomCode ?? '—',
   fmtQty(r.scrapToday, r.uomCode),
@@ -598,14 +632,14 @@ const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => [
 /** Numeric cells for Excel — integers for PCS/GRS, 2 dp for weights. */
 const exportNumericRow = (r: LedgerMetrics): (string | number | null)[] => [
   stageLabel(r),
-  r.itemCode,
-  r.itemName,
+  stackItem(r),
   exportCell(r.opBalance, r.uomCode),
   exportCell(r.production, r.uomCode),
   exportCell(r.subTotal, r.uomCode),
   exportCell(r.issuance, r.uomCode),
   exportCell(r.closingPieces, r.uomCode),
-  exportCell(r.perPieceWeight, null),
+  // §1 — raw precision: Excel shows the stored value, not a 2-dp rounding.
+  r.perPieceWeight ?? null,
   exportCell(r.totalWeight, null),
   r.uomCode ?? '—',
   exportCell(r.scrapToday, r.uomCode),
@@ -770,7 +804,28 @@ const columnName = (index: number): string => {
 
 type SheetCell = string | number | null | undefined;
 
+/** §5 — autofit a column to its longest LINE so nothing is clipped. */
+const excelColWidth = (matrix: SheetCell[][], col: number): number => {
+  let max = 0;
+  matrix.forEach((cells) => {
+    const v = cells[col];
+    if (v === null || v === undefined) return;
+    String(v)
+      .split('\n')
+      .forEach((line) => {
+        if (line.length > max) max = line.length;
+      });
+  });
+  return Math.min(Math.max(max + 3, 10), 45);
+};
+
 export const buildXlsx = (matrix: SheetCell[][], sheetName: string): Uint8Array => {
+  const columnCount = matrix.reduce((n, cells) => Math.max(n, cells.length), 0);
+  const cols = `<cols>${Array.from({ length: columnCount }, (_, i) => {
+    const w = excelColWidth(matrix, i);
+    return `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`;
+  }).join('')}</cols>`;
+
   const sheetRows = matrix
     .map((cells, rowIndex) => {
       const rowNumber = rowIndex + 1;
@@ -781,8 +836,11 @@ export const buildXlsx = (matrix: SheetCell[][], sheetName: string): Uint8Array 
           if (typeof cell === 'number' && Number.isFinite(cell)) {
             return `<c r="${ref}"><v>${cell}</v></c>`;
           }
-          return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(
-            String(cell),
+          const text = String(cell);
+          // §2 — the stacked Item cell (and anything else multiline) wraps.
+          const styleRef = text.includes('\n') ? ' s="1"' : '';
+          return `<c r="${ref}"${styleRef} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(
+            text,
           )}</t></is></c>`;
         })
         .join('');
@@ -790,14 +848,15 @@ export const buildXlsx = (matrix: SheetCell[][], sheetName: string): Uint8Array 
     })
     .join('');
 
-  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`;
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${cols}<sheetData>${sheetRows}</sheetData></worksheet>`;
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlEscape(
     sheetName.slice(0, 31),
   )}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
   const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
   const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
   const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
-  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  // xf 0 = default · xf 1 = wrap + top-aligned (the stacked Item cell).
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
   const part = (name: string, xml: string): ZipEntry => ({ name, data: utf8Bytes(xml) });
   return buildZip([
@@ -999,7 +1058,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Stage',
         dataIndex: 'stageLabel',
         key: 'stageLabel',
-        width: 176,
+        width: 124,
         fixed: 'left' as const,
         render: (_: unknown, row: LedgerMetrics) => (
           <Space size={4} wrap>
@@ -1014,35 +1073,34 @@ const ItemWiseProductionLedger: React.FC = () => {
         ),
       },
       {
-        title: 'Item Code',
-        dataIndex: 'itemCode',
-        key: 'itemCode',
-        width: 152,
-        render: (code: string, row: LedgerMetrics) =>
-          row.found ? (
-            <Text code>{code}</Text>
-          ) : (
-            <Tooltip title="Item not present in the current scope / period">
-              <Text code type="secondary">
-                {code}
-              </Text>
-            </Tooltip>
-          ),
-      },
-      {
-        title: 'Item Name',
-        dataIndex: 'itemName',
-        key: 'itemName',
-        width: 230,
-        // Full wrapping — never truncate an item name.
-        onCell: () => ({ style: { whiteSpace: 'normal', wordBreak: 'break-word' as const } }),
+        // §2 — Item Code sits ON TOP of Item Name inside one cell.
+        title: 'Item (Code / Name)',
+        key: 'item',
+        width: 306,
+        onCell: () => ({
+          className: 'iwl-cell-item',
+          style: { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const },
+        }),
+        render: (_: unknown, row: LedgerMetrics) => (
+          <div className="iwl-item-stack">
+            {row.found ? (
+              <span className="iwl-item-code">{row.itemCode}</span>
+            ) : (
+              <Tooltip title="Item not present in the current scope / period">
+                <span className="iwl-item-code iwl-item-code--missing">{row.itemCode}</span>
+              </Tooltip>
+            )}
+            <span className="iwl-item-name">{row.itemName}</span>
+          </div>
+        ),
       },
       {
         title: 'Op Balance',
         dataIndex: 'opBalance',
         key: 'opBalance',
         align: 'right' as const,
-        width: 118,
+        width: 136,
+        onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Tooltip title="Net closing of every day BEFORE the End Date">
             <span>{fmtQty(v, row.uomCode)}</span>
@@ -1054,9 +1112,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'production',
         key: 'production',
         align: 'right' as const,
-        width: 126,
-        onHeaderCell: () => ({ style: { background: PROD_TINT_HEADER, fontWeight: 700 } }),
-        onCell: () => ({ style: { background: PROD_TINT, fontWeight: 700 } }),
+        width: 144,
+        onHeaderCell: () => ({ className: 'iwl-cell-num' }),
+        onCell: () => ({ className: 'iwl-cell-prod iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Tooltip
             title={
@@ -1065,9 +1123,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 : 'Additions (IN) recorded on the End Date only'
             }
           >
-            <Text strong style={{ background: 'transparent' }}>
-              {fmtQty(v, row.uomCode)}
-            </Text>
+            <span>{fmtQty(v, row.uomCode)}</span>
           </Tooltip>
         ),
       },
@@ -1076,7 +1132,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'subTotal',
         key: 'subTotal',
         align: 'right' as const,
-        width: 118,
+        width: 136,
+        onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Text strong>{fmtQty(v, row.uomCode)}</Text>
         ),
@@ -1086,7 +1143,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'issuance',
         key: 'issuance',
         align: 'right' as const,
-        width: 146,
+        width: 154,
+        onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) =>
           row.issuanceDriven ? (
             <Tooltip title={`Driven by the next stage: ${row.issuanceRule}`}>
@@ -1103,10 +1161,12 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'closingPieces',
         key: 'closingPieces',
         align: 'right' as const,
-        width: 136,
+        width: 154,
+        onHeaderCell: () => ({ className: 'iwl-cell-num' }),
+        onCell: () => ({ className: 'iwl-cell-close iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Tooltip title="(Op Balance + Production) − Issuance">
-            <Text strong>{fmtQty(v, row.uomCode)}</Text>
+            <span>{fmtQty(v, row.uomCode)}</span>
           </Tooltip>
         ),
       },
@@ -1121,7 +1181,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'perPieceWeight',
         key: 'perPieceWeight',
         align: 'right' as const,
-        width: 104,
+        width: 116,
+        onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => {
           const uom = (row.uomCode ?? '').toUpperCase();
           const tip =
@@ -1132,7 +1193,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 : `UoM '${uom || '—'}' is not a piece unit — multiplier is 1`;
           return (
             <Tooltip title={tip}>
-              <span>{fmtKg(v)}</span>
+              <span>{fmtPpw(v)}</span>
             </Tooltip>
           );
         },
@@ -1142,7 +1203,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'totalWeight',
         key: 'totalWeight',
         align: 'right' as const,
-        width: 132,
+        width: 140,
+        onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => (
           <Tooltip
             title={
@@ -1160,7 +1222,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'uomCode',
         key: 'uomCode',
         align: 'center' as const,
-        width: 74,
+        width: 52,
         render: (v: string | null) => v ?? '—',
       },
       {
@@ -1173,30 +1235,27 @@ const ItemWiseProductionLedger: React.FC = () => {
             dataIndex: 'scrapToday',
             key: 'scrapToday',
             align: 'right' as const,
-            width: 116,
-            render: (v: number, row: LedgerMetrics) =>
-              v ? (
-                <Tooltip title={`Rejections recorded on ${endDate}`}>
-                  <Text type="danger">{fmtQty(v, row.uomCode)}</Text>
-                </Tooltip>
-              ) : (
-                '0'
-              ),
+            width: 84,
+            // §3 — the whole column is forced crimson, zeros included.
+            onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
+            render: (v: number, row: LedgerMetrics) => (
+              <Tooltip title={`Rejections recorded on ${endDate}`}>
+                <span>{fmtQty(v, row.uomCode)}</span>
+              </Tooltip>
+            ),
           },
           {
             title: 'Total Month Scrap',
             dataIndex: 'scrapMonth',
             key: 'scrapMonth',
             align: 'right' as const,
-            width: 146,
-            render: (v: number, row: LedgerMetrics) =>
-              v ? (
-                <Tooltip title={`Cumulative from ${monthFrom} to ${endDate}`}>
-                  <Text type="danger">{fmtQty(v, row.uomCode)}</Text>
-                </Tooltip>
-              ) : (
-                '0'
-              ),
+            width: 96,
+            onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
+            render: (v: number, row: LedgerMetrics) => (
+              <Tooltip title={`Cumulative from ${monthFrom} to ${endDate}`}>
+                <span>{fmtQty(v, row.uomCode)}</span>
+              </Tooltip>
+            ),
           },
         ],
       },
@@ -1272,16 +1331,16 @@ const ItemWiseProductionLedger: React.FC = () => {
       const x = PDF_MARGIN_X + colW * i;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
-      doc.setTextColor(138, 148, 166);
+      doc.setTextColor(68, 68, 68);
       doc.text(label.toUpperCase(), x, 64);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9.5);
-      doc.setTextColor(31, 41, 55);
+      doc.setTextColor(15, 23, 42);
       doc.text(value, x, 77);
     });
 
-    doc.setDrawColor(31, 41, 55);
-    doc.setLineWidth(1);
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(1.2);
     doc.line(PDF_MARGIN_X, PDF_RULE_TOP, PDF_PAGE_W - PDF_MARGIN_X, PDF_RULE_TOP);
   };
 
@@ -1298,7 +1357,7 @@ const ItemWiseProductionLedger: React.FC = () => {
     doc.setTextColor(107, 114, 128);
     doc.text(`${LETTERHEAD.reportTitle}  ·  ${LETTERHEAD.division}`, PDF_MARGIN_X, 35);
 
-    doc.setDrawColor(221, 226, 232);
+    doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.6);
     doc.line(PDF_MARGIN_X, PDF_RULE_BOTTOM, PDF_PAGE_W - PDF_MARGIN_X, PDF_RULE_BOTTOM);
   };
@@ -1354,24 +1413,47 @@ const ItemWiseProductionLedger: React.FC = () => {
           },
           theme: 'grid',
           styles: {
-            fontSize: 7,
+            fontSize: 8,
             cellPadding: 3,
             overflow: 'linebreak',
+            // §3 — ultra-thin slate hairlines, matching the print grid exactly.
             lineWidth: 0.2,
-            lineColor: [221, 226, 232],
+            lineColor: [226, 232, 240],
+            // §2/§4 — clean white sheet with black figures, never the app theme.
+            fillColor: [255, 255, 255],
+            textColor: [0, 0, 0],
           },
           headStyles: {
-            fillColor: [31, 41, 55],
+            // §2 — commanding slate band, white ultra-bold type, statement rule.
+            fillColor: [30, 41, 59],
             textColor: [255, 255, 255],
             fontStyle: 'bold',
-            lineWidth: 0.2,
-            lineColor: [221, 226, 232],
+            lineColor: [15, 23, 42],
+            lineWidth: { top: 0.2, bottom: 2, left: 0.2, right: 0.2 },
           },
+          tableLineWidth: 0.4,
+          tableLineColor: [226, 232, 240],
           columnStyles: {
-            0: { cellWidth: 96 },
-            1: { cellWidth: 74 },
-            2: { cellWidth: 150 },
-            10: { cellWidth: 34 },
+            // §3 — Stage / UoM compressed, the space handed to Item + balances.
+            [COL.stage]: { cellWidth: 78 },
+            [COL.item]: { cellWidth: 204 },
+            [COL.uom]: { cellWidth: 30 },
+          },
+          // §3 — the same colour pathways the screen uses.
+          didParseCell: (data) => {
+            if (data.section === 'head') return;
+            const idx = data.column.index;
+            if (idx === COL.production) {
+              data.cell.styles.fillColor = [231, 248, 241];
+              data.cell.styles.textColor = [4, 120, 87];
+              data.cell.styles.fontStyle = 'bold';
+            } else if (idx === COL.closing) {
+              data.cell.styles.fillColor = [255, 246, 229];
+              data.cell.styles.textColor = [180, 83, 9];
+              data.cell.styles.fontStyle = 'bold';
+            } else if (idx === COL.scrapToday || idx === COL.scrapMonth) {
+              data.cell.styles.textColor = [255, 77, 79];
+            }
           },
           didDrawPage: () => {
             const pageNumber = doc.getCurrentPageInfo().pageNumber;
@@ -1410,7 +1492,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           padding: 14px 18px;
           margin-bottom: 16px;
         }
-        .iwl-lh-company { font-size: 22px; font-weight: 800; line-height: 1.15; color: #0f172a; }
+        .iwl-lh-company { font-size: 22px; font-weight: 800; line-height: 1.15; letter-spacing: -0.2px; color: #0f172a; }
         .iwl-lh-subtitle { font-size: 13px; font-weight: 500; color: #5b6472; margin-top: 3px; }
         .iwl-lh-rule { height: 1px; background: #dfe4ea; margin: 11px 0 9px; }
         .iwl-lh-meta { display: flex; flex-wrap: wrap; gap: 6px 40px; }
@@ -1421,17 +1503,100 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
         .iwl-lh-value { display: block; font-size: 14px; font-weight: 700; color: #1f2937; margin-top: 1px; }
 
-        /* ── §1 chain header + exclusion state ────────────────────────── */
-        .iwl-grid-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        /* ── §4 chain identifier: centred bold sub-header ──────────────── */
+        .iwl-grid-head {
+          position: relative; display: flex; align-items: center;
+          justify-content: center; gap: 8px; margin-bottom: 8px;
+        }
+        .iwl-chain-check { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
+        .iwl-grid-title { text-align: center; font-weight: 800 !important; letter-spacing: 0.2px; }
         .iwl-grid--off .iwl-grid-title { text-decoration: line-through; color: #b0b7c3; }
         .iwl-grid--off .iwl-grid-table { display: none; }
+        .iwl-remarks { margin-top: 20px; }
+
+        /* ── §2 stacked Item cell: CODE over NAME, never overlapping ──── */
+        .iwl-item-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1.3; }
+        .iwl-item-code {
+          font-weight: 700; font-size: 13px; color: #1677ff; letter-spacing: -0.1px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        .iwl-item-code--missing { color: #faad14; }
+        .iwl-item-name { font-size: 12px; color: #8a94a6; }
+
+        /* ── §2 commanding slate header: dark band, white ultra-bold type ─ */
+        .iwl-grid .ant-table-thead > tr > th {
+          background: #1e293b !important;
+          color: #ffffff !important;
+          font-weight: 800 !important;
+          font-size: 12.5px !important;
+          letter-spacing: 0.2px;
+          padding: 9px 10px !important;
+        }
+
+        /* ── §3 12–13px reading baseline; the balances lead the grid ───── */
+        .iwl-grid .ant-table-tbody > tr > td { font-size: 12.5px; }
+        .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item,
+        .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num { font-size: 13px; font-weight: 600; }
+
+        /* ── §3 colour pathways — a light pair and a dark pair ────────── */
+        .iwl-cell-prod {
+          background: rgba(16, 185, 129, 0.16) !important;
+          color: #047857 !important; font-weight: 800 !important;
+        }
+        .iwl-cell-close {
+          background: rgba(245, 158, 11, 0.20) !important;
+          color: #b45309 !important; font-weight: 700 !important;
+        }
+        .iwl-cell-scrap { color: #ff4d4f !important; font-weight: 700 !important; }
+
+        [data-theme='dark'] .iwl-letterhead { background: #141b26; border-color: #2a3444; border-left-color: #1677ff; }
+        [data-theme='dark'] .iwl-lh-company { color: #f1f5f9; }
+        [data-theme='dark'] .iwl-lh-subtitle { color: #94a3b8; }
+        [data-theme='dark'] .iwl-lh-rule { background: #2a3444; }
+        [data-theme='dark'] .iwl-lh-label { color: #7c8ba1; }
+        [data-theme='dark'] .iwl-lh-value { color: #e2e8f0; }
+        [data-theme='dark'] .iwl-item-code { color: #69b1ff; }
+        [data-theme='dark'] .iwl-item-code--missing { color: #ffc53d; }
+        [data-theme='dark'] .iwl-item-name { color: #9aa6b8; }
+        [data-theme='dark'] .iwl-grid--off .iwl-grid-title { color: #55606f; }
+        [data-theme='dark'] .iwl-cell-prod { background: rgba(16, 185, 129, 0.20) !important; color: #34d399 !important; }
+        [data-theme='dark'] .iwl-cell-close { background: rgba(245, 158, 11, 0.18) !important; color: #fbbf24 !important; }
 
         @page { size: A4 landscape; margin: 8mm 9mm; }
 
         @media print {
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          /* ══ §2 ABSOLUTE WHITE PAGE ══════════════════════════════════════
+             The active Dark Theme must never reach the paper. Every surface
+             in the sheet is flattened to pure #ffffff with black text FIRST;
+             the soft header tint, the letterhead rule and the semantic
+             accents are re-applied afterwards at higher specificity. Note the
+             deliberate absence of a blanket print-color-adjust: exact — that
+             rule made the browser rasterise a background for EVERY node in
+             the document and is what froze the print dialog and burned ink. */
+          html, body,
+          .iwl-page,
+          .ant-layout, .ant-layout-content,
+          .ant-card, .ant-card-head, .ant-card-body,
+          .ant-table, .ant-table-container, .ant-table-content,
+          .ant-table-tbody > tr > td,
+          .ant-alert, .ant-alert-info, .ant-alert-warning, .ant-alert-error,
+          .ant-tag, .ant-spin-blur {
+            background-color: #ffffff !important;
+            background-image: none !important;
+            color: #000000 !important;
+            border-color: #e2e8f0 !important;
+          }
 
-          /* §4 — app chrome and every interactive control */
+          /* Kill animation/transition/compositing — the other freeze source. */
+          *, *::before, *::after {
+            animation: none !important;
+            transition: none !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            will-change: auto !important;
+          }
+
+          /* App chrome and every interactive control */
           .ant-layout-sider,
           .ant-layout-header,
           .erp-workspace-tabstrip-container { display: none !important; }
@@ -1440,27 +1605,27 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-page { padding: 0 !important; }
           .iwl-card > .ant-card-head { display: none !important; }
           .iwl-card > .ant-card-body { padding: 0 !important; }
-          .iwl-card { box-shadow: none !important; background: #fff !important; }
           .iwl-no-print, .iwl-toolbar { display: none !important; }
 
-          /* §3 — letterhead replaces the raw title line */
+          /* Letterhead replaces the raw title line — colours mirror jsPDF
+             exactly so the printed sheet and the PDF are one document. */
           .iwl-letterhead {
             border: 0 !important;
-            border-bottom: 2px solid #1f2937 !important;
+            border-bottom: 1.6px solid #0f172a !important;
             border-radius: 0 !important;
-            background: #fff !important;
+            background: #ffffff !important;
             padding: 0 0 7px !important;
             margin: 0 0 10px !important;
           }
           .iwl-lh-company { font-size: 19pt !important; color: #0f172a !important; }
-          .iwl-lh-subtitle { font-size: 9pt !important; color: #4b5563 !important; margin-top: 2px !important; }
+          .iwl-lh-subtitle { font-size: 9pt !important; color: #5b6472 !important; margin-top: 2px !important; }
           .iwl-lh-rule { display: none !important; }
           .iwl-lh-meta { gap: 4px 34px !important; margin-top: 7px !important; }
           .iwl-lh-item { min-width: 0 !important; }
-          .iwl-lh-label { font-size: 6.5pt !important; color: #8a94a6 !important; }
-          .iwl-lh-value { font-size: 9.5pt !important; color: #1f2937 !important; }
+          .iwl-lh-label { font-size: 6.5pt !important; color: #444444 !important; }
+          .iwl-lh-value { font-size: 9.5pt !important; color: #0f172a !important; }
 
-          /* §2 — a chain is an atomic page unit; never split it */
+          /* A chain is an atomic page unit; never split it */
           .iwl-grid {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
@@ -1468,11 +1633,24 @@ const ItemWiseProductionLedger: React.FC = () => {
             margin-bottom: 10px !important;
           }
           .iwl-grid--off { display: none !important; }
-          .iwl-grid-head { margin-bottom: 4px !important; }
-          .iwl-grid-title { font-size: 11pt !important; font-weight: 700 !important; color: #0f172a !important; }
-          .iwl-grid-sub { font-size: 7.5pt !important; }
+          /* §4 — the chain identifier sits dead-centre as a bold sub-header */
+          .iwl-grid-head {
+            position: static !important;
+            justify-content: center !important;
+            margin-bottom: 5px !important;
+          }
+          .iwl-grid-title {
+            text-align: center !important;
+            font-size: 12pt !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.3px !important;
+            color: #0f172a !important;
+          }
+          .iwl-grid-sub, .iwl-grid-off-note { font-size: 8pt !important; color: #444444 !important; }
+          .iwl-item-code { font-size: 12px !important; color: #000000 !important; }
+          .iwl-item-name { font-size: 11px !important; color: #444444 !important; }
 
-          /* §4 — premium pre-formatted financial grid */
+          /* Premium pre-formatted financial grid */
           .iwl-grid .ant-table-wrapper,
           .iwl-grid .ant-table,
           .iwl-grid .ant-table-container,
@@ -1488,37 +1666,115 @@ const ItemWiseProductionLedger: React.FC = () => {
             min-width: 0 !important;
             table-layout: auto !important;
             border-collapse: collapse !important;
-            border: 1px solid #ddd !important;
-            font-size: 8.5px !important;
+            border: 1px solid #e2e8f0 !important;
+            background: #ffffff !important;
+            font-size: 11px !important;
+            font-variant-numeric: tabular-nums;
           }
           .iwl-grid col { width: auto !important; }
           .iwl-grid thead { display: table-header-group; }
+          /* §2 — COMMANDING SLATE HEADER: dark tone, pure white ultra-bold
+             type, generous padding. Explicitly painted on the light fill so it
+             survives with "Background graphics" switched off. */
+          .iwl-grid .ant-table-thead,
+          .iwl-grid .ant-table-thead > tr {
+            background-color: #1e293b !important;
+            background-image: none !important;
+          }
           .iwl-grid .ant-table-thead > tr > th {
-            background: #1f2937 !important;
-            color: #fff !important;
-            border: 1px solid #ddd !important;
-            border-color: #ddd !important;
-            font-weight: 700 !important;
-            font-size: 8px !important;
-            padding: 4px 5px !important;
+            background-color: #1e293b !important;
+            background-image: none !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+            border-bottom: 2px solid #0f172a !important;
+            font-weight: 800 !important;
+            font-size: 10.5px !important;
+            letter-spacing: 0.3px;
+            padding: 7px 8px !important;
             white-space: normal !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .iwl-grid .ant-table-thead > tr > th::before { display: none !important; }
+          /* §3 — ultra-thin hairlines, collapsed so no double-weight seams */
           .iwl-grid .ant-table-tbody > tr > td {
-            border: 1px solid #ddd !important;
-            border-color: #ddd !important;
-            padding: 3px 5px !important;
+            border: 1px solid #e2e8f0 !important;
+            padding: 4px 6px !important;
+            font-size: 11px !important;
             white-space: normal !important;
             word-break: break-word;
           }
-          .iwl-grid .ant-table-tbody > tr:hover > td { background: transparent !important; }
+          /* §3 — numerics right-align as one column and never wrap mid-figure */
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num {
+            font-size: 12px !important;
+            text-align: right !important;
+            white-space: nowrap !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            font-variant-numeric: tabular-nums;
+          }
+          .iwl-grid .ant-table-thead > tr > th.iwl-cell-num { text-align: right !important; }
+          /* §3 — stacked Item cell: code over name, flush left, never clipped */
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item {
+            font-size: 12px !important;
+            text-align: left !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: break-word;
+          }
+          .iwl-grid .iwl-item-code {
+            white-space: nowrap !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+          }
+          .iwl-grid .iwl-item-name {
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: anywhere;
+          }
+          .iwl-grid .ant-table-tbody > tr:hover > td:not([class*='iwl-cell-']) {
+            background-color: #ffffff !important;
+          }
+          /* Fixed cells carry an opaque theme background of their own — clear it,
+             otherwise the Stage column prints as a dark slab under Dark Theme. */
+          .iwl-grid .ant-table-tbody > tr,
+          .iwl-grid .ant-table-tbody > tr > td:not([class*='iwl-cell-']),
+          .iwl-grid .ant-table-cell-fix-left,
+          .iwl-grid .ant-table-cell-fix-right {
+            background-color: #ffffff !important;
+          }
           .iwl-grid .ant-table-cell-fix-left,
           .iwl-grid .ant-table-cell-fix-right { position: static !important; box-shadow: none !important; }
           .iwl-grid .ant-table-cell-fix-left::after,
           .iwl-grid .ant-table-cell-fix-right::after { display: none !important; }
           .iwl-grid tr, .iwl-grid td, .iwl-grid th { break-inside: avoid; page-break-inside: avoid; }
 
-          .iwl-note, .iwl-note .ant-typography { font-size: 7.5pt !important; color: #6b7280 !important; }
+          /* §3 accents, re-applied ABOVE the white reset */
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-prod,
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-prod {
+            background: #e7f8f1 !important;
+            color: #047857 !important;
+            font-weight: 800 !important;
+          }
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close {
+            background: #fff6e5 !important;
+            color: #b45309 !important;
+            font-weight: 700 !important;
+          }
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-scrap {
+            color: #ff4d4f !important;
+            font-weight: 700 !important;
+          }
+
+          /* §1 remarks sit under the grid, kept together */
+          .iwl-remarks { margin-top: 8px !important; break-inside: avoid; page-break-inside: avoid; }
+          .iwl-remarks .ant-alert { margin-bottom: 6px !important; font-size: 7.5pt !important; }
+
+          .iwl-note, .iwl-note .ant-typography { font-size: 7.5pt !important; color: #444444 !important; }
         }
       `}</style>
       {/* §3 — the raw title line is gone; the letterhead below is the heading */}
@@ -1569,7 +1825,9 @@ const ItemWiseProductionLedger: React.FC = () => {
           </div>
         </div>
 
-        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        {/* §1 print — the whole metric strip is screen-only. On paper the
+            letterhead + its 3-column metadata grid is the sole masthead. */}
+        <Row gutter={[16, 16]} className="iwl-no-print" style={{ marginBottom: 16 }}>
           {/* §4 — chain picker + toggles are interactive; never print them */}
           <Col xs={24} lg={9} className="iwl-no-print">
             <Text type="secondary">Select Production Item Chain</Text>
@@ -1651,58 +1909,6 @@ const ItemWiseProductionLedger: React.FC = () => {
           </Col>
         </Row>
 
-        {/* §4 — on-screen methodology; the printed sheet uses the compact .iwl-note */}
-        <Alert
-          type="info"
-          showIcon
-          className="iwl-no-print"
-          style={{ marginBottom: 16 }}
-          message="Sequential chain rules"
-          description={
-            <>
-              Computed <strong>as-on {endDate}</strong>. <em>Opening</em> covers every prior day,{' '}
-              <em>Production</em> this day only — so advancing the End Date rolls <em>Closing</em> into the next
-              day&rsquo;s <em>Opening</em>. <strong>Issuance is driven by the next stage:</strong> RM ← ST
-              Production × weight (KG) · ST ← SW · SW ← SP Inner + SP Outer · SP ← matching PL branch · PL
-              Inner/Outer ← FG Packed ({fmtQty(summary.totalPacked, 'PCS')}) ÷ 2.{' '}
-              <strong>Closing = (Op + Production) − Issuance</strong>. Piece units (PCS / GRS) render as whole
-              integers; KG and weight columns use up to 2 decimals. Scrap is tracked twice: today only vs.
-              cumulative from {monthFrom}.
-            </>
-          }
-        />
-
-        {error ? (
-          <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
-        ) : null}
-
-        {!loading && !error && summary.missingCodes.length > 0 ? (
-          <Alert
-            type="warning"
-            showIcon
-            message="Some chain items were not returned"
-            description={
-              <>Not present in the current company / division scope: {summary.missingCodes.join(', ')}</>
-            }
-            style={{ marginBottom: 16 }}
-          />
-        ) : null}
-
-        {!loading && summary.undriven.length > 0 ? (
-          <Alert
-            type="warning"
-            showIcon
-            message="Chain rule could not be applied to some stages"
-            description={
-              <>
-                Driver unavailable for: {Array.from(new Set(summary.undriven)).join(', ')}. Those cells fall
-                back to recorded ledger issues (OUT) instead of the driven value.
-              </>
-            }
-            style={{ marginBottom: 16 }}
-          />
-        ) : null}
-
         {/* §4 — export & print row, top right of the ledger sheet */}
         <div
           className="iwl-toolbar"
@@ -1770,7 +1976,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                         dataSource={g.rows}
                         rowKey="key"
                         pagination={false}
-                        scroll={{ x: 1660 }}
+                        scroll={{ x: 1642 }}
                         size="small"
                         bordered
                       />
@@ -1781,6 +1987,61 @@ const ItemWiseProductionLedger: React.FC = () => {
             })
           )}
         </Spin>
+
+        {/* ── §1 — remarks & warnings live BELOW the grid so the letterhead
+                and the tables own the prime top space of the sheet ─────── */}
+        <div className="iwl-remarks">
+          <Alert
+            type="info"
+            showIcon
+            className="iwl-no-print"
+            style={{ marginBottom: 12 }}
+            message="Sequential chain rules"
+            description={
+              <>
+                Computed <strong>as-on {endDate}</strong>. <em>Opening</em> covers every prior day,{' '}
+                <em>Production</em> this day only — so advancing the End Date rolls <em>Closing</em> into the
+                next day&rsquo;s <em>Opening</em>. <strong>Issuance is driven by the next stage:</strong> RM ←
+                ST Production × weight (KG) · ST ← SW · SW ← SP Inner + SP Outer · SP ← matching PL branch ·
+                PL Inner/Outer ← FG Packed ({fmtQty(summary.totalPacked, 'PCS')}) ÷ 2.{' '}
+                <strong>Closing = (Op + Production) − Issuance</strong>. Piece units (PCS / GRS) render as
+                whole integers; KG and weight columns use up to 2 decimals. Scrap is tracked twice: today only
+                vs. cumulative from {monthFrom}.
+              </>
+            }
+          />
+
+          {error ? (
+            <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />
+          ) : null}
+
+          {!loading && !error && summary.missingCodes.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="Some chain items were not returned"
+              description={
+                <>Not present in the current company / division scope: {summary.missingCodes.join(', ')}</>
+              }
+              style={{ marginBottom: 12 }}
+            />
+          ) : null}
+
+          {!loading && summary.undriven.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="Chain rule could not be applied to some stages"
+              description={
+                <>
+                  Driver unavailable for: {Array.from(new Set(summary.undriven)).join(', ')}. Those cells fall
+                  back to recorded ledger issues (OUT) instead of the driven value.
+                </>
+              }
+              style={{ marginBottom: 12 }}
+            />
+          ) : null}
+        </div>
 
         <div className="iwl-note" style={{ marginTop: 16 }}>
           <Text type="secondary">
