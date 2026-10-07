@@ -81,7 +81,9 @@ const { Text, Title } = Typography;
  *        the sheet; the raw card title, the app Sider/Header and every
  *        interactive control are hidden under `@media print`.
  *      · Table chrome prints as a financial grid: dark header band with
- *        white text and `1px solid #ddd` hairlines throughout.
+ *        white text and SOLID CHARCOAL `1px solid #94a3b8` rules throughout
+ *        (§13) — the same ink the screen grid and the jsPDF table use, so
+ *        no line washes out of a printer.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
@@ -1482,7 +1484,9 @@ const ItemWiseProductionLedger: React.FC = () => {
     doc.setTextColor(107, 114, 128);
     doc.text(`${LETTERHEAD.reportTitle}  ·  ${LETTERHEAD.division}`, PDF_MARGIN_X, 35);
 
-    doc.setDrawColor(226, 232, 240);
+    // §13 — the continuation banner's own rule uses the same charcoal as the
+    // grid, so page 2+ never reverts to the old washed-out hairline.
+    doc.setDrawColor(148, 163, 184);
     doc.setLineWidth(0.6);
     doc.line(PDF_MARGIN_X, PDF_RULE_BOTTOM, PDF_PAGE_W - PDF_MARGIN_X, PDF_RULE_BOTTOM);
   };
@@ -1542,8 +1546,10 @@ const ItemWiseProductionLedger: React.FC = () => {
                   textColor: [15, 23, 42],
                   cellPadding: 4,
                   // One heavy statement rule under the title, no box around it.
+                  // §13 — charcoal, the same solid grid ink every other line
+                  // in this table now uses.
                   lineWidth: { top: 0, left: 0, right: 0, bottom: 2 },
-                  lineColor: [15, 23, 42],
+                  lineColor: [148, 163, 184],
                 },
               },
             ],
@@ -1577,9 +1583,12 @@ const ItemWiseProductionLedger: React.FC = () => {
             overflow: 'linebreak',
             // §2 — one uniform centre alignment across the whole data matrix.
             halign: 'center',
-            // §3 — ultra-thin slate hairlines, matching the print grid exactly.
-            lineWidth: 0.2,
-            lineColor: [226, 232, 240],
+            // §13 — CHARCOAL GRID: 0.75pt is exactly the 1px the printed
+            // sheet uses (1px @96dpi), and #94a3b8 is the solid medium-dark
+            // charcoal that finally survives the printer instead of washing
+            // out like the old #e2e8f0 hairline.
+            lineWidth: 0.75,
+            lineColor: [148, 163, 184],
             // §2/§4 — clean white sheet with black figures, never the app theme.
             fillColor: [255, 255, 255],
             textColor: [0, 0, 0],
@@ -1590,11 +1599,16 @@ const ItemWiseProductionLedger: React.FC = () => {
             textColor: [255, 255, 255],
             fontStyle: 'bold',
             halign: 'center',
-            lineColor: [15, 23, 42],
-            lineWidth: { top: 0.2, bottom: 2, left: 0.2, right: 0.2 },
+            // §13 — the header separators join the same charcoal grid. `top`
+            // stays 0: the chain title's own 2pt rule already draws that
+            // boundary, so a second pass would only stripe it.
+            lineColor: [148, 163, 184],
+            lineWidth: { top: 0, bottom: 2, left: 0.75, right: 0.75 },
           },
-          tableLineWidth: 0.4,
-          tableLineColor: [226, 232, 240],
+          // §13 — the OUTER FRAMEWORK uses the identical ink and weight, so
+          // the sheet's edge and every inner rule are one continuous grid.
+          tableLineWidth: 0.75,
+          tableLineColor: [148, 163, 184],
           columnStyles: {
             // §12 — ABSOLUTE WIDTHS: all twelve gutters pinned to `PDF_W`, so
             // the data itself can no longer resize a column. Their total is
@@ -1632,15 +1646,16 @@ const ItemWiseProductionLedger: React.FC = () => {
             }
             if (data.section === 'head') return;
             // §5 — NO colour fills on data rows: every body cell is painted
-            // pure white and separated only by the shared #e2e8f0 hairline
-            // from `styles` (0.2pt), so all rows carry identical borders.
+            // pure white and separated only by the shared charcoal rule from
+            // `styles` (0.75pt), so all rows carry identical borders.
             data.cell.styles.fillColor = [255, 255, 255];
-            // §12 — PERFECT HAIRLINES: re-assert the shared theme border on
-            // all four sides of EVERY data cell (0.2pt ≈ the printed 1px
-            // solid #e2e8f0). Nothing downstream may drop a line, so the
-            // grid stays fully continuous row after row.
-            data.cell.styles.lineWidth = 0.2;
-            data.cell.styles.lineColor = [226, 232, 240];
+            // §12/§13 — PERFECT HAIRLINES: re-assert the shared theme border on
+            // all four sides of EVERY data cell (0.75pt = the printed 1px
+            // solid #94a3b8). Nothing downstream may drop a line, so the grid
+            // stays fully continuous row after row — charcoal, not the old
+            // #e2e8f0 that washed straight out of a printer.
+            data.cell.styles.lineWidth = 0.75;
+            data.cell.styles.lineColor = [148, 163, 184];
             const idx = data.column.index;
             const isNumeric =
               idx !== COL.stage && idx !== COL.item && idx !== COL.uom;
@@ -1660,12 +1675,13 @@ const ItemWiseProductionLedger: React.FC = () => {
               data.cell.styles.textColor = [255, 77, 79];
             }
           },
-          // §12 — LUXURY STACKED ITEM TYPE: the code is a heavily bold deep
-          // corporate navy (#0f172a); the name sits directly beneath it in
-          // muted slate (#64748b), regular weight. jsPDF-autotable can only
-          // apply ONE font/weight/colour per cell, so the pair is drawn by
-          // hand — and it has to span two hooks, because the built-in text
-          // is painted between them.
+          // §12/§13 — HIERARCHY STACKED ITEM TYPE: the code is a heavily bold
+          // deep corporate navy (#0f172a); the name sits directly beneath it
+          // ULTRA-BOLD in Corporate Royal Blue (#1e40af), so the product
+          // description pops out of the row instead of fading away.
+          // jsPDF-autotable can only apply ONE font/weight/colour per cell,
+          // so the pair is drawn by hand — and it has to span two hooks,
+          // because the built-in text is painted between them.
           willDrawCell: (data) => {
             if (data.section !== 'body' || data.column.index !== COL.item) return;
             // Row heights were already resolved from the genuine two-line
@@ -1687,8 +1703,10 @@ const ItemWiseProductionLedger: React.FC = () => {
             doc.setTextColor(15, 23, 42); // #0f172a — deep corporate navy
             doc.text(code, x, y);
             if (name) {
-              doc.setFont('helvetica', 'normal');
-              doc.setTextColor(100, 116, 139); // #64748b — muted slate
+              // §13 — ULTRA-BOLD ROYAL BLUE: the description carries the same
+              // 700 weight as the code, and a rich #1e40af that holds on paper.
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(30, 64, 175); // #1e40af — Corporate Royal Blue
               doc.text(name, x, y + fs * 1.15);
             }
           },
@@ -1838,11 +1856,12 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-remarks { margin-top: 20px; }
 
         /* ── §2 stacked Item cell: CODE over NAME, never overlapping ──── */
-        /* §12 — LUXURY STACK: a heavily bold DEEP NAVY identifier sitting on
-           a MUTED SLATE, regular-weight description. The two tones are what
-           separate the key from its label at a glance; the name is also free
-           to wrap anywhere, so a long description never runs into the
-           Op Balance column. */
+        /* §12/§13 — HIERARCHY: a heavily bold DEEP NAVY identifier sitting
+           on a ULTRA-BOLD ROYAL BLUE description. Both lines are heavy, so
+           the two COMPANY tones carry the whole distinction — the key reads
+           as a key, and the product description POPS straight out of the
+           row. The name is also free to wrap anywhere, so a long
+           description never runs into the Op Balance column. */
         .iwl-item-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1.4; }
         .iwl-item-code {
           font-weight: 700; font-size: 14px; color: #0f172a; letter-spacing: -0.1px;
@@ -1850,7 +1869,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
         .iwl-item-code--missing { color: #faad14; }
         .iwl-item-name {
-          font-size: 13px; font-weight: 400; line-height: 1.35; color: #64748b;
+          font-size: 13px; font-weight: 700 !important; line-height: 1.35;
+          color: #1e40af;
           overflow-wrap: anywhere;
         }
 
@@ -1913,6 +1933,36 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-grid .ant-table-tbody > tr > td:first-child,
         .iwl-grid .ant-table-thead > tr > th:first-child {
           padding-left: 0 !important;
+        }
+
+        /* ── §13 EXECUTIVE GRIDLINE CONTRAST + DEEP-BLACK BASELINE ───────
+           antd ships a near-white hairline that evaporates on a high-DPI
+           display and never reaches the paper at all. Every internal rule
+           AND the outer framework — on screen, in the print layout and in
+           the jsPDF table alike — is forced to a solid MEDIUM-DARK CHARCOAL
+           (#94a3b8) so the sheet reads as a sharp spreadsheet instead of a
+           cloud of floating figures. On top of that, every standard body
+           cell is locked to #0f172a: antd's muted rgba(0,0,0,.88) is what
+           leaves faint grey ink behind. The four cells that own a palette
+           of their own — the Item stack and the emerald / amber / crimson
+           pathways — are excluded, and Dark Theme keeps its light ink. */
+        .iwl-grid .ant-table,
+        .iwl-grid .ant-table-container,
+        .iwl-grid .ant-table-content {
+          border-color: #94a3b8 !important;
+        }
+        .iwl-grid .ant-table-thead > tr > th,
+        .iwl-grid .ant-table-tbody > tr > td {
+          border-color: #94a3b8 !important;
+        }
+        .iwl-grid .ant-table-tbody > tr {
+          border-bottom-color: #94a3b8 !important;
+        }
+        .iwl-grid .ant-table-tbody > tr > td:not(.iwl-cell-item):not(.iwl-cell-prod):not(.iwl-cell-close):not(.iwl-cell-scrap) {
+          color: #0f172a !important;
+        }
+        [data-theme='dark'] .iwl-grid .ant-table-tbody > tr > td:not(.iwl-cell-item):not(.iwl-cell-prod):not(.iwl-cell-close):not(.iwl-cell-scrap) {
+          color: #e5e7eb !important;
         }
 
         /* ── §10 CONTROL BARS — a tightly grouped upper structure ──────────
@@ -1996,8 +2046,10 @@ const ItemWiseProductionLedger: React.FC = () => {
           .ant-tag, .ant-spin-blur {
             background-color: #ffffff !important;
             background-image: none !important;
-            color: #000000 !important;
-            border-color: #e2e8f0 !important;
+            /* §13 — the one DEEP BLACK token the whole sheet prints in. */
+            color: #0f172a !important;
+            /* §13 — charcoal, never the old #e2e8f0 that washed out. */
+            border-color: #94a3b8 !important;
           }
 
           /* Kill animation/transition/compositing — the other freeze source. */
@@ -2160,8 +2212,10 @@ const ItemWiseProductionLedger: React.FC = () => {
              lever: line-heights and the stack gap are pulled to one crisp
              pass each. Nine rows × a few pixels is a whole chain. */
           .iwl-grid .iwl-item-stack { gap: 0 !important; line-height: 1.05 !important; }
-          .iwl-item-code { font-size: 13px !important; color: #000000 !important; line-height: 1.05 !important; }
-          .iwl-item-name { font-size: 12px !important; color: #444444 !important; line-height: 1.05 !important; }
+          .iwl-item-code { font-size: 13px !important; font-weight: 700 !important; color: #0f172a !important; line-height: 1.05 !important; }
+          /* §13 — the description prints ULTRA-BOLD in ROYAL BLUE, so the
+             second line still pops off the paper instead of greying out. */
+          .iwl-item-name { font-size: 12px !important; font-weight: 700 !important; color: #1e40af !important; line-height: 1.05 !important; }
 
           /* Premium pre-formatted financial grid */
           .iwl-grid .ant-table-wrapper,
@@ -2179,7 +2233,8 @@ const ItemWiseProductionLedger: React.FC = () => {
             min-width: 0 !important;
             table-layout: auto !important;
             border-collapse: collapse !important;
-            border: 1px solid #e2e8f0 !important;
+            /* §13 — the OUTER FRAMEWORK of the sheet: solid charcoal. */
+            border: 1px solid #94a3b8 !important;
             background: #ffffff !important;
             font-size: 12.5px !important;
             font-variant-numeric: tabular-nums;
@@ -2200,8 +2255,10 @@ const ItemWiseProductionLedger: React.FC = () => {
             background-color: #1e293b !important;
             background-image: none !important;
             color: #ffffff !important;
-            border: 1px solid #334155 !important;
-            border-bottom: 2px solid #0f172a !important;
+            /* §13 — the slate band's own separators join the same charcoal
+               grid, so the header is as sharp as the body beneath it. */
+            border: 1px solid #94a3b8 !important;
+            border-bottom: 2px solid #94a3b8 !important;
             font-weight: 800 !important;
             font-size: 12.5px !important;
             line-height: 1.1 !important;
@@ -2218,7 +2275,8 @@ const ItemWiseProductionLedger: React.FC = () => {
              lets nine rows plus the header and the identifier sit on the
              lower half of a landscape sheet alongside a second chain. */
           .iwl-grid .ant-table-tbody > tr > td {
-            border: 1px solid #e2e8f0 !important;
+            /* §13 — every internal gridline on paper: solid charcoal. */
+            border: 1px solid #94a3b8 !important;
             padding: 1px 3px !important;
             font-size: 12.5px !important;
             line-height: 1.3 !important;
@@ -2329,7 +2387,7 @@ const ItemWiseProductionLedger: React.FC = () => {
              screen declaration — the emerald/amber accents, BOTH
              [data-theme='dark'] pairs, the fixed-cell paints, the antd
              preset chips (PL renders a gold one) and the warning banners.
-             Only the #e2e8f0 hairline grid survives. */
+             Only the #94a3b8 charcoal grid survives. */
           body .iwl-page .iwl-grid .ant-table-tbody,
           body .iwl-page .iwl-grid .ant-table-tbody > tr,
           body .iwl-page .iwl-grid .ant-table-tbody > tr:hover,
@@ -2349,8 +2407,8 @@ const ItemWiseProductionLedger: React.FC = () => {
             background: #ffffff !important;
             background-color: #ffffff !important;
             background-image: none !important;
-            color: #000000 !important;
-            border-color: #e2e8f0 !important;
+            color: #0f172a !important;
+            border-color: #94a3b8 !important;
           }
 
           /* §6 — ELIMINATE PRINT WARNINGS: "Some chain items were not
@@ -2364,11 +2422,11 @@ const ItemWiseProductionLedger: React.FC = () => {
             display: none !important;
           }
 
-          /* §2 — a crisp uniform hairline under every row; the 1px #e2e8f0
+          /* §2 + §13 — a crisp uniform rule under every row; the 1px charcoal
              border on each td (set above) does the same across all columns,
-             collapsing into one even spreadsheet grid. */
+             collapsing into one sharp, even spreadsheet grid. */
           .iwl-grid .ant-table-tbody > tr {
-            border-bottom: 1px solid #e2e8f0 !important;
+            border-bottom: 1px solid #94a3b8 !important;
           }
 
           /* §3 — the colour pathways keep their SEMANTICS (hue + weight) but
