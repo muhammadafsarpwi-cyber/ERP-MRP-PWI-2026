@@ -1113,8 +1113,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §3 — sized for the COMPOSITE label (code — full department name).
         width: 168,
         fixed: 'left' as const,
-        // §2 — the Stage column centres with everything else.
-        align: 'center' as const,
+        // §9 — STRICT LEFT: the Stage column is the ruled left margin of the
+        // ledger, so its header and tag sit flush against the table wall.
+        align: 'left' as const,
         render: (_: unknown, row: LedgerMetrics) => (
           <Space size={4} wrap>
             {/* §3 — composite label: floor code, em-dash, full department. */}
@@ -1126,11 +1127,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §2 — Item Code sits ON TOP of Item Name inside one cell.
         title: 'Item (Code / Name)',
         key: 'item',
-        // §6/§8 — TIGHT LEDGER: the stack gave 44px back to the flow columns
-        // so the name runs straight into Op Balance instead of leaving a
-        // gutter. §8 takes a further 16px, which slides the whole Op Balance
-        // column leftward onto the end of the item text.
-        width: 244,
+        // §6/§8/§9 — TIGHT LEDGER: the stack gave 44px back to the flow
+        // columns so the name runs straight into Op Balance instead of
+        // leaving a gutter. §8 took 16px more, §9 a final 8px — the Op
+        // Balance column's left boundary walks left with every pass.
+        width: 236,
         // §2 — the ONLY column that stays flush left, header and body alike.
         align: 'left' as const,
         onHeaderCell: () => ({ className: 'iwl-cell-item-head' }),
@@ -1157,10 +1158,10 @@ const ItemWiseProductionLedger: React.FC = () => {
         key: 'opBalance',
         align: 'center' as const,
         // §6 — trimmed to the figure, so its centring slack no longer sits
-        // between the item name and the opening balance. §8 — its cell drops
-        // the left gutter entirely so the figure rides hard against the
-        // column boundary it shares with the item stack.
-        width: 116,
+        // between the item name and the opening balance. §8/§9 — the cell
+        // also drops to a 4px left gutter and 12px narrower, which pulls the
+        // centred figure noticeably leftward toward the item stack.
+        width: 104,
         onHeaderCell: () => ({ className: 'iwl-cell-op-head' }),
         onCell: () => ({ className: 'iwl-cell-op iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1175,9 +1176,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         key: 'production',
         align: 'center' as const,
         // §6 — takes the width the tightened Item / Op cells released.
-        // §8 — takes the 16px the Item cell gave up, keeping the matrix at
-        // exactly 1642 while the Op Balance column slides left.
-        width: 176,
+        // §8/§9 — absorbs the 16px + 12px the Item and Op cells gave up,
+        // keeping the matrix at exactly 1642 while Op Balance walks left.
+        width: 196,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-prod iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1546,7 +1547,8 @@ const ItemWiseProductionLedger: React.FC = () => {
           tableLineColor: [226, 232, 240],
           columnStyles: {
             // §3 — Stage holds the composite code — name on ONE line at 9pt.
-            [COL.stage]: { cellWidth: 96 },
+            // §9 — and it is the sheet's ruled left margin, never centred.
+            [COL.stage]: { cellWidth: 96, halign: 'left' },
             // §2 — the stacked Item column is the sole flush-left column.
             [COL.item]: { cellWidth: 204, halign: 'left' },
             [COL.uom]: { cellWidth: 30 },
@@ -1554,8 +1556,16 @@ const ItemWiseProductionLedger: React.FC = () => {
           // §3 — the same colour pathways the screen uses, but with the §5
           // accounting rule on top: a clean white cell, never a tinted fill.
           didParseCell: (data) => {
-            // §2 — Item stays flush left in the head AND the body.
-            if (data.column.index === COL.item) data.cell.styles.halign = 'left';
+            // §2/§9 — Item and Stage are the flush-left columns, head AND
+            // body. The merged chain title (head row 0 — the only cell ever
+            // sitting on column 0 while being a header) keeps its centre.
+            const isChainTitle = data.section === 'head' && data.row.index === 0;
+            if (
+              !isChainTitle &&
+              (data.column.index === COL.item || data.column.index === COL.stage)
+            ) {
+              data.cell.styles.halign = 'left';
+            }
             if (data.section === 'head') return;
             // §5 — NO colour fills on data rows: every body cell is painted
             // pure white and separated only by the shared #e2e8f0 hairline
@@ -1669,6 +1679,20 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item { text-align: left !important; }
         .iwl-grid .ant-table-tbody > tr > td .ant-space { justify-content: center !important; }
 
+        /* ── §9 STAGE = the ruled left margin ──────────────────────────────
+           The first column is never centred: header and body are forced flush
+           LEFT and the stage chip is pushed to the very start of the cell, so
+           "Raw Material", "Straightening" … sit hard against the table's left
+           border instead of drifting away from it. */
+        .iwl-grid .ant-table-thead > tr > th:first-child,
+        .iwl-grid .ant-table-tbody > tr > td:first-child {
+          text-align: left !important;
+        }
+        .iwl-grid .ant-table-thead > tr > th:first-child .ant-space,
+        .iwl-grid .ant-table-tbody > tr > td:first-child .ant-space {
+          justify-content: flex-start !important;
+        }
+
         /* ── §6/§8 TIGHT LEDGER GUTTERS ────────────────────────────────────
            antd's stock cell padding is what opens the dead run between the
            item name and Op Balance. Every data cell is pulled in to 6px, the
@@ -1681,7 +1705,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
         .iwl-grid .ant-table-tbody > tr > td.iwl-cell-op,
         .iwl-grid .ant-table-thead > tr > th.iwl-cell-op-head {
-          padding-left: 0 !important;
+          /* §9 — the requested tight gutter: 4px is all the breathing room
+             the opening balance gets before the item stack runs into it. */
+          padding-left: 4px !important;
         }
 
         /* ── §8 STAGE flush to the wall ────────────────────────────────────
@@ -1766,11 +1792,13 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-page { padding: 0 !important; }
           .iwl-card > .ant-card-head { display: none !important; }
           .iwl-card > .ant-card-body { padding: 0 !important; }
-          /* §8 — the metadata slot now sits 2px proud of the letterhead, so
-             the card's own rounded-corner clipping is switched off on paper.
-             The sheet is only a frame: nothing inside it overflows, the
-             table is width:100%, so this can only un-clip, never un-hide. */
-          .iwl-card { border-radius: 0 !important; overflow: visible !important; }
+          /* §8/§9 — NOTHING above the letterhead is allowed to clip: the
+             metadata slot is lifted, and card + body are both un-clipped so
+             the date can never be sliced by an ancestor's overflow. The sheet
+             is only a frame — the table is width:100%, so this can only
+             un-clip, never un-hide. */
+          .iwl-card,
+          .iwl-card > .ant-card-body { border-radius: 0 !important; overflow: visible !important; }
           .iwl-no-print, .iwl-toolbar { display: none !important; }
 
           /* Letterhead replaces the raw title line — colours mirror jsPDF
@@ -1786,9 +1814,10 @@ const ItemWiseProductionLedger: React.FC = () => {
             border-bottom: 1.4px solid #0f172a !important;
             border-radius: 0 !important;
             background: #ffffff !important;
-            /* §7 — a little extra bottom padding so the enlarged date line
-               inside the corner slot still lands above this rule. */
-            padding: 0 0 5px !important;
+            /* §8/§9 — bottom padding that gives the lifted date line room to
+               breathe: the corner slot measures 41.5px against 48.5px
+               available, so nothing ever reaches this rule. */
+            padding: 0 0 12px !important;
             margin: 0 0 4px !important;
           }
           .iwl-lh-company {
@@ -1803,24 +1832,25 @@ const ItemWiseProductionLedger: React.FC = () => {
             margin-top: 1px !important;
           }
           .iwl-lh-rule { display: none !important; }
-          /* §7/§8 — METADATA CORNER SLOT, tightened:
-             • the block is a column flex box so the Production Date can be
-               pulled to the head of the stack (order: -1) instead of
-               trailing Report Title / Selected Division. It therefore sits
-               level with the company line — no longer slipped down the right
-               margin;
-             • §8 lifts the whole slot 2px above the letterhead's own top
-               edge and takes the date row's leading down to 1, so the date
-               line starts at the very top of the sheet, flush with the top
-               of the company letterhead and a clear ~25px above the black
-               rule under the masthead;
-             • line boxes are cut to 1.1 so the rest of the slot stays inside
-               the letterhead's padding and never pushes the bottom rule down;
+          /* §7/§8/§9 — METADATA CORNER SLOT, final geometry:
+             • the block is a column flex box so the Production Date leads the
+               stack (order: -1) instead of trailing Report Title /
+               Selected Division down the right margin;
+             • §9 the slot is dropped 12px INSIDE the letterhead so that the
+               date's own margin-top: -12px has real room to pull against —
+               net result: the date lands exactly ON the letterhead's top
+               line (0px), never above it, so it can no longer collide with
+               — or be clipped by — the card's top boundary. Its line-height
+               1.4 gives the glyphs a full leading box, so nothing is sliced;
+             • with the date at [0 … 20.5px] the two quiet rows follow at
+               [20.5 … 41.5px], comfortably inside the 48.5px available and a
+               clear ~7px short of the black rule under the masthead;
              • the date pair is scaled up hard and set at 800 so it carries
                visual priority over the two quiet rows beneath it. */
           .iwl-lh-meta {
             position: absolute !important;
-            top: -2px !important;
+            /* §9 — headroom for the date's -12px pull (see below). */
+            top: 12px !important;
             right: 0 !important;
             width: 46% !important;
             display: flex !important;
@@ -1835,7 +1865,9 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-lh-item {
             min-width: 0 !important;
             margin: 0 !important;
-            line-height: 1.1 !important;
+            /* §9 — the two quiet rows are pulled in to 1.05 so the 1.4 date
+               line above them still leaves air before the black rule. */
+            line-height: 1.05 !important;
           }
           .iwl-lh-label {
             display: inline !important;
@@ -1849,12 +1881,14 @@ const ItemWiseProductionLedger: React.FC = () => {
             color: #0f172a !important;
             margin-top: 0 !important;
           }
-          /* The date rides at the TOP of the metadata grid, with no leading
-             left above it so its cap-line is flush with the letterhead top. */
+          /* §9 — the date rides at the TOP of the metadata grid. The slot is
+             parked at top:12px precisely so these two requested values can be
+             used verbatim: -12px pulls it back to the letterhead's top line
+             and 1.4 gives it a generous, un-clippable leading box. */
           .iwl-lh-meta > .iwl-lh-item--date {
             order: -1 !important;
-            margin: 0 0 2px !important;
-            line-height: 1 !important;
+            margin-top: -12px !important;
+            line-height: 1.4 !important;
           }
           .iwl-lh-item--date .iwl-lh-label {
             font-size: 8pt !important;
@@ -1973,7 +2007,8 @@ const ItemWiseProductionLedger: React.FC = () => {
           }
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-op,
           .iwl-grid .ant-table-thead > tr > th.iwl-cell-op-head {
-            padding-left: 0 !important;
+            /* §9 — the requested tight gutter on paper too. */
+            padding-left: 4px !important;
           }
           /* §8 — STAGE sits on the absolute left wall of the grid: zero left
              padding, header and body alike, against the table border. */
@@ -1991,6 +2026,17 @@ const ItemWiseProductionLedger: React.FC = () => {
           }
           .iwl-grid .ant-table-tbody > tr > td {
             text-align: center !important;
+          }
+          /* §9 — STAGE is never centred on paper either: header and body are
+             forced flush LEFT so the composite chip sits against the table's
+             left border like the ruled margin of a ledger. */
+          .iwl-grid .ant-table-thead > tr > th:first-child,
+          .iwl-grid .ant-table-tbody > tr > td:first-child {
+            text-align: left !important;
+          }
+          .iwl-grid .ant-table-thead > tr > th:first-child .ant-space,
+          .iwl-grid .ant-table-tbody > tr > td:first-child .ant-space {
+            justify-content: flex-start !important;
           }
           /* §4 — NUMERIC SCALE-UP: every figure on paper is set to 12pt
              (16px, well past the requested 12px floor) at weight 800 on
