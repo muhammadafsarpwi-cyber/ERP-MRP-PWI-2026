@@ -827,6 +827,115 @@ span.anticon-close:hover svg {
   color: #ef4444 !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ * CENTRED VIEWPORT ALERTS — message + notification popups
+ * ═══════════════════════════════════════════════════════════════════════
+ * AntD docks `.ant-message` to an 8px strip under the top window margin and
+ * `.ant-notification` into the top-right corner — exactly where an operator
+ * looking at a machine is NOT. Both containers are re-anchored to the
+ * absolute centre of the viewport and raised onto a bold backdrop scrim, so
+ * a save confirmation or a database-sync status cannot be missed.
+ *
+ * The scrim and both containers keep `pointer-events: none` (AntD grants
+ * `all` only to the notice itself), so the overlay never swallows a click on
+ * the page underneath. Save confirmation modals keep their own antd mask —
+ * `.ant-modal-root` is already viewport-centred, so it is left alone.
+ * ═══════════════════════════════════════════════════════════════════════ */
 
+/* ---- message (toast) ------------------------------------------------ */
+.ant-message {
+  position: fixed !important;
+  inset: 0 !important;
+  margin: 0 !important;
+  padding: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  pointer-events: none !important;
+}
+.ant-message::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.34);
+}
+.ant-message-notice-wrapper {
+  position: relative;
+  z-index: 1;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+.ant-message-notice-content {
+  background: var(--theme-surface, #ffffff) !important;
+  border: 1px solid rgba(148, 163, 184, 0.55) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45) !important;
+  padding: 14px 26px !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  line-height: 1.5 !important;
+  text-align: left !important;
+  max-width: min(88vw, 560px);
+}
 
+/* ---- notification --------------------------------------------------- */
+.ant-notification {
+  position: fixed !important;
+  inset: 0 !important;
+  margin: 0 !important;
+  padding: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  pointer-events: none !important;
+}
+.ant-notification::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.34);
+}
+.ant-notification-hook-holder,
+.ant-notification-notice-wrapper {
+  position: relative !important;
+  z-index: 1;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+}
+/* Notices are absolutely offset by AntD's placement rules; forced back into
+   normal flow so the whole stack sits centred instead of hugging an edge. */
+.ant-notification .ant-notification-notice {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  inset: auto !important;
+  width: min(88vw, 440px) !important;
+  margin: 0 !important;
+  background: var(--theme-surface, #ffffff) !important;
+  border: 1px solid rgba(148, 163, 184, 0.55) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45) !important;
+  pointer-events: auto !important;
+}
+.ant-notification .ant-notification-notice-message {
+  font-weight: 700 !important;
+}
+.ant-notification .ant-notification-notice-description {
+  font-weight: 500 !important;
+}
 
+@media print {
+  .ant-message,
+  .ant-notification {
+    display: none !important;
+  }
+}

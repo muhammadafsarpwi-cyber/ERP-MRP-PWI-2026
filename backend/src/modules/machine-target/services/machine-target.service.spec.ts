@@ -1,7 +1,15 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { MachineTargetService, calculateProratedTarget } from './machine-target.service';
+import {
+  MachineTargetService,
+  calculateProratedTarget,
+  normaliseImportHeader,
+  anchorKey,
+  machineItemKey,
+  pickCurrentTarget,
+  relaxationCandidates,
+} from './machine-target.service';
 import { MachineTarget } from '../entities/machine-target.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { Shift } from '../../production/entities/shift.entity';
@@ -456,5 +464,227 @@ describe('MachineTargetService � PROMPT-10 resolve with item', () => {
     expect(res.usedGeneralFallback).toBe(true);
     expect(res.calculatedTarget).toBe(7500);
     expect(res.targetPerHour).toBe(625);
+  });
+});
+
+describe('import anchor helpers', () => {
+  it('collapses every accepted header spelling onto one key', () => {
+    expect(normaliseImportHeader('Machine Code')).toBe('machinecode');
+    expect(normaliseImportHeader('machine_code')).toBe('machinecode');
+    expect(normaliseImportHeader('  STANDARD-TARGET ')).toBe('standardtarget');
+  });
+
+  it('keeps anchors distinct across shift and item, including a null item', () => {
+    expect(anchorKey(MACHINE, SHIFT, ITEM)).not.toBe(anchorKey(MACHINE, GEN, ITEM));
+    expect(anchorKey(MACHINE, SHIFT, ITEM)).not.toBe(anchorKey(MACHINE, SHIFT, null));
+    expect(anchorKey(MACHINE, SHIFT, null)).toBe(anchorKey(MACHINE, SHIFT, null));
+    expect(machineItemKey(MACHINE, ITEM)).not.toBe(machineItemKey(MACHINE, null));
+  });
+
+  it('resolves an anchor to the open, in-effect, newest revision', () => {
+    const rows = [
+      { id: 'retired', isActive: false, status: 'INACTIVE', effectiveFrom: '2027-01-01', effectiveTo: null },
+      { id: 'current', isActive: true, status: 'ACTIVE', effectiveFrom: '2026-01-01', effectiveTo: null },
+      { id: 'closed', isActive: true, status: 'ACTIVE', effectiveFrom: '2025-01-01', effectiveTo: '2025-12-31' },
+    ] as any[];
+    expect(pickCurrentTarget(rows, '2026-10-08').id).toBe('current');
+    expect(pickCurrentTarget([...rows].reverse(), '2026-10-08').id).toBe('current');
+  });
+
+  it('prefers live rows for the relaxed lookup, then falls back to history', () => {
+    const live = { id: 'live', isActive: true, status: 'ACTIVE' } as any;
+    const dead = { id: 'dead', isActive: false, status: 'INACTIVE' } as any;
+    expect(relaxationCandidates([dead, live])).toEqual([live]);
+    expect(relaxationCandidates([dead])).toEqual([dead]);
+    expect(relaxationCandidates([])).toEqual([]);
+    expect(relaxationCandidates(undefined)).toEqual([]);
+  });
+});
+
+describe('MachineTargetService — smart upsert import', () => {
+  const USER = '9f0d0000-0000-4000-8000-000000000001';
+  const SHIFT2 = 'e5e5e5e5-0000-4000-8000-000000000002';
+
+  const FULL_HEADER = [
+    'Machine Code', 'Shift Code', 'UOM Code', 'Item Code', 'Standard Target',
+    'Standard Hours', 'Effective From', 'Effective To', 'Status', 'Remarks',
+  ];
+
+  /** Never hand-count commas: pass the cells positionally. */
+  const cells = (...values: string[]): string => values.join(',');
+  const sheet = (header: string[], lines: string[]): Buffer =>
+    Buffer.from([header.join(','), ...lines].join('\n'), 'utf-8');
+
+  let tx: { updates: Array<{ id: string; patch: any }>; inserts: any[] };
+
+  const baseRow = (over: any = {}): any => ({
+    id: 'mt-1',
+    companyId: COMPANY,
+    machineId: MACHINE,
+    shiftId: GEN,
+    itemId: ITEM,
+    uomId: UOM,
+    targetQuantity: '5000.0000',
+    standardHours: '8.0000',
+    effectiveFrom: '2026-01-01',
+    effectiveTo: null,
+    status: 'ACTIVE',
+    isActive: true,
+    remarks: 'original',
+    ...over,
+  });
+
+  const wireImport = (existing: any[]): void => {
+    machineRepo.find = jest.fn(async () => [
+      { id: MACHINE, isActive: true, status: 'ACTIVE', machineCode: 'MCH032', machineNumber: null, divisionId: null },
+    ]);
+    shiftRepo.find = jest.fn(async () => [
+      { id: GEN, isActive: true, shiftCode: 'GEN' },
+      { id: SHIFT, isActive: true, shiftCode: 'SHIFT-1' },
+      { id: SHIFT2, isActive: true, shiftCode: 'SHIFT-2' },
+    ]);
+    uomRepo.find = jest.fn(async () => [{ id: UOM, code: 'KG' }]);
+    itemRepo.find = jest.fn(async () => [{ id: ITEM, isActive: true, itemCode: 'WIP-SPL-018' }]);
+    targetRepo.find = jest.fn(async () => existing);
+
+    tx = { updates: [], inserts: [] };
+    targetRepo.manager = {
+      transaction: jest.fn(async (cb: any) =>
+        cb({
+          getRepository: jest.fn(() => ({
+            update: jest.fn(async (criteria: any, patch: any) => {
+              tx.updates.push({ id: criteria.id, patch });
+            }),
+            create: jest.fn((entity: any) => ({ ...entity })),
+            save: jest.fn(async (entity: any) => {
+              const list = Array.isArray(entity) ? entity : [entity];
+              tx.inserts.push(...list);
+              return entity;
+            }),
+          })),
+        }),
+      ),
+    };
+  };
+
+  const run = (header: string[], lines: string[]) =>
+    service.importCsv(COMPANY, USER, sheet(header, lines));
+
+  it('retains Standard Target / Hours when the anchor matches and the cells are blank', async () => {
+    wireImport([baseRow()]);
+
+    const res = await run(FULL_HEADER, [
+      cells('MCH032', 'GEN', 'KG', 'WIP-SPL-018', '', '', '', '', 'ACTIVE', 'night run'),
+    ]);
+
+    expect(res.created).toBe(0);
+    expect(res.updated).toBe(1);
+    expect(tx.inserts).toHaveLength(0);
+    expect(tx.updates).toHaveLength(1);
+    expect(tx.updates[0].id).toBe('mt-1');
+    // Zero-overwrite: neither untouched column enters the UPDATE at all.
+    expect(tx.updates[0].patch).not.toHaveProperty('targetQuantity');
+    expect(tx.updates[0].patch).not.toHaveProperty('standardHours');
+    expect(tx.updates[0].patch.remarks).toBe('night run');
+    expect(res.results[0].message).toContain('Remarks');
+  });
+
+  it('never writes a column that is excluded from the sheet', async () => {
+    wireImport([baseRow()]);
+
+    const res = await run(
+      ['Machine Code', 'Shift Code', 'Item Code', 'Remarks'],
+      [cells('MCH032', 'GEN', 'WIP-SPL-018', '')],
+    );
+
+    expect(res.updated).toBe(1);
+    expect(tx.updates[0].patch).toEqual({ updatedBy: USER });
+    expect(res.results[0].message).toMatch(/nothing changed/);
+  });
+
+  it('relaxes to [Machine + Item] and re-points the shift when the target is blank', async () => {
+    wireImport([baseRow()]);
+
+    const res = await run(FULL_HEADER, [
+      cells('MCH032', 'SHIFT-1', 'KG', 'WIP-SPL-018', '', '', '', '', '', ''),
+    ]);
+
+    expect(res.created).toBe(0);
+    expect(res.updated).toBe(1);
+    expect(tx.updates[0].patch.shiftId).toBe(SHIFT);
+    expect(tx.updates[0].patch).not.toHaveProperty('targetQuantity');
+    expect(tx.updates[0].patch).not.toHaveProperty('standardHours');
+  });
+
+  it('inserts a brand-new shift target when the line carries every insert column', async () => {
+    wireImport([baseRow()]);
+
+    const res = await run(FULL_HEADER, [
+      cells('MCH032', 'SHIFT-2', 'KG', 'WIP-SPL-018', '3000', '8', '2026-02-01', '', 'ACTIVE', ''),
+    ]);
+
+    expect(res.created).toBe(1);
+    expect(res.updated).toBe(0);
+    expect(tx.updates).toHaveLength(0);
+    expect(tx.inserts).toHaveLength(1);
+    expect(tx.inserts[0].shiftId).toBe(SHIFT2);
+    expect(String(tx.inserts[0].targetQuantity)).toBe('3000');
+    expect(tx.inserts[0].status).toBe('ACTIVE');
+  });
+
+  it('refuses to guess when the relaxed anchor matches more than one target', async () => {
+    wireImport([baseRow(), baseRow({ id: 'mt-2', shiftId: SHIFT })]);
+
+    const res = await run(FULL_HEADER, [
+      cells('MCH032', 'SHIFT-2', 'KG', 'WIP-SPL-018', '', '', '', '', '', ''),
+    ]);
+
+    expect(res.updated).toBe(0);
+    expect(res.created).toBe(0);
+    expect(res.failed).toBe(1);
+    expect(res.results[0].message).toMatch(/Ambiguous anchor/);
+    expect(tx.updates).toHaveLength(0);
+    expect(tx.inserts).toHaveLength(0);
+  });
+
+  it('reports an anchor the sheet cannot match and cannot create', async () => {
+    wireImport([]);
+
+    const res = await run(FULL_HEADER, [
+      cells('MCH032', 'GEN', 'KG', 'WIP-SPL-018', '', '', '', '', '', ''),
+    ]);
+
+    expect(res.failed).toBe(1);
+    expect(res.results[0].message).toMatch(/No existing target matches/);
+    expect(res.results[0].message).toContain('Standard Target');
+  });
+
+  it('rejects a second line resolving to the same anchor', async () => {
+    wireImport([baseRow()]);
+
+    const res = await run(FULL_HEADER, [
+      cells('MCH032', 'GEN', 'KG', 'WIP-SPL-018', '6000', '', '', '', '', ''),
+      cells('MCH032', 'GEN', 'KG', 'WIP-SPL-018', '7000', '', '', '', '', ''),
+    ]);
+
+    expect(res.updated).toBe(1);
+    expect(res.failed).toBe(1);
+    const errorRow = res.results.find((r) => r.status === 'error');
+    expect(errorRow?.row).toBe(3);
+    expect(errorRow?.message).toMatch(/Duplicate row/);
+    expect(tx.updates).toHaveLength(1);
+  });
+
+  it('rolls every write into a single transaction', async () => {
+    wireImport([baseRow()]);
+
+    await run(FULL_HEADER, [
+      cells('MCH032', 'GEN', 'KG', 'WIP-SPL-018', '6000', '', '', '', '', ''),
+      cells('MCH032', 'SHIFT-2', 'KG', 'WIP-SPL-018', '3000', '8', '2026-02-01', '', 'ACTIVE', ''),
+    ]);
+
+    expect(targetRepo.manager.transaction).toHaveBeenCalledTimes(1);
+    expect(tx.updates).toHaveLength(1);
+    expect(tx.inserts).toHaveLength(1);
   });
 });

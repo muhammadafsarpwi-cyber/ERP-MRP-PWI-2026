@@ -67,6 +67,7 @@ import { formatNumber, toNum } from '../../../utils/numberFormat';
 import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
 import { useLookups, Department, ShiftLk } from './lookups';
 import { entryOvertimeHours, sumOvertime } from './overtimeHours';
+import { effectiveRunning } from './downtimeHours';
 import {
   buildDailyProductionReport,
   buildDailyProductionCsv,
@@ -83,6 +84,8 @@ import {
   perUnitWeightValue,
 } from './dailyProductionReport';
 import type { ExecutiveKpi } from './dailyProductionReport';
+import DowntimeAnalytics from './DowntimeAnalytics';
+import RejectionScrapDetails from './RejectionScrapDetails';
 import KpiPercentage, { kpiIndicator } from '../../../components/kpi/KpiPercentage';
 import {
   ERPTable,
@@ -391,6 +394,36 @@ export function getEntryStatus(row: ProductionEntryRow): string {
   return 'DRAFT';
 }
 
+/** Shift planned hours carried by a grid row; 0 when the row has no shift plan. */
+export function rowPlannedHours(row: ProductionEntryRow): number {
+  return toNum((row.shift as { plannedHours?: number | string } | null | undefined)?.plannedHours);
+}
+
+/**
+ * HOUR MATRIX — the ONE running-hours figure the grid may show.
+ *
+ * `row.runningHours` is the persisted column and can still carry the legacy
+ * value written before overtime was counted, so echoing it put 6h on the grid
+ * while EntryDetail and EntryForm both resolved 8h from the same document.
+ * Every grid cell therefore recomputes:
+ *
+ *     Display Running = Shift Planned + Overtime − Total Downtime
+ *
+ * e.g. 8h shift + 2h OT − 2h downtime → 8h (not 6h);
+ *      8h shift + 4h OT − 1h downtime → 11h.
+ *
+ * Falls back to the stored column when the row carries no planned shift, so a
+ * legacy row without a shift plan can never render a bogus 0.
+ */
+export function displayRunningHours(row: ProductionEntryRow): number {
+  return effectiveRunning(
+    toNum(row.runningHours),
+    toNum(row.downtimeHours),
+    rowPlannedHours(row),
+    entryOvertimeHours(row),
+  );
+}
+
 /**
  * RangePicker payload → `[start, end]` tuple, ALWAYS safe to store.
  * Ant Design hands back `null` when the user clicks the clear (x) button and
@@ -542,6 +575,13 @@ const EntryList: React.FC = () => {
   const [fShift, setFShift] = useState<string>();
   const [fMachineNo, setFMachineNo] = useState<string>('');
   const [fStatus, setFStatus] = useState<string>();
+
+  // Which pane of the main <Tabs> is on screen. The Tabs stay UNCONTROLLED
+  // (defaultActiveKey) so their behaviour is byte-identical to before — this
+  // state only gates the two analytical sheets' read-only requests, so a pane
+  // the operator never opens costs exactly zero requests. The live log grid is
+  // never touched by either sheet (Zero-Disturbance Policy).
+  const [paneKey, setPaneKey] = useState<string>('entries');
 
   const buildFilters = useCallback((chevron = activeChevronKey) => ({
     search: fSearch.trim() || undefined,
@@ -1673,7 +1713,11 @@ const EntryList: React.FC = () => {
       ellipsis: true,
       responsive: ['md'],
       render: (_t, r) => {
-        const runH = toNum(r.runningHours);
+        // ── HOUR MATRIX — never echo the stored column ─────────────────────
+        // Total Available (planned + overtime) minus downtime, the same figure
+        // EntryDetail and EntryForm resolve. The persisted column can still
+        // hold the legacy 6h written before overtime reached the calculation.
+        const runH = displayRunningHours(r);
         const downH = toNum(r.downtimeHours);
         const reason = r.downtimeReasonText;
         return (
@@ -1733,10 +1777,35 @@ const EntryList: React.FC = () => {
         </span>
       ),
       align: 'center',
-      width: 105,
+      // The operational breakdown needs the room the bare badge never did.
+      width: 175,
       render: (_t, r) => {
         const status = getEntryStatus(r);
-        return <StatusBadge status={status} />;
+        // ── The status CODE is retained untouched: the chevron ribbon counts,
+        // the status filter and every export still call getEntryStatus. Only
+        // the VISIBLE text of this one column changes, so a generic teal
+        // COMPLETED can no longer hide how the machine actually ran.
+        if (status !== 'COMPLETED') return <StatusBadge status={status} />;
+        const runH = displayRunningHours(r);
+        const downH = toNum(r.downtimeHours);
+        const reason = (r.downtimeReasonText ?? '').trim();
+        // Nothing recorded to report → the badge still says more than 0 hrs.
+        if (runH <= 0 && downH <= 0) return <StatusBadge status={status} />;
+        return (
+          <div
+            data-testid="machine-remarks"
+            style={{ fontSize: 11.5, lineHeight: 1.3, whiteSpace: 'normal', wordBreak: 'break-word' }}
+          >
+            <span style={{ fontWeight: 700, color: 'var(--theme-success, #16a34a)' }}>
+              {formatNumber(runH, 2)} hrs Running
+            </span>
+            {downH > 0 && (
+              <span style={{ fontWeight: 700, color: 'var(--theme-warning, #d97706)' }}>
+                {' / '}{formatNumber(downH, 2)} hrs{reason ? ` ${reason}` : ''}
+              </span>
+            )}
+          </div>
+        );
       },
     },
     {
@@ -2372,6 +2441,7 @@ const EntryList: React.FC = () => {
       {/* ── Main Production Tabs ─────────────────────────────────────────── */}
       <Tabs
         defaultActiveKey="entries"
+        onChange={(k) => setPaneKey(k)}
         items={[
           {
             key: 'entries',
@@ -2527,6 +2597,40 @@ const EntryList: React.FC = () => {
               </>
             )}
           </div>
+        ),
+      },
+      /* ── Analytical sub-views (read-only, own layout panels) ──────────────
+         Both sheets mount only when their pane is opened, seed themselves from
+         the rows the grid already holds, then widen to the current filter with
+         ONE request. They share no state with the log grids above them. */
+      {
+        key: 'downtime',
+        label: (
+          <span>
+            <ToolOutlined /> Downtime Analytics
+          </span>
+        ),
+        children: (
+          <DowntimeAnalytics
+            seed={displayedRows}
+            buildFilters={buildFilters}
+            active={paneKey === 'downtime'}
+          />
+        ),
+      },
+      {
+        key: 'scrap',
+        label: (
+          <span>
+            <PercentageOutlined /> Rejection &amp; Scrap Details
+          </span>
+        ),
+        children: (
+          <RejectionScrapDetails
+            seed={displayedRows}
+            buildFilters={buildFilters}
+            active={paneKey === 'scrap'}
+          />
         ),
       },
         ]}

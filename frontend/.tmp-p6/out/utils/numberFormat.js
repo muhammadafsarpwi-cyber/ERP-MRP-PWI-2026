@@ -1,0 +1,77 @@
+"use strict";
+/**
+ * Numeric formatting utilities for ERP frontend.
+ *
+ * PostgreSQL `decimal`/`numeric` columns are returned as STRINGS by the `pg` driver
+ * (e.g. "123.456000"). TypeScript interfaces often declare these as `number`, but the
+ * runtime type is string.  Every formatter below handles both types safely.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.toNum = toNum;
+exports.formatDecimal = formatDecimal;
+exports.formatNumber = formatNumber;
+exports.formatDimension = formatDimension;
+/**
+ * Safely convert a value to a JavaScript number.
+ * Returns `fallback` (default 0) for null / undefined / non-numeric values.
+ */
+function toNum(value, fallback = 0) {
+    if (value === null || value === undefined)
+        return fallback;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+/**
+ * Format a numeric value to a fixed number of decimal places.
+ * Safe for string, number, null, undefined inputs.
+ *
+ *   formatDecimal("123.456789")        → "123.46"
+ *   formatDecimal(42, 0)               → "42"
+ *   formatDecimal(null)                → "0.00"
+ *   formatDecimal("not-a-number", 2)   → "0.00"
+ */
+function formatDecimal(value, decimals = 2) {
+    const n = toNum(value);
+    if (decimals === 0)
+        return Math.round(n).toString();
+    const formatted = n.toFixed(decimals);
+    if (!formatted.includes('.'))
+        return formatted;
+    const trimmed = formatted.replace(/\.?0+$/, '');
+    return trimmed === '-0' ? '0' : trimmed;
+}
+/**
+ * Format a numeric value with locale-aware thousand separators and up to `decimals`
+ * fractional digits. Trailing zeros and unnecessary decimal points are stripped so
+ * that 20.500 → "20.5", 20.00 → "20", 0 → "0". `decimals` acts as the MAXIMUM number
+ * of fraction digits, never a fixed precision. Falls back gracefully for non-numeric.
+ *
+ *   formatNumber(1234567.89)           → "1,234,567.89"
+ *   formatNumber("99.5", 0)            → "100"
+ *   formatNumber(20.5, 3)              → "20.5"
+ *   formatNumber(20.0, 2)              → "20"
+ *   formatNumber(0, 3)                 → "0"
+ *   formatNumber(1.650, 3)             → "1.65"
+ */
+function formatNumber(value, decimals = 2, locale = 'en-US') {
+    const n = toNum(value);
+    return n.toLocaleString(locale, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: decimals,
+    });
+}
+/**
+ * Format a dimension value for display (e.g. Wire Size, Thickness, Width).
+ * Always shows exactly 2 decimal places. Renders '—' for null/undefined.
+ *
+ *   formatDimension(1.2)     → "1.20"
+ *   formatDimension(2)       → "2.00"
+ *   formatDimension(null)    → "—"
+ *   formatDimension(1.45)    → "1.45"
+ */
+function formatDimension(value) {
+    if (value === null || value === undefined || value === '')
+        return '\u2014';
+    const n = Number(value);
+    return Number.isFinite(n) ? n.toFixed(2) : '\u2014';
+}

@@ -1676,6 +1676,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         actualQuantity: primaryItem.quantityPcs,
         scrapQuantity: 0,
         runningHours: 8 + Number(overtimeHours || 0),
+        overtimeHours: Number(overtimeHours || 0),
         downtimeHours: 0,
         postToInventory: true,
         warehouseId: primaryItem.destinationWarehouseId || formValues.warehouseId || '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5',
@@ -1690,6 +1691,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           actualQuantity: it.quantityPcs,
           scrapQuantity: 0,
           runningHours: 8 + Number(overtimeHours || 0),
+          overtimeHours: Number(overtimeHours || 0),
           remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h`,
         })),
       };

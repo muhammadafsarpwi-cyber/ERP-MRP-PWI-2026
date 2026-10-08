@@ -63,7 +63,10 @@ export class MachineTargetController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Bulk import machine targets from CSV' })
+  @ApiOperation({
+    summary:
+      'Bulk upsert machine targets from CSV — [Machine Code + Shift Code + Item Code] is the composite anchor; blank/excluded columns are retained',
+  })
   async importCsv(
     @UploadedFile() file: any,
     @Req() req: any,

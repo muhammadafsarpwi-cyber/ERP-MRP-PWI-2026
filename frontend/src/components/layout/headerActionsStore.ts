@@ -62,6 +62,16 @@ interface HeaderActionsState {
   extra?: ReactNode;
   tabActionsMap: Record<string, HeaderAction[]>;
   tabMetaMap: Record<string, TabHeaderMeta>;
+  /**
+   * Ref-count of tabs whose action slot has been claimed by the page that owns
+   * it (see `claimActionsSlot`). An anonymous (no tab id) registration targets
+   * "whichever tab is active right now", which is only correct while the caller
+   * itself is the active page — a keep-alive pane that re-registers from the
+   * background would otherwise hijack the visible header of the tab on screen.
+   */
+  claimedActionsTabs: Record<string, number>;
+  claimActionsSlot: (tabId: string) => void;
+  releaseActionsSlot: (tabId: string) => void;
   setHeaderActions: (actions: HeaderAction[], tabId?: string) => void;
   clearHeaderActions: (tabId?: string) => void;
   setHeaderTitle: (title: string | ReactNode, icon?: ReactNode, tabId?: string) => void;
@@ -91,9 +101,27 @@ export const useHeaderActions = create<HeaderActionsState>((set, get) => ({
   actions: [],
   tabActionsMap: {},
   tabMetaMap: {},
+  claimedActionsTabs: {},
+
+  claimActionsSlot: (tabId) => {
+    const claimed = get().claimedActionsTabs;
+    set({ claimedActionsTabs: { ...claimed, [tabId]: (claimed[tabId] || 0) + 1 } });
+  },
+
+  releaseActionsSlot: (tabId) => {
+    const claimed = { ...get().claimedActionsTabs };
+    if ((claimed[tabId] || 0) <= 1) delete claimed[tabId];
+    else claimed[tabId] = claimed[tabId] - 1;
+    set({ claimedActionsTabs: claimed });
+  },
 
   setHeaderActions: (actions, tabId) => {
     const activeTab = tabId || getActiveTabId();
+    // A registration without a tab id claims "the active tab". When the target
+    // slot is owned by a page that registered explicitly, this write can only
+    // come from a keep-alive pane running in the background — drop it instead
+    // of overwriting the visible header of the tab that is on screen.
+    if (!tabId && (get().claimedActionsTabs[activeTab] || 0) > 0) return;
     const currentActive = getActiveTabId();
     const currentActions = get().tabActionsMap[activeTab];
     if (currentActions && currentActions.length === actions.length) {
@@ -111,6 +139,9 @@ export const useHeaderActions = create<HeaderActionsState>((set, get) => ({
 
   clearHeaderActions: (tabId) => {
     const activeTab = tabId || getActiveTabId();
+    // Same guard as setHeaderActions: a background pane's cleanup must not
+    // wipe the actions of the tab that is currently on screen.
+    if (!tabId && (get().claimedActionsTabs[activeTab] || 0) > 0) return;
     const currentActive = getActiveTabId();
     if (!get().tabActionsMap[activeTab] && (activeTab !== currentActive || get().actions.length === 0)) {
       return;

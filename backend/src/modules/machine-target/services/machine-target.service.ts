@@ -57,6 +57,118 @@ interface EffectiveResolution {
   usedGeneralFallback: boolean;
 }
 
+// ─── Import (smart upsert) helpers ──────────────────────────────────────────
+
+/** What an import line will do to the database. */
+export type MachineTargetImportAction = 'created' | 'updated' | 'error';
+
+export interface MachineTargetImportResult {
+  row: number;
+  status: 'imported' | 'error';
+  action: MachineTargetImportAction;
+  message: string;
+}
+
+export interface MachineTargetImportSummary {
+  totalRows: number;
+  /** Rows written = `created + updated` (kept as-is for existing clients). */
+  imported: number;
+  created: number;
+  updated: number;
+  failed: number;
+  results: MachineTargetImportResult[];
+}
+
+/**
+ * The ONLY columns an import line may ever write. Everything else on the row
+ * keeps its stored value — that is the zero-overwrite guarantee of rule 2.
+ */
+export type MachineTargetPatch = Partial<
+  Pick<
+    MachineTarget,
+    | 'shiftId'
+    | 'uomId'
+    | 'itemId'
+    | 'standardHours'
+    | 'targetQuantity'
+    | 'effectiveFrom'
+    | 'effectiveTo'
+    | 'status'
+    | 'remarks'
+    | 'updatedBy'
+  >
+>;
+
+/**
+ * Canonical template column → accepted header spellings.
+ * `Machine Code`, `machine_code`, `MACHINE CODE` and `machinecode` all collapse
+ * onto the same normalised key (see `normaliseImportHeader`).
+ */
+export const IMPORT_COLUMN_ALIASES = {
+  machineCode: ['machinecode', 'machinenumber', 'machine'],
+  shiftCode: ['shiftcode', 'shift'],
+  uomCode: ['uomcode', 'uom'],
+  itemCode: ['itemcode', 'item'],
+  standardTarget: ['standardtarget', 'targetquantity', 'target'],
+  standardHours: ['standardhours', 'hours'],
+  effectiveFrom: ['effectivefrom', 'fromdate'],
+  effectiveTo: ['effectiveto', 'todate'],
+  status: ['status'],
+  remarks: ['remarks'],
+} as const;
+
+export function normaliseImportHeader(header: string): string {
+  return header.toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+/** Field separator that cannot occur in a UUID, so keys can never collide. */
+const ANCHOR_SEP = '\u0001';
+
+/** Composite unique anchor key — [Machine Code + Shift Code + Item Code]. */
+export function anchorKey(machineId: string, shiftId: string | null, itemId: string | null): string {
+  return `${machineId}${ANCHOR_SEP}${shiftId ?? ''}${ANCHOR_SEP}${itemId ?? ''}`;
+}
+
+/** Relaxation key used when the strict anchor misses and no row can be created. */
+export function machineItemKey(machineId: string, itemId: string | null): string {
+  return `${machineId}${ANCHOR_SEP}${itemId ?? ''}`;
+}
+
+/**
+ * Pick THE row for a matched key. History is never rewritten (a new revision
+ * gets its own row), so an anchor usually matches several generations — resolve
+ * to the one an operator means *today*:
+ *   open + ACTIVE  ›  currently in effect  ›  newest `effective_from`  ›  `id`
+ * The final `id` tiebreak keeps the choice deterministic across runs.
+ */
+export function pickCurrentTarget(rows: MachineTarget[], today: string): MachineTarget {
+  const open = (t: MachineTarget): number => (t.isActive && t.status === MachineTargetStatus.ACTIVE ? 1 : 0);
+  const inEffect = (t: MachineTarget): number =>
+    t.effectiveFrom <= today && (!t.effectiveTo || t.effectiveTo >= today) ? 1 : 0;
+
+  return [...rows].sort((a, b) => {
+    const byOpen = open(b) - open(a);
+    if (byOpen !== 0) return byOpen;
+    const byEffect = inEffect(b) - inEffect(a);
+    if (byEffect !== 0) return byEffect;
+    const fromA = a.effectiveFrom ?? '';
+    const fromB = b.effectiveFrom ?? '';
+    if (fromA !== fromB) return fromA < fromB ? 1 : -1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  })[0];
+}
+
+/**
+ * Rows the relaxed [Machine + Item] lookup may adopt. Prefer live targets; if a
+ * machine+item only has retired generations left, fall back to those rather
+ * than claiming "no match". A size ≠ 1 is never guessed at.
+ */
+export function relaxationCandidates(rows: MachineTarget[] | undefined): MachineTarget[] {
+  if (!rows || rows.length === 0) return [];
+  const live = rows.filter((r) => r.isActive && r.status === MachineTargetStatus.ACTIVE);
+  return live.length > 0 ? live : rows;
+}
+
 @Injectable()
 export class MachineTargetService {
   /** HTTP query strings can arrive as 'false' (string) or false (boolean) depending on pipe coercion — accept both. */
@@ -748,21 +860,29 @@ export class MachineTargetService {
   }
 
   /**
-   * Bulk import machine targets from parsed CSV rows.
-   * Uses the same business-key resolution pattern (Machine Code → Machine ID, etc.).
-   * All valid records are inserted in a single transaction (all-or-nothing).
+   * Bulk import machine targets from parsed CSV rows — smart **UPSERT**.
+   *
+   * 1. ANCHOR — `[Machine Code + Shift Code + Item Code]` is the composite unique
+   *    key used to look up an existing `machine_targets` row. A line that hits the
+   *    anchor is UPDATED in place; it is never inserted as a duplicate.
+   * 2. PARTIAL COLUMN UPDATE (zero-overwrite safety) — a cell that is empty, or
+   *    whose column is excluded from the sheet entirely, is NOT written. The
+   *    stored value is retained and only the columns carrying data are overwritten.
+   * 3. RELAXED ANCHOR — when the strict key misses and the line does not carry
+   *    enough data to stand alone as an INSERT (Standard Target / Standard Hours /
+   *    Effective From), the resolver falls back to `[Machine + Item]`, but only
+   *    when exactly one such row exists. Anything ambiguous fails loudly instead
+   *    of guessing which shift's target to rewrite.
+   *
+   * String codes are mapped to their foreign keys before matching, and every
+   * write happens inside ONE transaction (all-or-nothing).
    */
   async importCsv(
     companyId: string,
     userId: string | undefined,
     fileBuffer: Buffer,
     allowedDivisionIds?: string[],
-  ): Promise<{
-    totalRows: number;
-    imported: number;
-    failed: number;
-    results: Array<{ row: number; status: 'imported' | 'error'; message: string }>;
-  }> {
+  ): Promise<MachineTargetImportSummary> {
     const content = fileBuffer.toString('utf-8').replace(/^\uFEFF/, '');
     const rows = MachineTargetService.parseCsv(content);
     if (rows.length < 2) {
@@ -771,7 +891,24 @@ export class MachineTargetService {
 
     const header = rows[0].map((h) => h.trim());
     const headerMap: Record<string, number> = {};
-    header.forEach((h, i) => { headerMap[h.toLowerCase().replace(/[\s_-]+/g, '')] = i; });
+    header.forEach((h, i) => {
+      headerMap[normaliseImportHeader(h)] = i;
+    });
+
+    /**
+     * First NON-empty value across the accepted aliases. A column that is absent
+     * from the sheet and a cell that is blank both read as `''` — i.e. "no data",
+     * which the resolver below treats as "keep whatever is stored".
+     */
+    const read = (cells: string[], aliases: readonly string[]): string => {
+      for (const alias of aliases) {
+        const idx = headerMap[alias];
+        if (idx === undefined) continue; // column excluded from the sheet
+        const value = (cells[idx] ?? '').trim();
+        if (value !== '') return value; // blank cell → retained, not read
+      }
+      return '';
+    };
 
     // Resolve all master data for validation
     const [machines, shifts, uoms, items] = await Promise.all([
@@ -784,37 +921,57 @@ export class MachineTargetService {
     const machineByCode = new Map(machines.map((m) => [m.machineCode.toUpperCase(), m]));
     const machineByNumber = new Map(machines.filter((m) => m.machineNumber).map((m) => [m.machineNumber!.toUpperCase(), m]));
     const shiftByCode = new Map(shifts.map((s) => [s.shiftCode.toUpperCase(), s]));
+    const shiftLabel = new Map(shifts.map((s) => [s.id, s.shiftCode]));
     const uomByCode = new Map(uoms.map((u) => [u.code.toUpperCase(), u]));
     const itemByCode = new Map(items.map((i) => [i.itemCode.toUpperCase(), i]));
 
-    const results: Array<{ row: number; status: 'imported' | 'error'; message: string }> = [];
-    let imported = 0;
+    // ── Composite anchor indexes (loaded once, resolved in memory) ───────────
+    const existing = await this.targetRepo.find({ where: { companyId, isActive: true } });
+    const byAnchor = new Map<string, MachineTarget[]>();
+    const byMachineItem = new Map<string, MachineTarget[]>();
+    const bucket = (map: Map<string, MachineTarget[]>, key: string, row: MachineTarget): void => {
+      const list = map.get(key);
+      if (list) list.push(row);
+      else map.set(key, [row]);
+    };
+    for (const row of existing) {
+      bucket(byAnchor, anchorKey(row.machineId, row.shiftId, row.itemId), row);
+      bucket(byMachineItem, machineItemKey(row.machineId, row.itemId), row);
+    }
 
-    const get = (data: string[], field: string): string => {
-      const idx = headerMap[field];
-      return idx !== undefined ? (data[idx] ?? '').trim() : '';
+    const results: MachineTargetImportResult[] = [];
+    const fail = (row: number, message: string): void => {
+      results.push({ row, status: 'error', action: 'error', message });
     };
 
     const toInsert: Array<{ entity: Partial<MachineTarget>; rowNum: number }> = [];
+    const toUpdate: Array<{
+      target: MachineTarget;
+      patch: MachineTargetPatch;
+      changed: string[];
+      rowNum: number;
+    }> = [];
+    /** One file line ⇒ one write; guards against two lines claiming one anchor. */
+    const claimedWrites = new Set<string>();
+    const today = new Date().toISOString().slice(0, 10);
 
     for (let idx = 1; idx < rows.length; idx++) {
       const data = rows[idx];
       const rowNum = idx + 1;
-      const errors: string[] = [];
 
-      // Machine Code resolution
-      const machineCode = get(data, 'machinecode') || get(data, 'machinenumber');
+      // ── Anchor column 1 — Machine (always required) ──────────────────────
+      const machineCode = read(data, IMPORT_COLUMN_ALIASES.machineCode);
       if (!machineCode) {
-        results.push({ row: rowNum, status: 'error', message: 'Machine Code / Machine Number is required' });
+        fail(rowNum, 'Machine Code is required');
         continue;
       }
       const machine = machineByCode.get(machineCode.toUpperCase()) || machineByNumber.get(machineCode.toUpperCase());
       if (!machine) {
-        results.push({ row: rowNum, status: 'error', message: `Machine '${machineCode}' not found` });
+        fail(rowNum, `Machine '${machineCode}' not found`);
         continue;
       }
       if (machine.status !== 'ACTIVE') {
-        results.push({ row: rowNum, status: 'error', message: `Machine '${machineCode}' is not ACTIVE` });
+        fail(rowNum, `Machine '${machineCode}' is not ACTIVE`);
         continue;
       }
       // Prompt #16 — the target's division (inherited from its machine) must
@@ -824,128 +981,230 @@ export class MachineTargetService {
         machine.divisionId &&
         !(allowedDivisionIds as string[]).includes(machine.divisionId)
       ) {
-        results.push({ row: rowNum, status: 'error', message: 'You do not have access to this division.' });
+        fail(rowNum, 'You do not have access to this division.');
         continue;
       }
 
-      // Shift Code
-      const shiftCode = get(data, 'shiftcode');
-      if (!shiftCode) {
-        results.push({ row: rowNum, status: 'error', message: 'Shift Code is required' });
-        continue;
-      }
-      const shift = shiftByCode.get(shiftCode.toUpperCase());
-      if (!shift) {
-        results.push({ row: rowNum, status: 'error', message: `Shift '${shiftCode}' not found` });
-        continue;
-      }
-
-      // UOM Code
-      const uomCode = get(data, 'uomcode') || get(data, 'uom');
-      if (!uomCode) {
-        results.push({ row: rowNum, status: 'error', message: 'UOM Code is required' });
-        continue;
-      }
-      const uom = uomByCode.get(uomCode.toUpperCase());
-      if (!uom) {
-        results.push({ row: rowNum, status: 'error', message: `UOM '${uomCode}' not found` });
-        continue;
-      }
-      if (!PRODUCTION_UOM_CODES.includes(String(uom.code).toUpperCase())) {
-        results.push({ row: rowNum, status: 'error', message: `UOM '${uomCode}' is not a supported production unit (KG, PCS, METER)` });
-        continue;
+      // ── Anchor column 2 — Shift. Absent/blank means the strict key cannot
+      //    be built at all, which is what opens the relaxed [Machine + Item] path.
+      const shiftCode = read(data, IMPORT_COLUMN_ALIASES.shiftCode);
+      let shift: Shift | undefined;
+      if (shiftCode) {
+        shift = shiftByCode.get(shiftCode.toUpperCase());
+        if (!shift) {
+          fail(rowNum, `Shift '${shiftCode}' not found`);
+          continue;
+        }
       }
 
-      // Item Code (optional)
-      const itemCode = get(data, 'itemcode');
+      // ── UOM — resolved (and rule-checked) only when the sheet supplies one ─
+      const uomCode = read(data, IMPORT_COLUMN_ALIASES.uomCode);
+      let uom: Uom | undefined;
+      if (uomCode) {
+        uom = uomByCode.get(uomCode.toUpperCase());
+        if (!uom) {
+          fail(rowNum, `UOM '${uomCode}' not found`);
+          continue;
+        }
+        if (!PRODUCTION_UOM_CODES.includes(String(uom.code).toUpperCase())) {
+          fail(rowNum, `UOM '${uomCode}' is not a supported production unit (KG, PCS, METER)`);
+          continue;
+        }
+      }
+
+      // ── Anchor column 3 — Item. Blank ⇒ the generic (null-item) target ────
+      const itemCode = read(data, IMPORT_COLUMN_ALIASES.itemCode);
       let itemId: string | null = null;
       if (itemCode) {
         const item = itemByCode.get(itemCode.toUpperCase());
         if (!item) {
-          results.push({ row: rowNum, status: 'error', message: `Item '${itemCode}' not found` });
+          fail(rowNum, `Item '${itemCode}' not found`);
           continue;
         }
         if (!item.isActive) {
-          results.push({ row: rowNum, status: 'error', message: `Item '${itemCode}' is not ACTIVE` });
+          fail(rowNum, `Item '${itemCode}' is not ACTIVE`);
           continue;
         }
         itemId = item.id;
       }
 
-      // Standard Target
-      const targetQtyStr = get(data, 'standardtarget') || get(data, 'targetquantity') || get(data, 'target');
-      const targetQty = Number(targetQtyStr);
-      if (!targetQtyStr || !(targetQty > 0)) {
-        results.push({ row: rowNum, status: 'error', message: 'Standard Target must be greater than 0' });
-        continue;
-      }
+      // ── Data columns. An empty cell (or an excluded column) is NOT read, so
+      //    it never reaches the patch and the stored value survives untouched.
+      const targetQtyStr = read(data, IMPORT_COLUMN_ALIASES.standardTarget);
+      const hoursStr = read(data, IMPORT_COLUMN_ALIASES.standardHours);
+      const effectiveFrom = read(data, IMPORT_COLUMN_ALIASES.effectiveFrom);
+      const effectiveTo = read(data, IMPORT_COLUMN_ALIASES.effectiveTo);
+      const statusStr = read(data, IMPORT_COLUMN_ALIASES.status);
+      const remarks = read(data, IMPORT_COLUMN_ALIASES.remarks);
 
-      // Standard Hours
-      const hoursStr = get(data, 'standardhours') || get(data, 'hours');
-      const hours = Number(hoursStr);
-      if (!hoursStr || !(hours > 0) || hours > 24) {
-        results.push({ row: rowNum, status: 'error', message: 'Standard Hours must be between 0.01 and 24' });
+      // Validate whatever IS present — a supplied-but-wrong value is always an
+      // error, it is never silently dropped just because other columns are blank.
+      if (targetQtyStr && !(Number(targetQtyStr) > 0)) {
+        fail(rowNum, 'Standard Target must be greater than 0');
         continue;
       }
-
-      // Effective From
-      const effectiveFrom = get(data, 'effectivefrom') || get(data, 'fromdate');
-      if (!effectiveFrom) {
-        results.push({ row: rowNum, status: 'error', message: 'Effective From is required (YYYY-MM-DD)' });
+      if (hoursStr) {
+        const hours = Number(hoursStr);
+        if (!(hours > 0) || hours > 24) {
+          fail(rowNum, 'Standard Hours must be between 0.01 and 24');
+          continue;
+        }
+      }
+      if (effectiveFrom && !/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) {
+        fail(rowNum, `Effective From '${effectiveFrom}' must be YYYY-MM-DD`);
         continue;
       }
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) {
-        results.push({ row: rowNum, status: 'error', message: `Effective From '${effectiveFrom}' must be YYYY-MM-DD` });
-        continue;
-      }
-
-      // Effective To (optional)
-      const effectiveTo = get(data, 'effectiveto') || get(data, 'todate');
       if (effectiveTo && !/^\d{4}-\d{2}-\d{2}$/.test(effectiveTo)) {
-        results.push({ row: rowNum, status: 'error', message: `Effective To '${effectiveTo}' must be YYYY-MM-DD` });
+        fail(rowNum, `Effective To '${effectiveTo}' must be YYYY-MM-DD`);
         continue;
       }
-      if (effectiveTo && !(effectiveTo > effectiveFrom)) {
-        results.push({ row: rowNum, status: 'error', message: 'Effective To must be after Effective From' });
+      let status: MachineTargetStatus | undefined;
+      if (statusStr) {
+        const normalised = statusStr.toUpperCase();
+        if (normalised !== 'ACTIVE' && normalised !== 'INACTIVE') {
+          fail(rowNum, `Invalid status '${statusStr}' (use ACTIVE or INACTIVE)`);
+          continue;
+        }
+        status = normalised as MachineTargetStatus;
+      }
+
+      // ── 1. Composite anchor lookup: [Machine + Shift + Item] ──────────────
+      let match: MachineTarget | undefined;
+      if (shift) {
+        const anchored = byAnchor.get(anchorKey(machine.id, shift.id, itemId));
+        if (anchored && anchored.length > 0) match = pickCurrentTarget(anchored, today);
+      }
+
+      // Everything a NEW row needs. Blank here means "this line cannot insert".
+      const insertGaps: string[] = [];
+      if (!shift) insertGaps.push('Shift Code');
+      if (!uom) insertGaps.push('UOM Code');
+      if (!targetQtyStr) insertGaps.push('Standard Target');
+      if (!hoursStr) insertGaps.push('Standard Hours');
+      if (!effectiveFrom) insertGaps.push('Effective From');
+      const canInsert = insertGaps.length === 0;
+
+      // ── 3. Relaxed anchor — ONLY when the strict key missed AND this line
+      //    cannot stand alone as an insert, and ONLY if the fallback is unique.
+      if (!match && !canInsert) {
+        const candidates = relaxationCandidates(byMachineItem.get(machineItemKey(machine.id, itemId)));
+        if (candidates.length === 1) {
+          match = candidates[0];
+        } else if (candidates.length === 0) {
+          fail(
+            rowNum,
+            `No existing target matches Machine '${machineCode}' + Shift '${shiftCode || '—'}' + Item '${itemCode || '—'}', ` +
+              `and this line cannot create one (${insertGaps.join(', ')} blank/absent)`,
+          );
+          continue;
+        } else {
+          const shiftsHit = candidates.map((c) => shiftLabel.get(c.shiftId) ?? c.shiftId).join(', ');
+          fail(
+            rowNum,
+            `Ambiguous anchor: ${candidates.length} targets already exist for Machine '${machineCode}' + ` +
+              `Item '${itemCode || '—'}' (shifts ${shiftsHit}). Add Standard Target, Standard Hours and ` +
+              `Effective From to insert a new row instead.`,
+          );
+          continue;
+        }
+      }
+
+      // ── 2. Partial column update (zero-overwrite safety) ──────────────────
+      if (match) {
+        const patch: MachineTargetPatch = {};
+        const changed: string[] = [];
+        const set = <K extends keyof MachineTargetPatch>(field: K, value: MachineTargetPatch[K], label: string): void => {
+          patch[field] = value;
+          changed.push(label);
+        };
+
+        // Only columns that carry data AND actually differ are written — a cell
+        // identical to what is stored (or blank/absent) never enters the UPDATE.
+        // `shiftId` is an anchor component, so on a strict hit this is a no-op;
+        // on a relaxed hit it is exactly the "re-point this target's shift" case.
+        if (shift && shift.id !== match.shiftId) set('shiftId', shift.id, 'Shift Code');
+        if (uom && uom.id !== match.uomId) set('uomId', uom.id, 'UOM Code');
+        if (itemCode && itemId !== match.itemId) set('itemId', itemId, 'Item Code');
+        if (targetQtyStr && Number(targetQtyStr) !== Number(match.targetQuantity)) {
+          set('targetQuantity', String(Number(targetQtyStr)), 'Standard Target');
+        }
+        if (hoursStr && Number(hoursStr) !== Number(match.standardHours)) {
+          set('standardHours', String(Number(hoursStr)), 'Standard Hours');
+        }
+        if (effectiveFrom && effectiveFrom !== match.effectiveFrom) set('effectiveFrom', effectiveFrom, 'Effective From');
+        if (effectiveTo && effectiveTo !== match.effectiveTo) set('effectiveTo', effectiveTo, 'Effective To');
+        if (status && status !== match.status) set('status', status, 'Status');
+        if (remarks && remarks !== match.remarks) set('remarks', remarks, 'Remarks');
+        patch.updatedBy = userId ?? null;
+
+        // Validate the MERGED row: a partial write must not manufacture an
+        // impossible window by pairing a new `from` with a stale `to`.
+        const finalFrom = patch.effectiveFrom ?? match.effectiveFrom;
+        const finalTo = patch.effectiveTo ?? match.effectiveTo;
+        if (finalTo && !(finalTo > finalFrom)) {
+          fail(rowNum, 'Effective To must be after Effective From');
+          continue;
+        }
+
+        // Window integrity only matters when the window may have moved.
+        const touchesWindow = ['shiftId', 'uomId', 'itemId', 'effectiveFrom', 'effectiveTo', 'status'].some(
+          (field) => field in patch,
+        );
+        if (touchesWindow) {
+          try {
+            await this.assertNoOverlap(
+              companyId,
+              machine.id,
+              patch.shiftId ?? match.shiftId,
+              patch.itemId !== undefined ? patch.itemId : match.itemId,
+              patch.uomId ?? match.uomId,
+              finalFrom,
+              finalTo,
+              match.id,
+            );
+          } catch (err: any) {
+            fail(rowNum, err?.message ?? `Overlapping ACTIVE target already exists (${match.id})`);
+            continue;
+          }
+        }
+
+        const writeKey = `u:${match.id}`;
+        if (claimedWrites.has(writeKey)) {
+          fail(rowNum, 'Duplicate row: another line in this file already writes the same Machine + Shift + Item target.');
+          continue;
+        }
+        claimedWrites.add(writeKey);
+
+        toUpdate.push({ target: match, patch, changed, rowNum });
         continue;
       }
 
-      // Status (optional, defaults to ACTIVE)
-      const status = (get(data, 'status') || 'ACTIVE').toUpperCase();
-      if (status !== 'ACTIVE' && status !== 'INACTIVE') {
-        results.push({ row: rowNum, status: 'error', message: `Invalid status '${status}' (use ACTIVE or INACTIVE)` });
+      // ── Insert path — strict anchor missed AND the line carries everything ─
+      if (!shift || !uom) {
+        fail(rowNum, `Cannot create a new target — ${insertGaps.join(', ')} blank/absent`);
+        continue;
+      }
+      try {
+        await this.assertNoOverlap(
+          companyId,
+          machine.id,
+          shift.id,
+          itemId,
+          uom.id,
+          effectiveFrom,
+          effectiveTo || null,
+        );
+      } catch (err: any) {
+        fail(rowNum, err?.message ?? 'Overlapping ACTIVE target already exists');
         continue;
       }
 
-      // Remarks
-      const remarks = get(data, 'remarks') || null;
-
-      if (errors.length > 0) {
-        results.push({ row: rowNum, status: 'error', message: errors.join('; ') });
+      const newKey = `i:${anchorKey(machine.id, shift.id, itemId)}`;
+      if (claimedWrites.has(newKey)) {
+        fail(rowNum, 'Duplicate row: another line in this file already writes the same Machine + Shift + Item target.');
         continue;
       }
-
-      // Build entity for overlap check
-      const overlapQb = this.targetRepo.createQueryBuilder('mt')
-        .where('mt.companyId = :companyId', { companyId })
-        .andWhere('mt.machineId = :machineId', { machineId: machine.id })
-        .andWhere('mt.shiftId = :shiftId', { shiftId: shift.id })
-        .andWhere('mt.uomId = :uomId', { uomId: uom.id })
-        .andWhere('mt.status = :status', { status: MachineTargetStatus.ACTIVE })
-        .andWhere('mt.isActive = true')
-        .andWhere('(mt.effectiveFrom <= :rangeTo OR :rangeToIsNull)', {
-          rangeTo: effectiveTo || null,
-          rangeToIsNull: !effectiveTo,
-        })
-        .andWhere('(mt.effectiveTo >= :rangeFrom OR mt.effectiveTo IS NULL)', { rangeFrom: effectiveFrom });
-      if (itemId) overlapQb.andWhere('mt.itemId = :itemId', { itemId });
-      else overlapQb.andWhere('mt.itemId IS NULL');
-
-      const conflict = await overlapQb.getOne();
-      if (conflict) {
-        results.push({ row: rowNum, status: 'error', message: `Overlapping ACTIVE target exists (${conflict.id}: ${conflict.effectiveFrom} → ${conflict.effectiveTo ?? 'open'})` });
-        continue;
-      }
+      claimedWrites.add(newKey);
 
       toInsert.push({
         entity: {
@@ -954,12 +1213,12 @@ export class MachineTargetService {
           shiftId: shift.id,
           itemId: itemId,
           uomId: uom.id,
-          standardHours: String(hours),
-          targetQuantity: String(targetQty),
+          standardHours: String(Number(hoursStr)),
+          targetQuantity: String(Number(targetQtyStr)),
           effectiveFrom,
           effectiveTo: effectiveTo || null,
-          status: status as MachineTargetStatus,
-          remarks,
+          status: status ?? MachineTargetStatus.ACTIVE,
+          remarks: remarks || null,
           createdBy: userId ?? null,
           updatedBy: userId ?? null,
         },
@@ -967,21 +1226,44 @@ export class MachineTargetService {
       });
     }
 
-    // Transactional bulk insert
-    if (toInsert.length > 0) {
-      const entities = toInsert.map((d) => this.targetRepo.create(d.entity));
-      await this.targetRepo.save(entities);
-      imported = toInsert.length;
-      for (const item of toInsert) {
-        results.push({ row: item.rowNum, status: 'imported', message: 'Created successfully' });
-      }
+    // ── Single transactional write block (all-or-nothing) ────────────────────
+    if (toUpdate.length > 0 || toInsert.length > 0) {
+      await this.targetRepo.manager.transaction(async (em) => {
+        const repo = em.getRepository(MachineTarget);
+
+        // Updates first: every patch carries only the columns that had data, so
+        // untouched fields are never part of the UPDATE statement at all.
+        for (const update of toUpdate) {
+          await repo.update({ id: update.target.id }, update.patch);
+        }
+
+        if (toInsert.length > 0) {
+          await repo.save(toInsert.map((row) => repo.create(row.entity)));
+        }
+      });
+    }
+
+    for (const update of toUpdate) {
+      results.push({
+        row: update.rowNum,
+        status: 'imported',
+        action: 'updated',
+        message: update.changed.length > 0
+          ? `Updated existing target (${update.changed.join(', ')})`
+          : 'Matched existing target — nothing changed, every column retained',
+      });
+    }
+    for (const created of toInsert) {
+      results.push({ row: created.rowNum, status: 'imported', action: 'created', message: 'Created successfully' });
     }
 
     results.sort((a, b) => a.row - b.row);
 
     return {
       totalRows: rows.length - 1,
-      imported,
+      imported: toInsert.length + toUpdate.length,
+      created: toInsert.length,
+      updated: toUpdate.length,
       failed: results.filter((r) => r.status === 'error').length,
       results,
     };

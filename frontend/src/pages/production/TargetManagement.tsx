@@ -159,10 +159,18 @@ const calcPerHour = (qty: number, hours: number): number | null =>
 
 type ImportRowStatus = 'VALID' | 'DUPLICATE' | 'INVALID';
 
+/**
+ * What the line will do once posted: `CREATE` appends a new target, `UPDATE`
+ * amends the row the composite anchor matched. Blank/absent columns are never
+ * written either way (partial column update / zero-overwrite safety).
+ */
+type ImportRowAction = 'CREATE' | 'UPDATE';
+
 interface ImportRow {
   rowNumber: number;
   data: Record<string, string>;
   status: ImportRowStatus;
+  action?: ImportRowAction;
   errors: string[];
 }
 
@@ -172,11 +180,21 @@ interface ImportSummary {
   invalid: number;
   duplicate: number;
   imported: number;
+  created: number;
+  updated: number;
   failed: number;
   skipped: number;
   errors: string[];
 }
 
+/**
+ * Import template. The header order is the contract the backend parser expects
+ * (aliases such as `machine_code` / `targetquantity` are also accepted), but no
+ * column except `Machine Code` is structurally required: a sheet may drop or
+ * blank any column to leave that value untouched in the database.
+ * `Machine Code + Shift Code + Item Code` is the composite anchor that decides
+ * whether a line UPDATEs an existing target or INSERTs a new one.
+ */
 const IMPORT_TEMPLATE_CSV =
   'Machine Code,Shift Code,UOM Code,Item Code,Standard Target,Standard Hours,Effective From,Effective To,Status,Remarks\n' +
   'APS-01,SHIFT-1,KG,WIP-SPL-018,5000,8,2026-01-01,,ACTIVE,Sample target\n' +
@@ -933,7 +951,10 @@ const TargetManagement: React.FC = () => {
     const header = parsed[0].map((h) => h.trim());
     const normHeader = header.map((h) => h.toLowerCase().replace(/[\s_-]+/g, ''));
 
-    const required = ['machinecode', 'shiftcode', 'uomcode', 'standardtarget', 'standardhours', 'effectivefrom'];
+    // Only the machine is structurally mandatory. Shift / UOM / Target / Hours /
+    // Dates are INSERT columns: a sheet may legitimately omit them so it touches
+    // nothing but the anchor and the handful of columns it does carry.
+    const required = ['machinecode'];
     const missing = required.filter((c) => !normHeader.includes(c) && !normHeader.includes(c.replace('code', '')));
     if (missing.length > 0) {
       message.error(`Missing required column(s): ${missing.join(', ')}. Download the template for the expected format.`);
@@ -953,6 +974,23 @@ const TargetManagement: React.FC = () => {
     const uomByCode = new Map(uoms.map((u) => [u.code.toUpperCase(), u]));
     const itemByCode = new Map(items.map((i) => [i.itemCode.toUpperCase(), i]));
 
+    // ── Composite anchor indexes over the existing targets ───────────────────
+    const targetsPool = allActiveTargets.length > 0 ? allActiveTargets : targets;
+    const anchorKeyOf = (mId: string, sId: string | null, iId: string | null): string =>
+      `${mId}|${sId ?? ''}|${iId ?? ''}`;
+    const machineItemKeyOf = (mId: string, iId: string | null): string => `${mId}|${iId ?? ''}`;
+    const byAnchor = new Map<string, MachineTarget[]>();
+    const byMachineItem = new Map<string, MachineTarget[]>();
+    const bucket = (map: Map<string, MachineTarget[]>, key: string, value: MachineTarget): void => {
+      const list = map.get(key);
+      if (list) list.push(value);
+      else map.set(key, [value]);
+    };
+    for (const t of targetsPool) {
+      bucket(byAnchor, anchorKeyOf(t.machineId, t.shiftId, t.itemId ?? null), t);
+      bucket(byMachineItem, machineItemKeyOf(t.machineId, t.itemId ?? null), t);
+    }
+
     const seenCombos = new Set<string>();
 
     const validated: ImportRow[] = parsed.slice(1).map((cells, idx) => {
@@ -965,114 +1003,145 @@ const TargetManagement: React.FC = () => {
       const errors: string[] = [];
       let isDuplicate = false;
 
-      // Machine validation
+      // ── Anchor column 1 — Machine (always required) ───────────────────────
       const mCode = get(cells, 'machinecode') || get(cells, 'machinenumber') || get(cells, 'machine');
+      const foundMachine = mCode
+        ? machineByCode.get(mCode.toUpperCase()) || machineByNumber.get(mCode.toUpperCase())
+        : undefined;
       if (!mCode) {
         errors.push('Machine Code is required');
-      } else {
-        const foundMachine = machineByCode.get(mCode.toUpperCase()) || machineByNumber.get(mCode.toUpperCase());
-        if (!foundMachine) {
-          errors.push(`Machine '${mCode}' not found in Machine Master`);
-        } else if (foundMachine.status !== 'ACTIVE') {
-          errors.push(`Machine '${mCode}' is not ACTIVE`);
-        }
+      } else if (!foundMachine) {
+        errors.push(`Machine '${mCode}' not found in Machine Master`);
+      } else if (foundMachine.status !== 'ACTIVE') {
+        errors.push(`Machine '${mCode}' is not ACTIVE`);
       }
 
-      // Shift validation
+      // ── Anchor column 2 — Shift. Blank ⇒ the strict anchor cannot be built ─
       const sCode = get(cells, 'shiftcode') || get(cells, 'shift');
-      if (!sCode) {
-        errors.push('Shift Code is required');
-      } else if (!shiftByCode.has(sCode.toUpperCase())) {
+      const foundShift = sCode ? shiftByCode.get(sCode.toUpperCase()) : undefined;
+      if (sCode && !foundShift) {
         errors.push(`Shift '${sCode}' not found in Shift Master`);
       }
 
-      // UOM validation
+      // ── UOM — validated only when the sheet actually supplies one ─────────
       const uCode = get(cells, 'uomcode') || get(cells, 'uom');
-      if (!uCode) {
-        errors.push('UOM Code is required');
-      } else {
-        const foundUom = uomByCode.get(uCode.toUpperCase());
-        if (!foundUom || !PRODUCTION_UOM_CODES.includes(foundUom.code.toUpperCase())) {
-          errors.push(`UOM '${uCode}' not supported (must be KG, PCS, or METER)`);
-        }
+      const foundUom = uCode ? uomByCode.get(uCode.toUpperCase()) : undefined;
+      if (uCode && (!foundUom || !PRODUCTION_UOM_CODES.includes(foundUom.code.toUpperCase()))) {
+        errors.push(`UOM '${uCode}' not supported (must be KG, PCS, or METER)`);
       }
 
-      // Item validation (optional)
+      // ── Anchor column 3 — Item (blank ⇒ generic / null-item target) ───────
       const itmCode = get(cells, 'itemcode') || get(cells, 'item');
-      if (itmCode) {
-        const foundItem = itemByCode.get(itmCode.toUpperCase());
-        if (!foundItem) {
-          errors.push(`Item '${itmCode}' not found in Item Master`);
-        } else if (foundItem.isActive === false || foundItem.status === 'INACTIVE') {
-          errors.push(`Item '${itmCode}' is inactive`);
-        }
+      const foundItem = itmCode ? itemByCode.get(itmCode.toUpperCase()) : null;
+      const itemId: string | null = foundItem ? foundItem.id : null;
+      if (itmCode && !foundItem) {
+        errors.push(`Item '${itmCode}' not found in Item Master`);
+      } else if (foundItem && (foundItem.isActive === false || foundItem.status === 'INACTIVE')) {
+        errors.push(`Item '${itmCode}' is inactive`);
       }
 
-      // Standard Target
+      // ── Data columns. A blank cell is "no data" — retained, never required ─
       const targetStr = get(cells, 'standardtarget') || get(cells, 'targetquantity') || get(cells, 'target');
-      const target = Number(targetStr);
-      if (!targetStr || !(target > 0)) errors.push('Standard Target must be > 0');
+      if (targetStr && !(Number(targetStr) > 0)) errors.push('Standard Target must be > 0');
 
-      // Standard Hours
       const hoursStr = get(cells, 'standardhours') || get(cells, 'hours');
-      const hours = Number(hoursStr);
-      if (!hoursStr || !(hours > 0) || hours > 24) errors.push('Standard Hours must be 0.01–24');
+      if (hoursStr && (!(Number(hoursStr) > 0) || Number(hoursStr) > 24)) errors.push('Standard Hours must be 0.01–24');
 
-      // Effective Dates
       const from = get(cells, 'effectivefrom') || get(cells, 'fromdate');
-      if (!from) errors.push('Effective From is required');
-      else if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) errors.push('Effective From must be YYYY-MM-DD');
+      if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) errors.push('Effective From must be YYYY-MM-DD');
 
       const to = get(cells, 'effectiveto') || get(cells, 'todate');
       if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) errors.push('Effective To must be YYYY-MM-DD');
       if (to && from && to <= from) errors.push('Effective To must be after Effective From');
 
-      // Status
-      const st = (get(cells, 'status') || 'ACTIVE').toUpperCase();
-      if (st !== 'ACTIVE' && st !== 'INACTIVE') errors.push(`Invalid status '${st}' (must be ACTIVE or INACTIVE)`);
-
-      // Duplicate check within file
-      const fileComboKey = `${mCode.toUpperCase()}|${sCode.toUpperCase()}|${uCode.toUpperCase()}|${(itmCode || '').toUpperCase()}|${from}`;
-      if (seenCombos.has(fileComboKey)) {
-        isDuplicate = true;
-        errors.push('Duplicate target entry in uploaded file');
-      } else {
-        seenCombos.add(fileComboKey);
+      const stRaw = get(cells, 'status');
+      const st = stRaw.toUpperCase();
+      if (stRaw && st !== 'ACTIVE' && st !== 'INACTIVE') {
+        errors.push(`Invalid status '${stRaw}' (must be ACTIVE or INACTIVE)`);
       }
 
-      // Overlap check with existing active targets in system
-      const foundMachine = machineByCode.get(mCode.toUpperCase()) || machineByNumber.get(mCode.toUpperCase());
-      const foundShift = shiftByCode.get(sCode.toUpperCase());
-      const foundUom = uomByCode.get(uCode.toUpperCase());
-      const foundItem = itmCode ? itemByCode.get(itmCode.toUpperCase()) : null;
+      // ── 1. Composite anchor lookup: [Machine + Shift + Item] ──────────────
+      let match: MachineTarget | undefined;
+      if (foundMachine && foundShift) {
+        const anchored = byAnchor.get(anchorKeyOf(foundMachine.id, foundShift.id, itemId));
+        if (anchored && anchored.length > 0) {
+          // Several generations may share one anchor — resolve to the newest.
+          match = [...anchored].sort((a, b) =>
+            String(b.effectiveFrom ?? '').localeCompare(String(a.effectiveFrom ?? '')),
+          )[0];
+        }
+      }
 
-      const targetsPool = allActiveTargets.length > 0 ? allActiveTargets : targets;
-      const existingOverlap = targetsPool.some((t) => {
-        const matchM = (
-          (foundMachine && t.machineId === foundMachine.id) ||
-          t.machine?.machineCode?.toUpperCase() === mCode.toUpperCase() ||
-          t.machine?.machineNumber?.toUpperCase() === mCode.toUpperCase()
-        );
-        const matchS = (
-          (foundShift && t.shiftId === foundShift.id) ||
-          t.shift?.shiftCode?.toUpperCase() === sCode.toUpperCase()
-        );
-        const matchU = (
-          (foundUom && t.uomId === foundUom.id) ||
-          t.uom?.code?.toUpperCase() === uCode.toUpperCase()
-        );
-        const matchI = itmCode
-          ? ((foundItem && t.itemId === foundItem.id) || (t.item?.itemCode?.toUpperCase() || '') === itmCode.toUpperCase())
-          : (!t.itemId && !t.item?.itemCode);
-        if (!matchM || !matchS || !matchU || !matchI || t.status !== 'ACTIVE') return false;
-        const eFrom = t.effectiveFrom;
-        const eTo = t.effectiveTo || '9999-12-31';
-        const targetTo = to || '9999-12-31';
-        return from <= eTo && targetTo >= eFrom;
-      });
-      if (existingOverlap) {
-        isDuplicate = true;
-        errors.push('Overlapping ACTIVE target already exists in system');
+      // Everything a NEW row needs — blank ⇒ this line cannot stand alone.
+      const insertGaps: string[] = [];
+      if (!foundShift) insertGaps.push('Shift Code');
+      if (!foundUom) insertGaps.push('UOM Code');
+      if (!targetStr) insertGaps.push('Standard Target');
+      if (!hoursStr) insertGaps.push('Standard Hours');
+      if (!from) insertGaps.push('Effective From');
+      const canInsert = insertGaps.length === 0;
+
+      // ── 3. Relaxed [Machine + Item] — ONLY when the strict anchor missed AND
+      //    the line cannot create a row, and ONLY when that fallback is unique.
+      if (!match && !canInsert && foundMachine) {
+        const candidates = byMachineItem.get(machineItemKeyOf(foundMachine.id, itemId)) ?? [];
+        if (candidates.length === 1) {
+          match = candidates[0];
+        } else if (candidates.length === 0) {
+          errors.push(
+            `No existing target matches this Machine + Shift + Item anchor, and the line cannot create one ` +
+              `(${insertGaps.join(', ')} blank/absent)`,
+          );
+        } else {
+          errors.push(
+            `Ambiguous anchor: ${candidates.length} targets already share this Machine + Item — add ` +
+              `Standard Target, Standard Hours and Effective From to insert a new row`,
+          );
+        }
+      }
+
+      const action: ImportRowAction | undefined = match ? 'UPDATE' : canInsert && foundMachine ? 'CREATE' : undefined;
+
+      // Duplicate check within file — keyed on the ANCHOR, because two lines
+      // resolving to one target would fight over the same row on save.
+      if (errors.length === 0) {
+        const fileAnchorKey =
+          `${(mCode || '').toUpperCase()}|${(sCode || '').toUpperCase()}|${(itmCode || '').toUpperCase()}|` +
+          `${match ? match.id : 'new'}`;
+        if (seenCombos.has(fileAnchorKey)) {
+          isDuplicate = true;
+          errors.push('Duplicate anchor (Machine + Shift + Item) in uploaded file');
+        } else {
+          seenCombos.add(fileAnchorKey);
+        }
+      }
+
+      // Overlap check — INSERT lines only. An UPDATE's window is re-checked
+      // server-side against the MERGED values (excluding the row itself), so
+      // flagging it here would mark the very row it amends as a duplicate.
+      if (!match && canInsert && foundMachine && foundShift && foundUom) {
+        const existingOverlap = targetsPool.some((t) => {
+          if (t.status !== 'ACTIVE') return false;
+          const matchM =
+            t.machineId === foundMachine.id ||
+            t.machine?.machineCode?.toUpperCase() === mCode.toUpperCase() ||
+            t.machine?.machineNumber?.toUpperCase() === mCode.toUpperCase();
+          const matchS =
+            t.shiftId === foundShift.id || t.shift?.shiftCode?.toUpperCase() === sCode.toUpperCase();
+          const matchU = t.uomId === foundUom.id || t.uom?.code?.toUpperCase() === uCode.toUpperCase();
+          const matchI = itemId
+            ? (t.itemId ?? null) === itemId || (t.item?.itemCode?.toUpperCase() || '') === itmCode.toUpperCase()
+            : !t.itemId && !t.item?.itemCode;
+          if (!matchM || !matchS || !matchU || !matchI) return false;
+          const eFrom = t.effectiveFrom;
+          const eTo = t.effectiveTo || '9999-12-31';
+          const targetTo = to || '9999-12-31';
+          return from <= eTo && targetTo >= eFrom;
+        });
+        if (existingOverlap) {
+          isDuplicate = true;
+          errors.push('Overlapping ACTIVE target already exists in system');
+        }
       }
 
       const status: ImportRowStatus = errors.length > 0 ? (isDuplicate ? 'DUPLICATE' : 'INVALID') : 'VALID';
@@ -1081,6 +1150,7 @@ const TargetManagement: React.FC = () => {
         rowNumber: idx + 2,
         data,
         status,
+        action,
         errors,
       };
     });
@@ -1138,7 +1208,7 @@ const TargetManagement: React.FC = () => {
     let problematic = importRows.filter((r) => r.status !== 'VALID');
     const headers = [
       'Row Number', 'Machine Code', 'Shift Code', 'UOM Code', 'Item Code',
-      'Standard Target', 'Standard Hours', 'Effective From', 'Effective To', 'Status', 'Errors / Issues',
+      'Standard Target', 'Standard Hours', 'Effective From', 'Effective To', 'Planned Action', 'Status', 'Errors / Issues',
     ];
 
     let rows: Array<Array<string | number | null>> = [];
@@ -1154,6 +1224,7 @@ const TargetManagement: React.FC = () => {
         r.data['standardHours'] || r.data['Standard Hours'] || r.data['standardhours'] || '',
         r.data['effectiveFrom'] || r.data['Effective From'] || r.data['effectivefrom'] || '',
         r.data['effectiveTo'] || r.data['Effective To'] || r.data['effectiveto'] || '',
+        r.action || '',
         r.status,
         r.errors.join('; '),
       ]);
@@ -1161,14 +1232,14 @@ const TargetManagement: React.FC = () => {
       rows = liveFailedItems.map((f) => [
         f.rowNumber,
         f.machineCode,
-        '', '', '', '', '', '', '',
+        '', '', '', '', '', '', '', '',
         'INVALID',
         f.reason,
       ]);
     } else if (importSummary && importSummary.errors.length > 0) {
       rows = importSummary.errors.map((err, idx) => [
         idx + 1,
-        '', '', '', '', '', '', '', '',
+        '', '', '', '', '', '', '', '', '',
         'INVALID',
         err,
       ]);
@@ -1214,6 +1285,8 @@ const TargetManagement: React.FC = () => {
     setLiveFailedItems([]);
 
     let imported = 0;
+    let created = 0;
+    let updated = 0;
     let failed = 0;
     const errors: string[] = [];
     const totalCount = validRows.length;
@@ -1246,10 +1319,12 @@ const TargetManagement: React.FC = () => {
         const u = row.data['uomCode'] || row.data['UOM Code'] || row.data['uomcode'] || '';
         const itm = row.data['itemCode'] || row.data['Item Code'] || row.data['itemcode'] || '';
         const t = row.data['standardTarget'] || row.data['Standard Target'] || row.data['standardtarget'] || '';
-        const h = row.data['standardHours'] || row.data['Standard Hours'] || row.data['standardhours'] || '8';
+        // Blank MUST stay blank: an empty cell is how the sheet says "retain the
+        // stored value" (partial column update), so no defaults may be injected.
+        const h = row.data['standardHours'] || row.data['Standard Hours'] || row.data['standardhours'] || '';
         const ef = row.data['effectiveFrom'] || row.data['Effective From'] || row.data['effectivefrom'] || '';
         const et = row.data['effectiveTo'] || row.data['Effective To'] || row.data['effectiveto'] || '';
-        const st = row.data['status'] || row.data['Status'] || 'ACTIVE';
+        const st = row.data['status'] || row.data['Status'] || '';
         const rm = row.data['remarks'] || row.data['Remarks'] || '';
         const vals = [m, s, u, itm, t, h, ef, et, st, rm].map((v) => {
           const sv = String(v ?? '');
@@ -1266,8 +1341,10 @@ const TargetManagement: React.FC = () => {
         const res = await apiService.upload<{
           totalRows: number;
           imported: number;
+          created?: number;
+          updated?: number;
           failed: number;
-          results: Array<{ row: number; status: string; message: string }>;
+          results: Array<{ row: number; status: string; action?: string; message: string }>;
         }>('/production/machine-targets/import', fd);
 
         const newImported: Array<{ rowNumber: number; machineCode: string; shiftCode: string; uomCode: string; targetQuantity: string | number; itemCode?: string }> = [];
@@ -1285,6 +1362,16 @@ const TargetManagement: React.FC = () => {
           if (!rowRes || rowRes.status === 'imported' || rowRes.status === 'SUCCESS') {
             imported += 1;
             row.status = 'VALID';
+            // The backend is the source of truth for whether this was an insert
+            // or an amendment of the anchored row.
+            if (rowRes?.action === 'created') row.action = 'CREATE';
+            else if (rowRes?.action === 'updated') row.action = 'UPDATE';
+            if (row.action === 'UPDATE') {
+              updated += 1;
+            } else {
+              row.action = 'CREATE';
+              created += 1;
+            }
             newImported.push({
               rowNumber: row.rowNumber,
               machineCode: m,
@@ -1364,6 +1451,8 @@ const TargetManagement: React.FC = () => {
       invalid: importRows.filter((r) => r.status === 'INVALID').length,
       duplicate: importRows.filter((r) => r.status === 'DUPLICATE').length,
       imported,
+      created,
+      updated,
       failed,
       skipped: importRows.length - imported - failed,
       errors,
@@ -2313,6 +2402,8 @@ const TargetManagement: React.FC = () => {
               const validCount = importRows.filter((r) => r.status === 'VALID').length;
               const dupCount = importRows.filter((r) => r.status === 'DUPLICATE').length;
               const invalidCount = importRows.filter((r) => r.status === 'INVALID').length;
+              const updateCount = importRows.filter((r) => r.status === 'VALID' && r.action === 'UPDATE').length;
+              const insertCount = importRows.filter((r) => r.status === 'VALID' && r.action === 'CREATE').length;
 
               return (
                 <>
@@ -2340,6 +2431,8 @@ const TargetManagement: React.FC = () => {
                       <span>
                         Total rows: <b>{importRows.length}</b> ·{' '}
                         Valid: <b style={{ color: '#1a7f37' }}>{validCount}</b> ·{' '}
+                        Will update: <b style={{ color: '#0369a1' }}>{updateCount}</b> ·{' '}
+                        Will insert: <b style={{ color: '#1a7f37' }}>{insertCount}</b> ·{' '}
                         Duplicates / Overlaps: <b style={{ color: '#b9770e' }}>{dupCount}</b> ·{' '}
                         Invalid: <b style={{ color: '#c0392b' }}>{invalidCount}</b>
                         {invalidCount > 0 && (
@@ -2523,9 +2616,17 @@ const TargetManagement: React.FC = () => {
                       {
                         title: 'Hours',
                         width: 75,
-                        render: (_: unknown, r: ImportRow) => (
-                          <span>{r.data['standardHours'] || r.data['Standard Hours'] || r.data['standardhours'] || r.data['hours'] || '8'}</span>
-                        ),
+                        render: (_: unknown, r: ImportRow) => {
+                          const h =
+                            r.data['standardHours'] || r.data['Standard Hours'] || r.data['standardhours'] || r.data['hours'];
+                          return h ? (
+                            <span>{h}</span>
+                          ) : (
+                            <span style={{ color: '#94a3b8' }} title="Blank — the stored Standard Hours are retained">
+                              —
+                            </span>
+                          );
+                        },
                       },
                       {
                         title: 'From',
@@ -2536,6 +2637,27 @@ const TargetManagement: React.FC = () => {
                         title: 'To',
                         width: 95,
                         render: (_: unknown, r: ImportRow) => r.data['effectiveTo'] || r.data['Effective To'] || r.data['effectiveto'] || <span style={{ color: '#94a3b8' }}>open</span>,
+                      },
+                      {
+                        title: <Space size={4}><ThunderboltOutlined /><span>Planned Action</span></Space>,
+                        width: 118,
+                        render: (_: unknown, r: ImportRow) => {
+                          if (r.action === 'UPDATE') {
+                            return (
+                              <Tag color="blue" style={{ marginInlineEnd: 0 }} title="Anchor matched — only the columns carrying data are overwritten">
+                                Update
+                              </Tag>
+                            );
+                          }
+                          if (r.action === 'CREATE') {
+                            return (
+                              <Tag color="green" style={{ marginInlineEnd: 0 }} title="No anchor match — a new target row will be inserted">
+                                Insert
+                              </Tag>
+                            );
+                          }
+                          return <span style={{ color: '#94a3b8' }}>—</span>;
+                        },
                       },
                       {
                         title: <Space size={4}><CheckCircleOutlined /><span>Result</span></Space>,
@@ -2759,7 +2881,7 @@ const TargetManagement: React.FC = () => {
               description={
                 importSummary.failed > 0
                   ? 'Some rows could not be saved to database. Check the details below or download the error report.'
-                  : `Successfully saved ${importSummary.imported} machine targets to database.`
+                  : `Successfully saved ${importSummary.imported} machine targets to database (${importSummary.created} created, ${importSummary.updated} updated).`
               }
               style={{ marginBottom: 16 }}
             />
@@ -2770,6 +2892,12 @@ const TargetManagement: React.FC = () => {
               <Descriptions.Item label="Duplicate / Overlap">{importSummary.duplicate}</Descriptions.Item>
               <Descriptions.Item label="Successfully Imported">
                 <b style={{ color: '#16a34a', fontSize: 15 }}>{importSummary.imported}</b>
+              </Descriptions.Item>
+              <Descriptions.Item label="Created (new anchor)">
+                <b style={{ color: '#16a34a' }}>{importSummary.created}</b>
+              </Descriptions.Item>
+              <Descriptions.Item label="Updated (in place)">
+                <b style={{ color: '#0369a1' }}>{importSummary.updated}</b>
               </Descriptions.Item>
               <Descriptions.Item label="Failed Database Saves">
                 <b style={{ color: importSummary.failed > 0 ? '#dc2626' : undefined }}>{importSummary.failed}</b>

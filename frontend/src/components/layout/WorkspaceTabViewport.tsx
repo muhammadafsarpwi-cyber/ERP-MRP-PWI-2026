@@ -8,6 +8,23 @@ interface WorkspaceTabViewportProps {
   children: React.ReactNode;
 }
 
+/**
+ * Canonical tab id that MainLayout.openTab() will create for a given path.
+ * Mirrors MainLayout's `tabId` computation (every /settings/* path collapses
+ * onto the single '/settings' tab).
+ */
+function canonicalTabIdFor(pathname: string): string {
+  return pathname.startsWith('/settings') ? '/settings' : pathname;
+}
+
+interface PaneDescriptor {
+  id: string;
+  /** Stable route this pane always renders — never the live global location. */
+  route: string;
+  /** true when the pane exists only because the tab store has not committed it yet. */
+  isPending: boolean;
+}
+
 export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.memo(({ children }) => {
   const tabs = useWorkspaceTabStore((state) => state.tabs);
   const activeTabId = useWorkspaceTabStore((state) => state.activeTabId);
@@ -18,6 +35,7 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.m
   // Track tabs that have been visited during this session.
   // On initial mount/refresh, ONLY the currently active route is visited.
   // Previous tabs in the strip remain lazy (unmounted) until clicked.
+  // Once visited, a pane stays mounted until its tab is closed (keep-alive).
   const [visitedTabIds, setVisitedTabIds] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     if (activeTabId) initial.add(activeTabId);
@@ -75,55 +93,79 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.m
     }
   }, [activeTabId]);
 
-  const isCurrentInTabs = useMemo(() => {
-    return tabs.some((t) => {
-      if (t.id === currentPathname || t.pathname === currentPathname) return true;
-      if (t.route && t.route.split('?')[0] === currentPathname) return true;
-      if (t.id.startsWith('/settings') && currentPathname.startsWith('/settings')) return true;
-      if (t.id !== '/' && currentPathname.startsWith(t.id + '/')) return true;
-      return false;
+  const canonicalTabId = canonicalTabIdFor(currentPathname);
+
+  /**
+   * ── Pane list ──────────────────────────────────────────────────────────
+   * One pane per visited tab, each pinned to ITS OWN stable route.
+   * A deep link the tab store has not committed yet is rendered by exactly ONE
+   * pending pane keyed with the very id openTab() will create, so when the
+   * store catches up React re-uses that subtree instead of mounting a second
+   * copy of the page (previously: transient pane + real pane = 2 mounts).
+   */
+  const panes = useMemo<PaneDescriptor[]>(() => {
+    const list: PaneDescriptor[] = [];
+
+    tabs.forEach((tab) => {
+      const isSettingsMatch = tab.id.startsWith('/settings') && currentPathname.startsWith('/settings');
+      const isVisited =
+        visitedTabIds.has(tab.id) ||
+        tab.id === activeTabId ||
+        tab.id === currentPathname ||
+        isSettingsMatch;
+      if (!isVisited) return; // Lazy: mount only on first visit, keep-alive afterwards
+      list.push({ id: tab.id, route: tab.route || tab.pathname || tab.id, isPending: false });
     });
-  }, [tabs, currentPathname]);
+
+    if (!list.some((pane) => pane.id === canonicalTabId)) {
+      list.push({
+        id: canonicalTabId,
+        route: `${currentPathname}${location.search}`,
+        isPending: true,
+      });
+    }
+
+    return list;
+  }, [tabs, visitedTabIds, activeTabId, currentPathname, location.search, canonicalTabId]);
+
+  /**
+   * ── Activation ─────────────────────────────────────────────────────────
+   * Exactly one pane is visible. `activeTabId` decides ONLY whether a pane is
+   * shown; WHAT a pane renders is decided solely by that pane's own route, so
+   * a pane can never display another tab's page (the "wrong page flash").
+   * While the tab store still has no pane for the URL in the address bar, the
+   * pending pane owns visibility (the window the old duplicate transient pane
+   * used to cover).
+   */
+  const pendingPane = panes.find((pane) => pane.isPending);
+  const activePaneId = pendingPane ? pendingPane.id : activeTabId;
+  const liveRoute = `${location.pathname}${location.search}`;
 
   return (
     <div className="erp-tab-viewport-container">
-      {tabs.map((tab) => {
-        // Lazy-loading: Do not mount DOM nodes for tabs until first visited
-        const isSettingsMatch = tab.id.startsWith('/settings') && currentPathname.startsWith('/settings');
-        const isVisited = visitedTabIds.has(tab.id) || tab.id === activeTabId || tab.id === currentPathname || isSettingsMatch;
-        if (!isVisited) {
-          return null;
-        }
+      {panes.map((pane) => {
+        const isActive = pane.id === activePaneId;
+        const paneId = `erp-tab-pane-${pane.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
-        const isActive = isCurrentInTabs && (tab.id === activeTabId || isSettingsMatch);
-        const paneId = `erp-tab-pane-${tab.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        // Hand React Router the live location object only when this pane's own
+        // route IS the address bar (identical path) — that keeps `location.state`
+        // / `location.key` working for the visible page without ever letting a
+        // pane render a path other than its own.
+        const paneLocation = pane.route === liveRoute ? location : pane.route;
 
         return (
           <div
-            key={tab.id}
+            key={pane.id}
             id={paneId}
             className={`erp-tab-pane ${isActive ? 'erp-tab-pane--active' : 'erp-tab-pane--offscreen'}`}
             aria-hidden={!isActive}
           >
-            <Routes location={isActive ? location : tab.route}>
+            <Routes location={paneLocation}>
               {routeElements}
             </Routes>
           </div>
         );
       })}
-
-      {/* Fallback for transient / direct routes before committing to tab store */}
-      {!isCurrentInTabs && (
-        <div
-          key={`transient-${currentPathname}`}
-          className="erp-tab-pane erp-tab-pane--active"
-          aria-hidden={false}
-        >
-          <Routes location={location}>
-            {routeElements}
-          </Routes>
-        </div>
-      )}
     </div>
   );
 });

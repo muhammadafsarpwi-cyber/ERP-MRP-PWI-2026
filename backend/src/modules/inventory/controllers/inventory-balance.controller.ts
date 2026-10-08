@@ -61,6 +61,7 @@ export class InventoryBalanceController {
   @ApiQuery({ name: 'warehouseId', required: false })
   @ApiQuery({ name: 'locationId', required: false })
   @ApiQuery({ name: 'batchId', required: false })
+  @ApiQuery({ name: 'excludeEntryId', required: false })
   async getAvailableStock(
     @Req() req: any,
     @Query('companyId') companyId?: string,
@@ -68,9 +69,10 @@ export class InventoryBalanceController {
     @Query('warehouseId') warehouseId?: string,
     @Query('locationId') locationId?: string,
     @Query('batchId') batchId?: string,
+    @Query('excludeEntryId') excludeEntryId?: string,
   ) {
     const result = await this.inventoryBalanceService.getAvailableStock(
-      this.resolveCompanyId(req, companyId), itemId, warehouseId, locationId, batchId,
+      this.resolveCompanyId(req, companyId), itemId, warehouseId, locationId, batchId, undefined, excludeEntryId,
     );
     return { success: true, data: result };
   }

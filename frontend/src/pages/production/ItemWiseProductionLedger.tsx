@@ -250,6 +250,7 @@ interface ReportRow {
   totalIn: number;
   totalOut: number;
   scrapOut: number;
+  produced?: number;
   closingBalance: number;
   onHand: number;
   flow?: {
@@ -480,7 +481,11 @@ export const buildChainGrid = (
       def: rowDef,
       src,
       opBalance: round4(num(src?.openingBalance)),
-      production: round4(num(src?.totalIn)),
+      production: round4(
+        rowDef.stage === 'RM'
+          ? num(src?.totalIn)
+          : num(src?.produced !== undefined ? src.produced : src?.totalIn),
+      ),
       multiplier,
       found: Boolean(src),
     };
@@ -1054,17 +1059,19 @@ const ItemWiseProductionLedger: React.FC = () => {
     setWeightMap((prev) => ({ ...prev, ...found }));
   }, []);
 
+  const weightMapRef = useRef(weightMap);
+  weightMapRef.current = weightMap;
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // Day window  ⇒ Opening = everything before it, Production = that day
-      //               only ⇒ Closing(D) ≡ Opening(D+1).
-      // Month window⇒ cumulative scrap from the month baseline up to endDate.
+      // 1) Day window  ⇒ inventory report for the selected endDate
       const dayReq = apiService.get<{ data: { items?: ReportRow[] } }>(
         '/production/inventory-report',
         { dateFrom: endDate, dateTo: endDate },
       );
+      // 2) Month window⇒ cumulative scrap from the month baseline up to endDate.
       const monthReq =
         monthFrom === endDate
           ? Promise.resolve(null)
@@ -1072,10 +1079,108 @@ const ItemWiseProductionLedger: React.FC = () => {
               '/production/inventory-report',
               { dateFrom: monthFrom, dateTo: endDate },
             );
+      // 3) Baseline request ⇒ opening balances at monthFrom
+      const baseReq =
+        monthFrom === endDate
+          ? Promise.resolve(null)
+          : apiService.get<{ data: { items?: ReportRow[] } }>(
+              '/production/inventory-report',
+              { dateFrom: monthFrom, dateTo: monthFrom },
+            );
+      // 4) All Daily Production Entries across [monthFrom, endDate]
+      const entriesReq =
+        monthFrom === endDate
+          ? Promise.resolve(null)
+          : apiService.get<{ data?: any[] }>(
+              '/production/entries',
+              { dateFrom: monthFrom, dateTo: endDate, limit: 1000 },
+            );
 
-      const [dayRes, monthRes] = await Promise.all([dayReq, monthReq]);
-      const dayItems = dayRes?.data?.items ?? [];
+      const [dayRes, monthRes, baseRes, entriesRes] = await Promise.all([
+        dayReq,
+        monthReq,
+        baseReq,
+        entriesReq,
+      ]);
+
+      const dayItems: ReportRow[] = (dayRes?.data?.items ?? []).map((r) => ({ ...r }));
       const monthItems = monthRes?.data?.items ?? dayItems;
+      const baseItems: ReportRow[] = (baseRes?.data?.items ?? dayItems).map((r) => ({ ...r }));
+      const entriesList = Array.isArray(entriesRes?.data) ? entriesRes.data : [];
+
+      // Multi-day rolling window: carry forward previous day's closing into next day's opening
+      if (monthFrom !== endDate && baseItems.length > 0) {
+        // Group entries by YYYY-MM-DD -> itemCode -> total quantity
+        const dailyProdMap = new Map<string, Map<string, number>>();
+        entriesList.forEach((e: any) => {
+          if (e?.isActive === false) return;
+          const rawDate = e?.entryDate;
+          const d = rawDate ? dayjs(rawDate).format('YYYY-MM-DD') : '';
+          const code = (e?.item?.itemCode || e?.itemCode || '').trim();
+          const qty = num(e?.actualQuantity);
+          if (d && code && qty > 0) {
+            let m = dailyProdMap.get(d);
+            if (!m) {
+              m = new Map<string, number>();
+              dailyProdMap.set(d, m);
+            }
+            m.set(code, round4((m.get(code) ?? 0) + qty));
+          }
+        });
+
+        // Compute all days in sequence from monthFrom to endDate
+        const days: string[] = [];
+        let cur = dayjs(monthFrom);
+        const endD = dayjs(endDate);
+        while (!cur.isAfter(endD)) {
+          days.push(cur.format('YYYY-MM-DD'));
+          cur = cur.add(1, 'day');
+        }
+
+        let currentItemMap = new Map<string, ReportRow>();
+        baseItems.forEach((r) => currentItemMap.set(r.itemCode, { ...r }));
+
+        const weights = weightMapRef.current;
+
+        // Iterate through all days before endDate, rolling closing -> next day opening
+        for (let i = 0; i < days.length - 1; i++) {
+          const dayStr = days[i];
+          const prodForDay = dailyProdMap.get(dayStr) ?? new Map<string, number>();
+
+          const dayRows: ReportRow[] = Array.from(currentItemMap.values()).map((r) => ({
+            ...r,
+            produced: prodForDay.get(r.itemCode) ?? 0,
+            totalIn:
+              r.itemType === 'RAW_MATERIAL' || r.itemCode.startsWith('RM-')
+                ? prodForDay.get(r.itemCode) ?? 0
+                : r.totalIn,
+          }));
+
+          const nextClosing = new Map<string, number>();
+          for (const chain of CHAIN_REGISTRY) {
+            const grid = buildChainGrid(chain, dayRows, {}, weights);
+            for (const row of grid.rows) {
+              nextClosing.set(row.itemCode, row.closingPieces);
+            }
+          }
+
+          // Advance opening balances for next day
+          for (const [code, closingVal] of nextClosing.entries()) {
+            const existing = currentItemMap.get(code);
+            if (existing) {
+              existing.openingBalance = closingVal;
+            }
+          }
+        }
+
+        // Apply carried-forward opening balances to dayItems
+        dayItems.forEach((targetRow) => {
+          const carried = currentItemMap.get(targetRow.itemCode);
+          if (carried !== undefined) {
+            targetRow.openingBalance = carried.openingBalance;
+          }
+        });
+      }
 
       setRows(dayItems);
       setMonthScrap(
@@ -1178,11 +1283,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §2 — Item Code sits ON TOP of Item Name inside one cell.
         title: 'Item (Code / Name)',
         key: 'item',
-        // §6/§8/§9 — TIGHT LEDGER: the stack gave 44px back to the flow
-        // columns so the name runs straight into Op Balance instead of
-        // leaving a gutter. §8 took 16px more, §9 a final 8px — the Op
-        // Balance column's left boundary walks left with every pass.
-        width: 236,
+        width: 200,
         // §2 — the ONLY column that stays flush left, header and body alike.
         align: 'left' as const,
         onHeaderCell: () => ({ className: 'iwl-cell-item-head' }),
@@ -1208,11 +1309,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'opBalance',
         key: 'opBalance',
         align: 'center' as const,
-        // §6 — trimmed to the figure, so its centring slack no longer sits
-        // between the item name and the opening balance. §8/§9 — the cell
-        // also drops to a 4px left gutter and 12px narrower, which pulls the
-        // centred figure noticeably leftward toward the item stack.
-        width: 104,
+        width: 110,
         onHeaderCell: () => ({ className: 'iwl-cell-op-head' }),
         onCell: () => ({ className: 'iwl-cell-op iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1226,10 +1323,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'production',
         key: 'production',
         align: 'center' as const,
-        // §6 — takes the width the tightened Item / Op cells released.
-        // §8/§9 — absorbs the 16px + 12px the Item and Op cells gave up,
-        // keeping the matrix at exactly 1642 while Op Balance walks left.
-        width: 196,
+        width: 140,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-prod iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1249,7 +1343,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'subTotal',
         key: 'subTotal',
         align: 'center' as const,
-        width: 152,
+        width: 130,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Text strong>{fmtQty(v, row.uomCode)}</Text>
@@ -1260,7 +1354,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'issuance',
         key: 'issuance',
         align: 'center' as const,
-        width: 170,
+        width: 130,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) =>
           row.issuanceDriven ? (
@@ -1278,7 +1372,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'closingPieces',
         key: 'closingPieces',
         align: 'center' as const,
-        width: 170,
+        width: 140,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-close iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -1308,7 +1402,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'perPieceWeight',
         key: 'perPieceWeight',
         align: 'center' as const,
-        width: 116,
+        width: 104,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => {
           const uom = (row.uomCode ?? '').toUpperCase();
@@ -1330,7 +1424,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'totalWeight',
         key: 'totalWeight',
         align: 'center' as const,
-        width: 140,
+        width: 120,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => (
           <Tooltip
@@ -1732,7 +1826,201 @@ const ItemWiseProductionLedger: React.FC = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    const pageEl = document.querySelector('.iwl-page');
+    if (!pageEl) {
+      window.print();
+      return;
+    }
+
+    let printFrame = document.getElementById('iwl-print-iframe') as HTMLIFrameElement | null;
+    if (printFrame) {
+      printFrame.remove();
+    }
+    printFrame = document.createElement('iframe');
+    printFrame.id = 'iwl-print-iframe';
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = '0';
+    document.body.appendChild(printFrame);
+
+    const doc = printFrame.contentWindow?.document;
+    if (!doc) {
+      window.print();
+      return;
+    }
+
+    const letterhead = pageEl.querySelector('.iwl-letterhead')?.outerHTML || '';
+    const grids = Array.from(pageEl.querySelectorAll('.iwl-grid:not(.iwl-grid--off)'))
+      .map((g) => g.outerHTML)
+      .join('\n');
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${LETTERHEAD.reportTitle} - ${endDate}</title>
+          <style>
+            @page {
+              size: A4 landscape;
+              margin: 7mm 7mm;
+            }
+            * {
+              box-sizing: border-box;
+              margin: 0;
+              padding: 0;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+              background: #ffffff !important;
+              color: #0f172a !important;
+              padding: 4px;
+            }
+            .iwl-no-print, .iwl-toolbar, .iwl-chain-check, .ant-alert {
+              display: none !important;
+            }
+            .iwl-letterhead {
+              display: table !important;
+              width: 100% !important;
+              border-bottom: 2px solid #0f172a !important;
+              padding-bottom: 8px !important;
+              margin-bottom: 10px !important;
+            }
+            .iwl-lh-left {
+              display: table-cell !important;
+              vertical-align: middle !important;
+              width: 70% !important;
+            }
+            .iwl-lh-logo {
+              height: 44px !important;
+              vertical-align: middle !important;
+              margin-right: 12px !important;
+            }
+            .iwl-lh-titles {
+              display: inline-block !important;
+              vertical-align: middle !important;
+            }
+            .iwl-lh-company {
+              font-size: 15pt !important;
+              font-weight: 800 !important;
+              color: #0f172a !important;
+              line-height: 1.15 !important;
+            }
+            .iwl-lh-subtitle {
+              font-size: 8.5pt !important;
+              color: #475569 !important;
+            }
+            .iwl-lh-details {
+              font-size: 8.5pt !important;
+              color: #334155 !important;
+              margin-top: 2px !important;
+            }
+            .iwl-lh-right {
+              display: table-cell !important;
+              vertical-align: middle !important;
+              text-align: right !important;
+              width: 30% !important;
+            }
+            .iwl-lh-date-label {
+              font-size: 9pt !important;
+              font-weight: 700 !important;
+              color: #475569 !important;
+            }
+            .iwl-lh-date-val {
+              font-size: 14pt !important;
+              font-weight: 800 !important;
+              color: #0f172a !important;
+            }
+            .iwl-grid {
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
+              margin-bottom: 12px !important;
+            }
+            .iwl-grid-head {
+              text-align: center !important;
+              margin-bottom: 4px !important;
+            }
+            .iwl-grid-title {
+              font-size: 12pt !important;
+              font-weight: 800 !important;
+              color: #0f172a !important;
+            }
+            .iwl-grid-sub {
+              font-size: 8pt !important;
+              color: #64748b !important;
+            }
+            .iwl-grid table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+              border: 1px solid #94a3b8 !important;
+              font-size: 11px !important;
+              table-layout: auto !important;
+            }
+            .iwl-grid thead th {
+              background: #1e293b !important;
+              color: #ffffff !important;
+              font-weight: 800 !important;
+              padding: 4px 6px !important;
+              border: 1px solid #94a3b8 !important;
+              text-align: center !important;
+              font-size: 10.5px !important;
+            }
+            .iwl-grid thead th:first-child,
+            .iwl-grid thead th.iwl-cell-item-head {
+              text-align: left !important;
+            }
+            .iwl-grid tbody td {
+              border: 1px solid #94a3b8 !important;
+              padding: 3px 6px !important;
+              text-align: center !important;
+              color: #0f172a !important;
+              font-size: 11px !important;
+            }
+            .iwl-grid tbody td:first-child,
+            .iwl-grid tbody td.iwl-cell-item {
+              text-align: left !important;
+            }
+            .iwl-item-code {
+              font-weight: 700 !important;
+              font-family: monospace;
+              font-size: 12px !important;
+            }
+            .iwl-item-name {
+              font-weight: 700 !important;
+              color: #1e40af !important;
+              font-size: 11px !important;
+            }
+            .iwl-cell-prod {
+              color: #047857 !important;
+              font-weight: 800 !important;
+            }
+            .iwl-cell-close {
+              color: #b45309 !important;
+              font-weight: 800 !important;
+            }
+            .iwl-cell-num {
+              font-weight: 700 !important;
+              font-size: 11.5px !important;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="iwl-print-wrapper">
+            ${letterhead}
+            ${grids}
+          </div>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      printFrame?.contentWindow?.focus();
+      printFrame?.contentWindow?.print();
+    }, 200);
   };
 
   /**
@@ -1822,27 +2110,44 @@ const ItemWiseProductionLedger: React.FC = () => {
   }, [routePath, loading]);
 
   return (
-    <div className="iwl-page" style={{ padding: 24 }}>
+    <div className="iwl-page" style={{ padding: '8px 12px' }}>
       <style>{`
+        /* ── Borderless Clean Page & Card ─────────────────────────────── */
+        .iwl-page {
+          background: transparent !important;
+        }
+        .iwl-card {
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+        }
+        .iwl-card > .ant-card-body {
+          padding: 0 !important;
+        }
+
         /* ── §3 corporate letterhead (screen) ─────────────────────────── */
         .iwl-letterhead {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
           border: 1px solid #d9d9d9;
           border-left: 5px solid #1677ff;
           border-radius: 6px;
           background: #fbfcfe;
-          padding: 14px 18px;
+          padding: 12px 18px;
           margin-bottom: 16px;
         }
-        .iwl-lh-company { font-size: 22px; font-weight: 800; line-height: 1.15; letter-spacing: -0.2px; color: #0f172a; }
-        .iwl-lh-subtitle { font-size: 13px; font-weight: 500; color: #5b6472; margin-top: 3px; }
-        .iwl-lh-rule { height: 1px; background: #dfe4ea; margin: 11px 0 9px; }
-        .iwl-lh-meta { display: flex; flex-wrap: wrap; gap: 6px 40px; }
-        .iwl-lh-item { min-width: 220px; }
-        .iwl-lh-label {
-          display: block; font-size: 10px; font-weight: 600; letter-spacing: 0.7px;
-          text-transform: uppercase; color: #8a94a6;
-        }
-        .iwl-lh-value { display: block; font-size: 14px; font-weight: 700; color: #1f2937; margin-top: 1px; }
+        .iwl-lh-left { display: flex; align-items: center; gap: 14px; }
+        .iwl-lh-logo { height: 46px; width: auto; object-fit: contain; }
+        .iwl-lh-company { font-size: 20px; font-weight: 800; line-height: 1.15; letter-spacing: -0.2px; color: #0f172a; }
+        .iwl-lh-subtitle { font-size: 12px; font-weight: 500; color: #5b6472; margin-top: 2px; }
+        .iwl-lh-details { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #475569; margin-top: 4px; }
+        .iwl-lh-detail-item strong { color: #1e293b; font-weight: 600; }
+        .iwl-lh-detail-sep { color: #cbd5e1; }
+        .iwl-lh-right { text-align: right; }
+        .iwl-lh-date-label { font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.5px; }
+        .iwl-lh-date-val { font-size: 20px; font-weight: 800; color: #0f172a; line-height: 1.1; margin-top: 2px; }
 
         /* ── §4 chain identifier: centred bold sub-header ──────────────── */
         .iwl-grid-head {
@@ -1983,14 +2288,26 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
 
         /* The chain block carries its own caption, so the strip is bottom
-           aligned: select, checkbox, picker and both day buttons all share
-           the same control baseline — ONE line, one rhythm. */
+           aligned: select, checkbox, picker on the left, navigation on the right. */
         .iwl-filters {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+        .iwl-filters-left {
           display: flex;
           align-items: flex-end;
           flex-wrap: wrap;
           gap: 12px;
-          margin-bottom: 16px;
+        }
+        .iwl-filters-right {
+          display: flex;
+          align-items: flex-end;
+          gap: 8px;
+          margin-left: auto;
         }
         .iwl-filters-chain { display: flex; flex-direction: column; gap: 4px; }
         .iwl-filters-note { display: flex; align-items: center; gap: 6px; }
@@ -2015,9 +2332,10 @@ const ItemWiseProductionLedger: React.FC = () => {
         [data-theme='dark'] .iwl-letterhead { background: #141b26; border-color: #2a3444; border-left-color: #1677ff; }
         [data-theme='dark'] .iwl-lh-company { color: #f1f5f9; }
         [data-theme='dark'] .iwl-lh-subtitle { color: #94a3b8; }
-        [data-theme='dark'] .iwl-lh-rule { background: #2a3444; }
-        [data-theme='dark'] .iwl-lh-label { color: #7c8ba1; }
-        [data-theme='dark'] .iwl-lh-value { color: #e2e8f0; }
+        [data-theme='dark'] .iwl-lh-details { color: #cbd5e1; }
+        [data-theme='dark'] .iwl-lh-detail-item strong { color: #f8fafc; }
+        [data-theme='dark'] .iwl-lh-date-label { color: #94a3b8; }
+        [data-theme='dark'] .iwl-lh-date-val { color: #f1f5f9; }
         [data-theme='dark'] .iwl-item-code { color: #69b1ff; }
         [data-theme='dark'] .iwl-item-code--missing { color: #ffc53d; }
         [data-theme='dark'] .iwl-item-name { color: #9aa6b8; }
@@ -2064,158 +2382,144 @@ const ItemWiseProductionLedger: React.FC = () => {
           /* App chrome and every interactive control */
           .ant-layout-sider,
           .ant-layout-header,
-          .erp-workspace-tabstrip-container { display: none !important; }
-          .ant-layout { min-height: auto !important; }
-          .ant-layout-content { padding: 0 !important; }
-          .iwl-page { padding: 0 !important; }
+          .erp-workspace-tabstrip-container,
+          .erp-tab-pane--offscreen,
+          .pwi-company-marquee-banner,
+          .ant-message,
+          .ant-notification { display: none !important; }
+
+          html, body, #root, #root > div,
+          .ant-layout,
+          .ant-layout-content,
+          .erp-app-content,
+          .erp-tab-viewport-container,
+          .erp-tab-pane,
+          .erp-tab-pane--active {
+            margin: 0 !important;
+            margin-left: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            overflow-x: visible !important;
+            overflow-y: visible !important;
+            height: auto !important;
+            min-height: auto !important;
+            max-height: none !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            position: static !important;
+            display: block !important;
+          }
+
+          .iwl-page { padding: 0 !important; margin: 0 !important; }
+          .iwl-card { border: none !important; border-radius: 0 !important; box-shadow: none !important; background: #ffffff !important; overflow: visible !important; }
           .iwl-card > .ant-card-head { display: none !important; }
-          .iwl-card > .ant-card-body { padding: 0 !important; }
-          /* §8/§9 — NOTHING above the letterhead is allowed to clip: the
-             metadata slot is lifted, and card + body are both un-clipped so
-             the date can never be sliced by an ancestor's overflow. The sheet
-             is only a frame — the table is width:100%, so this can only
-             un-clip, never un-hide. */
-          .iwl-card,
-          .iwl-card > .ant-card-body { border-radius: 0 !important; overflow: visible !important; }
+          .iwl-card > .ant-card-body { padding: 0 !important; overflow: visible !important; }
           .iwl-no-print, .iwl-toolbar { display: none !important; }
 
-          /* Letterhead replaces the raw title line — colours mirror jsPDF
-             exactly so the printed sheet and the PDF are one document.
-             §6 — COMPACT CORNER SLOTS: the date / metadata block is lifted
-             out of flow and parked in the top-right corner, riding beside the
-             company line. The masthead therefore costs the height of the
-             company line alone instead of a full-width metadata ROW — that
-             is the vertical space the second chain needs. */
+          /* Letterhead replaces the raw title line — colors mirror jsPDF */
           .iwl-letterhead {
             position: relative !important;
+            display: table !important;
+            width: 100% !important;
+            table-layout: fixed !important;
             border: 0 !important;
-            border-bottom: 1.4px solid #0f172a !important;
+            border-bottom: 2px solid #0f172a !important;
             border-radius: 0 !important;
             background: #ffffff !important;
-            /* §8/§9 — bottom padding that gives the lifted date line room to
-               breathe: the corner slot measures 41.5px against 48.5px
-               available, so nothing ever reaches this rule. */
-            padding: 0 0 12px !important;
-            margin: 0 0 4px !important;
+            padding: 0 0 6px !important;
+            margin: 0 0 8px !important;
+          }
+          .iwl-lh-left {
+            display: table-cell !important;
+            vertical-align: middle !important;
+            text-align: left !important;
+            width: 70% !important;
+          }
+          .iwl-lh-logo {
+            display: inline-block !important;
+            vertical-align: middle !important;
+            height: 44px !important;
+            width: auto !important;
+            margin-right: 12px !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .iwl-lh-titles {
+            display: inline-block !important;
+            vertical-align: middle !important;
           }
           .iwl-lh-company {
-            font-size: 16pt !important;
-            line-height: 1.1 !important;
+            font-size: 15pt !important;
+            font-weight: 800 !important;
+            line-height: 1.15 !important;
             color: #0f172a !important;
           }
           .iwl-lh-subtitle {
-            font-size: 7.5pt !important;
+            font-size: 8.5pt !important;
             line-height: 1.2 !important;
-            color: #5b6472 !important;
+            color: #475569 !important;
             margin-top: 1px !important;
           }
-          .iwl-lh-rule { display: none !important; }
-          /* §7/§8/§9 — METADATA CORNER SLOT, final geometry:
-             • the block is a column flex box so the Production Date leads the
-               stack (order: -1) instead of trailing Report Title /
-               Selected Division down the right margin;
-             • §9 the slot is dropped 12px INSIDE the letterhead so that the
-               date's own margin-top: -12px has real room to pull against —
-               net result: the date lands exactly ON the letterhead's top
-               line (0px), never above it, so it can no longer collide with
-               — or be clipped by — the card's top boundary. Its line-height
-               1.4 gives the glyphs a full leading box, so nothing is sliced;
-             • with the date at [0 … 20.5px] the two quiet rows follow at
-               [20.5 … 41.5px], comfortably inside the 48.5px available and a
-               clear ~7px short of the black rule under the masthead;
-             • the date pair is scaled up hard and set at 800 so it carries
-               visual priority over the two quiet rows beneath it. */
-          .iwl-lh-meta {
-            position: absolute !important;
-            /* §9 — headroom for the date's -12px pull (see below). */
-            top: 12px !important;
-            right: 0 !important;
-            width: 46% !important;
-            display: flex !important;
-            flex-direction: column !important;
-            flex-wrap: nowrap !important;
-            align-items: flex-end !important;
-            gap: 0 !important;
-            margin-top: 0 !important;
-            padding-top: 0 !important;
+          .iwl-lh-details {
+            display: block !important;
+            font-size: 8.5pt !important;
+            color: #334155 !important;
+            margin-top: 2px !important;
+          }
+          .iwl-lh-detail-item strong {
+            color: #0f172a !important;
+            font-weight: 700 !important;
+          }
+          .iwl-lh-detail-sep {
+            color: #94a3b8 !important;
+            margin: 0 6px !important;
+          }
+          .iwl-lh-right {
+            display: table-cell !important;
+            vertical-align: middle !important;
             text-align: right !important;
+            width: 30% !important;
           }
-          .iwl-lh-item {
-            min-width: 0 !important;
-            margin: 0 !important;
-            /* §9 — the two quiet rows are pulled in to 1.05 so the 1.4 date
-               line above them still leaves air before the black rule. */
-            line-height: 1.05 !important;
-          }
-          .iwl-lh-label {
-            display: inline !important;
-            font-size: 6pt !important;
-            color: #444444 !important;
-            margin-right: 5px !important;
-          }
-          .iwl-lh-value {
-            display: inline !important;
-            font-size: 7.5pt !important;
-            color: #0f172a !important;
-            margin-top: 0 !important;
-          }
-          /* §9 — the date rides at the TOP of the metadata grid. The slot is
-             parked at top:12px precisely so these two requested values can be
-             used verbatim: -12px pulls it back to the letterhead's top line
-             and 1.4 gives it a generous, un-clippable leading box. */
-          .iwl-lh-meta > .iwl-lh-item--date {
-            order: -1 !important;
-            margin-top: -12px !important;
-            line-height: 1.4 !important;
-          }
-          .iwl-lh-item--date .iwl-lh-label {
-            font-size: 8pt !important;
+          .iwl-lh-date-label {
+            font-size: 9pt !important;
             font-weight: 800 !important;
-            letter-spacing: 0.02em !important;
-            color: #0f172a !important;
-            margin-right: 6px !important;
+            letter-spacing: 0.5px !important;
+            color: #475569 !important;
           }
-          .iwl-lh-item--date .iwl-lh-value {
-            font-size: 11pt !important;
+          .iwl-lh-date-val {
+            font-size: 14pt !important;
             font-weight: 800 !important;
             color: #0f172a !important;
+            line-height: 1.1 !important;
+            margin-top: 2px !important;
           }
 
-          /* A chain is an atomic page unit; never split it.
-             §6 — the vertical belt is pulled in: 4px between chains, 2px
-             under the identifier and a single-line title. */
+          /* A chain is an atomic page unit; never split it. */
           .iwl-grid {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
-            min-height: 200px;
-            margin-bottom: 4px !important;
+            margin-bottom: 8px !important;
           }
           .iwl-grid--off { display: none !important; }
-          /* §4 — the chain identifier sits dead-centre as a bold sub-header */
           .iwl-grid-head {
             position: static !important;
             justify-content: center !important;
-            margin-bottom: 2px !important;
-            line-height: 1.05 !important;
+            margin-bottom: 3px !important;
+            line-height: 1.1 !important;
           }
           .iwl-grid-title {
             text-align: center !important;
             font-size: 12pt !important;
-            line-height: 1.05 !important;
+            line-height: 1.1 !important;
             margin: 0 !important;
             font-weight: 800 !important;
             letter-spacing: 0.3px !important;
             color: #0f172a !important;
           }
           .iwl-grid-sub, .iwl-grid-off-note { font-size: 8pt !important; color: #444444 !important; }
-          /* §6 — the stacked cell is the tallest thing in a row, so it is the
-             lever: line-heights and the stack gap are pulled to one crisp
-             pass each. Nine rows × a few pixels is a whole chain. */
-          .iwl-grid .iwl-item-stack { gap: 0 !important; line-height: 1.05 !important; }
-          .iwl-item-code { font-size: 13px !important; font-weight: 700 !important; color: #0f172a !important; line-height: 1.05 !important; }
-          /* §13 — the description prints ULTRA-BOLD in ROYAL BLUE, so the
-             second line still pops off the paper instead of greying out. */
-          .iwl-item-name { font-size: 12px !important; font-weight: 700 !important; color: #1e40af !important; line-height: 1.05 !important; }
+          .iwl-grid .iwl-item-stack { gap: 0 !important; line-height: 1.1 !important; }
+          .iwl-item-code { font-size: 12.5px !important; font-weight: 700 !important; color: #0f172a !important; line-height: 1.1 !important; }
+          .iwl-item-name { font-size: 11.5px !important; font-weight: 700 !important; color: #1e40af !important; line-height: 1.1 !important; }
 
           /* Premium pre-formatted financial grid */
           .iwl-grid .ant-table-wrapper,
@@ -2233,10 +2537,9 @@ const ItemWiseProductionLedger: React.FC = () => {
             min-width: 0 !important;
             table-layout: auto !important;
             border-collapse: collapse !important;
-            /* §13 — the OUTER FRAMEWORK of the sheet: solid charcoal. */
             border: 1px solid #94a3b8 !important;
             background: #ffffff !important;
-            font-size: 12.5px !important;
+            font-size: 12px !important;
             font-variant-numeric: tabular-nums;
           }
           .iwl-grid col { width: auto !important; }
@@ -2465,86 +2768,83 @@ const ItemWiseProductionLedger: React.FC = () => {
       <Card className="iwl-card" bordered={false} title={null}>
         {/* ── §3 corporate letterhead ───────────────────────────────────── */}
         <div className="iwl-letterhead">
-          <div className="iwl-lh-company">{LETTERHEAD.company}</div>
-          <div className="iwl-lh-subtitle">{LETTERHEAD.subtitle}</div>
-          <div className="iwl-lh-rule" />
-          <div className="iwl-lh-meta">
-            <div className="iwl-lh-item">
-              <span className="iwl-lh-label">Report Title</span>
-              <span className="iwl-lh-value">{LETTERHEAD.reportTitle}</span>
+          <div className="iwl-lh-left">
+            <img
+              src={`${process.env.PUBLIC_URL}/logo.png`}
+              alt="PWI Logo"
+              className="iwl-lh-logo"
+            />
+            <div className="iwl-lh-titles">
+              <div className="iwl-lh-company">{LETTERHEAD.company}</div>
+              <div className="iwl-lh-subtitle">{LETTERHEAD.subtitle}</div>
+              <div className="iwl-lh-details">
+                <span className="iwl-lh-detail-item">
+                  <strong>Report Title:</strong> {LETTERHEAD.reportTitle}
+                </span>
+                <span className="iwl-lh-detail-sep">•</span>
+                <span className="iwl-lh-detail-item">
+                  <strong>Selected Division:</strong> {LETTERHEAD.division}
+                </span>
+              </div>
             </div>
-            <div className="iwl-lh-item">
-              <span className="iwl-lh-label">Selected Division</span>
-              <span className="iwl-lh-value">{LETTERHEAD.division}</span>
-            </div>
-            {/* §7 — the modifier is print-only ink: on screen this item keeps
-                the plain `.iwl-lh-item` look. In print it is lifted to the
-                head of the metadata stack (see `order: -1`) and rendered as
-                the heavy hero line of the masthead. */}
-            <div className="iwl-lh-item iwl-lh-item--date">
-              <span className="iwl-lh-label">Production Date</span>
-              <span className="iwl-lh-value">{endDate}</span>
-            </div>
+          </div>
+          <div className="iwl-lh-right">
+            <div className="iwl-lh-date-label">PRODUCTION DATE</div>
+            <div className="iwl-lh-date-val">{endDate}</div>
           </div>
         </div>
 
-        {/* ── §11 THE PAGE TITLE ───────────────────────────────────────────
-            The one and only "Item-Wise Production Ledger" heading, living in
-            the lower core structure directly beneath the letterhead — the
-            master printable metadata section — instead of a floating band
-            above the card. Screen only: the printed sheet already inks its
-            own Report Title row inside that metadata grid, so printing this
-            line as well would stack two near-identical titles. */}
-        <Title level={4} className="iwl-title iwl-no-print">
-          Item-Wise Production Ledger
-        </Title>
-
         {/* ── §10 UNIFIED FILTER STRIP ───────────────────────────────────
-            One horizontal line, left to right: chain select → show-all →
-            date window → previous day → next day. Sits directly under the
-            page title and above the metric cards. Screen only. */}
+            Left: chain select → show-all → date window
+            Right: previous day → next day. Sits directly under the
+            letterhead and above the metric cards. Screen only. */}
         <div className="iwl-filters iwl-no-print">
-          <div className="iwl-filters-chain">
-            <Text type="secondary">Select Production Item Chain</Text>
-            <Select
-              style={{ width: 260 }}
-              showSearch
-              placeholder="Select Production Item Chain"
-              value={chainKey}
-              onChange={(v) => setChainKey(v)}
-              optionFilterProp="label"
-              disabled={showAll}
-              options={chainOptions}
-            />
-          </div>
-          <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>
-            Show All Item Chains on One Page
-          </Checkbox>
-          <RangePicker
-            value={range}
-            allowClear={false}
-            format="YYYY-MM-DD"
-            onChange={(v) => {
-              if (v && v[0] && v[1]) setRange([v[0], v[1]]);
-            }}
-          />
-          <Button icon={<LeftOutlined />} onClick={() => shiftEndDay(-1)}>
-            Previous Day
-          </Button>
-          <Button onClick={() => shiftEndDay(1)}>
-            Next Day <RightOutlined />
-          </Button>
-          {showAll && excludedCount > 0 ? (
-            <div className="iwl-filters-note">
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {excludedCount} chain{excludedCount > 1 ? 's' : ''} excluded from the sheet and every
-                export.
-              </Text>
-              <Button type="link" size="small" style={{ padding: 0 }} onClick={restoreAllChains}>
-                Restore all
-              </Button>
+          <div className="iwl-filters-left">
+            <div className="iwl-filters-chain">
+              <Text type="secondary">Select Production Item Chain</Text>
+              <Select
+                style={{ width: 260 }}
+                showSearch
+                placeholder="Select Production Item Chain"
+                value={chainKey}
+                onChange={(v) => setChainKey(v)}
+                optionFilterProp="label"
+                disabled={showAll}
+                options={chainOptions}
+              />
             </div>
-          ) : null}
+            <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>
+              Show All Item Chains on One Page
+            </Checkbox>
+            <RangePicker
+              value={range}
+              allowClear={false}
+              format="YYYY-MM-DD"
+              onChange={(v) => {
+                if (v && v[0] && v[1]) setRange([v[0], v[1]]);
+              }}
+            />
+            {showAll && excludedCount > 0 ? (
+              <div className="iwl-filters-note">
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {excludedCount} chain{excludedCount > 1 ? 's' : ''} excluded from the sheet and every
+                  export.
+                </Text>
+                <Button type="link" size="small" style={{ padding: 0 }} onClick={restoreAllChains}>
+                  Restore all
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="iwl-filters-right">
+            <Button icon={<LeftOutlined />} onClick={() => shiftEndDay(-1)}>
+              Previous Day
+            </Button>
+            <Button onClick={() => shiftEndDay(1)}>
+              Next Day <RightOutlined />
+            </Button>
+          </div>
         </div>
 
         {/* §1 print — the metric strip is screen-only. On paper the
@@ -2648,7 +2948,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                         dataSource={g.rows}
                         rowKey="key"
                         pagination={false}
-                        scroll={{ x: 1642 }}
+                        scroll={{ x: 1400 }}
                         size="small"
                         bordered
                       />

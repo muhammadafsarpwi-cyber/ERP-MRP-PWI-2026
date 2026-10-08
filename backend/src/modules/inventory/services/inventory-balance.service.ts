@@ -102,30 +102,66 @@ export class InventoryBalanceService {
     locationId?: string,
     batchId?: string,
     manager?: EntityManager,
+    excludeEntryId?: string,
   ): Promise<number> {
     if (!companyId || !itemId) return 0;
 
+    let available = 0;
     // Specific balance: exact on-hand − reserved in that warehouse/location/batch.
     if (warehouseId) {
       const balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId, batchId, manager);
-      if (!balance) return 0;
-      return Number(balance.onHand) - Number(balance.reserved);
+      if (balance) {
+        available = Number(balance.onHand) - Number(balance.reserved);
+      }
+    } else {
+      // No warehouse selected: aggregate the item's real available stock across
+      // every ACTIVE balance in this company, so callers (e.g. the Production
+      // Entry raw-material availability) never see a fabricated zero.
+      const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
+      const qb = repo
+        .createQueryBuilder('balance')
+        .select('COALESCE(SUM(balance.on_hand - balance.reserved), 0)', 'available')
+        .where('balance.companyId = :companyId', { companyId })
+        .andWhere('balance.itemId = :itemId', { itemId })
+        .andWhere('balance.status = :status', { status: 'ACTIVE' });
+      if (locationId) qb.andWhere('balance.locationId = :locationId', { locationId });
+      if (batchId) qb.andWhere('balance.batchId = :batchId', { batchId });
+      const row = await qb.getRawOne();
+      available = Number(row?.available) || 0;
     }
 
-    // No warehouse selected: aggregate the item's real available stock across
-    // every ACTIVE balance in this company, so callers (e.g. the Production
-    // Entry raw-material availability) never see a fabricated zero.
-    const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
-    const qb = repo
-      .createQueryBuilder('balance')
-      .select('COALESCE(SUM(balance.on_hand - balance.reserved), 0)', 'available')
-      .where('balance.companyId = :companyId', { companyId })
-      .andWhere('balance.itemId = :itemId', { itemId })
-      .andWhere('balance.status = :status', { status: 'ACTIVE' });
-    if (locationId) qb.andWhere('balance.locationId = :locationId', { locationId });
-    if (batchId) qb.andWhere('balance.batchId = :batchId', { batchId });
-    const row = await qb.getRawOne();
-    return Number(row?.available) || 0;
+    // When calculating available stock in EDIT mode for an existing entry:
+    // exclude the entry's own posted stock ledger impact (add back OUT consumed, subtract IN produced)
+    if (excludeEntryId) {
+      try {
+        const mgr = manager || this.repo.manager;
+        const qb = mgr
+          .createQueryBuilder()
+          .select('sl.direction', 'direction')
+          .addSelect('sl.quantity', 'quantity')
+          .from('stock_ledger', 'sl')
+          .where('sl.company_id = :companyId', { companyId })
+          .andWhere('sl.reference_type = :refType', { refType: 'PRODUCTION_ENTRY' })
+          .andWhere('sl.reference_id = :refId', { refId: excludeEntryId })
+          .andWhere('sl.item_id = :itemId', { itemId });
+        if (warehouseId) {
+          qb.andWhere('sl.warehouse_id = :warehouseId', { warehouseId });
+        }
+        const ledgerRows = await qb.getRawMany();
+        for (const row of ledgerRows) {
+          const q = Number(row.quantity) || 0;
+          if (row.direction === 'OUT') {
+            available += q; // Add back consumed raw material
+          } else if (row.direction === 'IN') {
+            available = Math.max(0, available - q); // Subtract produced stock
+          }
+        }
+      } catch (e) {
+        this.logger.warn(`Failed to exclude entry ${excludeEntryId} from available stock: ${e}`);
+      }
+    }
+
+    return available;
   }
 
   async updateBalance(

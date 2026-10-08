@@ -18,6 +18,10 @@ describe('CustomerService', () => {
   const mockCustomer: Customer = {
     id: 'cust-001',
     companyId: 'company-001',
+    // Nullable division on the Customer entity (divisionId + relation) — the
+    // fixture is a generic customer with no division assigned.
+    divisionId: null,
+    division: null,
     customerCode: 'CUST-0001',
     name: 'Test Customer',
     legalName: 'Test Customer Ltd',
