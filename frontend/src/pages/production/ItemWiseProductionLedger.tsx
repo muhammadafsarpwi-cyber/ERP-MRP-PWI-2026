@@ -105,6 +105,8 @@ interface ChainDef {
   label: string;
   /** Item whose Production on the As-On date is the "Total Packed Pieces". */
   fgItemCode: string;
+  divisionId?: string | null;
+  divisionName?: string | null;
   rows: ChainRowDef[];
 }
 
@@ -132,18 +134,34 @@ const dpRow = (order: number, fgCode: string, label: string): ChainRowDef => ({
  */
 export const CHAIN_REGISTRY: ChainDef[] = [
   {
+    key: 'spk-001-250x17-butted',
+    label: '250X17 INN / OUT Spoke Butted — SPI-FG-SPK-001',
+    fgItemCode: 'SPI-FG-SPK-001',
+    rows: [
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-001', itemLabel: 'CD-250*17 Butted' },
+      { order: 3, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-001', itemLabel: 'CD-250*17 Butted' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-001', splitSide: 'INNER', itemLabel: 'CD-250*17 Inner Butted' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-002', splitSide: 'OUTER', itemLabel: 'CD-250*17 Outer Butted' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-001', splitSide: 'INNER', itemLabel: 'CD-250*17 Inner Butted' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-002', splitSide: 'OUTER', itemLabel: 'CD-250*17 Outer Butted' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-001', itemLabel: '250X17 INN / OUT Spoke Butted__225X17 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-001', '250X17 Dispatch Outward Stage'),
+    ],
+  },
+  {
     key: 'cd-250x17-butted',
     label: 'CD-250X17 Butted Spoke — SPI-FG-SPK-002',
     fgItemCode: 'SPI-FG-SPK-002',
     rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009' },
-      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-001' },
-      { order: 3, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-001' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-001', splitSide: 'INNER' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-002', splitSide: 'OUTER' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-001', splitSide: 'INNER' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-002', splitSide: 'OUTER' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-002' },
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-001', itemLabel: 'CD-250*17 Butted' },
+      { order: 3, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-001', itemLabel: 'CD-250*17 Butted' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-001', splitSide: 'INNER', itemLabel: 'CD-250*17 Inner Butted' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-002', splitSide: 'OUTER', itemLabel: 'CD-250*17 Outer Butted' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-001', splitSide: 'INNER', itemLabel: 'CD-250*17 Inner Butted' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-002', splitSide: 'OUTER', itemLabel: 'CD-250*17 Outer Butted' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-002', itemLabel: '250X17 Inn / Out Spoke Butted__CD-250X17 Nipple' },
       dpRow(9, 'SPI-FG-SPK-002', '250X17 Dispatch Outward Stage'),
     ],
   },
@@ -152,15 +170,31 @@ export const CHAIN_REGISTRY: ChainDef[] = [
     label: 'CD-250X18 Butted Spoke — SPI-FG-SPK-003',
     fgItemCode: 'SPI-FG-SPK-003',
     rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009' },
-      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-014' },
-      { order: 3, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-002' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-003', splitSide: 'INNER' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-004', splitSide: 'OUTER' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-003', splitSide: 'INNER' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-004', splitSide: 'OUTER' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-003' },
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-014', itemLabel: '250*18 Butted 100cc' },
+      { order: 3, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-002', itemLabel: '250*18 Butted 100cc' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-003', splitSide: 'INNER', itemLabel: '250*18 Inner Butted 100cc' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-004', splitSide: 'OUTER', itemLabel: '250*18 Outer Butted 100cc' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-003', splitSide: 'INNER', itemLabel: '250*18 Inner Butted 100' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-004', splitSide: 'OUTER', itemLabel: '250*18 Outer Butted 100cc' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-003', itemLabel: '250X18 Inn / Out Spoke Butted__CD-250X17 Nipple' },
       dpRow(9, 'SPI-FG-SPK-003', '250X18 Dispatch Outward Stage'),
+    ],
+  },
+  {
+    key: 'spk-004-cd-250x18-outer-butted',
+    label: 'CD-250*18 Outer Butted — SPI-FG-SPK-004',
+    fgItemCode: 'SPI-FG-SPK-004',
+    rows: [
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-014', itemLabel: '250*18 Butted 100cc' },
+      { order: 3, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-002', itemLabel: '250*18 Butted 100cc' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-003', splitSide: 'INNER', itemLabel: '250*18 Inner Butted 100cc' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-004', splitSide: 'OUTER', itemLabel: '250*18 Outer Butted 100cc' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-003', splitSide: 'INNER', itemLabel: '250*18 Inner Butted 100' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-004', splitSide: 'OUTER', itemLabel: '250*18 Outer Butted 100cc' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-004', itemLabel: 'CD-250*18 Outer Butted' },
+      dpRow(9, 'SPI-FG-SPK-004', '250*18 Outer Butted Dispatch Outward Stage'),
     ],
   },
   {
@@ -168,15 +202,31 @@ export const CHAIN_REGISTRY: ChainDef[] = [
     label: '250X17 Straight Spoke — SPI-FG-SPK-005',
     fgItemCode: 'SPI-FG-SPK-005',
     rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-010' },
-      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-010', splitSide: 'INNER' },
-      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-011', splitSide: 'OUTER' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-005', splitSide: 'INNER' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-006', splitSide: 'OUTER' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-005', splitSide: 'INNER' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-006', splitSide: 'OUTER' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-005' },
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-010', itemLabel: 'Steel Wire Coil 3.14 mm SR' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-010', splitSide: 'INNER', itemLabel: '250*17 Inner Straight' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-011', splitSide: 'OUTER', itemLabel: '250*17 Outer Straight' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-005', splitSide: 'INNER', itemLabel: '250*17 Inner Straight' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-006', splitSide: 'OUTER', itemLabel: '250*17 Outer Straight' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-005', splitSide: 'INNER', itemLabel: '250*17 Inner Straight' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-006', splitSide: 'OUTER', itemLabel: '250*17 Outer Straight' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-005', itemLabel: 'RM Inn / Out Spoke Straight__RM-100 Nipple' },
       dpRow(9, 'SPI-FG-SPK-005', '250X17 Straight Dispatch Outward Stage'),
+    ],
+  },
+  {
+    key: 'spk-006-rm-18-straight',
+    label: 'RM -18 Inn / Out Spoke Straight — SPI-FG-SPK-006',
+    fgItemCode: 'SPI-FG-SPK-006',
+    rows: [
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-010', itemLabel: 'Steel Wire Coil 3.14 mm SR' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-012', splitSide: 'INNER', itemLabel: '250*18 Inner Straight' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-013', splitSide: 'OUTER', itemLabel: '250*18 Outer Straight' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-007', splitSide: 'INNER', itemLabel: '250*18 Inner Straight' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-008', splitSide: 'OUTER', itemLabel: '250*18 Outer Straight' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-007', splitSide: 'INNER', itemLabel: '250*18 Inner Straight' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-008', splitSide: 'OUTER', itemLabel: '250*18 Outer Straight' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-006', itemLabel: 'RM -18 Inn / Out Spoke Straight__RM-100 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-006', 'RM -18 Straight Dispatch Outward Stage'),
     ],
   },
   {
@@ -184,14 +234,14 @@ export const CHAIN_REGISTRY: ChainDef[] = [
     label: '125-300X17 Straight Spoke — SPI-FG-SPK-007',
     fgItemCode: 'SPI-FG-SPK-007',
     rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-012' },
-      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-003', splitSide: 'INNER' },
-      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-004', splitSide: 'OUTER' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-013', splitSide: 'INNER' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-014', splitSide: 'OUTER' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-013', splitSide: 'INNER' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-014', splitSide: 'OUTER' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-007' },
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-012', itemLabel: 'Steel Wire Coil 3.45mm SR' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-003', splitSide: 'INNER', itemLabel: '125-300*17 Inner Straight' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-004', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Straight' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-013', splitSide: 'INNER', itemLabel: '125-300*17 Inner Straight' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-014', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Straight' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-013', splitSide: 'INNER', itemLabel: '125-300*17 Inner Straight' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-014', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Straight' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-007', itemLabel: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple' },
       dpRow(9, 'SPI-FG-SPK-007', '125-300X17 Dispatch Outward Stage'),
     ],
   },
@@ -200,15 +250,47 @@ export const CHAIN_REGISTRY: ChainDef[] = [
     label: '125-300X18 Straight Spoke — SPI-FG-SPK-008',
     fgItemCode: 'SPI-FG-SPK-008',
     rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-012' },
-      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-006', splitSide: 'INNER' },
-      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-007', splitSide: 'OUTER' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-015', splitSide: 'INNER' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-016', splitSide: 'OUTER' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-015', splitSide: 'INNER' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-016', splitSide: 'OUTER' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-008' },
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-010', itemLabel: 'Steel Wire Coil 3.14 mm SR' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-006', splitSide: 'INNER', itemLabel: '125-300*18 Inner Straight' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-007', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Straight' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-015', splitSide: 'INNER', itemLabel: '125-300*18 Inner Straight' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-016', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Straight' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-015', splitSide: 'INNER', itemLabel: '125-300*18 Inner Straight' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-016', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Straight' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-008', itemLabel: '300X18 S9 Inn / Out Spoke Straight__125-S9 Nipple' },
       dpRow(9, 'SPI-FG-SPK-008', '125-300X18 Dispatch Outward Stage'),
+    ],
+  },
+  {
+    key: 'spk-009-125-300x17-butted',
+    label: '125-300X17 Inn / Out Spoke Butted — SPI-FG-SPK-009',
+    fgItemCode: 'SPI-FG-SPK-009',
+    rows: [
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-002', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-005', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-009', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-010', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-009', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-010', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-009', itemLabel: '125-300X17 Inn / Out Spoke Butted__125 - 300X17 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-009', '125-300X17 Butted Dispatch Outward Stage'),
+    ],
+  },
+  {
+    key: 'spk-010-125-300x18-butted',
+    label: '125-300X18 Inn / Out Spoke Butted — SPI-FG-SPK-010',
+    fgItemCode: 'SPI-FG-SPK-010',
+    rows: [
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-008', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-009', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-011', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-012', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-011', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-012', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-010', itemLabel: '125-300X18 Inn / Out Spoke Butted__125 - 300X17 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-010', '125-300X18 Butted Dispatch Outward Stage'),
     ],
   },
   {
@@ -216,14 +298,14 @@ export const CHAIN_REGISTRY: ChainDef[] = [
     label: '225X17 Straight Spoke — SPI-FG-SPK-011',
     fgItemCode: 'SPI-FG-SPK-011',
     rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-013' },
-      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-015', splitSide: 'INNER' },
-      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-016', splitSide: 'OUTER' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-017', splitSide: 'INNER' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-018', splitSide: 'OUTER' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-017', splitSide: 'INNER' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-018', splitSide: 'OUTER' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-011' },
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-013', itemLabel: 'Steel Wire Coil 2.85mm SR' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-015', splitSide: 'INNER', itemLabel: '225*17 Inner Straight' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-016', splitSide: 'OUTER', itemLabel: '225*17 Outer Straight' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-017', splitSide: 'INNER', itemLabel: '225*17 Inner Straight' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-018', splitSide: 'OUTER', itemLabel: '225*17 Outer Straight' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-017', splitSide: 'INNER', itemLabel: '225*17 Inner Straight' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-018', splitSide: 'OUTER', itemLabel: '225*17 Outer Straight' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-011', itemLabel: 'DS Front Inn / Out Spoke Straight__225X17 Nipple' },
       dpRow(9, 'SPI-FG-SPK-011', '225X17 Dispatch Outward Stage'),
     ],
   },
@@ -442,6 +524,7 @@ export const buildChainGrid = (
   reportRows: ReportRow[],
   monthScrap: Record<string, number>,
   weightMap: Record<string, number | null>,
+  itemNames?: Record<string, string>,
 ): ChainGrid => {
   const declaredRows = def.rows.filter(
     (r) => typeof r.itemCode === 'string' && r.itemCode.trim() !== '',
@@ -579,7 +662,7 @@ export const buildChainGrid = (
       stage: p.def.stage,
       stageLabel: p.def.stageLabel,
       itemCode: p.def.itemCode,
-      itemName: p.src?.itemName ?? p.def.itemLabel ?? '—',
+      itemName: p.src?.itemName ?? (itemNames && itemNames[p.def.itemCode]) ?? p.def.itemLabel ?? '—',
       splitSide: p.def.splitSide,
       uomCode: p.src?.uomCode ?? null,
       opBalance: p.opBalance,
@@ -986,8 +1069,50 @@ const ItemWiseProductionLedger: React.FC = () => {
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [monthScrap, setMonthScrap] = useState<Record<string, number>>({});
   const [weightMap, setWeightMap] = useState<Record<string, number | null>>({});
+  const [itemNames, setItemNames] = useState<Record<string, string>>({});
+  const [allChains, setAllChains] = useState<ChainDef[]>(CHAIN_REGISTRY);
   const [chainKey, setChainKey] = useState<string>(CHAIN_REGISTRY[0]?.key ?? '');
   const [showAll, setShowAll] = useState(false);
+
+  // ── DIVISION FILTERING (TASK / USER REQUEST) ──
+  const [selectedDivisionId, setSelectedDivisionId] = useState<string>('ALL');
+  const [divisionsList, setDivisionsList] = useState<Array<{ id: string; name: string; divisionCode?: string }>>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    apiService.get('/divisions', { limit: 100 })
+      .then((res: any) => {
+        if (!isMounted) return;
+        const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+        setDivisionsList(list.filter((d: any) => d.status !== 'INACTIVE'));
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, []);
+
+  /** Chains filtered by selected division (or all divisions) */
+  const filteredChains = useMemo(() => {
+    if (selectedDivisionId === 'ALL') {
+      return allChains;
+    }
+    return allChains.filter((c) => {
+      if (c.divisionId && c.divisionId === selectedDivisionId) return true;
+      const divObj = divisionsList.find((d) => d.id === selectedDivisionId);
+      if (divObj && c.divisionName && c.divisionName.toLowerCase().trim() === divObj.name.toLowerCase().trim()) return true;
+      return false;
+    });
+  }, [allChains, selectedDivisionId, divisionsList]);
+
+  // When filteredChains change, ensure valid chainKey selection
+  useEffect(() => {
+    if (filteredChains.length > 0) {
+      const exists = filteredChains.some((c) => c.key === chainKey);
+      if (!exists) {
+        setChainKey(filteredChains[0].key);
+      }
+    }
+  }, [filteredChains, chainKey]);
+
   /**
    * §1 — chain keys the operator has ticked off. Absent ⇒ included, so the
    * default state is "every chain checked" with no seeding required.
@@ -1007,9 +1132,15 @@ const ItemWiseProductionLedger: React.FC = () => {
     : range[0].format('YYYY-MM-DD');
 
   const chainDef = useMemo(
-    () => CHAIN_REGISTRY.find((c) => c.key === chainKey) ?? CHAIN_REGISTRY[0] ?? null,
-    [chainKey],
+    () => filteredChains.find((c) => c.key === chainKey) ?? filteredChains[0] ?? null,
+    [filteredChains, chainKey],
   );
+
+  const selectedDivisionName = useMemo(() => {
+    if (selectedDivisionId === 'ALL') return 'All Divisions (تمام ڈویژنز)';
+    const found = divisionsList.find((d) => d.id === selectedDivisionId);
+    return found?.name || 'Selected Division';
+  }, [selectedDivisionId, divisionsList]);
 
   /** §3 — ±1 day on the End Date; the month baseline stays put. */
   const shiftEndDay = useCallback((delta: number) => {
@@ -1017,12 +1148,13 @@ const ItemWiseProductionLedger: React.FC = () => {
   }, []);
 
   /**
-   * Weights are loaded once for EVERY registered chain so switching the
-   * dropdown re-renders instantly with no follow-up round-trip.
+   * Weights and item master names are loaded once for EVERY registered chain
+   * so switching the dropdown re-renders instantly with no follow-up round-trip.
+   * Also dynamically discovers newly added Finished Goods and builds chains for them.
    */
   const loadWeights = useCallback(async () => {
     const wanted = Array.from(
-      new Set(CHAIN_REGISTRY.flatMap((c) => c.rows.map((r) => r.itemCode.trim())).filter(Boolean)),
+      new Set(allChains.flatMap((c) => c.rows.map((r) => r.itemCode.trim())).filter(Boolean)),
     );
     if (wanted.length === 0) return;
     const found: Record<string, number | null> = {};
@@ -1034,10 +1166,124 @@ const ItemWiseProductionLedger: React.FC = () => {
       const res: any = await apiService.get('/master-data/items', { limit: 5000 });
       const list: any[] = Array.isArray(res?.data) ? res.data : [];
       const byCode = new Map<string, any>(list.map((i) => [i?.itemCode, i]));
+      const byId = new Map<string, any>(list.map((i) => [i?.id, i]));
+      const names: Record<string, string> = {};
+      list.forEach((i) => {
+        if (i?.itemCode && i?.name) {
+          names[i.itemCode] = i.name;
+        }
+      });
+      setItemNames((prev) => ({ ...prev, ...names }));
+
       wanted.forEach((code) => {
         const hit = byCode.get(code);
         if (hit) found[code] = toWeight(hit.weightPerPiece);
       });
+
+      // ── DYNAMIC FINISHED GOODS CHAIN DISCOVERY ──
+      const knownFgCodes = new Set(CHAIN_REGISTRY.map((c) => c.fgItemCode));
+      const dynamicChains: ChainDef[] = [];
+      list.forEach((item) => {
+        if (!item || !item.itemCode) return;
+        // Strictly Finished Goods only as requested by user
+        const isFg = item.itemType === 'FINISHED_GOOD';
+        if (!isFg || knownFgCodes.has(item.itemCode)) return;
+
+        const fgCode = item.itemCode;
+        const fgName = item.name || fgCode;
+        const key = `dyn-${fgCode.toLowerCase()}`;
+        const label = `${fgName} — ${fgCode}`;
+        const divId = item.divisionId || item.division?.id || null;
+        const divName = item.division?.name || item.divisionName || null;
+        const rows: ChainRowDef[] = [];
+        let order = 1;
+
+        if (Array.isArray(item.processes) && item.processes.length > 0) {
+          item.processes.forEach((p: any) => {
+            const outItem =
+              (p.outputItemId ? byId.get(p.outputItemId) : null) ||
+              (p.outputItemCode ? byCode.get(p.outputItemCode) : null);
+            const code =
+              outItem?.itemCode ||
+              p.outputItemCode ||
+              (typeof p.outputItemId === 'string' && !p.outputItemId.includes('-')
+                ? p.outputItemId
+                : '');
+            const rowItemName = outItem?.name || p.outputItemName || '';
+            const dept = (p.departmentName || p.name || '').toLowerCase();
+
+            let stage = 'ST';
+            let stageLabel = 'ST Stage';
+            if (dept.includes('store') || code.startsWith('RM-')) {
+              stage = 'RM';
+              stageLabel = 'RM Stage';
+            } else if (dept.includes('straight')) {
+              stage = 'ST';
+              stageLabel = 'ST Stage';
+            } else if (dept.includes('swag')) {
+              stage = 'SW';
+              stageLabel = 'SW Stage';
+            } else if (dept.includes('plat')) {
+              stage = 'PL';
+              stageLabel = 'PL Stage';
+            } else if (dept.includes('pack')) {
+              stage = 'FG';
+              stageLabel = 'FG / Packing';
+            } else if (dept.includes('spoke')) {
+              stage = 'SP';
+              stageLabel = 'SP Stage';
+            }
+
+            let splitSide: SplitSide | undefined = undefined;
+            const combined = `${dept} ${rowItemName} ${code}`.toLowerCase();
+            if (combined.includes('inner')) splitSide = 'INNER';
+            else if (combined.includes('outer')) splitSide = 'OUTER';
+
+            if (code) {
+              rows.push({
+                order: order++,
+                stage,
+                stageLabel,
+                itemCode: code,
+                splitSide,
+                itemLabel: rowItemName || undefined,
+              });
+            }
+          });
+        }
+
+        const hasFg = rows.some((r) => r.stage === 'FG');
+        if (!hasFg) {
+          rows.push({
+            order: order++,
+            stage: 'FG',
+            stageLabel: 'FG / Packing',
+            itemCode: fgCode,
+            itemLabel: fgName,
+          });
+        }
+        rows.push(dpRow(order, fgCode, `${fgName} Dispatch Outward Stage`));
+
+        dynamicChains.push({
+          key,
+          label,
+          fgItemCode: fgCode,
+          divisionId: divId,
+          divisionName: divName,
+          rows,
+        });
+      });
+
+      const enrichedRegistry = CHAIN_REGISTRY.map((c) => {
+        const item = byCode.get(c.fgItemCode);
+        return {
+          ...c,
+          divisionId: item?.divisionId || item?.division?.id || 'd1000000-0000-0000-0000-000000000001',
+          divisionName: item?.division?.name || item?.divisionName || 'Spoke Division',
+        };
+      });
+
+      setAllChains([...enrichedRegistry, ...dynamicChains]);
     } catch {
       /* fall through — the per-code lookup below covers every miss */
     }
@@ -1051,13 +1297,16 @@ const ItemWiseProductionLedger: React.FC = () => {
           const list: any[] = Array.isArray(res?.data) ? res.data : [];
           const hit = list.find((i) => i?.itemCode === code);
           found[code] = toWeight(hit?.weightPerPiece);
+          if (hit?.name) {
+            setItemNames((prev) => ({ ...prev, [code]: hit.name }));
+          }
         } catch {
           found[code] = null;
         }
       }),
     );
     setWeightMap((prev) => ({ ...prev, ...found }));
-  }, []);
+  }, [allChains]);
 
   const weightMapRef = useRef(weightMap);
   weightMapRef.current = weightMap;
@@ -1157,8 +1406,8 @@ const ItemWiseProductionLedger: React.FC = () => {
           }));
 
           const nextClosing = new Map<string, number>();
-          for (const chain of CHAIN_REGISTRY) {
-            const grid = buildChainGrid(chain, dayRows, {}, weights);
+          for (const chain of allChains) {
+            const grid = buildChainGrid(chain, dayRows, {}, weights, itemNames);
             for (const row of grid.rows) {
               nextClosing.set(row.itemCode, row.closingPieces);
             }
@@ -1193,7 +1442,7 @@ const ItemWiseProductionLedger: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [endDate, monthFrom]);
+  }, [endDate, monthFrom, allChains, itemNames]);
 
   useEffect(() => {
     void loadWeights();
@@ -1203,11 +1452,11 @@ const ItemWiseProductionLedger: React.FC = () => {
     void load();
   }, [load, tick]);
 
-  /* §5 — one grid for the selected chain, or every registered chain. */
+  /* §5 — one grid for the selected chain, or every registered chain in the selected division. */
   const grids = useMemo<ChainGrid[]>(() => {
-    const defs = showAll ? CHAIN_REGISTRY : chainDef ? [chainDef] : [];
-    return defs.map((d) => buildChainGrid(d, rows, monthScrap, weightMap));
-  }, [showAll, chainDef, rows, monthScrap, weightMap]);
+    const defs = showAll ? filteredChains : chainDef ? [chainDef] : [];
+    return defs.map((d) => buildChainGrid(d, rows, monthScrap, weightMap, itemNames));
+  }, [showAll, filteredChains, chainDef, rows, monthScrap, weightMap, itemNames]);
 
   /** §1 — what the summary, PDF, Excel and printer are allowed to see. */
   const visibleGrids = useMemo<ChainGrid[]>(
@@ -1484,7 +1733,13 @@ const ItemWiseProductionLedger: React.FC = () => {
     [endDate, monthFrom],
   );
 
-  const chainOptions = CHAIN_REGISTRY.map((c) => ({ value: c.key, label: c.label }));
+  const chainOptions = useMemo(() => {
+    return filteredChains.map((c) => ({
+      value: c.key,
+      label: c.label,
+      filterText: `${c.label} ${c.fgItemCode}`,
+    }));
+  }, [filteredChains]);
 
   /* ── §4 export actions ─────────────────────────────────────────────── */
 
@@ -1501,7 +1756,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         [LETTERHEAD.subtitle],
         [],
         ['Report Title', LETTERHEAD.reportTitle],
-        ['Selected Division', LETTERHEAD.division],
+        ['Selected Division', selectedDivisionName],
         ['Production Date', endDate],
         ['Month Window', `${monthFrom} to ${endDate}`],
         ['Generated', dayjs().format('YYYY-MM-DD HH:mm')],
@@ -1545,7 +1800,7 @@ const ItemWiseProductionLedger: React.FC = () => {
     const colW = (PDF_PAGE_W - PDF_MARGIN_X * 2) / 3;
     const meta: [string, string][] = [
       ['Report Title', LETTERHEAD.reportTitle],
-      ['Selected Division', LETTERHEAD.division],
+      ['Selected Division', selectedDivisionName],
       ['Production Date', endDate],
     ];
     meta.forEach(([label, value], i) => {
@@ -1576,7 +1831,7 @@ const ItemWiseProductionLedger: React.FC = () => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(107, 114, 128);
-    doc.text(`${LETTERHEAD.reportTitle}  ·  ${LETTERHEAD.division}`, PDF_MARGIN_X, 35);
+    doc.text(`${LETTERHEAD.reportTitle}  ·  ${selectedDivisionName}`, PDF_MARGIN_X, 35);
 
     // §13 — the continuation banner's own rule uses the same charcoal as the
     // grid, so page 2+ never reverts to the old washed-out hairline.
@@ -1590,7 +1845,7 @@ const ItemWiseProductionLedger: React.FC = () => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(150, 160, 175);
-    doc.text(LETTERHEAD.division, PDF_MARGIN_X, PDF_PAGE_H - 16);
+    doc.text(selectedDivisionName, PDF_MARGIN_X, PDF_PAGE_H - 16);
     doc.text(`Page ${pageNumber}`, PDF_PAGE_W - PDF_MARGIN_X, PDF_PAGE_H - 16, { align: 'right' });
   };
 
@@ -2309,6 +2564,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           gap: 8px;
           margin-left: auto;
         }
+        .iwl-filters-division,
         .iwl-filters-chain { display: flex; flex-direction: column; gap: 4px; }
         .iwl-filters-note { display: flex; align-items: center; gap: 6px; }
 
@@ -2783,7 +3039,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 </span>
                 <span className="iwl-lh-detail-sep">•</span>
                 <span className="iwl-lh-detail-item">
-                  <strong>Selected Division:</strong> {LETTERHEAD.division}
+                  <strong>Selected Division:</strong> {selectedDivisionName}
                 </span>
               </div>
             </div>
@@ -2795,22 +3051,91 @@ const ItemWiseProductionLedger: React.FC = () => {
         </div>
 
         {/* ── §10 UNIFIED FILTER STRIP ───────────────────────────────────
-            Left: chain select → show-all → date window
+            Left: division select → chain select → show-all → date window
             Right: previous day → next day. Sits directly under the
             letterhead and above the metric cards. Screen only. */}
         <div className="iwl-filters iwl-no-print">
           <div className="iwl-filters-left">
-            <div className="iwl-filters-chain">
-              <Text type="secondary">Select Production Item Chain</Text>
+            {/* ── 1. DIVISION SELECTOR ── */}
+            <div className="iwl-filters-division">
+              <Text strong style={{ fontSize: 12.5, color: '#334155' }}>
+                Division / ڈویژن
+              </Text>
               <Select
-                style={{ width: 260 }}
+                style={{ minWidth: 230, width: 250 }}
+                popupMatchSelectWidth={false}
+                dropdownStyle={{ minWidth: 270 }}
+                placeholder="Select Division"
+                value={selectedDivisionId}
+                onChange={(v) => setSelectedDivisionId(v)}
+                options={[
+                  { value: 'ALL', label: '🌐 All Divisions (تمام ڈویژنز)' },
+                  ...divisionsList.map((d) => ({
+                    value: d.id,
+                    label: d.name,
+                  })),
+                ]}
+              />
+            </div>
+
+            {/* ── 2. PRODUCTION ITEM CHAIN SELECTOR (Enlarged width, wide popup, clear full names) ── */}
+            <div className="iwl-filters-chain">
+              <Text strong style={{ fontSize: 12.5, color: '#334155' }}>
+                Select Production Item Chain / پروڈکشن آئٹم چین (Finished Goods)
+              </Text>
+              <Select
+                style={{ minWidth: 420, width: 480 }}
+                popupMatchSelectWidth={false}
+                dropdownStyle={{ minWidth: 540, maxWidth: 750, padding: 6 }}
                 showSearch
-                placeholder="Select Production Item Chain"
+                placeholder="Select Finished Good Item Chain"
                 value={chainKey}
                 onChange={(v) => setChainKey(v)}
-                optionFilterProp="label"
+                optionFilterProp="filterText"
                 disabled={showAll}
                 options={chainOptions}
+                optionRender={(opt) => {
+                  const chain = filteredChains.find((c) => c.key === opt.value);
+                  const namePart = chain ? chain.label.split('—')[0]?.trim() : opt.label;
+                  const codePart = chain?.fgItemCode || '';
+                  return (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '6px 8px',
+                        gap: 16,
+                        borderBottom: '1px solid #f1f5f9',
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13.5, color: '#0f172a' }}>
+                          {namePart}
+                        </span>
+                        {chain?.divisionName && (
+                          <span style={{ fontSize: 11, color: '#64748b' }}>
+                            {chain.divisionName}
+                          </span>
+                        )}
+                      </div>
+                      <Tag
+                        color="blue"
+                        style={{
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                          fontWeight: 700,
+                          fontSize: 12,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          margin: 0,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {codePart}
+                      </Tag>
+                    </div>
+                  );
+                }}
               />
             </div>
             <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>

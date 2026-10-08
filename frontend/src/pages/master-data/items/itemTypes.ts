@@ -163,11 +163,21 @@ export interface ConversionInfo {
 
 export type ImportRowStatus = 'VALID' | 'DUPLICATE' | 'INVALID';
 
+/**
+ * 2-stage synchronization resolution decided during preview:
+ *  - `UPDATE` — `item_code` already exists, so only the columns that carry data
+ *    are patched (a blank cell = RETAIN STORED VALUE).
+ *  - `INSERT` — `item_code` is unknown; the row is created only when the
+ *    absolute required columns are fully provided.
+ */
+export type ImportRowAction = 'UPDATE' | 'INSERT';
+
 export interface ImportRow {
   rowNumber: number;
   data: Record<string, string>;
   payload?: Record<string, unknown>;
   status: ImportRowStatus;
+  action?: ImportRowAction;
   errors: string[];
 }
 

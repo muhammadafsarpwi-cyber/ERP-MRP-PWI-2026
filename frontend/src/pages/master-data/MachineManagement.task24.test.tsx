@@ -568,15 +568,15 @@ describe('TASK24 — Machine Master regressions stay green', () => {
     expect(workspace().querySelector('.erp-pane-details')).not.toBeNull();
   });
 
-  it('33. header actions (Refresh/Export/Import/PDF/Print/Clear/Add Machine) remain', async () => {
+  it('33. header actions (Refresh/Export ▾ consolidated dropdown/Import/Clear/Add Machine) remain', async () => {
     renderPage();
     await screen.findByText('TASK24 Machine', undefined, { timeout: 30000 });
     renderToolbar();
     expect(screen.getByRole('button', { name: /Refresh$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Export$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export ▾/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^PDF$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Print$/ })).toBeNull();
     expect(screen.getByRole('button', { name: /Import$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /PDF$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Print$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Clear$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add Machine$/ })).toBeInTheDocument();
   });

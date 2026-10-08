@@ -7,7 +7,7 @@ import {
 import type { MenuProps } from 'antd';
 import {
   ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DollarOutlined, DownloadOutlined, EditOutlined,
-  EyeOutlined, FileAddOutlined, FilePdfOutlined, FilterOutlined, ImportOutlined, InboxOutlined, MoreOutlined, ExclamationCircleOutlined,
+  EyeOutlined, FileAddOutlined, FilterOutlined, ImportOutlined, InboxOutlined, MoreOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined, CloseCircleOutlined,
   ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
   BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
@@ -27,6 +27,7 @@ import {
 } from './items/itemQuery';
 import { formatDimension } from '../../utils/numberFormat';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
+import { rawNum } from '../../utils/csvRoundTrip';
 import { usePermission } from '../../hooks/usePermission';
 import {
   PageHeader, StatusBadge, EmptyState, ERPTable, TabKeepAlive, GlobalLoading,
@@ -40,9 +41,9 @@ import {
   stageTitleForOperation, isEmptyValue, getDivisionPrefix, formatItemCodeWithDivisionPrefix,
   type Item, type DivisionOption, type SectionOption, type DepartmentOption,
   type UomOption, type SimpleOption, type CategoryOption, type ConversionInfo,
-  type ImportRow, type ProductionFlowStage, type ProcessStep,
+  type ImportRow, type ImportRowAction, type ProductionFlowStage, type ProcessStep,
 } from './items/itemTypes';
-import InputMaterialSelect from './items/InputMaterialSelect';
+import InputMaterialSelect, { registerItemsInCache } from './items/InputMaterialSelect';
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
@@ -107,6 +108,18 @@ function downloadText(filename: string, text: string, mime = 'text/csv;charset=u
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Consolidated export menu — the toolbar used to carry three standalone
+ * Export / PDF / Print buttons; they collapse into one `Export ▾` trigger that
+ * fans out to the PDF generator, the spreadsheet generator and the print
+ * stylesheet. Fully static, so it lives at module scope.
+ */
+export const EXPORT_MENU: MenuProps['items'] = [
+  { key: 'pdf', icon: '📄', label: 'Download PDF Document' },
+  { key: 'excel', icon: '📊', label: 'Export to Excel Worksheet' },
+  { key: 'print', icon: '🖨️', label: 'Print Register' },
+];
 
 const num = (v: number | null | undefined): string =>
   v === null || v === undefined ? '' : String(Number(v));
@@ -893,6 +906,7 @@ const ItemManagement: React.FC = () => {
   const [registryBarcodes, setRegistryBarcodes] = useState<any[]>([]);
 
   const [exporting, setExporting] = useState(false);
+  const [exportingTemplate, setExportingTemplate] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [pdfing, setPdfing] = useState(false);
 
@@ -909,9 +923,18 @@ const ItemManagement: React.FC = () => {
   const [isDetailMinimized, setIsDetailMinimized] = useState<boolean>(false);
   const [isBarcodeMinimized, setIsBarcodeMinimized] = useState<boolean>(false);
   const reuploadInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * Stage-1 lookup captured while previewing the sheet: `item_code` → stored
+   * Item. Re-read when the import runs so each UPDATE row can be PATCHed by id.
+   */
+  const existingItemsRef = useRef<Map<string, Item>>(new Map());
   const [importSummary, setImportSummary] = useState<{
     total: number; valid: number; invalid: number; duplicate: number;
     imported: number; failed: number; skipped: number; errors: string[];
+    /** Stage 1 — rows patched in place because `item_code` already existed. */
+    updated?: number;
+    /** Stage 2 — rows created because `item_code` was new. */
+    created?: number;
   } | null>(null);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{
@@ -1646,6 +1669,9 @@ const ItemManagement: React.FC = () => {
     setSelectedInputDetail(record.productionInItem ?? null);
     // TASK 15: populate route-item-details for any output items already referenced
     // by the stored processes rows, so the preview resolves dims/UOM immediately.
+    if (items && items.length > 0) {
+      registerItemsInCache(items);
+    }
     if (record.processes && record.processes.length > 0) {
       const detailsMap: Record<string, RouteStageSource | null> = {};
       for (const p of record.processes) {
@@ -1669,6 +1695,8 @@ const ItemManagement: React.FC = () => {
           sectionId: typeof (p as any).sectionId === 'string' ? (p as any).sectionId : undefined,
           sectionName: typeof (p as any).sectionName === 'string' ? (p as any).sectionName : undefined,
           outputItemId: typeof (p as any).outputItemId === 'string' ? (p as any).outputItemId : undefined,
+          outputItemCode: typeof (p as any).outputItemCode === 'string' ? (p as any).outputItemCode : undefined,
+          outputItemName: typeof (p as any).outputItemName === 'string' ? (p as any).outputItemName : undefined,
         }))
       : [];
 
@@ -1897,17 +1925,22 @@ const ItemManagement: React.FC = () => {
         // relationship fields) so the JSONB `processes` column is the authoritative
         // configured Production Route.
         const cleanProcs = normalizeRouteRows(values.processes);
-        payload.processes = cleanProcs.map((r) => ({
-          sequence: r.sequence,
-          name: r.name,
-          departmentId: r.departmentId,
-          departmentName: r.departmentName,
-          divisionId: r.divisionId,
-          divisionName: r.divisionName,
-          sectionId: r.sectionId,
-          sectionName: r.sectionName,
-          outputItemId: r.outputItemId,
-        }));
+        payload.processes = cleanProcs.map((r) => {
+          const matchedItem = items.find((it) => it.id === r.outputItemId) || routeItemDetails[r.outputItemId || ''];
+          return {
+            sequence: r.sequence,
+            name: r.name,
+            departmentId: r.departmentId,
+            departmentName: r.departmentName,
+            divisionId: r.divisionId,
+            divisionName: r.divisionName,
+            sectionId: r.sectionId,
+            sectionName: r.sectionName,
+            outputItemId: r.outputItemId,
+            outputItemCode: r.outputItemCode || (matchedItem as any)?.itemCode || undefined,
+            outputItemName: r.outputItemName || (matchedItem as any)?.name || (matchedItem as any)?.itemName || undefined,
+          };
+        });
         // Legacy process1..process6 columns mirror the configured route names. For
         // un-migrated TASK 14 items (no configured rows) preserve the typed names
         // in the form store so saving a legacy record never destroys its flow.
@@ -2210,6 +2243,79 @@ const ItemManagement: React.FC = () => {
     r.barcode ?? '', r.status, r.notes ?? '',
   ];
 
+  /**
+   * One grid row → one import-ready line, in `IMPORT_COLUMNS` order with codes
+   * pre-filled. Values are keyed by column name and projected through
+   * `IMPORT_COLUMNS`, so the row can never drift from the template header.
+   * Blank cells mean "retain the stored value" to the import engine.
+   */
+  const itemToImportRow = (r: Item): string[] => {
+    const cells: Record<string, string> = {
+      itemCode: r.itemCode ?? '',
+      name: r.name ?? '',
+      sku: r.sku ?? '',
+      shortName: r.shortName ?? '',
+      itemType: r.itemType ?? '',
+      materialRoleUsage: r.materialRoleUsage ?? '',
+      uomCode:
+        r.baseUom?.code ||
+        uoms.find((u) => u.id === r.baseUomId)?.code ||
+        r.baseUomName ||
+        '',
+      categoryName: categoryName(r) ?? '',
+      divisionCodeOrName: r.division?.divisionCode || divisionName(r) || '',
+      sectionCodeOrName: r.section?.sectionCode || sectionName(r) || '',
+      departmentCodeOrName: r.department?.departmentCode || departmentName(r) || '',
+      wireSizeMm: rawNum(r.wireSizeMm),
+      thicknessMm: rawNum(r.thicknessMm),
+      widthMm: rawNum(r.widthMm),
+      routeType: r.routeTypeRef?.routeCode || r.routeType || '',
+      process1: r.process1 ?? '',
+      process2: r.process2 ?? '',
+      process3: r.process3 ?? '',
+      process4: r.process4 ?? '',
+      process5: r.process5 ?? '',
+      finalProduct: r.finalProduct ?? '',
+      packingNextStep: r.packingNextStep ?? '',
+      weightPerPiece: rawNum(r.weightPerPiece),
+      piecesPerKg: rawNum(r.piecesPerKg),
+      weightPerMeter: rawNum(r.weightPerMeter),
+      lengthPerPiece: rawNum(r.lengthPerPiece),
+      barcode: r.barcode ?? '',
+      remarks: r.notes ?? '',
+    };
+    return IMPORT_COLUMNS.map((c) => cells[c] ?? '');
+  };
+
+  /**
+   * Round-trip loop: dump every item currently in the grid (honouring the
+   * active filters, capped at 10,000 rows) with its codes pre-filled, in the
+   * exact column order the smart import engine parses. A manager edits one cell
+   * in Excel, re-uploads, and `item_code` decides UPDATE (partial patch) vs
+   * INSERT (new row).
+   */
+  const exportCurrentDataAsTemplate = async () => {
+    setExportingTemplate(true);
+    try {
+      const rows = await collectFilteredItems();
+      if (rows.length === 0) {
+        message.info('No items in the current view to export.');
+        return;
+      }
+      downloadText(
+        `item-master-template-${new Date().toISOString().slice(0, 10)}.csv`,
+        toCsv(IMPORT_COLUMNS, rows.map(itemToImportRow)),
+      );
+      message.success(
+        `Downloaded ${rows.length} item(s) pre-filled — edit a cell, save, then re-upload via Import.`,
+      );
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Template export failed');
+    } finally {
+      setExportingTemplate(false);
+    }
+  };
+
   const handleExport = async () => {
     setExporting(true);
     try {
@@ -2380,8 +2486,8 @@ const ItemManagement: React.FC = () => {
   const validateImportRow = (
     data: Record<string, string>,
     seenCodes: Set<string>,
-    existingCodes: Set<string>,
-  ): { payload?: Record<string, unknown>; errors: string[]; duplicate: boolean } => {
+    existingByCode: Map<string, Item>,
+  ): { payload?: Record<string, unknown>; action: ImportRowAction; errors: string[]; duplicate: boolean } => {
     const errors: string[] = [];
     const get = (k: string) => {
       if (data[k] !== undefined && data[k] !== null && String(data[k]).trim() !== '') return String(data[k]).trim();
@@ -2402,12 +2508,21 @@ const ItemManagement: React.FC = () => {
     else if (!/^[A-Z0-9_-]{1,50}$/.test(itemCode)) errors.push('Item Code must be uppercase letters, numbers, hyphens or underscores');
 
     const name = get('name');
-    if (!name) errors.push('Name is required');
-    else if (name.length > 255) errors.push('Name exceeds 255 characters');
 
-    const duplicate = itemCode !== '' && existingCodes.has(itemCode);
-    if (duplicate) return { duplicate: true, errors: [`Item code '${itemCode}' already exists`], };
-    if (seenCodes.has(itemCode)) return { duplicate: true, errors: [`Duplicate item code '${itemCode}' within the file`] };
+    // ── Stage 1: strict unique lookup on the primary identifier (`item_code`).
+    // A hit means PARTIAL COLUMN UPDATE; a miss falls through to Stage 2.
+    const action: ImportRowAction = itemCode !== '' && existingByCode.has(itemCode.toUpperCase())
+      ? 'UPDATE'
+      : 'INSERT';
+
+    if (itemCode !== '' && seenCodes.has(itemCode)) {
+      return { action, duplicate: true, errors: [`Duplicate item code '${itemCode}' within the file`] };
+    }
+
+    // Stage 2 gate: only a brand-new row must carry its absolute required
+    // columns. An UPDATE row may leave any cell blank — blank means RETAIN VALUE.
+    if (!name && action === 'INSERT') errors.push('Name is required');
+    else if (name && name.length > 255) errors.push('Name exceeds 255 characters');
 
     const itemTypeRaw = get('itemType').toUpperCase().replace(/[\s-]+/g, '_');
     const normTypeName = (s: string) => String(s).toUpperCase().replace(/[\s-]+/g, '_');
@@ -2417,11 +2532,12 @@ const ItemManagement: React.FC = () => {
       (t) => t.value === itemTypeRaw || normTypeName(t.label) === itemTypeRaw,
     );
     const itemType = masterType?.value || ITEM_TYPES.find((t) => t.value === itemTypeRaw || normTypeName(t.label) === itemTypeRaw)?.value;
-    if (!itemType) errors.push(`Invalid Item Type '${get('itemType')}'`);
+    if (get('itemType') && !itemType) errors.push(`Invalid Item Type '${get('itemType')}'`);
+    else if (!itemType && action === 'INSERT') errors.push('Item Type is required');
 
     const uom = matchLookup(get('uomCode'), uoms, 'code');
-    if (!get('uomCode')) errors.push('UOM is required');
-    else if (!uom) errors.push(`Unknown UOM '${get('uomCode')}'`);
+    if (!get('uomCode') && action === 'INSERT') errors.push('UOM is required');
+    else if (get('uomCode') && !uom) errors.push(`Unknown UOM '${get('uomCode')}'`);
 
     let sectionId: string | undefined;
     let departmentId: string | undefined;
@@ -2478,22 +2594,28 @@ const ItemManagement: React.FC = () => {
     const categoryId = categoryName ? matchLookup(categoryName, flatCategories) : undefined;
     if (categoryName && !categoryId) errors.push(`Unknown Category '${categoryName}'`);
 
-    if (errors.length > 0) return { duplicate: false, errors };
+    if (errors.length > 0) return { action, duplicate: false, errors };
 
+    const isInsert = action === 'INSERT';
     let materialRole = get('materialRoleUsage');
     const isRaw = itemType === 'RAW_MATERIAL' || (itemType || '').includes('RAW');
-    if (isRaw && !materialRole) {
+    // The default only applies to a brand-new row; on UPDATE a blank cell must
+    // stay absent from the patch so the stored value is retained.
+    if (isInsert && isRaw && !materialRole) {
       materialRole = 'Process Component Materials';
     }
 
-    const payload: Record<string, unknown> = {
-      companyId,
-      itemCode,
-      name,
-      itemType,
-      ...(materialRole ? { materialRoleUsage: materialRole } : {}),
-      ...(masterType?.itemTypeId ? { itemTypeId: masterType.itemTypeId } : {}),
-      baseUomId: uom,
+    // `itemCode` is always present (it is the anchor); every other key is
+    // emitted only when its cell carries data, which is what makes the update a
+    // true partial-column patch rather than a full overwrite.
+    const payload: Record<string, unknown> = { itemCode };
+    if (isInsert) payload.companyId = companyId;
+    if (isInsert || get('name')) payload.name = name;
+    if (isInsert || get('itemType')) payload.itemType = itemType;
+    if (isInsert || get('uomCode')) payload.baseUomId = uom;
+    if (materialRole) payload.materialRoleUsage = materialRole;
+    if (masterType?.itemTypeId) payload.itemTypeId = masterType.itemTypeId;
+    Object.assign(payload, {
       ...(get('sku') ? { sku: get('sku') } : {}),
       ...(get('shortName') ? { shortName: get('shortName') } : {}),
       ...(categoryId ? { categoryId } : {}),
@@ -2519,34 +2641,39 @@ const ItemManagement: React.FC = () => {
       ...(numbers.lengthPerPiece !== undefined ? { lengthPerPiece: numbers.lengthPerPiece } : {}),
       ...(get('barcode') ? { barcode: get('barcode') } : {}),
       ...(get('remarks') ? { notes: get('remarks') } : {}),
-    };
+    });
 
-    return { payload, errors: [], duplicate: false };
+    return { payload, action, errors: [], duplicate: false };
   };
 
   const validateRowsList = async (rawRows: Array<Record<string, string>>, fileName?: string) => {
-    let existingCodes = new Set<string>();
+    // Stage 1 lookup table: every item in the company, keyed by upper-cased
+    // `item_code`. Deliberately unfiltered so a narrowed grid can never
+    // mis-classify an existing row as a brand-new insert.
+    let existingByCode = new Map<string, Item>();
     try {
-      const res = await apiService.get<{ data: Array<{ itemCode: string }> }>('/master-data/items', { page: 1, limit: 10000 });
-      existingCodes = new Set((res.data || []).map((i) => i.itemCode.toUpperCase()));
+      const res = await apiService.get<{ data: Item[] }>('/master-data/items', { page: 1, limit: 10000 });
+      (res.data || []).forEach((i) => existingByCode.set(String(i.itemCode || '').trim().toUpperCase(), i));
     } catch {
       message.warning('Could not verify existing item codes before import.');
     }
 
     const seenCodes = new Set<string>();
     const validated: ImportRow[] = rawRows.map((data, idx) => {
-      const result = validateImportRow(data, seenCodes, existingCodes);
-      if (result.payload) seenCodes.add((data['itemCode'] ?? '').toUpperCase());
+      const result = validateImportRow(data, seenCodes, existingByCode);
+      if (result.payload) seenCodes.add(String(result.payload.itemCode || '').toUpperCase());
       return {
         rowNumber: idx + 2,
         data,
         payload: result.payload,
+        action: result.action,
         status: result.errors.length > 0 ? (result.duplicate ? 'DUPLICATE' : 'INVALID') : 'VALID',
         errors: result.errors,
       };
     });
 
     if (fileName) setImportFileName(fileName);
+    existingItemsRef.current = existingByCode;
     setRawImportData(rawRows);
     setImportRows(validated);
     setImportSummary(null);
@@ -2670,117 +2797,176 @@ const ItemManagement: React.FC = () => {
     setLiveImportedItems([]);
     setLiveFailedItems([]);
 
-    let imported = 0;
+    // 2-stage synchronization loop: Stage 1 (existing `item_code`) resolves to a
+    // partial column PATCH, Stage 2 (unknown `item_code`) resolves to an insert.
+    // Both run off one work list so the progress bar never lies about what is left.
+    const existingByCode = existingItemsRef.current;
+    const updateRows = validRows.filter((r) => r.action === 'UPDATE');
+    const insertRows = validRows.filter((r) => r.action !== 'UPDATE');
+    const work = [...updateRows, ...insertRows];
+
+    let created = 0;
+    let updated = 0;
     let failed = 0;
     const errors: string[] = [];
-    const totalCount = validRows.length;
+    const totalCount = work.length;
     const startTime = Date.now();
+
+    const rowCode = (row?: ImportRow): string =>
+      String(row?.payload?.itemCode || row?.data?.['itemCode'] || row?.data?.['itemcode'] || '').trim();
+
+    const reasonOf = (err: any, fallback: string): string => {
+      const raw = err?.response?.data?.message ?? err?.message ?? fallback;
+      return Array.isArray(raw) ? raw.join('; ') : String(raw);
+    };
 
     // Set initial 0% progress
     setImportProgress({
       current: 0,
       total: totalCount,
       percent: 0,
-      currentCode: (validRows[0]?.payload?.itemCode as string) || (validRows[0]?.data?.['itemCode'] as string) || '',
+      currentCode: rowCode(work[0]),
       successCount: 0,
       failCount: 0,
       speed: 0,
       estimatedSecondsRemaining: 0,
     });
 
+    const reportProgress = (processed: number, lastRow?: ImportRow) => {
+      const elapsedSec = Math.max((Date.now() - startTime) / 1000, 0.05);
+      const currentSpeed = Math.max(1, Math.round(processed / elapsedSec));
+      const remainingItems = Math.max(totalCount - processed, 0);
+      const estSec = Math.max(0, Math.round(remainingItems / currentSpeed));
+      setImportProgress({
+        current: processed,
+        total: totalCount,
+        percent: Math.min(100, Math.floor((processed / totalCount) * 100)),
+        currentCode: rowCode(lastRow) || rowCode(work[0]),
+        successCount: created + updated,
+        failCount: failed,
+        speed: currentSpeed,
+        estimatedSecondsRemaining: estSec,
+      });
+    };
+
     const BATCH_SIZE = 50;
 
-    for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
-      const chunk = validRows.slice(i, i + BATCH_SIZE);
-      const chunkPayloads = chunk.map((r) => r.payload).filter(Boolean);
+    for (let i = 0; i < work.length; i += BATCH_SIZE) {
+      const chunk = work.slice(i, i + BATCH_SIZE);
+      const updates = chunk.filter((r) => r.action === 'UPDATE');
+      const inserts = chunk.filter((r) => r.action !== 'UPDATE');
 
-      try {
-        const res = await apiService.post<any>('/master-data/items/bulk', { items: chunkPayloads, companyId });
-        const batchData = res?.data?.data || res?.data || {};
-        const batchResults: any[] = Array.isArray(batchData?.results) ? batchData.results : [];
+      // ── Stage 1: strict `item_code` hit → partial column update ────────────
+      // `row.payload` already omits every blank cell, so a column the manager
+      // left empty is simply absent from the PATCH and keeps its stored value.
+      if (updates.length > 0) {
+        await Promise.all(
+          updates.map(async (row) => {
+            const code = rowCode(row);
+            try {
+              const existing = existingByCode.get(code.toUpperCase());
+              if (!existing) throw new Error(`Item '${code}' no longer exists`);
+              const patch: Record<string, unknown> = { ...(row.payload || {}) };
+              delete patch.companyId;
+              const changedKeys = Object.keys(patch).filter((k) => k !== 'itemCode');
+              if (changedKeys.length > 0) {
+                await apiService.patch(`/master-data/items/${existing.id}`, patch);
+              }
+              updated += 1;
+              setLiveImportedItems((prev) => [
+                {
+                  rowNumber: row.rowNumber,
+                  itemCode: code,
+                  name: (row.payload?.name as string) || row.data['name'] || '',
+                  itemType: (row.payload?.itemType as string) || row.data['itemType'] || '',
+                  division: (row.data['divisionCodeOrName'] as string) || '',
+                },
+                ...prev,
+              ].slice(0, 150));
+            } catch (err: any) {
+              failed += 1;
+              const errMsg = reasonOf(err, 'Update failed');
+              errors.push(`Row ${row.rowNumber} (${code}): ${errMsg}`);
+              setLiveFailedItems((prev) => [{ rowNumber: row.rowNumber, itemCode: code, reason: errMsg }, ...prev]);
+            }
+          }),
+        );
+      }
 
-        const newImported: Array<{ rowNumber: number; itemCode: string; name: string; itemType?: string; division?: string }> = [];
-        const newFailed: Array<{ rowNumber: number; itemCode: string; reason: string }> = [];
+      // ── Stage 2: new `item_code` → insert (required columns gated in preview)
+      if (inserts.length > 0) {
+        const chunkPayloads = inserts.map((r) => r.payload).filter(Boolean);
+        try {
+          const res = await apiService.post<any>('/master-data/items/bulk', { items: chunkPayloads, companyId });
+          const batchData = res?.data?.data || res?.data || {};
+          const batchResults: any[] = Array.isArray(batchData?.results) ? batchData.results : [];
 
-        chunk.forEach((row, idxInChunk) => {
-          const resItem = batchResults[idxInChunk] || batchResults.find((b: any) => b.itemCode === (row.payload?.itemCode || row.data['itemCode']));
-          if (!resItem || resItem.status === 'SUCCESS') {
-            imported += 1;
-            newImported.push({
-              rowNumber: row.rowNumber,
-              itemCode: (row.payload?.itemCode as string) || row.data['itemCode'] || '',
-              name: (row.payload?.name as string) || row.data['name'] || '',
-              itemType: (row.payload?.itemType as string) || row.data['itemType'] || '',
-              division: (row.data['divisionCodeOrName'] as string) || '',
-            });
-          } else {
-            failed += 1;
-            const errMsg = resItem.message || 'Import failed';
-            errors.push(`Row ${row.rowNumber} (${resItem.itemCode}): ${errMsg}`);
-            newFailed.push({
-              rowNumber: row.rowNumber,
-              itemCode: resItem.itemCode || row.data['itemCode'] || '',
-              reason: errMsg,
-            });
-          }
-        });
+          const newImported: Array<{ rowNumber: number; itemCode: string; name: string; itemType?: string; division?: string }> = [];
+          const newFailed: Array<{ rowNumber: number; itemCode: string; reason: string }> = [];
 
-        if (newImported.length > 0) {
-          setLiveImportedItems((prev) => [...newImported, ...prev].slice(0, 150));
-        }
-        if (newFailed.length > 0) {
-          setLiveFailedItems((prev) => [...newFailed, ...prev]);
-        }
-      } catch (err: any) {
-        // Fallback: if bulk endpoint errors, try individual requests for this batch
-        for (const row of chunk) {
-          try {
-            await apiService.post('/master-data/items', row.payload);
-            imported += 1;
-            setLiveImportedItems((prev) => [
-              {
+          inserts.forEach((row, idxInChunk) => {
+            const resItem = batchResults[idxInChunk] || batchResults.find((b: any) => b.itemCode === (row.payload?.itemCode || row.data['itemCode']));
+            if (!resItem || resItem.status === 'SUCCESS') {
+              created += 1;
+              newImported.push({
                 rowNumber: row.rowNumber,
                 itemCode: (row.payload?.itemCode as string) || row.data['itemCode'] || '',
                 name: (row.payload?.name as string) || row.data['name'] || '',
                 itemType: (row.payload?.itemType as string) || row.data['itemType'] || '',
                 division: (row.data['divisionCodeOrName'] as string) || '',
-              },
-              ...prev,
-            ].slice(0, 150));
-          } catch (singleErr: any) {
-            failed += 1;
-            const errMsg = singleErr?.response?.data?.message || 'failed';
-            errors.push(`Row ${row.rowNumber} (${row.data['itemCode']}): ${errMsg}`);
-            setLiveFailedItems((prev) => [
-              {
+              });
+            } else {
+              failed += 1;
+              const errMsg = resItem.message || 'Import failed';
+              errors.push(`Row ${row.rowNumber} (${resItem.itemCode}): ${errMsg}`);
+              newFailed.push({
                 rowNumber: row.rowNumber,
-                itemCode: (row.payload?.itemCode as string) || row.data['itemCode'] || '',
+                itemCode: resItem.itemCode || row.data['itemCode'] || '',
                 reason: errMsg,
-              },
-              ...prev,
-            ]);
+              });
+            }
+          });
+
+          if (newImported.length > 0) {
+            setLiveImportedItems((prev) => [...newImported, ...prev].slice(0, 150));
+          }
+          if (newFailed.length > 0) {
+            setLiveFailedItems((prev) => [...newFailed, ...prev]);
+          }
+        } catch (err: any) {
+          // Fallback: if bulk endpoint errors, try individual requests for this batch
+          for (const row of inserts) {
+            try {
+              await apiService.post('/master-data/items', row.payload);
+              created += 1;
+              setLiveImportedItems((prev) => [
+                {
+                  rowNumber: row.rowNumber,
+                  itemCode: (row.payload?.itemCode as string) || row.data['itemCode'] || '',
+                  name: (row.payload?.name as string) || row.data['name'] || '',
+                  itemType: (row.payload?.itemType as string) || row.data['itemType'] || '',
+                  division: (row.data['divisionCodeOrName'] as string) || '',
+                },
+                ...prev,
+              ].slice(0, 150));
+            } catch (singleErr: any) {
+              failed += 1;
+              const errMsg = reasonOf(singleErr, 'failed');
+              errors.push(`Row ${row.rowNumber} (${row.data['itemCode']}): ${errMsg}`);
+              setLiveFailedItems((prev) => [
+                {
+                  rowNumber: row.rowNumber,
+                  itemCode: (row.payload?.itemCode as string) || row.data['itemCode'] || '',
+                  reason: errMsg,
+                },
+                ...prev,
+              ]);
+            }
           }
         }
       }
 
-      const processed = Math.min(i + BATCH_SIZE, totalCount);
-      const elapsedSec = Math.max((Date.now() - startTime) / 1000, 0.05);
-      const currentSpeed = Math.max(1, Math.round(processed / elapsedSec));
-      const remainingItems = totalCount - processed;
-      const estSec = Math.max(0, Math.round(remainingItems / currentSpeed));
-      const percent = Math.min(100, Math.floor((processed / totalCount) * 100));
-
-      const lastRow = chunk[chunk.length - 1];
-      setImportProgress({
-        current: processed,
-        total: totalCount,
-        percent,
-        currentCode: (lastRow?.payload?.itemCode as string) || (lastRow?.data?.['itemCode'] as string) || '',
-        successCount: imported,
-        failCount: failed,
-        speed: currentSpeed,
-        estimatedSecondsRemaining: estSec,
-      });
+      reportProgress(Math.min(i + BATCH_SIZE, work.length), chunk[chunk.length - 1]);
     }
 
     setImporting(false);
@@ -2789,11 +2975,20 @@ const ItemManagement: React.FC = () => {
       valid: validRows.length,
       invalid: importRows.filter((r) => r.status === 'INVALID').length,
       duplicate: importRows.filter((r) => r.status === 'DUPLICATE').length,
-      imported,
+      imported: created + updated,
+      created,
+      updated,
       failed,
-      skipped: importRows.length - imported - failed,
+      skipped: importRows.length - created - updated - failed,
       errors,
     });
+
+    // Standardized confirmation, rendered at the absolute screen centre by the
+    // global `.ant-message` override in theme.css.
+    const headline = `Bulk Sync Complete: ${updated} records successfully updated / ${created} new rows inserted.`;
+    if (failed > 0) message.warning(`${headline}  ·  ${failed} row(s) failed.`);
+    else message.success(headline);
+
     fetchItems({ force: true });
   };
 
@@ -3414,36 +3609,15 @@ const ItemManagement: React.FC = () => {
     []
   );
 
-  const handlePurgeAllDummyConfirm = useCallback(() => {
-    Modal.confirm({
-      title: 'Admin Force Purge: Delete All Dummy & Sample Items?',
-      icon: <ExclamationCircleOutlined style={{ color: '#ef4444' }} />,
-      content: (
-        <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-          <p>
-            This Administrator command will permanently delete <strong>all dummy, test, and sample items</strong> (e.g. CBL-PACK-DEMO, DEMO-*, SAMPLE-*) along with all their linked demo transactions, BOMs, and routing logs.
-          </p>
-          <p style={{ color: '#ef4444', fontWeight: 600 }}>
-            This action cannot be undone. Genuine production items will NOT be affected.
-          </p>
-        </div>
-      ),
-      okText: 'Purge All Dummy Items Now',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          const hide = message.loading('Purging dummy and sample items across system...', 0);
-          const res = await apiService.post<any>('/master-data/items/cleanup/purge-all-dummy');
-          hide();
-          message.success(res?.message || 'Dummy items purged successfully');
-          fetchItems({ force: true });
-        } catch (err: any) {
-          message.error(err?.response?.data?.message || err?.message || 'Purge failed');
-        }
-      },
-    });
-  }, [message, fetchItems]);
+  /**
+   * Single master export menu dispatcher — routes the consolidated
+   * `Export ▾` menu back to the three existing generators.
+   */
+  const onExportMenu: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'pdf') handlePdf();
+    else if (key === 'print') handlePrint();
+    else handleExport();
+  };
 
   const headerExtra = useMemo(
     () => (
@@ -3466,48 +3640,36 @@ const ItemManagement: React.FC = () => {
           onClick={() => fetchItems({ force: true })}
           title="Refresh"
         />
-        {can('item.delete') && (
-          <Button
-            size="middle"
-            danger
-            className="erp-toolbar-action-btn"
-            icon={<ClearOutlined />}
-            onClick={handlePurgeAllDummyConfirm}
-            style={{ fontWeight: 600, borderColor: '#ef4444' }}
-            title="Purge All Dummy/Test Items"
-          >
-            Purge Dummy Items
-          </Button>
-        )}
         {can('item.view') && (
           <Button size="middle" className="erp-toolbar-action-btn" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
             Scan Barcode
           </Button>
         )}
         {can('item.view') && (
-          <Dropdown
-            menu={{
-              items: [{ key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' }],
-              onClick: handleExport,
-            }}
-          >
-            <Button size="middle" className="erp-toolbar-action-btn" icon={<DownloadOutlined />} loading={exporting}>Export</Button>
+          <Dropdown menu={{ items: EXPORT_MENU, onClick: onExportMenu }}>
+            <Button
+              size="middle"
+              className="erp-toolbar-action-btn"
+              icon={<DownloadOutlined />}
+              loading={exporting || pdfing || printing}
+            >
+              Export ▾
+            </Button>
           </Dropdown>
-        )}
-        {can('item.view') && (
-          <Button size="middle" className="erp-toolbar-action-btn" icon={<FilePdfOutlined />} loading={pdfing} onClick={handlePdf}>PDF</Button>
-        )}
-        {can('item.view') && (
-          <Button size="middle" className="erp-toolbar-action-btn" icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
         )}
         {can('item.create') && (
           <Button size="middle" className="erp-toolbar-action-btn" icon={<ImportOutlined />} onClick={() => { setImportOpen(true); setImportRows([]); setImportSummary(null); setImportFileName(null); }}>
             Import
           </Button>
         )}
+        {can('item.view') && (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<DownloadOutlined />} loading={exportingTemplate} onClick={exportCurrentDataAsTemplate}>
+            Export Current Data as Template
+          </Button>
+        )}
       </Space>
     ),
-    [can, openCreate, fetchItems, handlePurgeAllDummyConfirm, setScannerOpen, handleExport, exporting, pdfing, handlePdf, printing, handlePrint, setImportOpen, setImportRows, setImportSummary, setImportFileName]
+    [can, openCreate, fetchItems, setScannerOpen, onExportMenu, exporting, exportingTemplate, exportCurrentDataAsTemplate, pdfing, printing, setImportOpen, setImportRows, setImportSummary, setImportFileName]
   );
 
   useEffect(() => {
@@ -3541,24 +3703,6 @@ const ItemManagement: React.FC = () => {
         />
       ),
     });
-    if (can('item.delete')) {
-      actions.push({
-        key: 'purge-dummy',
-        node: (
-          <Button
-            size="middle"
-            danger
-            className="erp-toolbar-action-btn"
-            icon={<ClearOutlined />}
-            onClick={handlePurgeAllDummyConfirm}
-            style={{ fontWeight: 600, borderColor: '#ef4444' }}
-            title="Purge All Dummy/Test Items"
-          >
-            Purge Dummy Items
-          </Button>
-        ),
-      });
-    }
     if (can('item.view')) {
       actions.push({
         key: 'scan',
@@ -3571,26 +3715,16 @@ const ItemManagement: React.FC = () => {
       actions.push({
         key: 'export',
         node: (
-          <Dropdown
-            menu={{
-              items: [{ key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' }],
-              onClick: handleExport,
-            }}
-          >
-            <Button size="middle" className="erp-toolbar-action-btn" icon={<DownloadOutlined />} loading={exporting}>Export</Button>
+          <Dropdown menu={{ items: EXPORT_MENU, onClick: onExportMenu }}>
+            <Button
+              size="middle"
+              className="erp-toolbar-action-btn"
+              icon={<DownloadOutlined />}
+              loading={exporting || pdfing || printing}
+            >
+              Export ▾
+            </Button>
           </Dropdown>
-        ),
-      });
-      actions.push({
-        key: 'pdf',
-        node: (
-          <Button size="middle" className="erp-toolbar-action-btn" icon={<FilePdfOutlined />} loading={pdfing} onClick={handlePdf}>PDF</Button>
-        ),
-      });
-      actions.push({
-        key: 'print',
-        node: (
-          <Button size="middle" className="erp-toolbar-action-btn" icon={<PrinterOutlined />} loading={printing} onClick={handlePrint}>Print</Button>
         ),
       });
     }
@@ -3604,10 +3738,20 @@ const ItemManagement: React.FC = () => {
         ),
       });
     }
+    if (can('item.view')) {
+      actions.push({
+        key: 'import-template',
+        node: (
+          <Button size="middle" className="erp-toolbar-action-btn" icon={<DownloadOutlined />} loading={exportingTemplate} onClick={exportCurrentDataAsTemplate}>
+            Export Current Data as Template
+          </Button>
+        ),
+      });
+    }
 
     setHeaderActions(actions, '/master-data/items');
     setHeaderActions(actions, '/master-data/products-items');
-  }, [can, openCreate, fetchItems, handlePurgeAllDummyConfirm, setScannerOpen, handleExport, exporting, pdfing, handlePdf, printing, handlePrint, setImportOpen, setImportRows, setImportSummary, setImportFileName]);
+  }, [can, openCreate, fetchItems, setScannerOpen, onExportMenu, exporting, exportingTemplate, exportCurrentDataAsTemplate, pdfing, printing, setImportOpen, setImportRows, setImportSummary, setImportFileName]);
 
   return (
     <TabKeepAlive
@@ -5141,12 +5285,22 @@ const ItemManagement: React.FC = () => {
                                 compact
                                 departmentId={rowDeptId ?? null}
                                 excludeItemId={null}
+                                initialItemCode={form.getFieldValue(['processes', index, 'outputItemCode'])}
+                                initialItemName={form.getFieldValue(['processes', index, 'outputItemName'])}
                                 placeholder={`Output Item of ${seqNumber}`}
                                 ariaLabel={`Output Item of Step ${seqNumber}`}
                                 testId={`route-output-${index}`}
                                 onSelectDetail={(detail) => {
                                   const curId = form.getFieldValue(['processes', index, 'outputItemId']) as string | undefined;
                                   handleRouteItemDetail(curId, detail);
+                                  if (detail) {
+                                    const procs = form.getFieldValue('processes');
+                                    if (Array.isArray(procs) && procs[index]) {
+                                      procs[index].outputItemCode = detail.itemCode;
+                                      procs[index].outputItemName = detail.name;
+                                      form.setFieldsValue({ processes: [...procs] });
+                                    }
+                                  }
                                 }}
                               />
                             </Form.Item>
@@ -6164,7 +6318,7 @@ const ItemManagement: React.FC = () => {
               type="info"
               showIcon
               message="CSV import with validation and preview"
-              description="Existing items are never overwritten: rows whose Item Code already exists are reported as duplicates and skipped."
+              description="Each row is matched on Item Code first: an existing code is patched in place (only the columns you filled in), a new code is inserted when its required columns are complete. Blank cells always keep the stored value."
               style={{ marginBottom: 16 }}
             />
             <Space style={{ marginBottom: 16 }}>
@@ -6173,6 +6327,9 @@ const ItemManagement: React.FC = () => {
                 onClick={() => downloadText('item-import-template.csv', TEMPLATE_CSV)}
               >
                 Download Template
+              </Button>
+              <Button icon={<FileTextOutlined />} loading={exportingTemplate} onClick={exportCurrentDataAsTemplate}>
+                Export Current Data as Template
               </Button>
             </Space>
             <Upload.Dragger
@@ -6185,7 +6342,8 @@ const ItemManagement: React.FC = () => {
               <p className="ant-upload-drag-icon"><InboxOutlined /></p>
               <p className="ant-upload-text">Click or drag a CSV file here</p>
               <p className="ant-upload-hint">
-                Columns: {IMPORT_COLUMNS.join(', ')}. Required per row: itemCode, name, itemType, uomCode.
+                Columns: {IMPORT_COLUMNS.join(', ')}. Required to insert: itemCode, name, itemType, uomCode — an
+                existing itemCode only needs itemCode. Blank cells retain the stored value.
               </p>
             </Upload.Dragger>
           </div>
@@ -6197,6 +6355,8 @@ const ItemManagement: React.FC = () => {
               const validCount = importRows.filter((r) => r.status === 'VALID').length;
               const dupCount = importRows.filter((r) => r.status === 'DUPLICATE').length;
               const invalidCount = importRows.filter((r) => r.status === 'INVALID').length;
+              const updateCount = importRows.filter((r) => r.action === 'UPDATE').length;
+              const insertCount = importRows.filter((r) => r.action === 'INSERT').length;
 
               return (
                 <>
@@ -6226,6 +6386,8 @@ const ItemManagement: React.FC = () => {
                         Valid: <b style={{ color: '#1a7f37' }}>{validCount}</b> ·{' '}
                         Duplicates: <b style={{ color: '#b9770e' }}>{dupCount}</b> ·{' '}
                         Invalid: <b style={{ color: '#c0392b' }}>{invalidCount}</b>
+                        {'  '}·  Will update: <b style={{ color: '#1d4ed8' }}>{updateCount}</b> ·{' '}
+                        Will insert: <b style={{ color: '#1a7f37' }}>{insertCount}</b>
                         {invalidCount > 0 && (
                           <span style={{ marginLeft: 8, color: '#c0392b', fontWeight: 500 }}>
                             — Errors highlighted below. Select "Failed / Invalid" to isolate them.
@@ -6375,6 +6537,14 @@ const ItemManagement: React.FC = () => {
                             {r.data['itemCode'] || <Text type="danger">(empty)</Text>}
                           </b>
                         ),
+                      },
+                      {
+                        title: <Space size={4}><SyncOutlined /><span>Action</span></Space>,
+                        width: 95,
+                        render: (_: unknown, r: ImportRow) =>
+                          r.action === 'UPDATE'
+                            ? <Tag color="processing">Update</Tag>
+                            : <Tag color="success">Insert</Tag>,
                       },
                       {
                         title: <Space size={4}><AppstoreOutlined /><span>Name</span></Space>,
@@ -6627,6 +6797,8 @@ const ItemManagement: React.FC = () => {
               <Descriptions.Item label="Valid rows">{importSummary.valid}</Descriptions.Item>
               <Descriptions.Item label="Invalid rows">{importSummary.invalid}</Descriptions.Item>
               <Descriptions.Item label="Duplicate rows (skipped)">{importSummary.duplicate}</Descriptions.Item>
+              <Descriptions.Item label="Updated (existing code)"><b style={{ color: '#1d4ed8' }}>{importSummary.updated ?? 0}</b></Descriptions.Item>
+              <Descriptions.Item label="Created (new code)"><b style={{ color: '#1a7f37' }}>{importSummary.created ?? 0}</b></Descriptions.Item>
               <Descriptions.Item label="Imported rows"><b style={{ color: '#1a7f37' }}>{importSummary.imported}</b></Descriptions.Item>
               <Descriptions.Item label="Failed rows">{importSummary.failed}</Descriptions.Item>
               <Descriptions.Item label="Skipped rows">{importSummary.skipped}</Descriptions.Item>

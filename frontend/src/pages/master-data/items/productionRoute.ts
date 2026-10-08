@@ -16,6 +16,8 @@ export interface RouteRow {
   sectionId?: string | null;
   sectionName?: string | null;
   outputItemId?: string | null;
+  outputItemCode?: string | null;
+  outputItemName?: string | null;
 }
 
 export interface RouteStageSource {
@@ -79,6 +81,8 @@ export function normalizeRouteRows(rows: unknown): RouteRow[] {
       sectionId: cleanString(obj?.sectionId),
       sectionName: cleanString(obj?.sectionName),
       outputItemId: cleanString(obj?.outputItemId),
+      outputItemCode: cleanString(obj?.outputItemCode),
+      outputItemName: cleanString(obj?.outputItemName),
     });
   });
   return out;

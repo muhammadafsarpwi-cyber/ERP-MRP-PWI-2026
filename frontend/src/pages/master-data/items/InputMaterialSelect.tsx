@@ -3,8 +3,41 @@ import { Alert, Descriptions, Select, Space, Spin, Typography } from 'antd';
 import apiService from '../../../services/api';
 import { ITEM_TYPES, type DepartmentOption, type Item } from './itemTypes';
 import { formatDimension } from '../../../utils/numberFormat';
+import { getLookupsSnapshot } from '../../../services/lookupsCache';
 
 const { Text } = Typography;
+
+// Module-level shared items cache so items resolved anywhere in the app are instant (0ms)
+const itemMemoryCache = new Map<string, Item>();
+
+export function registerItemsInCache(items: Array<Partial<Item> & { id: string }>) {
+  if (!Array.isArray(items)) return;
+  for (const it of items) {
+    if (it && it.id) {
+      itemMemoryCache.set(it.id, { ...(itemMemoryCache.get(it.id) || {}), ...it } as Item);
+    }
+  }
+}
+
+export const getInstantItem = (id?: string | null, fallbackCode?: string, fallbackName?: string): Item | null => {
+  if (!id) return null;
+  if (itemMemoryCache.has(id)) return itemMemoryCache.get(id)!;
+  const fromSnap = getLookupsSnapshot().items.find((i) => i.id === id);
+  if (fromSnap) {
+    const itemObj = fromSnap as unknown as Item;
+    itemMemoryCache.set(id, itemObj);
+    return itemObj;
+  }
+  if (fallbackCode || fallbackName) {
+    const placeholderItem = {
+      id,
+      itemCode: fallbackCode || 'ITEM',
+      name: fallbackName || 'Selected Item',
+    } as Item;
+    return placeholderItem;
+  }
+  return null;
+};
 
 // TASK #34C: only SERVICE / ASSET / OTHER are never valid production inputs.
 // RAW_MATERIAL, SEMI_FINISHED, WIP-type (FINISHED_GOOD consumed downstream), etc.
@@ -31,6 +64,8 @@ export interface InputMaterialSelectProps {
   placeholder?: string;
   ariaLabel?: string;
   testId?: string;
+  initialItemCode?: string;
+  initialItemName?: string;
 }
 
 /**
@@ -55,15 +90,29 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   placeholder = 'Select the input material — search by code, name, SKU or barcode',
   ariaLabel = 'Input Material Select',
   testId = 'input-material-select',
+  initialItemCode,
+  initialItemName,
 }) => {
-  const [options, setOptions] = useState<Item[]>([]);
-  const [detailsItem, setDetailsItem] = useState<Item | null>(null);
+  const instantItem = useMemo(
+    () => getInstantItem(value, initialItemCode, initialItemName),
+    [value, initialItemCode, initialItemName]
+  );
+  const [options, setOptions] = useState<Item[]>(() => (instantItem ? [instantItem] : []));
+  const [detailsItem, setDetailsItem] = useState<Item | null>(() => instantItem);
   const [total, setTotal] = useState(0);
   const [pageNum, setPageNum] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [dept, setDept] = useState<string | undefined>(undefined);
+
+  // Sync instant item when value or initial labels change
+  useEffect(() => {
+    if (instantItem) {
+      setOptions((prev) => (prev.some((o) => o.id === instantItem.id) ? prev : [instantItem, ...prev]));
+      setDetailsItem((prev) => prev || instantItem);
+    }
+  }, [instantItem]);
 
   // The effective department filter is the FORCED department (e.g. a route-stage
   // department) when provided, otherwise the user's internal Source/Store picker.
@@ -94,6 +143,7 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
         const filtered = (res.data || []).filter(
           (i) => i.id && i.id !== (excludeItemId ?? null) && !EXCLUDED_ITEM_TYPES.includes(i.itemType),
         );
+        registerItemsInCache(filtered);
         setOptions((prev) => (reset ? filtered : [...prev, ...filtered]));
         setTotal(typeof res.total === 'number' ? res.total : 0);
         setPageNum(targetPage);
@@ -147,8 +197,8 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   // page / filtered out) so its label and Item Master details always display.
   const selectedDetail = useMemo<Item | null>(() => {
     if (!value) return null;
-    return options.find((o) => o.id === value) ?? detailsItem ?? null;
-  }, [value, options, detailsItem]);
+    return options.find((o) => o.id === value) ?? detailsItem ?? getInstantItem(value, initialItemCode, initialItemName) ?? null;
+  }, [value, options, detailsItem, initialItemCode, initialItemName]);
 
   useEffect(() => {
     onSelectDetail?.(selectedDetail);
@@ -165,6 +215,7 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
       .get<{ data: Item }>(`/master-data/items/${value}`)
       .then((res) => {
         if (cancelled || !res?.data) return;
+        registerItemsInCache([res.data]);
         setDetailsItem(res.data);
         setOptions((prev) => (prev.some((o) => o.id === value) ? prev : [res.data, ...prev]));
       })
@@ -174,10 +225,25 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
     };
   }, [value, options]);
 
-  const selectOptions = useMemo(
-    () => options.map((o) => ({ value: o.id, label: `${o.itemCode} — ${o.name}` })),
-    [options],
-  );
+  const selectOptions = useMemo(() => {
+    const list = [...options];
+    if (value && !list.some((o) => o.id === value)) {
+      const cached = getInstantItem(value, initialItemCode, initialItemName) || detailsItem;
+      if (cached) {
+        list.unshift(cached);
+      } else {
+        list.unshift({
+          id: value,
+          itemCode: '',
+          name: loading ? 'Loading item details...' : 'Selected Material',
+        } as any);
+      }
+    }
+    return list.map((o) => {
+      if (!o.itemCode) return { value: o.id, label: o.name };
+      return { value: o.id, label: `${o.itemCode} — ${o.name}` };
+    });
+  }, [options, value, detailsItem, initialItemCode, initialItemName, loading]);
 
   const departmentOptions = useMemo(
     () => departments.map((d) => ({ value: d.id, label: d.name })),

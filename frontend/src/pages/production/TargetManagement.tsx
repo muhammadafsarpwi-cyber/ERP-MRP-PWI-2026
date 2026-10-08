@@ -194,9 +194,18 @@ interface ImportSummary {
  * blank any column to leave that value untouched in the database.
  * `Machine Code + Shift Code + Item Code` is the composite anchor that decides
  * whether a line UPDATEs an existing target or INSERTs a new one.
+ *
+ * This array is the single source of truth for that order — the blank template
+ * and `Export Current Targets` both build from it, so the two files can never
+ * drift apart from the parser.
  */
+const IMPORT_TEMPLATE_HEADER = [
+  'Machine Code', 'Shift Code', 'UOM Code', 'Item Code', 'Standard Target',
+  'Standard Hours', 'Effective From', 'Effective To', 'Status', 'Remarks',
+];
+
 const IMPORT_TEMPLATE_CSV =
-  'Machine Code,Shift Code,UOM Code,Item Code,Standard Target,Standard Hours,Effective From,Effective To,Status,Remarks\n' +
+  `${IMPORT_TEMPLATE_HEADER.join(',')}\n` +
   'APS-01,SHIFT-1,KG,WIP-SPL-018,5000,8,2026-01-01,,ACTIVE,Sample target\n' +
   'APS-02,SHIFT-1,PCS,WIP-SPL-019,3000,8,2026-01-01,2026-12-31,ACTIVE,Limited period\n';
 
@@ -266,6 +275,47 @@ function downloadText(filename: string, text: string, mime = 'text/csv;charset=u
   URL.revokeObjectURL(url);
 }
 
+/* ─── Round-trip template export ─────────────────────────────────────────── */
+
+/**
+ * Raw numeric cell for a NUMERIC(19,4) column — `5000`, never `5,000.00`.
+ * `fmtQty()` is locale-aware and would emit a comma, which the import engine
+ * reads back as `NaN`; this keeps the file machine-parseable on re-upload.
+ */
+function rawNum(v: string | number | null | undefined): string {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  return isFinite(n) ? String(n) : '';
+}
+
+/** `2026-01-01T00:00:00.000Z` → `2026-01-01`; already-plain dates pass through. */
+function isoDate(v: string | null | undefined): string {
+  if (!v) return '';
+  const s = String(v).trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : s;
+}
+
+/**
+ * One grid row → one import-ready line, in `IMPORT_TEMPLATE_HEADER` order with
+ * codes pre-filled. Blank cells mean "retain the stored value" to the import
+ * engine, so a manager can edit a single column and re-upload without losing
+ * the rest of the row.
+ */
+function targetToImportRow(t: MachineTarget): string[] {
+  return [
+    t.machine?.machineCode ?? '',
+    t.shift?.shiftCode ?? '',
+    t.uom?.code ?? '',
+    t.item?.itemCode ?? '',
+    rawNum(t.targetQuantity),
+    rawNum(t.standardHours),
+    isoDate(t.effectiveFrom),
+    isoDate(t.effectiveTo),
+    t.status ?? '',
+    t.remarks ?? '',
+  ];
+}
+
 const formatRemainingTime = (secs: number): string => {
   if (secs <= 0) return 'Few seconds…';
   if (secs < 60) return `${secs}s remaining`;
@@ -313,6 +363,7 @@ const TargetManagement: React.FC = () => {
   const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>((cachedMaster?.filters?.sortDir as 'ASC' | 'DESC') ?? 'ASC');
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingTemplate, setExportingTemplate] = useState(false);
   const [pdfing, setPdfing] = useState(false);
   const [printing, setPrinting] = useState(false);
 
@@ -825,6 +876,45 @@ const TargetManagement: React.FC = () => {
       message.error(err?.response?.data?.message || 'Export failed');
     } finally {
       setExporting(false);
+    }
+  };
+
+  /**
+   * Round-trip loop: dump every target currently in the grid (honouring the
+   * active filters) with its codes pre-filled, in the exact column order the
+   * smart import engine parses. A manager edits one cell in Excel, re-uploads,
+   * and the composite anchor (Machine + Shift + Item) updates that row in place
+   * while untouched columns keep their stored values.
+   */
+  const exportCurrentTargetsAsTemplate = async () => {
+    setExportingTemplate(true);
+    try {
+      const rows = await collectFilteredTargets();
+      if (rows.length === 0) {
+        message.info('No targets in the current view to export.');
+        return;
+      }
+      // A row without its codes cannot be re-imported: the composite anchor
+      // and every FK would be blank. Fail loudly instead of writing a file
+      // that only errors later inside the import wizard.
+      const broken = rows.filter((t) => !t.machine?.machineCode || !t.shift?.shiftCode || !t.uom?.code);
+      if (broken.length > 0) {
+        message.error(
+          `${broken.length} row(s) are missing their Machine / Shift / UOM codes and cannot be exported safely.`,
+        );
+        return;
+      }
+      downloadText(
+        `machine-target-template-${new Date().toISOString().slice(0, 10)}.csv`,
+        toCsv(IMPORT_TEMPLATE_HEADER, rows.map(targetToImportRow)),
+      );
+      message.success(
+        `Downloaded ${rows.length} target(s) pre-filled — edit a cell, save, then re-upload via Import.`,
+      );
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Template export failed');
+    } finally {
+      setExportingTemplate(false);
     }
   };
 
@@ -1819,6 +1909,11 @@ const TargetManagement: React.FC = () => {
                 Import
               </Button>
             </Tooltip>
+            <Tooltip title="Download a pre-filled template of every target in this grid — edit a cell in Excel, then re-upload it with Import">
+              <Button size="middle" icon={<DownloadOutlined />} loading={exportingTemplate} onClick={exportCurrentTargetsAsTemplate}>
+                Export Current Targets
+              </Button>
+            </Tooltip>
           </>
         }
       />
@@ -2378,6 +2473,9 @@ const TargetManagement: React.FC = () => {
               <Button icon={<DownloadOutlined />} onClick={downloadImportTemplate}>
                 Download Template
               </Button>
+              <Button icon={<FileTextOutlined />} loading={exportingTemplate} onClick={exportCurrentTargetsAsTemplate}>
+                Download pre-filled Template
+              </Button>
             </Space>
             <Upload.Dragger
               name="file"
@@ -2389,8 +2487,9 @@ const TargetManagement: React.FC = () => {
               <p className="ant-upload-drag-icon"><InboxOutlined /></p>
               <p className="ant-upload-text">Click or drag a CSV file here</p>
               <p className="ant-upload-hint">
-                Required columns: Machine Code, Shift Code, UOM Code, Standard Target, Standard Hours, Effective From.<br />
-                Optional: Item Code, Effective To, Status, Remarks.
+                Required column: Machine Code. Anchor: Machine Code + Shift Code + Item Code — matched rows are
+                updated in place, others are inserted.<br />
+                Columns you leave blank keep their stored value; only columns with data are written.
               </p>
             </Upload.Dragger>
           </div>

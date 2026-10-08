@@ -10,7 +10,7 @@ import {
   ToolOutlined, DeleteOutlined, TagOutlined, SettingOutlined, DesktopOutlined,
   ApartmentOutlined, ShopOutlined, SubnodeOutlined, TeamOutlined, EnvironmentOutlined,
   TagsOutlined, AlertOutlined, CheckCircleOutlined, ScanOutlined,
-  DownloadOutlined, FilePdfOutlined, ImportOutlined, InboxOutlined,
+  DownloadOutlined, ImportOutlined, InboxOutlined,
   HistoryOutlined, BarChartOutlined, ScheduleOutlined,
   ArrowUpOutlined, ArrowDownOutlined, MinusOutlined, AppstoreOutlined,
   ThunderboltOutlined, ClockCircleOutlined, FileTextOutlined, CloseOutlined,
@@ -28,6 +28,7 @@ import {
 import { label } from '../maintenance/jobCards.types';
 import { getMachineColor } from '../../utils/colorMapping';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
+import { rawNum, isoDate } from '../../utils/csvRoundTrip';
 import BarcodePrint from '../../components/shared/BarcodePrint';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -1397,12 +1398,34 @@ const STATUS_COLORS: Record<string, string> = {
   RETIRED: 'default',
 };
 
+/**
+ * Consolidated export menu — the toolbar used to carry three standalone
+ * Export / PDF / Print buttons; they collapse into one `Export ▾` trigger that
+ * fans out to the PDF generator, the spreadsheet generator and the print
+ * stylesheet. Fully static, so it lives at module scope.
+ */
+export const EXPORT_MENU: MenuProps['items'] = [
+  { key: 'pdf', icon: '📄', label: 'Download PDF Document' },
+  { key: 'excel', icon: '📊', label: 'Export to Excel Worksheet' },
+  { key: 'print', icon: '🖨️', label: 'Print Register' },
+];
+
 type ImportRowStatus = 'VALID' | 'DUPLICATE' | 'INVALID';
+
+/**
+ * 2-stage synchronization resolution decided during preview:
+ *  - `UPDATE` — the composite primary identifier (`machine_code`) already exists,
+ *    so only the columns that carry data are patched (blank cell = RETAIN value).
+ *  - `INSERT` — the code is unknown; the row is created only when the absolute
+ *    required columns are fully provided.
+ */
+type ImportRowAction = 'UPDATE' | 'INSERT';
 
 interface ImportRow {
   rowNumber: number;
   data: Record<string, string>;
   status: ImportRowStatus;
+  action?: ImportRowAction;
   errors: string[];
 }
 
@@ -1412,14 +1435,29 @@ interface ImportSummary {
   invalid: number;
   duplicate: number;
   imported: number;
+  /** Stage 1 — rows patched in place because `machine_code` already existed. */
+  updated: number;
+  /** Stage 2 — rows created because `machine_code` was new. */
+  created: number;
   failed: number;
   errors: string[];
 }
 
 /* ─── CSV / Import utilities (mirror the ItemManagement / TargetManagement export architecture) ─── */
 
+/**
+ * Exact column order the smart import engine parses — the round-trip contract.
+ * `Export Current Data as Template` writes these headers and the blank template
+ * reuses them, so the two files can never drift apart from the parser.
+ */
+const IMPORT_TEMPLATE_HEADER = [
+  'Machine Code', 'Machine Name', 'Machine Number', 'Machine Type', 'Manufacturer',
+  'Model', 'Serial Number', 'Location', 'Capacity', 'Power Rating',
+  'Criticality', 'Status', 'Installation Date', 'Warranty Expiry', 'Description',
+];
+
 const IMPORT_TEMPLATE_CSV =
-  'Machine Code,Machine Name,Machine Number,Machine Type,Manufacturer,Model,Serial Number,Location,Capacity,Power Rating,Criticality,Status,Installation Date,Warranty Expiry,Description\n' +
+  `${IMPORT_TEMPLATE_HEADER.join(',')}\n` +
   'HD-04,Header Machine 04,MM-1001,Cold Forge,Acme Corp,AF-200,SN-12345,Hall A / Bay 3,120,15 kW,MEDIUM,ACTIVE,2024-06-15,2027-06-15,Primary header line machine\n' +
   'WR-02,Wire Drawing 02,,Wire Drawer,Simaco,WD-500,,Building B,80,10 kW,MEDIUM,ACTIVE,,,Wire drawing for 3mm stock\n';
 
@@ -1486,6 +1524,34 @@ function downloadText(filename: string, text: string, mime = 'text/csv;charset=u
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/* ─── Round-trip template export ─────────────────────────────────────────── */
+
+/**
+ * One grid row → one import-ready line, in `IMPORT_TEMPLATE_HEADER` order with
+ * codes pre-filled. A blank cell tells the import engine "retain the stored
+ * value", so a manager can edit a single column and re-upload without losing
+ * the rest of the row.
+ */
+function machineToImportRow(m: Machine): string[] {
+  return [
+    m.machineCode,
+    m.name ?? '',
+    m.machineNumber ?? '',
+    m.machineType ?? '',
+    m.manufacturer ?? '',
+    m.model ?? '',
+    m.serialNumber ?? '',
+    m.location ?? '',
+    rawNum(m.capacity),
+    m.powerRating ?? '',
+    m.criticality ?? '',
+    m.status ?? '',
+    isoDate(m.installationDate),
+    isoDate(m.warrantyExpiryDate),
+    m.description ?? '',
+  ];
 }
 
 const EXPORT_HEADERS = [
@@ -1643,6 +1709,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     visible: false, machine: null,
   });
   const [exporting, setExporting] = useState(false);
+  const [exportingTemplate, setExportingTemplate] = useState(false);
   const [pdfing, setPdfing] = useState(false);
   const [printing, setPrinting] = useState(false);
 
@@ -1972,6 +2039,48 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     return parts.length ? parts.join('   |   ') : 'All machines';
   };
 
+  /**
+   * Every machine in the company (unfiltered) keyed by upper-cased
+   * `machine_code`. This is the Stage-1 strict unique lookup for the import —
+   * it deliberately ignores the on-screen filters so a sheet is never
+   * mis-classified as INSERT just because the grid happens to be filtered.
+   */
+  const fetchExistingMachines = async (): Promise<Map<string, Machine>> => {
+    const res = await apiService.get<{ data: Machine[]; total: number }>('/machines', { limit: EXPORT_LIMIT, page: 1 });
+    const map = new Map<string, Machine>();
+    (res.data || []).forEach((m) => map.set(String(m.machineCode || '').trim().toUpperCase(), m));
+    return map;
+  };
+
+  /**
+   * Round-trip loop: dump every machine currently in the grid (honouring the
+   * active filters, capped at `EXPORT_LIMIT`) with its codes pre-filled, in the
+   * exact column order the smart import engine parses. A manager edits one cell
+   * in Excel, re-uploads, and `machine_code` decides UPDATE (partial patch) vs
+   * INSERT (new row).
+   */
+  const exportCurrentDataAsTemplate = async () => {
+    setExportingTemplate(true);
+    try {
+      const rows = await collectFilteredMachines();
+      if (rows.length === 0) {
+        message.info('No machines in the current view to export.');
+        return;
+      }
+      downloadText(
+        `machine-master-template-${new Date().toISOString().slice(0, 10)}.csv`,
+        toCsv(IMPORT_TEMPLATE_HEADER, rows.map(machineToImportRow)),
+      );
+      message.success(
+        `Downloaded ${rows.length} machine(s) pre-filled — edit a cell, save, then re-upload via Import.`,
+      );
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Template export failed');
+    } finally {
+      setExportingTemplate(false);
+    }
+  };
+
   const handleExportCsv = async () => {
     setExporting(true);
     try {
@@ -2098,11 +2207,10 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     }
   };
 
-  const exportMenu: MenuProps['items'] = [
-    { key: 'csv', icon: <DownloadOutlined />, label: 'Excel-compatible CSV' },
-    { key: 'pdf', icon: <FilePdfOutlined />, label: 'PDF Report' },
-    { key: 'print', icon: <PrinterOutlined />, label: 'Print Report' },
-  ];
+  /**
+   * Single master export menu dispatcher — routes the consolidated
+   * `Export ▾` menu back to the three existing generators.
+   */
   const onExportMenu: MenuProps['onClick'] = ({ key }) => {
     if (key === 'pdf') handleExportPdf();
     else if (key === 'print') handlePrintReport();
@@ -2121,11 +2229,22 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     const header = parsed[0].map((h) => h.trim());
     const normHeader = header.map((h) => h.toLowerCase().replace(/[\s_-]+/g, ''));
 
-    const required = ['machinecode', 'machinename'];
+    // Only the primary identifier is structurally required. Any other column may
+    // be dropped from the sheet entirely — the engine reads that as RETAIN VALUE.
+    const required = ['machinecode'];
     const missing = required.filter((c) => !normHeader.includes(c));
     if (missing.length > 0) {
       message.error(`Missing required column(s): ${missing.join(', ')}. Download the template for the expected format.`);
       return false;
+    }
+
+    // Stage 1 lookup table — every machine in the company (deliberately
+    // unfiltered so a narrowed grid can never mis-classify an existing row).
+    let existingByCode = new Map<string, Machine>();
+    try {
+      existingByCode = await fetchExistingMachines();
+    } catch {
+      message.warning('Could not verify existing machine codes before import; rows will be reconciled server-side.');
     }
 
     const headerMap: Record<string, number> = {};
@@ -2135,6 +2254,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       return idx !== undefined ? (cells[idx] ?? '').trim() : '';
     };
 
+    const seenCodes = new Set<string>();
     const validated: ImportRow[] = parsed.slice(1).map((cells, idx) => {
       const data: Record<string, string> = {};
       header.forEach((h, i) => {
@@ -2146,12 +2266,24 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       const code = get(cells, 'machinecode');
       const name = get(cells, 'machinename');
       if (!code) errors.push('Machine Code is required');
-      if (!name) errors.push('Machine Name is required');
       if (code.length > 50) errors.push('Machine Code must be ≤ 50 characters');
-      const crit = (get(cells, 'criticality') || 'MEDIUM').toUpperCase();
-      if (!['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(crit)) errors.push(`Invalid Criticality '${crit}'`);
-      const status = (get(cells, 'status') || 'ACTIVE').toUpperCase();
-      if (!['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].includes(status)) errors.push(`Invalid Status '${status}'`);
+
+      const codeKey = code.trim().toUpperCase();
+      const action: ImportRowAction = existingByCode.has(codeKey) ? 'UPDATE' : 'INSERT';
+      const isFileDuplicate = codeKey !== '' && seenCodes.has(codeKey);
+      if (isFileDuplicate) errors.push(`Duplicate machine code '${code}' within the file`);
+      else if (codeKey) seenCodes.add(codeKey);
+
+      // Stage 2 gate: a brand-new row must carry its absolute required columns.
+      // An UPDATE row may leave `Machine Name` blank — that retains the value.
+      if (action === 'INSERT' && !name) {
+        errors.push(`Machine Name is required to insert new machine '${code || `row ${idx + 2}`}'`);
+      }
+
+      const crit = get(cells, 'criticality');
+      if (crit && !['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(crit.toUpperCase())) errors.push(`Invalid Criticality '${crit}'`);
+      const status = get(cells, 'status');
+      if (status && !['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].includes(status.toUpperCase())) errors.push(`Invalid Status '${status}'`);
       const capacity = get(cells, 'capacity');
       if (capacity && isNaN(Number(capacity))) errors.push('Capacity must be a number');
       const instDate = get(cells, 'installationdate');
@@ -2162,7 +2294,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       return {
         rowNumber: idx + 2,
         data,
-        status: errors.length > 0 ? 'INVALID' : 'VALID',
+        action,
+        status: errors.length > 0 ? (isFileDuplicate ? 'DUPLICATE' : 'INVALID') : 'VALID',
         errors,
       };
     });
@@ -2185,10 +2318,100 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     if (validRows.length === 0) return;
     setImporting(true);
     try {
-      const existingRes = await apiService.get<{ data: Machine[]; total: number }>('/machines', { limit: EXPORT_LIMIT, page: 1 });
-      const existingCodes = new Set((existingRes.data || []).map((m) => m.machineCode.toUpperCase()));
+      // Stage 1 authority: the full, unfiltered company list.
+      const existingByCode = await fetchExistingMachines();
 
-      let imported = 0;
+      /**
+       * Raw cell reader. Both the original header (`Machine Name`) and its
+       * normalised form (`machinename`) are accepted, and an empty / whitespace
+       * cell reads as '' — which means RETAIN STORED VALUE downstream.
+       */
+      const normKey = (s: string) => String(s).toLowerCase().replace(/[\s_-]+/g, '');
+      const cell = (row: ImportRow, field: string): string => {
+        const nk = normKey(field);
+        for (const k of Object.keys(row.data)) {
+          if (normKey(k) !== nk) continue;
+          const v = row.data[k];
+          if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+        }
+        return '';
+      };
+
+      /** Stage 2 — insert payload: defaults applied only where nothing was supplied. */
+      const buildInsertPayload = (row: ImportRow, code: string): any => {
+        const txt = (f: string) => cell(row, f) || null;
+        return {
+          machineCode: code,
+          name: cell(row, 'machineName'),
+          machineNumber: txt('machineNumber'),
+          machineType: txt('machineType'),
+          manufacturer: txt('manufacturer'),
+          model: txt('model'),
+          serialNumber: txt('serialNumber'),
+          location: txt('location'),
+          capacity: cell(row, 'capacity') ? Number(cell(row, 'capacity')) : null,
+          powerRating: txt('powerRating'),
+          criticality: (cell(row, 'criticality') || 'MEDIUM').toUpperCase(),
+          installationDate: txt('installationDate'),
+          warrantyExpiryDate: txt('warrantyExpiry'),
+          description: txt('description'),
+        };
+      };
+
+      /**
+       * Stage 1 — partial column patch. A column is emitted only when the cell
+       * carries data AND differs from the stored value, so blank cells (and
+       * omitted columns) can never overwrite a value with '' or 0/null.
+       */
+      const buildPatch = (row: ImportRow, existing: Machine): Record<string, unknown> => {
+        const patch: Record<string, unknown> = {};
+        const changed = (key: string, value: unknown, current: unknown) => {
+          if (value === undefined) return;
+          if (String(value ?? '') === String(current ?? '')) return;
+          patch[key] = value;
+        };
+        const text = (f: string): string | undefined => {
+          const v = cell(row, f);
+          return v === '' ? undefined : v;
+        };
+
+        const v = text('machineName');
+        if (v !== undefined) changed('name', v, existing.name);
+        const number = text('machineNumber');
+        if (number !== undefined) changed('machineNumber', number, existing.machineNumber);
+        const type = text('machineType');
+        if (type !== undefined) changed('machineType', type, existing.machineType);
+        const maker = text('manufacturer');
+        if (maker !== undefined) changed('manufacturer', maker, existing.manufacturer);
+        const model = text('model');
+        if (model !== undefined) changed('model', model, existing.model);
+        const serial = text('serialNumber');
+        if (serial !== undefined) changed('serialNumber', serial, existing.serialNumber);
+        const location = text('location');
+        if (location !== undefined) changed('location', location, existing.location);
+        const power = text('powerRating');
+        if (power !== undefined) changed('powerRating', power, existing.powerRating);
+        const description = text('description');
+        if (description !== undefined) changed('description', description, existing.description);
+
+        const capacity = text('capacity');
+        if (capacity !== undefined) {
+          const n = Number(capacity);
+          if (isFinite(n) && n !== Number(existing.capacity)) patch.capacity = n;
+        }
+        const criticality = text('criticality');
+        if (criticality !== undefined) changed('criticality', criticality.toUpperCase(), existing.criticality);
+        const installed = text('installationDate');
+        if (installed !== undefined) changed('installationDate', installed, existing.installationDate);
+        const warranty = text('warrantyExpiry');
+        if (warranty !== undefined) changed('warrantyExpiryDate', warranty, existing.warrantyExpiryDate);
+
+        // `machine_code` is the anchor itself and is never part of the patch.
+        return patch;
+      };
+
+      let created = 0;
+      let updated = 0;
       let failed = 0;
       const errors: string[] = [];
 
@@ -2197,45 +2420,41 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         const batch = validRows.slice(i, i + BATCH_SIZE);
         await Promise.all(
           batch.map(async (row) => {
-            const code = (row.data['machineCode'] || row.data['Machine Code'] || row.data['machinecode'] || '').trim();
-            if (existingCodes.has(code.toUpperCase())) {
-              row.status = 'DUPLICATE';
-              row.errors = ['Machine Code already exists'];
-              failed++;
-              errors.push(`Row ${row.rowNumber}: Duplicate machine code '${code}'`);
-              return;
-            }
-            const status = (row.data['status'] || row.data['Status'] || 'ACTIVE').toUpperCase();
-            const payload: any = {
-              machineCode: code,
-              name: (row.data['machineName'] || row.data['Machine Name'] || row.data['machinename'] || '').trim(),
-              machineNumber: (row.data['machineNumber'] || row.data['Machine Number'] || row.data['machinenumber'] || '').trim() || null,
-              machineType: (row.data['machineType'] || row.data['Machine Type'] || row.data['machinetype'] || '').trim() || null,
-              manufacturer: (row.data['manufacturer'] || row.data['Manufacturer'] || '').trim() || null,
-              model: (row.data['model'] || row.data['Model'] || '').trim() || null,
-              serialNumber: (row.data['serialNumber'] || row.data['Serial Number'] || row.data['serialnumber'] || '').trim() || null,
-              location: (row.data['location'] || row.data['Location'] || '').trim() || null,
-              capacity: (row.data['capacity'] || row.data['Capacity']) ? Number(row.data['capacity'] || row.data['Capacity']) : null,
-              powerRating: (row.data['powerRating'] || row.data['Power Rating'] || row.data['powerrating'] || '').trim() || null,
-              criticality: (row.data['criticality'] || row.data['Criticality'] || 'MEDIUM').toUpperCase(),
-              installationDate: (row.data['installationDate'] || row.data['Installation Date'] || row.data['installationdate'] || '').trim() || null,
-              warrantyExpiryDate: (row.data['warrantyExpiry'] || row.data['Warranty Expiry'] || row.data['warrantyexpiry'] || '').trim() || null,
-              description: (row.data['description'] || row.data['Description'] || '').trim() || null,
-            };
+            const code = cell(row, 'machineCode');
+            const codeKey = code.toUpperCase();
+            const status = cell(row, 'status').toUpperCase();
             try {
-              const created = await apiService.post<{ id: string }>('/machines', payload);
-              if (status !== 'ACTIVE') {
-                try {
-                  await apiService.patch(`/machines/${created.id}/status`, { status });
-                } catch {
-                  // machine was created; status patch is best-effort
+              const existing = existingByCode.get(codeKey);
+              if (existing) {
+                // ── Stage 1: strict unique lookup hit → partial column update ──
+                const patch = buildPatch(row, existing);
+                if (Object.keys(patch).length > 0) {
+                  await apiService.patch(`/machines/${existing.id}`, patch);
                 }
+                if (status && status !== String(existing.status || '').toUpperCase()) {
+                  await apiService.patch(`/machines/${existing.id}/status`, { status });
+                }
+                updated += 1;
+              } else {
+                // ── Stage 2: new code → insert (required columns already gated) ──
+                const payload = buildInsertPayload(row, code);
+                const res = await apiService.post<{ id?: string; data?: { id?: string } }>('/machines', payload);
+                const newId = res?.id ?? res?.data?.id;
+                if (newId && status && status !== 'ACTIVE') {
+                  try {
+                    await apiService.patch(`/machines/${newId}/status`, { status });
+                  } catch {
+                    // machine was created; status patch is best-effort
+                  }
+                }
+                created += 1;
               }
-              imported++;
-              existingCodes.add(code.toUpperCase());
             } catch (err: any) {
-              failed++;
-              errors.push(`Row ${row.rowNumber}: ${err?.response?.data?.message || err?.message || 'Unknown error'}`);
+              failed += 1;
+              const reason = err?.response?.data?.message || err?.message || 'Unknown error';
+              row.status = 'INVALID';
+              row.errors = [String(reason)];
+              errors.push(`Row ${row.rowNumber}: ${reason}`);
             }
           }),
         );
@@ -2246,10 +2465,19 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         valid: validRows.length,
         invalid: importRows.filter((r) => r.status === 'INVALID').length,
         duplicate: importRows.filter((r) => r.status === 'DUPLICATE').length,
-        imported,
+        imported: created + updated,
+        created,
+        updated,
         failed,
         errors,
       });
+
+      // Standardized confirmation, rendered at the absolute screen centre by
+      // the global `.ant-message` override in theme.css.
+      const headline = `Bulk Sync Complete: ${updated} records successfully updated / ${created} new rows inserted.`;
+      if (failed > 0) message.warning(`${headline}  ·  ${failed} row(s) failed.`);
+      else message.success(headline);
+
       fetchMachines(1);
       setPage(1);
     } catch (err: any) {
@@ -2703,26 +2931,28 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         <Button icon={<ScanOutlined />} onClick={() => setScannerOpen(true)} className="erp-toolbar-action-btn">
           Scan QR / Barcode
         </Button>
-        <Dropdown menu={{ items: exportMenu, onClick: onExportMenu }}>
+        <Dropdown menu={{ items: EXPORT_MENU, onClick: onExportMenu }}>
           <Button icon={<DownloadOutlined />} loading={exporting || pdfing || printing} className="erp-toolbar-action-btn">
-            Export
+            Export ▾
           </Button>
         </Dropdown>
         <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)} className="erp-toolbar-action-btn">
           Import
         </Button>
-        <Button icon={<FilePdfOutlined />} loading={pdfing} onClick={handleExportPdf} className="erp-toolbar-action-btn">
-          PDF
-        </Button>
-        <Button icon={<PrinterOutlined />} loading={printing} onClick={handlePrintReport} className="erp-toolbar-action-btn">
-          Print
+        <Button
+          icon={<DownloadOutlined />}
+          loading={exportingTemplate}
+          onClick={exportCurrentDataAsTemplate}
+          className="erp-toolbar-action-btn"
+        >
+          Export Current Data as Template
         </Button>
         <Button icon={<ClearOutlined />} onClick={resetFilters} className="erp-toolbar-action-btn">
           Clear
         </Button>
       </>
     ),
-    [openCreate, fetchMachines, page, setScannerOpen, exportMenu, onExportMenu, exporting, pdfing, printing, setImportOpen, handleExportPdf, handlePrintReport, resetFilters]
+    [openCreate, fetchMachines, page, setScannerOpen, onExportMenu, exporting, exportingTemplate, exportCurrentDataAsTemplate, pdfing, printing, setImportOpen, resetFilters]
   );
 
   return (
@@ -3331,12 +3561,15 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               type="info"
               showIcon
               message="CSV import with validation and preview"
-              description="Upload a CSV file with machine data. Each row is validated before import. Rows with missing required fields or duplicate machine codes will be rejected."
+              description="Upload a CSV file with machine data. Each row is matched on Machine Code first: an existing code is patched in place (only the columns you filled in), a new code is inserted when its required columns are complete. Blank cells always keep the stored value."
               style={{ marginBottom: 16 }}
             />
             <Space style={{ marginBottom: 16 }}>
               <Button icon={<DownloadOutlined />} onClick={downloadImportTemplate}>
                 Download Template
+              </Button>
+              <Button icon={<FileTextOutlined />} loading={exportingTemplate} onClick={exportCurrentDataAsTemplate}>
+                Export Current Data as Template
               </Button>
             </Space>
             <Upload.Dragger
@@ -3349,7 +3582,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               <p className="ant-upload-drag-icon"><InboxOutlined /></p>
               <p className="ant-upload-text">Click or drag a CSV file here</p>
               <p className="ant-upload-hint">
-                Required columns: Machine Code, Machine Name. Optional: Machine Number, Machine Type, Manufacturer, Model, Serial Number, Location, Capacity, Power Rating, Criticality, Status, Installation Date, Warranty Expiry, Description.
+                Required column: Machine Code. Existing codes update in place; new codes need Machine Name.<br />
+                Blank cells or dropped columns retain their stored value — they are never zeroed out.
               </p>
             </Upload.Dragger>
           </div>
@@ -3365,7 +3599,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                 <span>
                   Total rows: <b>{importRows.length}</b> ·{' '}
                   Valid: <b style={{ color: '#1a7f37' }}>{importRows.filter((r) => r.status === 'VALID').length}</b> ·{' '}
-                  Invalid: <b style={{ color: '#c0392b' }}>{importRows.filter((r) => r.status === 'INVALID').length}</b>
+                  Invalid: <b style={{ color: '#c0392b' }}>{importRows.filter((r) => r.status === 'INVALID').length}</b> ·{' '}
+                  Will update: <b style={{ color: '#1d4ed8' }}>{importRows.filter((r) => r.action === 'UPDATE').length}</b> ·{' '}
+                  Will insert: <b style={{ color: '#1a7f37' }}>{importRows.filter((r) => r.action === 'INSERT').length}</b>
                 </span>
               }
               style={{ marginBottom: 12 }}
@@ -3394,9 +3630,17 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                   render: (_: unknown, r: ImportRow) => r.data['status'] || r.data['Status'] || 'ACTIVE',
                 },
                 {
+                  title: 'Action', width: 90,
+                  render: (_: unknown, r: ImportRow) =>
+                    r.action === 'UPDATE'
+                      ? <Tag color="blue">Update</Tag>
+                      : <Tag color="green">Insert</Tag>,
+                },
+                {
                   title: 'Result', width: 90,
                   render: (_: unknown, r: ImportRow) => {
                     if (r.status === 'VALID') return <span style={{ color: '#1a7f37', fontWeight: 600 }}>Valid</span>;
+                    if (r.status === 'DUPLICATE') return <span style={{ color: '#b45309', fontWeight: 600 }}>Duplicate</span>;
                     return <span style={{ color: '#c0392b', fontWeight: 600 }}>Invalid</span>;
                   },
                 },
@@ -3426,7 +3670,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
             <Alert
               type={importSummary.failed > 0 ? 'warning' : 'success'}
               showIcon
-              message={importSummary.failed > 0 ? 'Import completed with errors' : 'Import successful'}
+              message={importSummary.failed > 0 ? 'Import completed with errors' : `Bulk Sync Complete: ${importSummary.updated} records successfully updated / ${importSummary.created} new rows inserted.`}
               style={{ marginBottom: 16 }}
             />
             <Descriptions bordered size="small" column={1} styles={{ label: { width: 180 } }}>
@@ -3434,6 +3678,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               <Descriptions.Item label="Valid rows">{importSummary.valid}</Descriptions.Item>
               <Descriptions.Item label="Invalid rows">{importSummary.invalid}</Descriptions.Item>
               <Descriptions.Item label="Duplicate rows">{importSummary.duplicate}</Descriptions.Item>
+              <Descriptions.Item label="Updated (existing code)"><b style={{ color: '#1d4ed8' }}>{importSummary.updated}</b></Descriptions.Item>
+              <Descriptions.Item label="Created (new code)"><b style={{ color: '#1a7f37' }}>{importSummary.created}</b></Descriptions.Item>
               <Descriptions.Item label="Imported rows"><b style={{ color: '#1a7f37' }}>{importSummary.imported}</b></Descriptions.Item>
               <Descriptions.Item label="Failed rows">{importSummary.failed}</Descriptions.Item>
             </Descriptions>

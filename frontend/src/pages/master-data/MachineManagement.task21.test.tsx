@@ -162,15 +162,16 @@ describe('MachineManagement — TASK21 View Modal (Part A)', () => {
 describe('MachineManagement — TASK21 Toolbar Actions (Part B)', () => {
   beforeEach(setupMocks);
 
-  it('renders labeled Export, Import, PDF, Print, Refresh, Clear and Add Machine actions', async () => {
+  it('renders labeled consolidated Export dropdown, Import, Refresh, Clear and Add Machine actions', async () => {
     renderPage();
     await screen.findByText('TASK21 Regression Machine', undefined, { timeout: 30000 });
     renderToolbar();
 
-    expect(screen.getByRole('button', { name: /Export$/ })).toBeInTheDocument();
+    // Export / PDF / Print were consolidated into a single `Export ▾` dropdown.
+    expect(screen.getByRole('button', { name: /Export ▾/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^PDF$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Print$/ })).toBeNull();
     expect(screen.getByRole('button', { name: /Import$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /PDF$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Print$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Refresh$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Clear$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add Machine$/ })).toBeInTheDocument();

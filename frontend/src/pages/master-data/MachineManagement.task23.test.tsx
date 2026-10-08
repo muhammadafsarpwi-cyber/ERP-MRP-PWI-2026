@@ -327,15 +327,15 @@ describe('MachineManagement — TASK23 Clean Detail/Form Pattern', () => {
     }, { timeout: 30000 });
   });
 
-  it('15. existing header actions remain available', async () => {
+  it('15. existing header actions remain available (Export/PDF/Print consolidated into one dropdown)', async () => {
     renderPage();
     await screen.findByText('Barrel Machine 01', undefined, { timeout: 30000 });
     renderToolbar();
     expect(screen.getByRole('button', { name: /Refresh$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Export$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export ▾/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^PDF$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Print$/ })).toBeNull();
     expect(screen.getByRole('button', { name: /Import$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /PDF$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Print$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Clear$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add Machine$/ })).toBeInTheDocument();
   });

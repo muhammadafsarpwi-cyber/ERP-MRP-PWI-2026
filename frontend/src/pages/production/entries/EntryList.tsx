@@ -21,6 +21,7 @@ import {
   Skeleton,
   Popover,
   Checkbox,
+  Dropdown,
 } from 'antd';
 import PageHeader from '../../../components/shared/PageHeader';
 import { useHeaderActions } from '../../../components/layout/headerActionsStore';
@@ -28,6 +29,7 @@ import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSession
 import {
   PlusOutlined,
   ReloadOutlined,
+  FileExcelOutlined,
   SearchOutlined,
   BarChartOutlined,
   CalendarOutlined,
@@ -2011,14 +2013,48 @@ const EntryList: React.FC = () => {
         Refresh
       </Button>
 
-      <Button
-        icon={<DownloadOutlined />}
-        onClick={exportToCsv}
-        disabled={displayedRows.length === 0}
-        title="Export to Excel (CSV): division & date header, department grouping, machine order, department totals"
+      {/* ── Export Dropdown: Excel, PDF, and Print grouped together ───── */}
+      <Dropdown
+        menu={{
+          items: [
+            {
+              key: 'excel',
+              icon: <FileExcelOutlined style={{ color: 'var(--theme-success, #10b981)' }} />,
+              label: 'Export to Excel (CSV)',
+              onClick: exportToCsv,
+              disabled: displayedRows.length === 0,
+            },
+            {
+              key: 'pdf',
+              icon: <FilePdfOutlined style={{ color: 'var(--theme-danger, #ef4444)' }} />,
+              label: 'Export to PDF',
+              onClick: exportPdf,
+              disabled: displayedRows.length === 0 || pdfLoading,
+            },
+            {
+              type: 'divider',
+            },
+            {
+              key: 'print',
+              icon: <PrinterOutlined style={{ color: 'var(--theme-primary, #1890ff)' }} />,
+              label: 'Print Report View',
+              onClick: handlePrint,
+              disabled: displayedRows.length === 0,
+            },
+          ],
+        }}
+        trigger={['click']}
       >
-        Export
-      </Button>
+        <Button
+          icon={<DownloadOutlined />}
+          loading={pdfLoading}
+          disabled={displayedRows.length === 0}
+          title="Export options: Excel, PDF, Print"
+          style={{ fontWeight: 600 }}
+        >
+          Export <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
+        </Button>
+      </Dropdown>
 
       {/* ── Manage Columns: instantly show/hide any grid column ───────── */}
       <Popover
@@ -2069,25 +2105,6 @@ const EntryList: React.FC = () => {
           {hiddenColumnIdx.size > 0 ? ` (${visibleColumns.length}/${GRID_COLUMN_LABELS.length})` : ''}
         </Button>
       </Popover>
-
-      <Button
-        icon={<FilePdfOutlined />}
-        onClick={exportPdf}
-        loading={pdfLoading}
-        disabled={displayedRows.length === 0}
-        title="Export current entries to PDF"
-      >
-        PDF
-      </Button>
-
-      <Button
-        icon={<PrinterOutlined />}
-        onClick={handlePrint}
-        disabled={displayedRows.length === 0}
-        title="Print professional report view (department sections + totals)"
-      >
-        Print
-      </Button>
 
       <Button
         icon={<UploadOutlined />}

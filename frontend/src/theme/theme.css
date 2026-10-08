@@ -842,23 +842,32 @@ span.anticon-close:hover svg {
  * `.ant-modal-root` is already viewport-centred, so it is left alone.
  * ═══════════════════════════════════════════════════════════════════════ */
 
-/* ---- message (toast) ------------------------------------------------ */
+/* ---- message (toast) — top-centered, prominent, no screen-darkening scrim ---- */
 .ant-message {
   position: fixed !important;
-  inset: 0 !important;
+  top: 24px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  bottom: auto !important;
+  right: auto !important;
   margin: 0 !important;
-  padding: 24px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  text-align: center !important;
+  padding: 0 !important;
+  width: auto !important;
+  max-width: min(92vw, 680px) !important;
+  z-index: 10100 !important;
   pointer-events: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  text-align: center !important;
 }
-.ant-message::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.34);
+.ant-message-notice {
+  text-align: center !important;
+  padding: 4px 0 !important;
+  width: 100% !important;
+  display: flex !important;
+  justify-content: center !important;
 }
 .ant-message-notice-wrapper {
   position: relative;
@@ -870,60 +879,33 @@ span.anticon-close:hover svg {
   max-width: 100%;
 }
 .ant-message-notice-content {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 10px !important;
   background: var(--theme-surface, #ffffff) !important;
-  border: 1px solid rgba(148, 163, 184, 0.55) !important;
-  border-radius: 12px !important;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45) !important;
-  padding: 14px 26px !important;
-  font-size: 15px !important;
+  color: var(--theme-text, #0f172a) !important;
+  border: 1px solid rgba(148, 163, 184, 0.45) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.22) !important;
+  padding: 12px 24px !important;
+  font-size: 14.5px !important;
   font-weight: 600 !important;
   line-height: 1.5 !important;
-  text-align: left !important;
-  max-width: min(88vw, 560px);
+  text-align: center !important;
+  max-width: min(90vw, 560px);
+  pointer-events: auto !important;
 }
 
-/* ---- notification --------------------------------------------------- */
+/* ---- notification — clean, no scrim, non-intrusive ---- */
 .ant-notification {
-  position: fixed !important;
-  inset: 0 !important;
-  margin: 0 !important;
-  padding: 24px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  z-index: 10100 !important;
   pointer-events: none !important;
 }
-.ant-notification::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.34);
-}
-.ant-notification-hook-holder,
-.ant-notification-notice-wrapper {
-  position: relative !important;
-  z-index: 1;
-  display: flex !important;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  max-width: 100%;
-}
-/* Notices are absolutely offset by AntD's placement rules; forced back into
-   normal flow so the whole stack sits centred instead of hugging an edge. */
 .ant-notification .ant-notification-notice {
-  position: relative !important;
-  top: auto !important;
-  right: auto !important;
-  left: auto !important;
-  bottom: auto !important;
-  inset: auto !important;
-  width: min(88vw, 440px) !important;
-  margin: 0 !important;
   background: var(--theme-surface, #ffffff) !important;
-  border: 1px solid rgba(148, 163, 184, 0.55) !important;
+  border: 1px solid rgba(148, 163, 184, 0.45) !important;
   border-radius: 12px !important;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45) !important;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2) !important;
   pointer-events: auto !important;
 }
 .ant-notification .ant-notification-notice-message {

@@ -1306,6 +1306,91 @@ export class ItemService implements OnModuleInit {
 
       // 2. Cascade dependents & transactional records if force delete requested
       if (force) {
+        // Unlink transactions referencing production_orders
+        await manager.query(`
+          UPDATE production_entries SET production_order_id = NULL 
+          WHERE production_order_id IN (
+            SELECT id FROM production_orders WHERE product_id = $1 
+            OR bom_id IN (SELECT id FROM bill_of_materials WHERE product_id = $1)
+            OR routing_id IN (SELECT id FROM production_routings WHERE product_id = $1)
+          )
+        `, [id]);
+        await manager.query(`
+          UPDATE raw_material_receipts SET production_order_id = NULL 
+          WHERE production_order_id IN (
+            SELECT id FROM production_orders WHERE product_id = $1 
+            OR bom_id IN (SELECT id FROM bill_of_materials WHERE product_id = $1)
+            OR routing_id IN (SELECT id FROM production_routings WHERE product_id = $1)
+          )
+        `, [id]);
+        await manager.query(`
+          UPDATE raw_material_returns SET production_order_id = NULL 
+          WHERE production_order_id IN (
+            SELECT id FROM production_orders WHERE product_id = $1 
+            OR bom_id IN (SELECT id FROM bill_of_materials WHERE product_id = $1)
+            OR routing_id IN (SELECT id FROM production_routings WHERE product_id = $1)
+          )
+        `, [id]);
+
+        // Delete production order operations and logs
+        await manager.query(`
+          DELETE FROM production_order_operation_logs 
+          WHERE production_order_operation_id IN (
+            SELECT id FROM production_order_operations WHERE production_order_id IN (
+              SELECT id FROM production_orders WHERE product_id = $1 
+              OR bom_id IN (SELECT id FROM bill_of_materials WHERE product_id = $1)
+              OR routing_id IN (SELECT id FROM production_routings WHERE product_id = $1)
+            )
+          )
+        `, [id]);
+        await manager.query(`
+          DELETE FROM production_order_operations 
+          WHERE production_order_id IN (
+            SELECT id FROM production_orders WHERE product_id = $1 
+            OR bom_id IN (SELECT id FROM bill_of_materials WHERE product_id = $1)
+            OR routing_id IN (SELECT id FROM production_routings WHERE product_id = $1)
+          )
+        `, [id]);
+
+        // Delete production orders
+        await manager.query(`
+          DELETE FROM production_orders 
+          WHERE product_id = $1 
+          OR bom_id IN (SELECT id FROM bill_of_materials WHERE product_id = $1)
+          OR routing_id IN (SELECT id FROM production_routings WHERE product_id = $1)
+        `, [id]);
+
+        // Delete routing operations & connections
+        await manager.query(`
+          DELETE FROM routing_operation_connections 
+          WHERE routing_id IN (SELECT id FROM production_routings WHERE product_id = $1)
+        `, [id]);
+        await manager.query(`
+          DELETE FROM routing_operation_inputs 
+          WHERE routing_operation_id IN (SELECT id FROM routing_operations WHERE routing_id IN (SELECT id FROM production_routings WHERE product_id = $1))
+             OR item_id = $1
+        `, [id]);
+        await manager.query(`
+          DELETE FROM routing_operation_outputs 
+          WHERE routing_operation_id IN (SELECT id FROM routing_operations WHERE routing_id IN (SELECT id FROM production_routings WHERE product_id = $1))
+             OR item_id = $1
+        `, [id]);
+        await manager.query(`
+          DELETE FROM routing_operations 
+          WHERE routing_id IN (SELECT id FROM production_routings WHERE product_id = $1)
+             OR input_item_id = $1 OR output_item_id = $1
+        `, [id]);
+
+        // Delete production routings
+        await manager.query('DELETE FROM production_routings WHERE product_id = $1', [id]);
+
+        // Delete BOM lines & BOM
+        await manager.query(`
+          DELETE FROM bom_lines 
+          WHERE item_id = $1 OR bom_id IN (SELECT id FROM bill_of_materials WHERE product_id = $1)
+        `, [id]);
+        await manager.query('DELETE FROM bill_of_materials WHERE product_id = $1', [id]);
+
         // Unlink cross-references from production_entries to stock_ledger
         await manager.query(`
           UPDATE production_entries 
@@ -1320,34 +1405,56 @@ export class ItemService implements OnModuleInit {
         // Delete stock ledger
         await manager.query('DELETE FROM stock_ledger WHERE item_id = $1', [id]);
 
-        // Delete inventory balances & reservations
+        // Delete inventory balances, reservations, serials, batches
+        await manager.query('DELETE FROM serial_numbers WHERE item_id = $1', [id]);
+        await manager.query('DELETE FROM batches WHERE item_id = $1', [id]);
         await manager.query('DELETE FROM inventory_balances WHERE item_id = $1', [id]);
         await manager.query('DELETE FROM inventory_reservations WHERE item_id = $1', [id]);
+
+        // Machine components unlinking and items breakdown deletion
+        await manager.query('DELETE FROM machine_component_items WHERE item_id = $1', [id]);
+        await manager.query('UPDATE machine_components SET item_id = NULL WHERE item_id = $1', [id]);
 
         // Dynamically find and delete from all other existing tables in public schema
         const remainingCols: Array<{ table_name: string; column_name: string }> = await manager.query(`
           SELECT table_name, column_name 
           FROM information_schema.columns 
           WHERE table_schema = 'public' 
-            AND table_name NOT IN ('items', 'production_entries', 'production_entry_items', 'stock_ledger', 'inventory_balances', 'inventory_reservations')
+            AND table_name NOT IN (
+              'items', 'production_entries', 'production_entry_items', 'stock_ledger',
+              'inventory_balances', 'inventory_reservations', 'serial_numbers', 'batches',
+              'bill_of_materials', 'bom_lines', 'production_routings', 'routing_operations',
+              'routing_operation_inputs', 'routing_operation_outputs', 'routing_operation_connections',
+              'production_orders', 'production_order_operations', 'production_order_operation_logs',
+              'machine_components', 'machine_component_items'
+            )
             AND (column_name = 'item_id' OR column_name = 'product_id' OR column_name = 'input_item_id' OR column_name = 'output_item_id')
         `);
 
-        for (const row of remainingCols) {
+        for (let i = 0; i < remainingCols.length; i++) {
+          const row = remainingCols[i];
+          const spName = `sp_force_del_${i}`;
+          await manager.query(`SAVEPOINT ${spName}`);
           try {
             await manager.query(`DELETE FROM "${row.table_name}" WHERE "${row.column_name}" = $1`, [id]);
+            await manager.query(`RELEASE SAVEPOINT ${spName}`);
           } catch (err: any) {
+            await manager.query(`ROLLBACK TO SAVEPOINT ${spName}`);
             this.logger.warn(`Cascaded delete from ${row.table_name} skipped: ${err.message}`);
           }
         }
       }
 
       // 3. Child tables metadata
-      for (const table of childTables) {
+      for (let i = 0; i < childTables.length; i++) {
+        const table = childTables[i];
+        const spName = `sp_child_${i}`;
+        await manager.query(`SAVEPOINT ${spName}`);
         try {
           await manager.query(`DELETE FROM "${table}" WHERE item_id = $1`, [id]);
+          await manager.query(`RELEASE SAVEPOINT ${spName}`);
         } catch {
-          // Table might not exist
+          await manager.query(`ROLLBACK TO SAVEPOINT ${spName}`);
         }
       }
 
