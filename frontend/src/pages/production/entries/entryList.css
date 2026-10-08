@@ -115,3 +115,49 @@
   background: rgba(15, 23, 42, 0.5);
   border-color: rgba(255, 255, 255, 0.12);
 }
+
+/* =====================================================================
+   Non-blocking loading states (Phase 2)
+   - Initial load: an in-place skeleton, never a bright full-area wash.
+   - Background refresh / explicit refresh: existing rows & KPIs stay
+     fully visible and interactive; only a small badge is shown.
+   ===================================================================== */
+
+.entry-list-loading-block {
+  padding: 18px 6px 26px;
+}
+
+.entry-list-loading-caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #64748b);
+}
+
+.entry-list-refresh-indicator {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.14);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--theme-primary, #2563eb);
+  pointer-events: none;
+  user-select: none;
+}
+
+[data-theme='dark'] .entry-list-refresh-indicator {
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}

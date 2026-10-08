@@ -189,6 +189,113 @@ describe('ProductionEntryService — calculations', () => {
   });
 });
 
+/**
+ * PHASE 4 — OVERTIME = total shift hours (running + downtime) − shift planned
+ * hours. Breakdown time is duty time, so it must never eat overtime:
+ * 12h duty (11h running + 1h breakdown) on an 8h shift = 4h OT, not 3h.
+ */
+describe('ProductionEntryService — PHASE 4 overtime derivation', () => {
+  it('create: 12h duty (11 running + 1 breakdown) on an 8h shift = 4h OT, not 3h', async () => {
+    makeOrgMocks();
+    const saved = await service.create({ ...validDto(), runningHours: 11, downtimeHours: 1 } as any, COMPANY);
+    expect(saved.overtimeHours).toBe(4);
+    // the breakdown is reported as downtime, never folded into running hours
+    expect(saved.runningHours).toBe(11);
+    expect(saved.downtimeHours).toBe(1);
+    // SIDE-EFFECT GUARD 1: OT 4 makes totalPlanned = 8 + 4 = 12 = duty, so the
+    // effectiveRunning clamp has nothing to rewrite (Run 11 stays 11, not 10).
+    // SIDE-EFFECT GUARD 2: efficiency divides by (planned + OT) = 12, not 8 —
+    // it can no longer exceed 100% just because a breakdown ate the OT hour.
+    expect(saved.efficiencyPercentage).toBe(Math.round((11 / 12) * 100 * 100) / 100);
+    expect(saved.efficiencyPercentage).toBeLessThanOrEqual(100);
+  });
+
+  it('create: a duty that fits the shift plan is NOT overtime (7 + 1 on an 8h shift = 0h)', async () => {
+    makeOrgMocks();
+    const saved = await service.create(validDto() as any, COMPANY);
+    expect(saved.overtimeHours).toBe(0);
+  });
+
+  it('create: the standard is the shift plan, not a hardcoded 8 (11 + 1 on a 12h shift = 0h)', async () => {
+    makeOrgMocks();
+    shiftRepo.findOne.mockResolvedValue({ id: 'shift-1', companyId: COMPANY, plannedHours: 12, isActive: true });
+    const saved = await service.create({ ...validDto(), runningHours: 11, downtimeHours: 1 } as any, COMPANY);
+    expect(saved.overtimeHours).toBe(0);
+  });
+
+  it('create: 14h duty on an 8h shift = 6h OT (downtime included, not subtracted)', async () => {
+    makeOrgMocks();
+    const saved = await service.create({ ...validDto(), runningHours: 12, downtimeHours: 2 } as any, COMPANY);
+    expect(saved.overtimeHours).toBe(6);
+  });
+
+  it('create: an explicit overtimeHours value still wins over the derivation', async () => {
+    makeOrgMocks();
+    const saved = await service.create(
+      { ...validDto(), runningHours: 11, downtimeHours: 1, overtimeHours: 2 } as any,
+      COMPANY,
+    );
+    expect(saved.overtimeHours).toBe(2);
+  });
+
+  it('create: legacy remarks `OT: 3h` still win over the derivation', async () => {
+    makeOrgMocks();
+    const saved = await service.create(
+      { ...validDto(), runningHours: 11, downtimeHours: 1, remarks: 'Batch B | OT: 3h | Cartons: 9' } as any,
+      COMPANY,
+    );
+    expect(saved.overtimeHours).toBe(3);
+  });
+
+  it('create: a shift without planned hours derives no overtime (no standard, no OT)', async () => {
+    makeOrgMocks();
+    shiftRepo.findOne.mockResolvedValue({ id: 'shift-1', companyId: COMPANY, plannedHours: 0, isActive: true });
+    const saved = await service.create({ ...validDto(), runningHours: 11, downtimeHours: 1 } as any, COMPANY);
+    expect(saved.overtimeHours).toBe(0);
+  });
+
+  it('update: re-derives from total duty when the entry carries no OT (3h row → 4h)', async () => {
+    makeOrgMocks();
+    entryRepo.findOne
+      .mockResolvedValueOnce({
+        id: 'entry-1', companyId: COMPANY, isActive: true,
+        divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1',
+        entryDate: '2026-08-21', shiftId: 'shift-1', machineNo: 'SR-01',
+        itemId: 'item-1', uomId: 'uom-m', targetQuantity: 8000, actualQuantity: 7200,
+        scrapQuantity: 0, runningHours: 11, downtimeHours: 1, overtimeHours: 0, remarks: null,
+      })
+      .mockResolvedValue(null);
+    entryRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(null),
+    });
+    const updated = await service.update('entry-1', { runningHours: 11, downtimeHours: 1 } as any, COMPANY);
+    expect(updated.overtimeHours).toBe(4);
+    // same side-effect guards as the create path: Run 11 preserved and the
+    // efficiency denominator = planned (8) + OT (4) = 12 on UPDATE as well.
+    expect(updated.runningHours).toBe(11);
+    expect(updated.downtimeHours).toBe(1);
+    expect(updated.efficiencyPercentage).toBe(Math.round((11 / 12) * 100 * 100) / 100);
+  });
+
+  it('update: an explicit overtimeHours value still wins over the derivation', async () => {
+    makeOrgMocks();
+    entryRepo.findOne
+      .mockResolvedValueOnce({
+        id: 'entry-1', companyId: COMPANY, isActive: true,
+        divisionId: 'div-1', sectionId: 'sec-1', departmentId: 'dept-1',
+        entryDate: '2026-08-21', shiftId: 'shift-1', machineNo: 'SR-01',
+        itemId: 'item-1', uomId: 'uom-m', targetQuantity: 8000, actualQuantity: 7200,
+        scrapQuantity: 0, runningHours: 11, downtimeHours: 1, overtimeHours: 5, remarks: null,
+      })
+      .mockResolvedValue(null);
+    entryRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue(null),
+    });
+    const updated = await service.update('entry-1', { overtimeHours: 5 } as any, COMPANY);
+    expect(updated.overtimeHours).toBe(5);
+  });
+});
+
 describe('ProductionEntryService — validation', () => {
   it('rejects invalid Division → Section chain', async () => {
     divisionRepo.findOne.mockResolvedValue({ id: 'div-1', name: 'D', status: 'ACTIVE' });

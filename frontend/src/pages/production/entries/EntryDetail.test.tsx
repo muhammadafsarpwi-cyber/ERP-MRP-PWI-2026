@@ -295,3 +295,33 @@ describe('EntryDetail — coil size + real inventory reconciliation (TASK #41 Pa
     expect(screen.queryByText(/Reconciliation Mismatch/)).not.toBeInTheDocument();
   });
 });
+
+describe('Phase 3 — EntryDetail overtime uses the canonical definition', () => {
+  /** Value of the "Overtime Hours" field, e.g. "2h" (walks up from the label). */
+  const detailOt = async () => {
+    const label = await screen.findByText('Overtime Hours');
+    let node: HTMLElement | null = label.parentElement;
+    for (let depth = 0; node && depth < 6; depth += 1) {
+      const text = (node.textContent || '').replace(/\s+/g, '');
+      const match = text.match(/OvertimeHours(-?[\d.]+)h/);
+      if (match) return `${match[1]}h`;
+      node = node.parentElement;
+    }
+    throw new Error('Overtime value not found next to its label');
+  };
+
+  it('D1: shows the persisted overtime_hours (entry with OT 2h contributes 2h)', async () => {
+    renderDetail({ ...entry, overtimeHours: 2, runningHours: 10, remarks: '[HAND PACKING] OT: 2h | Cartons: 1' });
+    expect(await detailOt()).toBe('2h');
+  });
+
+  it('D2: falls back to legacy remarks `OT: X h` when the persisted column is empty', async () => {
+    renderDetail({ ...entry, overtimeHours: 0, runningHours: 11, remarks: 'Batch B | OT: 3h | Cartons: 9' });
+    expect(await detailOt()).toBe('3h');
+  });
+
+  it('D3: >8h running hours never become overtime on their own (no runningHours - 8)', async () => {
+    renderDetail({ ...entry, overtimeHours: 0, runningHours: 12, remarks: null });
+    expect(await detailOt()).toBe('0h');
+  });
+});

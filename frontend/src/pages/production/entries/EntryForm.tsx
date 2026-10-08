@@ -19,6 +19,7 @@ import { useUserStore } from '../../../store/userStore';
 import { formatNumber, formatDimension, toNum } from '../../../utils/numberFormat';
 import { useLookups, ItemLk } from './lookups';
 import { useEntryDockStore, EntryContextParams } from './entryDockStore';
+import { splitEntryItemLines, consumedQuantityFromAuditLines } from './entryLines';
 import './productionEntryModal.css';
 import {
   DowntimeMode, deriveFromRunning, rebalancePair,
@@ -26,6 +27,11 @@ import {
   lineToKg, aggregateProductionTotals, buildDowntimePayload, buildProductionItemsPayload,
   convertProductToComponentQty,
 } from './downtimeHours';
+// STEP 2/3 — the canonical overtime reader (persisted overtime_hours → legacy
+// remarks `OT: X h`). Reading the raw column alone made an entry whose OT only
+// lives in remarks hydrate as 0h, which then drove Total Available back down to
+// the bare 8h shift and re-derived Running as 8 − 2 = 6h on every reopen.
+import { entryOvertimeHours } from './overtimeHours';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
 import { GlobalLoading } from '../../../components/shared';
 import PageHeader from '../../../components/shared/PageHeader';
@@ -150,6 +156,39 @@ const prorateTarget = (standardTarget: number, standardHours: number, workingHou
 /** Client-side guard for production-context IDs before any save request. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ── STEP 5 "Production Figures" — shared styling for the four cells of the
+//    strict horizontal row (Shift Hours · Overtime · Running Hours ·
+//    Rejection/Scrap). Identical label metrics + a single compact 32px control
+//    box keep every input aligned on one straight horizontal line.
+const figLabelStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  lineHeight: '15px',
+  color: 'var(--theme-text-muted, #64748b)',
+};
+const figTagStyle: React.CSSProperties = { fontSize: 9, padding: '0 3px', lineHeight: '14px', margin: 0 };
+const figAutoBoxStyle: React.CSSProperties = {
+  padding: '4px 6px',
+  borderRadius: 6,
+  background: 'rgba(100, 116, 139, 0.08)',
+  border: '1px solid rgba(100, 116, 139, 0.25)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: 32,
+  fontWeight: 700,
+  fontSize: 13,
+  color: 'var(--theme-text, #334155)',
+};
+const figRunningBoxStyle: React.CSSProperties = {
+  ...figAutoBoxStyle,
+  background: 'rgba(59, 130, 246, 0.1)',
+  border: '1px solid rgba(59, 130, 246, 0.4)',
+  fontWeight: 800,
+  fontSize: 13.5,
+  color: '#2563eb',
+};
+
 export interface EntryFormProps {
   mode?: 'create' | 'edit' | 'view';
   isModal?: boolean;
@@ -205,6 +244,15 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
   // Edit-mode identity facts (loaded entry) drive the same read-only treatment.
   const [entry, setEntry] = useState<EntryDetailData | null>(null);
+
+  // ── FIX 4 — raw material THIS document has already deducted, per item ──────
+  // Read from the saved INPUT audit lines at hydration time. The pre-entry
+  // opening balance is then rebuilt explicitly as
+  //     Opening Available (Before Entry) = Current Store Stock + Consumed By This Entry
+  // so opening an existing document never performs a fresh subtraction against
+  // the live balance, and a save with untouched inputs has net impact ZERO.
+  // Empty for create mode and for entries that were never posted to inventory.
+  const [entryConsumedByItem, setEntryConsumedByItem] = useState<Record<string, number>>({});
 
   // ── ERP-00016 machine-target resolution ────────────────────────────────────
   const [mtResolution, setMtResolution] = useState<MachineTargetResolution | null>(null);
@@ -398,6 +446,62 @@ const EntryForm: React.FC<EntryFormProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [warehouses, mode]);
 
+  // DYNAMIC WAREHOUSE AUTO-SELECTION BY DIVISION / DEPARTMENT.
+  // The Step-2 warehouse dropdowns follow the Division + Section pre-selected on
+  // the main page, so the operator can no longer commit a manual-entry mistake:
+  //   · Control Cable Division (CCD) → Raw Material Source = "CCD Warehouse"
+  //   · Flattening department (FT)   → Receipt Warehouse   = "FT Production Department"
+  // Create mode only. Whatever THIS effect picks is remembered in a ref, so a
+  // warehouse the operator chooses by hand is never overwritten, while a stale
+  // pre-selection is re-derived (or cleared) when the context changes.
+  const autoWarehouseRef = useRef<{ raw?: string; receipt?: string }>({});
+
+  useEffect(() => {
+    if (mode !== 'create' || warehouses.length === 0) return;
+
+    const label = (name?: string, code?: string) => `${name ?? ''} ${code ?? ''}`;
+
+    const division = lookups.divisions.find((d) => d.id === ctxIds.divisionId);
+    const isControlCable = /control\s*cable|\bccd\b/i.test(label(division?.name, division?.divisionCode));
+
+    const department = lookups.departments.find((d) => d.id === ctxIds.departmentId);
+    const isFlattening = /flatten|\bft\b/i.test(label(department?.name, department?.departmentCode));
+
+    // ── 1. Raw Material Source Warehouse → CCD Warehouse ─────────────────────
+    const rawCurrent = form.getFieldValue('rawMaterialWarehouseId') as string | undefined;
+    const genericRawId = warehouses.find((w) => w.warehouseType === 'RAW_MATERIAL')?.id;
+    const rawIsAuto =
+      !rawCurrent || rawCurrent === autoWarehouseRef.current.raw || rawCurrent === genericRawId;
+    if (isControlCable) {
+      const ccd = warehouses.find((w) => /\bccd\b/i.test(label(w.name, w.warehouseCode)));
+      if (ccd && rawIsAuto && ccd.id !== rawCurrent) {
+        form.setFieldValue('rawMaterialWarehouseId', ccd.id);
+        autoWarehouseRef.current.raw = ccd.id;
+      }
+    } else if (autoWarehouseRef.current.raw) {
+      // Context moved off Control Cable → drop our stale CCD pre-selection.
+      if (rawCurrent === autoWarehouseRef.current.raw) form.setFieldValue('rawMaterialWarehouseId', undefined);
+      autoWarehouseRef.current.raw = undefined;
+    }
+
+    // ── 2. Receipt Warehouse → FT Production Department ──────────────────────
+    const receiptCurrent = form.getFieldValue('warehouseId') as string | undefined;
+    const receiptIsAuto = !receiptCurrent || receiptCurrent === autoWarehouseRef.current.receipt;
+    if (isFlattening) {
+      const ft =
+        warehouses.find((w) => /\bft\b/i.test(w.name ?? '') && /production/i.test(w.name ?? '')) ??
+        warehouses.find((w) => /ft\s*production/i.test(label(w.name, w.warehouseCode)));
+      if (ft && receiptIsAuto && ft.id !== receiptCurrent) {
+        form.setFieldValue('warehouseId', ft.id);
+        autoWarehouseRef.current.receipt = ft.id;
+      }
+    } else if (autoWarehouseRef.current.receipt) {
+      if (receiptCurrent === autoWarehouseRef.current.receipt) form.setFieldValue('warehouseId', undefined);
+      autoWarehouseRef.current.receipt = undefined;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, warehouses, lookups.divisions, lookups.departments, ctxIds.divisionId, ctxIds.departmentId]);
+
   // Prefill the locked context coming from the machine-selection step. This
   // only feeds display helpers; the submit payload uses ctxIds above because
   // unregistered fields are NOT returned by antd's onFinish values.
@@ -478,6 +582,38 @@ const EntryForm: React.FC<EntryFormProps> = ({
         const res = await apiService.get<{ success: boolean } & { data: EntryDetailData & { productionOrder?: { id: string; orderNumber: string } } }>(`/production/entries/${id}`);
         const e = res.data;
         setEntry(e);
+        // ── FIX 4 — snapshot what this document has ALREADY deducted ─────────
+        // Only a posted entry moved stock; a legacy row without audit lines
+        // falls back to its recorded consumption (good output + scrap when the
+        // raw material is weighed in KG).
+        {
+          const consumed: Record<string, number> = {};
+          if ((e as any).inventoryReferenceId) {
+            const inputs = splitEntryItemLines((e as any).items).inputs;
+            const inId = (e as any).item?.productionInItem?.id
+              || (e as any).item?.productionInItemId
+              || null;
+            if (inputs.length > 0) {
+              // Authoritative figure for the entry's production IN material…
+              const audited = consumedQuantityFromAuditLines(inputs, inId);
+              if (inId && audited !== null && audited > 0) consumed[String(inId)] = audited;
+              // …plus any other component this document issued from store.
+              for (const line of inputs) {
+                const key = String(line.itemId ?? '');
+                if (!key || (inId && key === String(inId))) continue;
+                consumed[key] = (consumed[key] ?? 0) + (Number(line.actualQuantity) || 0);
+              }
+            } else {
+              // Legacy row with no audit lines: use the recorded consumption
+              // (good output + scrap when the raw material is weighed in KG).
+              const rawCode = String((e as any).item?.productionInItem?.baseUom?.code || '').toUpperCase();
+              const basis = toNum((e as any).actualQuantity)
+                + (rawCode.startsWith('K') ? toNum((e as any).scrapQuantity) : 0);
+              if (inId && basis > 0) consumed[String(inId)] = basis;
+            }
+          }
+          setEntryConsumedByItem(consumed);
+        }
         void lookups.loadMachines(e.departmentId);
         if (e.productionOrderId) {
           try {
@@ -519,7 +655,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
           targetQuantity: toNum(e.targetQuantity),
           actualQuantity: toNum(e.actualQuantity),
           runningHours: toNum(e.runningHours),
-          overtimeHours: toNum((e as any).overtimeHours, 0),
+          // STEP 2 — canonical OT read: the persisted column first, the legacy
+          // remarks `OT: X h` fallback second. Hydrating 0 here collapsed Total
+          // Available from 10h (8h shift + 2h OT) to the bare 8h shift, so the
+          // "Total Available − Downtime" matrix re-derived Running as 6h and the
+          // save wrote both running_hours=6 and overtime_hours=0 back to the row.
+          overtimeHours: entryOvertimeHours(e as any),
           scrapQuantity: toNum(e.scrapQuantity),
           remarks: e.remarks ?? undefined,
           productionOrderId: e.productionOrderId ?? undefined,
@@ -527,19 +668,34 @@ const EntryForm: React.FC<EntryFormProps> = ({
           postToInventory: !!e.inventoryReferenceId,
           warehouseId: loadedWarehouseId ?? undefined,
           rawMaterialWarehouseId: (e as any).rawMaterialWarehouseId ?? undefined,
-      // Child lines: production items + downtime entries
-      productionItems: (e as any).items?.map((it: any) => ({
-        id: it.id,
-        lineNumber: it.lineNumber,
-        itemId: it.itemId,
-        uomId: it.uomId,
-        targetQuantity: toNum(it.targetQuantity),
-        actualQuantity: toNum(it.actualQuantity),
-        scrapQuantity: toNum(it.scrapQuantity),
-        runningHours: toNum(it.runningHours),
-        routingCode: it.routingCode ?? undefined,
-        remarks: it.remarks ?? undefined,
-      })) ?? [],
+      // Child lines: production items + downtime entries.
+      // INPUT audit lines (lineNumber >= 1000) record the raw material already
+      // consumed by this entry — they must never enter the editable list, or the
+      // form would show and re-save the consumption as extra production.
+      // ── FIX 2 — preserve the original rejection value ──────────────────────
+      // This wizard has no per-line scrap input, so a child OUTPUT line is
+      // written as 0 while the ENTRY row holds the audited rejection (2 KG).
+      // Hydrating the line as 0 hides that value on screen. Seed the silent
+      // line from the entry-level record so the audited scrap survives edit.
+      // (No-op for entries whose child lines already carry their own scrap.)
+      productionItems: (() => {
+        const outputs = splitEntryItemLines((e as any).items).outputs;
+        const entryLevelScrap = toNum((e as any).scrapQuantity);
+        const lineScrapTotal = outputs.reduce((s: number, it: any) => s + toNum(it.scrapQuantity), 0);
+        const seed = (entryLevelScrap > 0 && lineScrapTotal <= 0) ? entryLevelScrap : 0;
+        return outputs.map((it: any, idx: number) => ({
+          id: it.id,
+          lineNumber: it.lineNumber,
+          itemId: it.itemId,
+          uomId: it.uomId,
+          targetQuantity: toNum(it.targetQuantity),
+          actualQuantity: toNum(it.actualQuantity),
+          scrapQuantity: toNum(it.scrapQuantity) + (idx === 0 ? seed : 0),
+          runningHours: toNum(it.runningHours),
+          routingCode: it.routingCode ?? undefined,
+          remarks: it.remarks ?? undefined,
+        }));
+      })() ?? [],
       downtimeEntries: (e as any).downtimes?.map((dt: any) => ({
         id: dt.id,
         lineNumber: dt.lineNumber,
@@ -643,6 +799,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return toNum(src?.plannedHours, 0);
   }, [mode, entry?.shift, lookups.shifts, ctxShiftId]);
 
+  // Total AVAILABLE hours = shift hours + overtime (8h shift + 4h OT = 12h).
+  // Every capacity metric below (efficiency, its KPI hint) measures production
+  // against THIS whole operational slot — never the bare baseline shift — so an
+  // OT-extended shift can no longer inflate efficiency above real capacity.
+  const totalAvailableHours = plannedHours + overtimeHours;
+
   // ── Downtime entry mode: AUTO (Running is input, Downtime derived) or
   //    MANUAL (Downtime entries are input, Running derived). Both keep the
   //    invariant Running + Downtime = Planned shift hours whenever a plan is
@@ -727,11 +889,50 @@ const EntryForm: React.FC<EntryFormProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plannedHours]);
 
+  // ── STEP 3 — REBIND THE PERSISTED HOURS AFTER THE FORM MOUNTS ────────────
+  // The whole form body is gated behind `!loadingEntry`, so the very first
+  // `setFieldsValue` in the load effect lands while every hours field is still
+  // unmounted. `Form.Item name="overtimeHours"` carries `initialValue={0}` and
+  // re-registers the field at 0 the instant it mounts, silently discarding the
+  // hydrated value — which collapses Total Available from 10h (8h shift + 2h
+  // OT) back to the bare 8h shift and re-derives Running as 8 − 2 = 6h.
+  // Re-applying the saved pair exactly once, post-mount, pins it: nothing here
+  // ever re-derives, it only restores what the document already records.
+  const hoursRebindRef = useRef(false);
+  useEffect(() => {
+    if (mode !== 'edit') return;
+    if (loadingEntry || !entry) return;
+    if (hoursRebindRef.current) return;
+    hoursRebindRef.current = true;
+    form.setFieldsValue({
+      runningHours: toNum((entry as any).runningHours),
+      overtimeHours: entryOvertimeHours(entry as any),
+    });
+  }, [mode, loadingEntry, entry, form]);
+
+  // ── FIX 3 — RUNNING HOURS IS A PERSISTED FACT ON REOPEN ───────────────────
+  // `entryHoursBaselineRef` records the downtime total the saved document was
+  // hydrated with, so the "Total Available − Downtime" deduction below can
+  // never run against an untouched edit. Re-deriving during hydration deducted
+  // the SAME downtime repeatedly on every reopen (8h → 6h → 4h). Only a real
+  // change to the downtime lines, made by the operator, may re-derive.
+  const entryHoursBaselineRef = useRef<number | null>(null);
+
   // When downtime entries change in MANUAL mode or whenever downtime is entered, re-derive running hours.
   useEffect(() => {
-    if (plannedHours > 0) {
-      setRunningFromDowntimeLines(totalDowntime);
+    if (!(plannedHours > 0)) return;
+    if (mode === 'edit') {
+      // Still loading the persisted row → nothing to derive from yet.
+      if (loadingEntry || !entry) return;
+      // First run after hydration: latch the saved pair and stop.
+      if (entryHoursBaselineRef.current === null) {
+        entryHoursBaselineRef.current = totalDowntime;
+        return;
+      }
+      // Unchanged downtime → the stored running hours are the fact on record.
+      if (totalDowntime === entryHoursBaselineRef.current) return;
     }
+    setRunningFromDowntimeLines(totalDowntime);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalDowntime, downtimeMode, plannedHours, overtimeHours, setRunningFromDowntimeLines]);
 
@@ -763,10 +964,16 @@ const EntryForm: React.FC<EntryFormProps> = ({
   }, [machineLinked, mtResolution, derivedRunning, mode, entry?.targetQuantity]);
 
   const efficiency = useMemo(() => {
-    if (plannedHours > 0) return Math.round((derivedRunning / plannedHours) * 10000) / 100;
+    // FIX — efficiency is running ÷ TOTAL AVAILABLE hours (shift + overtime),
+    // the same denominator the server writes on save. The old code divided by
+    // the bare shift plan, so a 10h run on an 8h+4h OT slot reported the
+    // impossible 125.00%; against the full 12h slot it is 83.33%.
+    if (plannedHours > 0) return Math.round((derivedRunning / totalAvailableHours) * 10000) / 100;
+    // No shift plan (legacy free-form entries): fall back to running vs
+    // running + downtime, unchanged.
     const denom = derivedRunning + totalDowntime;
     return denom > 0 ? Math.round((derivedRunning / denom) * 10000) / 100 : null;
-  }, [derivedRunning, totalDowntime, plannedHours]);
+  }, [derivedRunning, totalDowntime, plannedHours, totalAvailableHours]);
 
 
 
@@ -2170,90 +2377,57 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   </Row>
                 )}
 
-                <Row gutter={10}>
-                  <Col xs={24} md={15}>
-                    <div style={{ marginBottom: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>Shift & Production Hours</span>
-                        <span style={{ fontSize: 10.5, color: '#3b82f6', fontWeight: 600 }}>Tracked in Live View</span>
-                      </div>
-                      <Row gutter={6}>
-                        {/* Box 1: Shift Hours [AUTO] */}
-                        <Col span={8}>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 3 }}>
-                            <span>Shift Hours</span>
-                            <Tag color="default" style={{ fontSize: 9, padding: '0 3px', lineHeight: '14px', margin: 0 }}>Auto</Tag>
-                          </div>
-                          <div style={{
-                            padding: '4px 6px',
-                            borderRadius: 6,
-                            background: 'rgba(100, 116, 139, 0.08)',
-                            border: '1px solid rgba(100, 116, 139, 0.25)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            height: 32,
-                            fontWeight: 700,
-                            fontSize: 13,
-                            color: 'var(--theme-text, #334155)',
-                          }}>
-                            {formatNumber(plannedHours, 2)} h
-                          </div>
-                        </Col>
+                {/* ── Production Figures: ONE strict horizontal row of four
+                    equal-width cells (Shift · OT · Running · Rejection). They
+                    share one label metric and one compact 32px box height, so
+                    all four inputs sit on a single, perfectly straight line. */}
+                <div style={{ marginBottom: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Shift & Production Hours</span>
+                    <span style={{ fontSize: 10.5, color: '#3b82f6', fontWeight: 600 }}>Tracked in Live View</span>
+                  </div>
 
-                        {/* Box 2: Overtime (OT) [INPUT] */}
-                        <Col span={8}>
-                          <div style={{ fontSize: 11, color: '#8b5cf6', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600 }}>
-                            <span>Overtime (OT)</span>
-                            <Tag color="purple" style={{ fontSize: 9, padding: '0 3px', lineHeight: '14px', margin: 0 }}>Input</Tag>
-                          </div>
-                          <Form.Item name="overtimeHours" noStyle initialValue={0}>
-                            <InputNumber
-                              style={{ width: '100%' }}
-                              min={0}
-                              max={16}
-                              step={0.5}
-                              placeholder="0"
-                              className={overtimeHours > 0 ? 'erp-field-filled' : 'erp-field-unfilled'}
-                            />
-                          </Form.Item>
-                        </Col>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6, alignItems: 'end' }}>
+                    {/* 1 — Shift Hours [AUTO] */}
+                    <Form.Item
+                      label={<span style={figLabelStyle}>Shift Hours <Tag color="default" style={figTagStyle}>Auto</Tag></span>}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <div style={figAutoBoxStyle}>{formatNumber(plannedHours, 2)} h</div>
+                    </Form.Item>
 
-                        {/* Box 3: Total Running Hours [AUTO] */}
-                        <Col span={8}>
-                          <div style={{ fontSize: 11, color: '#2563eb', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600 }}>
-                            <span>Running Hours</span>
-                            <Tag color="blue" style={{ fontSize: 9, padding: '0 3px', lineHeight: '14px', margin: 0 }}>Auto</Tag>
-                          </div>
-                          <div style={{
-                            padding: '4px 6px',
-                            borderRadius: 6,
-                            background: 'rgba(59, 130, 246, 0.1)',
-                            border: '1px solid rgba(59, 130, 246, 0.4)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            height: 32,
-                            fontWeight: 800,
-                            fontSize: 13.5,
-                            color: '#2563eb',
-                          }}>
-                            {formatNumber(derivedRunning, 2)} h
-                          </div>
-                          <Form.Item name="runningHours" noStyle>
-                            <Input type="hidden" />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
-                        Target based on: {formatNumber(derivedRunning, 2)}h running ({plannedHours}h shift + {overtimeHours}h OT - {totalDowntime}h downtime)
-                      </div>
-                    </div>
-                  </Col>
-                  <Col xs={24} md={9}>
+                    {/* 2 — Overtime (OT) [USER INPUT] */}
+                    <Form.Item
+                      name="overtimeHours"
+                      initialValue={0}
+                      label={<span style={{ ...figLabelStyle, color: '#8b5cf6', fontWeight: 600 }}>Overtime (OT) <Tag color="purple" style={figTagStyle}>Input</Tag></span>}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={0}
+                        max={16}
+                        step={0.5}
+                        placeholder="0"
+                        className={overtimeHours > 0 ? 'erp-field-filled' : 'erp-field-unfilled'}
+                      />
+                    </Form.Item>
+
+                    {/* 3 — Total Running Hours [AUTO] */}
+                    <Form.Item
+                      label={<span style={{ ...figLabelStyle, color: '#2563eb', fontWeight: 600 }}>Running Hours <Tag color="blue" style={figTagStyle}>Auto</Tag></span>}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <div style={figRunningBoxStyle}>{formatNumber(derivedRunning, 2)} h</div>
+                    </Form.Item>
+
+                    {/* 4 — Rejection / Scrap (KG): deliberately the SAME compact
+                        width and height as the three hour cells — operators only
+                        type short values (5, 10 …), so the old oversized box is
+                        shrunk to match. */}
                     <Form.Item
                       name="scrapQuantity"
-                      label={<span>Rejection / Scrap (KG) <InputBadge type={isFullDowntime ? 'auto' : 'input'} /></span>}
+                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Rejection / Scrap (KG) <Tag color={isFullDowntime ? 'green' : 'purple'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Input'}</Tag></span>}
                       rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
                       style={{ marginBottom: 0 }}
                     >
@@ -2264,8 +2438,17 @@ const EntryForm: React.FC<EntryFormProps> = ({
                         className={(scrapQty !== undefined && scrapQty !== null && scrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}
                       />
                     </Form.Item>
-                  </Col>
-                </Row>
+                  </div>
+
+                  {/* Hidden alias preserving antd form state / onFinish contract */}
+                  <Form.Item name="runningHours" noStyle>
+                    <Input type="hidden" />
+                  </Form.Item>
+
+                  <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
+                    Target based on: {formatNumber(derivedRunning, 2)}h running ({plannedHours}h shift + {overtimeHours}h OT - {totalDowntime}h downtime)
+                  </div>
+                </div>
 
                 {isFullDowntime ? (
                   <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid #10b981', color: '#34d399', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2647,7 +2830,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   <div className="kpi-col-percent">
                     <StatisticMini
                       label="Efficiency %"
-                      hint={`running vs planned${plannedHours > 0 ? ` (${formatNumber(plannedHours, 2)}h)` : ''}`}
+                      hint={`running vs available${plannedHours > 0 ? ` (${formatNumber(plannedHours, 2)}h shift${overtimeHours > 0 ? ` + ${formatNumber(overtimeHours, 2)}h OT` : ''} = ${formatNumber(totalAvailableHours, 2)}h)` : ''}`}
                       content={<KpiPercentage value={efficiency} fontSize={18} fontWeight={600} />}
                       accent="var(--theme-success)"
                       icon={<ThunderboltOutlined />}
@@ -2916,6 +3099,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   fallbackScrapQty={scrapQty}
                   onData={handleRawMaterialData}
                   isDone={isStep4Done}
+                  excludeEntryId={mode === 'edit' ? (id ?? undefined) : undefined}
+                  consumedByItem={mode === 'edit' ? entryConsumedByItem : undefined}
                 />
 
                 {/* ── STEP 8: Production Route Flow ── */}
@@ -3529,6 +3714,13 @@ const RawMaterialAvailability: React.FC<{
    *  scrap — mirroring backend consumeForProductionItem (entry-level fields). */
   fallbackScrapQty?: number | string;
   isDone?: boolean;
+  /** Edit mode: the ID of the entry being edited. When supplied the backend
+   *  excludes that entry's own consumption from the available balance so the
+   *  operator sees the "true" balance before this edit. */
+  excludeEntryId?: string;
+  /** FIX 4 — raw material THIS entry already deducted, keyed by item id.
+   *  Rebuilds the pre-entry opening balance explicitly on the client. */
+  consumedByItem?: Record<string, number>;
   onData?: (data: Record<string, {
     itemCode: string;
     itemName?: string | null;
@@ -3542,7 +3734,7 @@ const RawMaterialAvailability: React.FC<{
     productionOutItemName?: string | null;
     chainWarning?: string | null;
   }>) => void;
-}> = ({ productionItems, lookups, warehouseId, receiptWarehouseId, sourceStoreLabel, receiptStoreLabel, fallbackScrapQty, isDone, onData }) => {
+}> = ({ productionItems, lookups, warehouseId, receiptWarehouseId, sourceStoreLabel, receiptStoreLabel, fallbackScrapQty, isDone, excludeEntryId, consumedByItem, onData }) => {
   const [data, setData] = useState<Record<string, RawMatItem>>({});
   const selected = productionItems.filter((p) => !!p.itemId);
   const selectedIds = selected.map((p) => p.itemId).join('|');
@@ -3858,17 +4050,25 @@ const RawMaterialAvailability: React.FC<{
           }));
 
           // ── 4) Exact-item inventory for the resolved raw material.
+          // FIX 4 — read the store's CURRENT stock and rebuild the pre-entry
+          // baseline explicitly, instead of asking the API to un-post this
+          // document. Relying on excludeEntryId left the live balance on
+          // screen, so opening an existing entry subtracted its consumption a
+          // SECOND time (a fresh subtraction on form load):
+          //     Opening Available (Before Entry) = Current Store Stock + Consumed By This Entry
           lines.forEach((line) => {
             void (async () => {
               try {
                 const params: Record<string, unknown> = { itemId: line.rawItemId };
                 if (warehouseId) params.warehouseId = warehouseId;
+                const alreadyConsumed = consumedByItem?.[String(line.rawItemId)] ?? 0;
                 const avail = await apiService.get<{ data?: number | { available?: number } }>(
                   '/inventory/balances/available',
                   params,
                 );
                 if (cancelled) return;
-                const available = toNum((avail.data as any)?.available ?? avail.data);
+                const rawCurrent = toNum((avail.data as any)?.available ?? avail.data);
+                const available = Math.round((rawCurrent + alreadyConsumed) * 10000) / 10000;
                 const balance = available - line.required;
                 setData((prev) => ({
                   ...prev,
@@ -3894,11 +4094,13 @@ const RawMaterialAvailability: React.FC<{
 
           // ── 5) TASK #34B: OUTPUT INVENTORY — the produced item's own real balance
           //    (read from receiptWarehouseId if available, or warehouseId, keyed by the exact Item ID).
+          //    In edit mode, exclude the current entry's own posted receipt.
           void (async () => {
             try {
               const targetWh = receiptWarehouseId || warehouseId;
               const params: Record<string, unknown> = { itemId };
               if (targetWh) params.warehouseId = targetWh;
+              if (excludeEntryId) params.excludeEntryId = excludeEntryId;
               const avail = await apiService.get<{ data?: number | { available?: number } }>(
                 '/inventory/balances/available',
                 params,
@@ -3929,7 +4131,7 @@ const RawMaterialAvailability: React.FC<{
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, warehouseId, receiptWarehouseId, lookups.uomConversions, lookups.items]);
+  }, [selectedIds, warehouseId, receiptWarehouseId, lookups.uomConversions, lookups.items, consumedByItem]);
 
   // Recompute each line's "Required" (and derived balance/shortage) whenever the
   // production quantity or UOM changes, without refetching routing/BOM/inventory.
@@ -4466,40 +4668,48 @@ const ProductionItemLine: React.FC<{
   // (KG / METER / PCS) — never the generic literal "UOM".
   const lineUomPlaceholder = lineItem?.baseUom?.code ?? '—';
 
+  // ── FIX 1 — the saved item_id must ALWAYS resolve to a human-readable label
+  // antd Select prints the raw stored value whenever no option matches it, so a
+  // product that is outside the department's lookup list (or not loaded yet)
+  // rendered as the industrial UUID `c1000000-0000-…`. Resolve the selected id
+  // across every lookup source and synthesize a labelled option when no master
+  // row is reachable — a UUID can never reach the screen.
+  const savedItemOption = useMemo(() => {
+    if (!lineItemId) return null;
+    const saved = lineItem || lookups.items.find((i) => i.id === lineItemId) || null;
+    return {
+      value: lineItemId,
+      label: saved ? `${saved.name} (${saved.itemCode})` : 'Unknown product',
+      title: saved ? `${saved.name} (${saved.itemCode})` : lineItemId,
+    };
+  }, [lineItemId, lineItem, lookups.items]);
+
   // Group items in dropdown: machine target items first!
   const selectOptions = useMemo(() => {
-    if (machineTargetItems && machineTargetItems.length > 0) {
-      const targetIds = new Set(machineTargetItems.map((i) => i.id));
-      const otherItems = departmentItems.filter((i) => !targetIds.has(i.id));
-      return [
-        {
-          label: `🎯 Configured Machine Targets (${machineTargetItems.length})`,
-          options: machineTargetItems.map((i: ItemLk) => ({
-            value: i.id,
-            label: `${i.name} (${i.itemCode})`,
-            title: `${i.name} (${i.itemCode})`,
-          })),
-        },
-        ...(otherItems.length > 0
-          ? [
-              {
-                label: 'Other Department Items',
-                options: otherItems.map((i: ItemLk) => ({
-                  value: i.id,
-                  label: `${i.name} (${i.itemCode})`,
-                  title: `${i.name} (${i.itemCode})`,
-                })),
-              },
-            ]
-          : []),
-      ];
-    }
-    return departmentItems.map((i: ItemLk) => ({
+    const flat = (list: ItemLk[]) => list.map((i) => ({
       value: i.id,
       label: `${i.name} (${i.itemCode})`,
       title: `${i.name} (${i.itemCode})`,
     }));
-  }, [machineTargetItems, departmentItems]);
+    const fallback = savedItemOption;
+
+    if (machineTargetItems && machineTargetItems.length > 0) {
+      const targetIds = new Set(machineTargetItems.map((i) => i.id));
+      const otherItems = departmentItems.filter((i) => !targetIds.has(i.id));
+      const groups: Array<{ label: string; options: Array<{ value: string; label: string; title: string }> }> = [
+        { label: `🎯 Configured Machine Targets (${machineTargetItems.length})`, options: flat(machineTargetItems) },
+        { label: 'Other Department Items', options: flat(otherItems) },
+      ].filter((g) => g.options.length > 0);
+      if (fallback && !groups.some((g) => g.options.some((o) => o.value === fallback.value))) {
+        groups.push({ label: 'Saved product', options: [fallback] });
+      }
+      return groups;
+    }
+
+    const list = flat(departmentItems);
+    if (fallback && !list.some((o) => o.value === fallback.value)) list.push(fallback);
+    return list;
+  }, [machineTargetItems, departmentItems, savedItemOption]);
 
   return (
     <div data-testid={`production-item-row-${rowNumber}`} style={{ padding: '8px 0', borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>

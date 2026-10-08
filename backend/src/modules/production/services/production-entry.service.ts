@@ -35,6 +35,96 @@ const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
 const HAND_PACKING_PCS_PER_GROSS = 144;
 const HAND_PACKING_PCS_PER_CARTON = 1440;
 
+/** `production_entry_items` lines holding the posting path's raw-material consumption audit start here. */
+const INPUT_AUDIT_LINE_NUMBER = 1000;
+
+/**
+ * Strips the posting path's INPUT audit lines (lineNumber >= 1000) from an
+ * incoming payload. Those lines record what was CONSUMED for the entry — never
+ * operator-entered production output. Letting them through would rebuild the
+ * entry quantity from consumption (100 produced + 102 consumed = 202) and hand
+ * `buildProductionOutputs` the raw material itself as an extra finished good.
+ *
+ * `undefined` is preserved so PATCH semantics survive (`undefined` = "leave the
+ * child collection alone", see `persistChildren`).
+ */
+const onlyOutputLines = <T extends { lineNumber?: number | null; id?: string | null }>(
+  items?: T[],
+  auditLineIds?: ReadonlySet<string>,
+): T[] | undefined =>
+  items === undefined
+    ? undefined
+    : items.filter((line) =>
+      Number(line?.lineNumber ?? 0) < INPUT_AUDIT_LINE_NUMBER
+      && !(line?.id && auditLineIds?.has(String(line.id))),
+    );
+
+/** `itemId|warehouseId` → net quantity already posted for one movement family. */
+type MovementBucket = Map<string, number>;
+
+/** A production item line as accepted by the posting path. */
+interface OutputLine {
+  itemId?: string | null;
+  uomId?: string | null;
+  actualQuantity?: number;
+  scrapQuantity?: number;
+}
+
+/** One unreconciled difference between the original posting and the edit. */
+interface DeltaLine {
+  family: 'receipt' | 'consumption' | 'scrap';
+  itemId: string;
+  warehouseId: string;
+  oldQty: number;
+  newQty: number;
+  uomId: string | null;
+}
+
+/** What this entry has ALREADY posted, read back from `stock_ledger`. */
+interface PostedMovements {
+  /** Finished goods received IN. */
+  receipts: MovementBucket;
+  /** Raw material issued OUT. */
+  consumptions: MovementBucket;
+  /** Scrap recorded OUT (audit trail, never touches the balance). */
+  scraps: MovementBucket;
+  /** `itemId|warehouseId` → the UOM the movement was posted in. */
+  uoms: Map<string, string | null>;
+  /** False when a reversal row cannot be attributed to the movement it undoes. */
+  reliable: boolean;
+  /** True when the entry has at least one posted movement. */
+  seen: boolean;
+}
+
+const movementKey = (itemId: string, warehouseId: string): string => `${itemId}|${warehouseId}`;
+
+const bumpBucket = (bucket: MovementBucket, key: string, delta: number): void => {
+  const next = (bucket.get(key) ?? 0) + delta;
+  if (Math.abs(next) < 1e-9) bucket.delete(key);
+  else bucket.set(key, next);
+};
+
+/**
+ * PHASE 3 — CANONICAL OVERTIME AGGREGATE (KPI `totalOvertime`).
+ *
+ * Overtime is ALWAYS the persisted production_entries.overtime_hours; the only
+ * fallback is the legacy remarks encoding `OT: X h` — the exact rule the
+ * create/update paths apply before they persist the column. It is deliberately
+ * NOT `running_hours - <planned>`: planned hours come from the shifts master
+ * (8h for GENERAL / SHIFT-A,B,C but 12h for GENERAL (Day), GENERAL (Night) and
+ * E2E12), so re-deriving on read manufactures overtime that was never recorded
+ * — which is what made the KPI and the OT column disagree.
+ *
+ * MUST stay equivalent to entryOvertimeHours() in
+ * frontend/src/pages/production/entries/overtimeHours.ts, so the KPI total and
+ * the table's OT column can never report different hours for the same rows.
+ */
+const OVERTIME_SUM_SQL =
+  "CASE WHEN COALESCE(pe.overtime_hours, 0) > 0 THEN pe.overtime_hours " +
+  "WHEN pe.remarks ~* 'OT:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*h' " +
+  "THEN COALESCE((regexp_match(pe.remarks, 'OT:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*h', 'i'))[1]::numeric, 0) " +
+  "ELSE 0 END";
+
 /* ── Report weight model (authoritative UOM-aware conversions) ────────────
    The production report's Scrap is stored/displayed in KG and the Actual
    quantity is unit-agnostic (PCS / M / KG...). For reporting we derive a
@@ -155,7 +245,31 @@ export class ProductionEntryService {
     sortBy?: string;
     sortDir?: 'ASC' | 'DESC';
     allowedDivisionIds?: string[];
-  }): Promise<{ data: ProductionEntry[]; total: number; page: number; limit: number }> {
+    status?: string;
+    chevronKey?: string;
+  }): Promise<{
+    data: ProductionEntry[];
+    total: number;
+    page: number;
+    limit: number;
+    summary: {
+      total: number;
+      actual: number;
+      target: number;
+      scrap: number;
+      overtime: number;
+      downtime: number;
+      efficiency: number;
+      counts: {
+        all: number;
+        COMPLETED: number;
+        IN_PROGRESS: number;
+        DRAFT: number;
+        WITH_SCRAP: number;
+        WITH_DOWNTIME: number;
+      };
+    };
+  }> {
     const {
       page = 1,
       limit = 50,
@@ -174,6 +288,8 @@ export class ProductionEntryService {
       sortBy,
       sortDir = 'DESC',
       allowedDivisionIds,
+      status,
+      chevronKey,
     } = filters || {};
 
     const qb = this.entryRepo.createQueryBuilder('pe')
@@ -206,6 +322,82 @@ export class ProductionEntryService {
         { search: `%${search.trim()}%` },
       );
     }
+
+    // Build overall summary query matching all organization/date/search filters before pagination & chevron filtering
+    const summaryQb = this.entryRepo.createQueryBuilder('pe')
+      .leftJoin('pe.item', 'item')
+      .where('pe.companyId = :companyId', { companyId })
+      .andWhere('pe.isActive = true');
+
+    if (divisionId) summaryQb.andWhere('pe.divisionId = :divisionId', { divisionId });
+    applyDivisionScopeFilter(summaryQb, 'pe.divisionId', allowedDivisionIds);
+    if (sectionId) summaryQb.andWhere('pe.sectionId = :sectionId', { sectionId });
+    if (departmentId) summaryQb.andWhere('pe.departmentId = :departmentId', { departmentId });
+    if (dateFrom) summaryQb.andWhere('pe.entryDate >= :dateFrom', { dateFrom });
+    if (dateTo) summaryQb.andWhere('pe.entryDate <= :dateTo', { dateTo });
+    if (shiftId) summaryQb.andWhere('pe.shiftId = :shiftId', { shiftId });
+    if (machineNo) summaryQb.andWhere('pe.machineNo ILIKE :machineNo', { machineNo: `%${machineNo}%` });
+    if (machineId) summaryQb.andWhere('pe.machineId = :machineId', { machineId });
+    if (itemId) summaryQb.andWhere('pe.itemId = :itemId', { itemId });
+    if (uomId) summaryQb.andWhere('pe.uomId = :uomId', { uomId });
+    if (productionOrderId) summaryQb.andWhere('pe.productionOrderId = :productionOrderId', { productionOrderId });
+    if (search?.trim()) {
+      summaryQb.andWhere(
+        '(pe.operatorName ILIKE :search OR pe.machineNo ILIKE :search OR item.itemCode ILIKE :search OR item.name ILIKE :search OR pe.remarks ILIKE :search)',
+        { search: `%${search.trim()}%` },
+      );
+    }
+
+    const summaryRow = await summaryQb
+      .select([
+        'COUNT(pe.id)::int AS "totalEntries"',
+        'COALESCE(SUM(pe.target_quantity), 0)::float AS "totalTarget"',
+        'COALESCE(SUM(pe.actual_quantity), 0)::float AS "totalActual"',
+        'COALESCE(SUM(pe.scrap_quantity), 0)::float AS "totalScrap"',
+        `COALESCE(SUM(${OVERTIME_SUM_SQL}), 0)::float AS "totalOvertime"`,
+        'COALESCE(SUM(pe.downtime_hours), 0)::float AS "totalDowntime"',
+        'COALESCE(AVG(pe.efficiency_percentage), 0)::float AS "avgEfficiency"',
+        'COUNT(CASE WHEN (pe.inventory_reference_id IS NOT NULL OR pe.actual_quantity > 0) THEN 1 END)::int AS "completedCount"',
+        '0::int AS "inProgressCount"',
+        'COUNT(CASE WHEN (pe.inventory_reference_id IS NULL AND pe.actual_quantity = 0) THEN 1 END)::int AS "draftCount"',
+        'COUNT(CASE WHEN pe.scrap_quantity > 0 THEN 1 END)::int AS "withScrapCount"',
+        'COUNT(CASE WHEN pe.downtime_hours > 0 THEN 1 END)::int AS "withDowntimeCount"',
+      ])
+      .getRawOne();
+
+    const totalTarget = Number(summaryRow?.totalTarget || 0);
+    const totalActual = Number(summaryRow?.totalActual || 0);
+    const summary = {
+      total: Number(summaryRow?.totalEntries || 0),
+      actual: totalActual,
+      target: totalTarget,
+      scrap: Number(summaryRow?.totalScrap || 0),
+      overtime: Number(summaryRow?.totalOvertime || 0),
+      downtime: Number(summaryRow?.totalDowntime || 0),
+      efficiency: totalTarget > 0 ? Math.round((totalActual / totalTarget) * 10000) / 100 : Number(summaryRow?.avgEfficiency || 0),
+      counts: {
+        all: Number(summaryRow?.totalEntries || 0),
+        COMPLETED: Number(summaryRow?.completedCount || 0),
+        IN_PROGRESS: Number(summaryRow?.inProgressCount || 0),
+        DRAFT: Number(summaryRow?.draftCount || 0),
+        WITH_SCRAP: Number(summaryRow?.withScrapCount || 0),
+        WITH_DOWNTIME: Number(summaryRow?.withDowntimeCount || 0),
+      },
+    };
+
+    // Apply status and chevron filters to the table query
+    if (chevronKey === 'COMPLETED' || status === 'COMPLETED') {
+      qb.andWhere('(pe.inventoryReferenceId IS NOT NULL OR pe.actualQuantity > 0)');
+    } else if (chevronKey === 'IN_PROGRESS' || status === 'IN_PROGRESS') {
+      qb.andWhere('FALSE');
+    } else if (chevronKey === 'DRAFT' || status === 'DRAFT') {
+      qb.andWhere('(pe.inventoryReferenceId IS NULL AND pe.actualQuantity = 0)');
+    } else if (chevronKey === 'WITH_SCRAP') {
+      qb.andWhere('pe.scrapQuantity > 0');
+    } else if (chevronKey === 'WITH_DOWNTIME') {
+      qb.andWhere('pe.downtimeHours > 0');
+    }
+
     const sortMap: Record<string, string> = {
       entryDate: 'pe.entryDate',
       createdAt: 'pe.createdAt',
@@ -223,7 +415,7 @@ export class ProductionEntryService {
 
     const [data, total] = await qb.getManyAndCount();
     await populateAuditNames(this.entryRepo.manager.connection, data);
-    return { data, total, page, limit };
+    return { data, total, page, limit, summary };
   }
 
   async findOne(id: string, companyId: string, allowedDivisionIds?: string[]): Promise<ProductionEntry> {
@@ -1037,7 +1229,17 @@ addToDept(org, {
       ? await this.resolveRawMaterialSourceStore(companyId, requestedSource)
       : null;
 
-    const ot = dto.overtimeHours ? Number(dto.overtimeHours) : 0;
+    let ot = dto.overtimeHours ? Number(dto.overtimeHours) : 0;
+    if (ot <= 0) {
+      const match = dto.remarks?.match(/OT:\s*(\d+(?:\.\d+)?)\s*h/i);
+      if (match) {
+        ot = Number(match[1]);
+      } else {
+        // PHASE 4 — derived OT counts TOTAL duty hours (running + downtime),
+        // so a breakdown hour never eats overtime. See deriveOvertime().
+        ot = this.deriveOvertime(dto.runningHours, dto.downtimeHours, resolved.plannedHours);
+      }
+    }
     const totalPlanned = (resolved.plannedHours > 0) ? (resolved.plannedHours + ot) : 0;
     const effectiveRunning = (totalPlanned > 0 && dto.downtimeHours > 0 && (dto.runningHours + dto.downtimeHours > totalPlanned))
       ? this.round2(Math.max(0, totalPlanned - dto.downtimeHours))
@@ -1091,7 +1293,8 @@ addToDept(org, {
       saved = await this.entryRepo.manager.transaction(async (manager) => {
         const saved = await manager.getRepository(ProductionEntry).save(entry);
         await this.postInventoryAndConsume(
-          manager, companyId, saved, resolved.warehouseId!, sourceStoreId, dto.items ?? [], userId, dto.componentWarehouses,
+          manager, companyId, saved, resolved.warehouseId!, sourceStoreId,
+          onlyOutputLines(dto.items) ?? [], userId, dto.componentWarehouses,
         );
         return saved;
       });
@@ -1099,7 +1302,7 @@ addToDept(org, {
       saved = await this.entryRepo.save(entry);
     }
 
-    await this.persistChildren(saved.id, companyId, dto.items ?? [], dto.downtimes ?? [], userId, false);
+    await this.persistChildren(saved.id, companyId, onlyOutputLines(dto.items) ?? [], dto.downtimes ?? [], userId, false);
 
     // Auto-create centralized barcode registry entry
     try {
@@ -1187,11 +1390,45 @@ addToDept(org, {
       );
     }
 
-    const ot = merged.overtimeHours ? Number(merged.overtimeHours) : 0;
+    let ot = merged.overtimeHours ? Number(merged.overtimeHours) : 0;
+    if (ot <= 0) {
+      const match = (dto.remarks ?? entry.remarks)?.match(/OT:\s*(\d+(?:\.\d+)?)\s*h/i);
+      if (match) {
+        ot = Number(match[1]);
+      } else {
+        // PHASE 4 — same canonical rule as create: duty (running + downtime)
+        // minus the shift's planned hours. Breakdown must not reduce OT.
+        ot = this.deriveOvertime(merged.runningHours, merged.downtimeHours, resolved.plannedHours);
+      }
+    }
     const totalPlanned = (resolved.plannedHours > 0) ? (resolved.plannedHours + ot) : 0;
     const effectiveRunning = (totalPlanned > 0 && merged.downtimeHours > 0 && (merged.runningHours + merged.downtimeHours > totalPlanned))
       ? this.round2(Math.max(0, totalPlanned - merged.downtimeHours))
       : merged.runningHours;
+
+    // ── DELTA SNAPSHOT ────────────────────────────────────────────────────────
+    // Captured BEFORE the entity is overwritten, so every comparison below is
+    // against the ORIGINAL persisted values and never against the incoming
+    // payload. Reading them after Object.assign made "old" === "new", which is
+    // why the ledger could not tell an unchanged entry from a re-quantified one.
+    const prevActual = Number(entry.actualQuantity);
+    const prevScrap = Number(entry.scrapQuantity);
+    const prevItemId = entry.itemId;
+    // INPUT audit lines belong to the posting path, never to the client. They
+    // are recognised both by the lineNumber convention and by identity, so a
+    // payload that echoes them back without a lineNumber still cannot
+    // re-classify raw-material consumption as production output.
+    let childRows: ProductionEntryItem[] = [];
+    try {
+      childRows = await this.entryItemRepo.find({ where: { productionEntryId: entry.id } });
+    } catch { /* child table may not exist for legacy entries */ }
+    const auditLineIds = new Set(
+      childRows
+        .filter((row) => row.entryKind === ProductionEntryItemKind.INPUT
+          || Number(row.lineNumber ?? 0) >= INPUT_AUDIT_LINE_NUMBER)
+        .map((row) => String(row.id)),
+    );
+    const requestedItems = onlyOutputLines(dto.items, auditLineIds);
 
     Object.assign(entry, {
       ...merged,
@@ -1205,14 +1442,74 @@ addToDept(org, {
       standardHours: mt?.standardHours ?? null,
       calculatedTarget: mt?.calculatedTarget ?? null,
       achievementPercentage: this.computeAchievement(merged.actualQuantity, merged.targetQuantity),
-      efficiencyPercentage: this.computeEfficiency(effectiveRunning, resolved.plannedHours),
+      efficiencyPercentage: this.computeEfficiency(effectiveRunning, totalPlanned > 0 ? totalPlanned : resolved.plannedHours),
       downtimeReasonText: dto.downtimeReason !== undefined ? (dto.downtimeReason ?? null) : entry.downtimeReasonText,
       remarks: dto.remarks !== undefined ? (dto.remarks ?? null) : entry.remarks,
       updatedBy: userId ?? null,
     });
 
-    const saved = await this.entryRepo.save(entry);
-    await this.persistChildren(saved.id, companyId, dto.items, dto.downtimes, userId, true);
+    const quantityOrItemChanged = (dto.actualQuantity !== undefined && Number(dto.actualQuantity) !== prevActual)
+      || (dto.scrapQuantity !== undefined && Number(dto.scrapQuantity) !== prevScrap)
+      || (dto.itemId !== undefined && dto.itemId !== prevItemId)
+      || (requestedItems !== undefined && requestedItems.length > 0);
+    // Nothing that feeds inventory moved and no line collection was supplied
+    // (e.g. a remarks-only PATCH) → do not touch the ledger at all.
+    const reconcile = !!resolved.warehouseId && (quantityOrItemChanged || requestedItems !== undefined);
+    const outputLines: OutputLine[] = requestedItems ?? [];
+
+    const saved = await this.entryRepo.manager.transaction(async (manager) => {
+      let previous: PostedMovements | null = null;
+
+      if (reconcile) {
+        // What this document has ALREADY posted — the "original stored value"
+        // every delta is measured against. Never the live balance: that one
+        // already includes this entry, which is what caused the double
+        // deduction when the edit screen re-read it as a fresh baseline.
+        previous = await this.readPostedMovements(manager, companyId, entry.id);
+        const posted = entry.inventoryReferenceId != null || previous.seen;
+        if (posted && !previous.reliable) {
+          // The prior state cannot be reconstructed (reversal rows whose origin
+          // is unreadable): restate the document — reverse everything first,
+          // then post the new quantities. Net stock movement is still exact.
+          await this.reverseInventoryPostings(manager, entry, companyId, userId);
+          entry.inventoryReferenceId = null;
+        }
+      }
+
+      const updated = await manager.getRepository(ProductionEntry).save(entry);
+      await this.persistChildren(updated.id, companyId, requestedItems, dto.downtimes, userId, true);
+
+      if (!reconcile || !resolved.warehouseId || !previous) return updated;
+
+      const posted = entry.inventoryReferenceId != null || previous.seen;
+      if (!posted) {
+        // Never entered the ledger: post it once, exactly as create() does.
+        if (quantityOrItemChanged) {
+          await this.postInventoryAndConsume(
+            manager, companyId, updated, resolved.warehouseId, merged.rawMaterialWarehouseId,
+            outputLines, userId,
+          );
+        }
+        return updated;
+      }
+
+      if (previous.reliable) {
+        const plan = await this.planInventoryPostings(
+          manager, companyId, updated, merged.rawMaterialWarehouseId, outputLines, userId,
+        );
+        await this.applyInventoryDelta(
+          manager, companyId, updated, outputLines, resolved.warehouseId,
+          merged.rawMaterialWarehouseId, previous, plan, userId,
+        );
+      } else {
+        await this.postInventoryAndConsume(
+          manager, companyId, updated, resolved.warehouseId, merged.rawMaterialWarehouseId,
+          outputLines, userId,
+        );
+      }
+      return updated;
+    });
+
     return saved;
   }
 
@@ -1272,13 +1569,413 @@ addToDept(org, {
     }
   }
 
+  // ─── Edit-mode inventory reconciliation (delta ledger) ─────────────────────
+
+  /**
+   * Reads back everything this entry has ALREADY posted, net of its reversals.
+   * This is the "original stored value" every edit delta is measured against —
+   * never the live balance, which already reflects this document.
+   */
+  private async readPostedMovements(
+    manager: EntityManager,
+    companyId: string,
+    entryId: string,
+  ): Promise<PostedMovements> {
+    const movements: PostedMovements = {
+      receipts: new Map(),
+      consumptions: new Map(),
+      scraps: new Map(),
+      uoms: new Map(),
+      reliable: true,
+      seen: false,
+    };
+    let rows: Array<Record<string, any>> = [];
+    try {
+      rows = await manager.query(
+        `SELECT transaction_type, item_id, warehouse_id, uom_id, quantity, direction, notes
+           FROM stock_ledger
+          WHERE company_id = $1 AND reference_type = $2 AND reference_id = $3`,
+        [companyId, ENTRY_REFERENCE_TYPE, entryId],
+      );
+    } catch (err) {
+      // Without the prior state no delta can be trusted — the caller falls back
+      // to restating the entry (reverse + repost) rather than guessing.
+      this.logger.warn(`Could not read prior stock movements for production entry ${entryId}: ${err}`);
+      movements.reliable = false;
+      return movements;
+    }
+
+    const bucketFor = (type: string): MovementBucket | null => {
+      if (type === 'PRODUCTION_RECEIPT') return movements.receipts;
+      if (type === 'PRODUCTION_CONSUMPTION') return movements.consumptions;
+      if (type === 'PRODUCTION_SCRAP') return movements.scraps;
+      return null;
+    };
+    /** Direction a movement family is posted in when it is NOT a reversal. */
+    const naturalDirection = (type: string): string =>
+      type === 'PRODUCTION_RECEIPT' ? 'IN' : 'OUT';
+
+    for (const row of rows) {
+      const qty = Number(row.quantity) || 0;
+      if (qty <= 0) continue;
+      const itemId = String(row.item_id ?? '');
+      const warehouseId = String(row.warehouse_id ?? '');
+      if (!itemId || !warehouseId) {
+        movements.reliable = false;
+        continue;
+      }
+      movements.seen = true;
+      const key = movementKey(itemId, warehouseId);
+      if (row.uom_id && !movements.uoms.has(key)) movements.uoms.set(key, String(row.uom_id));
+
+      let type = String(row.transaction_type ?? '');
+      let sign = 1;
+      if (type === 'PRODUCTION_REVERSAL') {
+        // The reversed family is only recoverable from the note written when the
+        // reversal was raised. If that cannot be read the entry's true prior
+        // state is unknown, and the caller must restate it the safe way.
+        const parsed = /^Reversal of ([A-Z_]+)\b/.exec(String(row.notes ?? ''));
+        if (!parsed) {
+          movements.reliable = false;
+          continue;
+        }
+        type = parsed[1];
+        sign = -1;
+      } else if (String(row.direction ?? '') !== naturalDirection(type)) {
+        sign = -1;
+      }
+      const bucket = bucketFor(type);
+      if (!bucket) continue;
+      bumpBucket(bucket, key, sign * qty);
+    }
+    return movements;
+  }
+
+  /**
+   * Rewrites the INPUT audit lines so the entry keeps an exact per-store record
+   * of what it deducted (the edit screen reads them back as "Consumed (This
+   * Entry)"). `persistChildren` drops every child row on save, so this restores
+   * them from the plan even when the ledger itself did not move.
+   */
+  private async writeInputAuditLines(
+    companyId: string,
+    entry: ProductionEntry,
+    consumed: Array<{ itemId: string; uomId: string | null; quantity: number; warehouseId: string }>,
+    routingCode: string | null,
+    userId?: string,
+  ): Promise<void> {
+    await this.entryItemRepo.delete({ productionEntryId: entry.id, entryKind: ProductionEntryItemKind.INPUT });
+    if (!consumed.length) return;
+
+    const byItem = new Map<string, { itemId: string; uomId: string | null; quantity: number; warehouseId: string }>();
+    for (const line of consumed) {
+      const key = `${line.itemId}|${line.warehouseId}`;
+      const existing = byItem.get(key);
+      if (existing) existing.quantity += line.quantity;
+      else byItem.set(key, { ...line });
+    }
+    const rows = [...byItem.values()].map((line, idx) =>
+      this.entryItemRepo.create({
+        companyId,
+        productionEntryId: entry.id,
+        lineNumber: INPUT_AUDIT_LINE_NUMBER + (idx + 1) * 10,
+        entryKind: ProductionEntryItemKind.INPUT,
+        itemId: line.itemId,
+        uomId: line.uomId,
+        sourceWarehouseId: line.warehouseId,
+        targetQuantity: this.round4(line.quantity),
+        actualQuantity: this.round4(line.quantity),
+        scrapQuantity: 0,
+        runningHours: 0,
+        routingCode,
+        remarks: 'Routing-configured raw material consumption (exact item)',
+        createdBy: userId ?? null,
+        updatedBy: userId ?? null,
+      }),
+    );
+    await this.entryItemRepo.save(rows);
+  }
+
+  /**
+   * Computes what this entry WOULD consume, without touching the ledger.
+   * Stock is deliberately not validated here: an edit only has to cover the
+   * DELTA it adds, which `applyInventoryDelta` checks against the live balance.
+   */
+  private async planInventoryPostings(
+    manager: EntityManager,
+    companyId: string,
+    entry: ProductionEntry,
+    sourceStoreId: string | null,
+    lines: OutputLine[],
+    userId?: string,
+    componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
+  ): Promise<{
+    lines: Array<{ itemId: string; uomId: string | null; warehouseId: string; quantity: number }>;
+    routingCode: string | null;
+  }> {
+    const routing = await this.safeGetEffectiveRouting(companyId, entry.itemId);
+    const outputs = this.buildProductionOutputs(entry, lines);
+    const planned: Array<{ itemId: string; uomId: string | null; warehouseId: string; quantity: number }> = [];
+
+    for (const output of outputs) {
+      if (Number(output.actualQuantity) <= 0 && Number(output.scrapQuantity || 0) <= 0) continue;
+      const configuredInputs = this.resolveRoutingInputsForOutput(routing, output.itemId);
+      const consumed = await this.consumeForProductionItem(
+        manager, companyId, output, entry, sourceStoreId, configuredInputs, userId, componentWarehouses, true,
+      );
+      for (const line of consumed) {
+        planned.push({ itemId: line.itemId, uomId: line.uomId, warehouseId: line.warehouseId, quantity: line.required });
+      }
+    }
+    return { lines: planned, routingCode: (routing as any)?.routingCode ?? null };
+  }
+
+  /**
+   * A stock-movement UOM is mandatory (`stock_ledger.uom_id` and
+   * `inventory_balances.uom_id` are foreign keys). Prefer the UOM the delta was
+   * planned or originally posted in, then the component's base UOM, then the
+   * entry's own UOM — never an empty/unknown id.
+   */
+  private async resolveMovementUomId(
+    entry: ProductionEntry,
+    itemId: string,
+    uomId: string | null | undefined,
+  ): Promise<string> {
+    if (uomId) return uomId;
+    try {
+      const component = await this.itemRepo.findOne({ where: { id: itemId }, select: ['id', 'baseUomId'] });
+      if (component?.baseUomId) return component.baseUomId;
+    } catch { /* fall through */ }
+    return entry.uomId;
+  }
+
+  /**
+   * DELTA RECONCILIATION — adjusts `stock_ledger` by exactly
+   *
+   *     Delta = New Entered Quantity − Original Stored Quantity
+   *
+   * instead of blindly re-posting the whole document. Consequences:
+   *
+   *   • an unchanged entry writes ZERO ledger rows;
+   *   • 100 → 105 KG moves stock by 5 KG, not by a 100-out/105-in churn;
+   *   • nothing is reversed first, so a half-applied edit can never double
+   *     deplete the raw-material store.
+   *
+   * Reductions are written as `PRODUCTION_REVERSAL` rows (the movement family
+   * the system already understands) so later reads net them out correctly.
+   */
+  private async applyInventoryDelta(
+    manager: EntityManager,
+    companyId: string,
+    entry: ProductionEntry,
+    lines: OutputLine[],
+    receiptWarehouseId: string,
+    sourceStoreId: string | null,
+    previous: PostedMovements,
+    plan: { lines: Array<{ itemId: string; uomId: string | null; warehouseId: string; quantity: number }>; routingCode: string | null },
+    userId?: string,
+  ): Promise<void> {
+    // ── 1. What the entry posts NOW ───────────────────────────────────────
+    const newReceipts: MovementBucket = new Map();
+    const newScraps: MovementBucket = new Map();
+    const newUoms = new Map<string, string | null>();
+    for (const output of this.buildProductionOutputs(entry, lines)) {
+      const actual = Number(output.actualQuantity) || 0;
+      const scrap = Number(output.scrapQuantity) || 0;
+      const key = movementKey(output.itemId, receiptWarehouseId);
+      if (actual > 0) {
+        bumpBucket(newReceipts, key, actual);
+        newUoms.set(key, output.uomId);
+      }
+      if (scrap > 0) bumpBucket(newScraps, key, scrap);
+    }
+    const newConsumptions: MovementBucket = new Map();
+    for (const line of plan.lines) {
+      const key = movementKey(line.itemId, line.warehouseId);
+      bumpBucket(newConsumptions, key, line.quantity);
+      if (line.uomId) newUoms.set(key, line.uomId);
+    }
+
+    // ── 2. Diff the two states ────────────────────────────────────────────
+    const diffFamily = (
+      family: 'receipt' | 'consumption' | 'scrap',
+      before: MovementBucket,
+      after: MovementBucket,
+    ): Array<DeltaLine> => {
+      const keys = new Set([...before.keys(), ...after.keys()]);
+      const out: DeltaLine[] = [];
+      for (const key of keys) {
+        const [itemId, warehouseId] = key.split('|');
+        const oldQty = before.get(key) ?? 0;
+        const newQty = after.get(key) ?? 0;
+        if (Math.abs(newQty - oldQty) < 1e-9) continue;
+        out.push({
+          family,
+          itemId,
+          warehouseId,
+          oldQty,
+          newQty,
+          uomId: newUoms.get(key) ?? previous.uoms.get(key) ?? null,
+        });
+      }
+      return out;
+    };
+
+    const deltas = [
+      ...diffFamily('receipt', previous.receipts, newReceipts),
+      ...diffFamily('consumption', previous.consumptions, newConsumptions),
+      ...diffFamily('scrap', previous.scraps, newScraps),
+    ];
+
+    // Restore the consumption audit lines regardless: the ledger may be flat
+    // while the child rows were just replaced by `persistChildren`.
+    await this.writeInputAuditLines(companyId, entry, plan.lines, plan.routingCode, userId);
+    if (!deltas.length) return;
+
+    // ── 3. Validate every NEW deduction before writing anything ───────────
+    for (const delta of deltas) {
+      const change = delta.newQty - delta.oldQty;
+      if (delta.family !== 'consumption' || change <= 0) continue;
+      const available = await this.inventoryBalanceService.getAvailableStock(
+        companyId, delta.itemId, delta.warehouseId, undefined, undefined, manager,
+      );
+      if (available + 1e-6 < change) {
+        const component = await this.itemRepo.findOne({ where: { id: delta.itemId }, relations: ['baseUom'] });
+        const uomCode = component?.baseUom?.code ?? '';
+        throw new BadRequestException(
+          `Raw material stock is insufficient. Required: ${this.round4(change)} ${uomCode} | Available: ${this.round4(available)} ${uomCode}`,
+        );
+      }
+    }
+
+    // ── 4. Post only the difference ───────────────────────────────────────
+    let referenceId = entry.inventoryReferenceId;
+    for (const delta of deltas) {
+      const change = this.round4(delta.newQty - delta.oldQty);
+      if (Math.abs(change) < 1e-9) continue;
+
+      const increasing = change > 0;
+      const quantity = Math.abs(change);
+      const familyType = delta.family === 'receipt'
+        ? 'PRODUCTION_RECEIPT'
+        : delta.family === 'consumption' ? 'PRODUCTION_CONSUMPTION' : 'PRODUCTION_SCRAP';
+      const direction: 'IN' | 'OUT' = delta.family === 'receipt'
+        ? (increasing ? 'IN' : 'OUT')
+        : (increasing ? 'OUT' : 'IN');
+
+      const uomId = await this.resolveMovementUomId(entry, delta.itemId, delta.uomId);
+
+      const posted = await this.stockLedgerService.create({
+        companyId,
+        transactionType: increasing ? familyType : 'PRODUCTION_REVERSAL',
+        itemId: delta.itemId,
+        warehouseId: delta.warehouseId,
+        quantity,
+        uomId,
+        direction,
+        referenceType: ENTRY_REFERENCE_TYPE,
+        referenceId: entry.id,
+        referenceNumber: entry.entryNumber || undefined,
+        notes: increasing
+          ? `Inventory delta for production entry (${entry.machineNo}, ${entry.entryDate})`
+          : `Reversal of ${familyType} for production entry (${entry.machineNo}, ${entry.entryDate})`,
+        createdBy: userId ?? undefined,
+      }, manager);
+
+      // Scrap is an audit trail: posting it never moved the balance, so its
+      // adjustment must not either (this used to inflate finished-goods stock
+      // on every edit).
+      if (delta.family !== 'scrap') {
+        await this.inventoryBalanceService.updateBalance(
+          companyId, delta.itemId, delta.warehouseId, null, null, uomId, quantity, direction, manager,
+        );
+      }
+
+      if (delta.family === 'receipt' && increasing && !referenceId) {
+        entry.inventoryReferenceId = posted.id;
+        await manager.getRepository(ProductionEntry).update(entry.id, { inventoryReferenceId: posted.id });
+        referenceId = posted.id;
+      }
+    }
+  }
+
+  /**
+   * Reverses any posted stock movements (receipt, scrap, consumption) for this entry.
+   * Restores consumed raw materials back into the source store and removes finished output.
+   */
+  private async reverseInventoryPostings(
+    manager: EntityManager,
+    entry: ProductionEntry,
+    companyId: string,
+    userId?: string,
+  ): Promise<void> {
+    try {
+      const movements = await manager.query(
+        `SELECT * FROM stock_ledger 
+         WHERE company_id = $1 
+           AND reference_type = $2 
+           AND reference_id = $3`,
+        [companyId, ENTRY_REFERENCE_TYPE, entry.id],
+      );
+
+      for (const m of movements) {
+        if (m.transaction_type === 'PRODUCTION_REVERSAL') continue;
+        const reverseDir: 'IN' | 'OUT' = m.direction === 'IN' ? 'OUT' : 'IN';
+        const qty = Number(m.quantity) || 0;
+        if (qty <= 0) continue;
+
+        await this.stockLedgerService.create({
+          companyId,
+          transactionType: 'PRODUCTION_REVERSAL',
+          itemId: m.item_id,
+          warehouseId: m.warehouse_id,
+          quantity: qty,
+          uomId: m.uom_id,
+          direction: reverseDir,
+          referenceType: ENTRY_REFERENCE_TYPE,
+          referenceId: entry.id,
+          referenceNumber: entry.entryNumber || undefined,
+          notes: `Reversal of ${m.transaction_type} for production entry (${entry.machineNo}, ${entry.entryDate})`,
+          createdBy: userId ?? undefined,
+        }, manager);
+
+        // PRODUCTION_SCRAP is posted as an audit trail with NO balance impact
+        // (see postInventoryAndConsume), so reversing it must not move stock
+        // either — otherwise every edit inflated the finished-goods balance by
+        // the scrap quantity.
+        if (m.transaction_type === 'PRODUCTION_SCRAP') continue;
+
+        await this.inventoryBalanceService.updateBalance(
+          companyId,
+          m.item_id,
+          m.warehouse_id,
+          m.location_id || null,
+          m.batch_id || null,
+          m.uom_id,
+          qty,
+          reverseDir,
+          manager,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Failed to reverse inventory postings for entry ${entry.id}: ${err}`);
+      throw err;
+    }
+  }
+
   async remove(id: string, companyId: string, userId?: string, allowedDivisionIds?: string[]): Promise<void> {
     const entry = await this.getRawEntry(id, companyId);
     // §19 — deletion must respect the caller's division scope too.
     this.assertDivisionAccess(allowedDivisionIds, entry.divisionId, 'production entry');
-    entry.isActive = false;
-    entry.updatedBy = userId ?? null;
-    await this.entryRepo.save(entry);
+    await this.entryRepo.manager.transaction(async (manager) => {
+      if (entry.inventoryReferenceId) {
+        await this.reverseInventoryPostings(manager, entry, companyId, userId);
+        entry.inventoryReferenceId = null;
+      }
+      entry.isActive = false;
+      entry.updatedBy = userId ?? null;
+      await manager.getRepository(ProductionEntry).save(entry);
+    });
   }
 
   // ─── Validation & resolution ────────────────────────────────────────────────
@@ -1685,6 +2382,30 @@ addToDept(org, {
     return Math.round((runningHours / plannedHours) * 100 * 100) / 100;
   }
 
+  /**
+   * PHASE 4 — canonical OVERTIME derivation (write side, used by create AND
+   * update when the request carries no explicit OT and no `OT: X h` remark).
+   *
+   *   OT = TOTAL shift hours (running + downtime) − shift planned hours
+   *
+   * A breakdown hour is still duty time, so it must NEVER eat overtime:
+   *   12h duty (11h running + 1h breakdown) on an 8h shift → 4h OT,
+   *   NOT `11 − 8 = 3h` (the old running-only rule).
+   *
+   * The standard is the shift master's planned hours (8h for GENERAL /
+   * SHIFT-A/B/C, 12h for GENERAL (Day) / GENERAL (Night) / E2E12) — never a
+   * hardcoded 8. A shift without a plan has no standard → no derived OT (0).
+   * This mirrors the frontend rule the KPI/column read (see
+   * frontend/src/pages/production/entries/overtimeHours.ts): the value derived
+   * here is persisted to overtime_hours, which is the ONE source both surfaces
+   * report.
+   */
+  private deriveOvertime(runningHours: number, downtimeHours: number, plannedHours: number): number {
+    if (!(plannedHours > 0)) return 0;
+    const dutyHours = this.round2(Number(runningHours || 0) + Number(downtimeHours || 0));
+    return dutyHours > plannedHours ? this.round2(dutyHours - plannedHours) : 0;
+  }
+
   private resolvePlannedHours(entry: ProductionEntry): number {
     const planned = Number((entry.shift as any)?.plannedHours ?? 0);
     if (planned > 0) return planned;
@@ -1800,7 +2521,7 @@ addToDept(org, {
     // Each production item posts independently (input OUT → output IN).
     const outputs = this.buildProductionOutputs(entry, lines);
 
-    const consumedInputs: Array<{ itemId: string; uomId: string; required: number; warehouseId: string }> = [];
+    const consumedInputs: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }> = [];
 
     for (const output of outputs) {
       if (Number(output.actualQuantity) <= 0 && Number(output.scrapQuantity || 0) <= 0) {
@@ -1951,12 +2672,13 @@ addToDept(org, {
     routingInputs?: Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }> | null,
     userId?: string,
     componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
-  ): Promise<Array<{ itemId: string; uomId: string; required: number; warehouseId: string }>> {
+    plan = false,
+  ): Promise<Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }>> {
     // Routing-configured materials take precedence (exact Item IDs + source
     // warehouses from the operation's inputs, scaled by good + scrap).
     // Manual Hand Packing entries always use the BOM configuration per Finished Good carton.
     if (routingInputs && routingInputs.length && !this.isHandPackingRef(entryRef)) {
-      return this.consumeRoutingInputs(manager, companyId, output, entryRef, sourceStoreId, routingInputs, userId);
+      return this.consumeRoutingInputs(manager, companyId, output, entryRef, sourceStoreId, routingInputs, userId, plan);
     }
 
     const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
@@ -2039,7 +2761,10 @@ addToDept(org, {
       let available = await this.inventoryBalanceService.getAvailableStock(
         companyId, line.itemId, effectiveWh, undefined, undefined, manager,
       );
-      if (available < required) {
+      // A plan only resolves WHERE consumption belongs; stock-driven relocation
+      // is a posting decision (and `available` already excludes this entry's own
+      // deduction while editing, so it would relocate spuriously).
+      if (!plan && available < required) {
         // Fallback: check if the component exists in WH-002 or main warehouse
         const alternateWhs = await this.warehouseRepo.find({
           where: [
@@ -2113,7 +2838,9 @@ addToDept(org, {
     }
 
     // Validate ALL components before touching stock — never partial.
-    const missing = requirements.find((r) => r.available < r.required);
+    // Skipped while planning: an edit only has to cover the DELTA it adds, which
+    // the reconciliation checks against the live balance instead.
+    const missing = plan ? undefined : requirements.find((r) => r.available < r.required);
     if (missing) {
       throw new BadRequestException(
         `Raw material stock is insufficient. Required: ${this.round4(missing.required)} ${missing.uomCode} | Available: ${this.round4(missing.available)} ${missing.uomCode}`,
@@ -2125,6 +2852,8 @@ addToDept(org, {
       const effectiveWh = r.warehouseId || sourceStoreId!;
       const compItem = await this.itemRepo.findOne({ where: { id: r.line.itemId }, select: ['id', 'baseUomId'] });
       const targetUomId = compItem?.baseUomId || r.line.uomId;
+      consumed.push({ itemId: r.line.itemId, uomId: targetUomId ?? null, required: r.required, warehouseId: effectiveWh });
+      if (plan) continue;
       await this.stockLedgerService.create({
         companyId,
         transactionType: 'PRODUCTION_CONSUMPTION',
@@ -2143,7 +2872,9 @@ addToDept(org, {
         companyId, r.line.itemId, effectiveWh, null, null, targetUomId, r.required, 'OUT', manager,
       );
     }
-    return [];
+    // INPUT audit lines are only written by the real posting path; planning
+    // returns them so the reconciliation can diff against the original state.
+    return plan ? consumed : [];
   }
 
   /**
@@ -2161,7 +2892,8 @@ addToDept(org, {
     sourceStoreId: string | null,
     routingInputs: Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }>,
     userId?: string,
-  ): Promise<Array<{ itemId: string; uomId: string; required: number; warehouseId: string }>> {
+    plan = false,
+  ): Promise<Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }>> {
     const productionQty = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
 
     const checks: Array<{ itemId: string; warehouseId: string; required: number; uomCode: string; available: number }> = [];
@@ -2200,12 +2932,16 @@ addToDept(org, {
       });
     }
 
-    const missing = checks.find((c) => c.available < c.required);
+    // Planning skips the availability gate: the edit only has to cover the DELTA
+    // it adds, which `applyInventoryDelta` validates against the live balance.
+    const missing = plan ? undefined : checks.find((c) => c.available < c.required);
     if (missing) {
       throw new BadRequestException(
         `Raw material stock is insufficient. Required: ${this.round4(missing.required)} ${missing.uomCode} | Available: ${this.round4(missing.available)} ${missing.uomCode}`,
       );
     }
+
+    if (plan) return consumed;
 
     for (const c of consumed) {
       await this.stockLedgerService.create({

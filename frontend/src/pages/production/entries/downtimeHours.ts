@@ -254,8 +254,18 @@ export function aggregateProductionTotals(
     const rej = Math.max(0, toNum2(line.scrapQuantity));
     totalActual += act;
     totalScrap += rej;
+    const family = (line.item?.uomType || line.item?.baseUom?.uomType || '').toUpperCase();
+    const uomCode = (line.item?.uomCode || line.item?.baseUom?.code || '').toUpperCase();
+    const isCountItem = family === 'COUNT' || uomCode === 'PCS' || uomCode === 'EA';
+
+    // Produced good quantity converted to KG (or direct if already KG)
     const actKg = line.item ? lineToKg(act, line.item) : null;
-    const rejKg = line.item ? lineToKg(rej, line.item) : null;
+    // For COUNT items (e.g. spokes), scrap is entered directly in KG by operator policy.
+    // For other items, convert via lineToKg or take direct KG.
+    const rejKg = isCountItem
+      ? rej
+      : (line.item ? lineToKg(rej, line.item) : (family === 'WEIGHT' || uomCode === 'KG' ? rej : null));
+
     if (actKg !== null) totalKg += actKg;
     if (rejKg !== null) totalRejectionKg += rejKg;
   }

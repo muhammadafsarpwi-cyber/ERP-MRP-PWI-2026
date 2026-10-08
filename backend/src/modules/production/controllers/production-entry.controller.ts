@@ -95,6 +95,8 @@ export class ProductionEntryController {
     @Query('productionOrderId') productionOrderId?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'ASC' | 'DESC',
+    @Query('status') status?: string,
+    @Query('chevronKey') chevronKey?: string,
   ) {
     const companyId = this.getCompanyId(req);
     const result = await this.entryService.findAll(companyId, {
@@ -114,6 +116,8 @@ export class ProductionEntryController {
       productionOrderId,
       sortBy,
       sortDir,
+      status,
+      chevronKey,
       allowedDivisionIds: this.divisions(req),
     });
     return { success: true, ...result };

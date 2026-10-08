@@ -18,6 +18,8 @@ import { GlobalLoading } from '../../../components/shared';
 import PageHeader from '../../../components/shared/PageHeader';
 import { ProductionUnitsPage } from '../units';
 import { convertProductToComponentQty } from './downtimeHours';
+import { entryOvertimeHours } from './overtimeHours';
+import { splitEntryItemLines } from './entryLines';
 
 const { Title, Text } = Typography;
 
@@ -467,15 +469,34 @@ const EntryDetail: React.FC = () => {
     ? toNum(entry.shift.plannedHours)
     : null;
   const planned = shiftPlanned ?? (entry.downtime?.plannedHours != null && toNum(entry.downtime.plannedHours) > 0 ? toNum(entry.downtime.plannedHours) : null);
-  const ot = toNum((entry as any).overtimeHours);
+  // PHASE 3 — canonical OT (persisted overtime_hours → legacy remarks `OT: X h`),
+  // the same definition as the KPI and the OT column. Never runningHours - 8.
+  const ot = entryOvertimeHours(entry as any);
+  // ── STEP 2 — CALCULATION MATRIX ──────────────────────────────────────────
+  // Total Available Hours = stored planned shift + stored overtime.
+  // Actual Running Hours  = Total Available Hours − Total Downtime Hours.
+  //
+  // The running figure is recomputed from that matrix whenever the shift's
+  // duty hours (running + downtime) were fully consumed — the exact signature
+  // of a row whose overtime was not carried into the stored running hours
+  // (8h shift + 2h OT − 2h downtime must resolve to 8h, never 6h).
+  //
+  // An EARLY FINISH — duty still below the planned shift — keeps its own
+  // recorded running hours, so the Remaining figure stays meaningful instead
+  // of being silently inflated to fill the shift.
   const totalAvailableHours = planned != null ? planned + ot : null;
-  // Re-derive effective running if planned hours exist and downtime is recorded
-  const effectiveRunning = (totalAvailableHours != null && totalAvailableHours > 0 && totalDowntime > 0 && running + totalDowntime > totalAvailableHours)
+  const dutyHours = running + totalDowntime;
+  const shiftFullyConsumed = planned != null && dutyHours >= planned;
+  const mustUsePlanMath = totalAvailableHours != null
+    && totalAvailableHours > 0
+    && totalDowntime > 0
+    && (dutyHours > totalAvailableHours || shiftFullyConsumed);
+  const effectiveRunning = (mustUsePlanMath && totalAvailableHours != null)
     ? Math.max(0, totalAvailableHours - totalDowntime)
     : running;
   const remaining = totalAvailableHours != null ? Math.max(0, totalAvailableHours - effectiveRunning - totalDowntime) : null;
-  // If downtime > 0 and running + downtime exceeded planned (stale/bad saved DB row), re-derive efficiency from effectiveRunning
-  const eff = (totalAvailableHours != null && totalAvailableHours > 0 && totalDowntime > 0 && running + totalDowntime > totalAvailableHours)
+  // Efficiency follows the corrected running figure only when it was re-derived.
+  const eff = (mustUsePlanMath && totalAvailableHours != null)
     ? Math.round((effectiveRunning / totalAvailableHours) * 10000) / 100
     : toNum(entry.efficiencyPercentage);
   const wireSize = entry.item?.wireSizeMm != null ? `${formatDimension(entry.item.wireSizeMm)} mm` : '—';
@@ -505,35 +526,50 @@ const EntryDetail: React.FC = () => {
     .reduce((s, m) => s + toNum(m.quantity), 0);
 
   const rawItem = productionInItem;
-  const rawUom = rawItem?.wireSizeMm != null ? 'KG' : (entry.uom?.code ?? 'KG');
+  // Resolve the actual UOM of the input material (ledger, store balance, or item base UOM)
+  const consumptionLedger = movements.find((m) => m.transactionType === 'PRODUCTION_CONSUMPTION');
+  const rawUom = consumptionLedger?.uom?.code
+    || sourceStoreRow?.uom?.code
+    || inputBalances[0]?.uom?.code
+    || (rawItem as any)?.baseUom?.code
+    || (rawItem?.wireSizeMm != null && !entry.item?.weightPerPiece ? 'KG' : (entry.uom?.code ?? 'KG'));
 
-  // Derive raw material consumption in KG:
-  // Convert good quantity (pieces/meters) to raw material KG using calcActualKg + scrap.
+  // Derive raw material consumption (OUTPUT lines only — see entryLines.ts).
   let calculatedRawDemand = 0;
-  if (entry.items && entry.items.length > 0) {
-    for (const line of entry.items) {
+  const outputItemLines = splitEntryItemLines(entry.items).outputs;
+  if (outputItemLines.length > 0) {
+    for (const line of outputItemLines) {
       const lineItem = line.item || entry.item;
       const lUom = line.uom?.code || entry.uom?.code || '';
       const lGood = toNum(line.actualQuantity);
       const lScrap = toNum(line.scrapQuantity);
-      const kgGood = calcActualKg(lUom, lGood, lineItem?.weightPerPiece, lineItem?.weightPerMeter);
-      const kgScrap = (rawUom === 'KG' || lineItem?.wireSizeMm != null)
-        ? lScrap
-        : (calcActualKg(lUom, lScrap, lineItem?.weightPerPiece, lineItem?.weightPerMeter) ?? lScrap);
-      calculatedRawDemand += (kgGood ?? lGood) + kgScrap;
+      if (rawUom === 'KG') {
+        const kgGood = calcActualKg(lUom, lGood, lineItem?.weightPerPiece, lineItem?.weightPerMeter);
+        calculatedRawDemand += (kgGood ?? lGood) + lScrap;
+      } else {
+        // Raw material is in PCS / other discrete units
+        const pcsScrap = (rawUom === 'PCS' && lineItem?.weightPerPiece && lineItem.weightPerPiece > 0)
+          ? Math.round((lScrap / lineItem.weightPerPiece) * 100) / 100
+          : 0;
+        calculatedRawDemand += lGood + pcsScrap;
+      }
     }
   }
   if (calculatedRawDemand <= 0) {
     const entryUom = entry.uom?.code || '';
-    const kgGood = calcActualKg(entryUom, goodQty, entry.item?.weightPerPiece, entry.item?.weightPerMeter);
-    const kgScrap = (rawUom === 'KG' || entry.item?.wireSizeMm != null)
-      ? scrapQty
-      : (calcActualKg(entryUom, scrapQty, entry.item?.weightPerPiece, entry.item?.weightPerMeter) ?? scrapQty);
-    calculatedRawDemand = (kgGood ?? goodQty) + kgScrap;
+    if (rawUom === 'KG') {
+      const kgGood = calcActualKg(entryUom, goodQty, entry.item?.weightPerPiece, entry.item?.weightPerMeter);
+      calculatedRawDemand = (kgGood ?? goodQty) + scrapQty;
+    } else {
+      const pcsScrap = (rawUom === 'PCS' && entry.item?.weightPerPiece && entry.item.weightPerPiece > 0)
+        ? Math.round((scrapQty / entry.item.weightPerPiece) * 100) / 100
+        : 0;
+      calculatedRawDemand = goodQty + pcsScrap;
+    }
   }
   calculatedRawDemand = Math.round(calculatedRawDemand * 10000) / 10000;
 
-  // The actual consumed raw material in KG (authoritative from ledger if posted, or calculated)
+  // The actual consumed raw material (authoritative from ledger if posted, or calculated)
   const rawConsumed = consumptionOutTotal > 0
     ? consumptionOutTotal
     : (calculatedRawDemand > 0 ? calculatedRawDemand : (productionInItem ? 0 : goodQty + scrapQty));
@@ -571,7 +607,10 @@ const EntryDetail: React.FC = () => {
 
   const sectionCtx = (
     <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
-      <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
+      {/* Entry ID binds the human-readable document reference (PE-2026-00177),
+          never the raw database UUID — the hex string looked like a debugging
+          artefact next to the Entry Reference it duplicates. */}
+      <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
       <Descriptions.Item label="Entry Reference"><Text strong style={{ fontSize: 13 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
       <Descriptions.Item label="Division">
         {entry.division?.name ? `${entry.division.name} (${entry.division.divisionCode})` : (entry.division?.divisionCode || '—')}
@@ -614,7 +653,7 @@ const EntryDetail: React.FC = () => {
       <Descriptions.Item label="UOM">{entry.uom?.code}{entry.uom?.symbol ? ` (${entry.uom.symbol})` : ''}</Descriptions.Item>
       <Descriptions.Item label="Base UOM">{entry.item?.baseUom?.code ?? '—'}</Descriptions.Item>
       <Descriptions.Item label="Actual Good Production"><Text strong>{formatNumber(entry.actualQuantity, 3)}</Text></Descriptions.Item>
-      <Descriptions.Item label="Rejection / Scrap">{formatNumber(entry.scrapQuantity, 3)}</Descriptions.Item>
+      <Descriptions.Item label="Rejection / Scrap">{formatNumber(entry.scrapQuantity, 3)} KG</Descriptions.Item>
       <Descriptions.Item label="Running Hours">{formatNumber(effectiveRunning, 2)}h</Descriptions.Item>
       <Descriptions.Item label="Overtime Hours">{formatNumber(ot, 2)}h</Descriptions.Item>
       <Descriptions.Item
@@ -746,7 +785,7 @@ const EntryDetail: React.FC = () => {
               )}
             </div>
             <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 13, lineHeight: '18px', padding: '4px 0' }}>
-              ▾ consumed <strong style={{ color: '#b91c1c' }}>{formatNumber(rawConsumed, 3)} {rawUom}</strong> (good converted + scrap)
+              ▾ consumed <strong style={{ color: '#b91c1c' }}>{formatNumber(rawConsumed, 3)} {rawUom}</strong>{toNum(entry.scrapQuantity) > 0 ? ` (+ scrap ${formatNumber(entry.scrapQuantity, 3)} KG)` : ''}
             </div>
           </React.Fragment>
         )}
@@ -767,7 +806,7 @@ const EntryDetail: React.FC = () => {
             → {formatNumber(toNum(entry.actualQuantity), 3)} {flowUnits}{toNum(entry.scrapQuantity) > 0 ? ` + scrap ${formatNumber(toNum(entry.scrapQuantity), 3)}` : ''}
           </Text>
         </div>
-        {(entry.items ?? []).filter((l) => l.item && l.itemId !== entry.itemId).map((line) => (
+        {outputItemLines.filter((l) => l.item && l.itemId !== entry.itemId).map((line) => (
           <React.Fragment key={line.id}>
             <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 14, lineHeight: '16px' }}>
               <ArrowRightOutlined /> secondary output
@@ -801,6 +840,7 @@ const EntryDetail: React.FC = () => {
       downtimeHours={entry.downtimeHours}
       runningHours={effectiveRunning}
       plannedHours={planned}
+      overtimeHours={ot}
       remainingHours={remaining}
       lines={entry.downtimes ?? []}
     />
@@ -1041,7 +1081,7 @@ const EntryDetail: React.FC = () => {
       <Row gutter={[8, 8]} style={{ marginBottom: 4 }}>
         <KpiCell label="Target" value={formatNumber(entry.targetQuantity, 3)} sub={entry.uom?.code} icon={<AimOutlined />} />
         <KpiCell label="Actual Good" value={formatNumber(entry.actualQuantity, 3)} sub={entry.uom?.code} icon={<AppstoreFilled />} />
-        <KpiCell label="Scrap" value={formatNumber(entry.scrapQuantity, 3)} sub={entry.uom?.code} accent={toNum(entry.scrapQuantity) > 0 ? 'warn' : undefined} icon={<DeleteFilled />} />
+        <KpiCell label="Scrap" value={formatNumber(entry.scrapQuantity, 3)} sub="KG" accent={toNum(entry.scrapQuantity) > 0 ? 'warn' : undefined} icon={<DeleteFilled />} />
         <KpiCell label="Achievement" value={<KpiPercentage value={ach} fontSize={16} fontWeight={700} />} sub="% of target" icon={<TrophyFilled />} />
         <KpiCell label="Efficiency" value={<KpiPercentage value={eff} fontSize={16} fontWeight={700} />} sub="% of shift" icon={<ThunderboltFilled />} />
         <KpiCell label="Running" value={`${formatNumber(effectiveRunning, 2)}h`} sub={planned != null ? `of ${formatNumber(planned, 2)}h` : undefined} icon={<ClockCircleFilled />} />
@@ -1058,11 +1098,11 @@ const EntryDetail: React.FC = () => {
 
           <Section letter="D" title="Material Flow">{sectionMaterialFlow}</Section>
 
-          {entry.items && entry.items.length > 0 && (
+          {outputItemLines.length > 0 && (
             <Section letter="E" title="Production Output Lines">
               <Table rowKey="id" size="small" pagination={false}
                 scroll={{ x: 'max-content' }}
-                dataSource={entry.items}
+                dataSource={outputItemLines}
                 columns={[
                   { title: '#', dataIndex: 'lineNumber', width: 40 },
                   {
@@ -1111,7 +1151,8 @@ const EntryDetail: React.FC = () => {
             <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered className="erp-detail-descriptions">
               <Descriptions.Item label="Remarks" span={2}>{entry.remarks ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Created By">{entry.createdByUser?.fullName ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.id}</Text></Descriptions.Item>
+              {/* Same rule as Section A: the operator-facing reference, not the UUID. */}
+              <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
             </Descriptions>
           </Section>
 
@@ -1231,18 +1272,23 @@ const DeleteEntryButton: React.FC<{ id: string; onDeleted: () => void; block?: b
   );
 };
 
-/** Downtime breakdown: planned / running / total / remaining summary + every line. */
+/** Downtime breakdown: planned / overtime / running / total / remaining summary + every line. */
 const DowntimeView: React.FC<{
   downtimeHours: number | string;
   runningHours: number | string;
   plannedHours: number | null;
+  overtimeHours: number | null;
   remainingHours: number | null;
   lines: DowntimeDetail[];
-}> = ({ downtimeHours, runningHours, plannedHours, remainingHours, lines }) => {
+}> = ({ downtimeHours, runningHours, plannedHours, overtimeHours, remainingHours, lines }) => {
   const total = toNum(downtimeHours);
   const running = toNum(runningHours);
-  const summary = [
+  const ot = toNum(overtimeHours);
+  const summary: Array<{ label: string; value: string; accent?: boolean; strong?: boolean; tone?: string }> = [
     { label: 'Planned', value: plannedHours != null ? `${formatNumber(plannedHours, 2)}h` : '—' },
+    // STEP 1 — the stored overtime_hours is rendered next to the planned shift,
+    // so the shift summary itself explains Total Available = Planned + Overtime.
+    { label: 'Overtime (Hours)', value: `${formatNumber(ot, 2)}h`, tone: ot > 0 ? '#8b5cf6' : undefined },
     { label: 'Running', value: `${formatNumber(running, 2)}h` },
     { label: 'Total Downtime', value: `${formatNumber(total, 2)}h`, accent: total > 0 },
     { label: 'Remaining', value: remainingHours != null ? `${formatNumber(remainingHours, 2)}h` : '—', strong: true },
@@ -1251,13 +1297,15 @@ const DowntimeView: React.FC<{
     <div>
       <Row gutter={[8, 8]}>
         {summary.map((s) => (
-          <Col xs={12} md={6} key={s.label}>
+          <Col xs={12} md={4} key={s.label}>
             <div style={{
               background: s.accent ? 'var(--theme-warning-soft)' : 'var(--theme-surface-alt)',
               borderRadius: 6, padding: '4px 8px',
             }}>
               <Text type="secondary" style={{ fontSize: 11 }}>{s.label}</Text>
-              <div><Text strong={s.strong}>{s.value}</Text></div>
+              <div>
+                <Text strong={s.strong} style={s.tone ? { color: s.tone, fontWeight: 700 } : undefined}>{s.value}</Text>
+              </div>
             </div>
           </Col>
         ))}

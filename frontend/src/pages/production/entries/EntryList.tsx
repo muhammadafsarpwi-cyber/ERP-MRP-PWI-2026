@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Card,
   Button,
@@ -18,9 +18,12 @@ import {
   Tag,
   Grid,
   Badge,
+  Skeleton,
+  Popover,
+  Checkbox,
 } from 'antd';
 import PageHeader from '../../../components/shared/PageHeader';
-import LargeLoadingBuffer from '../../../components/shared/LargeLoadingBuffer';
+import { useHeaderActions } from '../../../components/layout/headerActionsStore';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import {
   PlusOutlined,
@@ -38,6 +41,7 @@ import {
   PercentageOutlined,
   CheckCircleOutlined,
   SettingOutlined,
+  TableOutlined,
   DownloadOutlined,
   UploadOutlined,
   FilePdfOutlined,
@@ -52,6 +56,7 @@ import {
   MinusOutlined,
   CloseOutlined,
   InboxOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -61,6 +66,23 @@ import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
 import { useLookups, Department, ShiftLk } from './lookups';
+import { entryOvertimeHours, sumOvertime } from './overtimeHours';
+import {
+  buildDailyProductionReport,
+  buildDailyProductionCsv,
+  buildPrintHtml,
+  executiveKpis,
+  grandTotalLabel,
+  pdfLineRow,
+  pdfSummaryRow,
+  sectionBlocks,
+  EXECUTIVE_TITLE,
+  PDF_MAIN_TEXT,
+  PDF_SUB_TEXT,
+  TONE_COLOR,
+  perUnitWeightValue,
+} from './dailyProductionReport';
+import type { ExecutiveKpi } from './dailyProductionReport';
 import KpiPercentage, { kpiIndicator } from '../../../components/kpi/KpiPercentage';
 import {
   ERPTable,
@@ -369,15 +391,82 @@ export function getEntryStatus(row: ProductionEntryRow): string {
   return 'DRAFT';
 }
 
+/**
+ * RangePicker payload → `[start, end]` tuple, ALWAYS safe to store.
+ * Ant Design hands back `null` when the user clicks the clear (x) button and
+ * `[start, end]` (either end possibly null) while picking — indexing the null
+ * payload directly used to throw
+ * "TypeError: Cannot read properties of null (reading '0')" and freeze the
+ * Production Entries filter UI. Anything that is not an array collapses to
+ * `[null, null]`, so clearing the picker just resets the date filter.
+ */
+export function dateRangeTuple(value: unknown): [dayjs.Dayjs | null, dayjs.Dayjs | null] {
+  const range = Array.isArray(value) ? (value as (dayjs.Dayjs | null)[]) : [];
+  return [range[0] ?? null, range[1] ?? null];
+}
+
+interface ServerSummary {
+  total: number;
+  actual: number;
+  target: number;
+  scrap: number;
+  overtime: number;
+  downtime: number;
+  efficiency: number;
+  counts: {
+    all: number;
+    COMPLETED: number;
+    IN_PROGRESS: number;
+    DRAFT: number;
+    WITH_SCRAP: number;
+    WITH_DOWNTIME: number;
+  };
+}
+
 interface EntryListTabCache {
   rows: ProductionEntryRow[];
   total: number;
   report: ReportResponse | null;
+  summary: ServerSummary | null;
 }
+
+/** True when a request was cancelled by an AbortController (never an error). */
+const isRequestAbort = (err: unknown): boolean => {
+  const e = err as { code?: string; name?: string } | null | undefined;
+  return e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError' || e?.name === 'AbortError';
+};
+
+/** Headings for the "Manage Columns" popover — MUST stay in the same order as
+ *  the `columns` literal inside EntryList: visibility is tracked by column
+ *  index, so the two lists are zipped together. A length mismatch degrades to
+ *  `Column N` labels (see `columnLabel`) instead of ever crashing the grid. */
+const GRID_COLUMN_LABELS: string[] = [
+  'Sr #',
+  'Date',
+  'Division',
+  'Department',
+  'Shift',
+  'Machine',
+  'Operator',
+  'Item / Product',
+  'Target',
+  'Production',
+  'Achievement',
+  'Per Unit Weight',
+  'Actual KG',
+  'Scrap (KG)',
+  'Run / Down',
+  'OT (h)',
+  'Status',
+  'Created By',
+  'Updated By',
+  'Actions',
+];
 
 const EntryList: React.FC = () => {
   const { message } = App.useApp();
   const navigate = useNavigate();
+  const location = useLocation();
   const lookups = useLookups();
   const screens = Grid.useBreakpoint();
   const PAGE_SIZE_KEY = 'production_entry_pagesize';
@@ -388,6 +477,7 @@ const EntryList: React.FC = () => {
 
   const [rows, setRows] = useState<ProductionEntryRow[]>(() => cachedTab?.rows ?? []);
   const [total, setTotal] = useState<number>(() => cachedTab?.total ?? 0);
+  const [serverSummary, setServerSummary] = useState<ServerSummary | null>(() => cachedTab?.summary ?? null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(() => {
     try {
@@ -399,11 +489,47 @@ const EntryList: React.FC = () => {
     }
   });
 
+  // ── Column visibility (Manage Columns popover) ────────────────────────
+  // Indices of the grid columns the user unchecked. Held as a Set replaced
+  // wholesale on every toggle so React always sees a new reference — showing
+  // / hiding a column can never leave the table in a stale or broken state.
+  const [hiddenColumnIdx, setHiddenColumnIdx] = useState<Set<number>>(() => new Set());
+  const toggleColumn = useCallback((idx: number) => {
+    setHiddenColumnIdx((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }, []);
+  const showAllColumns = useCallback(() => setHiddenColumnIdx(new Set()), []);
+
   // Start with loading true only if tab has never loaded yet
   const [loading, setLoading] = useState(!cachedTab);
   const [reportLoading, setReportLoading] = useState(!cachedTab);
   const [report, setReport] = useState<ReportResponse | null>(() => cachedTab?.report ?? null);
   const isInitialMount = useRef(true);
+
+  // ── Request lifecycle ───────────────────────────────────────────────────
+  // rowsAbortRef / reportAbortRef: starting a new request of the same kind
+  // aborts the previous one, so a stale response can never overwrite newer
+  // tab state (search / refresh / sort races).
+  // disposedRef: flipped when this instance is genuinely destroyed; a late
+  // response is then ignored instead of resurrecting state for a closed tab.
+  // Deliberately NOT aborting on unmount: React 18 StrictMode re-runs mount
+  // effects on the same instance, so cancelling there would kill the only
+  // in-flight request while the fetch lock still blocks the re-run. The pane
+  // itself is never unmounted (WorkspaceTabViewport keeps it alive), so this
+  // is only a safety net, not the primary mechanism.
+  const rowsAbortRef = useRef<AbortController | null>(null);
+  const reportAbortRef = useRef<AbortController | null>(null);
+  const disposedRef = useRef(false);
+  useEffect(() => {
+    disposedRef.current = false;
+    return () => {
+      disposedRef.current = true;
+    };
+  }, []);
 
   // Filters & Chevron Ribbon State
   const [activeChevronKey, setActiveChevronKey] = useState<string>('all');
@@ -417,7 +543,7 @@ const EntryList: React.FC = () => {
   const [fMachineNo, setFMachineNo] = useState<string>('');
   const [fStatus, setFStatus] = useState<string>();
 
-  const buildFilters = useCallback(() => ({
+  const buildFilters = useCallback((chevron = activeChevronKey) => ({
     search: fSearch.trim() || undefined,
     divisionId: fDivision,
     sectionId: fSection,
@@ -426,19 +552,38 @@ const EntryList: React.FC = () => {
     dateTo: dateRange[1]?.format('YYYY-MM-DD'),
     shiftId: fShift,
     machineNo: fMachineNo.trim() || undefined,
-  }), [fSearch, fDivision, fSection, fDepartment, dateRange, fShift, fMachineNo]);
+    status: fStatus,
+    chevronKey: chevron !== 'all' ? chevron : undefined,
+  }), [fSearch, fDivision, fSection, fDepartment, dateRange, fShift, fMachineNo, fStatus, activeChevronKey]);
 
-  const fetchRows = useCallback(async (p = page, ps = pageSize) => {
+  const fetchRows = useCallback(async (p = page, ps = pageSize, chevron = activeChevronKey) => {
+    // Supersede any in-flight list request (refresh / search / filter races)
+    // so an older response can never overwrite newer tab state.
+    rowsAbortRef.current?.abort();
+    const controller = new AbortController();
+    rowsAbortRef.current = controller;
+
     setLoading(true);
     try {
-      const res = await apiService.get<{ success: boolean; data: ProductionEntryRow[]; total: number }>(
+      const res = await apiService.get<{
+        success: boolean;
+        data: ProductionEntryRow[];
+        total: number;
+        summary?: ServerSummary;
+      }>(
         '/production/entries',
-        { page: p, limit: ps, ...buildFilters() },
+        { page: p, limit: ps, ...buildFilters(chevron) },
+        { signal: controller.signal },
       );
+      if (disposedRef.current || rowsAbortRef.current !== controller) return;
       const newRows = res.data || [];
       const newTotal = res.total || 0;
+      const newSummary = res.summary ?? null;
       setRows(newRows);
       setTotal(newTotal);
+      if (newSummary) {
+        setServerSummary(newSummary);
+      }
 
       // Save to tab session cache
       const current = tabSessionCache.get<EntryListTabCache>(tabKey);
@@ -446,21 +591,32 @@ const EntryList: React.FC = () => {
         rows: newRows,
         total: newTotal,
         report: current?.report ?? null,
+        summary: newSummary ?? current?.summary ?? null,
       });
-    } catch {
+    } catch (err) {
+      if (isRequestAbort(err) || disposedRef.current || rowsAbortRef.current !== controller) return;
       message.error('Failed to load production entries');
     } finally {
-      setLoading(false);
+      if (rowsAbortRef.current === controller) {
+        rowsAbortRef.current = null;
+        setLoading(false);
+      }
     }
-  }, [page, pageSize, buildFilters, message]);
+  }, [page, pageSize, activeChevronKey, buildFilters, message]);
 
   const fetchReport = useCallback(async () => {
+    reportAbortRef.current?.abort();
+    const controller = new AbortController();
+    reportAbortRef.current = controller;
+
     setReportLoading(true);
     try {
       const res = await apiService.get<{ success: boolean } & ReportResponse>(
         '/production/entries/report',
         buildFilters(),
+        { signal: controller.signal },
       );
+      if (disposedRef.current || reportAbortRef.current !== controller) return;
       setReport(res);
 
       // Save to tab session cache
@@ -469,27 +625,43 @@ const EntryList: React.FC = () => {
         rows: current?.rows ?? rows,
         total: current?.total ?? total,
         report: res,
+        summary: current?.summary ?? serverSummary,
       });
-    } catch {
+    } catch (err) {
+      if (isRequestAbort(err) || disposedRef.current || reportAbortRef.current !== controller) return;
       message.error('Failed to load production report');
     } finally {
-      setReportLoading(false);
+      if (reportAbortRef.current === controller) {
+        reportAbortRef.current = null;
+        setReportLoading(false);
+      }
     }
-  }, [buildFilters, message, rows, total]);
+  }, [buildFilters, message, rows, total, serverSummary]);
 
   useEffect(() => {
-    // If tab was already loaded in this session, DO NOT re-fetch when returning to the tab!
+    // (1) Returning to an already-open tab: its data lives in the session
+    //     cache, so switching tabs must never behave like a refresh.
     if (tabSessionCache.has(tabKey)) {
       return;
     }
-    void fetchRows(page, pageSize);
-    void fetchReport();
+    // (2) Single-flight lock: React 18 StrictMode re-runs this mount effect in
+    //     dev. Only the very first run may issue the requests, which makes a
+    //     cold load exactly 1 × /production/entries + 1 × /entries/report.
+    if (!tabSessionCache.tryAcquireFetchLock(tabKey)) {
+      return;
+    }
+    let settled = 0;
+    const onSettled = () => {
+      if (++settled >= 2) tabSessionCache.releaseFetchLock(tabKey);
+    };
+    void fetchRows(page, pageSize).then(onSettled, onSettled);
+    void fetchReport().then(onSettled, onSettled);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSearch = () => {
     setPage(1);
-    void fetchRows(1, pageSize);
+    void fetchRows(1, pageSize, activeChevronKey);
     void fetchReport();
   };
 
@@ -505,12 +677,15 @@ const EntryList: React.FC = () => {
     setActiveChevronKey('all');
     setPage(1);
     setTimeout(() => {
-      void fetchRows(1, pageSize).then(() => fetchReport());
+      void fetchRows(1, pageSize, 'all').then(() => fetchReport());
     }, 0);
   };
 
   // Status & Attribute Counts for 2027 Chevron Status Ribbon
   const ribbonCounts = useMemo(() => {
+    if (serverSummary?.counts) {
+      return serverSummary.counts;
+    }
     let completed = 0;
     let inProgress = 0;
     let draft = 0;
@@ -535,10 +710,13 @@ const EntryList: React.FC = () => {
       WITH_SCRAP: withScrap,
       WITH_DOWNTIME: withDowntime,
     };
-  }, [rows, total]);
+  }, [serverSummary, rows, total]);
 
-  // Client-side status and chevron filter
+  // Client-side status and chevron filter (fallback only if backend didn't filter)
   const displayedRows = useMemo(() => {
+    if (serverSummary) {
+      return rows;
+    }
     let list = rows;
     if (activeChevronKey === 'COMPLETED') {
       list = list.filter((r) => getEntryStatus(r) === 'COMPLETED');
@@ -555,14 +733,27 @@ const EntryList: React.FC = () => {
       list = list.filter((r) => getEntryStatus(r) === fStatus);
     }
     return list;
-  }, [rows, activeChevronKey, fStatus]);
+  }, [rows, serverSummary, activeChevronKey, fStatus]);
 
   // Aggregate KPI summary for Crystal Metric Cards
   const kpiData = useMemo(() => {
+    if (serverSummary) {
+      return {
+        total: serverSummary.total,
+        actual: serverSummary.actual,
+        target: serverSummary.target,
+        scrap: serverSummary.scrap,
+        // Canonical OT (SQL: overtime_hours, else legacy remarks `OT: X h`) —
+        // the exact same rule the OT column renders (see ./overtimeHours.ts).
+        overtime: serverSummary.overtime,
+        downtime: serverSummary.downtime,
+        ach: `${formatNumber(serverSummary.efficiency, 2)}%`,
+      };
+    }
     const target = displayedRows.reduce((s, r) => s + toNum(r.targetQuantity), 0);
     const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
     const scrap = displayedRows.reduce((s, r) => s + toNum(r.scrapQuantity), 0);
-    const overtime = displayedRows.reduce((s, r) => s + toNum(r.overtimeHours), 0);
+    const overtime = sumOvertime(displayedRows);
     const downtime = displayedRows.reduce((s, r) => s + toNum(r.downtimeHours), 0);
     const ach = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
     return {
@@ -574,9 +765,17 @@ const EntryList: React.FC = () => {
       downtime,
       ach: ach !== null ? `${ach}%` : '0%',
     };
-  }, [displayedRows, total, rows.length]);
+  }, [serverSummary, displayedRows, total, rows.length]);
 
   const summary = useMemo(() => {
+    if (serverSummary) {
+      return {
+        target: serverSummary.target,
+        actual: serverSummary.actual,
+        scrap: serverSummary.scrap,
+        ach: serverSummary.efficiency,
+      };
+    }
     const target = displayedRows.reduce((s, r) => s + toNum(r.targetQuantity), 0);
     const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
     const scrap = displayedRows.reduce((s, r) => s + toNum(r.scrapQuantity), 0);
@@ -586,7 +785,7 @@ const EntryList: React.FC = () => {
       scrap,
       ach: target > 0 ? Math.round((actual / target) * 10000) / 100 : null,
     };
-  }, [displayedRows]);
+  }, [serverSummary, displayedRows]);
 
   const achIndicator = kpiIndicator(summary.ach);
 
@@ -639,84 +838,88 @@ const EntryList: React.FC = () => {
     return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
   }, [handleRefresh]);
 
-  // CSV Export
+  // Claim this tab's shared-header action slot. Most pages register their header
+  // buttons WITHOUT a tab id, which the store resolves to "the tab that is active
+  // right now" — correct only while the caller itself is on screen. Now that panes
+  // stay mounted (keep-alive), a background page re-registering late would
+  // otherwise replace the entries header (Refresh / Export / …) with its own
+  // buttons; a claimed slot rejects those anonymous writes.
+  useEffect(() => {
+    const store = useHeaderActions.getState();
+    store.claimActionsSlot(location.pathname);
+    return () => store.releaseActionsSlot(location.pathname);
+  }, [location.pathname]);
+
+  // ------------------------------------------------------------------
+  // PHASE 5 — ONE report model shared by Print / PDF / Excel export.
+  // Header (division + the exact date selected in the filter), grouping by
+  // department, machine-ascending row order and department totals all come
+  // from this single builder (./dailyProductionReport.ts).
+  // ------------------------------------------------------------------
+  const buildReportModel = useCallback(
+    () =>
+      buildDailyProductionReport(displayedRows, {
+        divisionName: fDivision ? lookups.divisions.find((d) => d.id === fDivision)?.name ?? null : null,
+        dateFrom: dateRange[0]?.format('YYYY-MM-DD') ?? null,
+        dateTo: dateRange[1]?.format('YYYY-MM-DD') ?? null,
+        shiftName: fShift ? lookups.shifts.find((s) => s.id === fShift)?.name ?? null : null,
+        operatorName: (row) => {
+          const emp = lookups.hrEmployees.find(
+            (e) => e.id === row.operatorName || e.employeeCode === row.operatorName,
+          );
+          return emp ? lookups.employeeFullName(emp) : row.operatorName || '—';
+        },
+        status: (row) => getEntryStatus(row as ProductionEntryRow),
+        // Line 2 of the Shift cell — the shift master's window (`06:00 -
+        // 14:00`), falling back to the times already carried on the row.
+        shiftTiming: (row) => {
+          const rowShift = row.shift as
+            | { id?: string; name?: string; startTime?: string | null; endTime?: string | null }
+            | null
+            | undefined;
+          const master = lookups.shifts.find(
+            (s) =>
+              (rowShift?.id && s.id === rowShift.id) ||
+              (rowShift?.name && s.name === rowShift.name),
+          );
+          const hm = (v?: string | null): string => (/^(\d{1,2}:\d{2})/.exec(String(v ?? '').trim()) || [])[1] || '';
+          const start = hm(master?.startTime ?? rowShift?.startTime);
+          const end = hm(master?.endTime ?? rowShift?.endTime);
+          if (start && end) return `${start} - ${end}`;
+          return start || end || '-';
+        },
+      }),
+    [displayedRows, fDivision, fShift, dateRange, lookups],
+  );
+
+  // Excel (CSV) export — mirrors the print/PDF layout exactly: report header
+  // block (Division / Date), department sections, machine ordering, the same
+  // column order and one summary row per department plus a grand total.
   const exportToCsv = () => {
     if (!displayedRows || displayedRows.length === 0) {
       message.warning('No production entries to export');
       return;
     }
-    const headers = [
-      'Sr',
-      'Date',
-      'Division',
-      'Section',
-      'Department',
-      'Shift',
-      'Machine',
-      'Operator',
-      'Item Code',
-      'Item Name',
-      'Target Qty',
-      'Actual Qty',
-      'UOM',
-      'Per Unit Weight',
-      'Actual KG',
-      'Achievement %',
-      'Efficiency %',
-      'Running Hours',
-      'Downtime Hours',
-      'Scrap (KG)',
-      'Status',
-    ];
-
-    const csvLines = displayedRows.map((r, i) => {
-      const emp = lookups.hrEmployees.find(
-        (e) => e.id === r.operatorName || e.employeeCode === r.operatorName,
-      );
-      const op = emp ? lookups.employeeFullName(emp) : (r.operatorName || '');
-      const itemCode = r.item?.itemCode || '';
-      const itemName = r.item?.name || '';
-      const status = getEntryStatus(r);
-
-      return [
-        (page - 1) * pageSize + i + 1,
-        r.entryDate || '',
-        `"${(r.division?.name || '').replace(/"/g, '""')}"`,
-        `"${(r.section?.name || '').replace(/"/g, '""')}"`,
-        `"${(r.department?.name || '').replace(/"/g, '""')}"`,
-        `"${(r.shift?.name || '').replace(/"/g, '""')}"`,
-        `"${(r.machineNo || '').replace(/"/g, '""')}"`,
-        `"${op.replace(/"/g, '""')}"`,
-        `"${itemCode.replace(/"/g, '""')}"`,
-        `"${itemName.replace(/"/g, '""')}"`,
-        r.targetQuantity ?? 0,
-        r.actualQuantity ?? 0,
-        r.uom?.code || '',
-        perUnitWeightLabel(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—',
-        calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '',
-        r.achievementPercentage ?? 0,
-        r.efficiencyPercentage ?? 0,
-        r.runningHours ?? 0,
-        r.downtimeHours ?? 0,
-        r.scrapQuantity ?? 0,
-        status,
-      ].join(',');
-    });
-
-    const csvContent = [headers.join(','), ...csvLines].join('\r\n');
+    const model = buildReportModel();
+    const csvContent = buildDailyProductionCsv(model);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `daily-production-entries-${dayjs().format('YYYY-MM-DD')}.csv`);
+    link.setAttribute('download', `daily-production-report-${(dateRange[0] ?? dayjs()).format('YYYY-MM-DD')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    message.success('Exported production entries to CSV');
+    message.success(
+      `Exported ${model.grand.entries} entries across ${model.sections.length} department(s) to Excel (CSV)`,
+    );
   };
 
-  // PDF Export
+  // PDF export — same header (division + the exact selected date), department
+  // grouping, machine-ascending order, department totals and grand total as
+  // the Print and Excel outputs. Fixed column widths + linebreak overflow keep
+  // every value inside its box.
   const exportPdf = async () => {
     if (!displayedRows || displayedRows.length === 0) {
       message.warning('No production entries to export to PDF');
@@ -724,62 +927,331 @@ const EntryList: React.FC = () => {
     }
     setPdfLoading(true);
     try {
+      const model = buildReportModel();
       const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-      doc.setFontSize(14);
-      doc.setTextColor(33);
-      doc.text('Daily Production Entry Report', 40, 36);
-      doc.setFontSize(9);
-      doc.setTextColor(120);
-      const dateStr = dayjs().format('DD MMM YYYY, HH:mm');
-      doc.text(`Generated: ${dateStr} · Total entries: ${displayedRows.length}`, 40, 50);
 
-      const head = [
-        ['Sr', 'Date', 'Division', 'Department', 'Shift', 'Machine', 'Operator', 'Item / Product', 'Target', 'Actual', 'UOM', 'Per Unit Weight', 'Actual KG', 'Achv %', 'Run/Down', 'Status']
-      ];
+      const marginLeft = 28;
+      const marginRight = 28;
+      const marginTop = 84;
+      const marginBottom = 34;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const contentWidth = pageWidth - marginLeft - marginRight;
 
-      const body = displayedRows.map((r, i) => {
-        const emp = lookups.hrEmployees.find(
-          (e) => e.id === r.operatorName || e.employeeCode === r.operatorName,
+      // The model's column widths (always 100%) become fixed cell widths, so
+      // long item/operator names wrap inside the cell instead of overflowing.
+      //
+      // 2-LINE MAXIMUM RHYTHM — mirrors the print CSS, so a PDF row is never
+      // taller than 2 lines either:
+      //   · Item / Shift are TWO raw lines (name + code / timing). autoTable's
+      //     built-in `ellipsize` measures EACH raw line against the cell width
+      //     and shortens it with "..." instead of wrapping it — a wrapped name
+      //     would make the row 3 lines tall and the sub-line drawn below would
+      //     land on top of the wrapped text.
+      //   · every other cell may wrap, but `twoLinesMax` hard-caps it at two
+      //     physical lines and marks the cut with an ellipsis.
+      type PdfColumnStyle = {
+        cellWidth: number;
+        halign: 'left' | 'center' | 'right';
+        overflow: 'ellipsize' | ((text: string | string[], space: number) => string[]);
+      };
+
+      /** Truncate `text` so it fits `space` at the CURRENT font, with an
+       *  ellipsis when it had to be cut. */
+      const fitText = (text: string, space: number): string => {
+        if (doc.getTextWidth(text) <= space) return text;
+        let cut = text;
+        while (cut.length > 1 && doc.getTextWidth(`${cut}...`) > space) cut = cut.slice(0, -1);
+        return `${cut.trimEnd()}...`;
+      };
+
+      /** Wrap to the cell width, keeping AT MOST two lines; whatever does not
+       *  fit is folded into line 2 behind an ellipsis. */
+      const twoLinesMax = (text: string | string[], space: number): string[] => {
+        const usable = Math.max(space, 1);
+        const rawLines = Array.isArray(text) ? text : [text];
+        const out: string[] = [];
+        for (const raw of rawLines) {
+          const parts = (doc.splitTextToSize(String(raw), usable) || []) as string[];
+          for (const part of parts) {
+            if (out.length < 2) {
+              out.push(part);
+              continue;
+            }
+            out[1] = fitText(`${out[1]} ${part}`.trim(), usable);
+            return out;
+          }
+        }
+        return out;
+      };
+
+      const columnStyles: Record<string, PdfColumnStyle> = {};
+      model.columns.forEach((c, i) => {
+        const base = { cellWidth: (contentWidth * c.width) / 100, halign: c.align };
+        columnStyles[String(i)] =
+          c.key === 'item' || c.key === 'shift'
+            ? { ...base, overflow: 'ellipsize' }
+            : { ...base, overflow: twoLinesMax };
+      });
+
+      // Redrawn on every page (via didDrawPage) so the division/date header
+      // never breaks away from the table it describes.
+      const drawHeader = () => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.setTextColor(15, 23, 42);
+        doc.text(model.title, marginLeft, 30);
+        doc.setFontSize(11);
+        doc.setTextColor(29, 78, 216);
+        doc.text(model.divisionLabel, marginLeft, 45);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(71, 85, 105);
+        doc.text(
+          [model.dateLabel, model.shiftLabel, model.metaLine, model.generatedLabel].filter(Boolean).join('   ·   '),
+          marginLeft,
+          60,
         );
-        const op = emp ? lookups.employeeFullName(emp) : (r.operatorName || '—');
-        const itemCode = r.item?.itemCode || '';
-        const itemName = r.item?.name || '';
-        const itemDisplay = itemCode && itemName && itemCode !== itemName ? `${itemName} (${itemCode})` : (itemName || itemCode || '—');
-        const runH = toNum(r.runningHours);
-        const downH = toNum(r.downtimeHours);
-        const ach = toNum(r.achievementPercentage);
+        doc.setDrawColor(15, 23, 42);
+        doc.setLineWidth(0.8);
+        doc.line(marginLeft, 70, pageWidth - marginRight, 70);
+      };
 
-        return [
-          (page - 1) * pageSize + i + 1,
-          r.entryDate ? dayjs(r.entryDate).format('YYYY-MM-DD') : '—',
-          r.division?.name || r.division?.divisionCode || '—',
-          r.department?.name || r.department?.departmentCode || '—',
-          r.shift?.name || '—',
-          r.machine?.machineCode || r.machineNo || '—',
-          op,
-          itemDisplay,
-          formatNumber(r.targetQuantity, 2),
-          formatNumber(r.actualQuantity, 2),
-          r.uom?.code || '',
-          perUnitWeightLabel(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—',
-          (() => {
-            const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
-            return kg == null ? '—' : formatNumber(kg, 2);
-          })(),
-          `${ach.toFixed(1)}%`,
-          `${formatNumber(runH, 1)}h / ${formatNumber(downH, 1)}h`,
-          getEntryStatus(r),
+      const head = [model.columns.map((c) => c.label)];
+      let startY = marginTop;
+      const fits = (height: number) => startY + height <= pageHeight - marginBottom;
+
+      // PHASE 6 — jsPDF embeds WinAnsi fonts, so ▲/▼ would come out as
+      // garbage (UTF-16 bytes read back as WinAnsi). The arrow is therefore
+      // drawn as a vector triangle on the free left side of the cell (the
+      // percentage itself is right-aligned), in the achievement tone colour.
+      const achIndex = model.columns.findIndex((c) => c.key === 'achievement');
+      const drawAchievementArrow = (data: any) => {
+        if (data.section === 'head' || data.column.index !== achIndex) return;
+        const raw = data.cell.raw;
+        if (!raw || typeof raw !== 'object' || raw.colSpan) return;
+        const color = raw.styles?.textColor;
+        if (!Array.isArray(color)) return;
+        const isUp = color[0] === TONE_COLOR.up[0] && color[1] === TONE_COLOR.up[1];
+        const isDown = color[0] === TONE_COLOR.down[0] && color[1] === TONE_COLOR.down[1];
+        if (!isUp && !isDown) return;
+        const cx = data.cell.x + 7;
+        const cy = data.cell.y + data.cell.height / 2;
+        const s = 3.4;
+        doc.setFillColor(color[0], color[1], color[2]);
+        if (isUp) doc.triangle(cx - s, cy + s, cx + s, cy + s, cx, cy - s, 'F');
+        else doc.triangle(cx - s, cy - s, cx + s, cy - s, cx, cy + s, 'F');
+      };
+
+      // PHASE 7 — autoTable styles apply to the whole CELL, so a cell whose
+      // two lines must look different cannot be styled per line. The Item /
+      // Shift cells are therefore emitted as `<line 1>\n<nbsp>`: autoTable
+      // draws line 1 (dark, bold for the product name) and the trailing
+      // non-breaking space keeps line 2 reserved, which is painted here in
+      // light gray with a normal font — mirroring the print CSS.
+      const drawSubLine = (data: any) => {
+        if (data.section === 'head') return;
+        const raw = data.cell.raw;
+        if (!raw || typeof raw !== 'object' || raw.colSpan) return;
+        const sub = raw.sub;
+        if (typeof sub !== 'string' || sub.trim() === '') return;
+
+        const lines = Array.isArray(data.cell.text) ? data.cell.text : [];
+        const lineCount = lines.length || 1;
+        const styles = data.cell.styles ?? {};
+        const fontSize = (doc.internal as any).getFontSize(); // unit is 'pt' → points
+        const lineHeightFactor = (doc as any).getLineHeightFactor
+          ? (doc as any).getLineHeightFactor()
+          : 1.15;
+        const lineHeight = fontSize * lineHeightFactor;
+        const pos = data.cell.getTextPos();
+
+        // Same maths as autoTable's autoTableText(): first baseline, then a
+        // step down to the LAST line, so a wrapped product name still leaves
+        // the code / shift timing on its own line.
+        let baseline = pos.y + fontSize * (2 - 1.15);
+        if (styles.valign === 'middle') baseline -= (lineCount / 2) * lineHeight;
+        else if (styles.valign === 'bottom') baseline -= lineCount * lineHeight;
+        baseline += (lineCount - 1) * lineHeight;
+
+        const color = raw.subColor || PDF_SUB_TEXT;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(fontSize);
+        doc.setTextColor(color[0], color[1], color[2]);
+        // Never let the sub-line spill into the neighbouring column: it is
+        // drawn as plain text (no autoTable wrapping), so it is clipped to the
+        // cell's inner width first.
+        const pad = typeof styles.cellPadding === 'number' ? styles.cellPadding : 3;
+        const space = Math.max((data.cell.width || 0) - pad * 2, 4);
+        doc.text(fitText(sub, space), pos.x, baseline);
+      };
+
+      const runTable = (head: string[][], body: any[][], y: number): number => {
+        autoTable(doc, {
+          head,
+          body,
+          startY: y,
+          margin: { top: marginTop, right: marginRight, bottom: marginBottom, left: marginLeft },
+          styles: {
+            fontSize: 9,
+            cellPadding: 3,
+            overflow: 'linebreak',
+            lineColor: [148, 163, 184],
+            lineWidth: 0.4,
+            valign: 'middle',
+          },
+          headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', halign: 'center' },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          columnStyles,
+          didDrawPage: () => drawHeader(),
+          didDrawCell: (data: any) => {
+            drawAchievementArrow(data);
+            drawSubLine(data);
+          },
+        });
+        return ((doc as any).lastAutoTable?.finalY as number) ?? y;
+      };
+
+      for (const section of model.sections) {
+        // A department that does not fit in the remaining space starts on a
+        // fresh page; one that is longer than a page splits across pages.
+        const rowsInTable = section.lines.length + section.shiftGroups.length + 1;
+        const estimate = 20 + rowsInTable * 15 + 20;
+        if (startY > marginTop && !fits(estimate)) {
+          doc.addPage();
+          startY = marginTop;
+        }
+        // DEPARTMENT header, then (Day rows + Day Shift Total, Night rows +
+        // Night Shift Total) and finally the Department Grand Total.
+        const body: any[][] = [
+          [
+            {
+              content: `DEPARTMENT — ${section.name}    ·    ${section.totals.machines} machine(s) · ${section.totals.entries} entries`,
+              colSpan: model.columns.length,
+              styles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', halign: 'left' },
+            },
+          ],
         ];
-      });
+        for (const block of sectionBlocks(section)) {
+          for (const line of block.lines) body.push(pdfLineRow(model.columns, line));
+          body.push(pdfSummaryRow(model, block.totals, block.label, block.kind));
+        }
+        startY = runTable(head, body, startY) + 14;
+      }
 
-      autoTable(doc, {
-        head,
-        body,
-        startY: 60,
-        styles: { fontSize: 8, cellPadding: 4 },
-        headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-      });
+      if (model.sections.length > 0) {
+        if (startY > marginTop && !fits(40)) {
+          doc.addPage();
+          startY = marginTop;
+        }
+        startY =
+          runTable(
+            [],
+            [pdfSummaryRow(model, model.grand, grandTotalLabel(model.sections.length), 'grand')],
+            startY,
+          ) + 14;
+      }
+
+      // ── EXECUTIVE DEPARTMENT SUMMARY — always the LAST page ───────────
+      // One boxed KPI card per department (3 per row), drawn with vector
+      // rectangles so the PDF matches the print card exactly: 1px #cbd5e1
+      // border over a subtle #f8fafc fill, then Target / Actual and the
+      // highlighted Achievement % with its Phase 7 tone — green ▲ / red ▼,
+      // drawn as vector triangles because jsPDF embeds WinAnsi fonts.
+      const execCards = executiveKpis(model);
+      if (execCards.length > 0) {
+        const cols = 3;
+        const gap = 14;
+        const cardW = (contentWidth - gap * (cols - 1)) / cols;
+        const cardH = 92;
+        const rowGap = 14;
+        const pad = 10;
+        const titleY = 100;
+        const gridTop = titleY + 22;
+        // How many card rows fit below the title without touching the footer.
+        const rowsPerPage = Math.max(
+          1,
+          Math.floor((pageHeight - marginBottom - gridTop + rowGap) / (cardH + rowGap)),
+        );
+        const perPage = cols * rowsPerPage;
+
+        const drawTitle = () => {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(16);
+          doc.setTextColor(15, 23, 42);
+          const w = doc.getTextWidth(EXECUTIVE_TITLE);
+          doc.text(EXECUTIVE_TITLE, marginLeft + (contentWidth - w) / 2, titleY);
+        };
+
+        const drawCard = (card: ExecutiveKpi, x: number, y: number) => {
+          // Box: border + light background + inner padding (.rp-kpi-card).
+          doc.setFillColor(248, 250, 252);
+          doc.rect(x, y, cardW, cardH, 'F');
+          doc.setDrawColor(203, 213, 225);
+          doc.setLineWidth(0.8);
+          doc.rect(x, y, cardW, cardH, 'S');
+
+          // Row 1 — department name, bold, over its own rule.
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.setTextColor(15, 23, 42);
+          doc.text(card.name, x + pad, y + 20);
+          doc.setLineWidth(0.5);
+          doc.line(x + pad, y + 26, x + cardW - pad, y + 26);
+
+          // Rows 2 / 3 — Target / Actual (label left, value right).
+          const targetY = y + 43;
+          const actualY = y + 57;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text('Target:', x + pad, targetY);
+          doc.text('Actual:', x + pad, actualY);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(card.target, x + cardW - pad, targetY, { align: 'right' });
+          doc.text(card.actual, x + cardW - pad, actualY, { align: 'right' });
+
+          // Row 4 — highlighted Achievement %, tinted by the tone colour.
+          const achY = y + 82;
+          doc.setDrawColor(203, 213, 225);
+          doc.setLineWidth(0.5);
+          doc.setLineDashPattern([2, 2], 0);
+          doc.line(x + pad, y + 68, x + cardW - pad, y + 68);
+          doc.setLineDashPattern([], 0);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text('Achievement %:', x + pad, achY);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          const color = card.tone ? TONE_COLOR[card.tone] : PDF_MAIN_TEXT;
+          doc.setTextColor(color[0], color[1], color[2]);
+          const valueRight = x + cardW - pad;
+          doc.text(card.achievementText, valueRight, achY, { align: 'right' });
+          if (card.tone) {
+            const cx = valueRight - doc.getTextWidth(card.achievementText) - 7;
+            const cy = achY - 3.4;
+            const s = 3.6;
+            doc.setFillColor(color[0], color[1], color[2]);
+            if (card.tone === 'up') doc.triangle(cx - s, cy + s, cx + s, cy + s, cx, cy - s, 'F');
+            else doc.triangle(cx - s, cy - s, cx + s, cy - s, cx, cy + s, 'F');
+          }
+        };
+
+        // Every chunk of cards gets a fresh page: the summary always starts
+        // on (and, if long, continues onto) a page of its own.
+        for (let start = 0; start < execCards.length; start += perPage) {
+          doc.addPage();
+          drawHeader();
+          drawTitle();
+          execCards.slice(start, start + perPage).forEach((card, i) => {
+            const row = Math.floor(i / cols);
+            const col = i % cols;
+            drawCard(card, marginLeft + col * (cardW + gap), gridTop + row * (cardH + rowGap));
+          });
+        }
+      }
 
       const pageCount = (doc as any).internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i += 1) {
@@ -793,8 +1265,10 @@ const EntryList: React.FC = () => {
           { align: 'right' }
         );
       }
-      doc.save(`daily-production-entries-${dayjs().format('YYYY-MM-DD')}.pdf`);
-      message.success(`Exported ${displayedRows.length} entries to PDF`);
+      doc.save(`daily-production-report-${(dateRange[0] ?? dayjs()).format('YYYY-MM-DD')}.pdf`);
+      message.success(
+        `Exported ${model.grand.entries} entries across ${model.sections.length} department(s) to PDF`,
+      );
     } catch (err: any) {
       message.error(err?.message || 'PDF export failed');
     } finally {
@@ -802,90 +1276,17 @@ const EntryList: React.FC = () => {
     }
   };
 
-  // Clean Print Layout
+  // Print layout — A4 landscape document with the report header (Division +
+  // the exact selected Date), one section per department with machine-
+  // ascending rows and a summary row per department + grand total. Table data
+  // is 11px, boxed with consistent borders, `thead` repeats across pages and a
+  // department section that does not fit continues on a fresh page.
   const handlePrint = () => {
     if (!displayedRows || displayedRows.length === 0) {
       message.warning('No production entries to print');
       return;
     }
-    const rowHtml = displayedRows.map((r, i) => {
-      const emp = lookups.hrEmployees.find(
-        (e) => e.id === r.operatorName || e.employeeCode === r.operatorName,
-      );
-      const op = emp ? lookups.employeeFullName(emp) : (r.operatorName || '—');
-      const itemName = r.item?.name || r.item?.itemCode || '—';
-      const ach = toNum(r.achievementPercentage);
-      const status = getEntryStatus(r);
-      return `<tr>
-        <td style="text-align:center;">${(page - 1) * pageSize + i + 1}</td>
-        <td>${r.entryDate ? dayjs(r.entryDate).format('YYYY-MM-DD') : '—'}</td>
-        <td>${(r.department?.name || '').replace(/[<>&]/g, '')}</td>
-        <td>${(r.shift?.name || '').replace(/[<>&]/g, '')}</td>
-        <td>${(r.machine?.machineCode || r.machineNo || '').replace(/[<>&]/g, '')}</td>
-        <td>${op.replace(/[<>&]/g, '')}</td>
-        <td>${itemName.replace(/[<>&]/g, '')}</td>
-        <td style="text-align:right;">${formatNumber(r.targetQuantity, 2)} ${r.uom?.code || ''}</td>
-        <td style="text-align:right; font-weight:600;">${formatNumber(r.actualQuantity, 2)} ${r.uom?.code || ''}</td>
-        <td style="text-align:right; color:#64748b;">${(perUnitWeightLabel(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—').replace(/[<>&]/g, '')}</td>
-        <td style="text-align:right; font-weight:600;">${(() => {
-          const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
-          return kg == null ? '—' : formatNumber(kg, 2);
-        })()} KG</td>
-        <td style="text-align:right;">${ach.toFixed(1)}%</td>
-        <td style="text-align:center;">${status}</td>
-      </tr>`;
-    }).join('');
-
-    const html = `<!doctype html>
-    <html>
-    <head>
-      <title>Daily Production Entry</title>
-      <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; color: #0f172a; }
-        h1 { font-size: 18px; margin: 0 0 4px 0; }
-        p { font-size: 11px; color: #64748b; margin: 0 0 14px 0; }
-        table { border-collapse: collapse; width: 100%; font-size: 11px; }
-        th, td { border: 1px solid #cbd5e1; padding: 5px 8px; text-align: left; }
-        th { background: #f1f5f9; font-weight: 600; color: #334155; }
-        tbody tr:nth-child(even) { background: #f8fafc; }
-        @media print {
-          @page { size: landscape; margin: 10mm; }
-          body { margin: 0; }
-        }
-      </style>
-    </head>
-    <body>
-      <h1>Daily Production Entry</h1>
-      <p>Generated on ${dayjs().format('DD MMM YYYY, HH:mm')} · ${displayedRows.length} record(s)</p>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:35px; text-align:center;">Sr</th>
-            <th>Date</th>
-            <th>Department</th>
-            <th>Shift</th>
-            <th>Machine</th>
-            <th>Operator</th>
-            <th>Item / Product</th>
-            <th style="text-align:right;">Target</th>
-            <th style="text-align:right;">Actual</th>
-            <th style="text-align:right;">Per Unit Weight</th>
-            <th style="text-align:right;">Actual KG</th>
-            <th style="text-align:right;">Achievement</th>
-            <th style="text-align:center;">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowHtml}
-        </tbody>
-      </table>
-      <script>
-        window.onload = function() {
-          window.print();
-        };
-      </script>
-    </body>
-    </html>`;
+    const html = buildPrintHtml(buildReportModel());
 
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
@@ -1127,50 +1528,6 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Per Unit Weight</span>
-        </span>
-      ),
-      align: 'right',
-      width: 120,
-      ellipsis: true,
-      responsive: ['lg'],
-      render: (_t, r) => (
-        <span
-          style={{
-            whiteSpace: 'nowrap',
-            fontVariantNumeric: 'tabular-nums',
-            fontSize: 12,
-            color: 'var(--theme-text-secondary, #475569)',
-          }}
-        >
-          {perUnitWeightLabel(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—'}
-        </span>
-      ),
-    },
-    {
-      title: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Actual KG</span>
-        </span>
-      ),
-      align: 'right',
-      width: 100,
-      ellipsis: true,
-      responsive: ['lg'],
-      render: (_t, r) => {
-        const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
-        return (
-          <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-            {kg == null ? '—' : `${formatNumber(kg, 2)} KG`}
-          </span>
-        );
-      },
-    },
-    {
-      title: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <PercentageOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
           <span>Achievement</span>
         </span>
@@ -1223,27 +1580,84 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <FieldTimeOutlined style={{ color: '#8b5cf6' }} />
-          <span>OT (h)</span>
+          <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Per Unit Weight</span>
         </span>
       ),
       align: 'right',
-      width: 85,
+      width: 120,
       ellipsis: true,
-      sorter: (a, b) => toNum(a.overtimeHours) - toNum(b.overtimeHours),
+      responsive: ['lg'],
+      render: (_t, r) => (
+        <span
+          style={{
+            whiteSpace: 'nowrap',
+            fontVariantNumeric: 'tabular-nums',
+            fontSize: 12,
+            color: 'var(--theme-text-secondary, #475569)',
+          }}
+        >
+          {perUnitWeightValue(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) || '—'}
+        </span>
+      ),
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Actual KG</span>
+        </span>
+      ),
+      align: 'right',
+      width: 100,
+      ellipsis: true,
+      responsive: ['lg'],
       render: (_t, r) => {
-        const ot = toNum(r.overtimeHours);
+        const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
         return (
-          <span
-            style={{
-              whiteSpace: 'nowrap',
-              fontVariantNumeric: 'tabular-nums',
-              fontWeight: ot > 0 ? 600 : 400,
-              color: ot > 0 ? '#8b5cf6' : 'var(--theme-text-muted, #94a3b8)',
-            }}
-          >
-            {ot > 0 ? `${formatNumber(ot, 1)}h` : '—'}
+          <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+            {kg == null ? '—' : `${formatNumber(kg, 2)} KG`}
           </span>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <DeleteOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Scrap (KG)</span>
+        </span>
+      ),
+      align: 'right',
+      width: 95,
+      ellipsis: true,
+      responsive: ['lg'],
+      render: (_t, r) => {
+        const scrap = toNum(r.scrapQuantity);
+        const uom = r.uom?.code || '';
+        // Rejection % — (Rejection KG / Actual KG) × 100, using the SAME
+        // denominator the Actual KG column prints. Every operand is hard-cast
+        // with Number(), so a decimal string from the pg driver can never be
+        // mistaken for 0 (that is what made live rows print 0.00% while scrap
+        // existed). Zero / unknown Actual KG → 0.00%.
+        const actualKg = calcActualKg(uom, toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
+        const scrapKg = calcActualKg(uom, scrap, r.item?.weightPerPiece, r.item?.weightPerMeter);
+        const rejPct = Number(actualKg) > 0 ? (Number(scrapKg || 0) / Number(actualKg)) * 100 : 0;
+        return (
+          <div style={{ textAlign: 'right', lineHeight: 1.25, whiteSpace: 'nowrap' }}>
+            <span
+              style={{
+                color: scrap > 0 ? 'var(--theme-danger, #e11d48)' : 'var(--theme-text-muted, #94a3b8)',
+                fontWeight: scrap > 0 ? 500 : 400,
+              }}
+            >
+              {formatNumber(scrap, 2)} KG
+            </span>
+            {/* line 2 — light gray, directly under the KG value (report style) */}
+            <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+              {`${rejPct.toFixed(2)}%`}
+            </div>
+          </div>
         );
       },
     },
@@ -1283,25 +1697,30 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <DeleteOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Scrap (KG)</span>
+          <FieldTimeOutlined style={{ color: '#8b5cf6' }} />
+          <span>OT (h)</span>
         </span>
       ),
       align: 'right',
-      width: 95,
+      width: 85,
       ellipsis: true,
-      responsive: ['lg'],
+      // PHASE 3 — canonical OT only (persisted overtime_hours → legacy remarks
+      // `OT: X h` → 0). Deliberately NOT `runningHours - 8`: the shifts master
+      // holds 8h AND 12h planned shifts, so a hardcoded 8 invents overtime that
+      // the KPI (SUM of overtime_hours) never sees. See ./overtimeHours.ts.
+      sorter: (a, b) => entryOvertimeHours(a) - entryOvertimeHours(b),
       render: (_t, r) => {
-        const scrap = toNum(r.scrapQuantity);
+        const ot = entryOvertimeHours(r);
         return (
           <span
             style={{
               whiteSpace: 'nowrap',
-              color: scrap > 0 ? 'var(--theme-danger, #e11d48)' : 'var(--theme-text-muted, #94a3b8)',
-              fontWeight: scrap > 0 ? 500 : 400,
+              fontVariantNumeric: 'tabular-nums',
+              fontWeight: ot > 0 ? 600 : 400,
+              color: ot > 0 ? '#8b5cf6' : 'var(--theme-text-muted, #94a3b8)',
             }}
           >
-            {formatNumber(scrap, 2)} KG
+            {ot > 0 ? `${formatNumber(ot, 1)}h` : '—'}
           </span>
         );
       },
@@ -1389,6 +1808,16 @@ const EntryList: React.FC = () => {
       ),
     },
   ];
+
+  /** Grid headings zip with `columns` by index — see GRID_COLUMN_LABELS. */
+  const columnLabel = (i: number) => GRID_COLUMN_LABELS[i] ?? `Column ${i + 1}`;
+
+  /** Columns the user has NOT unchecked in the Manage Columns popover. */
+  const visibleColumns = columns.filter((_, i) => !hiddenColumnIdx.has(i));
+  const visibleColumnWidth = visibleColumns.reduce((sum, c) => sum + (Number(c.width) || 0), 0);
+  // Ceiling = today's 1990px canvas, floor = a readable minimum: hiding
+  // columns lets the remaining ones widen rather than leaving a dead gap.
+  const tableScrollX = Math.min(1990, Math.max(visibleColumnWidth, 1100));
 
   const reportColumns = [
     { title: 'Division', dataIndex: 'divisionName', key: 'divisionName', width: 140 },
@@ -1517,10 +1946,60 @@ const EntryList: React.FC = () => {
         icon={<DownloadOutlined />}
         onClick={exportToCsv}
         disabled={displayedRows.length === 0}
-        title="Export current entries to CSV"
+        title="Export to Excel (CSV): division & date header, department grouping, machine order, department totals"
       >
         Export
       </Button>
+
+      {/* ── Manage Columns: instantly show/hide any grid column ───────── */}
+      <Popover
+        trigger="click"
+        placement="bottomRight"
+        content={
+          <div
+            data-testid="column-visibility-popover"
+            style={{ width: 220, maxHeight: 380, overflowY: 'auto' }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                paddingBottom: 6,
+                marginBottom: 6,
+                borderBottom: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--theme-text, #1e293b)' }}>
+                Manage Columns
+              </span>
+              <Button type="link" size="small" style={{ padding: 0, fontSize: 11.5 }} onClick={showAllColumns}>
+                Show all
+              </Button>
+            </div>
+            {GRID_COLUMN_LABELS.map((_label, i) => (
+              <div
+                key={`${i}-${columnLabel(i)}`}
+                style={{ padding: '2px 0', fontSize: 12.5, color: 'var(--theme-text, #1e293b)' }}
+              >
+                <Checkbox checked={!hiddenColumnIdx.has(i)} onChange={() => toggleColumn(i)}>
+                  {columnLabel(i)}
+                </Checkbox>
+              </div>
+            ))}
+          </div>
+        }
+      >
+        <Button
+          icon={<TableOutlined />}
+          data-testid="manage-columns-btn"
+          title="Show or hide grid columns"
+        >
+          Columns
+          {hiddenColumnIdx.size > 0 ? ` (${visibleColumns.length}/${GRID_COLUMN_LABELS.length})` : ''}
+        </Button>
+      </Popover>
 
       <Button
         icon={<FilePdfOutlined />}
@@ -1536,7 +2015,7 @@ const EntryList: React.FC = () => {
         icon={<PrinterOutlined />}
         onClick={handlePrint}
         disabled={displayedRows.length === 0}
-        title="Print professional report view"
+        title="Print professional report view (department sections + totals)"
       >
         Print
       </Button>
@@ -1549,7 +2028,8 @@ const EntryList: React.FC = () => {
         Import
       </Button>
     </Space>
-  ), [navigate, handleRefresh, loading, exportToCsv, displayedRows.length, exportPdf, pdfLoading, handlePrint]);
+  ), [navigate, handleRefresh, loading, exportToCsv, displayedRows.length, exportPdf, pdfLoading, handlePrint,
+      hiddenColumnIdx, visibleColumns.length, toggleColumn, showAllColumns, columnLabel]);
 
   return (
     <div style={{ maxWidth: '100%', overflowX: 'hidden' }}>
@@ -1633,7 +2113,11 @@ const EntryList: React.FC = () => {
         <EntryStatusChevronRibbon
           counts={ribbonCounts}
           activeKey={activeChevronKey}
-          onSelect={(key) => setActiveChevronKey(key)}
+          onSelect={(key) => {
+            setActiveChevronKey(key);
+            setPage(1);
+            void fetchRows(1, pageSize, key);
+          }}
         />
 
         {/* Enterprise Unified Filter Toolbar */}
@@ -1736,12 +2220,11 @@ const EntryList: React.FC = () => {
                 <RangePicker
                   style={{ width: '100%' }}
                   value={dateRange as never}
-                  onChange={(v) =>
-                    setDateRange([
-                      (v as never as unknown[])[0] as dayjs.Dayjs ?? null,
-                      (v as never as unknown[])[1] as dayjs.Dayjs ?? null,
-                    ])
-                  }
+                  onChange={(v) => {
+                    // `v` is `null` on the clear (x) button — never index it
+                    // directly. dateRangeTuple() resets BOTH ends to null.
+                    setDateRange(dateRangeTuple(v));
+                  }}
                 />
               </div>
 
@@ -1896,29 +2379,36 @@ const EntryList: React.FC = () => {
             children: (
               <div style={{ position: 'relative', minHeight: 340 }}>
                 {loading && displayedRows.length === 0 ? (
-                  <LargeLoadingBuffer
-                    title="Loading Production Entries..."
-                    subtitle="Syncing real-time records directly from PostgreSQL database..."
-                    badgeText="Live Database Feed"
-                    minHeight={360}
-                  />
+                  /* Initial load: compact in-place skeleton (no full-area wash) */
+                  <div className="entry-list-loading-block" data-testid="entries-initial-loading">
+                    <div className="entry-list-loading-caption">
+                      <LoadingOutlined spin />
+                      <span>Loading production entries…</span>
+                    </div>
+                    <Skeleton active title={false} paragraph={{ rows: 6 }} />
+                  </div>
                 ) : (
                   <>
+                    {/* Background refresh: existing rows stay visible & usable;
+                        only a small non-blocking badge is shown. */}
                     {loading && (
-                      <LargeLoadingBuffer
-                        overlay
-                        title="Refreshing Production Entries..."
-                        subtitle="Updating shift production and operational metrics directly from database..."
-                        badgeText="Instant Sync"
-                      />
+                      <div
+                        className="entry-list-refresh-indicator"
+                        role="status"
+                        aria-live="polite"
+                        data-testid="entries-refresh-indicator"
+                      >
+                        <LoadingOutlined spin />
+                        <span>Refreshing…</span>
+                      </div>
                     )}
                     {/* ── Enterprise Production Entry Table ───────────────────── */}
                     <ERPTable<ProductionEntryRow>
                       rowKey="id"
-                      columns={columns}
+                      columns={visibleColumns}
                       dataSource={displayedRows}
                       loading={false}
-                      scroll={{ x: 1990 }}
+                      scroll={{ x: tableScrollX }}
                       dense
                       containerClassName="erp-table-striped"
                   pagination={{
@@ -1983,21 +2473,25 @@ const EntryList: React.FC = () => {
         children: (
           <div style={{ position: 'relative', minHeight: 300 }}>
             {reportLoading && (!report || report.departments.length === 0) ? (
-              <LargeLoadingBuffer
-                title="Generating Department-Wise Report..."
-                subtitle="Aggregating shift operational data and output metrics across departments..."
-                badgeText="Real-time Analytics"
-                minHeight={320}
-              />
+              <div className="entry-list-loading-block" data-testid="report-initial-loading">
+                <div className="entry-list-loading-caption">
+                  <LoadingOutlined spin />
+                  <span>Generating department-wise report…</span>
+                </div>
+                <Skeleton active title={false} paragraph={{ rows: 5 }} />
+              </div>
             ) : (
               <>
                 {reportLoading && (
-                  <LargeLoadingBuffer
-                    overlay
-                    title="Updating Report..."
-                    subtitle="Syncing latest departmental metrics..."
-                    badgeText="Instant Sync"
-                  />
+                  <div
+                    className="entry-list-refresh-indicator"
+                    role="status"
+                    aria-live="polite"
+                    data-testid="report-refresh-indicator"
+                  >
+                    <LoadingOutlined spin />
+                    <span>Updating…</span>
+                  </div>
                 )}
                 {report && report.grandTotalsByUom.length > 0 && (
                   <Card size="small" style={{ marginBottom: 12 }}>

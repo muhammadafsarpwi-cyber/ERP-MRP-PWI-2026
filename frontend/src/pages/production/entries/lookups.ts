@@ -214,14 +214,20 @@ export function useLookups() {
   const employeeFullName = (e?: HrEmployeeLk): string =>
     e ? `${e.firstName}${e.lastName ? ` ${e.lastName}` : ''}`.trim() : '';
 
-  /** Active downtime reasons from the downtime_reasons table (single source of truth). */
+  /**
+   * Active downtime reasons from the downtime_reasons table (single source of
+   * truth). Routed through the SHARED lookup cache in lookupsCache.ts — same
+   * 15-minute TTL and same single-flight promise as every other lookup — so a
+   * re-mount (tab switch, StrictMode) never issues its own request pair.
+   */
   const loadDowntimeReasons = async (): Promise<DowntimeReasonLk[]> => {
     setDowntimeReasonsLoading(true);
     try {
-      const res = await apiService.get<ListResponse<DowntimeReasonLk>>('/production/downtime-reasons');
-      setDowntimeReasons((res.data || []) as DowntimeReasonLk[]);
+      const snapshot = await prefetchAllLookups();
+      const list = (snapshot.downtimeReasons || []) as DowntimeReasonLk[];
+      setDowntimeReasons(list);
       setDowntimeReasonsFailed(false);
-      return (res.data || []) as DowntimeReasonLk[];
+      return list;
     } catch {
       setDowntimeReasonsFailed(true);
       return [];
@@ -231,6 +237,9 @@ export function useLookups() {
   };
 
   useEffect(() => {
+    // Cache hit → state was already seeded from the snapshot above: no request.
+    // Cache miss → join the single-flight prefetch useLookups() already started.
+    if (getLookupsSnapshot().downtimeReasons.length > 0) return;
     void loadDowntimeReasons();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
