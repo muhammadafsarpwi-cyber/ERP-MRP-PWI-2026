@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Alert, Typography, Space } from 'antd';
+import { Modal, Button, Alert, Typography } from 'antd';
 import {
   ExclamationCircleOutlined,
   DeleteOutlined,
   PauseCircleOutlined,
-  CloseOutlined,
 } from '@ant-design/icons';
+import SaveResultDialog from './SaveResultDialog';
 
 const { Text, Paragraph } = Typography;
 
@@ -26,8 +26,9 @@ export interface DeleteConfirmModalProps {
 
 /**
  * Enterprise In-Modal Delete Confirmation & Error Resolution Dialog.
- * Keeps the modal open on foreign-key/business constraint errors, displaying
- * the exact reason and offering friendly resolution options (e.g. Deactivate Instead, Admin Force Purge).
+ * 1. Confirmation modal: asking confirmation before deletion.
+ * 2. Animated orbital spinner: 'Deleting [Record]... Processing deletion request...'
+ * 3. Animated green checkmark: 'Successfully Deleted' with OK button matching 2027 design.
  */
 export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   open,
@@ -43,36 +44,40 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   onForceDelete,
   forceDeleteLabel = 'Force Delete (Admin Purge)',
 }) => {
-  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<'confirm' | 'loading' | 'success'>('confirm');
+  const [internalOpen, setInternalOpen] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
-  const [forceDeleting, setForceDeleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Reset internal state when modal opens or closes
+  const loading = phase === 'loading';
+  const forceDeleting = phase === 'loading';
+
+  // Synchronize open prop with internal lifecycle
   useEffect(() => {
     if (open) {
-      setLoading(false);
+      setInternalOpen(true);
+      setPhase('confirm');
       setDeactivating(false);
-      setForceDeleting(false);
       setErrorMsg(null);
+    } else if (phase !== 'loading' && phase !== 'success') {
+      setInternalOpen(false);
     }
-  }, [open]);
+  }, [open, phase]);
 
   const handleConfirm = async () => {
     try {
-      setLoading(true);
+      setPhase('loading');
       setErrorMsg(null);
       await onConfirm();
-      // On success, close is handled by parent
+      setPhase('success');
     } catch (err: any) {
+      setPhase('confirm');
       const msg =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
         err?.message ||
         'The record could not be deleted because it is currently in use or protected.';
       setErrorMsg(typeof msg === 'string' ? msg : JSON.stringify(msg));
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -82,6 +87,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
       setDeactivating(true);
       setErrorMsg(null);
       await onDeactivateInstead();
+      setInternalOpen(false);
+      onCancel();
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -96,49 +103,71 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   const handleForceDelete = async () => {
     if (!onForceDelete) return;
     try {
-      setForceDeleting(true);
+      setPhase('loading');
       setErrorMsg(null);
       await onForceDelete();
+      setPhase('success');
     } catch (err: any) {
+      setPhase('confirm');
       const msg =
         err?.response?.data?.message ||
         err?.message ||
         'Could not force delete the record. Please verify permissions.';
       setErrorMsg(typeof msg === 'string' ? msg : JSON.stringify(msg));
-    } finally {
-      setForceDeleting(false);
     }
   };
 
   const displayTitle = title || `Delete ${itemType}${itemCode ? ` '${itemCode}'` : ''}?`;
 
   return (
-    <Modal
-      open={open}
-      zIndex={2500}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              background: 'rgba(239, 68, 68, 0.12)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#ef4444',
-              fontSize: 16,
-              flexShrink: 0,
-            }}
-          >
-            <ExclamationCircleOutlined />
+    <>
+      <SaveResultDialog
+        open={internalOpen && (phase === 'loading' || phase === 'success')}
+        phase={phase === 'loading' ? 'loading' : 'success'}
+        loadingTitle={`Deleting ${itemType}...`}
+        loadingHint="Processing deletion request..."
+        successTitle="Successfully Deleted"
+        okLabel="OK"
+        result={{
+          title: `${itemType} Deleted Successfully`,
+          message: itemName ? `${itemName} has been deleted.` : 'The record has been permanently removed.',
+          recordType: `${itemType} Code`,
+          recordCode: itemCode,
+          recordName: itemName,
+        }}
+        onClose={() => {
+          setInternalOpen(false);
+          setPhase('confirm');
+          onCancel();
+        }}
+      />
+
+      <Modal
+        open={internalOpen && phase === 'confirm'}
+        zIndex={2500}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#ef4444',
+                fontSize: 16,
+                flexShrink: 0,
+              }}
+            >
+              <ExclamationCircleOutlined />
+            </div>
+            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--theme-text)' }}>
+              {displayTitle}
+            </span>
           </div>
-          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--theme-text)' }}>
-            {displayTitle}
-          </span>
-        </div>
-      }
+        }
       onCancel={onCancel}
       footer={
         <div
@@ -286,6 +315,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
         )}
       </div>
     </Modal>
+    </>
   );
 };
 

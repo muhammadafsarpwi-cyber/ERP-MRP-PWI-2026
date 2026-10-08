@@ -12,8 +12,15 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal, toNum } from '../../utils/numberFormat';
-import { TabKeepAlive, GlobalLoading } from '../../components/shared';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import {
+  TabKeepAlive,
+  GlobalLoading,
+  SaveResultDialog,
+  DeleteConfirmModal,
+  type SaveResultData,
+  type SaveResultPhase,
+} from '../../components/shared';
 
 interface BomLine {
   id?: string;
@@ -102,6 +109,15 @@ const BomManagement: React.FC = () => {
   const [selectedBom, setSelectedBom] = useState<Bom | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // SaveResultDialog and DeleteConfirmModal states matching 2027 enterprise standard
+  const [resultOpen, setResultOpen] = useState(false);
+  const [resultPhase, setResultPhase] = useState<SaveResultPhase>('loading');
+  const [resultData, setResultData] = useState<SaveResultData | null>(null);
+  const [resultError, setResultError] = useState<string>('');
+
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [bomToDelete, setBomToDelete] = useState<Bom | null>(null);
 
   const [form] = Form.useForm();
   const [search, setSearch] = useState<string>(() => cachedTab?.search ?? '');
@@ -527,13 +543,36 @@ const BomManagement: React.FC = () => {
         })),
       };
 
+      setResultOpen(true);
+      setResultPhase('loading');
+      setResultData(null);
+      setResultError('');
+
+      let resData: any = null;
       if (editingBom) {
-        await apiService.put(`/bom/${editingBom.id}`, payload);
-        message.success('BOM updated successfully');
+        const res = await apiService.put<any>(`/bom/${editingBom.id}`, payload);
+        resData = res?.data || {};
       } else {
-        await apiService.post('/bom', payload);
-        message.success('BOM created successfully');
+        const res = await apiService.post<any>('/bom', payload);
+        resData = res?.data || {};
       }
+
+      const prodItem = items.find((i) => i.id === values.productId);
+
+      setResultData({
+        title: editingBom ? 'BOM Updated Successfully' : 'BOM Created Successfully',
+        message: editingBom
+          ? 'The Bill of Materials has been successfully updated.'
+          : 'New Bill of Materials has been successfully registered.',
+        recordType: 'BOM Code',
+        recordCode: resData?.bomCode || editingBom?.bomCode || 'BOM',
+        recordName: values.name,
+        tags: [
+          prodItem?.itemCode ? `Product: ${prodItem.itemCode}` : 'BOM',
+          editingBom ? editingBom.status : 'DRAFT',
+        ],
+      });
+      setResultPhase('success');
 
       // If unit costs were entered/modified, sync them back to master data items
       (values.lines || []).forEach(async (l: any) => {
@@ -543,14 +582,18 @@ const BomManagement: React.FC = () => {
           } catch {}
         }
       });
+    } catch (error: any) {
+      setResultPhase('error');
+      setResultError(error?.response?.data?.message || error?.message || 'Failed to save BOM');
+    }
+  };
 
+  const handleResultClose = () => {
+    setResultOpen(false);
+    if (resultPhase === 'success') {
       setModalVisible(false);
       form.resetFields();
       fetchBoms();
-    } catch (error: any) {
-      if (error?.response?.data?.message) {
-        message.error(error.response.data.message);
-      }
     }
   };
 
@@ -610,9 +653,18 @@ const BomManagement: React.FC = () => {
           {record.status === 'DRAFT' && (
             <>
               <Tooltip title="Edit"><Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} /></Tooltip>
-              <Popconfirm title="Delete this BOM?" onConfirm={() => handleDelete(record.id)}>
-                <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-              </Popconfirm>
+              <Tooltip title="Delete">
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => {
+                    setBomToDelete(record);
+                    setDeleteModalVisible(true);
+                  }}
+                />
+              </Tooltip>
             </>
           )}
           {record.status === 'DRAFT' && (
@@ -1308,6 +1360,36 @@ const BomManagement: React.FC = () => {
           );
         })()}
       </Modal>
+
+      <SaveResultDialog
+        open={resultOpen}
+        phase={resultPhase}
+        result={resultData}
+        errorMessage={resultError}
+        errorTitle="Save Failed"
+        errorLead="The Bill of Materials could not be persisted."
+        onRetry={handleSubmit}
+        onClose={handleResultClose}
+        successTitle="Successful Save"
+        okLabel="OK"
+      />
+
+      <DeleteConfirmModal
+        open={deleteModalVisible}
+        itemType="BOM"
+        itemCode={bomToDelete?.bomCode}
+        itemName={bomToDelete?.name}
+        description="Are you sure you want to delete this Bill of Materials? Permanent deletion cannot be undone."
+        onConfirm={async () => {
+          if (!bomToDelete) return;
+          await apiService.delete(`/bom/${bomToDelete.id}`);
+          fetchBoms();
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false);
+          setBomToDelete(null);
+        }}
+      />
     </div>
   </TabKeepAlive>
   );

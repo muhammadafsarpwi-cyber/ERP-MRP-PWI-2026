@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Table, Tooltip, Button, Modal, App, Input, Select } from 'antd';
 import type { TableProps, TablePaginationConfig } from 'antd/es/table';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons';
 import EmptyState from './EmptyState';
 import { OrbitalDualRingLoader, TableEmptyLoadingState } from './LoadingState';
+import DeleteConfirmModal from './DeleteConfirmModal';
 
 export interface ERPTableProps<T extends object = any> extends TableProps<T> {
   dense?: boolean;
@@ -307,6 +308,13 @@ export const TableActions: React.FC<TableActionsProps> = ({
   className = '',
   style,
 }) => {
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    description?: string;
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
+
   const resolvedActions: TableActionItem[] = [...(actions || [])];
   if (onView) {
     resolvedActions.push({
@@ -349,29 +357,54 @@ export const TableActions: React.FC<TableActionsProps> = ({
     // outside App provider
   }
 
-  if (resolvedActions.length > 0 || (extraActions && extraActions.length > 0)) {
+  if (resolvedActions.length > 0 || (extraActions && extraActions.length > 0) || children) {
     return (
-      <div className={`erp-table-actions ${className}`.trim()} style={style}>
-        {resolvedActions.map((act) => {
-          const handleClick = () => {
-            if (act.confirm) {
-              const confirmFn = appModal?.confirm || Modal.confirm;
-              confirmFn({
-                centered: true,
-                title: act.confirm.title,
-                content: act.confirm.description || (act.danger ? 'Are you sure you want to proceed with this deletion? This action cannot be undone.' : undefined),
-                okText: act.confirm.okText || (act.danger ? 'Yes, Delete' : 'Confirm'),
-                cancelText: act.confirm.cancelText || 'Cancel',
-                okButtonProps: act.danger ? { danger: true } : undefined,
-                onOk: async () => {
-                  await act.confirm?.onConfirm();
-                },
-              });
-              return;
-            }
-            if (act.onClick) {
-              act.onClick();
-            }
+      <>
+        {deleteModalOpen && pendingConfirm && (
+          <DeleteConfirmModal
+            open={deleteModalOpen}
+            title={pendingConfirm.title}
+            description={pendingConfirm.description || 'Are you sure you want to proceed with this deletion? This action cannot be undone.'}
+            onConfirm={async () => {
+              if (pendingConfirm.onConfirm) {
+                await pendingConfirm.onConfirm();
+              }
+            }}
+            onCancel={() => {
+              setDeleteModalOpen(false);
+              setPendingConfirm(null);
+            }}
+          />
+        )}
+        <div className={`erp-table-actions ${className}`.trim()} style={style}>
+          {resolvedActions.map((act) => {
+            const handleClick = () => {
+              if (act.confirm && act.danger) {
+                setPendingConfirm({
+                  title: act.confirm.title,
+                  description: act.confirm.description,
+                  onConfirm: act.confirm.onConfirm,
+                });
+                setDeleteModalOpen(true);
+                return;
+              }
+              if (act.confirm) {
+                const confirmFn = appModal?.confirm || Modal.confirm;
+                confirmFn({
+                  centered: true,
+                  title: act.confirm.title,
+                  content: act.confirm.description || undefined,
+                  okText: act.confirm.okText || 'Confirm',
+                  cancelText: act.confirm.cancelText || 'Cancel',
+                  onOk: async () => {
+                    await act.confirm?.onConfirm();
+                  },
+                });
+                return;
+              }
+              if (act.onClick) {
+                act.onClick();
+              }
           };
 
           const actionClass = act.className || (
@@ -409,6 +442,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
           </span>
         ))}
       </div>
+      </>
     );
   }
 

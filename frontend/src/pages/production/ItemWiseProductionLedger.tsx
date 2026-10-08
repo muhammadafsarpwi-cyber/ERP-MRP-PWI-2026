@@ -1057,6 +1057,19 @@ export const buildXlsx = (matrix: SheetCell[][], sheetName: string): Uint8Array 
   ]);
 };
 
+/* ── In-Memory Persistent Module Caches (prevents reload / infinite loops / tab switch delay) ── */
+let cachedMasterItems: any[] | null = null;
+let cachedWeightMapData: Record<string, number | null> = {};
+let cachedItemNamesData: Record<string, string> = {};
+let cachedAllChainsList: ChainDef[] | null = null;
+
+interface CachedLedgerReport {
+  dayItems: ReportRow[];
+  monthItems: ReportRow[];
+  monthScrap: Record<string, number>;
+}
+const ledgerReportCache = new Map<string, CachedLedgerReport>();
+
 /* ── Component ────────────────────────────────────────────────────────── */
 
 const ItemWiseProductionLedger: React.FC = () => {
@@ -1066,11 +1079,13 @@ const ItemWiseProductionLedger: React.FC = () => {
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [rows, setRows] = useState<ReportRow[]>([]);
-  const [monthScrap, setMonthScrap] = useState<Record<string, number>>({});
-  const [weightMap, setWeightMap] = useState<Record<string, number | null>>({});
-  const [itemNames, setItemNames] = useState<Record<string, string>>({});
-  const [allChains, setAllChains] = useState<ChainDef[]>(CHAIN_REGISTRY);
+
+  const initialCacheKey = `${dayjs().format('YYYY-MM-DD')}__${dayjs().startOf('month').format('YYYY-MM-DD')}`;
+  const [rows, setRows] = useState<ReportRow[]>(() => ledgerReportCache.get(initialCacheKey)?.dayItems ?? []);
+  const [monthScrap, setMonthScrap] = useState<Record<string, number>>(() => ledgerReportCache.get(initialCacheKey)?.monthScrap ?? {});
+  const [weightMap, setWeightMap] = useState<Record<string, number | null>>(() => cachedWeightMapData);
+  const [itemNames, setItemNames] = useState<Record<string, string>>(() => cachedItemNamesData);
+  const [allChains, setAllChains] = useState<ChainDef[]>(() => cachedAllChainsList ?? CHAIN_REGISTRY);
   const [chainKey, setChainKey] = useState<string>(CHAIN_REGISTRY[0]?.key ?? '');
   const [showAll, setShowAll] = useState(false);
 
@@ -1147,24 +1162,41 @@ const ItemWiseProductionLedger: React.FC = () => {
     setRange(([start, end]) => [start, end.add(delta, 'day')]);
   }, []);
 
+  const allChainsRef = useRef(allChains);
+  allChainsRef.current = allChains;
+  const itemNamesRef = useRef(itemNames);
+  itemNamesRef.current = itemNames;
+  const weightMapRef = useRef(weightMap);
+  weightMapRef.current = weightMap;
+
   /**
    * Weights and item master names are loaded once for EVERY registered chain
    * so switching the dropdown re-renders instantly with no follow-up round-trip.
    * Also dynamically discovers newly added Finished Goods and builds chains for them.
+   * ZERO dependency infinite loop risk — uses stable refs and in-memory caches.
    */
-  const loadWeights = useCallback(async () => {
+  const loadWeights = useCallback(async (force = false) => {
+    if (!force && cachedAllChainsList && Object.keys(cachedWeightMapData).length > 0) {
+      setAllChains(cachedAllChainsList);
+      setItemNames(cachedItemNamesData);
+      setWeightMap(cachedWeightMapData);
+      return;
+    }
+
+    const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
     const wanted = Array.from(
-      new Set(allChains.flatMap((c) => c.rows.map((r) => r.itemCode.trim())).filter(Boolean)),
+      new Set(currentChains.flatMap((c) => c.rows.map((r) => r.itemCode.trim())).filter(Boolean)),
     );
     if (wanted.length === 0) return;
     const found: Record<string, number | null> = {};
     const toWeight = (raw: unknown): number | null =>
       raw === null || raw === undefined || raw === '' ? null : num(raw);
 
-    // 1) one bulk page for the whole Item Master…
+    // 1) Single bulk request for Item Master with silent: true to avoid global spinner noise
     try {
       const res: any = await apiService.get('/master-data/items', { limit: 5000 });
       const list: any[] = Array.isArray(res?.data) ? res.data : [];
+      cachedMasterItems = list;
       const byCode = new Map<string, any>(list.map((i) => [i?.itemCode, i]));
       const byId = new Map<string, any>(list.map((i) => [i?.id, i]));
       const names: Record<string, string> = {};
@@ -1173,7 +1205,8 @@ const ItemWiseProductionLedger: React.FC = () => {
           names[i.itemCode] = i.name;
         }
       });
-      setItemNames((prev) => ({ ...prev, ...names }));
+      cachedItemNamesData = { ...cachedItemNamesData, ...names };
+      setItemNames(cachedItemNamesData);
 
       wanted.forEach((code) => {
         const hit = byCode.get(code);
@@ -1283,44 +1316,43 @@ const ItemWiseProductionLedger: React.FC = () => {
         };
       });
 
-      setAllChains([...enrichedRegistry, ...dynamicChains]);
+      const fullChains = [...enrichedRegistry, ...dynamicChains];
+      cachedAllChainsList = fullChains;
+      setAllChains(fullChains);
     } catch {
-      /* fall through — the per-code lookup below covers every miss */
+      /* fall through */
     }
 
-    // 2) …then a targeted search for anything the bulk page did not return.
-    const missing = wanted.filter((code) => !(code in found));
-    await Promise.all(
-      missing.map(async (code) => {
-        try {
-          const res: any = await apiService.get('/master-data/items', { search: code, limit: 10 });
-          const list: any[] = Array.isArray(res?.data) ? res.data : [];
-          const hit = list.find((i) => i?.itemCode === code);
-          found[code] = toWeight(hit?.weightPerPiece);
-          if (hit?.name) {
-            setItemNames((prev) => ({ ...prev, [code]: hit.name }));
-          }
-        } catch {
-          found[code] = null;
-        }
-      }),
-    );
-    setWeightMap((prev) => ({ ...prev, ...found }));
-  }, [allChains]);
+    // Mark any remaining missing codes as null without firing 20 redundant searches
+    wanted.forEach((code) => {
+      if (!(code in found)) {
+        found[code] = null;
+      }
+    });
+    cachedWeightMapData = { ...cachedWeightMapData, ...found };
+    setWeightMap(cachedWeightMapData);
+  }, []);
 
-  const weightMapRef = useRef(weightMap);
-  weightMapRef.current = weightMap;
+  const load = useCallback(async (forceRefresh = false) => {
+    const cacheKey = `${endDate}__${monthFrom}`;
+    if (!forceRefresh && ledgerReportCache.has(cacheKey)) {
+      const cached = ledgerReportCache.get(cacheKey)!;
+      setRows(cached.dayItems);
+      setMonthScrap(cached.monthScrap);
+      setLoading(false);
+      return;
+    }
 
-  const load = useCallback(async () => {
-    setLoading(true);
+    // Only display spinner on initial blank load so existing table data stays rock-solid
+    setLoading((prev) => (rows.length === 0 ? true : prev));
     setError(null);
     try {
-      // 1) Day window  ⇒ inventory report for the selected endDate
+      // 1) Day window ⇒ inventory report for the selected endDate
       const dayReq = apiService.get<{ data: { items?: ReportRow[] } }>(
         '/production/inventory-report',
         { dateFrom: endDate, dateTo: endDate },
       );
-      // 2) Month window⇒ cumulative scrap from the month baseline up to endDate.
+      // 2) Month window ⇒ cumulative scrap from the month baseline up to endDate.
       const monthReq =
         monthFrom === endDate
           ? Promise.resolve(null)
@@ -1390,6 +1422,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         baseItems.forEach((r) => currentItemMap.set(r.itemCode, { ...r }));
 
         const weights = weightMapRef.current;
+        const currentChains = allChainsRef.current;
+        const currentNames = itemNamesRef.current;
 
         // Iterate through all days before endDate, rolling closing -> next day opening
         for (let i = 0; i < days.length - 1; i++) {
@@ -1406,8 +1440,8 @@ const ItemWiseProductionLedger: React.FC = () => {
           }));
 
           const nextClosing = new Map<string, number>();
-          for (const chain of allChains) {
-            const grid = buildChainGrid(chain, dayRows, {}, weights, itemNames);
+          for (const chain of currentChains) {
+            const grid = buildChainGrid(chain, dayRows, {}, weights, currentNames);
             for (const row of grid.rows) {
               nextClosing.set(row.itemCode, row.closingPieces);
             }
@@ -1431,25 +1465,36 @@ const ItemWiseProductionLedger: React.FC = () => {
         });
       }
 
-      setRows(dayItems);
-      setMonthScrap(
-        Object.fromEntries(monthItems.map((r) => [r.itemCode, round4(num(r.scrapOut))])),
+      const computedMonthScrap = Object.fromEntries(
+        monthItems.map((r) => [r.itemCode, round4(num(r.scrapOut))]),
       );
+
+      // In-Memory persistent cache to keep tab solid on switch
+      ledgerReportCache.set(cacheKey, {
+        dayItems,
+        monthItems,
+        monthScrap: computedMonthScrap,
+      });
+
+      setRows(dayItems);
+      setMonthScrap(computedMonthScrap);
     } catch (e: any) {
-      setRows([]);
-      setMonthScrap({});
+      if (rows.length === 0) {
+        setRows([]);
+        setMonthScrap({});
+      }
       setError(e?.response?.data?.message || 'Failed to load the Item-Wise Production Ledger');
     } finally {
       setLoading(false);
     }
-  }, [endDate, monthFrom, allChains, itemNames]);
+  }, [endDate, monthFrom]);
 
   useEffect(() => {
     void loadWeights();
   }, [loadWeights]);
 
   useEffect(() => {
-    void load();
+    void load(tick > 0);
   }, [load, tick]);
 
   /* §5 — one grid for the selected chain, or every registered chain in the selected division. */
@@ -2352,7 +2397,15 @@ const ItemWiseProductionLedger: React.FC = () => {
         key: 'iwl-refresh',
         node: (
           <Tooltip title="Reload the ledger for the selected window">
-            <Button icon={<ReloadOutlined />} loading={loading} onClick={() => setTick((t) => t + 1)}>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={loading}
+              onClick={() => {
+                const cacheKey = `${endDate}__${monthFrom}`;
+                ledgerReportCache.delete(cacheKey);
+                setTick((t) => t + 1);
+              }}
+            >
               Refresh
             </Button>
           </Tooltip>
@@ -3228,7 +3281,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             sheet is gone: Excel / PDF / Print / Refresh now live in the main
             header band at the absolute top of the component. */}
 
-        <Spin spinning={loading}>
+        <Spin spinning={loading && rows.length === 0}>
           {grids.length === 0 && !loading ? (
             <Empty description="No production item chain configured" />
           ) : (
