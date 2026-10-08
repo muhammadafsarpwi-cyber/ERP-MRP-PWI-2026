@@ -888,6 +888,7 @@ const ItemManagement: React.FC = () => {
   const watchedPackagingSize = Form.useWatch('packagingSize', form);
   const watchedPackagingUnit = Form.useWatch('packagingUnit', form);
   const [selectedInputDetail, setSelectedInputDetail] = useState<Partial<Item> | null>(null);
+  const [selectedInputDetail2, setSelectedInputDetail2] = useState<Partial<Item> | null>(null);
 
   // TASK 15: resolve output items referenced by route rows so the preview can
   // build stage info (dims, base UOM, department) without re-fetching each item.
@@ -1639,6 +1640,7 @@ const ItemManagement: React.FC = () => {
     setShowLivePreview(false);
     setEditing(null);
     setSelectedInputDetail(null);
+    setSelectedInputDetail2(null);
     setRouteItemDetails({});
     form.resetFields();
     form.setFieldsValue({
@@ -1667,6 +1669,7 @@ const ItemManagement: React.FC = () => {
     setShowLivePreview(false);
     setEditing(record);
     setSelectedInputDetail(record.productionInItem ?? null);
+    setSelectedInputDetail2(record.productionInItem2 ?? null);
     // TASK 15: populate route-item-details for any output items already referenced
     // by the stored processes rows, so the preview resolves dims/UOM immediately.
     if (items && items.length > 0) {
@@ -1757,6 +1760,7 @@ const ItemManagement: React.FC = () => {
       costPrice: record.costPrice ?? undefined,
       sellingPrice: record.sellingPrice ?? undefined,
       productionInItemId: record.productionInItemId ?? undefined,
+      productionInItemId2: record.productionInItemId2 ?? undefined,
       materialRoleUsage: record.materialRoleUsage ?? (((record.itemType === 'RAW_MATERIAL' || (record.itemType || '').toUpperCase().includes('RAW'))) ? 'Process Component Materials' : undefined),
     });
     const isRaw = record.itemType === 'RAW_MATERIAL' || String(record.itemType || '').toUpperCase().includes('RAW');
@@ -1789,6 +1793,7 @@ const ItemManagement: React.FC = () => {
         'routeTypeId',
         'routeType',
         'productionInItemId',
+        'productionInItemId2',
         'finalProduct',
         'packingNextStep',
         'packagingType',
@@ -1973,6 +1978,9 @@ const ItemManagement: React.FC = () => {
         // send null so the backend clears productionInItemId and productionOutItemId.
         if (!values.productionInItemId) {
           payload.productionInItemId = null;
+        }
+        if (!values.productionInItemId2) {
+          payload.productionInItemId2 = null;
         }
       } else if (companyId) {
         payload.companyId = companyId;
@@ -4479,10 +4487,22 @@ const ItemManagement: React.FC = () => {
                             : (detailItem.packagingType ? txt(detailItem.packagingType) : null),
                         },
                         {
-                          label: 'Input Material',
+                          label: 'Input Material 1 (Primary)',
                           children: detailItem.productionInItem
                             ? (() => {
                                 const pi = detailItem.productionInItem;
+                                const typeLabel = (pi.itemType && typeName(pi.itemType)) || null;
+                                const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
+                                const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
+                                return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
+                              })()
+                            : null,
+                        },
+                        {
+                          label: 'Input Material 2 (Component)',
+                          children: detailItem.productionInItem2
+                            ? (() => {
+                                const pi = detailItem.productionInItem2;
                                 const typeLabel = (pi.itemType && typeName(pi.itemType)) || null;
                                 const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
                                 const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
@@ -5444,27 +5464,65 @@ const ItemManagement: React.FC = () => {
           <Card
             size="small"
             title={
-              <Space>
-                <ApartmentOutlined style={{ color: '#1890ff' }} />
-                <span>Production Flow</span>
-              </Space>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <Space>
+                  <ApartmentOutlined style={{ color: '#1890ff' }} />
+                  <span style={{ fontWeight: 600 }}>Production Flow</span>
+                </Space>
+                <Tag color="cyan" style={{ fontSize: 11, fontWeight: 600 }}>
+                  2 Items IN ➔ 1 Item OUT Supported
+                </Tag>
+              </div>
             }
             style={{ marginBottom: 12, borderRadius: 8 }}
           >
-            <div className="erp-form-responsive-grid">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
               <Form.Item
                 name="productionInItemId"
-                label="INPUT MATERIAL"
-                extra="The item consumed to produce this item — the current Item is ALWAYS the Output Product. Search the full Item Master by code, name, SKU or barcode, optionally narrowed to a Source / Store Department."
+                label={
+                  <Space>
+                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 1 (Primary Input)</span>
+                    <Tag color="blue" style={{ fontSize: 10 }}>IN 1</Tag>
+                  </Space>
+                }
+                extra="The primary item consumed to produce this item (e.g. Spoke Wire, Inner Spoke). Search by code, name, SKU or barcode."
               >
                 <InputMaterialSelect
                   excludeItemId={editing?.id ?? null}
                   departments={departments}
                   onSelectDetail={setSelectedInputDetail}
+                  placeholder="Select Input Material 1 (Primary)..."
                 />
               </Form.Item>
-              <Form.Item label="OUTPUT PRODUCT" extra="Current Item is automatically the Production Output — this read-only value always equals the item being edited (auto-synchronized)">
-                <Input readOnly value={outputProductDisplay} />
+
+              <Form.Item
+                name="productionInItemId2"
+                label={
+                  <Space>
+                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 2 (Secondary / Assembly Component)</span>
+                    <Tag color="cyan" style={{ fontSize: 10 }}>IN 2 (Optional)</Tag>
+                  </Space>
+                }
+                extra="Optional second item consumed in this stage (e.g. Nipple, Outer Spoke, Chemical) for 2 Items IN ➔ 1 Item OUT assembly."
+              >
+                <InputMaterialSelect
+                  excludeItemId={editing?.id ?? null}
+                  departments={departments}
+                  onSelectDetail={setSelectedInputDetail2}
+                  placeholder="Select Input Material 2 (Optional Component)..."
+                />
+              </Form.Item>
+
+              <Form.Item
+                label={
+                  <Space>
+                    <span style={{ fontWeight: 600 }}>OUTPUT PRODUCT (Resulting Item)</span>
+                    <Tag color="green" style={{ fontSize: 10 }}>OUT</Tag>
+                  </Space>
+                }
+                extra="Current Item is automatically the Production Output — this read-only value always equals the item being edited (auto-synchronized)."
+              >
+                <Input readOnly value={outputProductDisplay} style={{ background: '#f8fafc', fontWeight: 600, color: '#0f172a' }} />
               </Form.Item>
             </div>
 
@@ -5495,6 +5553,9 @@ const ItemManagement: React.FC = () => {
 
               const hasProductionFlow = Boolean(
                 selectedInputDetail ||
+                selectedInputDetail2 ||
+                editing?.productionInItem ||
+                editing?.productionInItem2 ||
                 modalProcesses.length > 0 ||
                 watchedFinalProduct || editing?.finalProduct ||
                 watchedDiameterMm != null || editing?.diameterMm != null ||
@@ -5888,6 +5949,36 @@ const ItemManagement: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Secondary Input Chip (if configured) */}
+                    {(selectedInputDetail2 || editing?.productionInItem2) && (
+                      <>
+                        <div style={{ color: '#0ea5e9', fontSize: 16, fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center' }}>+</div>
+                        <div
+                          style={{
+                            minWidth: 140,
+                            maxWidth: 180,
+                            flex: '0 0 auto',
+                            background: 'var(--theme-surface-alt, rgba(14, 165, 233, 0.08))',
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            border: '1px solid rgba(14, 165, 233, 0.35)',
+                          }}
+                        >
+                          <div style={{ fontSize: 9, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase' }}>
+                            INPUT 2 (COMPONENT)
+                          </div>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {selectedInputDetail2 ? selectedInputDetail2.name : editing?.productionInItem2?.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: '#0ea5e9', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>
+                              {selectedInputDetail2 ? selectedInputDetail2.itemCode : editing?.productionInItem2?.itemCode}
+                            </code>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
                     {/* Middle: Processes Sequence */}
                     {modalProcesses.length > 0 ? (
                       modalProcesses.map((pName, pIdx) => (
@@ -6230,6 +6321,11 @@ const ItemManagement: React.FC = () => {
                 </Descriptions.Item>
                 <Descriptions.Item label="Input Mat." span={2}>
                   {selectedInputDetail ? `${selectedInputDetail.itemCode} — ${selectedInputDetail.name}` : (editing?.productionInItem ? `${editing.productionInItem.itemCode} — ${editing.productionInItem.name}` : 'None')}
+                  {(selectedInputDetail2 || editing?.productionInItem2) && (
+                    <span style={{ color: '#0284c7', marginLeft: 6 }}>
+                      + [{selectedInputDetail2 ? `${selectedInputDetail2.itemCode} — ${selectedInputDetail2.name}` : `${editing?.productionInItem2?.itemCode} — ${editing?.productionInItem2?.name}`}]
+                    </span>
+                  )}
                 </Descriptions.Item>
                 <Descriptions.Item label="Output Prod." span={2}>
                   {outputProductDisplay}

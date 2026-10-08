@@ -209,8 +209,8 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
     { id: '864dc17b-88c4-44ad-b9b8-dbeee8f15f09', itemCode: 'SPI-FG-SPK-008', name: '300X18 S9 Inn / Out Spoke Straight_125-S9 Nipple', itemType: 'FINISHED_GOOD' },
     { id: '181fb5ac-40d6-4957-856f-3806ae3ee9dc', itemCode: 'SPI-FG-SPK-007', name: '300X17 S9 Inn / Out Spoke Straight_125-S9 Nipple', itemType: 'FINISHED_GOOD' },
     { id: 'd9554c71-5037-451e-b639-4c6150aeb06c', itemCode: 'SPI-FG-SPK-006', name: 'RM -18 Inn / Out Spoke Straight_RM-100 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '9aaa3aed-9198-4c08-a9ef-496ed0c6afea', itemCode: 'SPI-FG-SPK-005', name: 'RM Inn / Out Spoke Straight_RM-100 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '22efcf3f-01ec-4690-bd5a-268c865f09c9', itemCode: 'SPI-FG-SPK-004', name: 'CD-250*18 Outer Butted', itemType: 'FINISHED_GOOD' },
+    { id: 'a57f61c3-2b99-4c91-9e55-89f5bc912345', itemCode: 'SPI-FG-SPK-005', name: 'RM Inn / Out Spoke Straight_RM-100 Nipple', itemType: 'FINISHED_GOOD' },
+    { id: '9aaa3aed-9198-4c08-a9ef-496ed0c6afea', itemCode: 'SPI-FG-SPK-004', name: '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple', itemType: 'FINISHED_GOOD' },
     { id: 'f8b141d9-7e0c-48a7-b2f0-60b8b32ff83d', itemCode: 'SPI-FG-SPK-003', name: '250X18 Inn / Out Spoke Butted_CD-250X17 Nipple', itemType: 'FINISHED_GOOD' },
     { id: '6aaa54fe-6899-4b06-97c3-031c714f9155', itemCode: 'SPI-FG-SPK-002', name: '250X17 Inn / Out Spoke Butted_CD-250X17 Nipple', itemType: 'FINISHED_GOOD' },
     { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', itemCode: 'SPI-FG-SPK-001', name: '250X17 INN / OUT Spoke Butted_225X17 Nipple', itemType: 'FINISHED_GOOD' },
@@ -390,8 +390,7 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
         code.startsWith('FIN-') ||
         code.startsWith('SLD-') ||
         code.startsWith('WIP-') ||
-        code.startsWith('RM-') ||
-        code === 'SPI-FG-SPK-004'
+        code.startsWith('RM-')
       ) {
         return false;
       }
@@ -408,7 +407,8 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
         i.itemType === 'FINISHED_GOOD' ||
         i.itemType === 'FINISHED_GOODS' ||
         i.itemType === 'FG' ||
-        code.startsWith('SPI-FG-SPK')
+        code.startsWith('SPI-FG-') ||
+        code.startsWith('FG-')
       );
     });
   }, [items]);
@@ -1115,8 +1115,7 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
             code.startsWith('FIN-') ||
             code.startsWith('SLD-') ||
             code.startsWith('WIP-') ||
-            code.startsWith('RM-') ||
-            code === 'SPI-FG-SPK-004'
+            code.startsWith('RM-')
           ) {
             return false;
           }
@@ -1303,9 +1302,16 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
               value={selectedProductId}
               onChange={handleProductChange}
               loading={loadingLookups}
-              filterOption={(input, option) =>
-                (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-              }
+              filterOption={(input, option) => {
+                const search = (input || '').toLowerCase().trim();
+                if (!search) return true;
+                const label = ((option?.label as string) || '').toLowerCase();
+                const value = ((option?.value as string) || '').toLowerCase();
+                if (label.includes(search) || value.includes(search)) return true;
+                const cleanSearch = search.replace(/^spi-/i, '').replace(/^fg-/i, '');
+                const cleanLabel = label.replace(/spi-/gi, '').replace(/fg-/gi, '');
+                return cleanLabel.includes(cleanSearch);
+              }}
               options={finishedGoodItems.map((fg) => ({
                 value: fg.id,
                 label: `[${fg.itemCode}] ${fg.name} (${fg.baseUom?.code || 'PCS'})`,

@@ -514,7 +514,11 @@ export class ItemService implements OnModuleInit {
     // an upstream Item, and never show "Raw Material → Raw Material".
     const isRawMaterial = dto.itemType === ItemType.RAW_MATERIAL;
     const effectiveInItemId = isRawMaterial ? null : dto.productionInItemId;
-    const syncedOut = await this.resolveProductionFlowMapping(dto.companyId, effectiveInItemId, newItemId);
+    const effectiveInItemId2 = isRawMaterial ? null : dto.productionInItemId2;
+    const syncedOut = await this.resolveProductionFlowMapping(dto.companyId, effectiveInItemId || effectiveInItemId2, newItemId);
+    if (effectiveInItemId2) {
+      await this.validateSecondaryInputItem(dto.companyId, effectiveInItemId2, effectiveInItemId, newItemId);
+    }
 
     const rt = await this.resolveRouteType(dto.companyId, dto.routeTypeId, dto.routeType);
 
@@ -532,7 +536,10 @@ export class ItemService implements OnModuleInit {
     this.normalizeDtoAliases(dto as any);
     const processes = this.extractProcesses(dto as any);
     const cleanDto = { ...dto, ...processes };
-    if (isRawMaterial) (cleanDto as any).productionInItemId = null;
+    if (isRawMaterial) {
+      (cleanDto as any).productionInItemId = null;
+      (cleanDto as any).productionInItemId2 = null;
+    }
 
     // TASK 15: the configured Production Route rows (DEPARTMENT + ITEM per stage)
     // are validated before save. Each stage is independently configurable; no
@@ -635,6 +642,7 @@ export class ItemService implements OnModuleInit {
           i.packaging_size AS "packagingSize",
           i.packaging_unit AS "packagingUnit",
           i.production_in_item_id AS "productionInItemId",
+          i.production_in_item_id_2 AS "productionInItemId2",
           i.production_out_item_id AS "productionOutItemId"
         FROM items i
         LEFT JOIN uoms u ON u.id = i.base_uom_id
@@ -755,7 +763,7 @@ export class ItemService implements OnModuleInit {
   async findOne(id: string, allowedDivisionIds?: string[]): Promise<Item> {
     const item = await this.itemRepository.findOne({
       where: { id },
-      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'itemTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionOutItem'],
+      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'itemTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionInItem2', 'productionOutItem'],
     });
     if (!item) throw new NotFoundException(`Item with ID '${id}' not found`);
     if (allowedDivisionIds && item.divisionId) {
@@ -926,7 +934,13 @@ export class ItemService implements OnModuleInit {
     const effectiveInItemId = isRawMaterial
       ? null
       : (dto.productionInItemId !== undefined ? dto.productionInItemId : item.productionInItemId);
-    const syncedOut = await this.resolveProductionFlowMapping(item.companyId, effectiveInItemId, id);
+    const effectiveInItemId2 = isRawMaterial
+      ? null
+      : (dto.productionInItemId2 !== undefined ? dto.productionInItemId2 : item.productionInItemId2);
+    const syncedOut = await this.resolveProductionFlowMapping(item.companyId, effectiveInItemId || effectiveInItemId2, id);
+    if (effectiveInItemId2) {
+      await this.validateSecondaryInputItem(item.companyId, effectiveInItemId2, effectiveInItemId, id);
+    }
 
     // Resolve route type if supplied
     if (dto.routeTypeId !== undefined || dto.routeType !== undefined) {
@@ -973,7 +987,10 @@ export class ItemService implements OnModuleInit {
     scalarUpdate.productionOutItemId = syncedOut;
 
     // TASK 15: a RAW MATERIAL item never persists an input material mapping.
-    if (isRawMaterial) scalarUpdate.productionInItemId = null;
+    if (isRawMaterial) {
+      scalarUpdate.productionInItemId = null;
+      scalarUpdate.productionInItemId2 = null;
+    }
 
     // TASK 15: validate the configured Production Route rows (DEPARTMENT + ITEM
     // per stage) before persist. Each stage is independently configurable; no row
@@ -1587,6 +1604,32 @@ export class ItemService implements OnModuleInit {
 
     // The current Item IS the output of its stage.
     return currentItemId;
+  }
+
+  /**
+   * Validate secondary production input material (2 Items IN -> 1 Item OUT).
+   */
+  private async validateSecondaryInputItem(
+    companyId: string,
+    inItemId2: string,
+    inItemId1: string | null | undefined,
+    currentItemId: string,
+  ): Promise<void> {
+    if (inItemId2 === currentItemId) {
+      throw new BadRequestException('Secondary Production IN Item cannot be the item itself');
+    }
+    if (inItemId1 && inItemId2 === inItemId1) {
+      throw new BadRequestException('Primary and Secondary Production IN Items cannot be identical');
+    }
+    const input2 = await this.itemRepository.findOne({ where: { id: inItemId2, companyId } });
+    if (!input2) {
+      throw new BadRequestException(
+        `Secondary Production IN Item '${inItemId2}' does not exist in this company (invalid UUID or deleted item).`,
+      );
+    }
+    if (input2.status !== ItemStatus.ACTIVE) {
+      throw new BadRequestException(`Secondary Production IN Item '${input2.itemCode}' is not ACTIVE`);
+    }
   }
 
   /**

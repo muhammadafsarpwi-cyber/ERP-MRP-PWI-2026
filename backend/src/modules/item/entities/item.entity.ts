@@ -285,6 +285,14 @@ export class Item extends BaseEntity {
   @JoinColumn({ name: 'production_in_item_id' })
   productionInItem: Item;
 
+  /** Second input material / assembly component (2 Items IN -> 1 Item OUT). */
+  @Column({ name: 'production_in_item_id_2', type: 'uuid', nullable: true })
+  productionInItemId2: string | null;
+
+  @ManyToOne(() => Item, { nullable: true })
+  @JoinColumn({ name: 'production_in_item_id_2' })
+  productionInItem2: Item;
+
   /** The output item produced by the operation that creates this item — TASK #34B: server-owned, always auto-synced to the current Item ID (backward-compat column). */
   @Column({ name: 'production_out_item_id', type: 'uuid', nullable: true })
   productionOutItemId: string | null;

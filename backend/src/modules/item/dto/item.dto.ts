@@ -489,10 +489,15 @@ export class CreateItemDto {
   length_per_piece?: number;
 
   // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
-  @ApiPropertyOptional({ description: 'Production IN Item ID — the raw material consumed to produce this item' })
+  @ApiPropertyOptional({ description: 'Production IN Item ID — the primary raw material/component consumed to produce this item' })
   @IsUUID('loose')
   @IsOptional()
   productionInItemId?: string;
+
+  @ApiPropertyOptional({ description: 'Production IN Item 2 ID — optional secondary component (2 Items IN -> 1 Item OUT)' })
+  @IsUUID('loose')
+  @IsOptional()
+  productionInItemId2?: string;
 
   @ApiPropertyOptional({ description: 'Production OUT Item ID — backward-compat column, server-owned: automatically equals the current Item ID when productionInItemId is set (NULL for root raw materials). Ignored when supplied.' })
   @IsUUID('loose')
@@ -968,10 +973,15 @@ export class UpdateItemDto {
   length_per_piece?: number;
 
   // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
-  @ApiPropertyOptional({ description: 'Production IN Item ID — the raw material consumed to produce this item' })
+  @ApiPropertyOptional({ description: 'Production IN Item ID — the primary raw material/component consumed to produce this item' })
   @IsUUID('loose')
   @IsOptional()
   productionInItemId?: string;
+
+  @ApiPropertyOptional({ description: 'Production IN Item 2 ID — optional secondary component (2 Items IN -> 1 Item OUT)' })
+  @IsUUID('loose')
+  @IsOptional()
+  productionInItemId2?: string;
 
   @ApiPropertyOptional({ description: 'Production OUT Item ID — the output item produced by this item\'s production stage (usually self)' })
   @IsUUID('loose')

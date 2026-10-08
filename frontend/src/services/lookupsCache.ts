@@ -88,8 +88,10 @@ export interface CachedItem {
   weightPerMeter?: number | null;
   lengthPerPiece?: number | null;
   productionInItemId?: string | null;
+  productionInItemId2?: string | null;
   productionOutItemId?: string | null;
   productionInItem?: any;
+  productionInItem2?: any;
   productionOutItem?: any;
 }
 
