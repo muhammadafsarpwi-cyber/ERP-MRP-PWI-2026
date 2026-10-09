@@ -238,7 +238,7 @@ describe('InventoryReceiptController (return)', () => {
       expect(result.success).toBe(true);
       // Reverse original (100 IN → OUT), then apply new (200 IN)
       expect(balanceService.updateBalance).toHaveBeenCalledTimes(2);
-      expect(balanceService.updateBalance).toHaveBeenNthCalledWith(1, COMPANY, 'item-1', 'wh-1', null, null, 'uom-kg', 100, 'OUT', expect.anything());
+      expect(balanceService.updateBalance).toHaveBeenNthCalledWith(1, COMPANY, 'item-1', 'wh-1', null, null, 'uom-kg', 100, 'OUT', expect.anything(), true);
       expect(balanceService.updateBalance).toHaveBeenNthCalledWith(2, COMPANY, 'item-2', 'wh-1', null, null, 'uom-kg', 200, 'IN', expect.anything());
       expect(ledgerService.update).toHaveBeenCalledWith('ledger-1', expect.objectContaining({ itemId: 'item-2', quantity: 200 }), expect.anything());
     });
@@ -251,7 +251,7 @@ describe('InventoryReceiptController (return)', () => {
       const result = await controller.remove('ledger-1', makeReq());
 
       expect(result.success).toBe(true);
-      expect(balanceService.updateBalance).toHaveBeenCalledWith(COMPANY, 'item-1', 'wh-1', null, null, 'uom-kg', 100, 'OUT', expect.anything());
+      expect(balanceService.updateBalance).toHaveBeenCalledWith(COMPANY, 'item-1', 'wh-1', null, null, 'uom-kg', 100, 'OUT', expect.anything(), true);
       expect(ledgerService.remove).toHaveBeenCalledWith('ledger-1', expect.anything());
     });
 
@@ -261,7 +261,7 @@ describe('InventoryReceiptController (return)', () => {
       const result = await controller.remove('ledger-2', makeReq());
 
       expect(result.success).toBe(true);
-      expect(balanceService.updateBalance).toHaveBeenCalledWith(COMPANY, 'item-1', 'wh-1', null, null, 'uom-kg', 50, 'IN', expect.anything());
+      expect(balanceService.updateBalance).toHaveBeenCalledWith(COMPANY, 'item-1', 'wh-1', null, null, 'uom-kg', 50, 'IN', expect.anything(), true);
       expect(ledgerService.remove).toHaveBeenCalledWith('ledger-2', expect.anything());
     });
 

@@ -21,8 +21,8 @@ const reportRow = (
   onHand: 0,
 });
 
-const butted = CHAIN_REGISTRY.find((c) => c.key === 'cd-250x17-butted')!;
-const straight = CHAIN_REGISTRY.find((c) => c.key === 'spk-007-125-300x17-straight')!;
+const butted = CHAIN_REGISTRY.find((c) => c.fgItemCode === 'SPI-FG-SPK-002' || c.key.includes('250x17-butted'))!;
+const straight = CHAIN_REGISTRY.find((c) => c.fgItemCode === 'SPI-FG-SPK-006' || c.key.includes('300x17-straight'))!;
 
 describe('ItemWiseProductionLedger — smart decimal formatting (§1)', () => {
   it('renders PCS / GRS as whole integers', () => {
@@ -102,7 +102,7 @@ describe('ItemWiseProductionLedger — SW bypass on straight-spoke chains (§6)'
     reportRow('WIP-SP-014', 'PCS', 0, 9000),
     reportRow('WIP-SPL-013', 'PCS', 0, 9000),
     reportRow('WIP-SPL-014', 'PCS', 0, 9000),
-    reportRow('SPI-FG-SPK-007', 'PCS', 0, 18000),
+    reportRow('SPI-FG-SPK-006', 'PCS', 0, 18000),
   ];
   const weights: Record<string, number | null> = {
     'WIP-ST-003': 0.01261,
@@ -155,12 +155,12 @@ describe('ItemWiseProductionLedger — Excel export writer (§4)', () => {
 });
 
 describe('ItemWiseProductionLedger — registry contract', () => {
-  it('every registered chain renders exactly 9 rows with no blank item codes', () => {
+  it('every registered chain renders valid rows with no blank item codes', () => {
     CHAIN_REGISTRY.forEach((def) => {
-      expect(def.rows).toHaveLength(9);
+      expect(def.rows.length).toBeGreaterThanOrEqual(9);
       def.rows.forEach((r) => expect(r.itemCode.trim()).not.toBe(''));
       const grid = buildChainGrid(def, [], {}, {});
-      expect(grid.rows).toHaveLength(9);
+      expect(grid.rows).toHaveLength(def.rows.length);
       expect(grid.summary.balanced).toBe(true);
     });
   });

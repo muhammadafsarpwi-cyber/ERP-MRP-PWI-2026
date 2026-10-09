@@ -41,6 +41,7 @@ export const PRODUCTION_MOVEMENT_TYPES: ProductionInventoryReportMovementType[] 
   { value: 'PRODUCTION_CONSUMPTION', label: 'Production Consumption' },
   { value: 'PRODUCTION_ISSUE', label: 'Production Issue' },
   { value: 'PRODUCTION_SCRAP', label: 'Production Scrap' },
+  { value: 'PRODUCTION_REVERSAL', label: 'Production Reversal' },
   { value: 'RECEIPT', label: 'Purchase Receipt' },
   { value: 'ISSUE', label: 'Stock Issue' },
   { value: 'TRANSFER_IN', label: 'Transfer In' },

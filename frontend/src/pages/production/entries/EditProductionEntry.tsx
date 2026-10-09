@@ -39,6 +39,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
+import { DeleteConfirmModal } from '../../../components/shared';
 import { useLookups, ItemLk } from './lookups';
 import { lineToKg } from './downtimeHours';
 import { entryOvertimeHours } from './overtimeHours';
@@ -78,6 +79,7 @@ export const EditProductionEntry: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [entry, setEntry] = useState<any>(null);
 
   // Raw Material and Output inventory balances (store's CURRENT stock — the
@@ -289,7 +291,6 @@ export const EditProductionEntry: React.FC = () => {
   const kpis = useMemo(() => {
     const items = watchedItems || [];
     let totalActual = 0;
-    let totalTarget = toNum(entry?.targetQuantity);
     let totalProductionKg = 0;
     let totalScrapKg = 0;
 
@@ -317,7 +318,6 @@ export const EditProductionEntry: React.FC = () => {
 
     const totalWeightKg = totalProductionKg + totalScrapKg;
     const rejectionPct = totalWeightKg > 0 ? (totalScrapKg / totalWeightKg) * 100 : 0;
-    const achievementPct = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
 
     // Shift Hours Calculation
     // ── STEP 2 — CALCULATION MATRIX ────────────────────────────────────────
@@ -337,6 +337,17 @@ export const EditProductionEntry: React.FC = () => {
       : recordedRunning;
     const remainingHours = totalPlanned - (running + dtSum);
     const isShiftBalanced = Math.abs(remainingHours) < 0.05;
+
+    // Target pro-rating: standard target pro-rated to actual running hours
+    const standardHours = toNum(entry?.standardHours || entry?.shift?.plannedHours || 8);
+    const baseStandardTarget = (entry?.standardHours && toNum(entry.standardHours) > 0 && toNum(entry?.runningHours) > 0)
+      ? (toNum(entry.targetQuantity) * toNum(entry.standardHours)) / toNum(entry.runningHours)
+      : toNum(entry?.targetQuantity || 0);
+    const totalTarget = (standardHours > 0 && running > 0 && baseStandardTarget > 0)
+      ? Math.round((baseStandardTarget * running / standardHours) * 10000) / 10000
+      : toNum(entry?.targetQuantity || 0);
+
+    const achievementPct = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
 
     // Efficiency — measured against Total Available (planned + overtime), the
     // same denominator the detail screen and the entry form already use, so an
@@ -413,7 +424,7 @@ export const EditProductionEntry: React.FC = () => {
         itemId: it.itemId,
         uomId: it.uomId || entry?.uomId,
         actualQuantity: toNum(it.actualQuantity),
-        targetQuantity: toNum(it.targetQuantity || entry?.targetQuantity),
+        targetQuantity: toNum(it.targetQuantity || kpis.totalTarget || entry?.targetQuantity),
         scrapQuantity: toNum(it.scrapQuantity),
         runningHours: toNum(values.runningHours),
         remarks: it.remarks || null,
@@ -445,7 +456,7 @@ export const EditProductionEntry: React.FC = () => {
         downtimeHours: totalDtHours,
         actualQuantity: totalActual,
         scrapQuantity: totalScrap,
-        targetQuantity: toNum(entry?.targetQuantity),
+        targetQuantity: kpis.totalTarget > 0 ? kpis.totalTarget : toNum(entry?.targetQuantity),
         remarks: values.remarks?.trim() || null,
         items: itemsPayload,
         downtimes: downtimesPayload,
@@ -922,7 +933,20 @@ export const EditProductionEntry: React.FC = () => {
 
                 <Col xs={12} md={6}>
                   <Form.Item name="overtimeHours" label="Overtime (Hours)">
-                    <InputNumber min={0} max={12} step={0.5} style={{ width: '100%', textAlign: 'center', fontWeight: 700 }} />
+                    <InputNumber
+                      min={0}
+                      max={16}
+                      step={0.5}
+                      style={{ width: '100%', textAlign: 'center', fontWeight: 700 }}
+                      onChange={(val) => {
+                        const otVal = toNum(val);
+                        const planned = toNum(entry?.shift?.plannedHours || 8);
+                        const dtSum = (form.getFieldValue('downtimes') || []).reduce((s: number, d: any) => s + toNum(d?.downtimeHours), 0);
+                        form.setFieldsValue({
+                          runningHours: Math.max(0, planned + otVal - dtSum),
+                        });
+                      }}
+                    />
                   </Form.Item>
                 </Col>
 
@@ -1205,33 +1229,49 @@ export const EditProductionEntry: React.FC = () => {
 
                 <Divider style={{ margin: '8px 0' }} />
 
-                <Popconfirm
-                  title="Delete Production Entry?"
-                  description={
-                    <div style={{ maxWidth: 280 }}>
-                      Are you sure you want to delete this entry? This will reverse any posted stock ledger movements and restore raw material stock.
-                    </div>
-                  }
-                  onConfirm={handleDelete}
-                  okText="Yes, Delete"
-                  cancelText="No, Keep"
-                  okButtonProps={{ danger: true, loading: deleting }}
+                <Button
+                  danger
+                  type="text"
+                  icon={<DeleteOutlined />}
+                  style={{ width: '100%', fontWeight: 600 }}
+                  onClick={() => setDeleteModalOpen(true)}
                 >
-                  <Button
-                    danger
-                    type="text"
-                    icon={<DeleteOutlined />}
-                    loading={deleting}
-                    style={{ width: '100%', fontWeight: 600 }}
-                  >
-                    Delete Entry (Mistake Entry)
-                  </Button>
-                </Popconfirm>
+                  Delete Entry (Mistake Entry)
+                </Button>
               </div>
             </Card>
           </Col>
         </Row>
       </Form>
+
+      <DeleteConfirmModal
+        open={deleteModalOpen}
+        title="Delete this daily production entry?"
+        itemType="Daily Production Entry"
+        itemCode={entry?.item?.itemCode || id}
+        itemName={entry?.item?.name || entry?.item?.shortName || 'Production Entry'}
+        recordType="ITEM CODE"
+        description="Are you sure you want to delete this entry? This will reverse any posted stock ledger movements and restore raw material stock. This action cannot be undone."
+        userName={entry?.operatorName || entry?.createdByName || 'Operator'}
+        tags={[
+          entry?.department?.name || '',
+          entry?.shift ? `Shift ${entry.shift}` : '',
+          entry?.entryDate ? dayjs(entry.entryDate).format('DD MMM YYYY') : '',
+          entry?.actualQuantity ? `${Number(entry.actualQuantity).toLocaleString()} PCS` : '',
+        ].filter(Boolean)}
+        successTitle="Successfully Deleted"
+        successMessage="Daily Production Entry Deleted Successfully"
+        okLabel="OK"
+        onConfirm={async () => {
+          if (!id) return;
+          await apiService.delete(`/production/entries/${id}`);
+        }}
+        onSuccessClose={() => {
+          setDeleteModalOpen(false);
+          navigate('/production/entries');
+        }}
+        onCancel={() => setDeleteModalOpen(false)}
+      />
     </div>
   );
 };

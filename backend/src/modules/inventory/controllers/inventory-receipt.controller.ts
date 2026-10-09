@@ -814,7 +814,7 @@ export class InventoryReceiptController {
       // Reverse the original balance effect
       const reverseDir = originalDir === 'IN' ? 'OUT' : 'IN';
       await this.balanceService.updateBalance(
-        companyId, entry.itemId, entry.warehouseId, null, null, entry.uomId, entry.quantity, reverseDir, manager,
+        companyId, entry.itemId, entry.warehouseId, null, null, entry.uomId, entry.quantity, reverseDir, manager, true,
       );
 
       // Update the ledger row (keep id, transactionType, direction, audit fields)
@@ -859,7 +859,7 @@ export class InventoryReceiptController {
     await this.ledgerRepo.manager.transaction(async (manager) => {
       const reverseDir = entry.direction === 'IN' ? 'OUT' : 'IN';
       await this.balanceService.updateBalance(
-        companyId, entry.itemId, entry.warehouseId, null, null, entry.uomId, entry.quantity, reverseDir, manager,
+        companyId, entry.itemId, entry.warehouseId, null, null, entry.uomId, entry.quantity, reverseDir, manager, true,
       );
       await this.ledgerService.remove(entry.id, manager);
     });

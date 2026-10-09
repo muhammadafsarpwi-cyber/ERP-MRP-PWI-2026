@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Alert, App, Badge, Button, Card, Checkbox, DatePicker, Descriptions, Dropdown, Form, Grid, Input, InputNumber,
-  Modal, Popover, Segmented, Select, Space, Table, Tag, Tooltip, Typography, Upload,
+  Alert, App, Badge, Button, Card, Checkbox, Col, DatePicker, Descriptions, Dropdown, Form, Input, InputNumber,
+  Modal, Popover, Row, Segmented, Select, Space, Table, Tag, Tooltip, Typography, Upload,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -13,7 +13,7 @@ import {
   DownloadOutlined, ImportOutlined, InboxOutlined,
   HistoryOutlined, BarChartOutlined, ScheduleOutlined,
   ArrowUpOutlined, ArrowDownOutlined, MinusOutlined, AppstoreOutlined,
-  ThunderboltOutlined, ClockCircleOutlined, FileTextOutlined, CloseOutlined,
+  ThunderboltOutlined, ClockCircleOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -1563,7 +1563,6 @@ const EXPORT_HEADERS = [
 
 const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMachineId }) => {
   const { message } = App.useApp();
-  const screens = Grid.useBreakpoint();
   const cachedMaster = useMemo(() => tabSessionCache.get<MachineMasterCache>(MASTER_MACHINE_MASTER_TAB_ID), []);
 
   const [machines, setMachines] = useState<Machine[]>(() => cachedMaster?.machines ?? []);
@@ -3095,44 +3094,23 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               marginTop: 12,
             }}
           >
-            {/* Header: Title + Active Count + Close */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                  Filter Machines
-                </span>
-                {activeFilterCount > 0 && (
-                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
-                    {activeFilterCount} Active
-                  </Tag>
-                )}
-              </div>
-              <Button
-                type="text"
-                size="small"
-                icon={<CloseOutlined />}
-                onClick={() => setShowFilters(false)}
-                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
-                title="Close Filters"
-              >
-                Close
-              </Button>
+            {/* Header: Title + Active Count (floating "X Close" button removed) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                Filter Machines
+              </span>
+              {activeFilterCount > 0 && (
+                <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                  {activeFilterCount} Active
+                </Tag>
+              )}
             </div>
 
-            {/* Grid of ALL Filters */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: screens.lg
-                  ? 'repeat(3, 1fr)'
-                  : screens.md
-                  ? 'repeat(2, 1fr)'
-                  : '1fr',
-                gap: 10,
-              }}
-            >
-              <div>
+            {/* Single tightly-aligned horizontal row — factory sequence 1→6:
+                Division · Section · Department · Machine ID / Number · Status · Criticality */}
+            <Row gutter={[8, 8]} wrap={false}>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Division
                 </label>
@@ -3146,9 +3124,26 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                   options={divisions.map((d) => ({ value: d.id, label: d.name }))}
                   onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+                  Section
+                </label>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Sections"
+                  style={{ width: '100%' }}
+                  value={fSection}
+                  options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
+                  onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
+                  disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
+                />
+              </Col>
+
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Department
                 </label>
@@ -3164,26 +3159,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                     : departments).map((d) => ({ value: d.id, label: d.name }))}
                   onChange={(v) => { setFDepartment(v); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  Section
-                </label>
-                <Select
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="All Sections"
-                  style={{ width: '100%' }}
-                  value={fSection}
-                  options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
-                  onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
-                  disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
-                />
-              </div>
-
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Machine ID / Number
                 </label>
@@ -3194,9 +3172,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                   value={fMachineId}
                   onChange={(e) => { setFMachineId(e.target.value); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Status
                 </label>
@@ -3208,9 +3186,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                   options={['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))}
                   onChange={(v) => { setFStatus(v); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Criticality
                 </label>
@@ -3222,10 +3200,11 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                   options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((c) => ({ value: c, label: c.charAt(0) + c.slice(1).toLowerCase() }))}
                   onChange={(v) => { setFCriticality(v); setPage(1); }}
                 />
-              </div>
-            </div>
+              </Col>
+            </Row>
 
-            {/* Footer with Clear Filters and Apply Filters inside */}
+            {/* Footer — Clear Filters + premium Apply Filters are the ONLY action controls
+                (the duplicate white "Close" button container was removed) */}
             <div
               style={{
                 display: 'flex',
@@ -3245,23 +3224,18 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                 Clear Filters
               </Button>
 
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button onClick={() => setShowFilters(false)}>
-                  Close
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<FilterOutlined />}
-                  onClick={() => {
-                    fetchMachines();
-                    setShowFilters(false);
-                  }}
-                  loading={loading}
-                  style={{ fontWeight: 600 }}
-                >
-                  Apply Filters
-                </Button>
-              </div>
+              <Button
+                type="primary"
+                icon={<FilterOutlined />}
+                onClick={() => {
+                  fetchMachines();
+                  setShowFilters(false);
+                }}
+                loading={loading}
+                style={{ fontWeight: 600 }}
+              >
+                Apply Filters
+              </Button>
             </div>
           </div>
         )}

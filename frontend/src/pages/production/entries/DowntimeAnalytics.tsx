@@ -790,7 +790,7 @@ const DowntimeAnalytics: React.FC<DowntimeAnalyticsProps> = ({ seed, buildFilter
             {/* 3.1: Reason Impact Summary Table with DT, RT, Total & DT % */}
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 6 }}>
-                Reason Impact Summary · خلاصہ بلحاظ سبب، رننگ و ڈاؤن ٹائم
+                Reason Impact Summary
               </div>
               <div style={{ overflowX: 'auto', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 6 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -847,7 +847,7 @@ const DowntimeAnalytics: React.FC<DowntimeAnalyticsProps> = ({ seed, buildFilter
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--theme-text-muted, #94a3b8)' }}>
-                  Date-Wise Production & Downtime Summary · تاریخ وار خلاصہ ({tree.length} days)
+                  Date-Wise Production & Downtime Summary ({tree.length} days)
                 </div>
                 <span style={{ fontSize: 11, color: '#64748b' }}>
                   Click any date row or "View Details" to open department & machine breakdown with Print/WhatsApp

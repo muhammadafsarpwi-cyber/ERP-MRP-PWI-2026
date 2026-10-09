@@ -134,7 +134,7 @@ const dpRow = (order: number, fgCode: string, label: string): ChainRowDef => ({
  */
 export const CHAIN_REGISTRY: ChainDef[] = [
   {
-    key: 'spk-001-250x17-butted',
+    key: 'SPI-FG-SPK-001',
     label: '250X17 INN / OUT Spoke Butted — SPI-FG-SPK-001',
     fgItemCode: 'SPI-FG-SPK-001',
     rows: [
@@ -150,7 +150,7 @@ export const CHAIN_REGISTRY: ChainDef[] = [
     ],
   },
   {
-    key: 'cd-250x17-butted',
+    key: 'SPI-FG-SPK-002',
     label: 'CD-250X17 Butted Spoke — SPI-FG-SPK-002',
     fgItemCode: 'SPI-FG-SPK-002',
     rows: [
@@ -166,7 +166,7 @@ export const CHAIN_REGISTRY: ChainDef[] = [
     ],
   },
   {
-    key: 'cd-250x18-butted',
+    key: 'SPI-FG-SPK-003',
     label: 'CD-250X18 Butted Spoke — SPI-FG-SPK-003',
     fgItemCode: 'SPI-FG-SPK-003',
     rows: [
@@ -182,25 +182,9 @@ export const CHAIN_REGISTRY: ChainDef[] = [
     ],
   },
   {
-    key: 'spk-004-cd-250x18-outer-butted',
-    label: 'CD-250*18 Outer Butted — SPI-FG-SPK-004',
+    key: 'SPI-FG-SPK-004',
+    label: '250*17 Inn / Out Spoke Straight — SPI-FG-SPK-004',
     fgItemCode: 'SPI-FG-SPK-004',
-    rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
-      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-014', itemLabel: '250*18 Butted 100cc' },
-      { order: 3, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-002', itemLabel: '250*18 Butted 100cc' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-003', splitSide: 'INNER', itemLabel: '250*18 Inner Butted 100cc' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-004', splitSide: 'OUTER', itemLabel: '250*18 Outer Butted 100cc' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-003', splitSide: 'INNER', itemLabel: '250*18 Inner Butted 100' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-004', splitSide: 'OUTER', itemLabel: '250*18 Outer Butted 100cc' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-004', itemLabel: 'CD-250*18 Outer Butted' },
-      dpRow(9, 'SPI-FG-SPK-004', '250*18 Outer Butted Dispatch Outward Stage'),
-    ],
-  },
-  {
-    key: 'spk-005-250x17-straight',
-    label: '250X17 Straight Spoke — SPI-FG-SPK-005',
-    fgItemCode: 'SPI-FG-SPK-005',
     rows: [
       { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-010', itemLabel: 'Steel Wire Coil 3.14 mm SR' },
       { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-010', splitSide: 'INNER', itemLabel: '250*17 Inner Straight' },
@@ -209,14 +193,14 @@ export const CHAIN_REGISTRY: ChainDef[] = [
       { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-006', splitSide: 'OUTER', itemLabel: '250*17 Outer Straight' },
       { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-005', splitSide: 'INNER', itemLabel: '250*17 Inner Straight' },
       { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-006', splitSide: 'OUTER', itemLabel: '250*17 Outer Straight' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-005', itemLabel: 'RM Inn / Out Spoke Straight__RM-100 Nipple' },
-      dpRow(9, 'SPI-FG-SPK-005', '250X17 Straight Dispatch Outward Stage'),
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-004', itemLabel: '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-004', '250X17 Straight Dispatch Outward Stage'),
     ],
   },
   {
-    key: 'spk-006-rm-18-straight',
-    label: 'RM -18 Inn / Out Spoke Straight — SPI-FG-SPK-006',
-    fgItemCode: 'SPI-FG-SPK-006',
+    key: 'SPI-FG-SPK-005',
+    label: '250*18 Inn / Out Spoke Straight — SPI-FG-SPK-005',
+    fgItemCode: 'SPI-FG-SPK-005',
     rows: [
       { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-010', itemLabel: 'Steel Wire Coil 3.14 mm SR' },
       { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-012', splitSide: 'INNER', itemLabel: '250*18 Inner Straight' },
@@ -225,14 +209,14 @@ export const CHAIN_REGISTRY: ChainDef[] = [
       { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-008', splitSide: 'OUTER', itemLabel: '250*18 Outer Straight' },
       { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-007', splitSide: 'INNER', itemLabel: '250*18 Inner Straight' },
       { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-008', splitSide: 'OUTER', itemLabel: '250*18 Outer Straight' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-006', itemLabel: 'RM -18 Inn / Out Spoke Straight__RM-100 Nipple' },
-      dpRow(9, 'SPI-FG-SPK-006', 'RM -18 Straight Dispatch Outward Stage'),
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-005', itemLabel: '250*18 Inn / Out Spoke Straight__RM-250*17 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-005', '250X18 Straight Dispatch Outward Stage'),
     ],
   },
   {
-    key: 'spk-007-125-300x17-straight',
-    label: '125-300X17 Straight Spoke — SPI-FG-SPK-007',
-    fgItemCode: 'SPI-FG-SPK-007',
+    key: 'SPI-FG-SPK-006',
+    label: '300X17 S9 Inn / Out Spoke Straight — SPI-FG-SPK-006',
+    fgItemCode: 'SPI-FG-SPK-006',
     rows: [
       { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-012', itemLabel: 'Steel Wire Coil 3.45mm SR' },
       { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-003', splitSide: 'INNER', itemLabel: '125-300*17 Inner Straight' },
@@ -241,14 +225,14 @@ export const CHAIN_REGISTRY: ChainDef[] = [
       { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-014', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Straight' },
       { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-013', splitSide: 'INNER', itemLabel: '125-300*17 Inner Straight' },
       { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-014', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Straight' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-007', itemLabel: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple' },
-      dpRow(9, 'SPI-FG-SPK-007', '125-300X17 Dispatch Outward Stage'),
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-006', itemLabel: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-006', '300X17 Straight Dispatch Outward Stage'),
     ],
   },
   {
-    key: 'spk-008-125-300x18-straight',
-    label: '125-300X18 Straight Spoke — SPI-FG-SPK-008',
-    fgItemCode: 'SPI-FG-SPK-008',
+    key: 'SPI-FG-SPK-007',
+    label: '300X18 S9 Inn / Out Spoke Straight — SPI-FG-SPK-007',
+    fgItemCode: 'SPI-FG-SPK-007',
     rows: [
       { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-010', itemLabel: 'Steel Wire Coil 3.14 mm SR' },
       { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-006', splitSide: 'INNER', itemLabel: '125-300*18 Inner Straight' },
@@ -257,46 +241,50 @@ export const CHAIN_REGISTRY: ChainDef[] = [
       { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-016', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Straight' },
       { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-015', splitSide: 'INNER', itemLabel: '125-300*18 Inner Straight' },
       { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-016', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Straight' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-008', itemLabel: '300X18 S9 Inn / Out Spoke Straight__125-S9 Nipple' },
-      dpRow(9, 'SPI-FG-SPK-008', '125-300X18 Dispatch Outward Stage'),
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-007', itemLabel: '300X18 S9 Inn / Out Spoke Straight__125-S9 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-007', '300X18 Straight Dispatch Outward Stage'),
     ],
   },
   {
-    key: 'spk-009-125-300x17-butted',
-    label: '125-300X17 Inn / Out Spoke Butted — SPI-FG-SPK-009',
-    fgItemCode: 'SPI-FG-SPK-009',
+    key: 'SPI-FG-SPK-008',
+    label: '125-300X17 Inn / Out Spoke Butted — SPI-FG-SPK-008',
+    fgItemCode: 'SPI-FG-SPK-008',
     rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-011', itemLabel: 'Steel Wire Coil 3.45mm R' },
       { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-002', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
       { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-005', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-009', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-010', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-009', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-010', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-009', itemLabel: '125-300X17 Inn / Out Spoke Butted__125 - 300X17 Nipple' },
-      dpRow(9, 'SPI-FG-SPK-009', '125-300X17 Butted Dispatch Outward Stage'),
+      { order: 4, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-003', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
+      { order: 5, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-004', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
+      { order: 6, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-009', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
+      { order: 7, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-010', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
+      { order: 8, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-009', splitSide: 'INNER', itemLabel: '125-300*17 Inner Butted' },
+      { order: 9, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-010', splitSide: 'OUTER', itemLabel: '125-300*17 Outer Butted' },
+      { order: 10, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-008', itemLabel: '125-300X17 Inn / Out Spoke Butted__125 - 300X17 Nipple' },
+      dpRow(11, 'SPI-FG-SPK-008', '125-300X17 Butted Dispatch Outward Stage'),
     ],
   },
   {
-    key: 'spk-010-125-300x18-butted',
-    label: '125-300X18 Inn / Out Spoke Butted — SPI-FG-SPK-010',
-    fgItemCode: 'SPI-FG-SPK-010',
+    key: 'SPI-FG-SPK-009',
+    label: '125-300X18 Inn / Out Spoke Butted — SPI-FG-SPK-009',
+    fgItemCode: 'SPI-FG-SPK-009',
     rows: [
-      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-009', itemLabel: 'Steel Wire Coil 3.14 mm R' },
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-011', itemLabel: 'Steel Wire Coil 3.45mm R' },
       { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-008', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
       { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-009', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
-      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-011', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
-      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-012', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
-      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-011', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
-      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-012', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-010', itemLabel: '125-300X18 Inn / Out Spoke Butted__125 - 300X17 Nipple' },
-      dpRow(9, 'SPI-FG-SPK-010', '125-300X18 Butted Dispatch Outward Stage'),
+      { order: 4, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-005', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
+      { order: 5, stage: 'SW', stageLabel: 'SW Stage', itemCode: 'WIP-SW-006', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
+      { order: 6, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-011', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
+      { order: 7, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-012', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
+      { order: 8, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-011', splitSide: 'INNER', itemLabel: '125-300*18 Inner Butted' },
+      { order: 9, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-012', splitSide: 'OUTER', itemLabel: '125-300*18 Outer Butted' },
+      { order: 10, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-009', itemLabel: '125-300X18 Inn / Out Spoke Butted__125 - 300X17 Nipple' },
+      dpRow(11, 'SPI-FG-SPK-009', '125-300X18 Butted Dispatch Outward Stage'),
     ],
   },
   {
-    key: 'spk-011-225x17-straight',
-    label: '225X17 Straight Spoke — SPI-FG-SPK-011',
-    fgItemCode: 'SPI-FG-SPK-011',
+    key: 'SPI-FG-SPK-010',
+    label: 'DS Front Inn / Out Spoke Straight — SPI-FG-SPK-010',
+    fgItemCode: 'SPI-FG-SPK-010',
     rows: [
       { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-013', itemLabel: 'Steel Wire Coil 2.85mm SR' },
       { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-015', splitSide: 'INNER', itemLabel: '225*17 Inner Straight' },
@@ -305,8 +293,8 @@ export const CHAIN_REGISTRY: ChainDef[] = [
       { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-018', splitSide: 'OUTER', itemLabel: '225*17 Outer Straight' },
       { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-017', splitSide: 'INNER', itemLabel: '225*17 Inner Straight' },
       { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-018', splitSide: 'OUTER', itemLabel: '225*17 Outer Straight' },
-      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-011', itemLabel: 'DS Front Inn / Out Spoke Straight__225X17 Nipple' },
-      dpRow(9, 'SPI-FG-SPK-011', '225X17 Dispatch Outward Stage'),
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-010', itemLabel: 'DS Front Inn / Out Spoke Straight__225X17 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-010', '225X17 Dispatch Outward Stage'),
     ],
   },
 ];
@@ -331,6 +319,7 @@ interface ReportRow {
   openingBalance: number;
   totalIn: number;
   totalOut: number;
+  consumed?: number;
   scrapOut: number;
   produced?: number;
   closingBalance: number;
@@ -357,6 +346,9 @@ interface IssuanceResolution {
   value: number;
   rule: string;
   driven: boolean;
+  remarks: string;
+  prodValue: number;
+  returnOutValue: number;
 }
 
 interface LedgerMetrics {
@@ -374,6 +366,9 @@ interface LedgerMetrics {
   issuance: number;
   issuanceRule: string;
   issuanceDriven: boolean;
+  remarks: string;
+  prodValue: number;
+  returnOutValue: number;
   closingPieces: number;
   perPieceWeight: number | null;
   totalWeight: number | null;
@@ -501,13 +496,113 @@ export const departmentName = (
   return `${r.stage} — ${base}${branch}`;
 };
 
+/**
+ * PER-ITEM WEIGHT MASTER DICTIONARY
+ * Authoritative weights per piece (KG/PC) from item specifications.
+ * Ensures Per Piece Weight never collapses to null or '—'.
+ */
+export const STANDARD_ITEM_WEIGHTS: Record<string, number> = {
+  // Raw Material wires
+  'RM-WIRE-009': 0.00967,
+  'RM-WIRE-010': 0.01053,
+  'RM-WIRE-011': 0.01158,
+  'RM-WIRE-012': 0.01261,
+  'RM-WIRE-013': 0.00872,
+
+  // Straightening WIP
+  'WIP-ST-001': 0.00967,
+  'WIP-ST-002': 0.01158,
+  'WIP-ST-003': 0.01261,
+  'WIP-ST-004': 0.01250,
+  'WIP-ST-005': 0.01158,
+  'WIP-ST-006': 0.01365,
+  'WIP-ST-007': 0.01351,
+  'WIP-ST-008': 0.01197,
+  'WIP-ST-009': 0.01197,
+  'WIP-ST-010': 0.01053,
+  'WIP-ST-011': 0.01049,
+  'WIP-ST-012': 0.01129,
+  'WIP-ST-013': 0.01119,
+  'WIP-ST-014': 0.00993,
+  'WIP-ST-015': 0.00872,
+  'WIP-ST-016': 0.00854,
+
+  // Swaging WIP
+  'WIP-SW-001': 0.00967,
+  'WIP-SW-002': 0.00993,
+  'WIP-SW-003': 0.01158,
+  'WIP-SW-004': 0.01158,
+  'WIP-SW-005': 0.01197,
+  'WIP-SW-006': 0.01197,
+
+  // Spoke WIP
+  'WIP-SP-001': 0.00929,
+  'WIP-SP-002': 0.00925,
+  'WIP-SP-003': 0.00993,
+  'WIP-SP-004': 0.00981,
+  'WIP-SP-005': 0.01053,
+  'WIP-SP-006': 0.01049,
+  'WIP-SP-007': 0.01129,
+  'WIP-SP-008': 0.01119,
+  'WIP-SP-009': 0.01126,
+  'WIP-SP-010': 0.01097,
+  'WIP-SP-011': 0.01181,
+  'WIP-SP-012': 0.01175,
+  'WIP-SP-013': 0.01250,
+  'WIP-SP-014': 0.01261,
+  'WIP-SP-015': 0.01365,
+  'WIP-SP-016': 0.01053,
+  'WIP-SP-017': 0.00872,
+  'WIP-SP-018': 0.01119,
+
+  // Plating WIP
+  'WIP-SPL-001': 0.00929,
+  'WIP-SPL-002': 0.00925,
+  'WIP-SPL-003': 0.00993,
+  'WIP-SPL-004': 0.00981,
+  'WIP-SPL-005': 0.01053,
+  'WIP-SPL-006': 0.01049,
+  'WIP-SPL-007': 0.01129,
+  'WIP-SPL-008': 0.01119,
+  'WIP-SPL-009': 0.01126,
+  'WIP-SPL-010': 0.01097,
+  'WIP-SPL-011': 0.01181,
+  'WIP-SPL-012': 0.01175,
+  'WIP-SPL-013': 0.01250,
+  'WIP-SPL-014': 0.01261,
+  'WIP-SPL-015': 0.01365,
+  'WIP-SPL-016': 0.01351,
+  'WIP-SPL-017': 0.00872,
+  'WIP-SPL-018': 0.00854,
+
+  // Finished Goods
+  'SPI-FG-SPK-001': 0.00929,
+  'SPI-FG-SPK-002': 0.00925,
+  'SPI-FG-SPK-003': 0.00993,
+  'SPI-FG-SPK-004': 0.01053,
+  'SPI-FG-SPK-005': 0.01049,
+  'SPI-FG-SPK-006': 0.01129,
+  'SPI-FG-SPK-007': 0.01119,
+  'SPI-FG-SPK-008': 0.01126,
+  'SPI-FG-SPK-009': 0.01097,
+  'SPI-FG-SPK-010': 0.01181,
+};
+
 /** Rows 2-8: PCS/GRS multiply by weight; KG and unknown units pass through. */
-const resolveWeight = (
-  uomCode: string | null,
-  weightPerPiece: number | undefined,
+export const resolveWeight = (
+  uomCode: string | null | undefined,
+  weightPerPiece: number | undefined | null,
+  itemCode?: string,
 ): number | null => {
-  if (!isCountUnit(uomCode)) return 1;
-  return weightPerPiece ?? null;
+  const isCount = isCountUnit(uomCode) || (!uomCode && itemCode && !itemCode.startsWith('RM-'));
+  if (!isCount) return 1;
+  if (weightPerPiece != null && !Number.isNaN(weightPerPiece) && weightPerPiece > 0) {
+    return weightPerPiece;
+  }
+  if (itemCode && STANDARD_ITEM_WEIGHTS[itemCode] != null) {
+    return STANDARD_ITEM_WEIGHTS[itemCode];
+  }
+  return null;
 };
 
 /**
@@ -559,7 +654,7 @@ export const buildChainGrid = (
     const multiplier =
       rowDef.stage === 'RM'
         ? 1
-        : resolveWeight(src?.uomCode ?? null, weightMap[rowDef.itemCode] ?? undefined);
+        : resolveWeight(src?.uomCode, weightMap[rowDef.itemCode], rowDef.itemCode);
     return {
       def: rowDef,
       src,
@@ -583,14 +678,41 @@ export const buildChainGrid = (
    */
   const resolveIssuance = (p: StagePass): IssuanceResolution => {
     const stage = p.def.stage;
-    const ledger = (rule: string): IssuanceResolution => ({
-      value: round4(num(p.src?.totalOut)),
-      rule,
-      driven: false,
-    });
+    const recordedOut = round4(num(p.src?.totalOut));
+    const recordedConsumed = p.src?.consumed !== undefined ? round4(num(p.src?.consumed)) : 0;
+    // Outflows from returns, vendor return, direct issues outside automated consumption
+    const nonProdOut = p.src?.consumed !== undefined
+      ? Math.max(0, round4(recordedOut - recordedConsumed))
+      : 0;
+
+    const ledger = (rule: string): IssuanceResolution => {
+      const val = recordedOut;
+      let remarks = '—';
+      if (val > 0) {
+        remarks = stage === 'RM'
+          ? `Return Out: ${fmtQty(val, 'KG')} KG`
+          : `Outflow: ${fmtQty(val, p.src?.uomCode)}`;
+      }
+      return {
+        value: val,
+        rule,
+        driven: false,
+        remarks,
+        prodValue: 0,
+        returnOutValue: val,
+      };
+    };
 
     if (TERMINAL_STAGES.has(stage)) {
-      return ledger('Recorded issues (OUT) — terminal stage');
+      const val = recordedOut;
+      return {
+        value: val,
+        rule: 'Recorded issues (OUT) — terminal stage',
+        driven: false,
+        remarks: val > 0 ? `Dispatched (${fmtQty(val, p.src?.uomCode)})` : '—',
+        prodValue: 0,
+        returnOutValue: val,
+      };
     }
 
     const nextStage = successorOf(stage);
@@ -609,8 +731,9 @@ export const buildChainGrid = (
     const needsKg = stage === 'RM';
     const convert = (c: StagePass): number | null => {
       if (!needsKg) return c.production;
-      if (c.multiplier === null) return null;
-      return round4(c.production * c.multiplier);
+      const w = c.multiplier ?? STANDARD_ITEM_WEIGHTS[c.def.itemCode] ?? null;
+      if (w === null) return null;
+      return round4(c.production * w);
     };
 
     if (matched.length > 0) {
@@ -621,12 +744,38 @@ export const buildChainGrid = (
       if (parts.some((v) => v === null)) {
         return ledger('Recorded issues (OUT) — successor weight missing');
       }
-      const value = round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
+      const prodValue = round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
       const label = matched.map((c) => c.def.itemCode).join(' + ');
+      const totalValue = round4(prodValue + nonProdOut);
+
+      let remarks = '—';
+      if (stage === 'RM') {
+        if (prodValue > 0 && nonProdOut > 0) {
+          remarks = `Prod: ${fmtQty(prodValue, 'KG')} KG | Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
+        } else if (nonProdOut > 0) {
+          remarks = `Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
+        } else if (prodValue > 0) {
+          remarks = `Prod Consumed: ${fmtQty(prodValue, 'KG')} KG`;
+        }
+      } else {
+        if (prodValue > 0 && nonProdOut > 0) {
+          remarks = `Issued to ${nextStage}: ${fmtQty(prodValue, p.src?.uomCode)} | Outflow: ${fmtQty(nonProdOut, p.src?.uomCode)}`;
+        } else if (nonProdOut > 0) {
+          remarks = `Outflow / Return: ${fmtQty(nonProdOut, p.src?.uomCode)}`;
+        } else if (prodValue > 0) {
+          remarks = `Issued to ${nextStage}`;
+        }
+      }
+
       return {
-        value,
-        rule: needsKg ? `${label} Production × weight (KG)` : `= ${label} Production`,
+        value: totalValue,
+        rule: needsKg
+          ? `${label} Production × weight (KG)${nonProdOut > 0 ? ` + Return Out (${nonProdOut} KG)` : ''}`
+          : `= ${label} Production${nonProdOut > 0 ? ` + Outflow (${nonProdOut})` : ''}`,
         driven: true,
+        remarks,
+        prodValue,
+        returnOutValue: nonProdOut,
       };
     }
 
@@ -641,10 +790,25 @@ export const buildChainGrid = (
     }
     const pool = round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
     const shareCount = byStage(stage).length || 1;
+    const prodValue = round4(pool / shareCount);
+    const totalValue = round4(prodValue + nonProdOut);
+
+    let remarks = '—';
+    if (prodValue > 0 && nonProdOut > 0) {
+      remarks = `Issued to ${nextStage}: ${fmtQty(prodValue, p.src?.uomCode)} | Outflow: ${fmtQty(nonProdOut, p.src?.uomCode)}`;
+    } else if (nonProdOut > 0) {
+      remarks = `Outflow / Return: ${fmtQty(nonProdOut, p.src?.uomCode)}`;
+    } else if (prodValue > 0) {
+      remarks = `Issued to ${nextStage}`;
+    }
+
     return {
-      value: round4(pool / shareCount),
-      rule: `${nextStage} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`,
+      value: totalValue,
+      rule: `${nextStage} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)${nonProdOut > 0 ? ` + Outflow (${nonProdOut})` : ''}`,
       driven: true,
+      remarks,
+      prodValue,
+      returnOutValue: nonProdOut,
     };
   };
 
@@ -671,6 +835,9 @@ export const buildChainGrid = (
       issuance: iss.value,
       issuanceRule: iss.rule,
       issuanceDriven: iss.driven,
+      remarks: iss.remarks,
+      prodValue: iss.prodValue,
+      returnOutValue: iss.returnOutValue,
       closingPieces,
       perPieceWeight: p.multiplier,
       totalWeight,
@@ -738,11 +905,13 @@ export const COL = {
   totalWeight: 9,
   scrapToday: 10,
   scrapMonth: 11,
+  remarks: 12,
 } as const;
 
 const EXPORT_HEADERS = [
   'Stage', 'Item (Code / Name)', 'Op Balance', 'Production', 'Sub-Total', 'Issuance',
   'Closing Pieces', 'UoM', 'Per Piece Weight', 'Total Weight', 'Today Scrap', 'Total Month Scrap',
+  'Remarks',
 ];
 
 /** §8 — ONE string for the merged scrap block: the grid title, the printed
@@ -764,28 +933,25 @@ const PDF_TABLE_W = PDF_PAGE_W - PDF_MARGIN_X - PDF_MARGIN_X;
  *
  * Every gutter is PINNED, which is the whole point: jsPDF-autotable otherwise
  * sizes an auto column from its WIDEST cell, so a stray glyph inside a data
- * cell re-flowed the entire grid. That is precisely what the old `2.5 KG`
- * suffix did — the scrap gutters widened, the crimson figures crowded their
- * own walls and the hairlines stopped lining up. Fixed widths make content
- * incapable of moving a border.
+ * cell re-flowed the entire grid. Fixed widths make content incapable of moving a border.
  *
  * Index 1 (the stacked Item column) is the single elastic gutter: it absorbs
- * the exact remainder, landing on 173.89pt ≈ the 236px it occupies on screen,
- * and guaranteeing the twelve widths total `PDF_TABLE_W`.
+ * the exact remainder, guaranteeing the widths total `PDF_TABLE_W`.
  */
 const PDF_W: number[] = [
-  96, // stage — the ruled left margin
+  92, // stage — the ruled left margin
   0, // item — filled below (the one elastic gutter)
-  50, // op balance
-  58, // production
-  50, // sub-total
+  48, // op balance
+  54, // production
+  48, // sub-total
   48, // issuance
-  66, // closing pieces
-  30, // uom
-  72, // per piece weight (4 dp, 12pt bold)
-  52, // total weight
-  45, // today scrap
-  45, // total scrap
+  60, // closing pieces
+  28, // uom
+  66, // per piece weight (4 dp, 12pt bold)
+  48, // total weight
+  42, // today scrap
+  42, // total scrap
+  74, // remarks
 ];
 PDF_W[COL.item] =
   PDF_TABLE_W -
@@ -813,6 +979,7 @@ const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => [
   // §12 — bare numbers; the `SCRAP — KG` parent already names the unit.
   fmtQty(r.scrapToday, r.uomCode),
   fmtQty(r.scrapMonth, r.uomCode),
+  r.remarks ?? '—',
 ];
 
 /** Numeric cells for Excel — integers for PCS/GRS, 2 dp for weights. */
@@ -832,6 +999,7 @@ const exportNumericRow = (r: LedgerMetrics): (string | number | null)[] => [
   // §6 — deliberately UN-suffixed: the sheet cell must stay a real number.
   exportCell(r.scrapToday, r.uomCode),
   exportCell(r.scrapMonth, r.uomCode),
+  r.remarks ?? '—',
 ];
 
 function exportCell(v: number | null, uom: string | null): number | null {
@@ -1059,7 +1227,7 @@ export const buildXlsx = (matrix: SheetCell[][], sheetName: string): Uint8Array 
 
 /* ── In-Memory Persistent Module Caches (prevents reload / infinite loops / tab switch delay) ── */
 let cachedMasterItems: any[] | null = null;
-let cachedWeightMapData: Record<string, number | null> = {};
+let cachedWeightMapData: Record<string, number | null> = { ...STANDARD_ITEM_WEIGHTS };
 let cachedItemNamesData: Record<string, string> = {};
 let cachedAllChainsList: ChainDef[] | null = null;
 
@@ -1083,7 +1251,10 @@ const ItemWiseProductionLedger: React.FC = () => {
   const initialCacheKey = `${dayjs().format('YYYY-MM-DD')}__${dayjs().startOf('month').format('YYYY-MM-DD')}`;
   const [rows, setRows] = useState<ReportRow[]>(() => ledgerReportCache.get(initialCacheKey)?.dayItems ?? []);
   const [monthScrap, setMonthScrap] = useState<Record<string, number>>(() => ledgerReportCache.get(initialCacheKey)?.monthScrap ?? {});
-  const [weightMap, setWeightMap] = useState<Record<string, number | null>>(() => cachedWeightMapData);
+  const [weightMap, setWeightMap] = useState<Record<string, number | null>>(() => ({
+    ...STANDARD_ITEM_WEIGHTS,
+    ...cachedWeightMapData,
+  }));
   const [itemNames, setItemNames] = useState<Record<string, string>>(() => cachedItemNamesData);
   const [allChains, setAllChains] = useState<ChainDef[]>(() => cachedAllChainsList ?? CHAIN_REGISTRY);
   const [chainKey, setChainKey] = useState<string>(CHAIN_REGISTRY[0]?.key ?? '');
@@ -1137,14 +1308,30 @@ const ItemWiseProductionLedger: React.FC = () => {
 
   /** The End Date IS "today" for the ledger — it drives every cutoff. */
   const endDate = range[1].format('YYYY-MM-DD');
+
   /**
-   * §3 — the month baseline only moves when the calendar is used.
-   * Previous / Next Day shift the End Date alone; the guard keeps the
-   * window well-formed if the End Date is stepped before the baseline.
+   * Sequential Daily Chain:
+   * "Today's Closing is Tomorrow's Opening" (اج کی کلوزنگ کل کی اوپننگ).
+   * For October 2026, the verified audited baseline starts 2026-10-05.
+   * When viewing a single date after 2026-10-05 (e.g. 2026-10-06),
+   * monthFrom starts from 2026-10-05 so the daily chain rolls forward.
    */
-  const monthFrom = range[0].isAfter(range[1])
-    ? range[1].startOf('month').format('YYYY-MM-DD')
-    : range[0].format('YYYY-MM-DD');
+  const monthFrom = useMemo(() => {
+    const isSingleDay = range[0].isSame(range[1], 'day');
+    if (!isSingleDay) {
+      return range[0].isAfter(range[1])
+        ? range[1].startOf('month').format('YYYY-MM-DD')
+        : range[0].format('YYYY-MM-DD');
+    }
+    const endStr = range[1].format('YYYY-MM-DD');
+    // Only roll forward from verified baseline (2026-10-05) for dates strictly after 2026-10-05
+    if (endStr.startsWith('2026-10') && endStr > '2026-10-05') {
+      return '2026-10-05';
+    }
+    // For single-day views on or before 2026-10-05 (e.g. 2026-09-30, 2026-10-01 to 2026-10-05),
+    // display the genuine inventory report for that exact day
+    return endStr;
+  }, [range]);
 
   const chainDef = useMemo(
     () => filteredChains.find((c) => c.key === chainKey) ?? filteredChains[0] ?? null,
@@ -1152,14 +1339,20 @@ const ItemWiseProductionLedger: React.FC = () => {
   );
 
   const selectedDivisionName = useMemo(() => {
-    if (selectedDivisionId === 'ALL') return 'All Divisions (تمام ڈویژنز)';
+    if (selectedDivisionId === 'ALL') return 'All Divisions';
     const found = divisionsList.find((d) => d.id === selectedDivisionId);
     return found?.name || 'Selected Division';
   }, [selectedDivisionId, divisionsList]);
 
-  /** §3 — ±1 day on the End Date; the month baseline stays put. */
+  /** ±1 day: If viewing a single date, shifts both; if viewing a range, shifts the End Date. */
   const shiftEndDay = useCallback((delta: number) => {
-    setRange(([start, end]) => [start, end.add(delta, 'day')]);
+    setRange(([start, end]) => {
+      if (start.isSame(end, 'day')) {
+        const next = start.add(delta, 'day');
+        return [next, next];
+      }
+      return [start, end.add(delta, 'day')];
+    });
   }, []);
 
   const allChainsRef = useRef(allChains);
@@ -1208,31 +1401,40 @@ const ItemWiseProductionLedger: React.FC = () => {
       cachedItemNamesData = { ...cachedItemNamesData, ...names };
       setItemNames(cachedItemNamesData);
 
-      wanted.forEach((code) => {
-        const hit = byCode.get(code);
-        if (hit) found[code] = toWeight(hit.weightPerPiece);
+      list.forEach((i: any) => {
+        if (i?.itemCode) {
+          const rawW = i.weightPerPiece ?? i.weight_per_piece ?? i.weight;
+          const w = rawW != null && rawW !== '' ? num(rawW) : null;
+          if (w !== null && w > 0) {
+            found[i.itemCode] = w;
+          }
+        }
       });
 
       // ── DYNAMIC FINISHED GOODS CHAIN DISCOVERY ──
-      const knownFgCodes = new Set(CHAIN_REGISTRY.map((c) => c.fgItemCode));
+      // Dynamic chains are built for any FINISHED_GOOD item that has processes defined in DB.
+      // Database master data ALWAYS takes priority over static fallbacks!
       const dynamicChains: ChainDef[] = [];
+      const dynamicFgCodes = new Set<string>();
+
       list.forEach((item) => {
         if (!item || !item.itemCode) return;
         // Strictly Finished Goods only as requested by user
         const isFg = item.itemType === 'FINISHED_GOOD';
-        if (!isFg || knownFgCodes.has(item.itemCode)) return;
-
-        const fgCode = item.itemCode;
-        const fgName = item.name || fgCode;
-        const key = `dyn-${fgCode.toLowerCase()}`;
-        const label = `${fgName} — ${fgCode}`;
-        const divId = item.divisionId || item.division?.id || null;
-        const divName = item.division?.name || item.divisionName || null;
-        const rows: ChainRowDef[] = [];
-        let order = 1;
+        if (!isFg) return;
 
         if (Array.isArray(item.processes) && item.processes.length > 0) {
-          item.processes.forEach((p: any) => {
+          const fgCode = item.itemCode;
+          const fgName = item.name || fgCode;
+          const key = fgCode;
+          const label = `${fgName} — ${fgCode}`;
+          const divId = item.divisionId || item.division?.id || null;
+          const divName = item.division?.name || item.divisionName || null;
+          const rows: ChainRowDef[] = [];
+          let order = 1;
+
+          const sortedProcesses = [...item.processes].sort((a: any, b: any) => (a.sequence || 0) - (b.sequence || 0));
+          sortedProcesses.forEach((p: any) => {
             const outItem =
               (p.outputItemId ? byId.get(p.outputItemId) : null) ||
               (p.outputItemCode ? byCode.get(p.outputItemCode) : null);
@@ -1265,6 +1467,24 @@ const ItemWiseProductionLedger: React.FC = () => {
             } else if (dept.includes('spoke')) {
               stage = 'SP';
               stageLabel = 'SP Stage';
+            } else if (dept.includes('nipple')) {
+              stage = 'NP';
+              stageLabel = 'NP Stage';
+            } else if (dept.includes('draw')) {
+              stage = 'DR';
+              stageLabel = 'DR Stage';
+            } else if (dept.includes('head')) {
+              stage = 'HD';
+              stageLabel = 'HD Stage';
+            } else if (dept.includes('thread')) {
+              stage = 'TH';
+              stageLabel = 'TH Stage';
+            } else if (dept.includes('cut')) {
+              stage = 'CT';
+              stageLabel = 'CT Stage';
+            } else {
+              stage = dept.slice(0, 2).toUpperCase() || 'PR';
+              stageLabel = `${p.departmentName || p.name || 'Process'} Stage`;
             }
 
             let splitSide: SplitSide | undefined = undefined;
@@ -1283,53 +1503,58 @@ const ItemWiseProductionLedger: React.FC = () => {
               });
             }
           });
-        }
 
-        const hasFg = rows.some((r) => r.stage === 'FG');
-        if (!hasFg) {
-          rows.push({
-            order: order++,
-            stage: 'FG',
-            stageLabel: 'FG / Packing',
-            itemCode: fgCode,
-            itemLabel: fgName,
+          const hasFg = rows.some((r) => r.stage === 'FG');
+          if (!hasFg) {
+            rows.push({
+              order: order++,
+              stage: 'FG',
+              stageLabel: 'FG / Packing',
+              itemCode: fgCode,
+              itemLabel: fgName,
+            });
+          }
+          rows.push(dpRow(order, fgCode, `${fgName} Dispatch Outward Stage`));
+
+          dynamicChains.push({
+            key,
+            label,
+            fgItemCode: fgCode,
+            divisionId: divId,
+            divisionName: divName,
+            rows,
           });
+          dynamicFgCodes.add(fgCode);
         }
-        rows.push(dpRow(order, fgCode, `${fgName} Dispatch Outward Stage`));
+      });
 
-        dynamicChains.push({
-          key,
-          label,
-          fgItemCode: fgCode,
-          divisionId: divId,
-          divisionName: divName,
-          rows,
+      // CHAIN_REGISTRY provides fallback for items whose DB processes are not yet configured
+      const enrichedRegistry = CHAIN_REGISTRY
+        .filter((c) => !dynamicFgCodes.has(c.fgItemCode))
+        .map((c) => {
+          const item = byCode.get(c.fgItemCode);
+          return {
+            ...c,
+            label: item?.name ? `${item.name} — ${c.fgItemCode}` : c.label,
+            divisionId: item?.divisionId || item?.division?.id || 'd1000000-0000-0000-0000-000000000001',
+            divisionName: item?.division?.name || item?.divisionName || 'Spoke Division',
+          };
         });
-      });
 
-      const enrichedRegistry = CHAIN_REGISTRY.map((c) => {
-        const item = byCode.get(c.fgItemCode);
-        return {
-          ...c,
-          divisionId: item?.divisionId || item?.division?.id || 'd1000000-0000-0000-0000-000000000001',
-          divisionName: item?.division?.name || item?.divisionName || 'Spoke Division',
-        };
-      });
-
-      const fullChains = [...enrichedRegistry, ...dynamicChains];
+      dynamicChains.sort((a, b) => a.fgItemCode.localeCompare(b.fgItemCode));
+      const fullChains = [...dynamicChains, ...enrichedRegistry];
       cachedAllChainsList = fullChains;
       setAllChains(fullChains);
     } catch {
       /* fall through */
     }
 
-    // Mark any remaining missing codes as null without firing 20 redundant searches
     wanted.forEach((code) => {
-      if (!(code in found)) {
-        found[code] = null;
+      if (!(code in found) && STANDARD_ITEM_WEIGHTS[code] != null) {
+        found[code] = STANDARD_ITEM_WEIGHTS[code];
       }
     });
-    cachedWeightMapData = { ...cachedWeightMapData, ...found };
+    cachedWeightMapData = { ...STANDARD_ITEM_WEIGHTS, ...cachedWeightMapData, ...found };
     setWeightMap(cachedWeightMapData);
   }, []);
 
@@ -1369,12 +1594,15 @@ const ItemWiseProductionLedger: React.FC = () => {
               { dateFrom: monthFrom, dateTo: monthFrom },
             );
       // 4) All Daily Production Entries across [monthFrom, endDate]
+      // Buffer dateFrom by 1 day earlier to avoid UTC/PKT timezone offset dropping 19:00 UTC entries!
+      const queryDateFrom = dayjs(monthFrom).subtract(1, 'day').format('YYYY-MM-DD');
+      const queryDateTo = dayjs(endDate).add(1, 'day').format('YYYY-MM-DD');
       const entriesReq =
         monthFrom === endDate
           ? Promise.resolve(null)
           : apiService.get<{ data?: any[] }>(
               '/production/entries',
-              { dateFrom: monthFrom, dateTo: endDate, limit: 1000 },
+              { dateFrom: queryDateFrom, dateTo: queryDateTo, limit: 1000 },
             );
 
       const [dayRes, monthRes, baseRes, entriesRes] = await Promise.all([
@@ -1385,18 +1613,32 @@ const ItemWiseProductionLedger: React.FC = () => {
       ]);
 
       const dayItems: ReportRow[] = (dayRes?.data?.items ?? []).map((r) => ({ ...r }));
-      const monthItems = monthRes?.data?.items ?? dayItems;
+      const monthItems = (monthRes?.data?.items ?? dayItems).map((r) => ({ ...r }));
       const baseItems: ReportRow[] = (baseRes?.data?.items ?? dayItems).map((r) => ({ ...r }));
       const entriesList = Array.isArray(entriesRes?.data) ? entriesRes.data : [];
 
+      const weights = { ...STANDARD_ITEM_WEIGHTS, ...weightMapRef.current };
+      const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
+      const currentNames = itemNamesRef.current;
+      const isRange = range[0].format('YYYY-MM-DD') !== range[1].format('YYYY-MM-DD');
+
       // Multi-day rolling window: carry forward previous day's closing into next day's opening
       if (monthFrom !== endDate && baseItems.length > 0) {
-        // Group entries by YYYY-MM-DD -> itemCode -> total quantity
+        // Group entries by PKT YYYY-MM-DD -> itemCode -> total quantity
         const dailyProdMap = new Map<string, Map<string, number>>();
         entriesList.forEach((e: any) => {
           if (e?.isActive === false) return;
           const rawDate = e?.entryDate;
-          const d = rawDate ? dayjs(rawDate).format('YYYY-MM-DD') : '';
+          let d = '';
+          if (rawDate) {
+            const dt = new Date(rawDate);
+            if (!isNaN(dt.getTime())) {
+              const pkt = new Date(dt.getTime() + 5 * 3600 * 1000);
+              d = pkt.toISOString().slice(0, 10);
+            } else {
+              d = dayjs(rawDate).format('YYYY-MM-DD');
+            }
+          }
           const code = (e?.item?.itemCode || e?.itemCode || '').trim();
           const qty = num(e?.actualQuantity);
           if (d && code && qty > 0) {
@@ -1420,10 +1662,6 @@ const ItemWiseProductionLedger: React.FC = () => {
 
         let currentItemMap = new Map<string, ReportRow>();
         baseItems.forEach((r) => currentItemMap.set(r.itemCode, { ...r }));
-
-        const weights = weightMapRef.current;
-        const currentChains = allChainsRef.current;
-        const currentNames = itemNamesRef.current;
 
         // Iterate through all days before endDate, rolling closing -> next day opening
         for (let i = 0; i < days.length - 1; i++) {
@@ -1465,6 +1703,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         });
       }
 
+      const displayRows = isRange ? monthItems : dayItems;
+
       const computedMonthScrap = Object.fromEntries(
         monthItems.map((r) => [r.itemCode, round4(num(r.scrapOut))]),
       );
@@ -1476,7 +1716,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         monthScrap: computedMonthScrap,
       });
 
-      setRows(dayItems);
+      setRows(displayRows);
       setMonthScrap(computedMonthScrap);
     } catch (e: any) {
       if (rows.length === 0) {
@@ -1487,7 +1727,7 @@ const ItemWiseProductionLedger: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [endDate, monthFrom]);
+  }, [endDate, monthFrom, range]);
 
   useEffect(() => {
     void loadWeights();
@@ -1648,18 +1888,49 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'issuance',
         key: 'issuance',
         align: 'center' as const,
-        width: 130,
+        width: 135,
         onCell: () => ({ className: 'iwl-cell-num' }),
-        render: (v: number, row: LedgerMetrics) =>
-          row.issuanceDriven ? (
-            <Tooltip title={`Driven by the next stage: ${row.issuanceRule}`}>
-              <Text type="warning">{fmtQty(v, row.uomCode)}</Text>
-            </Tooltip>
-          ) : (
-            <Tooltip title={row.issuanceRule}>
-              <span>{fmtQty(v, row.uomCode)}</span>
-            </Tooltip>
-          ),
+        render: (v: number, row: LedgerMetrics) => (
+          <div>
+            <div>
+              {row.issuanceDriven ? (
+                <Tooltip title={`Driven by the next stage: ${row.issuanceRule}`}>
+                  <Text type={row.returnOutValue > 0 ? 'danger' : 'warning'} strong={v > 0}>
+                    {fmtQty(v, row.uomCode)}
+                  </Text>
+                </Tooltip>
+              ) : (
+                <Tooltip title={row.issuanceRule}>
+                  <span style={{ color: row.returnOutValue > 0 ? '#cf1322' : undefined, fontWeight: v > 0 ? 600 : undefined }}>
+                    {fmtQty(v, row.uomCode)}
+                  </span>
+                </Tooltip>
+              )}
+            </div>
+            {row.returnOutValue > 0 && row.prodValue > 0 ? (
+              <div style={{ marginTop: 2, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+                <Tag color="cyan" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
+                  Prod: {fmtQty(row.prodValue, row.uomCode)}
+                </Tag>
+                <Tag color="error" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
+                  Return: -{fmtQty(row.returnOutValue, row.uomCode)}
+                </Tag>
+              </div>
+            ) : row.returnOutValue > 0 ? (
+              <div style={{ marginTop: 2 }}>
+                <Tag color="error" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
+                  Return Out
+                </Tag>
+              </div>
+            ) : row.prodValue > 0 ? (
+              <div style={{ marginTop: 2 }}>
+                <Tag color={row.stage === 'RM' ? 'cyan' : 'default'} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
+                  {row.stage === 'RM' ? 'Prod Consumed' : 'Next Stage'}
+                </Tag>
+              </div>
+            ) : null}
+          </div>
+        ),
       },
       {
         title: 'Closing Pieces',
@@ -1773,6 +2044,40 @@ const ItemWiseProductionLedger: React.FC = () => {
             ),
           },
         ],
+      },
+      {
+        title: 'Remarks / Movement',
+        dataIndex: 'remarks',
+        key: 'remarks',
+        align: 'left' as const,
+        width: 175,
+        render: (v: string, row: LedgerMetrics) => {
+          if (!v || v === '—') {
+            return <span style={{ color: '#94a3b8' }}>—</span>;
+          }
+          if (row.returnOutValue > 0 && row.prodValue > 0) {
+            return (
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#b45309' }}>
+                {v}
+              </span>
+            );
+          }
+          if (row.returnOutValue > 0) {
+            return (
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626' }}>
+                {v}
+              </span>
+            );
+          }
+          if (row.prodValue > 0 && row.stage === 'RM') {
+            return (
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#0284c7' }}>
+                {v}
+              </span>
+            );
+          }
+          return <span style={{ fontSize: 11, color: '#475569' }}>{v}</span>;
+        },
       },
     ],
     [endDate, monthFrom],
@@ -1957,6 +2262,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 rowSpan: 2,
               })),
               { content: SCRAP_HEADER, colSpan: 2 },
+              { content: 'Remarks', rowSpan: 2 },
             ],
             ['Today', 'Total'],
           ],
@@ -2004,7 +2310,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           tableLineWidth: 0.75,
           tableLineColor: [148, 163, 184],
           columnStyles: {
-            // §12 — ABSOLUTE WIDTHS: all twelve gutters pinned to `PDF_W`, so
+            // §12 — ABSOLUTE WIDTHS: all gutters pinned to `PDF_W`, so
             // the data itself can no longer resize a column. Their total is
             // exactly `PDF_TABLE_W`, which is the same figure autotable draws
             // its outer frame with — frame and inner rules therefore coincide,
@@ -2024,17 +2330,18 @@ const ItemWiseProductionLedger: React.FC = () => {
             [COL.totalWeight]: { cellWidth: PDF_W[COL.totalWeight] },
             [COL.scrapToday]: { cellWidth: PDF_W[COL.scrapToday] },
             [COL.scrapMonth]: { cellWidth: PDF_W[COL.scrapMonth] },
+            [COL.remarks]: { cellWidth: PDF_W[COL.remarks], halign: 'left' },
           },
           // §3 — the same colour pathways the screen uses, but with the §5
           // accounting rule on top: a clean white cell, never a tinted fill.
           didParseCell: (data) => {
-            // §2/§9 — Item and Stage are the flush-left columns, head AND
+            // §2/§9 — Item, Stage, Remarks are the flush-left columns, head AND
             // body. The merged chain title (head row 0 — the only cell ever
             // sitting on column 0 while being a header) keeps its centre.
             const isChainTitle = data.section === 'head' && data.row.index === 0;
             if (
               !isChainTitle &&
-              (data.column.index === COL.item || data.column.index === COL.stage)
+              (data.column.index === COL.item || data.column.index === COL.stage || data.column.index === COL.remarks)
             ) {
               data.cell.styles.halign = 'left';
             }
@@ -2052,7 +2359,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             data.cell.styles.lineColor = [148, 163, 184];
             const idx = data.column.index;
             const isNumeric =
-              idx !== COL.stage && idx !== COL.item && idx !== COL.uom;
+              idx !== COL.stage && idx !== COL.item && idx !== COL.uom && idx !== COL.remarks;
             if (isNumeric) {
               // §4 — NUMERIC SCALE-UP: every figure is set at 12pt bold on
               // dark black, the same 12pt the sheet uses, so the balances
@@ -2403,6 +2710,9 @@ const ItemWiseProductionLedger: React.FC = () => {
               onClick={() => {
                 const cacheKey = `${endDate}__${monthFrom}`;
                 ledgerReportCache.delete(cacheKey);
+                cachedAllChainsList = null;
+                cachedWeightMapData = { ...STANDARD_ITEM_WEIGHTS };
+                loadWeights(true);
                 setTick((t) => t + 1);
               }}
             >
@@ -3112,7 +3422,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             {/* ── 1. DIVISION SELECTOR ── */}
             <div className="iwl-filters-division">
               <Text strong style={{ fontSize: 12.5, color: '#334155' }}>
-                Division / ڈویژن
+                Division
               </Text>
               <Select
                 style={{ minWidth: 230, width: 250 }}
@@ -3122,7 +3432,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 value={selectedDivisionId}
                 onChange={(v) => setSelectedDivisionId(v)}
                 options={[
-                  { value: 'ALL', label: '🌐 All Divisions (تمام ڈویژنز)' },
+                  { value: 'ALL', label: '🌐 All Divisions' },
                   ...divisionsList.map((d) => ({
                     value: d.id,
                     label: d.name,
@@ -3134,7 +3444,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             {/* ── 2. PRODUCTION ITEM CHAIN SELECTOR (Enlarged width, wide popup, clear full names) ── */}
             <div className="iwl-filters-chain">
               <Text strong style={{ fontSize: 12.5, color: '#334155' }}>
-                Select Production Item Chain / پروڈکشن آئٹم چین (Finished Goods)
+                Select Production Item Chain (Finished Goods)
               </Text>
               <Select
                 style={{ minWidth: 420, width: 480 }}

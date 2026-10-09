@@ -169,10 +169,10 @@ const DEFAULT_FACTORY_WAREHOUSES = [
 const DEFAULT_SPOKE_FINISHED_GOODS = [
   { id: '6aaa54fe-6899-4b06-97c3-031c714f9155', itemCode: 'SPI-FG-SPK-002', name: '250X17 Inn / Out Spoke Butted__CD-250X17 Nipple', itemType: 'FINISHED_GOOD' },
   { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', itemCode: 'SPI-FG-SPK-001', name: '250X17 INN / OUT Spoke Butted__225X17 Nipple', itemType: 'FINISHED_GOOD' },
-  { id: '1e9379be-18b1-4290-a4c3-d97ee928eefd', itemCode: 'SPI-FG-SPK-011', name: 'DS Front Inn / Out Spoke Straight_225X17 Nipple', itemType: 'FINISHED_GOOD' },
-  { id: '181fb5ac-40d6-4957-856f-3806ae3ee9dc', itemCode: 'SPI-FG-SPK-007', name: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple', itemType: 'FINISHED_GOOD' },
+  { id: '1e9379be-18b1-4290-a4c3-d97ee928eefd', itemCode: 'SPI-FG-SPK-010', name: 'DS Front Inn / Out Spoke Straight_225X17 Nipple', itemType: 'FINISHED_GOOD' },
+  { id: '181fb5ac-40d6-4957-856f-3806ae3ee9dc', itemCode: 'SPI-FG-SPK-007', name: '300X18 S9 Inn / Out Spoke Straight__125-S9 Nipple', itemType: 'FINISHED_GOOD' },
   { id: 'f8b141d9-7e0c-48a7-b2f0-60b8b32ff83d', itemCode: 'SPI-FG-SPK-003', name: '250X18 Inn / Out Spoke Butted__CD-250X17 Nipple', itemType: 'FINISHED_GOOD' },
-  { id: '22efcf3f-01ec-4690-bd5a-268c865f09c9', itemCode: 'SPI-FG-SPK-004', name: 'CD-250*18 Outer Butted', itemType: 'FINISHED_GOOD' },
+  { id: '9aaa3aed-9198-4c08-a9ef-496ed0c6afea', itemCode: 'SPI-FG-SPK-004', name: '250*17 Inn / Out Spoke Straight_RM-250*17 Nipple', itemType: 'FINISHED_GOOD' },
   { id: 'bad446f8-9bf6-49ce-b63b-e88c54607003', itemCode: 'WIP-SPL-013', name: '125-300*17 Inner Straight', itemType: 'SEMI_FINISHED' },
   { id: 'beaa0ddf-e109-4f48-9609-04e5967bc795', itemCode: 'WIP-SPL-014', name: '125-300*17 Outer Straight', itemType: 'SEMI_FINISHED' },
   { id: 'ced9ab53-b470-47c2-83a9-829726b38b5b', itemCode: 'SPI-FG-NP-005', name: '125-S9 Nipple', itemType: 'FINISHED_GOOD' },

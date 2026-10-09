@@ -174,6 +174,7 @@ export class InventoryBalanceService {
     quantityChange: number,
     direction: 'IN' | 'OUT',
     manager?: EntityManager,
+    allowNegative: boolean = false,
   ): Promise<InventoryBalance> {
     const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
     const policyRepo = manager ? manager.getRepository(InventoryPolicy) : this.policyRepo;
@@ -201,7 +202,7 @@ export class InventoryBalanceService {
       const newOnHand = Number(balance.onHand) - quantityChange;
       const newAvailable = Number(balance.available) - quantityChange;
 
-      if (newOnHand < 0) {
+      if (newOnHand < 0 && !allowNegative) {
         const policy = await policyRepo.findOne({
           where: { companyId, itemId, warehouseId },
         });

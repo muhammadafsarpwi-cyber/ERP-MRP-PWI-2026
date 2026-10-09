@@ -5,7 +5,7 @@ import {
   DeleteOutlined,
   PauseCircleOutlined,
 } from '@ant-design/icons';
-import SaveResultDialog from './SaveResultDialog';
+import SaveResultDialog, { type SaveResultTagItem } from './SaveResultDialog';
 
 const { Text, Paragraph } = Typography;
 
@@ -15,9 +15,18 @@ export interface DeleteConfirmModalProps {
   itemType?: string;
   itemName?: string;
   itemCode?: string;
+  recordType?: string;
   description?: string;
+  userName?: string;
+  userEmail?: string;
+  avatarUrl?: string | null;
+  tags?: Array<SaveResultTagItem | string>;
+  successTitle?: string;
+  successMessage?: string;
+  okLabel?: string;
   onConfirm: () => Promise<void>;
   onCancel: () => void;
+  onSuccessClose?: () => void;
   onDeactivateInstead?: () => Promise<void>;
   deactivateLabel?: string;
   onForceDelete?: () => Promise<void>;
@@ -36,9 +45,18 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   itemType = 'Record',
   itemName,
   itemCode,
+  recordType,
   description = 'This action cannot be undone. Permanent deletion is blocked automatically if this record is referenced by transactions, stock balances, BOMs, or operations.',
+  userName,
+  userEmail,
+  avatarUrl,
+  tags,
+  successTitle = 'Successfully Deleted',
+  successMessage,
+  okLabel = 'OK',
   onConfirm,
   onCancel,
+  onSuccessClose,
   onDeactivateInstead,
   deactivateLabel = 'Deactivate Instead',
   onForceDelete,
@@ -48,6 +66,21 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   const [internalOpen, setInternalOpen] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const cachedMeta = React.useRef({
+    itemType,
+    itemName,
+    itemCode,
+    recordType,
+    userName,
+    userEmail,
+    avatarUrl,
+    tags,
+    title,
+    successTitle,
+    successMessage,
+    okLabel,
+  });
 
   const loading = phase === 'loading';
   const forceDeleting = phase === 'loading';
@@ -59,10 +92,24 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
       setPhase('confirm');
       setDeactivating(false);
       setErrorMsg(null);
+      cachedMeta.current = {
+        itemType: itemType || cachedMeta.current.itemType || 'Record',
+        itemName: itemName || cachedMeta.current.itemName,
+        itemCode: itemCode || cachedMeta.current.itemCode,
+        recordType: recordType || cachedMeta.current.recordType,
+        userName: userName || cachedMeta.current.userName,
+        userEmail: userEmail || cachedMeta.current.userEmail,
+        avatarUrl: avatarUrl !== undefined ? avatarUrl : cachedMeta.current.avatarUrl,
+        tags: tags || cachedMeta.current.tags,
+        title: title || cachedMeta.current.title,
+        successTitle: successTitle || cachedMeta.current.successTitle,
+        successMessage: successMessage || cachedMeta.current.successMessage,
+        okLabel: okLabel || cachedMeta.current.okLabel,
+      };
     } else if (phase !== 'loading' && phase !== 'success') {
       setInternalOpen(false);
     }
-  }, [open, phase]);
+  }, [open, phase, itemType, itemName, itemCode, recordType, userName, userEmail, avatarUrl, tags, title, successTitle, successMessage, okLabel]);
 
   const handleConfirm = async () => {
     try {
@@ -71,13 +118,23 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
       await onConfirm();
       setPhase('success');
     } catch (err: any) {
-      setPhase('confirm');
+      const status = err?.response?.status;
       const msg =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
         err?.message ||
         'The record could not be deleted because it is currently in use or protected.';
-      setErrorMsg(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      const msgStr = typeof msg === 'string' ? msg : JSON.stringify(msg);
+
+      // If the record was already deleted or not found (HTTP 404 / 'not found'),
+      // the requested state (record deleted) is satisfied! Complete successfully.
+      if (status === 404 || /not found/i.test(msgStr)) {
+        setPhase('success');
+        return;
+      }
+
+      setPhase('confirm');
+      setErrorMsg(msgStr);
     }
   };
 
@@ -117,28 +174,39 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
     }
   };
 
-  const displayTitle = title || `Delete ${itemType}${itemCode ? ` '${itemCode}'` : ''}?`;
+  const curItemType = cachedMeta.current.itemType || itemType || 'Record';
+  const curItemCode = cachedMeta.current.itemCode || itemCode;
+  const curItemName = cachedMeta.current.itemName || itemName;
+  const displayTitle = title || `Delete ${curItemType}${curItemCode ? ` '${curItemCode}'` : ''}?`;
 
   return (
     <>
       <SaveResultDialog
         open={internalOpen && (phase === 'loading' || phase === 'success')}
         phase={phase === 'loading' ? 'loading' : 'success'}
-        loadingTitle={`Deleting ${itemType}...`}
+        loadingTitle={`Deleting ${curItemType}...`}
         loadingHint="Processing deletion request..."
-        successTitle="Successfully Deleted"
-        okLabel="OK"
+        successTitle={cachedMeta.current.successTitle || successTitle || "Successfully Deleted"}
+        okLabel={cachedMeta.current.okLabel || okLabel || "OK"}
         result={{
-          title: `${itemType} Deleted Successfully`,
-          message: itemName ? `${itemName} has been deleted.` : 'The record has been permanently removed.',
-          recordType: `${itemType} Code`,
-          recordCode: itemCode,
-          recordName: itemName,
+          title: cachedMeta.current.successMessage || successMessage || `${curItemType} Deleted Successfully`,
+          message: curItemName ? `${curItemName} has been deleted.` : 'The record has been permanently removed.',
+          recordType: cachedMeta.current.recordType || recordType || (curItemCode ? 'ITEM CODE' : `${curItemType} Code`),
+          recordCode: curItemCode,
+          recordName: curItemName,
+          userName: cachedMeta.current.userName || userName,
+          userEmail: cachedMeta.current.userEmail || userEmail,
+          avatarUrl: cachedMeta.current.avatarUrl ?? avatarUrl,
+          tags: cachedMeta.current.tags || tags,
         }}
         onClose={() => {
           setInternalOpen(false);
           setPhase('confirm');
-          onCancel();
+          if (onSuccessClose) {
+            onSuccessClose();
+          } else {
+            onCancel();
+          }
         }}
       />
 
@@ -215,6 +283,19 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 style={{ fontWeight: 700 }}
               >
                 Admin Force Delete
+              </Button>
+            )}
+
+            {/* If error occurred, allow user to dismiss and refresh table view */}
+            {errorMsg && onSuccessClose && (
+              <Button
+                onClick={() => {
+                  setInternalOpen(false);
+                  setPhase('confirm');
+                  onSuccessClose();
+                }}
+              >
+                Dismiss & Refresh
               </Button>
             )}
 

@@ -1176,13 +1176,28 @@ addToDept(org, {
   ): Promise<ProductionEntry> {
     // §19 — never trust a client-supplied division id.
     this.assertDivisionAccess(allowedDivisionIds, dto.divisionId, 'production entry');
+    let ot = dto.overtimeHours ? Number(dto.overtimeHours) : 0;
+    if (ot <= 0) {
+      const match = dto.remarks?.match(/OT:\s*(\d+(?:\.\d+)?)\s*h/i);
+      if (match) {
+        ot = Number(match[1]);
+      }
+    }
+    let effectiveWorkingHours = Number(dto.runningHours || 0);
+    const shift = await this.shiftRepo.findOne({ where: { id: dto.shiftId, companyId } });
+    const shiftPlanned = Number(shift?.plannedHours ?? 0);
+    if (shiftPlanned > 0 && ot > 0 && effectiveWorkingHours <= shiftPlanned && Number(dto.downtimeHours || 0) === 0) {
+      effectiveWorkingHours = this.round2(effectiveWorkingHours + ot);
+      dto.runningHours = effectiveWorkingHours;
+    }
+
     // ERP-00016: resolve the machine target FIRST so the final UOM/target feed
     // the standard validations (target governs the entry UOM when linked).
     const mt = await this.resolveMachineTarget(companyId, {
       machineId: dto.machineId ?? null,
       shiftId: dto.shiftId,
       entryDate: dto.entryDate,
-      workingHours: dto.runningHours,
+      workingHours: effectiveWorkingHours,
       itemId: dto.itemId,
       requestedUomId: dto.uomId ?? null,
       manualTargetQuantity: dto.targetQuantity,
@@ -1229,7 +1244,6 @@ addToDept(org, {
       ? await this.resolveRawMaterialSourceStore(companyId, requestedSource)
       : null;
 
-    let ot = dto.overtimeHours ? Number(dto.overtimeHours) : 0;
     if (ot <= 0) {
       const match = dto.remarks?.match(/OT:\s*(\d+(?:\.\d+)?)\s*h/i);
       if (match) {
@@ -1356,12 +1370,27 @@ addToDept(org, {
     // §19 — moving an existing record INTO a division must also be authorized.
     this.assertDivisionAccess(allowedDivisionIds, merged.divisionId, 'production entry');
 
+    let ot = merged.overtimeHours ? Number(merged.overtimeHours) : 0;
+    if (ot <= 0) {
+      const match = (dto.remarks ?? entry.remarks)?.match(/OT:\s*(\d+(?:\.\d+)?)\s*h/i);
+      if (match) {
+        ot = Number(match[1]);
+      }
+    }
+    let effectiveWorkingHours = Number(merged.runningHours || 0);
+    const shift = await this.shiftRepo.findOne({ where: { id: merged.shiftId, companyId } });
+    const shiftPlanned = Number(shift?.plannedHours ?? 0);
+    if (shiftPlanned > 0 && ot > 0 && effectiveWorkingHours <= shiftPlanned && Number(merged.downtimeHours || 0) === 0) {
+      effectiveWorkingHours = this.round2(effectiveWorkingHours + ot);
+      merged.runningHours = effectiveWorkingHours;
+    }
+
     // ERP-00016: re-resolve the target when machine/shift/date/hours changed.
     const mt = await this.resolveMachineTarget(companyId, {
       machineId: merged.machineId,
       shiftId: merged.shiftId,
       entryDate: merged.entryDate,
-      workingHours: merged.runningHours,
+      workingHours: effectiveWorkingHours,
       itemId: merged.itemId,
       requestedUomId: merged.uomId,
       manualTargetQuantity: dto.targetQuantity,
@@ -1390,7 +1419,6 @@ addToDept(org, {
       );
     }
 
-    let ot = merged.overtimeHours ? Number(merged.overtimeHours) : 0;
     if (ot <= 0) {
       const match = (dto.remarks ?? entry.remarks)?.match(/OT:\s*(\d+(?:\.\d+)?)\s*h/i);
       if (match) {
@@ -1750,6 +1778,21 @@ addToDept(org, {
   }
 
   /**
+   * Resolves the exact business date timestamp for stock ledger postings.
+   * Production entries represent factory output on `entryDate` (which is often
+   * backdated). Stamping them at local noon (PKT UTC+5) ensures they land
+   * unambiguously on the business day in both UTC and local reporting.
+   */
+  private resolveBusinessTransactionDate(entryDate?: string | Date | null): Date {
+    if (!entryDate) return new Date();
+    const dateStr = typeof entryDate === 'string'
+      ? entryDate.slice(0, 10)
+      : entryDate.toISOString().slice(0, 10);
+    const parsed = new Date(`${dateStr}T12:00:00+05:00`);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  /**
    * DELTA RECONCILIATION — adjusts `stock_ledger` by exactly
    *
    *     Delta = New Entered Quantity − Original Stored Quantity
@@ -1868,6 +1911,7 @@ addToDept(org, {
       const posted = await this.stockLedgerService.create({
         companyId,
         transactionType: increasing ? familyType : 'PRODUCTION_REVERSAL',
+        transactionDate: this.resolveBusinessTransactionDate(entry.entryDate),
         itemId: delta.itemId,
         warehouseId: delta.warehouseId,
         quantity,
@@ -1887,7 +1931,7 @@ addToDept(org, {
       // on every edit).
       if (delta.family !== 'scrap') {
         await this.inventoryBalanceService.updateBalance(
-          companyId, delta.itemId, delta.warehouseId, null, null, uomId, quantity, direction, manager,
+          companyId, delta.itemId, delta.warehouseId, null, null, uomId, quantity, direction, manager, true,
         );
       }
 
@@ -1927,6 +1971,7 @@ addToDept(org, {
         await this.stockLedgerService.create({
           companyId,
           transactionType: 'PRODUCTION_REVERSAL',
+          transactionDate: this.resolveBusinessTransactionDate(entry.entryDate),
           itemId: m.item_id,
           warehouseId: m.warehouse_id,
           quantity: qty,
@@ -1955,6 +2000,7 @@ addToDept(org, {
           qty,
           reverseDir,
           manager,
+          true,
         );
       }
     } catch (err) {
@@ -1964,7 +2010,13 @@ addToDept(org, {
   }
 
   async remove(id: string, companyId: string, userId?: string, allowedDivisionIds?: string[]): Promise<void> {
-    const entry = await this.getRawEntry(id, companyId);
+    const entry = await this.entryRepo.findOne({ where: { id, companyId } });
+    if (!entry) {
+      return;
+    }
+    if (!entry.isActive && !entry.inventoryReferenceId) {
+      return;
+    }
     // §19 — deletion must respect the caller's division scope too.
     this.assertDivisionAccess(allowedDivisionIds, entry.divisionId, 'production entry');
     await this.entryRepo.manager.transaction(async (manager) => {
@@ -2537,6 +2589,7 @@ addToDept(org, {
       const receipt = await this.stockLedgerService.create({
         companyId,
         transactionType: 'PRODUCTION_RECEIPT',
+        transactionDate: this.resolveBusinessTransactionDate(entry.entryDate),
         itemId: output.itemId,
         warehouseId,
         quantity: output.actualQuantity,
@@ -2561,6 +2614,7 @@ addToDept(org, {
         await this.stockLedgerService.create({
           companyId,
           transactionType: 'PRODUCTION_SCRAP',
+          transactionDate: this.resolveBusinessTransactionDate(entry.entryDate),
           itemId: output.itemId,
           warehouseId,
           quantity: output.scrapQuantity,
@@ -2857,6 +2911,7 @@ addToDept(org, {
       await this.stockLedgerService.create({
         companyId,
         transactionType: 'PRODUCTION_CONSUMPTION',
+        transactionDate: this.resolveBusinessTransactionDate(entryRef.entryDate),
         itemId: r.line.itemId,
         warehouseId: effectiveWh,
         quantity: r.required,
@@ -2947,6 +3002,7 @@ addToDept(org, {
       await this.stockLedgerService.create({
         companyId,
         transactionType: 'PRODUCTION_CONSUMPTION',
+        transactionDate: this.resolveBusinessTransactionDate(entryRef.entryDate),
         itemId: c.itemId,
         warehouseId: c.warehouseId,
         quantity: c.required,

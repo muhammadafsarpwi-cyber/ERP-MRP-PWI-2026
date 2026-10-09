@@ -8,7 +8,7 @@ import {
 import type { MenuProps } from 'antd';
 import {
   PlusOutlined, EditOutlined, ReloadOutlined, EyeOutlined, AimOutlined,
-  DeleteOutlined, ClearOutlined, DownloadOutlined,
+  DeleteOutlined, ClearOutlined, DownloadOutlined, FilterOutlined,
   FilePdfOutlined, PrinterOutlined, StopOutlined, CheckCircleOutlined,
   ToolOutlined, ImportOutlined, InboxOutlined,
   TagOutlined, SettingOutlined, ApartmentOutlined, TeamOutlined,
@@ -1931,80 +1931,129 @@ const TargetManagement: React.FC = () => {
       />
 
       {showFilters && (
-        <Card style={{ marginBottom: 16 }} styles={{ body: { padding: '16px 16px 18px' } }}>
-          <div style={{ display: 'grid', gridTemplateColumns: screens.md ? 'repeat(auto-fit, minmax(170px, 1fr))' : '1fr', gap: 10, alignItems: 'center' }}>
-            {/* 1: Division */}
-            <Select
-              allowClear placeholder="Division" value={fDivision} style={{ width: '100%' }}
-              options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-              onChange={(v) => {
-                setFDivision(v);
-                setFSection(undefined);
-                setFDepartment(undefined);
-                setFMachineId(undefined);
-                setPage(1);
-              }}
-            />
-            {/* 2: Section (Cascaded from Division) */}
-            <Select
-              allowClear placeholder="Section" value={fSection} style={{ width: '100%' }}
-              options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
-              onChange={(v) => {
-                setFSection(v);
-                setFDepartment(undefined);
-                setFMachineId(undefined);
-                setPage(1);
-              }}
-              disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
-            />
-            {/* 3: Department (Cascaded from Section / Division) */}
-            <Select
-              allowClear placeholder="Department" value={fDepartment} style={{ width: '100%' }}
-              options={departmentsForScope(fDivision, fSection).map((d) => ({ value: d.id, label: d.name }))}
-              onChange={(v) => {
-                setFDepartment(v);
-                setFMachineId(undefined);
-                setPage(1);
-              }}
-              disabled={!!fSection && departmentsForScope(fDivision, fSection).length === 0}
-            />
-            {/* 4: Machine (Cascaded from Department / Section / Division) */}
-            <Select
-              allowClear showSearch optionFilterProp="label"
-              placeholder="Machine" value={fMachineId} style={{ width: '100%' }}
-              options={machinesForScope(fDivision, fSection, fDepartment).map((m) => ({
-                value: m.id,
-                label: `${m.machineCode} — ${m.name}${m.machineId ? ` (${m.machineId})` : ''}`,
-              }))}
-              onChange={(v) => { setFMachineId(v); setPage(1); }}
-            />
-            {/* 5: Shift */}
-            <Select
-              allowClear placeholder="Shift" value={fShift} style={{ width: '100%' }}
-              options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name}` }))}
-              onChange={(v) => { setFShift(v); setPage(1); }}
-            />
-            {/* 6: Item */}
-            <Select
-              allowClear showSearch optionFilterProp="label"
-              placeholder="Item" value={fItem} style={{ width: '100%' }}
-              options={items.map((i) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
-              onChange={(v) => { setFItem(v); setPage(1); }}
-            />
-            {/* 7: Status */}
-            <Select
-              allowClear placeholder="Status" value={fStatus} style={{ width: '100%' }}
-              options={['ACTIVE', 'INACTIVE'].map((s) => ({ value: s, label: s }))}
-              onChange={(v) => { setFStatus(v); setPage(1); }}
-            />
-            {/* 8: UOM */}
-            <Select
-              allowClear placeholder="UOM" value={fUom} style={{ width: '100%' }}
-              options={uoms.map((u) => ({ value: u.id, label: u.code }))}
-              onChange={(v) => { setFUom(v); setPage(1); }}
-            />
-            <Button icon={<ClearOutlined />} onClick={resetFilters}>
+        <Card style={{ marginBottom: 12 }} styles={{ body: { padding: '12px 14px' } }}>
+          {/* Single tightly-aligned horizontal row — all 8 selectors, forced no-wrap */}
+          <Row gutter={[8, 8]} wrap={false}>
+            <Col flex="1 1 0" style={{ minWidth: 0 }}>
+              {/* 1: Division */}
+              <Select
+                allowClear placeholder="Division" value={fDivision} style={{ width: '100%' }}
+                options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                onChange={(v) => {
+                  setFDivision(v);
+                  setFSection(undefined);
+                  setFDepartment(undefined);
+                  setFMachineId(undefined);
+                  setPage(1);
+                }}
+              />
+            </Col>
+
+            <Col flex="1 1 0" style={{ minWidth: 0 }}>
+              {/* 2: Section (Cascaded from Division) */}
+              <Select
+                allowClear placeholder="Section" value={fSection} style={{ width: '100%' }}
+                options={sectionsForDivision(fDivision).map((s) => ({ value: s.id, label: s.name }))}
+                onChange={(v) => {
+                  setFSection(v);
+                  setFDepartment(undefined);
+                  setFMachineId(undefined);
+                  setPage(1);
+                }}
+                disabled={!!fDivision && sectionsForDivision(fDivision).length === 0}
+              />
+            </Col>
+
+            <Col flex="1 1 0" style={{ minWidth: 0 }}>
+              {/* 3: Department (Cascaded from Section / Division) */}
+              <Select
+                allowClear placeholder="Department" value={fDepartment} style={{ width: '100%' }}
+                options={departmentsForScope(fDivision, fSection).map((d) => ({ value: d.id, label: d.name }))}
+                onChange={(v) => {
+                  setFDepartment(v);
+                  setFMachineId(undefined);
+                  setPage(1);
+                }}
+                disabled={!!fSection && departmentsForScope(fDivision, fSection).length === 0}
+              />
+            </Col>
+
+            <Col flex="1 1 0" style={{ minWidth: 0 }}>
+              {/* 4: Machine (Cascaded from Department / Section / Division) */}
+              <Select
+                allowClear showSearch optionFilterProp="label"
+                placeholder="Machine" value={fMachineId} style={{ width: '100%' }}
+                options={machinesForScope(fDivision, fSection, fDepartment).map((m) => ({
+                  value: m.id,
+                  label: `${m.machineCode} — ${m.name}${m.machineId ? ` (${m.machineId})` : ''}`,
+                }))}
+                onChange={(v) => { setFMachineId(v); setPage(1); }}
+              />
+            </Col>
+
+            <Col flex="1 1 0" style={{ minWidth: 0 }}>
+              {/* 5: Shift */}
+              <Select
+                allowClear placeholder="Shift" value={fShift} style={{ width: '100%' }}
+                options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name}` }))}
+                onChange={(v) => { setFShift(v); setPage(1); }}
+              />
+            </Col>
+
+            <Col flex="1 1 0" style={{ minWidth: 0 }}>
+              {/* 6: Item */}
+              <Select
+                allowClear showSearch optionFilterProp="label"
+                placeholder="Item" value={fItem} style={{ width: '100%' }}
+                options={items.map((i) => ({ value: i.id, label: `${i.itemCode} — ${i.name}` }))}
+                onChange={(v) => { setFItem(v); setPage(1); }}
+              />
+            </Col>
+
+            <Col flex="1 1 0" style={{ minWidth: 0 }}>
+              {/* 7: Status */}
+              <Select
+                allowClear placeholder="Status" value={fStatus} style={{ width: '100%' }}
+                options={['ACTIVE', 'INACTIVE'].map((s) => ({ value: s, label: s }))}
+                onChange={(v) => { setFStatus(v); setPage(1); }}
+              />
+            </Col>
+
+            <Col flex="1 1 0" style={{ minWidth: 0 }}>
+              {/* 8: UOM */}
+              <Select
+                allowClear placeholder="UOM" value={fUom} style={{ width: '100%' }}
+                options={uoms.map((u) => ({ value: u.id, label: u.code }))}
+                onChange={(v) => { setFUom(v); setPage(1); }}
+              />
+            </Col>
+          </Row>
+
+          {/* Action tray — Clear Filters anchored far left, Apply Filters far right */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginTop: 10,
+              paddingTop: 8,
+              borderTop: '1px solid var(--theme-border, #e2e8f0)',
+            }}
+          >
+            <Button icon={<ClearOutlined />} onClick={resetFilters} danger={activeFilterCount > 0}>
               Clear Filters
+            </Button>
+
+            <Button
+              type="primary"
+              icon={<FilterOutlined />}
+              onClick={() => fetchTargets()}
+              loading={loading}
+              style={{ fontWeight: 600 }}
+            >
+              Apply Filters
             </Button>
           </div>
         </Card>

@@ -3964,44 +3964,22 @@ const ItemManagement: React.FC = () => {
               gap: 12,
             }}
           >
-            {/* Header: Title + Active Count + Close */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                  Filter Items
-                </span>
-                {activeFilterCount > 0 && (
-                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
-                    {activeFilterCount} Active
-                  </Tag>
-                )}
-              </div>
-              <Button
-                type="text"
-                size="small"
-                icon={<CloseOutlined />}
-                onClick={() => setShowFilters(false)}
-                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
-                title="Close Filters"
-              >
-                Close
-              </Button>
+            {/* Header: Title + Active Count (floating "✕ Close" button removed) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                Filter Items
+              </span>
+              {activeFilterCount > 0 && (
+                <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                  {activeFilterCount} Active
+                </Tag>
+              )}
             </div>
 
-            {/* Grid of ALL Filters */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: screens.lg
-                  ? 'repeat(4, 1fr)'
-                  : screens.md
-                  ? 'repeat(2, 1fr)'
-                  : '1fr',
-                gap: 10,
-              }}
-            >
-              <div>
+            {/* Single tightly-aligned horizontal row — all 7 selectors, forced no-wrap */}
+            <Row gutter={[8, 8]} wrap={false}>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Division
                 </label>
@@ -4012,9 +3990,9 @@ const ItemManagement: React.FC = () => {
                   options={toUnique(divisions, (d) => d.name)}
                   onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Category
                 </label>
@@ -4025,9 +4003,9 @@ const ItemManagement: React.FC = () => {
                   options={toUnique(flatCategories, (c) => c.name)}
                   onChange={(v) => { setFCategory(v); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Section
                 </label>
@@ -4038,9 +4016,9 @@ const ItemManagement: React.FC = () => {
                   options={toUnique(sectionsForDivision(fDivision), (s) => s.name)}
                   onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Department
                 </label>
@@ -4051,9 +4029,9 @@ const ItemManagement: React.FC = () => {
                   options={toUnique(departmentsForSection(fDivision, fSection), (d) => d.name)}
                   onChange={(v) => { setFDepartment(v); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Route Type
                 </label>
@@ -4065,9 +4043,9 @@ const ItemManagement: React.FC = () => {
                   options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
                   onChange={(v) => { setFRouteType(v); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Status
                 </label>
@@ -4078,9 +4056,9 @@ const ItemManagement: React.FC = () => {
                   value={fStatus}
                   onChange={(v) => { setFStatus(v); setPage(1); }}
                 />
-              </div>
+              </Col>
 
-              <div>
+              <Col flex="1 1 0" style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
                   Material Role / Usage
                 </label>
@@ -4093,10 +4071,11 @@ const ItemManagement: React.FC = () => {
                   ]}
                   onChange={(v) => { setFRoleUsage(v); setPage(1); }}
                 />
-              </div>
-            </div>
+              </Col>
+            </Row>
 
-            {/* Footer with Clear Filters and Apply Filters inside */}
+            {/* Footer — Clear Filters + premium Apply Filters are the ONLY action controls
+                (the duplicate white "Close" button container was removed) */}
             <div
               style={{
                 display: 'flex',
@@ -4117,21 +4096,16 @@ const ItemManagement: React.FC = () => {
                 Clear Filters
               </Button>
 
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button onClick={() => setShowFilters(false)}>
-                  Close
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<FilterOutlined />}
-                  onClick={applyFilters}
-                  data-testid="apply-filters"
-                  loading={loading}
-                  style={{ fontWeight: 600 }}
-                >
-                  Apply Filters
-                </Button>
-              </div>
+              <Button
+                type="primary"
+                icon={<FilterOutlined />}
+                onClick={applyFilters}
+                data-testid="apply-filters"
+                loading={loading}
+                style={{ fontWeight: 600 }}
+              >
+                Apply Filters
+              </Button>
             </div>
           </div>
         )}

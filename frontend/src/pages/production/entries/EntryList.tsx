@@ -96,6 +96,7 @@ import {
   DepartmentBadge,
   ShiftBadge,
   ItemBadge,
+  DeleteConfirmModal,
 } from '../../../components/shared';
 import './entryList.css';
 
@@ -584,6 +585,10 @@ const EntryList: React.FC = () => {
   // the operator never opens costs exactly zero requests. The live log grid is
   // never touched by either sheet (Zero-Disturbance Policy).
   const [paneKey, setPaneKey] = useState<string>('entries');
+
+  // ── Delete Confirmation & Success Result Dialog States ──
+  const [deleteTarget, setDeleteTarget] = useState<ProductionEntryRow | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   const buildFilters = useCallback((chevron = activeChevronKey) => ({
     search: fSearch.trim() || undefined,
@@ -1864,17 +1869,11 @@ const EntryList: React.FC = () => {
           className="erp-table-actions--bordered"
           onView={() => navigate(`/production/entries/${r.id}`)}
           onEdit={() => navigate(`/production/entries/${r.id}/edit`)}
-          onDelete={async () => {
-            try {
-              await apiService.delete(`/production/entries/${r.id}`);
-              message.success('Production entry deleted successfully');
-              void fetchRows();
-              void fetchReport();
-            } catch {
-              message.error('Failed to delete production entry');
-            }
+          disableConfirm={true}
+          onDelete={() => {
+            setDeleteTarget(r);
+            setDeleteModalOpen(true);
           }}
-          deleteConfirmTitle="Delete this daily production entry?"
         />
       ),
     },
@@ -2674,6 +2673,64 @@ const EntryList: React.FC = () => {
           </p>
         </div>
       </Modal>
+
+      {/* ── Enterprise In-Modal Delete Confirmation & Success Result Dialog ── */}
+      <DeleteConfirmModal
+        open={deleteModalOpen}
+        title="Delete this daily production entry?"
+        itemType="Daily Production Entry"
+        itemCode={deleteTarget?.item?.itemCode || deleteTarget?.id}
+        itemName={deleteTarget?.item?.name || deleteTarget?.item?.shortName || 'Production Item'}
+        recordType="ITEM CODE"
+        description="Are you sure you want to proceed with this deletion? This action cannot be undone."
+        userName={
+          (() => {
+            if (!deleteTarget) return undefined;
+            const emp = lookups.hrEmployees.find(
+              (e) => e.id === deleteTarget.operatorName || e.employeeCode === deleteTarget.operatorName,
+            );
+            return emp ? lookups.employeeFullName(emp) : (deleteTarget.createdByName || deleteTarget.operatorName || 'Operator');
+          })()
+        }
+        tags={[
+          deleteTarget?.department?.name || deleteTarget?.departmentId || '',
+          deleteTarget?.shift ? `Shift ${deleteTarget.shift}` : '',
+          deleteTarget?.entryDate ? dayjs(deleteTarget.entryDate).format('DD MMM YYYY') : '',
+          deleteTarget?.actualQuantity ? `${Number(deleteTarget.actualQuantity).toLocaleString()} PCS` : '',
+        ].filter(Boolean)}
+        successTitle="Successfully Deleted"
+        successMessage="Daily Production Entry Deleted Successfully"
+        okLabel="OK"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await apiService.delete(`/production/entries/${deleteTarget.id}`);
+          // Note: NO message.success top toast, as requested by user.
+          // Note: Rows are re-fetched in onSuccessClose when the user clicks 'OK'.
+        }}
+        onSuccessClose={() => {
+          if (deleteTarget) {
+            const removedId = deleteTarget.id;
+            setRows((prev) => prev.filter((r) => r.id !== removedId));
+            setTotal((prev) => Math.max(0, prev - 1));
+            const current = tabSessionCache.get<EntryListTabCache>(tabKey);
+            if (current) {
+              tabSessionCache.set<EntryListTabCache>(tabKey, {
+                ...current,
+                rows: (current.rows || []).filter((r) => r.id !== removedId),
+                total: Math.max(0, (current.total || 1) - 1),
+              });
+            }
+          }
+          setDeleteModalOpen(false);
+          setDeleteTarget(null);
+          void fetchRows();
+          void fetchReport();
+        }}
+        onCancel={() => {
+          setDeleteModalOpen(false);
+          setDeleteTarget(null);
+        }}
+      />
     </div>
   );
 };

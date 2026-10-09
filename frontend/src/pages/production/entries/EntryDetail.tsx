@@ -14,7 +14,7 @@ import { formatNumber, formatDimension, toNum } from '../../../utils/numberForma
 import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
 import { ITEM_TYPES } from '../../master-data/items/itemTypes';
 import KpiPercentage from '../../../components/kpi/KpiPercentage';
-import { GlobalLoading } from '../../../components/shared';
+import { GlobalLoading, DeleteConfirmModal } from '../../../components/shared';
 import PageHeader from '../../../components/shared/PageHeader';
 import { ProductionUnitsPage } from '../units';
 import { convertProductToComponentQty } from './downtimeHours';
@@ -1073,7 +1073,7 @@ const EntryDetail: React.FC = () => {
           <Button icon={<EditOutlined />} onClick={() => navigate(`/production/entries/${id}/edit`)}>
             Edit
           </Button>
-          <DeleteEntryButton onDeleted={() => navigate('/production/entries')} id={id!} />
+          <DeleteEntryButton onDeleted={() => navigate('/production/entries')} id={id!} entry={entry} />
         </Space>
       </div>
 
@@ -1217,7 +1217,7 @@ const EntryDetail: React.FC = () => {
             <Button type="primary" icon={<EditOutlined />} block onClick={() => navigate(`/production/entries/${id}/edit`)}>
               Edit Entry
             </Button>
-            <DeleteEntryButton onDeleted={() => navigate('/production/entries')} id={id!} block />
+            <DeleteEntryButton onDeleted={() => navigate('/production/entries')} id={id!} entry={entry} block />
           </Space>
         </Col>
       </Row>
@@ -1225,50 +1225,43 @@ const EntryDetail: React.FC = () => {
   );
 };
 
-const DeleteEntryButton: React.FC<{ id: string; onDeleted: () => void; block?: boolean }> = ({ id, onDeleted, block }) => {
-  const { message, modal } = App.useApp();
-  const [deleting, setDeleting] = useState(false);
-
-  const handleDelete = () => {
-    modal.confirm({
-      title: 'Delete Production Entry',
-      icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f', fontSize: 22 }} />,
-      centered: true,
-      width: 480,
-      content: (
-        <div style={{ paddingTop: 8 }}>
-          <p style={{ fontSize: 14, fontWeight: 500, margin: '0 0 8px 0', color: '#1f2937' }}>
-            Are you sure you want to permanently delete this production entry?
-          </p>
-          <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>
-            This will permanently remove this record, unlock the machine for fresh entry, and clean up test/dummy data. This action cannot be undone.
-          </p>
-        </div>
-      ),
-      okText: 'Yes, Delete Entry',
-      okType: 'danger',
-      okButtonProps: { size: 'middle', style: { minWidth: 120 } },
-      cancelText: 'Cancel',
-      cancelButtonProps: { size: 'middle' },
-      onOk: async () => {
-        setDeleting(true);
-        try {
-          await apiService.delete(`/production/entries/${id}`);
-          message.success('Production entry deleted successfully');
-          onDeleted();
-        } catch {
-          message.error('Failed to delete production entry');
-        } finally {
-          setDeleting(false);
-        }
-      },
-    });
-  };
+const DeleteEntryButton: React.FC<{ id: string; onDeleted: () => void; block?: boolean; entry?: any }> = ({ id, onDeleted, block, entry }) => {
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   return (
-    <Button danger icon={<DeleteOutlined />} loading={deleting} block={block} onClick={handleDelete}>
-      Delete Entry
-    </Button>
+    <>
+      <Button danger icon={<DeleteOutlined />} block={block} onClick={() => setDeleteModalOpen(true)}>
+        Delete Entry
+      </Button>
+
+      <DeleteConfirmModal
+        open={deleteModalOpen}
+        title="Delete this daily production entry?"
+        itemType="Daily Production Entry"
+        itemCode={entry?.item?.itemCode || id}
+        itemName={entry?.item?.name || entry?.item?.shortName || 'Production Entry'}
+        recordType="ITEM CODE"
+        description="Are you sure you want to permanently delete this production entry? This will reverse any posted stock ledger movements and unlock the machine for fresh entry. This action cannot be undone."
+        userName={entry?.operatorName || entry?.createdByName || 'Operator'}
+        tags={[
+          entry?.department?.name || '',
+          entry?.shift ? `Shift ${entry.shift}` : '',
+          entry?.entryDate ? dayjs(entry.entryDate).format('DD MMM YYYY') : '',
+          entry?.actualQuantity ? `${Number(entry.actualQuantity).toLocaleString()} PCS` : '',
+        ].filter(Boolean)}
+        successTitle="Successfully Deleted"
+        successMessage="Daily Production Entry Deleted Successfully"
+        okLabel="OK"
+        onConfirm={async () => {
+          await apiService.delete(`/production/entries/${id}`);
+        }}
+        onSuccessClose={() => {
+          setDeleteModalOpen(false);
+          onDeleted();
+        }}
+        onCancel={() => setDeleteModalOpen(false)}
+      />
+    </>
   );
 };
 

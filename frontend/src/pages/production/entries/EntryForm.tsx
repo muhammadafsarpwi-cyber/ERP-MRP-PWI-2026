@@ -1503,6 +1503,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
             targetQuantity: 0,
             runningHours: 0,
           }));
+        } else if (Array.isArray(payload.items) && payload.items.length === 1) {
+          payload.items = (payload.items as any[]).map((it) => ({
+            ...it,
+            targetQuantity: toNum(displayTarget ?? it.targetQuantity),
+            runningHours: toNum(payload.runningHours ?? derivedRunning ?? it.runningHours),
+          }));
         }
       }
 
@@ -1515,22 +1521,23 @@ const EntryForm: React.FC<EntryFormProps> = ({
       }
       // Authoritative aggregate downtime + running hours for the parent entry
       payload.downtimeHours = computedDowntime;
-      if (plannedHours > 0) {
+      const totalAvailable = plannedHours > 0 ? round2(plannedHours + Math.max(0, overtimeHours)) : toNum(values.runningHours);
+      if (totalAvailable > 0) {
         if (computedDowntime > 0) {
-          payload.runningHours = round2(Math.max(0, plannedHours - computedDowntime));
+          payload.runningHours = round2(Math.max(0, totalAvailable - computedDowntime));
         } else if (values.runningHours !== undefined && values.runningHours !== null && values.runningHours !== '') {
-          payload.runningHours = round2(Math.min(plannedHours, toNum(values.runningHours)));
-          payload.downtimeHours = round2(Math.max(0, plannedHours - (payload.runningHours as number)));
+          payload.runningHours = round2(Math.min(totalAvailable, toNum(values.runningHours)));
+          payload.downtimeHours = round2(Math.max(0, totalAvailable - (payload.runningHours as number)));
         } else {
-          payload.runningHours = round2(plannedHours);
+          payload.runningHours = round2(totalAvailable);
           payload.downtimeHours = 0;
         }
       } else {
         payload.runningHours = toNum(values.runningHours);
       }
-      // Validate downtime doesn't exceed planned hours
-      if (plannedHours > 0 && computedDowntime > plannedHours) {
-        message.error(`Total downtime (${formatNumber(computedDowntime, 2)}h) cannot exceed planned shift hours (${formatNumber(plannedHours, 2)}h)`);
+      // Validate downtime doesn't exceed total available hours (shift + overtime)
+      if (totalAvailable > 0 && computedDowntime > totalAvailable) {
+        message.error(`Total downtime (${formatNumber(computedDowntime, 2)}h) cannot exceed total available shift hours (${formatNumber(totalAvailable, 2)}h)`);
         setSaving(false);
         setSavedOpen(false);
         return;

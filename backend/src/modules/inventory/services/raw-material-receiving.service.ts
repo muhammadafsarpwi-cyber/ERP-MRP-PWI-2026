@@ -606,13 +606,14 @@ export class RawMaterialReceivingService {
     dirForLine: (line: { itemId: string | null; uomId: string | null; receivedQuantity?: number; quantity?: number }) => { direction: 'IN' | 'OUT'; qty: number } | null,
     lines: Array<{ id: string; itemId: string | null; uomId: string | null; receivedQuantity?: number; quantity?: number }>,
     warehouseId: string,
+    allowNegative: boolean = false,
   ): Promise<void> {
     for (const line of lines) {
       const mapped = dirForLine(line);
       if (!mapped || mapped.qty <= 0) continue;
       const reverseDir: 'IN' | 'OUT' = mapped.direction === 'IN' ? 'OUT' : 'IN';
       await this.balanceService.updateBalance(
-        companyId, line.itemId!, warehouseId, null, null, line.uomId!, mapped.qty, reverseDir, manager,
+        companyId, line.itemId!, warehouseId, null, null, line.uomId!, mapped.qty, reverseDir, manager, allowNegative,
       );
       await manager.getRepository(StockLedger).delete({
         companyId,
@@ -823,6 +824,7 @@ export class RawMaterialReceivingService {
           },
           existing.lines,
           existing.warehouseId!,
+          true,
         );
 
         const existingLines = existing.lines!.map((l) => l.id);
@@ -981,6 +983,7 @@ export class RawMaterialReceivingService {
         },
         existing.lines,
         existing.warehouseId!,
+        true,
       );
       await manager.getRepository(RawMaterialReceipt).delete({ id });
     });
@@ -1009,6 +1012,7 @@ export class RawMaterialReceivingService {
         },
         existing.lines,
         existing.warehouseId!,
+        true,
       );
       await manager.getRepository(RawMaterialReturn).delete({ id });
     });

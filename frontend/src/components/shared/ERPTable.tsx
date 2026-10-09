@@ -281,9 +281,22 @@ export interface TableActionsProps {
   onViewLabel?: string;
   onEdit?: () => void;
   onEditLabel?: string;
-  onDelete?: () => void;
+  onDelete?: () => Promise<void> | void;
   onDeleteLabel?: string;
   deleteConfirmTitle?: string;
+  deleteConfirmDescription?: string;
+  deleteItemType?: string;
+  deleteItemCode?: string;
+  deleteItemName?: string;
+  deleteRecordType?: string;
+  deleteUserName?: string;
+  deleteUserEmail?: string;
+  deleteAvatarUrl?: string;
+  deleteTags?: Array<any>;
+  deleteSuccessTitle?: string;
+  deleteSuccessMessage?: string;
+  onDeleteSuccess?: () => void;
+  disableConfirm?: boolean;
   extraActions?: React.ReactNode[];
   children?: React.ReactNode;
   className?: string;
@@ -303,6 +316,19 @@ export const TableActions: React.FC<TableActionsProps> = ({
   onDelete,
   onDeleteLabel = 'Delete record',
   deleteConfirmTitle = 'Are you sure you want to delete this record?',
+  deleteConfirmDescription,
+  deleteItemType = 'Record',
+  deleteItemCode,
+  deleteItemName,
+  deleteRecordType,
+  deleteUserName,
+  deleteUserEmail,
+  deleteAvatarUrl,
+  deleteTags,
+  deleteSuccessTitle,
+  deleteSuccessMessage,
+  onDeleteSuccess,
+  disableConfirm = false,
   extraActions,
   children,
   className = '',
@@ -341,8 +367,10 @@ export const TableActions: React.FC<TableActionsProps> = ({
       icon: <DeleteOutlined />,
       danger: true,
       className: 'act-delete',
-      confirm: {
+      onClick: disableConfirm ? onDelete : undefined,
+      confirm: disableConfirm ? undefined : {
         title: deleteConfirmTitle,
+        description: deleteConfirmDescription,
         onConfirm: onDelete,
       },
     });
@@ -365,10 +393,25 @@ export const TableActions: React.FC<TableActionsProps> = ({
             open={deleteModalOpen}
             title={pendingConfirm.title}
             description={pendingConfirm.description || 'Are you sure you want to proceed with this deletion? This action cannot be undone.'}
+            itemType={deleteItemType}
+            itemCode={deleteItemCode}
+            itemName={deleteItemName}
+            recordType={deleteRecordType}
+            userName={deleteUserName}
+            userEmail={deleteUserEmail}
+            avatarUrl={deleteAvatarUrl}
+            tags={deleteTags}
+            successTitle={deleteSuccessTitle}
+            successMessage={deleteSuccessMessage}
             onConfirm={async () => {
               if (pendingConfirm.onConfirm) {
                 await pendingConfirm.onConfirm();
               }
+            }}
+            onSuccessClose={() => {
+              setDeleteModalOpen(false);
+              setPendingConfirm(null);
+              onDeleteSuccess?.();
             }}
             onCancel={() => {
               setDeleteModalOpen(false);
