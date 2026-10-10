@@ -15,9 +15,13 @@ import {
   grandTotalLabel,
   pdfLineRow,
   pdfSummaryRow,
+  PDF_MAIN_TEXT,
+  PDF_MUTED_TEXT,
+  PDF_SUB_TEXT,
   reportCellSubText,
   reportCellText,
   reportLabelSpan,
+  reportTotalSubText,
   reportTwoLineHtml,
   reportTotalText,
   sectionBlocks,
@@ -80,27 +84,29 @@ const model = () => buildDailyProductionReport(rows, opts());
  * 1. Column structure (Phase 6 order)
  * ------------------------------------------------------------------ */
 describe('Daily Production Report — columns', () => {
-  it('uses the specified order: Shift + Machine first, Rejection % at the end', () => {
+  it('uses the specified order: Shift + Machine + OT lead, REJECTION / SCRAP last', () => {
     expect(model().columns.map((c) => c.label)).toEqual([
-      'Sr. #', 'Shift', 'Machine', 'Operator', 'Item / Product', 'Target',
-      'Actual', 'Achievement %', 'Per Unit Weight', 'Actual KG',
-      'Breakdown Reason / Status', 'Rejection', 'Rejection %',
+      'Sr. #', 'Shift', 'Machine', 'OT (H)', 'Operator', 'Item / Product',
+      'Target', 'Actual', 'Achievement %', 'WEIGHT (KG)',
+      'Breakdown Reason / Status', 'REJECTION / SCRAP',
     ]);
   });
 
-  it('keeps Shift at 2nd and Achievement before the weight columns', () => {
+  it('keeps Shift 2nd, OT beside the machine params, and Achievement before the fused columns', () => {
     const keys = model().columns.map((c) => c.key);
     expect(keys[1]).toBe('shift');
     expect(keys[2]).toBe('machine');
-    expect(keys.indexOf('achievement')).toBeLessThan(keys.indexOf('perUnitWeight'));
-    expect(keys.indexOf('perUnitWeight')).toBeLessThan(keys.indexOf('actualKg'));
-    expect(keys.indexOf('actualKg')).toBeLessThan(keys.indexOf('status'));
+    expect(keys[3]).toBe('ot'); // OT (H) audits the extra hours right after Machine
+    expect(keys.indexOf('achievement')).toBeLessThan(keys.indexOf('weight'));
+    expect(keys.indexOf('weight')).toBeLessThan(keys.indexOf('status'));
+    expect(keys.indexOf('status')).toBeLessThan(keys.indexOf('rejectionScrap'));
   });
 
-  it('always totals 100% width and merges the first 4 columns for totals', () => {
+  it('always totals 100% width and merges the first 5 columns for totals', () => {
     const m = model();
     expect(m.columns.reduce((s, c) => s + c.width, 0)).toBe(100);
-    expect(reportLabelSpan(m.columns)).toBe(4); // Sr. # + Shift + Machine + Operator
+    // Sr. # + Shift + Machine + OT + Operator
+    expect(reportLabelSpan(m.columns)).toBe(5);
   });
 
   it('adds a Date column only when the export spans more than one day', () => {
@@ -112,7 +118,7 @@ describe('Daily Production Report — columns', () => {
     expect(multi.showDate).toBe(true);
     expect(multi.columns.map((c) => c.label)).toContain('Date');
     expect(multi.columns.reduce((s, c) => s + c.width, 0)).toBe(100);
-    expect(reportLabelSpan(multi.columns)).toBe(4);
+    expect(reportLabelSpan(multi.columns)).toBe(5);
   });
 });
 
@@ -159,23 +165,44 @@ describe('Daily Production Report — Phase 7 cell cleanup', () => {
     expect(resolved.shiftTime).toBe('22:00 - 06:00');
   });
 
-  it('replaces Rejection (KG) with Rejection % (2 decimals + %)', () => {
-    expect(line('SPK-10').rejectionPct).toBe(0.83); // 0.5 KG / 60 KG
-    expect(reportCellText(line('SPK-10'), 'rejectionPct')).toBe('0.83%');
-    expect(reportCellText(line('SPK-01'), 'rejectionPct')).toBe('1.00%');
-    expect(reportCellText(line('SPK-02'), 'rejectionPct')).toBe('0.00%');
-    expect(reportTotalText(model().grand, 'rejectionPct')).toBe('0.27%'); // 1.75 / 642.5
+  it('fuses Rejection KG + Rejection % into ONE stacked column', () => {
+    const spoke10 = line('SPK-10');
+    // 0.5 KG rejected out of 60.5 KG produced (60 good + 0.5 scrap) → 0.83%
+    expect(spoke10.rejectionPct).toBe(0.83);
+    expect(reportCellText(spoke10, 'rejectionScrap')).toBe('0.5'); // line 1 — flat KG
+    expect(reportCellSubText(spoke10, 'rejectionScrap')).toBe('0.83%'); // line 2 — the fixed %
+    expect(reportTwoLineHtml(spoke10, 'rejectionScrap')).toBe(
+      '<span class="rp-rj-top">0.5</span><span class="rp-rj-bottom">0.83%</span>',
+    );
+    // SPK-01: 1 KG out of 101 KG produced → 0.99%. The retired
+    // `/ Actual KG` maths reported 1.00% here, which is the bug being fixed.
+    expect(reportCellSubText(line('SPK-01'), 'rejectionScrap')).toBe('0.99%');
+    expect(reportCellSubText(line('SPK-02'), 'rejectionScrap')).toBe('0.00%');
+    // Totals pool both KG figures BEFORE dividing: 1.75 / (642.5 + 1.75).
+    expect(reportTotalText(model().grand, 'rejectionScrap')).toBe('1.75');
+    expect(reportTotalSubText(model().grand, 'rejectionScrap')).toBe('0.27%');
+    // The two standalone columns are gone.
     expect(model().columns.some((c) => c.label === 'Rejection (KG)')).toBe(false);
+    expect(model().columns.some((c) => c.label === 'Rejection %')).toBe(false);
+    expect(model().columns.some((c) => c.label === 'REJECTION / SCRAP')).toBe(true);
   });
 
-  it('keeps a zero Actual KG at 0.00% instead of dividing by zero', () => {
+  it('reads a zero-good run as 100.00% and a zero TOTAL as 0.00%', () => {
     const zero = buildDailyProductionReport(
       [makeRow({ actualQuantity: 0, scrapQuantity: 20 })],
       opts(),
     );
-    expect(zero.sections[0].lines[0].rejectionPct).toBe(0);
-    expect(reportCellText(zero.sections[0].lines[0], 'rejectionPct')).toBe('0.00%');
-    expect(reportTotalText(zero.grand, 'rejectionPct')).toBe('0.00%');
+    // 1 KG rejected out of 1 KG produced (nothing good) — all scrap → 100.00%
+    expect(zero.sections[0].lines[0].rejectionPct).toBe(100);
+    expect(reportCellSubText(zero.sections[0].lines[0], 'rejectionScrap')).toBe('100.00%');
+    expect(reportTotalSubText(zero.grand, 'rejectionScrap')).toBe('100.00%');
+    // …and when NEITHER operand exists the divide-by-zero guard still holds.
+    const nothing = buildDailyProductionReport(
+      [makeRow({ actualQuantity: 0, scrapQuantity: 0 })],
+      opts(),
+    );
+    expect(nothing.grand.rejectionPct).toBe(0);
+    expect(reportTotalSubText(nothing.grand, 'rejectionScrap')).toBe('0.00%');
   });
 });
 
@@ -185,33 +212,78 @@ describe('Daily Production Report — Phase 7 cell cleanup', () => {
 describe('Daily Production Report — compact 2-line layout', () => {
   const width = (key: string) => model().columns.find((c) => c.key === key)!.width;
 
-  it('spends the Machine / Per Unit Weight / Actual KG savings on Item / Product', () => {
-    expect(width('item')).toBe(22); // was 14 — a product name stays on ONE line
+  it('funds the new OT (H) column from Operator + Item and still totals 100', () => {
+    expect(width('item')).toBe(20); // 22 → 20; a product name still fits one line
     expect(width('shift')).toBe(9); // name on line 1, timing on line 2
     expect(width('machine')).toBe(5);
-    expect(width('perUnitWeight')).toBe(5); // bare minimum: the value is `0.05`
-    expect(width('actualKg')).toBe(6);
+    expect(width('ot')).toBe(5); // the injected column
+    expect(width('operator')).toBe(6); // gave up 1% to OT
+    // The two fused columns keep the space their halves used to own.
+    expect(width('weight')).toBe(11); // 5 (per unit) + 6 (actual KG)
+    expect(width('rejectionScrap')).toBe(10);
     // and the budget still adds up to exactly 100
     expect(model().columns.reduce((s, c) => s + c.width, 0)).toBe(100);
   });
 
   it('prints the bare per-unit weight — no KG/PCS suffix on any surface', () => {
     const spoke = model().sections.flatMap((s) => s.lines).find((l) => l.machine === 'SPK-01')!;
-    expect(reportCellText(spoke, 'perUnitWeight')).toBe('0.05');
+    expect(reportCellText(spoke, 'weight')).toBe('0.05');
     expect(buildPrintHtml(model())).not.toContain('KG/PCS');
     expect(buildDailyProductionCsv(model())).not.toContain('KG/PCS');
   });
 
   it('caps every printed cell at 2 lines (nowrap two-line cells + clamp)', () => {
     const html = buildPrintHtml(model());
-    // line 1 / line 2 of the Item and Shift cells can never wrap …
-    expect(html).toContain('.rp-item-name, .rp-item-code, .rp-shift-name, .rp-shift-time {');
+    // line 1 / line 2 of the FOUR fused cells can never wrap …
+    expect(html).toContain(
+      '.rp-item-name, .rp-item-code, .rp-shift-name, .rp-shift-time,\n  .rp-wt-top, .rp-wt-bottom, .rp-rj-top, .rp-rj-bottom {',
+    );
     expect(html).toContain('white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }');
-    // … long free text (operator, breakdown reason) is hard-clamped to 2 …
+    // … long free text (operator, runtime reason) is hard-clamped to 2 …
     expect(html).toContain('.rp-clamp2 { display: -webkit-box; -webkit-line-clamp: 2;');
     expect(html).toContain('<span class="rp-clamp2">');
     // … and a narrow header breaks BETWEEN words, never through one.
     expect(html).toContain('word-break: normal; overflow-wrap: break-word;');
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 1d. FUSED WEIGHT (KG) COLUMN + the injected OT (H) column
+ * ------------------------------------------------------------------ */
+describe('Daily Production Report — WEIGHT (KG) fusion & OT (H)', () => {
+  const line = (machine: string) =>
+    model().sections.flatMap((s) => s.lines).find((l) => l.machine === machine)!;
+
+  it('stacks Per Unit Weight on top (small) and Actual KG below (bold)', () => {
+    const spoke = line('SPK-01'); // 2,000 pcs × 0.05 KG/PCS = 100 KG
+    expect(reportCellText(spoke, 'weight')).toBe('0.05'); // line 1 — per unit
+    expect(reportCellSubText(spoke, 'weight')).toBe('100'); // line 2 — actual KG
+    expect(reportTwoLineHtml(spoke, 'weight')).toBe(
+      '<span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">100</span>',
+    );
+    // …and the print CSS carries the reversed emphasis (muted top / bold bottom).
+    const html = buildPrintHtml(model());
+    expect(html).toContain('.rp-wt-top { display: block; font-weight: 400; color: #64748b; }');
+    expect(html).toContain('.rp-wt-bottom { display: block; font-weight: 700; color: #0f172a; }');
+    expect(html).toContain('<span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">100</span>');
+  });
+
+  it('shows `—` over Σ Actual KG in the total rows (a per-unit weight is not summable)', () => {
+    expect(reportTotalText(model().grand, 'weight')).toBe('—');
+    expect(reportTotalSubText(model().grand, 'weight')).toBe('642.5');
+    const html = buildPrintHtml(model());
+    expect(html).toContain('<span class="rp-wt-top">—</span><span class="rp-wt-bottom">642.5</span>');
+  });
+
+  it('reads OT (H) from the canonical overtime rule, never from running hours', () => {
+    expect(reportCellText(line('SPK-01'), 'ot')).toBe('—'); // no OT on the fixture rows
+    const ot = buildDailyProductionReport([makeRow({ overtimeHours: 2.5 })], opts()).sections[0].lines[0];
+    expect(ot.ot).toBe(2.5);
+    expect(reportCellText(ot, 'ot')).toBe('2.5h');
+    // A legacy row whose OT survives only in remarks still audits it.
+    const legacy = buildDailyProductionReport([makeRow({ remarks: 'OT: 3 h' })], opts()).sections[0].lines[0];
+    expect(reportCellText(legacy, 'ot')).toBe('3h');
+    expect(reportTotalText(model().grand, 'ot')).toBe('—');
   });
 });
 
@@ -358,11 +430,65 @@ describe('Daily Production Report — achievement arrows & breakdown column', ()
     expect(reportTotalText(model().sections[0].totals, 'achievement')).toBe('110.0% ▲');
   });
 
-  it('shows the live breakdown hours + reason instead of the status word', () => {
-    expect(reportCellText(line('FL-01'), 'status')).toBe('Breakdown 8h - Wire jam');
-    expect(reportCellText(line('SPK-10'), 'status')).toBe('Breakdown 2h - Coil change');
-    expect(reportCellText(line('SPK-03'), 'status')).toBe('COMPLETED'); // no downtime → runtime status
+  it('renders the live runtime summary, never the static status word', () => {
+    // These fixture rows carry no shift plan, so the share falls back to the
+    // hours the row itself accounts for.
+    expect(reportCellText(line('FL-01'), 'status')).toBe('0 hrs Running (0%) / 8 hrs Breakdown - Wire jam');
+    expect(reportCellText(line('SPK-10'), 'status')).toBe('0 hrs Running (0%) / 2 hrs Breakdown - Coil change');
+    // A row with no hour data at all must not invent a confident "100%".
+    expect(reportCellText(line('SPK-03'), 'status')).toBe('—');
+    // The raw status survives as DATA but is never rendered.
     expect(line('SPK-01').status).toBe('COMPLETED');
+    expect(reportCellText(line('SPK-01'), 'status')).not.toContain('COMPLETED');
+  });
+
+  it('computes the runtime % against Planned + Overtime (the spec examples)', () => {
+    // 0.5h breakdown on a 12h available cycle → 11.5 hrs Running (95.8%).
+    const cycle = buildDailyProductionReport(
+      [
+        makeRow({
+          shift: { name: 'Day Shift', shiftCode: 'DAY', plannedHours: 12 },
+          downtimeHours: 0.5,
+          downtimeReasonText: 'Coil change',
+        }),
+      ],
+      opts(),
+    ).sections[0].lines[0];
+    expect(reportCellText(cycle, 'status')).toBe(
+      '11.5 hrs Running (95.8%) / 0.5 hrs Breakdown - Coil change',
+    );
+
+    // Zero downtime on an 8h plan → the breakdown half disappears entirely.
+    const clean = buildDailyProductionReport(
+      [makeRow({ shift: { name: 'Day Shift', shiftCode: 'DAY', plannedHours: 8 } })],
+      opts(),
+    ).sections[0].lines[0];
+    expect(reportCellText(clean, 'status')).toBe('8 hrs Running (100%)');
+  });
+
+  it('widens the available cycle by the OT hours (8h plan + 2h OT − 2h down)', () => {
+    const ot = buildDailyProductionReport(
+      [
+        makeRow({
+          shift: { name: 'Day Shift', shiftCode: 'DAY', plannedHours: 8 },
+          overtimeHours: 2,
+          downtimeHours: 2,
+        }),
+      ],
+      opts(),
+    ).sections[0].lines[0];
+    expect(ot.ot).toBe(2);
+    expect(reportCellText(ot, 'status')).toBe('8 hrs Running (80%) / 2 hrs Breakdown');
+  });
+
+  it('keeps a logged remark even when the row carries no hour data at all', () => {
+    const noted = buildDailyProductionReport(
+      [makeRow({ downtimeReasonText: 'Coil jam cleared' })],
+      opts(),
+    ).sections[0].lines[0];
+    // An operator's remark is real information — it is never discarded just
+    // because no hours were logged alongside it.
+    expect(reportCellText(noted, 'status')).toBe('Coil jam cleared');
   });
 
   it('drops the warning comment and the "No reason logged" placeholder', () => {
@@ -373,7 +499,7 @@ describe('Daily Production Report — achievement arrows & breakdown column', ()
       [makeRow({ downtimeHours: 8, downtimeReasonText: null })],
       opts(),
     );
-    expect(reportCellText(noReason.sections[0].lines[0], 'status')).toBe('Breakdown 8h');
+    expect(reportCellText(noReason.sections[0].lines[0], 'status')).toBe('0 hrs Running (0%) / 8 hrs Breakdown');
   });
 
   it('keeps the PDF variant ASCII (jsPDF embeds WinAnsi fonts)', () => {
@@ -382,7 +508,7 @@ describe('Daily Production Report — achievement arrows & breakdown column', ()
     );
     expect(pdfCells.join('')).not.toMatch(/[▲▼⚠]/);
     expect(reportCellText(line('FL-01'), 'achievement', 'pdf')).toBe('50.0%');
-    expect(reportCellText(line('FL-01'), 'status', 'pdf')).toBe('Breakdown 8h - Wire jam');
+    expect(reportCellText(line('FL-01'), 'status', 'pdf')).toBe('0 hrs Running (0%) / 8 hrs Breakdown - Wire jam');
     expect(reportTotalText(model().sections[2].totals, 'achievement', 'pdf')).toBe('80.9%');
     expect(reportTotalText(model().sections[2].totals, 'achievement')).toBe('80.9% ▲');
   });
@@ -477,27 +603,36 @@ describe('Daily Production Report — print layout', () => {
     expect(html).toContain('15,500'); // Σ Target (grand)
   });
 
-  it('prints the achievement arrows and the live breakdown reason', () => {
+  it('prints the achievement arrows and the live runtime summary', () => {
     expect(html).toContain('120.0% ▲');
     expect(html).toContain('50.0% ▼');
     expect(html).toContain('tone-up');
     expect(html).toContain('tone-down');
-    expect(html).toContain('Breakdown 8h - Wire jam');
-    expect(html).toContain('Breakdown 2h - Coil change');
+    expect(html).toContain('0 hrs Running (0%) / 8 hrs Breakdown - Wire jam');
+    expect(html).toContain('0 hrs Running (0%) / 2 hrs Breakdown - Coil change');
     expect(html).toContain('Breakdown Reason / Status');
     expect(html).not.toContain('⚠');
     expect(html).not.toContain('No reason logged');
     expect(html).not.toContain('Below 70% target');
+    // The static status word is gone from every rendered cell.
+    expect(html).not.toContain('>COMPLETED<');
   });
 
-  it('prints Item and Shift as two stacked lines (name/code, name/timing)', () => {
+  it('prints Item, Shift, WEIGHT (KG) and REJECTION / SCRAP as stacked pairs', () => {
     expect(html).toContain('<span class="rp-item-name">Spoke 40T</span><span class="rp-item-code">SP-40</span>');
     expect(html).toContain('<span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span>');
     expect(html).toContain('.rp-item-name { display: block; font-weight: 700;');
     expect(html).toContain('.rp-item-code { display: block; font-weight: 400; color: #94a3b8; }');
     expect(html).toContain('.rp-shift-time { display: block; font-weight: 400; color: #94a3b8; }');
-    expect(html).toContain('Rejection %');
+    // WEIGHT (KG) — per unit on top, the bold Actual KG underneath.
+    expect(html).toContain('<span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">100</span>');
+    // REJECTION / SCRAP — flat KG on top, the fixed % underneath.
+    expect(html).toContain('<span class="rp-rj-top">1</span><span class="rp-rj-bottom">0.99%</span>');
+    expect(html).toContain('WEIGHT (KG)');
+    expect(html).toContain('REJECTION / SCRAP');
+    expect(html).toContain('OT (H)');
     expect(html).not.toContain('Rejection (KG)');
+    expect(html).not.toContain('Per Unit Weight');
     expect(html).toContain('0.83%');
     expect(html).toContain('0.00%');
   });
@@ -539,37 +674,60 @@ describe('Daily Production Report — PDF rows', () => {
     const row = pdfLineRow(m.columns, low);
     expect(row).toHaveLength(m.columns.length);
     expect(row[2]).toBe('SPK-02'); // Machine is the 3rd column
+    expect(row[m.columns.findIndex((c) => c.key === 'ot')]).toBe('—');
     expect(row[achIdx]).toEqual({
       content: '50.0%',
       styles: { halign: 'right', fontStyle: 'bold', textColor: TONE_COLOR.down },
     });
-    expect(row[m.columns.findIndex((c) => c.key === 'status')]).toBe('COMPLETED');
+    // No hour data on this row → the runtime cell is the neutral dash,
+    // never the retired "COMPLETED" word.
+    expect(row[m.columns.findIndex((c) => c.key === 'status')]).toBe('—');
   });
 
-  it('emits the Item / Shift cells as a two-line cell for didDrawCell', () => {
+  it('emits the four fused cells as two-line cells for didDrawCell', () => {
     const low = spoke.lines.find((l) => l.machine === 'SPK-02')!;
     const row = pdfLineRow(m.columns, low);
     const shift = row[1];
-    const item = row[4];
+    const item = row[m.columns.findIndex((c) => c.key === 'item')];
+    const weight = row[m.columns.findIndex((c) => c.key === 'weight')];
+    const scrap = row[m.columns.findIndex((c) => c.key === 'rejectionScrap')];
     // line 1 is drawn by autoTable, line 2 by EntryList's didDrawCell
     expect(shift.content).toBe('SHIFT-A\n\u00A0');
     expect(shift.sub).toBe('-');
-    expect(shift.subColor).toEqual([148, 163, 184]);
-    expect(shift.styles).toEqual({ halign: 'left', textColor: [15, 23, 42] });
+    expect(shift.subColor).toEqual(PDF_SUB_TEXT);
+    expect(shift.styles).toEqual({ halign: 'left', textColor: PDF_MAIN_TEXT });
     expect(item.content).toBe('Spoke 40T\n\u00A0');
     expect(item.sub).toBe('SP-40');
     expect(item.styles.fontStyle).toBe('bold');
     expect(reportCellSubText(low, 'item')).toBe('SP-40');
+
+    // WEIGHT (KG) is the reversed one: muted per-unit on line 1, the Actual
+    // KG painted underneath in BOLD dark — subBold switches the font.
+    expect(weight).toEqual({
+      content: '0.05\n\u00A0',
+      sub: '12.5',
+      subColor: PDF_MAIN_TEXT,
+      subBold: true,
+      styles: { halign: 'right', textColor: PDF_MUTED_TEXT },
+    });
+    // REJECTION / SCRAP — flat KG over the muted %, normal weight.
+    expect(scrap).toEqual({
+      content: '0\n\u00A0',
+      sub: '0.00%',
+      subColor: PDF_SUB_TEXT,
+      subBold: false,
+      styles: { halign: 'right', textColor: PDF_MAIN_TEXT },
+    });
   });
 
-  it('spans the label over 4 columns and shades shift totals lighter', () => {
+  it('spans the label over 5 columns and shades shift totals lighter', () => {
     const day = pdfSummaryRow(m, spoke.shiftGroups[0].totals, 'DAY SHIFT TOTAL — Spoke', 'shift');
     expect(day[0]).toEqual(
-      expect.objectContaining({ content: 'DAY SHIFT TOTAL — Spoke', colSpan: 4 }),
+      expect.objectContaining({ content: 'DAY SHIFT TOTAL — Spoke', colSpan: 5 }),
     );
     expect(day[0].styles.fillColor).toEqual([232, 237, 243]);
-    // columns 4..n start at array index 1 → achievement sits at 1 + (achIdx - 4)
-    expect(day[1 + (achIdx - 4)]).toEqual(
+    // columns 5..n start at array index 1 → achievement sits at 1 + (achIdx - 5)
+    expect(day[1 + (achIdx - 5)]).toEqual(
       expect.objectContaining({
         content: '98.6%', // totals show one decimal, like the print output
         styles: expect.objectContaining({ textColor: TONE_COLOR.up }),
@@ -577,9 +735,29 @@ describe('Daily Production Report — PDF rows', () => {
     );
     const dept = pdfSummaryRow(m, spoke.totals, 'DEPARTMENT GRAND TOTAL — Spoke', 'department');
     expect(dept[0].styles.fillColor).toEqual([226, 232, 240]);
-    expect(dept[1 + (achIdx - 4)]).toEqual(
+    expect(dept[1 + (achIdx - 5)]).toEqual(
       expect.objectContaining({ content: '80.9%', styles: expect.objectContaining({ textColor: TONE_COLOR.up }) }),
     );
+  });
+
+  it('keeps BOTH lines of the fused columns in the total rows too', () => {
+    const day = pdfSummaryRow(m, spoke.shiftGroups[0].totals, 'DAY SHIFT TOTAL — Spoke', 'shift');
+    const weight = day[1 + (m.columns.findIndex((c) => c.key === 'weight') - 5)];
+    const scrap = day[1 + (m.columns.findIndex((c) => c.key === 'rejectionScrap') - 5)];
+    // Σ Actual KG rides under a `—`, because a per-unit weight is not summable.
+    expect(weight).toEqual(expect.objectContaining({
+      content: '—\n\u00A0',
+      sub: '172.5',
+      subBold: true,
+    }));
+    // Σ Rejection KG over the POOLED percentage (1.5 / 174 = 0.86%).
+    expect(scrap).toEqual(expect.objectContaining({
+      content: '1.5\n\u00A0',
+      sub: '0.86%',
+    }));
+    // Both stay legible on the shaded total background.
+    expect(weight.styles.fillColor).toEqual([232, 237, 243]);
+    expect(scrap.styles.fillColor).toEqual([232, 237, 243]);
   });
 });
 
@@ -601,7 +779,7 @@ describe('Daily Production Report — Excel (CSV) export', () => {
 
   it('uses the same column labels as print/PDF, plus UOM', () => {
     expect(lines[headerIdx]).toBe(
-      'Sr. #,Shift,Machine,Operator,Item / Product,Target,Actual,Achievement %,Per Unit Weight,Actual KG,Breakdown Reason / Status,Rejection,Rejection %,UOM',
+      'Sr. #,Shift,Machine,OT (H),Operator,Item / Product,Target,Actual,Achievement %,WEIGHT (KG),Breakdown Reason / Status,REJECTION / SCRAP,UOM',
     );
   });
 
@@ -628,52 +806,57 @@ describe('Daily Production Report — Excel (CSV) export', () => {
     const spokeIdx = lines.indexOf('DEPARTMENT — Spoke');
     const day = lines[spokeIdx + 4].split(',');
     expect(day[0]).toBe('DAY SHIFT TOTAL — Spoke');
-    expect(day[5]).toBe('3500'); // Σ Target — unquoted number for Excel
-    expect(day[6]).toBe('3450'); // Σ Actual
-    expect(day[7]).toBe('98.57 ▲'); // weighted achievement + indicator
-    expect(day[9]).toBe('172.5'); // Σ Actual KG
-    expect(day[11]).toBe('30'); // Σ Rejection
-    expect(day[12]).toBe('0.87%'); // Σ Rejection % — 1.5 / 172.5 KG
+    expect(day[6]).toBe('3500'); // Σ Target — unquoted number for Excel
+    expect(day[7]).toBe('3450'); // Σ Actual
+    expect(day[8]).toBe('98.57 ▲'); // weighted achievement + indicator
+    expect(day[3]).toBe(''); // OT — nothing to sum on these fixtures
+    // WEIGHT (KG): `—` (per-unit is not summable) over Σ Actual KG.
+    expect(day[9]).toBe('"—\n172.5"');
+    // REJECTION / SCRAP: Σ Rejection KG over the POOLED percentage.
+    expect(day[11]).toBe('"1.5\n0.86%"');
 
     const night = lines[spokeIdx + 7].split(',');
-    expect(night[5]).toBe('2000');
-    expect(night[6]).toBe('1000');
-    expect(night[7]).toBe('50 ▼');
+    expect(night[6]).toBe('2000');
+    expect(night[7]).toBe('1000');
+    expect(night[8]).toBe('50 ▼');
 
     const dept = lines[spokeIdx + 8].split(',');
-    expect(dept[5]).toBe('5500');
-    expect(dept[6]).toBe('4450');
-    expect(dept[7]).toBe('80.91 ▲');
-    expect(dept[9]).toBe('222.5');
+    expect(dept[6]).toBe('5500');
+    expect(dept[7]).toBe('4450');
+    expect(dept[8]).toBe('80.91 ▲');
+    expect(dept[9]).toBe('"—\n222.5"');
 
     const grand = lines.find((l) => l.startsWith('GRAND TOTAL'))!.split(',');
-    expect(grand[5]).toBe('15500');
-    expect(grand[6]).toBe('12850');
-    expect(grand[7]).toBe('82.9 ▲');
-    expect(grand[9]).toBe('642.5');
-    expect(grand[11]).toBe('35');
-    expect(grand[12]).toBe('0.27%'); // 1.75 / 642.5 KG
+    expect(grand[6]).toBe('15500');
+    expect(grand[7]).toBe('12850');
+    expect(grand[8]).toBe('82.9 ▲');
+    expect(grand[9]).toBe('"—\n642.5"');
+    expect(grand[11]).toBe('"1.75\n0.27%"'); // 1.75 / (642.5 + 1.75)
   });
 
-  it('keeps quantity cells numeric and carries the breakdown reason', () => {
+  it('keeps quantity cells numeric and carries the runtime reason', () => {
     const first = lines[headerIdx + 3]; // DEPARTMENT — Straightener is +2
     const cells = first.split(',');
-    expect(Number.isFinite(Number(cells[5]))).toBe(true); // Target
-    expect(Number.isFinite(Number(cells[6]))).toBe(true); // Actual
-    expect(cells[7]).toBe('110 ▲');
+    expect(Number.isFinite(Number(cells[6]))).toBe(true); // Target
+    expect(Number.isFinite(Number(cells[7]))).toBe(true); // Actual
+    expect(cells[8]).toBe('110 ▲');
     expect(first.endsWith(',PCS')).toBe(true); // UOM column last
 
     const flatIdx = lines.indexOf('DEPARTMENT — Flattening');
     const flat = lines[flatIdx + 1].split(',');
-    expect(flat[10]).toBe('Breakdown 8h - Wire jam');
-    expect(flat[7]).toBe('50 ▼');
+    expect(flat[10]).toBe('0 hrs Running (0%) / 8 hrs Breakdown - Wire jam');
+    expect(flat[8]).toBe('50 ▼');
+    expect(flat[3]).toBe('0'); // OT (H) — still a plain numeric cell
   });
 
-  it('writes Item and Shift as two lines and Rejection as a %', () => {
+  it('writes Item, Shift and the two fused columns as stacked pairs', () => {
     const first = lines[headerIdx + 3].split(',');
-    expect(first[4]).toBe('"Spoke 40T\nSP-40"'); // name, then code — no "Name (CODE)"
+    expect(first[5]).toBe('"Spoke 40T\nSP-40"'); // name, then code — no "Name (CODE)"
     expect(first[1]).toBe('"SHIFT-A\n-"'); // shift name, then its timing
-    expect(first[12]).toBe('0.11%'); // Rejection % — 0.25 / 220 KG (ST-01)
+    // ST-01: 0.25 KG rejected of 220.25 KG produced → 0.11%
+    expect(first[11]).toBe('"0.25\n0.11%"');
+    // ST-01: per-unit 0.05 over Σ 220 KG actual.
+    expect(first[9]).toBe('"0.05\n220"');
     expect(lines.join('\r\n')).not.toContain('Rejection (KG)');
   });
 });

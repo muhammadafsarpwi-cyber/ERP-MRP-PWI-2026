@@ -1,6 +1,11 @@
 import dayjs from 'dayjs';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
+/* Both are pure (no React, no antd, no EntryList), so importing them keeps
+ * this module unit-testable while guaranteeing the printed OT / running hours
+ * are EXACTLY the figures the on-screen grid and its KPIs render. */
+import { effectiveDowntime, effectiveRunning } from './downtimeHours';
+import { entryOvertimeHours } from './overtimeHours';
 
 /**
  * PHASE 7 — DAILY PRODUCTION REPORT model (Print / PDF / Excel-CSV).
@@ -36,38 +41,60 @@ import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeigh
  *                 `GRAND TOTAL — N departments`. Each row sums Target /
  *                 Actual / Actual KG / Rejection / Rejection % and shows the
  *                 WEIGHTED achievement (ΣActual / ΣTarget), never a row mean.
- *   COLUMNS     · Sr. # | Shift | Machine | Operator | Item / Product |
- *                 Target | Actual | Achievement % | Per Unit Weight |
- *                 Actual KG | Breakdown Reason / Status | Rejection |
- *                 Rejection %   — `Date` is appended only when the result
- *                 spans more than one day. The widths always total 100 and
- *                 are budgeted so no cell needs a third line (see the
- *                 comment on BASE_COLUMNS): Machine 5 · Per Unit Weight 5 ·
- *                 Actual KG 6 free up the space Item / Product needs to keep
- *                 a product name on ONE line.
+ *   COLUMNS     · Sr. # | Shift | Machine | OT (H) | Operator | Item /
+ *                 Product | Target | Actual | Achievement % | WEIGHT (KG) |
+ *                 Breakdown Reason / Status | REJECTION / SCRAP
+ *                 — `Date` is appended only when the result spans more than
+ *                 one day. The widths always total 100 and are budgeted so
+ *                 no cell needs a third line (see the comment on
+ *                 BASE_COLUMNS): Machine 5 and the two 11/10-point merged
+ *                 columns free up the space Item / Product needs to keep a
+ *                 product name on ONE line.
  *   TWO-LINE    · HARD MAXIMUM — no printed or PDF row is taller than two
- *                 lines. Item / Product: line 1 = product name (bold, dark),
- *                 line 2 = Item/WIP code (light gray, normal) — never the
- *                 bundled `Name (CODE)` form; both lines are `nowrap` in the
- *                 print CSS and ellipsized by autoTable in the PDF, so a long
- *                 name can never wrap onto a 3rd line.
- *                 Shift: line 1 = shift name, line 2 = the shift timing
- *                 (`06:00 - 14:00`), `-` when the timing is unknown.
+ *                 lines. FOUR columns are stacked, and all four are nowrap +
+ *                 ellipsized in the print CSS and by autoTable in the PDF,
+ *                 so a long value can never wrap onto a 3rd line:
+ *                 · Item / Product: line 1 = product name (bold, dark),
+ *                   line 2 = Item/WIP code (light gray) — never the bundled
+ *                   `Name (CODE)` form;
+ *                 · Shift: line 1 = shift name, line 2 = the shift timing
+ *                   (`06:00 - 14:00`), `-` when the timing is unknown;
+ *                 · WEIGHT (KG): line 1 = Per Unit Weight (small, muted),
+ *                   line 2 = Actual KG (bold, prominent) — the two former
+ *                   columns fused into one;
+ *                 · REJECTION / SCRAP: line 1 = Rejection KG (flat count),
+ *                   line 2 = Rejection % — likewise fused.
  *                 Operator / breakdown reason are clamped to 2 lines.
  *   PER UNIT WT · the bare number (`0.00967`): the trailing ` KG/PCS` suffix
  *                 would wrap the narrow column, and the UOM travels in its
  *                 own trailing column anyway.
- *   REJECTION % · (Rejection KG / Actual KG) × 100, 2 decimals + `%`; a zero
- *                 Actual KG always shows `0.00%`. Both operands are hard-cast
- *                 with `Number()` (a decimal string from the driver can never
- *                 compare as 0) and the denominator is EXACTLY the value the
- *                 Actual KG column prints.
+ *   OT          · `OT (H)` reads the canonical overtime rule (`overtime_hours`
+ *                 → legacy `OT: X h` in remarks) via `entryOvertimeHours`, so
+ *                 the paper figure always equals the grid's OT column and the
+ *                 OT KPI. `—` when the entry has none.
+ *   REJECTION % · `Rejection KG / (Actual KG + Rejection KG) × 100`, always
+ *                 `.toFixed(2)` + `%`. The denominator is the TOTAL produced
+ *                 (good + rejected), which is the same formula
+ *                 `aggregateProductionTotals` already uses for the on-screen
+ *                 scrap KPI — the two surfaces can no longer disagree. Both
+ *                 operands are hard-cast with `Number()` (a decimal string
+ *                 from the driver can never compare as 0) and only a zero
+ *                 TOTAL produces `0.00%` (100% rejected of a zero-good run
+ *                 correctly reads `100.00%`).
  *   ACHIEVEMENT · >= 70% → green ▲ next to the percentage; < 70% → red ▼.
  *                 The 70% threshold drives ONLY the arrow colour.
- *   DOWNTIME    · `Breakdown Reason / Status` carries the live downtime hours
- *                 and reason joined by ` - ` (`Breakdown 8h - Wire jam`), so a
- *                 long breakdown can never hide behind a generic "COMPLETED".
- *                 No "No reason logged" placeholder and no ⚠ marker.
+ *   RUNTIME     · the status cell NEVER shows a static word ("COMPLETED").
+ *                 It is always the live runtime summary —
+ *                 `11.5 hrs Running (95.8%) / 0.5 hrs Breakdown`, or
+ *                 `8 hrs Running (100%)` when the shift had no downtime —
+ *                 with the operator's downtime remark appended (` - Wire
+ *                 jam`) when one was logged. Running / downtime are resolved
+ *                 against `Shift Planned + Overtime` through the SAME
+ *                 `effectiveRunning` / `effectiveDowntime` helpers the grid
+ *                 renders, so paper and screen always agree. A row carrying
+ *                 no hour data at all (no shift plan, nothing stored, no
+ *                 downtime) prints the operator's remark on its own, or `—`
+ *                 when there is none, rather than inventing a 100%.
  *
  * GLYPH MODE   · 'display' (print HTML + Excel) keeps the ▲/▼ glyphs;
  *               · 'pdf'     drops them to ASCII, because jsPDF writes UTF-16
@@ -93,6 +120,8 @@ export interface ReportRowSource {
     startTime?: string | null;
     /** Shift master end time — line 2 of the Shift cell (`06:00 - 14:00`). */
     endTime?: string | null;
+    /** Shift master planned hours — the base of the runtime column. */
+    plannedHours?: number | string | null;
   } | null;
   machine?: { machineCode?: string; name?: string } | null;
   machineNo?: string;
@@ -108,9 +137,16 @@ export interface ReportRowSource {
   actualQuantity?: number | string;
   achievementPercentage?: number | string | null;
   scrapQuantity?: number | string;
-  /** Downtime shown in the Breakdown column (hours + reason). */
+  /** Downtime shown in the runtime column (hours + reason). */
   downtimeHours?: number | string;
   downtimeReasonText?: string | null;
+  /** Persisted running hours — fallback when the row has no shift plan. */
+  runningHours?: number | string;
+  /** Persisted overtime hours (the `OT (H)` column). Read by the canonical
+   *  `entryOvertimeHours` rule, so legacy remarks `OT: X h` are honoured too. */
+  overtimeHours?: number | string | null;
+  /** Entry remarks — the legacy home of `OT: X h`, read by that same rule. */
+  remarks?: string | null;
 }
 
 export interface ReportOptions {
@@ -136,9 +172,8 @@ export interface ReportOptions {
  * Columns
  * ------------------------------------------------------------------ */
 export type ReportColumnKey =
-  | 'sr' | 'shift' | 'machine' | 'operator' | 'item' | 'target' | 'actual'
-  | 'achievement' | 'perUnitWeight' | 'actualKg' | 'status'
-  | 'rejection' | 'rejectionPct' | 'date';
+  | 'sr' | 'shift' | 'machine' | 'ot' | 'operator' | 'item' | 'target' | 'actual'
+  | 'achievement' | 'weight' | 'status' | 'rejectionScrap' | 'date';
 
 export interface ReportColumn {
   key: ReportColumnKey;
@@ -148,35 +183,67 @@ export interface ReportColumn {
   width: number;
 }
 
-/** Phase 7 column order — Shift and Machine lead, achievement before the
- *  weight columns, the live breakdown reason replaces the static status, and
- *  Rejection (KG) is expressed as a % of the Actual KG produced.
+/* ------------------------------------------------------------------ *
+ * FUSED (stacked) COLUMNS — the two-line cells.
+ *
+ * `weight` fuses the former `Per Unit Weight` + `Actual KG` columns and
+ * `rejectionScrap` fuses `Rejection` + `Rejection %`. Each holds its pair as
+ * line 1 / line 2 instead of two independent grid columns.
+ *
+ * This registry is the SINGLE source of truth for all three surfaces:
+ *   · print  → `reportTwoLineHtml` maps main/sub onto the CSS classes;
+ *   · PDF    → `STACKED_PDF` supplies the per-line colour + weight;
+ *   · Excel  → `csvLineCell` joins the pair with a newline in one cell.
+ *
+ * Note the reversed emphasis: Item/Shift lead with the BOLD line and trail
+ * with the muted one, while WEIGHT leads muted (the small per-unit figure)
+ * and trails bold/prominent (Actual KG — the number people read).
+ * ------------------------------------------------------------------ */
+export type StackedCellKey = 'item' | 'shift' | 'weight' | 'rejectionScrap';
+
+const STACKED_CELLS: Record<StackedCellKey, { main: string; sub: string }> = {
+  item: { main: 'rp-item-name', sub: 'rp-item-code' },
+  shift: { main: 'rp-shift-name', sub: 'rp-shift-time' },
+  weight: { main: 'rp-wt-top', sub: 'rp-wt-bottom' },
+  rejectionScrap: { main: 'rp-rj-top', sub: 'rp-rj-bottom' },
+};
+
+export const STACKED_KEYS = Object.keys(STACKED_CELLS) as StackedCellKey[];
+
+export function isStackedColumn(key: ReportColumnKey): key is StackedCellKey {
+  return Object.prototype.hasOwnProperty.call(STACKED_CELLS, key);
+}
+
+/** Phase 7 column order — Shift and Machine lead, OT audits the extra hours
+ *  right beside the shift/machine parameters, achievement precedes the two
+ *  fused columns, and the live runtime summary replaces the static status.
  *
  *  COMPACT 2-LINE RHYTHM — the width budget guarantees that no cell ever
  *  needs a third line (print CSS keeps every cell at ≤ 2 physical lines):
- *    · Machine 5, Per Unit Weight 5 (the value is the bare number
- *      `0.00967`, no ` KG/PCS` suffix) and Actual KG 6 — those 8 points all
- *      moved into Item / Product 14 → 22, so `125-300*17 Inner Straight`
- *      stays on ONE line above its Item/WIP code;
+ *    · Machine 5 and OT 5 are the narrowest cells (short codes / `2.5h`);
+ *    · Operator gives up 1% (7 → 6) and Item / Product 2% (22 → 20) to fund
+ *      the new OT column, which is enough for `125-300*17 Inner Straight`
+ *      to stay on ONE line above its Item/WIP code;
+ *    · WEIGHT (KG) keeps the 5 + 6 the two fused columns used to own (11),
+ *      REJECTION / SCRAP the 6 + 6 (12 → trimmed to 10, since one header
+ *      now covers both words) — those savings also fund OT;
  *    · Shift 9 holds the shift name (`General Shift`) on line 1 and the
  *      timing (`06:00 - 14:00`) on line 2, neither one wrapping;
- *    · Rejection / Rejection % take 6 each so their header words fit on one
- *      line (Status gives up the 2%, it is clamped to 2 lines anyway).
+ *    · Status 10 is clamped to 2 lines and carries the runtime summary.
  *  The columns ALWAYS total 100 (asserted by dailyProductionReport.test.ts). */
 const BASE_COLUMNS: ReportColumn[] = [
   { key: 'sr', label: 'Sr. #', align: 'center', width: 4 },
   { key: 'shift', label: 'Shift', align: 'left', width: 9 },
   { key: 'machine', label: 'Machine', align: 'left', width: 5 },
-  { key: 'operator', label: 'Operator', align: 'left', width: 7 },
-  { key: 'item', label: 'Item / Product', align: 'left', width: 22 },
+  { key: 'ot', label: 'OT (H)', align: 'right', width: 5 },
+  { key: 'operator', label: 'Operator', align: 'left', width: 6 },
+  { key: 'item', label: 'Item / Product', align: 'left', width: 20 },
   { key: 'target', label: 'Target', align: 'right', width: 6 },
   { key: 'actual', label: 'Actual', align: 'right', width: 6 },
   { key: 'achievement', label: 'Achievement %', align: 'right', width: 8 },
-  { key: 'perUnitWeight', label: 'Per Unit Weight', align: 'right', width: 5 },
-  { key: 'actualKg', label: 'Actual KG', align: 'right', width: 6 },
+  { key: 'weight', label: 'WEIGHT (KG)', align: 'right', width: 11 },
   { key: 'status', label: 'Breakdown Reason / Status', align: 'left', width: 10 },
-  { key: 'rejection', label: 'Rejection', align: 'right', width: 6 },
-  { key: 'rejectionPct', label: 'Rejection %', align: 'right', width: 6 },
+  { key: 'rejectionScrap', label: 'REJECTION / SCRAP', align: 'right', width: 10 },
 ];
 
 const DATE_COLUMN: ReportColumn = { key: 'date', label: 'Date', align: 'center', width: 6 };
@@ -187,14 +254,14 @@ function buildColumns(showDate: boolean): ReportColumn[] {
   if (!showDate) return BASE_COLUMNS.map((c) => ({ ...c }));
   return [
     ...BASE_COLUMNS.map((c) =>
-      c.key === 'item' ? { ...c, width: 17 } : c.key === 'operator' ? { ...c, width: 6 } : { ...c },
+      c.key === 'item' ? { ...c, width: 15 } : c.key === 'operator' ? { ...c, width: 5 } : { ...c },
     ),
     { ...DATE_COLUMN },
   ];
 }
 
 /** Number of leading columns merged into the single summary/label cell
- *  (Sr. # + Shift + Machine + Operator). */
+ *  (Sr. # + Shift + Machine + OT + Operator). */
 export function reportLabelSpan(columns: ReportColumn[]): number {
   const idx = columns.findIndex((c) => c.key === 'item');
   return idx > 0 ? idx : 1;
@@ -218,20 +285,25 @@ export interface ReportLine {
   perUnitWeight: string;
   actualKg: number | null;
   achievement: number | null;
-  /** Runtime status from `getEntryStatus` (shown when no downtime logged). */
+  /** Authoritative status from `getEntryStatus` — carried as data only; the
+   *  rendered cell always shows `runtime`, never this word. */
   status: string;
-  /** `Breakdown 8h - Wire jam` — empty when the row had no downtime. */
-  breakdown: string;
   /** Line 1 of the Shift cell — the shift name. */
   shift: string;
   /** Line 2 of the Shift cell — `06:00 - 14:00`, or `-` when unknown. */
   shiftTime: string;
   shiftKind: ShiftKind;
+  /** Overtime hours (canonical `overtime_hours` → legacy remarks fallback). */
+  ot: number;
   rejection: number;
   rejectionKg: number | null;
-  /** (Rejection KG / Actual KG) × 100, rounded to 2 decimals. 0 when the
-   *  Actual KG is zero / unknown. */
+  /** `Rejection KG / (Actual KG + Rejection KG) × 100`, 2 decimals — the same
+   *  formula `aggregateProductionTotals` uses on screen. 0 only when the total
+   *  produced KG is zero / unknown. */
   rejectionPct: number;
+  /** Live runtime summary replacing the static status word —
+   *  `11.5 hrs Running (95.8%) / 0.5 hrs Breakdown - Wire jam`. */
+  runtime: string;
   uom: string;
   date: string;
 }
@@ -243,9 +315,11 @@ export interface ReportTotals {
   target: number;
   actual: number;
   actualKg: number;
+  /** Σ overtime hours. */
+  ot: number;
   rejection: number;
   rejectionKg: number;
-  /** Σ Rejection KG / Σ Actual KG × 100 (0 when Σ Actual KG is 0). */
+  /** Σ Rejection KG / (Σ Actual KG + Σ Rejection KG) × 100. */
   rejectionPct: number;
   /** Weighted achievement: ΣActual / ΣTarget × 100 (null when no target). */
   achievement: number | null;
@@ -386,26 +460,57 @@ const blank = (v?: string | null): string => (v ?? '').trim();
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const round4 = (n: number): number => Math.round(n * 10000) / 10000;
 
-/** `Breakdown 1h - Electrical Issue` — duration first, then the logged
- *  reason. Nothing else ever lands in the status cell (no "No reason logged"
- *  placeholder, no ⚠ marker). */
-function breakdownText(downtimeHours: number, reason: string): string {
-  const parts: string[] = [];
-  if (downtimeHours > 0) parts.push(`Breakdown ${formatNumber(downtimeHours, 1)}h`);
-  if (reason) parts.push(reason);
-  return parts.join(' - ');
+/**
+ * Line 1/2 of the runtime column — ALWAYS the live operation summary, never a
+ * static status word:
+ *
+ *   `11.5 hrs Running (95.8%) / 0.5 hrs Breakdown - Coil change`
+ *   `8 hrs Running (100%)`
+ *
+ * The hours are formatted with `formatNumber(…, 1)`, which drops trailing
+ * zeros — that is what renders `8 hrs` and `(100%)` without a spurious
+ * `.0`, while `95.8` keeps its single decimal. The breakdown half is omitted
+ * entirely when the shift had no downtime, and the operator's logged remark
+ * is appended last so the cause is auditable on paper.
+ *
+ * `available` is `Shift Planned + Overtime` (0 when the row carries no shift
+ * plan); `running`/`downtime` are the figures already resolved against it by
+ * `effectiveRunning` / `effectiveDowntime`, so the printed percentage is the
+ * share of the AVAILABLE hours the machine actually ran.
+ */
+export function runtimeText(
+  running: number,
+  downtime: number,
+  available: number,
+  reason: string,
+): string {
+  // No hour data at all on this row (no shift plan, nothing stored, no
+  // downtime): the report must not fabricate a confident "100%" for a
+  // machine it knows nothing about. A remark the operator DID log still
+  // stands on its own as the reason text — never silently discarded.
+  if (!(available > 0) && !(running > 0) && !(downtime > 0)) return reason || '—';
+  // With a shift plan the share is against the AVAILABLE hours; without one
+  // it can only be against the hours the row actually accounts for.
+  const base = available > 0 ? available : running + downtime;
+  const pct = base > 0 ? (running / base) * 100 : 0;
+  const head = `${formatNumber(running, 1)} hrs Running (${formatNumber(pct, 1)}%)`;
+  const body = downtime > 0 ? `${head} / ${formatNumber(downtime, 1)} hrs Breakdown` : head;
+  return reason ? `${body} - ${reason}` : body;
 }
 
-/** Rejection % — `(Rejection KG / Actual KG) × 100`, 2 decimals.
- *  The denominator is EXACTLY the value printed in the Actual KG column
- *  (`actualKgRounded` / `totals.actualKg`), and both operands are hard-cast
- *  to Number first so a decimal string coming back from the driver can never
- *  silently compare as 0. A zero / unknown Actual KG always yields 0 →
- *  `0.00%`. */
+/** Rejection % — `Rejection KG / (Actual KG + Rejection KG) × 100`, 2 decimals.
+ *  The denominator is the TOTAL produced (good + rejected), which is exactly
+ *  what `aggregateProductionTotals` uses for the on-screen scrap KPI, so the
+ *  two surfaces can never disagree. Both operands are hard-cast to Number
+ *  first so a decimal string coming back from the driver can never silently
+ *  compare as 0. Only a zero / unknown TOTAL yields `0.00%` — a run that
+ *  produced nothing but scrap correctly reads `100.00%`. */
 function rejectionPercent(rejectionKg: number | null | undefined, actualKg: number | null | undefined): number {
   const actual = Number(toNum(actualKg));
-  if (!(actual > 0)) return 0; // 0, null, '' or NaN denominator → 0.00%
-  return round2((Number(toNum(rejectionKg)) / actual) * 100);
+  const rejected = Number(toNum(rejectionKg));
+  const total = actual + rejected;
+  if (!(total > 0)) return 0; // 0, null, '' or NaN total → 0.00%
+  return round2((rejected / total) * 100);
 }
 
 /** `0.15%` — always exactly 2 decimals, so an empty weight reads `0.00%`. */
@@ -450,6 +555,7 @@ function addLine(acc: { totals: ReportTotals; machines: Set<string> }, line: Rep
   acc.totals.target += line.target;
   acc.totals.actual += line.actual;
   acc.totals.actualKg += line.actualKg ?? 0;
+  acc.totals.ot += line.ot;
   acc.totals.rejection += line.rejection;
   acc.totals.rejectionKg += line.rejectionKg ?? 0;
   if (line.machine) acc.machines.add(line.machine);
@@ -458,6 +564,7 @@ function addLine(acc: { totals: ReportTotals; machines: Set<string> }, line: Rep
 
 function finishTotals(totals: ReportTotals): ReportTotals {
   totals.actualKg = round4(totals.actualKg);
+  totals.ot = round2(totals.ot);
   totals.rejection = round4(totals.rejection);
   totals.rejectionKg = round4(totals.rejectionKg);
   totals.rejectionPct = rejectionPercent(totals.rejectionKg, totals.actualKg);
@@ -467,8 +574,8 @@ function finishTotals(totals: ReportTotals): ReportTotals {
 
 function emptyTotals(departments: number): ReportTotals {
   return {
-    departments, entries: 0, machines: 0, target: 0, actual: 0,
-    actualKg: 0, rejection: 0, rejectionKg: 0, rejectionPct: 0, achievement: null,
+    departments, entries: 0, machines: 0, target: 0, actual: 0, actualKg: 0, ot: 0,
+    rejection: 0, rejectionKg: 0, rejectionPct: 0, achievement: null,
   };
 }
 
@@ -503,6 +610,17 @@ export function buildDailyProductionReport(
         ? target > 0 ? round2((actual / target) * 100) : null
         : round2(toNum(row.achievementPercentage));
 
+    /* --- OT (H) + the live runtime summary -------------------- */
+    const ot = entryOvertimeHours(row);
+    const planned = toNum(row.shift?.plannedHours);
+    const storedRunning = round2(Math.max(0, toNum(row.runningHours)));
+    const downtime = round2(Math.max(0, toNum(row.downtimeHours)));
+    // Same resolution the grid renders: running = Planned + OT − Downtime,
+    // falling back to the stored column when the row carries no shift plan.
+    const running = effectiveRunning(storedRunning, downtime, planned, ot);
+    const downShown = effectiveDowntime(storedRunning, downtime, planned, ot);
+    const available = planned > 0 ? round2(planned + Math.max(0, ot)) : 0;
+
     const line: ReportLine = {
       sr: 0,
       machine,
@@ -517,13 +635,14 @@ export function buildDailyProductionReport(
       actualKg: actualKgRounded,
       achievement,
       status: blank(statusOf(row)) || '—',
-      breakdown: breakdownText(toNum(row.downtimeHours), blank(row.downtimeReasonText)),
+      ot,
       shift: blank(row.shift?.name) || blank(row.shift?.shiftCode) || '—',
       shiftTime: blank(shiftTiming(row)) || '-',
       shiftKind: classifyShift(row.shift),
       rejection,
       rejectionKg: rejectionKgRounded,
       rejectionPct: rejectionPercent(rejectionKgRounded, actualKgRounded),
+      runtime: runtimeText(running, downShown, available, blank(row.downtimeReasonText)),
       uom,
       date: row.entryDate ? dayjs(row.entryDate).format('YYYY-MM-DD') : '',
     };
@@ -657,6 +776,11 @@ export function sectionBlocks(section: ReportSection): ReportBlock[] {
 
 /* ------------------------------------------------------------------ *
  * Cell renderers (Print + PDF share these; CSV has its own numeric ones)
+ *
+ * A column is either single-line (`reportCellText`) or FUSED/stacked, in
+ * which case `reportCellText` returns line 1 and `reportCellSubText` returns
+ * line 2 (see STACKED_CELLS). All three surfaces read the same two functions,
+ * so the printed page, the PDF and the spreadsheet cannot drift apart.
  * ------------------------------------------------------------------ */
 export function reportCellText(line: ReportLine, key: ReportColumnKey, mode: ReportGlyphMode = 'display'): string {
   switch (key) {
@@ -666,8 +790,9 @@ export function reportCellText(line: ReportLine, key: ReportColumnKey, mode: Rep
     case 'item': return line.item;
     case 'target': return formatNumber(line.target, 2);
     case 'actual': return formatNumber(line.actual, 2);
-    case 'perUnitWeight': return line.perUnitWeight;
-    case 'actualKg': return line.actualKg == null ? '—' : formatNumber(line.actualKg, 2);
+    /* Line 1 of WEIGHT (KG) — the small, muted per-unit figure. */
+    case 'weight': return line.perUnitWeight;
+    case 'ot': return line.ot > 0 ? `${formatNumber(line.ot, 2)}h` : '—';
     case 'achievement': {
       if (line.achievement == null) return '—';
       const base = `${line.achievement.toFixed(1)}%`;
@@ -675,33 +800,39 @@ export function reportCellText(line: ReportLine, key: ReportColumnKey, mode: Rep
       const tone = achievementTone(line.achievement);
       return tone ? `${base} ${TONE_GLYPH[tone]}` : base;
     }
-    case 'status': return line.breakdown || line.status;
+    /* NEVER the static status word — always the live runtime summary. */
+    case 'status': return line.runtime;
     case 'shift': return line.shift;
-    case 'rejection': return formatNumber(line.rejection, 2);
-    case 'rejectionPct': return rejectionPctLabel(line.rejectionPct);
+    /* Line 1 of REJECTION / SCRAP — the flat Rejection KG count. */
+    case 'rejectionScrap': return formatNumber(line.rejectionKg ?? 0, 2);
     case 'date': return line.date || '—';
     default: return '';
   }
 }
 
-/** Second (light gray, normal weight) line of the two-line Item / Shift cells. */
+/** Line 2 of the fused cells: the Item/WIP code, the shift timing, the bold
+ *  Actual KG under the per-unit weight, and the Rejection % under the
+ *  Rejection KG. Empty for every single-line column. */
 export function reportCellSubText(line: ReportLine, key: ReportColumnKey): string {
   if (key === 'item') return line.itemCode;
   if (key === 'shift') return line.shiftTime;
+  if (key === 'weight') return line.actualKg == null ? '—' : formatNumber(line.actualKg, 2);
+  if (key === 'rejectionScrap') return rejectionPctLabel(line.rejectionPct);
   return '';
 }
 
-/** Two-line print/PDF-HTML cell: bold dark name on line 1, light gray code or
- *  shift timing on line 2 (`display:block` makes each a real line). */
-export function reportTwoLineHtml(line: ReportLine, key: 'item' | 'shift'): string {
-  const main = key === 'item' ? 'rp-item-name' : 'rp-shift-name';
-  const sub = key === 'item' ? 'rp-item-code' : 'rp-shift-time';
-  const subText = key === 'item' ? line.itemCode : line.shiftTime;
-  const second = subText ? `<span class="${sub}">${escapeHtml(subText)}</span>` : '';
-  return `<span class="${main}">${escapeHtml(line[key])}</span>${second}`;
+/** Fused-cell print/PDF-HTML: line 1 then line 2, each `display:block` so
+ *  they are real lines. Class pairs come from the single STACKED_CELLS
+ *  registry, which is why every fused column keeps the same rhythm. */
+export function reportTwoLineHtml(line: ReportLine, key: StackedCellKey): string {
+  const classes = STACKED_CELLS[key];
+  const main = reportCellText(line, key);
+  const subText = reportCellSubText(line, key);
+  const second = subText ? `<span class="${classes.sub}">${escapeHtml(subText)}</span>` : '';
+  return `<span class="${classes.main}">${escapeHtml(main)}</span>${second}`;
 }
 
-/** Display value for a shift / department / grand total cell. */
+/** Display value for line 1 of a shift / department / grand total cell. */
 export function reportTotalText(
   totals: ReportTotals,
   key: ReportColumnKey,
@@ -710,7 +841,7 @@ export function reportTotalText(
   switch (key) {
     case 'target': return formatNumber(totals.target, 2);
     case 'actual': return formatNumber(totals.actual, 2);
-    case 'actualKg': return formatNumber(totals.actualKg, 2);
+    case 'ot': return totals.ot > 0 ? `${formatNumber(totals.ot, 2)}h` : '—';
     case 'achievement': {
       if (totals.achievement == null) return '—';
       const base = `${totals.achievement.toFixed(1)}%`;
@@ -718,9 +849,11 @@ export function reportTotalText(
       const tone = achievementTone(totals.achievement);
       return tone ? `${base} ${TONE_GLYPH[tone]}` : base;
     }
-    case 'rejection': return formatNumber(totals.rejection, 2);
-    case 'rejectionPct': return rejectionPctLabel(totals.rejectionPct);
-    case 'perUnitWeight': return '—';
+    /* Line 1 of the fused totals — a per-unit weight is never summable, so
+     * WEIGHT (KG) shows `—` above Σ Actual KG, while REJECTION / SCRAP leads
+     * with Σ Rejection KG above the pooled Rejection %. */
+    case 'weight': return '—';
+    case 'rejectionScrap': return formatNumber(totals.rejectionKg, 2);
     case 'item': return '';
     case 'status': return '';
     case 'shift': return '';
@@ -732,6 +865,13 @@ export function reportTotalText(
   }
 }
 
+/** Line 2 of the fused total cells (Σ Actual KG / pooled Rejection %). */
+export function reportTotalSubText(totals: ReportTotals, key: ReportColumnKey): string {
+  if (key === 'weight') return formatNumber(totals.actualKg, 2);
+  if (key === 'rejectionScrap') return rejectionPctLabel(totals.rejectionPct);
+  return '';
+}
+
 /* ------------------------------------------------------------------ *
  * PDF (jsPDF + autoTable) row builders — shared with EntryList.exportPdf
  * and exercised by the node smoke test, so the Print/PDF/Excel layout
@@ -741,32 +881,65 @@ export function reportTotalText(
 export type PdfRowKind = 'shift' | 'department' | 'grand';
 
 /** PDF colours for the two-line cells — mirrors the print CSS. */
-export const PDF_MAIN_TEXT: [number, number, number] = [15, 23, 42];   /* #0f172a */
-export const PDF_SUB_TEXT: [number, number, number] = [148, 163, 184]; /* #94a3b8 */
+export const PDF_MAIN_TEXT: [number, number, number] = [15, 23, 42];     /* #0f172a */
+export const PDF_SUB_TEXT: [number, number, number] = [148, 163, 184];   /* #94a3b8 */
+export const PDF_MUTED_TEXT: [number, number, number] = [100, 116, 139]; /* #64748b */
+
+/** Per-line colour + weight for every fused column — the PDF twin of the
+ *  print CSS classes in STACKED_CELLS. WEIGHT (KG) is the one column that
+ *  leads muted/light (the small per-unit figure) and trails bold + dark
+ *  (Actual KG, the value people actually read); the other three lead dark
+ *  and trail light gray. */
+const STACKED_PDF: Record<StackedCellKey, {
+  mainColor: [number, number, number];
+  mainBold: boolean;
+  subColor: [number, number, number];
+  subBold: boolean;
+}> = {
+  item: { mainColor: PDF_MAIN_TEXT, mainBold: true, subColor: PDF_SUB_TEXT, subBold: false },
+  shift: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false },
+  weight: { mainColor: PDF_MUTED_TEXT, mainBold: false, subColor: PDF_MAIN_TEXT, subBold: true },
+  rejectionScrap: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false },
+};
+
+/** AutoTable object for a fused cell: line 1 is drawn by autoTable itself
+ *  (styled by `styles`) and line 2 is left for EntryList's `didDrawCell`
+ *  (`drawSubLine`) to paint, which is the only way jsPDF can give one cell
+ *  two different colours and weights. `subBold` tells that handler to switch
+ *  to the bold font for line 2 — WEIGHT (KG) needs it for Actual KG. */
+function pdfStackedCell(
+  key: StackedCellKey,
+  main: string,
+  sub: string,
+  align: ReportColumn['align'],
+  baseStyles: Record<string, unknown> = {},
+): any {
+  const style = STACKED_PDF[key];
+  return {
+    content: sub ? `${main}\n\u00A0` : main,
+    sub,
+    subColor: style.subColor,
+    subBold: style.subBold,
+    styles: {
+      ...baseStyles,
+      halign: align,
+      textColor: style.mainColor,
+      ...(style.mainBold ? { fontStyle: 'bold' as const } : {}),
+    },
+  };
+}
 
 /** One PDF data row: plain strings, except the achievement cell which carries
  *  the ▲/▼ colour (the arrow itself is drawn in `didDrawCell` as a vector
  *  triangle — jsPDF cannot embed those glyphs in its WinAnsi fonts) and the
- *  Item / Shift cells which are two lines: autoTable draws line 1 (dark, bold
- *  for the item name) and leaves a non-breaking space on line 2 — that empty
- *  line keeps the row tall enough for `sub`, which `didDrawCell` paints in
- *  light gray with a normal font. */
+ *  FOUR fused cells (Item / Shift / WEIGHT / REJECTION-SCRAP) which are two
+ *  lines each: autoTable draws line 1 and leaves a non-breaking space on
+ *  line 2, keeping the row tall enough for `sub` to be painted over it. */
 export function pdfLineRow(columns: ReportColumn[], line: ReportLine): any[] {
   const tone = achievementTone(line.achievement);
   return columns.map((c) => {
-    if (c.key === 'item' || c.key === 'shift') {
-      const main = reportCellText(line, c.key, 'pdf');
-      const sub = reportCellSubText(line, c.key);
-      return {
-        content: sub ? `${main}\n\u00A0` : main,
-        sub,
-        subColor: PDF_SUB_TEXT,
-        styles: {
-          halign: c.align,
-          textColor: PDF_MAIN_TEXT,
-          ...(c.key === 'item' ? { fontStyle: 'bold' as const } : {}),
-        },
-      };
+    if (isStackedColumn(c.key)) {
+      return pdfStackedCell(c.key, reportCellText(line, c.key, 'pdf'), reportCellSubText(line, c.key), c.align);
     }
     const text = reportCellText(line, c.key, 'pdf');
     if (c.key !== 'achievement') return text;
@@ -779,10 +952,11 @@ export function pdfLineRow(columns: ReportColumn[], line: ReportLine): any[] {
   });
 }
 
-/** One PDF summary row: label merged over the leading columns (Sr. # /
- *  Shift / Machine / Operator), then Σ Target, Σ Actual, Σ Actual KG, weighted
- *  Achievement %, Σ Rejection and Rejection %. Shift sub-totals use a
- *  lighter fill than the department / grand totals. */
+/** One PDF summary row: label merged over the leading columns (Sr. # / Shift
+ *  / Machine / OT / Operator), then Σ Target, Σ Actual, weighted Achievement
+ *  %, WEIGHT (KG) (— / Σ Actual KG), Σ OT, and REJECTION / SCRAP (Σ KG /
+ *  pooled %). Shift sub-totals use a lighter fill than the department /
+ *  grand totals, and the fused columns keep BOTH of their lines here too. */
 export function pdfSummaryRow(
   model: DailyProductionReport,
   totals: ReportTotals,
@@ -799,6 +973,9 @@ export function pdfSummaryRow(
   return [
     { content: label, colSpan: span, styles: { ...totalStyle, halign: 'left' as const } },
     ...model.columns.slice(span).map((c) => {
+      if (isStackedColumn(c.key)) {
+        return pdfStackedCell(c.key, reportTotalText(totals, c.key, 'pdf'), reportTotalSubText(totals, c.key), c.align, totalStyle);
+      }
       const styles: any = { ...totalStyle, halign: c.align };
       if (c.key === 'achievement' && tone) styles.textColor = TONE_COLOR[tone];
       return { content: reportTotalText(totals, c.key, 'pdf'), styles };
@@ -850,21 +1027,36 @@ const PRINT_CSS = `
   .rp-total td { background: #e2e8f0 !important; font-weight: 700; }
   .a-left { text-align: left; } .a-center { text-align: center; } .a-right { text-align: right; }
   .muted { color: #64748b; } .strong { font-weight: 700; }
-  /* Two-line Item / Shift cells: name on line 1, code or timing on line 2. */
+  /* ---- FUSED (stacked) CELLS: line 1 on top, line 2 underneath -------
+     Item / Shift lead with the informative line and trail with the muted
+     one. WEIGHT (KG) is inverted on purpose — the small per-unit figure sits
+     on top and the Actual KG is the bold, prominent line underneath, which
+     is the number the reader is actually looking for. */
   .rp-item-name { display: block; font-weight: 700; color: #0f172a; }
   .rp-item-code { display: block; font-weight: 400; color: #94a3b8; }
   .rp-shift-name { display: block; font-weight: 400; color: #0f172a; }
   .rp-shift-time { display: block; font-weight: 400; color: #94a3b8; }
+  .rp-wt-top { display: block; font-weight: 400; color: #64748b; }
+  .rp-wt-bottom { display: block; font-weight: 700; color: #0f172a; }
+  .rp-rj-top { display: block; font-weight: 400; color: #0f172a; }
+  .rp-rj-bottom { display: block; font-weight: 400; color: #64748b; }
   /* ---- 2-LINE MAXIMUM -------------------------------------------------
-     Each of those four lines is ONE physical line: nowrap + ellipsis, so
-     "General Shift" / "06:00 - 14:00" and the product name can never push a
-     row onto a 3rd or 4th line. Shift sits at 10px / 9px to fit its 9%. */
-  .rp-item-name, .rp-item-code, .rp-shift-name, .rp-shift-time {
+     Each of those eight lines is ONE physical line: nowrap + ellipsis, so
+     "General Shift" / "06:00 - 14:00", the product name and the fused
+     WEIGHT / REJECTION values can never push a row onto a 3rd or 4th line.
+     Shift sits at 10px / 9px to fit its 9%; the two fused columns sit at
+     11px / 10px so the bold line always outweighs the muted one. */
+  .rp-item-name, .rp-item-code, .rp-shift-name, .rp-shift-time,
+  .rp-wt-top, .rp-wt-bottom, .rp-rj-top, .rp-rj-bottom {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rp-item-name { font-size: 11px; line-height: 1.2; }
   .rp-item-code { font-size: 10px; line-height: 1.2; }
   .rp-shift-name { font-size: 10px; line-height: 1.2; }
   .rp-shift-time { font-size: 9px; line-height: 1.2; }
+  .rp-wt-top { font-size: 10px; line-height: 1.2; }
+  .rp-wt-bottom { font-size: 11px; line-height: 1.2; }
+  .rp-rj-top { font-size: 11px; line-height: 1.2; }
+  .rp-rj-bottom { font-size: 10px; line-height: 1.2; }
   /* Long free text (operator, breakdown reason) may use AT MOST 2 lines. */
   .rp-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .tone-up { color: #15803d !important; font-weight: 700; }
@@ -918,18 +1110,20 @@ function lineRowHtml(model: DailyProductionReport, line: ReportLine): string {
     .map((c) => {
       const cls = [
         `a-${c.align}`,
-        c.key === 'actualKg' || c.key === 'actual' || c.key === 'achievement' ? 'strong' : '',
-        c.key === 'perUnitWeight' ? 'muted' : '',
+        c.key === 'actual' || c.key === 'achievement' ? 'strong' : '',
         c.key === 'achievement' && tone ? `tone-${tone}` : '',
       ].filter(Boolean).join(' ');
       let text: string;
-      if (c.key === 'item' || c.key === 'shift') {
+      if (isStackedColumn(c.key)) {
+        // Item / Shift / WEIGHT (KG) / REJECTION (SCRAP) — two real lines,
+        // each nowrap + ellipsized by the CSS above.
         text = reportTwoLineHtml(line, c.key);
       } else {
         const value = escapeHtml(reportCellText(line, c.key));
-        // Long free text (operator name, breakdown reason) is hard-capped at
-        // 2 lines, so no data row can ever outgrow the 2-line Item / Shift
-        // rhythm. Numeric cells stay plain — they never need a 3rd line.
+        // Long free text (operator name, runtime/breakdown reason) is
+        // hard-capped at 2 lines, so no data row can ever outgrow the rhythm
+        // of the fused cells. Numeric cells stay plain — they never need a
+        // 3rd line.
         text = c.key === 'operator' || c.key === 'status' ? `<span class="rp-clamp2">${value}</span>` : value;
       }
       return `<td class="${cls}">${text}</td>`;
@@ -950,6 +1144,20 @@ function totalRowHtml(
     .slice(span)
     .map((c) => {
       const toneCls = c.key === 'achievement' && tone ? ` tone-${tone}` : '';
+      // The fused columns keep BOTH lines in their total row too, so Σ Actual
+      // KG still sits under the `—` of WEIGHT (KG) and the pooled Rejection %
+      // under Σ Rejection KG. Item / Shift have no total value at all, so
+      // they stay a plain empty cell rather than emitting stray spans.
+      if (isStackedColumn(c.key)) {
+        const classes = STACKED_CELLS[c.key];
+        const main = reportTotalText(totals, c.key);
+        const sub = reportTotalSubText(totals, c.key);
+        if (!main && !sub) return `<td class="a-${c.align}${toneCls}"></td>`;
+        const second = sub ? `<span class="${classes.sub}">${escapeHtml(sub)}</span>` : '';
+        return `<td class="a-${c.align}${toneCls}"><span class="${classes.main}">${escapeHtml(
+          main,
+        )}</span>${second}</td>`;
+      }
       return `<td class="a-${c.align}${toneCls}">${escapeHtml(reportTotalText(totals, c.key))}</td>`;
     })
     .join('');
@@ -1097,6 +1305,16 @@ const csvQuote = (value: unknown): string => {
 const csvNum = (value: number | null | undefined): string =>
   value == null ? '' : String(round4(value));
 
+/** Numeric half of a FUSED cell. It rides inside a quoted (multi-line) cell,
+ *  so it cannot stay a bare Excel number — the raw `round4` form is used
+ *  instead of `formatNumber` to keep thousands separators out of the value
+ *  (Excel can still re-parse it as a number). */
+const csvStackNum = (value: number | null | undefined): string =>
+  value == null ? '—' : String(round4(value));
+
+/** Two stacked values in ONE CSV cell, mirroring the printed cell exactly. */
+const csvStacked = (top: string, bottom: string): string => csvQuote(`${top}\n${bottom}`);
+
 function csvLineCell(line: ReportLine, key: ReportColumnKey): string {
   switch (key) {
     case 'sr': return String(line.sr);
@@ -1105,18 +1323,20 @@ function csvLineCell(line: ReportLine, key: ReportColumnKey): string {
     case 'item': return csvQuote(line.itemCode ? `${line.item}\n${line.itemCode}` : line.item);
     case 'target': return csvNum(line.target);
     case 'actual': return csvNum(line.actual);
-    case 'perUnitWeight': return csvQuote(line.perUnitWeight);
-    case 'actualKg': return csvNum(line.actualKg);
+    case 'ot': return csvNum(line.ot);
+    /* WEIGHT (KG) — per-unit weight on line 1, Actual KG on line 2. */
+    case 'weight': return csvStacked(line.perUnitWeight, csvStackNum(line.actualKg));
     case 'achievement': {
       if (line.achievement == null) return '';
       const tone = achievementTone(line.achievement);
       // Arrow synced with print/PDF — Excel shows it as a text cell.
       return `${round2(line.achievement)}${tone ? ` ${TONE_GLYPH[tone]}` : ''}`;
     }
-    case 'status': return csvQuote(reportCellText(line, 'status'));
+    /* Live runtime summary — never the static status word. */
+    case 'status': return csvQuote(line.runtime);
     case 'shift': return csvQuote(`${line.shift}\n${line.shiftTime}`);
-    case 'rejection': return csvNum(line.rejection);
-    case 'rejectionPct': return rejectionPctLabel(line.rejectionPct);
+    /* REJECTION / SCRAP — flat Rejection KG on line 1, Rejection % on line 2. */
+    case 'rejectionScrap': return csvStacked(csvStackNum(line.rejectionKg), rejectionPctLabel(line.rejectionPct));
     case 'date': return csvQuote(line.date);
     default: return '';
   }
@@ -1126,14 +1346,15 @@ function csvTotalCell(totals: ReportTotals, key: ReportColumnKey): string {
   switch (key) {
     case 'target': return csvNum(totals.target);
     case 'actual': return csvNum(totals.actual);
-    case 'actualKg': return csvNum(totals.actualKg);
+    case 'ot': return csvNum(totals.ot);
     case 'achievement': {
       if (totals.achievement == null) return '';
       const tone = achievementTone(totals.achievement);
       return `${round2(totals.achievement)}${tone ? ` ${TONE_GLYPH[tone]}` : ''}`;
     }
-    case 'rejection': return csvNum(totals.rejection);
-    case 'rejectionPct': return rejectionPctLabel(totals.rejectionPct);
+    /* A per-unit weight is never summable → `—` above Σ Actual KG. */
+    case 'weight': return csvStacked('—', csvStackNum(totals.actualKg));
+    case 'rejectionScrap': return csvStacked(csvStackNum(totals.rejectionKg), rejectionPctLabel(totals.rejectionPct));
     default: return '';
   }
 }

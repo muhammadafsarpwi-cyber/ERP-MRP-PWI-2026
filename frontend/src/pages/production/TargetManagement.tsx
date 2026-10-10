@@ -2049,7 +2049,12 @@ const TargetManagement: React.FC = () => {
             <Button
               type="primary"
               icon={<FilterOutlined />}
-              onClick={() => fetchTargets()}
+              /* Parity with Machine Master: apply the query AND collapse the
+                 tray, so the grid regains the vertical space it just used. */
+              onClick={() => {
+                fetchTargets();
+                setShowFilters(false);
+              }}
               loading={loading}
               style={{ fontWeight: 600 }}
             >

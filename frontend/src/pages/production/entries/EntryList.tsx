@@ -1091,11 +1091,14 @@ const EntryList: React.FC = () => {
       };
 
       // PHASE 7 — autoTable styles apply to the whole CELL, so a cell whose
-      // two lines must look different cannot be styled per line. The Item /
-      // Shift cells are therefore emitted as `<line 1>\n<nbsp>`: autoTable
-      // draws line 1 (dark, bold for the product name) and the trailing
-      // non-breaking space keeps line 2 reserved, which is painted here in
-      // light gray with a normal font — mirroring the print CSS.
+      // two lines must look different cannot be styled per line. The four
+      // FUSED cells (Item / Shift / WEIGHT (KG) / REJECTION-SCRAP) are
+      // therefore emitted as `<line 1>\n<nbsp>`: autoTable draws line 1 and
+      // the trailing non-breaking space keeps line 2 reserved, which is
+      // painted here with its own colour — and, when the cell asks for it,
+      // its own weight. WEIGHT (KG) needs that: the small per-unit figure is
+      // line 1 and the Actual KG trails underneath in bold, the reverse of
+      // Item / Shift. See STACKED_PDF in ./dailyProductionReport.ts.
       const drawSubLine = (data: any) => {
         if (data.section === 'head') return;
         const raw = data.cell.raw;
@@ -1682,14 +1685,18 @@ const EntryList: React.FC = () => {
       render: (_t, r) => {
         const scrap = toNum(r.scrapQuantity);
         const uom = r.uom?.code || '';
-        // Rejection % — (Rejection KG / Actual KG) × 100, using the SAME
-        // denominator the Actual KG column prints. Every operand is hard-cast
-        // with Number(), so a decimal string from the pg driver can never be
-        // mistaken for 0 (that is what made live rows print 0.00% while scrap
-        // existed). Zero / unknown Actual KG → 0.00%.
+        // Rejection % — Rejection KG / (Actual KG + Rejection KG) × 100. The
+        // denominator is the TOTAL produced (good + rejected), the SAME
+        // formula `rejectionPercent` uses in ./dailyProductionReport.ts and
+        // `aggregateProductionTotals` uses for the scrap KPI, so the grid,
+        // the printed page, the PDF and Excel can never disagree. Every
+        // operand is hard-cast with Number(), so a decimal string from the pg
+        // driver can never be mistaken for 0 (that is what made live rows
+        // print 0.00% while scrap existed). Zero total produced → 0.00%.
         const actualKg = calcActualKg(uom, toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
         const scrapKg = calcActualKg(uom, scrap, r.item?.weightPerPiece, r.item?.weightPerMeter);
-        const rejPct = Number(actualKg) > 0 ? (Number(scrapKg || 0) / Number(actualKg)) * 100 : 0;
+        const producedKg = Number(actualKg || 0) + Number(scrapKg || 0);
+        const rejPct = producedKg > 0 ? (Number(scrapKg || 0) / producedKg) * 100 : 0;
         return (
           <div style={{ textAlign: 'right', lineHeight: 1.25, whiteSpace: 'nowrap' }}>
             <span
