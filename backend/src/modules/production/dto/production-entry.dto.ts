@@ -193,6 +193,16 @@ export class CreateProductionEntryDto {
   @Min(0)
   scrapQuantity!: number;
 
+  /**
+   * Process Cutting Scrap (KG) — REPORT-ONLY audit metric (raw off-cuts,
+   * trimmings, setup filings). Never deducted from good output pieces and
+   * never posted to the stock ledger; product rejects stay in scrapQuantity.
+   */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  processScrapKg?: number;
+
   @IsOptional()
   @IsString()
   remarks?: string | null;
@@ -219,7 +229,7 @@ export class CreateProductionEntryDto {
   @IsArray()
   componentWarehouses?: Array<{ itemId: string; warehouseId: string }>;
 
-  /** Repeatable production item lines (multi-item shift; max 2 independent production items). */
+  /** Repeatable production item lines (multi-item shift; max 4 independent production items). */
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(50, { message: 'A maximum of 50 production items per entry is allowed' })
@@ -337,6 +347,16 @@ export class UpdateProductionEntryDto {
   @Min(0)
   scrapQuantity?: number;
 
+  /**
+   * Process Cutting Scrap (KG) — REPORT-ONLY audit metric. Never deducted
+   * from good output pieces and never posted to the stock ledger.
+   * Omitted → the persisted value is preserved on partial updates.
+   */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  processScrapKg?: number;
+
   @IsOptional()
   @IsString()
   remarks?: string | null;
@@ -346,7 +366,7 @@ export class UpdateProductionEntryDto {
   @IsUUID('loose')
   rawMaterialWarehouseId?: string | null;
 
-  /** Repeatable production item lines (multi-item shift; max 2 independent production items). */
+  /** Repeatable production item lines (multi-item shift; max 4 independent production items). */
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(50, { message: 'A maximum of 50 production items per entry is allowed' })

@@ -456,6 +456,9 @@ export const EditProductionEntry: React.FC = () => {
         downtimeHours: totalDtHours,
         actualQuantity: totalActual,
         scrapQuantity: totalScrap,
+        // Report-only: deliberately independent of totalScrap above so process
+        // waste can never leak into the stock-deducting rejection figure.
+        processScrapKg: Math.max(0, toNum((values as any).processScrapKg ?? 0)),
         targetQuantity: kpis.totalTarget > 0 ? kpis.totalTarget : toNum(entry?.targetQuantity),
         remarks: values.remarks?.trim() || null,
         items: itemsPayload,
@@ -688,7 +691,7 @@ export const EditProductionEntry: React.FC = () => {
         <Col xs={12} sm={8} lg={4}>
           <Card size="small" style={{ borderRadius: 10, border: '1px solid #fca5a5', background: '#fff5f5', textAlign: 'center' }}>
             <span style={{ fontSize: 11, color: '#b91c1c', fontWeight: 700, textTransform: 'uppercase' }}>
-              Rejection / Scrap (KG)
+              Product Rejection (KG)
             </span>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#dc2626', marginTop: 4 }}>
               {kpis.totalScrapKg.toFixed(2)} <span style={{ fontSize: 12 }}>KG</span>
@@ -753,6 +756,7 @@ export const EditProductionEntry: React.FC = () => {
           operatorName: entry.operatorName || '',
           supervisorName: entry.supervisorName || '',
           remarks: entry.remarks || '',
+          processScrapKg: toNum(entry.processScrapKg ?? 0),
         }}
       >
         <Row gutter={[20, 20]}>
@@ -911,6 +915,25 @@ export const EditProductionEntry: React.FC = () => {
                   </div>
                 )}
               </Form.List>
+
+              {/* PROCESS CUTTING SCRAP (KG) — entry-level, REPORT-ONLY.
+                  Off-cuts, wire trimmings and setup filings are not part of any
+                  item's output line, so this sits outside the per-item list and
+                  only ever lands in process_scrap_kg — it never feeds the
+                  per-line scrap total, the consumption basis or the stock
+                  reconciliation on save. */}
+              <Form.Item
+                name="processScrapKg"
+                label={
+                  <Space size={4}>
+                    Process Cutting Scrap (KG)
+                    <Tag color="blue" style={{ fontSize: 9, padding: '0 4px' }}>Report-Only</Tag>
+                  </Space>
+                }
+                style={{ marginTop: 14, marginBottom: 0 }}
+              >
+                <InputNumber min={0} precision={2} addonAfter="KG" style={{ width: 240, fontWeight: 700 }} />
+              </Form.Item>
             </Card>
 
             {/* Card 2: Shift Hours & Downtime Tracking */}

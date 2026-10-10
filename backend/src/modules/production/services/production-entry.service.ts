@@ -354,6 +354,7 @@ export class ProductionEntryService {
         'COALESCE(SUM(pe.target_quantity), 0)::float AS "totalTarget"',
         'COALESCE(SUM(pe.actual_quantity), 0)::float AS "totalActual"',
         'COALESCE(SUM(pe.scrap_quantity), 0)::float AS "totalScrap"',
+        'COALESCE(SUM(pe.process_scrap_kg), 0)::float AS "totalProcessScrap"',
         `COALESCE(SUM(${OVERTIME_SUM_SQL}), 0)::float AS "totalOvertime"`,
         'COALESCE(SUM(pe.downtime_hours), 0)::float AS "totalDowntime"',
         'COALESCE(AVG(pe.efficiency_percentage), 0)::float AS "avgEfficiency"',
@@ -372,6 +373,9 @@ export class ProductionEntryService {
       actual: totalActual,
       target: totalTarget,
       scrap: Number(summaryRow?.totalScrap || 0),
+      // Report-only process waste (off-cuts/trimmings) — additive, never merged
+      // into `scrap` above so product-rejection KPIs keep their meaning.
+      processScrap: Number(summaryRow?.totalProcessScrap || 0),
       overtime: Number(summaryRow?.totalOvertime || 0),
       downtime: Number(summaryRow?.totalDowntime || 0),
       efficiency: totalTarget > 0 ? Math.round((totalActual / totalTarget) * 10000) / 100 : Number(summaryRow?.avgEfficiency || 0),
@@ -1292,6 +1296,7 @@ addToDept(org, {
       downtimeReasonId: dto.downtimeReasonId ?? null,
       downtimeReasonText: dto.downtimeReason ?? null,
       scrapQuantity: dto.scrapQuantity,
+      processScrapKg: dto.processScrapKg ?? 0,
       remarks: dto.remarks ?? null,
       rawMaterialWarehouseId: sourceStoreId,
       createdBy: userId ?? null,
@@ -1362,6 +1367,9 @@ addToDept(org, {
       targetQuantity: dto.targetQuantity ?? Number(entry.targetQuantity),
       actualQuantity: dto.actualQuantity ?? Number(entry.actualQuantity),
       scrapQuantity: dto.scrapQuantity ?? Number(entry.scrapQuantity),
+      // Report-only: an omitted field must not wipe the audited value on a
+      // partial update. Never read by the posting path (no stock impact).
+      processScrapKg: dto.processScrapKg !== undefined ? dto.processScrapKg : Number(entry.processScrapKg || 0),
       runningHours: dto.runningHours ?? Number(entry.runningHours),
       overtimeHours: dto.overtimeHours !== undefined ? Number(dto.overtimeHours) : Number(entry.overtimeHours || 0),
       downtimeHours: dto.downtimeHours ?? Number(entry.downtimeHours),
@@ -2488,7 +2496,7 @@ addToDept(org, {
    * Runs inside a DB transaction so either all inventory changes commit or none do.
    */
   /**
-   * The set of production items no longer than 2 (TASK #37-F), each an
+   * The set of production items no longer than 4 (TASK #37-F), each an
    * independent OUTPUT: its own Item Master production IN consumed OUT and its
    * own good output received IN. The entry's own item is always included
    * (it is the first/primary production item); repeatable child lines are the
@@ -2534,8 +2542,8 @@ addToDept(org, {
       (entry.machineNo && entry.machineNo.toLowerCase().includes('hand packing')) ||
       (entry.remarks && entry.remarks.includes('[HAND PACKING]'));
 
-    if (!isHandPacking && result.length > 2) {
-      throw new BadRequestException('A maximum of 2 production items per entry is allowed');
+    if (!isHandPacking && result.length > 4) {
+      throw new BadRequestException('A maximum of 4 production items per entry is allowed');
     }
     return result;
   }

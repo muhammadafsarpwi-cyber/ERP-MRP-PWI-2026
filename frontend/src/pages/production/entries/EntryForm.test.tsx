@@ -10,7 +10,12 @@ import { formatNumber, formatDimension } from '../../../utils/numberFormat';
 
 jest.mock('../../../services/api');
 
-jest.setTimeout(45000);
+// The Daily Production Entry wizard renders a ~5k-line antd form; a single
+// interaction (open Select → pick option → re-render all KPI panels) costs
+// several seconds under jsdom, so 45s was too tight for any spec that performs
+// more than a couple of interactions. 180s keeps real assertion failures fast
+// while letting the slow ones complete instead of dying on the harness clock.
+jest.setTimeout(180000);
 
 const apiMock = apiService as jest.Mocked<typeof apiService>;
 
@@ -201,16 +206,16 @@ describe('EntryForm — Wire Size binding in Production Item rows', () => {
     expect((await screen.findByTestId('wire-size-row-1')).textContent).toBe('—');
   });
 
-  it('renders all FIVE KPI cards in the single top row, each with an icon', async () => {
+  it('renders all SIX KPI cards in the single top row, each with an icon', async () => {
     renderForm();
     const kpiRow = await screen.findByTestId('kpi-row');
-    const labels = ['Efficiency %', 'Achievement %', 'Rejection %', 'Production Weight (KG)', 'Rejection Weight (KG)'];
+    const labels = ['Target', 'Efficiency %', 'Achievement %', 'Rejection %', 'Production Weight (KG)', 'Rejection Weight (KG)'];
     for (const l of labels) {
       expect(within(kpiRow).getByText(l)).toBeInTheDocument();
     }
-    // Every KPI card carries an icon (thunderbolt/trophy/warning/gold/close-circle).
+    // Every KPI card carries an icon (aim/thunderbolt/trophy/warning/gold/close-circle).
     const icons = within(kpiRow).getAllByRole('img');
-    expect(icons.length).toBeGreaterThanOrEqual(5);
+    expect(icons.length).toBeGreaterThanOrEqual(6);
   });
 
   it('renders the Save button directly after the form content in normal page flow (no absolute/fixed positioning)', async () => {
@@ -404,17 +409,25 @@ describe('EntryForm — Wire Size binding in Production Item rows', () => {
     expect(addItemButtons).toHaveLength(1);
   });
 
-  it('TASK25-C: Maximum 2 production items — third item cannot be added', async () => {
+  it('TASK25-C: Maximum 4 production items — the 5th item cannot be added', async () => {
     renderForm();
-    // Add first item
-    await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
-    await screen.findByTestId('production-item-row-1');
-    // Add second item
-    await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
-    await screen.findByTestId('production-item-row-2');
-    // Button should now be disabled (maximum 2)
+    // Add rows 1..4 — the extended structural ceiling for high-mix schedules.
+    for (let n = 1; n <= 4; n += 1) {
+      await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
+      await screen.findByTestId(`production-item-row-${n}`);
+    }
+    expect(screen.getAllByTestId(/^production-item-row-/)).toHaveLength(4);
+    // Button should now be the disabled variant (maximum 4).
     const addBtn = screen.getByRole('button', { name: /add item/i });
     expect(addBtn).toBeDisabled();
+    // The warning tooltip reports the NEW ceiling.
+    // eslint-disable-next-line testing-library/no-node-access
+    const trigger = addBtn.closest('span') as HTMLElement | null;
+    fireEvent.mouseOver(trigger ?? addBtn);
+    expect(await screen.findByText('Maximum 4 production items are allowed.')).toBeInTheDocument();
+    // A further click renders nothing — the 5th row is structurally blocked.
+    fireEvent.click(addBtn);
+    expect(screen.getAllByTestId(/^production-item-row-/)).toHaveLength(4);
   });
 
   it('TASK25-D: Department filtering — items from other departments are excluded', async () => {
@@ -534,17 +547,17 @@ describe('TASK #26 — Production Entry layout & ERP integration', () => {
     apiMock.get.mockReset();
   });
 
-  it('TASK26-A: "+ Add Item" lives in the Production Items card header, capped at 2 (disabled at max)', async () => {
+  it('TASK26-A: "+ Add Item" lives in the Production Items card header, capped at 4 (disabled at max)', async () => {
     renderForm();
     const addItemBtn = await screen.findByRole('button', { name: /add item/i });
     expect(addItemBtn).toBeInTheDocument();
     // Only one "Add Item" button at the top level.
     expect(screen.getAllByRole('button', { name: /add item/i })).toHaveLength(1);
-    await userEvent.click(addItemBtn);
-    await userEvent.click(addItemBtn);
-    expect(screen.getByTestId('production-item-row-1')).toBeInTheDocument();
-    expect(screen.getByTestId('production-item-row-2')).toBeInTheDocument();
-    // The header button is replaced by a disabled one at max 2 -> re-query it.
+    for (let n = 1; n <= 4; n += 1) {
+      await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
+      expect(screen.getByTestId(`production-item-row-${n}`)).toBeInTheDocument();
+    }
+    // The header button is replaced by a disabled one at max 4 -> re-query it.
     const addItemBtn2 = screen.getAllByRole('button', { name: /add item/i })[0];
     expect(addItemBtn2).toBeDisabled();
   });
@@ -966,6 +979,62 @@ describe('TASK #27 — Production Entry professional ERP standard', () => {
       c.querySelector('.ant-card-head-title')?.textContent?.trim() === 'Production Items');
     // The header "UOM" column exists (structural requirement from §3).
     expect(within(itemsCard as HTMLElement).getAllByText('UOM').length).toBeGreaterThan(0);
+  });
+
+  // ── TARGET-RATE HYDRATION — Panels A, B and C ──────────────────────────────
+  // The Target Master record resolved by ERP-00016/ERP-00018 carries
+  // standardTarget = 100 over standardHours = 8, so the baseline hourly factor
+  // is 100 ÷ 8 = 12.5 /h. All three target read-outs must show the identical
+  // canonical sub-text "Target Rate: 12.5 /h".
+  const TARGET_RATE_TEXT = `Target Rate: ${formatNumber(100 / 8, 1)} /h`;
+
+  const renderWithTargetMaster = async () => {
+    const mItems = [itemA, itemB, itemNoWire].map((i) => ({ ...i, departmentId: 'dept-flattening' }));
+    apiMock.get.mockImplementation(async (url: any) => {
+      const u = String(url);
+      if (u === '/master-data/items') return { data: mItems as any };
+      if (u === '/master-data/uom') return { data: [uomM] as any };
+      if (u === '/production/entries/machine-target') return { success: true, data: machineTargetBase };
+      if (u === '/master-data/uom-conversions') return { data: [] as any };
+      if (u === '/production/shifts') return { data: [] as any };
+      return { data: [] as any };
+    });
+    renderMachineLinked();
+    // One production item row is enough: Panel C's Totals card only mounts
+    // while a production item exists.
+    await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
+    const row = await screen.findByTestId('production-item-row-1');
+    await pickItem(row, 'WIP-FT-001 — Flat Wire A');
+    await screen.findByTestId('target-rate-calibration');
+    await waitFor(() => expect(screen.getAllByText(TARGET_RATE_TEXT).length).toBeGreaterThanOrEqual(1));
+  };
+
+  it('TASK27-M: PANEL A — the top KPI "Target" tile hydrates the per-hour rate', async () => {
+    await renderWithTargetMaster();
+    const kpiRow = screen.getByTestId('kpi-row');
+    // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
+    const tile = kpiRow.querySelector('.kpi-col-target') as HTMLElement | null;
+    expect(tile).toBeTruthy();
+    expect(within(tile as HTMLElement).getByText('Target')).toBeInTheDocument();
+    expect(within(tile as HTMLElement).getByText(TARGET_RATE_TEXT)).toBeInTheDocument();
+  });
+
+  it('TASK27-N: PANEL B — the calibration card "Target Production" cell carries the same rate', async () => {
+    await renderWithTargetMaster();
+    const cell = screen.getByTestId('target-rate-calibration');
+    await waitFor(() => expect(cell.textContent).toBe(TARGET_RATE_TEXT));
+  });
+
+  it('TASK27-O: PANEL C — the Totals summary card mirrors the same rate', async () => {
+    await renderWithTargetMaster();
+    const totals = await screen.findByTestId('production-items-totals-bar');
+    const cell = within(totals).getByTestId('target-rate-totals');
+    await waitFor(() => expect(cell.textContent).toBe(TARGET_RATE_TEXT));
+  });
+
+  it('TASK27-P: all three target read-outs hydrate the IDENTICAL per-hour baseline', async () => {
+    await renderWithTargetMaster();
+    await waitFor(() => expect(screen.getAllByText(TARGET_RATE_TEXT)).toHaveLength(3));
   });
 });
 
@@ -1422,7 +1491,7 @@ describe('TASK #29 — production-chain raw-material trace & authoritative Rejec
     const qty = within(row).getByLabelText('Item quantity');
     await userEvent.clear(qty);
     await userEvent.type(qty, '80'); // actual good = 80
-    const scrap = screen.getByLabelText(/rejection \/ scrap/i) as HTMLInputElement;
+    const scrap = screen.getByLabelText(/product rejection/i) as HTMLInputElement;
     await userEvent.clear(scrap);
     await userEvent.type(scrap, '20'); // rejection = 20
     // Rejection % = 20 / (80 + 20) × 100 = 20% (formatNumber strips trailing zeros)
@@ -1435,7 +1504,7 @@ describe('TASK #29 — production-chain raw-material trace & authoritative Rejec
     const qty = within(row).getByLabelText('Item quantity');
     await userEvent.clear(qty);
     await userEvent.type(qty, '80');
-    const scrap = screen.getByLabelText(/rejection \/ scrap/i) as HTMLInputElement;
+    const scrap = screen.getByLabelText(/product rejection/i) as HTMLInputElement;
     await userEvent.clear(scrap);
     await userEvent.type(scrap, '20');
     expect(await screen.findByText(/20%/)).toBeInTheDocument();
@@ -1452,7 +1521,7 @@ describe('TASK #29 — production-chain raw-material trace & authoritative Rejec
     await userEvent.type(qty, '80');
     // Top-level Rejection/Scrap is authoritative (20). Row-level scrap stays 0
     // (hidden field). Rejection % = 20 / (80 + 20) = 20% — not 0%.
-    const scrap = screen.getByLabelText(/rejection \/ scrap/i) as HTMLInputElement;
+    const scrap = screen.getByLabelText(/product rejection/i) as HTMLInputElement;
     await userEvent.clear(scrap);
     await userEvent.type(scrap, '20');
     await screen.findByText(/20%/);
@@ -1522,12 +1591,85 @@ describe('TASK #29 — production-chain raw-material trace & authoritative Rejec
     renderChain();
     const addButtons = await screen.findAllByRole('button', { name: /add item/i });
     expect(addButtons.length).toBeGreaterThanOrEqual(1);
-    // Selecting two items caps at max 2 — no third Add control appears.
+    // Selecting two items stays comfortably under the cap of 4 — no extra Add
+    // control appears, and exactly two rows render.
     await addSpiral();
     await addRowAndPick(2, 'INDEP-01 — Independent Item');
     await waitFor(() => {
       expect(screen.getAllByTestId(/^production-item-row-/)).toHaveLength(2);
     });
+  });
+
+  // ── DUAL SCRAP FIELD SPLIT ────────────────────────────────────────────────
+  // INPUT 1 "Product Rejection (KG)"  → stock-deducting (unchanged behaviour).
+  // INPUT 2 "Process Cutting Scrap (KG)" → report-only, persisted as
+  // process_scrap_kg and excluded from every output / stock figure.
+
+  it('TASK29-U: Process Cutting Scrap (KG) is REPORT-ONLY — it never moves the Rejection KPI', async () => {
+    renderChain();
+    const row = await addSpiral();
+    const qty = within(row).getByLabelText('Item quantity');
+    await userEvent.clear(qty);
+    await userEvent.type(qty, '80'); // actual good = 80
+    const rej = screen.getByLabelText(/product rejection/i) as HTMLInputElement;
+    await userEvent.clear(rej);
+    await userEvent.type(rej, '20'); // rejection = 20 → 20 / (80 + 20) = 20%
+    await screen.findByText(/20%/);
+
+    // Typing process cutting scrap must leave BOTH the KPI and the
+    // stock-deducting rejection input untouched (5 KG would otherwise push the
+    // rate to 20 / 105 = 19.05%).
+    const proc = screen.getByLabelText(/process cutting scrap/i) as HTMLInputElement;
+    await userEvent.clear(proc);
+    await userEvent.type(proc, '5');
+    expect(await screen.findByText(/20%/)).toBeInTheDocument();
+    expect(rej.value).toBe('20');
+    expect(proc.value).toBe('5');
+  });
+
+  it('TASK29-V: both scrap inputs hydrate, save and stay independent of one another', async () => {
+    const splitEntry = {
+      id: 'entry-1', entryDate: '2026-09-03',
+      divisionId: '11111111-1111-1111-1111-111111111111',
+      sectionId: '22222222-2222-2222-2222-222222222222',
+      departmentId: '33333333-3333-3333-3333-333333333333',
+      shiftId: '44444444-4444-4444-4444-444444444444',
+      shift: { id: '44444444-4444-4444-4444-444444444444', name: 'Shift A', plannedHours: 8 },
+      machineId: null, machineNo: null,
+      operatorName: 'Operator', supervisorName: null,
+      itemId: SPIRAL_ID, uomId: 'uom-m',
+      targetQuantity: 100, actualQuantity: 80,
+      runningHours: 7, downtimeHours: 1,
+      scrapQuantity: 20, processScrapKg: 7, remarks: null,
+      items: [
+        { id: 'pi-1', lineNumber: 1, itemId: SPIRAL_ID, uomId: 'uom-m', targetQuantity: 100, actualQuantity: 80, scrapQuantity: 20, runningHours: 7 },
+      ],
+      downtimes: [],
+    };
+    apiMock.put.mockResolvedValue({ success: true, data: splitEntry });
+    renderForm('/production/entries/entry-1/edit', splitEntry);
+
+    // Both persisted figures hydrate into their OWN cell.
+    const rej = (await screen.findByLabelText(/product rejection/i)) as HTMLInputElement;
+    const proc = (await screen.findByLabelText(/process cutting scrap/i)) as HTMLInputElement;
+    expect(rej.value).toBe('20');
+    expect(proc.value).toBe('7');
+
+    // Report-only: the KPI stays at 20% while process scrap is edited.
+    const kpiRow = screen.getByTestId('kpi-row');
+    await waitFor(() => expect(within(kpiRow).getByText(/20%/)).toBeInTheDocument());
+    await userEvent.clear(proc);
+    await userEvent.type(proc, '50');
+    await waitFor(() => expect(proc.value).toBe('50'));
+    expect(within(kpiRow).getByText(/20%/)).toBeInTheDocument();
+    expect(rej.value).toBe('20');
+
+    // The save carries them as two independent fields.
+    await userEvent.click(screen.getByRole('button', { name: /update production entry/i }));
+    await waitFor(() => expect((apiMock.put as jest.Mock).mock.calls.length).toBeGreaterThan(0));
+    const payload = (apiMock.put as jest.Mock).mock.calls[(apiMock.put as jest.Mock).mock.calls.length - 1][1];
+    expect(Number(payload.processScrapKg)).toBe(50);   // report-only field
+    expect(Number(payload.scrapQuantity)).toBe(20);    // stock-deducting field
   });
 });
 
@@ -1744,7 +1886,7 @@ describe('TASK #30 — exact raw-material traceability + inventory', () => {
     renderForm(undefined, undefined, chainExt);
     const row = await addItemRow(1, 'WIP-FT-001 — Flat Wire A');
     setQty(row, '80'); // good 80
-    const scrap = screen.getByLabelText(/rejection \/ scrap/i) as HTMLInputElement;
+    const scrap = screen.getByLabelText(/product rejection/i) as HTMLInputElement;
     await userEvent.clear(scrap);
     await userEvent.type(scrap, '20'); // rejection 20 → 20/(80+20) = 20%
     await screen.findByText(/20%/);
@@ -1821,7 +1963,10 @@ describe('TASK #30 — exact raw-material traceability + inventory', () => {
     await addItemRow(1, 'WIP-FT-001 — Flat Wire A');
     await addItemRow(2, 'WIP-FT-002 — Flat Wire B');
     await waitFor(() => expect(screen.getAllByTestId(/^production-item-row-/)).toHaveLength(2));
-    await waitFor(() => expect((screen.getAllByRole('button', { name: /add item/i }))[0]).toBeDisabled());
+    // Exactly one Add Item control; the 2-row case is well under the cap of 4,
+    // so the control must stay ENABLED (the ceiling is no longer 2).
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /add item/i })).toHaveLength(1));
+    expect((screen.getAllByRole('button', { name: /add item/i }))[0]).not.toBeDisabled();
   });
 
   it('TASK30-S: no duplicate Raw Material source/table/API is introduced', async () => {
@@ -1929,7 +2074,7 @@ describe('TASK #31 — FINAL PRODUCTION ENTRY / UOM / WEIGHT / RAW-MATERIAL REFI
     renderForm();
     const row = await addItemRow(1, 'WIP-FT-001 — Flat Wire A');
     setQty(row, '90');
-    const scrap = screen.getByLabelText(/rejection \/ scrap/i) as HTMLInputElement;
+    const scrap = screen.getByLabelText(/product rejection/i) as HTMLInputElement;
     fireEvent.change(scrap, { target: { value: '10' } });
     const kpiRow = await screen.findByTestId('kpi-row');
     // Rejection % = 10 / (90 + 10) = 10%; formatNumber strips trailing zeros → "10%".
@@ -1940,7 +2085,7 @@ describe('TASK #31 — FINAL PRODUCTION ENTRY / UOM / WEIGHT / RAW-MATERIAL REFI
     renderForm();
     const row = await addItemRow(1, 'WIP-FT-001 — Flat Wire A');
     setQty(row, '90');
-    const scrap = screen.getByLabelText(/rejection \/ scrap/i) as HTMLInputElement;
+    const scrap = screen.getByLabelText(/product rejection/i) as HTMLInputElement;
     fireEvent.change(scrap, { target: { value: '10' } });
     const kpiRow = await screen.findByTestId('kpi-row');
     await waitFor(() => expect(within(kpiRow).getByText('10 KG')).toBeInTheDocument());
@@ -2008,11 +2153,12 @@ describe('TASK #31 — FINAL PRODUCTION ENTRY / UOM / WEIGHT / RAW-MATERIAL REFI
     expect(screen.getAllByRole('button', { name: /add downtime/i })).toHaveLength(1);
   });
 
-  it('TASK31-O: Add Item disables at 2 production items', async () => {
+  it('TASK31-O: Add Item disables at 4 production items', async () => {
     renderForm();
-    await addItemRow(1, 'WIP-FT-001 — Flat Wire A');
-    await addItemRow(2, 'WIP-FT-002 — Flat Wire B');
-    await waitFor(() => expect(screen.getAllByTestId(/^production-item-row-/)).toHaveLength(2));
+    for (let n = 1; n <= 4; n += 1) {
+      await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
+    }
+    await waitFor(() => expect(screen.getAllByTestId(/^production-item-row-/)).toHaveLength(4));
     expect((screen.getAllByRole('button', { name: /add item/i }))[0]).toBeDisabled();
   });
 
@@ -2065,11 +2211,12 @@ describe('TASK #31 — FINAL PRODUCTION ENTRY / UOM / WEIGHT / RAW-MATERIAL REFI
     expect(called.includes('/inventory/balances/available')).toBe(true);
   });
 
-  it('TASK31-T: production item rows are capped at 2', async () => {
+  it('TASK31-T: production item rows are capped at 4', async () => {
     renderForm();
-    await addItemRow(1, 'WIP-FT-001 — Flat Wire A');
-    await addItemRow(2, 'WIP-FT-002 — Flat Wire B');
-    await waitFor(() => expect(screen.getAllByTestId(/^production-item-row-/)).toHaveLength(2));
+    for (let n = 1; n <= 4; n += 1) {
+      await userEvent.click(await screen.findByRole('button', { name: /add item/i }));
+    }
+    await waitFor(() => expect(screen.getAllByTestId(/^production-item-row-/)).toHaveLength(4));
     expect((screen.getAllByRole('button', { name: /add item/i }))[0]).toBeDisabled();
   });
 
@@ -2908,7 +3055,7 @@ describe('TASK #37 — scrap-inclusive raw consumption + RAW_MATERIAL source sto
   };
 
   const setTopScrap = (value: string) => {
-    const scrap = screen.getByLabelText(/rejection \/ scrap/i) as HTMLInputElement;
+    const scrap = screen.getByLabelText(/product rejection/i) as HTMLInputElement;
     fireEvent.change(scrap, { target: { value } });
     fireEvent.blur(scrap);
   };

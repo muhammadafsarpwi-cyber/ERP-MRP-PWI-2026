@@ -99,6 +99,8 @@ interface DetailData {
   downtimeHours: number | string;
   downtimeReasonText?: string | null;
   scrapQuantity: number | string;
+  /** Process Cutting Scrap (KG) — report-only audit metric, never stock-deducting. */
+  processScrapKg?: number | string | null;
   remarks: string | null;
   productionOrder?: { id: string; orderNumber: string } | null;
   productionOrderOperationId: string | null;
@@ -653,7 +655,8 @@ const EntryDetail: React.FC = () => {
       <Descriptions.Item label="UOM">{entry.uom?.code}{entry.uom?.symbol ? ` (${entry.uom.symbol})` : ''}</Descriptions.Item>
       <Descriptions.Item label="Base UOM">{entry.item?.baseUom?.code ?? '—'}</Descriptions.Item>
       <Descriptions.Item label="Actual Good Production"><Text strong>{formatNumber(entry.actualQuantity, 3)}</Text></Descriptions.Item>
-      <Descriptions.Item label="Rejection / Scrap">{formatNumber(entry.scrapQuantity, 3)} KG</Descriptions.Item>
+      <Descriptions.Item label="Product Rejection (KG)">{formatNumber(entry.scrapQuantity, 3)} KG</Descriptions.Item>
+      <Descriptions.Item label="Process Cutting Scrap (KG)">{formatNumber(entry.processScrapKg ?? 0, 3)} KG</Descriptions.Item>
       <Descriptions.Item label="Running Hours">{formatNumber(effectiveRunning, 2)}h</Descriptions.Item>
       <Descriptions.Item label="Overtime Hours">{formatNumber(ot, 2)}h</Descriptions.Item>
       <Descriptions.Item

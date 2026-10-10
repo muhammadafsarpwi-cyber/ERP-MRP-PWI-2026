@@ -1431,19 +1431,22 @@ describe('ProductionEntryService — TASK #37 real production inventory posting'
     expect(balanceService.updateBalance).not.toHaveBeenCalled();
   });
 
-  it('TASK37-D: a maximum of 2 production items is enforced server-side', async () => {
+  it('TASK37-D: a maximum of 4 production items is enforced server-side', async () => {
     setupFlow();
-    const threeItemsMap = () => Promise.resolve({ id: 'in-rm', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' });
+    const fallbackItem = () => Promise.resolve({ id: 'in-rm', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' });
     itemRepo.findOne.mockImplementation(({ where }: any) => {
       const map: Record<string, any> = {
         'out-flat': { id: 'out-flat', companyId: COMPANY, itemCode: 'FLAT-WIRE-001', baseUomId: 'uom-kg', status: 'ACTIVE', productionInItemId: 'in-rm' },
         'in-rm': { id: 'in-rm', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' },
         'out-2': { id: 'out-2', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' },
         'out-3': { id: 'out-3', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' },
+        'out-4': { id: 'out-4', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' },
+        'out-5': { id: 'out-5', companyId: COMPANY, baseUomId: 'uom-kg', status: 'ACTIVE' },
       };
-      return Promise.resolve(map[where.id] ?? threeItemsMap());
+      return Promise.resolve(map[where.id] ?? fallbackItem());
     });
     balanceService.getAvailableStock.mockResolvedValue(1000);
+    // main item + 4 extra rows = 5 lines → one over the ceiling of 4.
     await expect(service.create({
       ...validDto(),
       itemId: 'out-flat',
@@ -1454,8 +1457,10 @@ describe('ProductionEntryService — TASK #37 real production inventory posting'
       items: [
         { itemId: 'out-2', uomId: 'uom-kg', actualQuantity: 10 },
         { itemId: 'out-3', uomId: 'uom-kg', actualQuantity: 10 },
+        { itemId: 'out-4', uomId: 'uom-kg', actualQuantity: 10 },
+        { itemId: 'out-5', uomId: 'uom-kg', actualQuantity: 10 },
       ],
-    } as any, COMPANY)).rejects.toThrow('A maximum of 2 production items per entry is allowed');
+    } as any, COMPANY)).rejects.toThrow('A maximum of 4 production items per entry is allowed');
     expect(stockLedgerService.create).not.toHaveBeenCalled();
   });
 

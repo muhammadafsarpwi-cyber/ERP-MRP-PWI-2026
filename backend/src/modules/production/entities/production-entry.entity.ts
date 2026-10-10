@@ -175,9 +175,23 @@ export class ProductionEntry extends BaseEntity {
   @Column({ name: 'downtime_reason', type: 'text', nullable: true })
   downtimeReasonText: string | null;
 
-  // Quality: scrap kept separate from actual good output
+  // Quality: scrap kept separate from actual good output.
+  // PRODUCT REJECTION — fully formed items that failed dimensional/visual
+  // audit. Stock-deducting: it reduces good output and drives the raw-material
+  // consumption basis (productionQty = actual + scrap) in the posting service.
   @Column({ name: 'scrap_quantity', type: 'decimal', precision: 19, scale: 4, default: 0 })
   scrapQuantity: number;
+
+  /**
+   * PROCESS CUTTING SCRAP (KG) — raw metal off-cuts, wire trimmings and
+   * machine setup filings. REPORT-ONLY audit metric: this value never reduces
+   * good output pieces, never enters the raw-material consumption basis and
+   * never posts an inventory movement, so item/stock ledger balances are
+   * untouched by construction. It exists purely so monthly dashboards and
+   * summaries can report process waste separately from product rejects.
+   */
+  @Column({ name: 'process_scrap_kg', type: 'decimal', precision: 19, scale: 4, default: 0 })
+  processScrapKg: number;
 
   // Stock-ledger receipt created when the entry posted directly to inventory
   // (make-to-stock). Order-linked entries leave this null — order completion

@@ -272,14 +272,25 @@
   min-width: 130px !important;
 }
 
+/* PANEL A — the Target tile. Sized with the percent tiles so the six KPI
+   cards break into two even rows of three (Target | Achievement | Efficiency
+   over Rejection | Production Weight | Rejection Weight) instead of the old
+   3 + 2 ragged split. */
+.entry-book-view-pane .kpi-col-target {
+  flex: 1 1 calc(33.333% - 8px) !important;
+  max-width: calc(33.333% - 8px) !important;
+  min-width: 150px !important;
+}
+
 .entry-book-view-pane .kpi-col-weight {
-  flex: 1 1 calc(50% - 8px) !important;
-  max-width: calc(50% - 8px) !important;
-  min-width: 180px !important;
+  flex: 1 1 calc(33.333% - 8px) !important;
+  max-width: calc(33.333% - 8px) !important;
+  min-width: 170px !important;
 }
 
 @media (max-width: 600px) {
   .entry-book-view-pane .kpi-col-percent,
+  .entry-book-view-pane .kpi-col-target,
   .entry-book-view-pane .kpi-col-weight {
     flex: 1 1 100% !important;
     max-width: 100% !important;

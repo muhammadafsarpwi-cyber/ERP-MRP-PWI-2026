@@ -116,6 +116,8 @@ interface EntryDetailData {
   targetQuantity: number | string; actualQuantity: number | string;
   runningHours: number | string; overtimeHours?: number | string; downtimeHours: number | string;
   downtimeReasonId: string | null; scrapQuantity: number | string;
+  /** Report-only process cutting scrap (off-cuts/trimmings) — never stock-deducting. */
+  processScrapKg?: number | string | null;
   remarks: string | null;
   productionOrderId: string | null; productionOrderOperationId: string | null;
   postToInventory: boolean; warehouseId: string | null; inventoryReferenceId: string | null;
@@ -156,10 +158,11 @@ const prorateTarget = (standardTarget: number, standardHours: number, workingHou
 /** Client-side guard for production-context IDs before any save request. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// ── STEP 5 "Production Figures" — shared styling for the four cells of the
+// ── STEP 5 "Production Figures" — shared styling for the FIVE cells of the
 //    strict horizontal row (Shift Hours · Overtime · Running Hours ·
-//    Rejection/Scrap). Identical label metrics + a single compact 32px control
-//    box keep every input aligned on one straight horizontal line.
+//    Product Rejection · Process Cutting Scrap). Identical label metrics +
+//    a single compact 32px control box keep every input aligned on one
+//    straight horizontal line.
 const figLabelStyle: React.CSSProperties = {
   display: 'block',
   fontSize: 11,
@@ -274,6 +277,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
   const shiftId = Form.useWatch('shiftId', form);
   const targetQty = Form.useWatch('targetQuantity', form);
   const scrapQty = Form.useWatch('scrapQuantity', form);
+  const processScrapQty = Form.useWatch('processScrapKg', form);
   const rawMatWarehouseWatch = Form.useWatch('rawMaterialWarehouseId', form);
   const warehouseWatch = Form.useWatch('warehouseId', form);
   const postToInventoryWatch = Form.useWatch('postToInventory', form);
@@ -662,6 +666,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
           // save wrote both running_hours=6 and overtime_hours=0 back to the row.
           overtimeHours: entryOvertimeHours(e as any),
           scrapQuantity: toNum(e.scrapQuantity),
+          processScrapKg: toNum(e.processScrapKg ?? 0),
           remarks: e.remarks ?? undefined,
           productionOrderId: e.productionOrderId ?? undefined,
           productionOrderOperationId: e.productionOrderOperationId ?? undefined,
@@ -963,6 +968,44 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return null;
   }, [machineLinked, mtResolution, derivedRunning, mode, entry?.targetQuantity]);
 
+  /**
+   * BASELINE HOURLY FACTOR — Standard Target ÷ standard shift hours (8h),
+   * straight from the Target Master record resolved by ERP-00016/ERP-00018.
+   * This is the per-hour number the pro-rated total is built from, and it is
+   * hydrated as a sub-text line under EVERY target read-out on the form:
+   *   PANEL A — the "Target" tile in the top KPI metric row
+   *   PANEL B — the "Target Production" cell of the calibration card
+   *   PANEL C — the Target cell of the Production Items Totals card
+   * so the operator sees the basis before submitting.
+   */
+  const targetRatePerHour = useMemo(() => {
+    if (mtResolution) {
+      if (mtResolution.standardHours > 0 && mtResolution.standardTarget > 0) {
+        return mtResolution.standardTarget / mtResolution.standardHours;
+      }
+      if (mtResolution.targetPerHour != null && mtResolution.targetPerHour > 0) {
+        return mtResolution.targetPerHour;
+      }
+    }
+    return null;
+  }, [mtResolution]);
+
+  /** Canonical sub-text line rendered under all three target cells. */
+  const targetRateLabel = targetRatePerHour !== null
+    ? `Target Rate: ${formatNumber(targetRatePerHour, 1)} /h`
+    : 'Target Rate: —';
+
+  /**
+   * Target value shown by the summary panels: the pro-rated machine-linked
+   * figure when a Target Master applies, otherwise the manually typed one.
+   */
+  const summaryTarget = useMemo(() => {
+    if (machineLinked) return displayTarget;
+    if (targetQty === undefined || targetQty === null || targetQty === '') return null;
+    const n = toNum(targetQty);
+    return Number.isFinite(n) ? n : null;
+  }, [machineLinked, displayTarget, targetQty]);
+
   const efficiency = useMemo(() => {
     // FIX — efficiency is running ÷ TOTAL AVAILABLE hours (shift + overtime),
     // the same denominator the server writes on save. The old code divided by
@@ -1229,7 +1272,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return round2(toNum(scrapQty));
   }, [scrapQty]);
 
-  const maxProductionItems = 2;
+  const maxProductionItems = 4;
   const productionItemsCount = (productionItemsWatch ?? []).length;
   const maxItemsReached = productionItemsCount >= maxProductionItems;
 
@@ -1437,6 +1480,9 @@ const EntryForm: React.FC<EntryFormProps> = ({
       if (isFullDowntime) {
         payload.actualQuantity = 0;
         payload.scrapQuantity = 0;
+        // No running hours → no cutting happened → no process waste either.
+        // Report-only, but kept consistent with the auto-calibration below.
+        payload.processScrapKg = 0;
         payload.runningHours = 0;
       } else if (isActualAuto) {
         payload.actualQuantity = round2(multiItemAggregate?.totalActual ?? 0);
@@ -2217,7 +2263,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   <Space>
                     <Tag color={isStep3Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px', height: 26, display: 'inline-flex', alignItems: 'center' }}>{isStep3Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 3 OK</> : 'STEP 3'}</Tag>
                     {maxItemsReached ? (
-                      <Tooltip title="Maximum 2 production items are allowed.">
+                      <Tooltip title="Maximum 4 production items are allowed.">
                         <span>
                           <Button type="primary" size="middle" icon={<PlusOutlined />} disabled style={{ height: 32, padding: '0 16px', fontWeight: 600, borderRadius: 6 }}>
                             + Add Item
@@ -2274,7 +2320,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       ))}
                       {multiItemAggregate && fields.length > 0 && (() => {
                         const uomLabel = primaryItem?.baseUom?.code || mtResolution?.uom?.code || 'KG';
-                        const tgtVal = machineLinked ? displayTarget : toNum(targetQty);
+                        const tgtVal = summaryTarget;
                         const isTargetMet = achievement !== null && achievement >= 100;
                         return (
                           <div
@@ -2324,6 +2370,10 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                   </span>
                                   <span style={{ fontSize: 11, fontWeight: 600, color: '#c084fc' }}>{uomLabel}</span>
                                 </div>
+                                {/* PANEL C — mirror the Target Master per-hour basis */}
+                                <span data-testid="target-rate-totals" style={{ display: 'block', fontSize: 10.5, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2 }}>
+                                  {targetRateLabel}
+                                </span>
                               </div>
                             </div>
 
@@ -2384,10 +2434,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   </Row>
                 )}
 
-                {/* ── Production Figures: ONE strict horizontal row of four
-                    equal-width cells (Shift · OT · Running · Rejection). They
-                    share one label metric and one compact 32px box height, so
-                    all four inputs sit on a single, perfectly straight line. */}
+                {/* ── Production Figures: ONE strict horizontal row of five
+                    equal-width cells (Shift · OT · Running · Product Rejection
+                    · Process Cutting Scrap). They share one label metric and
+                    one compact 32px box height, so all five inputs sit on a
+                    single, perfectly straight line. */}
                 <div style={{ marginBottom: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span>Shift & Production Hours</span>
@@ -2428,13 +2479,15 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       <div style={figRunningBoxStyle}>{formatNumber(derivedRunning, 2)} h</div>
                     </Form.Item>
 
-                    {/* 4 — Rejection / Scrap (KG): deliberately the SAME compact
-                        width and height as the three hour cells — operators only
-                        type short values (5, 10 …), so the old oversized box is
-                        shrunk to match. */}
+                    {/* 4 — Product Rejection (KG) [STOCK-DEDUCTING]: fully
+                        formed items that failed the dimensional/visual audit.
+                        Keeps the ORIGINAL behaviour — it subtracts from good
+                        output and drives the raw-material consumption basis in
+                        the posting service. Same compact width/height as the
+                        hour cells so all five stay on one straight line. */}
                     <Form.Item
                       name="scrapQuantity"
-                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Rejection / Scrap (KG) <Tag color={isFullDowntime ? 'green' : 'purple'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Input'}</Tag></span>}
+                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Product Rejection (KG) <Tag color={isFullDowntime ? 'green' : 'red'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Stock-Deducting'}</Tag></span>}
                       rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
                       style={{ marginBottom: 0 }}
                     >
@@ -2443,6 +2496,26 @@ const EntryForm: React.FC<EntryFormProps> = ({
                         min={0}
                         placeholder={isFullDowntime ? '0' : undefined}
                         className={(scrapQty !== undefined && scrapQty !== null && scrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}
+                      />
+                    </Form.Item>
+
+                    {/* 5 — Process Cutting Scrap (KG) [REPORT-ONLY]: raw metal
+                        off-cuts, wire trimmings and setup filings. Saves to
+                        process_scrap_kg and NOTHING else — it never reduces
+                        output pieces and never posts an inventory movement, so
+                        item/stock ledger balances are untouched. Optional by
+                        design (audit metric, not a submission gate). */}
+                    <Form.Item
+                      name="processScrapKg"
+                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Process Cutting Scrap (KG) <Tag color={isFullDowntime ? 'green' : 'blue'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Report-Only'}</Tag></span>}
+                      rules={[{ type: 'number', min: 0, message: 'Must be ≥ 0' }]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={0}
+                        placeholder="0"
+                        className={(processScrapQty !== undefined && processScrapQty !== null && processScrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}
                       />
                     </Form.Item>
                   </div>
@@ -2460,7 +2533,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                 {isFullDowntime ? (
                   <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid #10b981', color: '#34d399', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <CheckCircleFilled />
-                    <span><strong>100% Downtime Shift ({formatNumber(totalDowntime, 2)}h)</strong>: Running Hours (0.00h) and Scrap (0 KG) auto-calibrated. Ready to save.</span>
+                    <span><strong>100% Downtime Shift ({formatNumber(totalDowntime, 2)}h)</strong>: Running Hours (0.00h), Product Rejection and Process Cutting Scrap (0 KG) auto-calibrated. Ready to save.</span>
                   </div>
                 ) : machineLinked ? (
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
@@ -2825,6 +2898,26 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
                 {/* ── TOP KPI AREA: 2 clean lines, balanced card grid ── */}
                 <div data-testid="kpi-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                  {/* ── PANEL A — Target: the dynamic pro-rated total with the
+                      Target Master per-hour basis underneath it, so the same
+                      figure + rate pair shown in Panels B and C is visible
+                      here before the entry is submitted. ── */}
+                  <div className="kpi-col-target">
+                    <StatisticMini
+                      label="Target"
+                      hint={targetRateLabel}
+                      content={
+                        <Text strong style={{ fontSize: 18, fontWeight: 600 }}>
+                          {summaryTarget !== null ? formatNumber(summaryTarget, 0) : '—'}
+                          <span style={{ fontSize: 11, marginLeft: 4, fontWeight: 400, color: 'var(--theme-text-muted)' }}>
+                            {mtResolution?.uom?.code || primaryItem?.baseUom?.code || entry?.uom?.code || ''}
+                          </span>
+                        </Text>
+                      }
+                      accent="#a855f7"
+                      icon={<AimOutlined />}
+                    />
+                  </div>
                   <div className="kpi-col-percent">
                     <StatisticMini
                       label="Achievement %"
@@ -3005,6 +3098,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
                               {mtResolution?.uom?.code || entry?.uom?.code || ''}
                             </span>
                           </Text>
+                          {/* PANEL B — Target Master per-hour basis for this cell */}
+                          <Text type="secondary" data-testid="target-rate-calibration" style={{ fontSize: 10.5, display: 'block', marginTop: 2 }}>{targetRateLabel}</Text>
                         </div>
                       </Col>
                       <Col xs={12} sm={6}>
