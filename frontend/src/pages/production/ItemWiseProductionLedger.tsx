@@ -4,8 +4,8 @@ import {
   Typography, message,
 } from 'antd';
 import {
-  FileExcelOutlined, FilePdfOutlined, LeftOutlined, PrinterOutlined, ReloadOutlined,
-  RightOutlined,
+  CheckCircleFilled, FileExcelOutlined, FilePdfOutlined, LeftOutlined, PrinterOutlined,
+  ReloadOutlined, RightOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { jsPDF } from 'jspdf';
@@ -466,6 +466,17 @@ const STAGE_COLOR: Record<string, string> = {
   PL: 'gold',
   FG: 'green',
   DP: 'volcano',
+};
+
+/** Distinct readable text colors for each department / stage row */
+export const STAGE_TEXT_COLOR: Record<string, string> = {
+  RM: '#0284c7', // Ocean / Steel Blue for Raw Material
+  ST: '#2563eb', // Royal Blue for Straightening
+  SW: '#7c3aed', // Deep Violet / Indigo for Swaging
+  SP: '#c026d3', // Vivid Fuchsia / Magenta for Spoke
+  PL: '#d97706', // Golden Bronze / Amber for Plating
+  FG: '#16a34a', // Jade Green for Hand Packing / FG
+  DP: '#dc2626', // Crimson Red for Dispatch
 };
 
 /**
@@ -1245,12 +1256,13 @@ const ItemWiseProductionLedger: React.FC = () => {
   // under (MainLayout opens a workspace tab keyed by `location.pathname`).
   const { pathname: routePath } = useLocation();
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadStatus, setLoadStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
+  const activeRequestIdRef = useRef<number>(0);
 
-  const initialCacheKey = `${dayjs().format('YYYY-MM-DD')}__${dayjs().startOf('month').format('YYYY-MM-DD')}`;
-  const [rows, setRows] = useState<ReportRow[]>(() => ledgerReportCache.get(initialCacheKey)?.dayItems ?? []);
-  const [monthScrap, setMonthScrap] = useState<Record<string, number>>(() => ledgerReportCache.get(initialCacheKey)?.monthScrap ?? {});
+  const [rows, setRows] = useState<ReportRow[]>([]);
+  const [monthScrap, setMonthScrap] = useState<Record<string, number>>({});
   const [weightMap, setWeightMap] = useState<Record<string, number | null>>(() => ({
     ...STANDARD_ITEM_WEIGHTS,
     ...cachedWeightMapData,
@@ -1311,10 +1323,10 @@ const ItemWiseProductionLedger: React.FC = () => {
 
   /**
    * Sequential Daily Chain:
-   * "Today's Closing is Tomorrow's Opening" (اج کی کلوزنگ کل کی اوپننگ).
-   * For October 2026, the verified audited baseline starts 2026-10-05.
-   * When viewing a single date after 2026-10-05 (e.g. 2026-10-06),
-   * monthFrom starts from 2026-10-05 so the daily chain rolls forward.
+   * "Today's Closing is Tomorrow's Opening" (آج کی کلوزنگ کل کی اوپننگ).
+   * Rolling forward from the 1st of the month ensures that for every single day
+   * after the 1st (e.g. 2026-10-02, 2026-10-03, etc.), yesterday's closing balance
+   * seamlessly becomes today's opening balance.
    */
   const monthFrom = useMemo(() => {
     const isSingleDay = range[0].isSame(range[1], 'day');
@@ -1324,12 +1336,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         : range[0].format('YYYY-MM-DD');
     }
     const endStr = range[1].format('YYYY-MM-DD');
-    // Only roll forward from verified baseline (2026-10-05) for dates strictly after 2026-10-05
-    if (endStr.startsWith('2026-10') && endStr > '2026-10-05') {
-      return '2026-10-05';
+    const monthStart = range[1].startOf('month').format('YYYY-MM-DD');
+    // If viewing a single date after the 1st of the month, roll forward from the 1st of that month!
+    if (endStr > monthStart) {
+      return monthStart;
     }
-    // For single-day views on or before 2026-10-05 (e.g. 2026-09-30, 2026-10-01 to 2026-10-05),
-    // display the genuine inventory report for that exact day
     return endStr;
   }, [range]);
 
@@ -1346,6 +1357,9 @@ const ItemWiseProductionLedger: React.FC = () => {
 
   /** ±1 day: If viewing a single date, shifts both; if viewing a range, shifts the End Date. */
   const shiftEndDay = useCallback((delta: number) => {
+    setRows([]);
+    setLoading(true);
+    setLoadStatus('loading');
     setRange(([start, end]) => {
       if (start.isSame(end, 'day')) {
         const next = start.add(delta, 'day');
@@ -1559,18 +1573,15 @@ const ItemWiseProductionLedger: React.FC = () => {
   }, []);
 
   const load = useCallback(async (forceRefresh = false) => {
+    const requestId = ++activeRequestIdRef.current;
     const cacheKey = `${endDate}__${monthFrom}`;
-    if (!forceRefresh && ledgerReportCache.has(cacheKey)) {
-      const cached = ledgerReportCache.get(cacheKey)!;
-      setRows(cached.dayItems);
-      setMonthScrap(cached.monthScrap);
-      setLoading(false);
-      return;
-    }
 
-    // Only display spinner on initial blank load so existing table data stays rock-solid
-    setLoading((prev) => (rows.length === 0 ? true : prev));
+    // §1 Prevent data bleeding: clear old rows and enter loading state immediately
+    setRows([]);
+    setLoading(true);
+    setLoadStatus('loading');
     setError(null);
+
     try {
       // 1) Day window ⇒ inventory report for the selected endDate
       const dayReq = apiService.get<{ data: { items?: ReportRow[] } }>(
@@ -1611,6 +1622,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         baseReq,
         entriesReq,
       ]);
+
+      // If another date was selected while in-flight, discard stale response
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
 
       const dayItems: ReportRow[] = (dayRes?.data?.items ?? []).map((r) => ({ ...r }));
       const monthItems = (monthRes?.data?.items ?? dayItems).map((r) => ({ ...r }));
@@ -1703,6 +1719,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         });
       }
 
+      // Check race condition once more after loop
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
+
       const displayRows = isRange ? monthItems : dayItems;
 
       const computedMonthScrap = Object.fromEntries(
@@ -1718,14 +1739,17 @@ const ItemWiseProductionLedger: React.FC = () => {
 
       setRows(displayRows);
       setMonthScrap(computedMonthScrap);
+      setLoadStatus('success');
     } catch (e: any) {
-      if (rows.length === 0) {
-        setRows([]);
-        setMonthScrap({});
-      }
+      if (activeRequestIdRef.current !== requestId) return;
+      setRows([]);
+      setMonthScrap({});
+      setLoadStatus('error');
       setError(e?.response?.data?.message || 'Failed to load the Item-Wise Production Ledger');
     } finally {
-      setLoading(false);
+      if (activeRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [endDate, monthFrom, range]);
 
@@ -1800,18 +1824,27 @@ const ItemWiseProductionLedger: React.FC = () => {
         title: 'Stage',
         dataIndex: 'stageLabel',
         key: 'stageLabel',
-        // §3 — sized for the COMPOSITE label (code — full department name).
-        width: 168,
+        width: 115,
         fixed: 'left' as const,
-        // §9 — STRICT LEFT: the Stage column is the ruled left margin of the
-        // ledger, so its header and tag sit flush against the table wall.
         align: 'left' as const,
-        render: (_: unknown, row: LedgerMetrics) => (
-          <Space size={4} wrap>
-            {/* §3 — composite label: floor code, em-dash, full department. */}
-            <Tag color={STAGE_COLOR[row.stage] ?? 'default'}>{departmentName(row)}</Tag>
-          </Space>
-        ),
+        onHeaderCell: () => ({ className: 'iwl-cell-stage-head' }),
+        onCell: () => ({ className: 'iwl-cell-stage' }),
+        render: (_: unknown, row: LedgerMetrics) => {
+          const base = DEPARTMENT_NAME[row.stage] ?? row.stageLabel.replace(' Stage', '');
+          const branch = row.splitSide ? ` ${row.splitSide === 'INNER' ? 'Inner' : 'Outer'}` : '';
+          const fullDept = `${base}${branch}`;
+          const color = STAGE_TEXT_COLOR[row.stage] ?? '#475569';
+          return (
+            <div className="iwl-stage-stack">
+              <span className="iwl-stage-code" style={{ color }}>
+                {row.stage}
+              </span>
+              <span className="iwl-stage-dept-name" style={{ color }}>
+                {fullDept}
+              </span>
+            </div>
+          );
+        },
       },
       {
         // §2 — Item Code sits ON TOP of Item Name inside one cell.
@@ -1825,18 +1858,26 @@ const ItemWiseProductionLedger: React.FC = () => {
           className: 'iwl-cell-item',
           style: { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const },
         }),
-        render: (_: unknown, row: LedgerMetrics) => (
-          <div className="iwl-item-stack">
-            {row.found ? (
-              <span className="iwl-item-code">{row.itemCode}</span>
-            ) : (
-              <Tooltip title="Item not present in the current scope / period">
-                <span className="iwl-item-code iwl-item-code--missing">{row.itemCode}</span>
-              </Tooltip>
-            )}
-            <span className="iwl-item-name">{row.itemName}</span>
-          </div>
-        ),
+        render: (_: unknown, row: LedgerMetrics) => {
+          const isDataRow = Boolean(
+            row.found &&
+            (row.production > 0 || row.issuance > 0 || row.opBalance > 0 || row.closingPieces > 0)
+          );
+          return (
+            <div className="iwl-item-stack">
+              <span
+                className={`iwl-item-code ${isDataRow ? 'iwl-item-code--active' : 'iwl-item-code--inactive'}`}
+              >
+                {row.itemCode}
+              </span>
+              <span
+                className={`iwl-item-name ${isDataRow ? 'iwl-item-name--active' : 'iwl-item-name--inactive'}`}
+              >
+                {row.itemName}
+              </span>
+            </div>
+          );
+        },
       },
       {
         title: 'Op Balance',
@@ -1957,51 +1998,29 @@ const ItemWiseProductionLedger: React.FC = () => {
         render: (v: string | null) => v ?? '—',
       },
       {
-        // Stacked two-line header to reclaim horizontal space.
-        title: (
-          <div style={{ textAlign: 'center', lineHeight: 1.1 }}>
-            <div>Per Piece</div>
-            <div>Weight</div>
-          </div>
-        ),
-        dataIndex: 'perPieceWeight',
-        key: 'perPieceWeight',
-        align: 'center' as const,
-        width: 104,
-        onCell: () => ({ className: 'iwl-cell-num' }),
-        render: (v: number | null, row: LedgerMetrics) => {
-          const uom = (row.uomCode ?? '').toUpperCase();
-          const tip =
-            row.stage === 'RM'
-              ? 'RM base unit is already KG — multiplier is 1'
-              : isCountUnit(uom)
-                ? 'items.weight_per_piece (KG)'
-                : `UoM '${uom || '—'}' is not a piece unit — multiplier is 1`;
-          return (
-            <Tooltip title={tip}>
-              <span>{fmtPpw(v)}</span>
-            </Tooltip>
-          );
-        },
-      },
-      {
         title: 'Total Weight',
         dataIndex: 'totalWeight',
         key: 'totalWeight',
         align: 'center' as const,
-        width: 120,
-        onCell: () => ({ className: 'iwl-cell-num' }),
-        render: (v: number | null, row: LedgerMetrics) => (
-          <Tooltip
-            title={
-              row.stage === 'RM'
-                ? 'RM: Total Weight = Closing Balance (already KG)'
-                : 'Total Weight = Closing Pieces × Per Piece Weight'
-            }
-          >
-            <Text strong>{fmtKg(v)}</Text>
-          </Tooltip>
-        ),
+        width: 125,
+        onHeaderCell: () => ({ className: 'iwl-cell-weight-head' }),
+        onCell: () => ({ className: 'iwl-cell-weight iwl-cell-num' }),
+        render: (v: number | null, row: LedgerMetrics) => {
+          const ppw = row.perPieceWeight;
+          const uom = (row.uomCode ?? '').toUpperCase();
+          const tip =
+            row.stage === 'RM'
+              ? `Total Weight: ${fmtKg(v)} KG (RM closing balance is already KG)`
+              : `Total Weight: ${fmtKg(v)} KG\nPer Piece Weight: ${fmtPpw(ppw)} KG (${isCountUnit(uom) ? 'Closing Pieces × Weight' : 'Multiplier 1'})`;
+          return (
+            <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
+              <div className="iwl-weight-stack">
+                <span className="iwl-weight-total">{fmtKg(v)}</span>
+                <span className="iwl-weight-ppw">{fmtPpw(ppw)}</span>
+              </div>
+            </Tooltip>
+          );
+        },
       },
       {
         // §5/§7/§8 — two scrap trackers under one grouped parent header. The
@@ -2575,7 +2594,11 @@ const ItemWiseProductionLedger: React.FC = () => {
               text-align: center !important;
               font-size: 10.5px !important;
             }
-            .iwl-grid thead th:first-child,
+            .iwl-grid thead th.iwl-cell-stage-head,
+            .iwl-grid thead th:first-child {
+              text-align: left !important;
+              padding-left: 6px !important;
+            }
             .iwl-grid thead th.iwl-cell-item-head {
               text-align: left !important;
             }
@@ -2586,19 +2609,74 @@ const ItemWiseProductionLedger: React.FC = () => {
               color: #0f172a !important;
               font-size: 11px !important;
             }
-            .iwl-grid tbody td:first-child,
+            .iwl-grid tbody td.iwl-cell-stage,
+            .iwl-grid tbody td:first-child {
+              text-align: left !important;
+              padding-left: 6px !important;
+            }
             .iwl-grid tbody td.iwl-cell-item {
               text-align: left !important;
             }
-            .iwl-item-code {
+            .iwl-stage-stack {
+              display: flex !important;
+              flex-direction: column !important;
+              align-items: flex-start !important;
+              justify-content: center !important;
+              text-align: left !important;
+              gap: 1px !important;
+            }
+            .iwl-stage-code {
+              font-size: 11px !important;
+              font-weight: 800 !important;
+              line-height: 1.1 !important;
+              text-align: left !important;
+            }
+            .iwl-stage-dept-name {
+              font-size: 9.5px !important;
               font-weight: 700 !important;
+              line-height: 1.1 !important;
+              text-align: left !important;
+              white-space: nowrap !important;
+            }
+            .iwl-weight-stack {
+              display: flex !important;
+              flex-direction: column !important;
+              align-items: center !important;
+              justify-content: center !important;
+              gap: 0 !important;
+            }
+            .iwl-weight-total {
+              font-size: 11.5px !important;
+              font-weight: 800 !important;
+              color: #0f172a !important;
+            }
+            .iwl-weight-ppw {
+              font-size: 9.5px !important;
+              font-weight: 600 !important;
+              color: #64748b !important;
+            }
+            .iwl-item-code {
+              font-size: 11.5px !important;
               font-family: monospace;
-              font-size: 12px !important;
+            }
+            .iwl-item-code--active {
+              color: #0369a1 !important;
+              font-weight: 800 !important;
+            }
+            .iwl-item-code--inactive {
+              color: #f59e0b !important;
+              font-weight: 600 !important;
             }
             .iwl-item-name {
-              font-weight: 700 !important;
+              font-size: 10.5px !important;
+            }
+            .iwl-item-name--active {
               color: #1e40af !important;
-              font-size: 11px !important;
+              font-weight: 700 !important;
+            }
+            .iwl-item-name--inactive {
+              color: #d97706 !important;
+              font-weight: 600 !important;
             }
             .iwl-cell-prod {
               color: #047857 !important;
@@ -2667,12 +2745,74 @@ const ItemWiseProductionLedger: React.FC = () => {
   useEffect(() => {
     const actions: HeaderAction[] = [
       {
+        key: 'iwl-status',
+        node: loading ? (
+          <Tag
+            icon={<SyncOutlined spin style={{ color: '#0284c7' }} />}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 12px',
+              borderRadius: 16,
+              fontSize: 12.5,
+              fontWeight: 700,
+              height: 32,
+              backgroundColor: '#e0f2fe',
+              borderColor: '#7dd3fc',
+              color: '#0369a1',
+            }}
+          >
+            Loading...
+          </Tag>
+        ) : loadStatus === 'success' ? (
+          <Tooltip title={`Ledger data loaded and verified for ${endDate}. Safe to print or export.`}>
+            <Tag
+              icon={<CheckCircleFilled style={{ color: '#10b981', fontSize: 13 }} />}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 12px',
+                borderRadius: 16,
+                fontSize: 12.5,
+                fontWeight: 800,
+                height: 32,
+                backgroundColor: '#ecfdf5',
+                borderColor: '#6ee7b7',
+                color: '#065f46',
+                boxShadow: '0 1px 3px rgba(16, 185, 129, 0.2)',
+              }}
+            >
+              100% Loaded / Ready ✓
+            </Tag>
+          </Tooltip>
+        ) : loadStatus === 'error' ? (
+          <Tag
+            color="error"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 12px',
+              borderRadius: 16,
+              fontSize: 12.5,
+              fontWeight: 700,
+              height: 32,
+            }}
+          >
+            Load Error ⚠
+          </Tag>
+        ) : null,
+      },
+      {
         key: 'iwl-excel',
         node: (
-          <Tooltip title="Download exactly what is on screen as an Excel workbook">
+          <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Download exactly what is on screen as an Excel workbook'}>
             <Button
               type="primary"
               icon={<FileExcelOutlined />}
+              disabled={loading}
               onClick={() => actionsRef.current.handleExcel()}
             >
               Export to Excel
@@ -2683,8 +2823,12 @@ const ItemWiseProductionLedger: React.FC = () => {
       {
         key: 'iwl-pdf',
         node: (
-          <Tooltip title="Landscape PDF, one page per item chain">
-            <Button icon={<FilePdfOutlined />} onClick={() => actionsRef.current.handlePdf()}>
+          <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Landscape PDF, one page per item chain'}>
+            <Button
+              icon={<FilePdfOutlined />}
+              disabled={loading}
+              onClick={() => actionsRef.current.handlePdf()}
+            >
               Download PDF
             </Button>
           </Tooltip>
@@ -2693,8 +2837,12 @@ const ItemWiseProductionLedger: React.FC = () => {
       {
         key: 'iwl-print',
         node: (
-          <Tooltip title="Open the browser print dialog (Landscape)">
-            <Button icon={<PrinterOutlined />} onClick={() => actionsRef.current.handlePrint()}>
+          <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Open the browser print dialog (Landscape)'}>
+            <Button
+              icon={<PrinterOutlined />}
+              disabled={loading}
+              onClick={() => actionsRef.current.handlePrint()}
+            >
               Print Ledger
             </Button>
           </Tooltip>
@@ -2723,9 +2871,7 @@ const ItemWiseProductionLedger: React.FC = () => {
       },
     ];
     useHeaderActions.getState().setHeaderActions(actions, routePath);
-    // `loading` must re-publish the Refresh spinner; the handlers travel via
-    // actionsRef, so the effect does not need to re-run on every render.
-  }, [routePath, loading]);
+  }, [routePath, loading, loadStatus, endDate]);
 
   return (
     <div className="iwl-page" style={{ padding: '8px 12px' }}>
@@ -2785,16 +2931,35 @@ const ItemWiseProductionLedger: React.FC = () => {
            as a key, and the product description POPS straight out of the
            row. The name is also free to wrap anywhere, so a long
            description never runs into the Op Balance column. */
-        .iwl-item-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1.4; }
+        .iwl-item-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1.35; }
         .iwl-item-code {
-          font-weight: 700; font-size: 14px; color: #0f172a; letter-spacing: -0.1px;
+          font-size: 13.5px;
+          letter-spacing: -0.1px;
           font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
-        .iwl-item-code--missing { color: #faad14; }
+        .iwl-item-code--active {
+          color: #0369a1 !important;
+          font-weight: 800 !important;
+        }
+        .iwl-item-code--inactive,
+        .iwl-item-code--missing {
+          color: #f59e0b !important;
+          font-weight: 600 !important;
+          opacity: 0.9;
+        }
         .iwl-item-name {
-          font-size: 13px; font-weight: 700 !important; line-height: 1.35;
-          color: #1e40af;
+          font-size: 12.5px;
+          line-height: 1.3;
           overflow-wrap: anywhere;
+        }
+        .iwl-item-name--active {
+          color: #1e40af !important;
+          font-weight: 700 !important;
+        }
+        .iwl-item-name--inactive {
+          color: #d97706 !important;
+          font-weight: 600 !important;
+          opacity: 0.85;
         }
 
         /* ── §1 SLIM slate header: compact accent band, zero dead space ── */
@@ -2818,18 +2983,76 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-grid .ant-table-tbody > tr > td.iwl-cell-item { text-align: left !important; }
         .iwl-grid .ant-table-tbody > tr > td .ant-space { justify-content: center !important; }
 
-        /* ── §9 STAGE = the ruled left margin ──────────────────────────────
-           The first column is never centred: header and body are forced flush
-           LEFT and the stage chip is pushed to the very start of the cell, so
-           "Raw Material", "Straightening" … sit hard against the table's left
-           border instead of drifting away from it. */
-        .iwl-grid .ant-table-thead > tr > th:first-child,
+        /* ── §1 STAGE COLUMN = LEFT-ALIGNED & STACKED ────────────────────── */
+        .iwl-grid .ant-table-thead > tr > th.iwl-cell-stage-head,
+        .iwl-grid .ant-table-thead > tr > th:first-child {
+          text-align: left !important;
+          padding-left: 8px !important;
+        }
+        .iwl-grid .ant-table-tbody > tr > td.iwl-cell-stage,
         .iwl-grid .ant-table-tbody > tr > td:first-child {
           text-align: left !important;
+          padding-left: 8px !important;
         }
         .iwl-grid .ant-table-thead > tr > th:first-child .ant-space,
         .iwl-grid .ant-table-tbody > tr > td:first-child .ant-space {
           justify-content: flex-start !important;
+        }
+
+        .iwl-stage-stack {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: center;
+          text-align: left;
+          gap: 1px;
+          line-height: 1.15;
+          padding: 2px 0;
+        }
+        .iwl-stage-code {
+          font-weight: 800 !important;
+          font-size: 13.5px !important;
+          line-height: 1.15 !important;
+          letter-spacing: 0.3px !important;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          text-align: left !important;
+        }
+        .iwl-stage-dept-name {
+          font-size: 11.5px !important;
+          font-weight: 700 !important;
+          line-height: 1.2 !important;
+          text-align: left !important;
+          white-space: nowrap !important;
+        }
+        [data-theme='dark'] .iwl-stage-dept-name {
+          opacity: 0.95;
+        }
+
+        /* ── §3 MERGED TOTAL WEIGHT + PER PIECE WEIGHT STACKED ─────────── */
+        .iwl-weight-stack {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          line-height: 1.25;
+          gap: 1px;
+        }
+        .iwl-weight-total {
+          font-size: 13px !important;
+          font-weight: 700 !important;
+          color: #0f172a !important;
+        }
+        .iwl-weight-ppw {
+          font-size: 11px !important;
+          font-weight: 600 !important;
+          color: #64748b !important;
+          letter-spacing: 0.2px !important;
+        }
+        [data-theme='dark'] .iwl-weight-total {
+          color: #f1f5f9 !important;
+        }
+        [data-theme='dark'] .iwl-weight-ppw {
+          color: #94a3b8 !important;
         }
 
         /* ── §6/§8 TIGHT LEDGER GUTTERS ────────────────────────────────────
@@ -2847,15 +3070,6 @@ const ItemWiseProductionLedger: React.FC = () => {
           /* §9 — the requested tight gutter: 4px is all the breathing room
              the opening balance gets before the item stack runs into it. */
           padding-left: 4px !important;
-        }
-
-        /* ── §8 STAGE flush to the wall ────────────────────────────────────
-           The first column keeps ZERO left padding: header chip and body tag
-           alike sit hard against the table's left border, the ruled margin
-           line of the ledger. */
-        .iwl-grid .ant-table-tbody > tr > td:first-child,
-        .iwl-grid .ant-table-thead > tr > th:first-child {
-          padding-left: 0 !important;
         }
 
         /* ── §13 EXECUTIVE GRIDLINE CONTRAST + DEEP-BLACK BASELINE ───────
@@ -2931,6 +3145,87 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-filters-chain { display: flex; flex-direction: column; gap: 4px; }
         .iwl-filters-note { display: flex; align-items: center; gap: 6px; }
 
+        /* ── Loading Green Runner Line & Status Badges ───────────────── */
+        .iwl-shimmer-track {
+          position: relative;
+          width: 100%;
+          height: 4.5px;
+          margin: 0 0 14px 0;
+          border-radius: 4px;
+          overflow: hidden;
+          background: #e2e8f0;
+        }
+        .iwl-shimmer-bar {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          border-radius: 4px;
+          transition: width 0.35s ease, opacity 0.35s ease;
+        }
+        .iwl-shimmer-bar--active {
+          left: -40%;
+          width: 40%;
+          background: linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, #10b981 35%, #34d399 70%, #059669 100%);
+          box-shadow: 0 0 10px #10b981, 0 0 4px #34d399;
+          animation: iwl-green-runner 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        .iwl-shimmer-bar--active::after {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+          animation: iwl-beam-shine 0.75s infinite linear;
+        }
+        @keyframes iwl-green-runner {
+          0% {
+            left: -40%;
+            width: 35%;
+          }
+          50% {
+            left: 30%;
+            width: 48%;
+          }
+          100% {
+            left: 100%;
+            width: 35%;
+          }
+        }
+        @keyframes iwl-beam-shine {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        .iwl-shimmer-bar--done {
+          left: 0;
+          width: 100%;
+          background: #10b981;
+          box-shadow: 0 0 4px rgba(16, 185, 129, 0.4);
+          animation: none !important;
+        }
+
+        .iwl-status-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 10px;
+          border-radius: 14px;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1;
+        }
+        .iwl-status-badge--loading {
+          background: #e0f2fe;
+          border: 1px solid #7dd3fc;
+          color: #0369a1;
+        }
+        .iwl-status-badge--ready {
+          background: #ecfdf5;
+          border: 1px solid #a7f3d0;
+          color: #065f46;
+        }
+
         /* ── §4 14px reading baseline with roomy line-heights for wrapping ─ */
         .iwl-grid .ant-table-tbody > tr > td { font-size: 14px; line-height: 1.45; }
         .iwl-grid .ant-table-tbody > tr > td.iwl-cell-num { font-weight: 600; }
@@ -2955,12 +3250,25 @@ const ItemWiseProductionLedger: React.FC = () => {
         [data-theme='dark'] .iwl-lh-detail-item strong { color: #f8fafc; }
         [data-theme='dark'] .iwl-lh-date-label { color: #94a3b8; }
         [data-theme='dark'] .iwl-lh-date-val { color: #f1f5f9; }
-        [data-theme='dark'] .iwl-item-code { color: #69b1ff; }
-        [data-theme='dark'] .iwl-item-code--missing { color: #ffc53d; }
-        [data-theme='dark'] .iwl-item-name { color: #9aa6b8; }
+        [data-theme='dark'] .iwl-item-code--active { color: #38bdf8 !important; }
+        [data-theme='dark'] .iwl-item-code--inactive,
+        [data-theme='dark'] .iwl-item-code--missing { color: #fbbf24 !important; }
+        [data-theme='dark'] .iwl-item-name--active { color: #60a5fa !important; }
+        [data-theme='dark'] .iwl-item-name--inactive { color: #f59e0b !important; }
         [data-theme='dark'] .iwl-grid--off .iwl-grid-title { color: #55606f; }
         [data-theme='dark'] .iwl-cell-prod { background: rgba(16, 185, 129, 0.20) !important; color: #34d399 !important; }
         [data-theme='dark'] .iwl-cell-close { background: rgba(245, 158, 11, 0.18) !important; color: #fbbf24 !important; }
+        [data-theme='dark'] .iwl-shimmer-track { background: #1e293b; }
+        [data-theme='dark'] .iwl-status-badge--loading {
+          background: #082f49;
+          border-color: #0369a1;
+          color: #38bdf8;
+        }
+        [data-theme='dark'] .iwl-status-badge--ready {
+          background: #022c22;
+          border-color: #059669;
+          color: #34d399;
+        }
 
         @page { size: A4 landscape; margin: 7mm 7mm; }
 
@@ -3216,12 +3524,6 @@ const ItemWiseProductionLedger: React.FC = () => {
             /* §9 — the requested tight gutter on paper too. */
             padding-left: 4px !important;
           }
-          /* §8 — STAGE sits on the absolute left wall of the grid: zero left
-             padding, header and body alike, against the table border. */
-          .iwl-grid .ant-table-tbody > tr > td:first-child,
-          .iwl-grid .ant-table-thead > tr > th:first-child {
-            padding-left: 0 !important;
-          }
           /* §2 — ONE centre rule for every figure on the paper, and the
              stacked Item column is the single exception that stays left. */
           .iwl-grid .ant-table-thead > tr > th {
@@ -3233,16 +3535,72 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-grid .ant-table-tbody > tr > td {
             text-align: center !important;
           }
-          /* §9 — STAGE is never centred on paper either: header and body are
-             forced flush LEFT so the composite chip sits against the table's
-             left border like the ruled margin of a ledger. */
+          .iwl-grid .ant-table-thead > tr > th.iwl-cell-stage-head,
           .iwl-grid .ant-table-thead > tr > th:first-child,
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-stage,
           .iwl-grid .ant-table-tbody > tr > td:first-child {
             text-align: left !important;
+            padding-left: 5px !important;
           }
           .iwl-grid .ant-table-thead > tr > th:first-child .ant-space,
           .iwl-grid .ant-table-tbody > tr > td:first-child .ant-space {
             justify-content: flex-start !important;
+          }
+          .iwl-grid .iwl-stage-stack {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            justify-content: center !important;
+            text-align: left !important;
+            gap: 1px !important;
+            line-height: 1.1 !important;
+          }
+          .iwl-grid .iwl-stage-code {
+            font-size: 11px !important;
+            font-weight: 800 !important;
+            line-height: 1.15 !important;
+            text-align: left !important;
+          }
+          .iwl-grid .iwl-stage-dept-name {
+            font-size: 9.5px !important;
+            font-weight: 700 !important;
+            line-height: 1.1 !important;
+            text-align: left !important;
+            white-space: nowrap !important;
+          }
+          .iwl-grid .iwl-item-code--active {
+            color: #0369a1 !important;
+            font-weight: 800 !important;
+          }
+          .iwl-grid .iwl-item-code--inactive {
+            color: #d97706 !important;
+            font-weight: 600 !important;
+          }
+          .iwl-grid .iwl-item-name--active {
+            color: #1e40af !important;
+            font-weight: 700 !important;
+          }
+          .iwl-grid .iwl-item-name--inactive {
+            color: #b45309 !important;
+            font-weight: 600 !important;
+          }
+          .iwl-grid .iwl-weight-stack {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 0 !important;
+            line-height: 1.1 !important;
+          }
+          .iwl-grid .iwl-weight-total {
+            font-size: 11.5px !important;
+            font-weight: 800 !important;
+            color: #0f172a !important;
+          }
+          .iwl-grid .iwl-weight-ppw {
+            font-size: 9.5px !important;
+            font-weight: 600 !important;
+            color: #64748b !important;
           }
           /* §4 — NUMERIC SCALE-UP: every figure on paper is set to 12pt
              (16px, well past the requested 12px floor) at weight 800 on
@@ -3410,6 +3768,23 @@ const ItemWiseProductionLedger: React.FC = () => {
           <div className="iwl-lh-right">
             <div className="iwl-lh-date-label">PRODUCTION DATE</div>
             <div className="iwl-lh-date-val">{endDate}</div>
+            {loadStatus === 'success' && !loading && (
+              <div
+                className="iwl-no-print"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: '#059669',
+                  marginTop: 2,
+                }}
+              >
+                <CheckCircleFilled style={{ color: '#10b981', fontSize: 12 }} />
+                <span>100% Ready</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -3508,8 +3883,14 @@ const ItemWiseProductionLedger: React.FC = () => {
               value={range}
               allowClear={false}
               format="YYYY-MM-DD"
+              disabled={loading}
               onChange={(v) => {
-                if (v && v[0] && v[1]) setRange([v[0], v[1]]);
+                if (v && v[0] && v[1]) {
+                  setRows([]);
+                  setLoading(true);
+                  setLoadStatus('loading');
+                  setRange([v[0], v[1]]);
+                }
               }}
             />
             {showAll && excludedCount > 0 ? (
@@ -3526,13 +3907,29 @@ const ItemWiseProductionLedger: React.FC = () => {
           </div>
 
           <div className="iwl-filters-right">
-            <Button icon={<LeftOutlined />} onClick={() => shiftEndDay(-1)}>
+            {loading ? (
+              <div className="iwl-status-badge iwl-status-badge--loading">
+                <SyncOutlined spin style={{ color: '#0284c7' }} />
+                <span>Loading {endDate}...</span>
+              </div>
+            ) : loadStatus === 'success' ? (
+              <div className="iwl-status-badge iwl-status-badge--ready">
+                <CheckCircleFilled style={{ color: '#10b981' }} />
+                <span>100% Loaded &amp; Ready</span>
+              </div>
+            ) : null}
+            <Button icon={<LeftOutlined />} disabled={loading} onClick={() => shiftEndDay(-1)}>
               Previous Day
             </Button>
-            <Button onClick={() => shiftEndDay(1)}>
+            <Button disabled={loading} onClick={() => shiftEndDay(1)}>
               Next Day <RightOutlined />
             </Button>
           </div>
+        </div>
+
+        {/* ── Shimmer loading progress bar ── */}
+        <div className="iwl-shimmer-track iwl-no-print">
+          <div className={`iwl-shimmer-bar ${loading ? 'iwl-shimmer-bar--active' : 'iwl-shimmer-bar--done'}`} />
         </div>
 
         {/* §1 print — the metric strip is screen-only. On paper the
@@ -3591,7 +3988,15 @@ const ItemWiseProductionLedger: React.FC = () => {
             sheet is gone: Excel / PDF / Print / Refresh now live in the main
             header band at the absolute top of the component. */}
 
-        <Spin spinning={loading && rows.length === 0}>
+        <Spin
+          spinning={loading}
+          size="large"
+          tip={
+            <div style={{ marginTop: 10, fontWeight: 700, fontSize: 13, color: '#0284c7' }}>
+              Recalculating &amp; verifying ledger balances for {endDate}...
+            </div>
+          }
+        >
           {grids.length === 0 && !loading ? (
             <Empty description="No production item chain configured" />
           ) : (

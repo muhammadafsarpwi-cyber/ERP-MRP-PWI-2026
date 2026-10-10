@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Daily Production Report — Rims Division</title>
+<style>
+  @page { size: A4 landscape; margin: 8mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+         font-size: 11px; color: #0f172a; margin: 0; padding: 12px; background: #fff; }
+  .rp-header { border-bottom: 2px solid #0f172a; padding-bottom: 6px; margin-bottom: 10px;
+               break-inside: avoid; page-break-inside: avoid; }
+  .rp-title { font-size: 17px; font-weight: 700; letter-spacing: .02em; margin: 0; }
+  .rp-division { font-size: 13px; font-weight: 700; color: #1d4ed8; margin: 3px 0 0; }
+  /* Meta line: shift + counts on the LEFT, and the production date +
+     generation stamp pinned to the FAR RIGHT (margin-left:auto always wins
+     over the space-between gap, so the stamp hugs the right rule even when
+     the left run is short). The date is deliberately NOT in the left run. */
+  .rp-meta { font-size: 11px; color: #475569; margin-top: 4px; display: flex; gap: 16px;
+             flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  .rp-meta-left { display: flex; gap: 16px; flex-wrap: wrap; }
+  .rp-meta-stamp { display: flex; gap: 14px; margin-left: auto; text-align: right;
+                   font-weight: 600; color: #0f172a; }
+  .rp-meta span { white-space: nowrap; }
+  .rp-dept { break-inside: avoid; page-break-inside: avoid; margin-bottom: 12px; }
+  .rp-dept-head { display: flex; justify-content: space-between; gap: 12px;
+                  background: #0f172a; color: #fff; font-size: 11px; font-weight: 700;
+                  letter-spacing: .04em; padding: 4px 8px;
+                  break-after: avoid; page-break-after: avoid; }
+  table.rp-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+  .rp-table th, .rp-table td { border: 1px solid #94a3b8; padding: 3px 4px; line-height: 1.2;
+                               vertical-align: middle; overflow-wrap: anywhere; word-break: break-word;
+                               white-space: normal; }
+  .rp-table thead { display: table-header-group; }
+  .rp-table tfoot { display: table-footer-group; }
+  .rp-table tr { break-inside: avoid; page-break-inside: avoid; }
+  /* Header: 10px + normal word breaking - a narrow label wraps BETWEEN words
+     ("Per Unit" / "Weight") and never through the middle of one. */
+  .rp-table th { background: #e2e8f0; color: #1e293b; font-weight: 700; font-size: 10px;
+                 word-break: normal; overflow-wrap: break-word; line-height: 1.2; }
+  .rp-table tbody tr:nth-child(even) td { background: #f8fafc; }
+  .rp-subtotal td { background: #e8edf3 !important; font-weight: 700; color: #1e293b; }
+  .rp-total td { background: #e2e8f0 !important; font-weight: 700; }
+  .a-left { text-align: left; } .a-center { text-align: center; } .a-right { text-align: right; }
+  .muted { color: #64748b; } .strong { font-weight: 700; }
+  /* WEIGHT (KG) is a narrow two-figure column — it sheds the horizontal dead
+     space the wider columns need, so its digits sit tight against the rule.
+     (2 classes beat the .rp-table td rule above.) */
+  .rp-table .c-tight { padding-left: 1px; padding-right: 1px; }
+  /* ---- FUSED (stacked) CELLS: line 1 on top, line 2 underneath -------
+     Item / Shift lead with the informative line and trail with the muted
+     one. WEIGHT (KG) is inverted on purpose — the small per-unit figure sits
+     on top and the Actual KG is the bold, prominent line underneath, which
+     is the number the reader is actually looking for. */
+  .rp-item-name { display: block; font-weight: 700; color: #0f172a; }
+  .rp-item-code { display: block; font-weight: 400; color: #94a3b8; }
+  .rp-shift-name { display: block; font-weight: 400; color: #0f172a; }
+  .rp-shift-time { display: block; font-weight: 400; color: #94a3b8; }
+  .rp-wt-top { display: block; font-weight: 400; color: #64748b; }
+  .rp-wt-bottom { display: block; font-weight: 700; color: #0f172a; }
+  .rp-rj-top { display: block; font-weight: 400; color: #0f172a; }
+  .rp-rj-bottom { display: block; font-weight: 400; color: #64748b; }
+  /* ---- 2-LINE MAXIMUM -------------------------------------------------
+     Each of those eight lines is ONE physical line: nowrap + ellipsis, so
+     "General Shift" / "06:00 - 14:00", the product name and the fused
+     WEIGHT / REJECTION values can never push a row onto a 3rd or 4th line.
+     Shift sits at 10px / 9px to fit its 9%; the two fused columns sit at
+     11px / 10px so the bold line always outweighs the muted one. */
+  .rp-item-name, .rp-item-code, .rp-shift-name, .rp-shift-time,
+  .rp-wt-top, .rp-wt-bottom, .rp-rj-top, .rp-rj-bottom {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rp-item-name { font-size: 11px; line-height: 1.2; }
+  .rp-item-code { font-size: 10px; line-height: 1.2; }
+  .rp-shift-name { font-size: 10px; line-height: 1.2; }
+  .rp-shift-time { font-size: 9px; line-height: 1.2; }
+  .rp-wt-top { font-size: 10px; line-height: 1.2; }
+  .rp-wt-bottom { font-size: 11px; line-height: 1.2; }
+  /* REJECTION / SCRAP runs the tightest rhythm of the four fused cells: its
+     two values are short numerals (no descenders), so the leading drops from
+     1.2 to 1.1 and the top line pulls 2px up onto the bottom one — roughly a
+     fifth less dead space between the KG figure and its percentage. */
+  .rp-rj-top { font-size: 11px; line-height: 1.1; margin-bottom: -2px; }
+  .rp-rj-bottom { font-size: 10px; line-height: 1.1; }
+  /* Long free text (operator, breakdown reason) may use AT MOST 2 lines. */
+  .rp-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tone-up { color: #15803d !important; font-weight: 700; }
+  .tone-down { color: #b91c1c !important; font-weight: 700; }
+  /* ---- EXEC KPI CARDS — the standalone LAST page of the report ---------
+     The page break lives on .rp-exec, so the KPI cards always start a fresh
+     sheet right after the final department's grand total row. The grid is
+     responsive: minmax(300px, 1fr) gives 3 cards per A4 landscape row and 2
+     on a narrower sheet, never more. (Keep this comment free of the printed
+     heading text — the styles ship with EVERY report, including empty ones.) */
+  .rp-exec { break-before: page; page-break-before: always; padding-top: 2px; }
+  .rp-exec-title { text-align: center; font-weight: 700; font-size: 18px;
+                   letter-spacing: .06em; color: #0f172a; margin: 0 0 14px;
+                   break-after: avoid; page-break-after: avoid; }
+  /* align-items:start keeps a short department card from stretching to match
+     a tall one — a card whose nested item list is long stays its own height
+     instead of padding out the cards in its row. */
+  .rp-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                 gap: 12px; align-items: start; }
+  .rp-kpi-card { border: 1px solid #cbd5e1; background: #f8fafc; padding: 10px 12px;
+                 break-inside: avoid; page-break-inside: avoid; }
+  .rp-kpi-name { font-weight: 700; font-size: 12px; letter-spacing: .05em; color: #0f172a;
+                 padding-bottom: 5px; margin-bottom: 6px; border-bottom: 1px solid #cbd5e1; }
+  .rp-kpi-row { display: flex; justify-content: space-between; gap: 10px;
+                font-size: 11.5px; line-height: 1.55; font-variant-numeric: tabular-nums; }
+  .rp-kpi-row span { color: #64748b; }
+  .rp-kpi-row b { font-weight: 700; color: #0f172a; }
+  /* Row 4 — the highlighted achievement line (green ▲ / red ▼). */
+  .rp-kpi-ach { margin-top: 6px; padding-top: 5px; border-top: 1px dashed #cbd5e1;
+                font-size: 12.5px; }
+  /* ---- nested item footer (KEEP THIS COMMENT FREE OF ANY PRINTED STRING
+     — the stylesheet ships with EVERY report, empty ones included).
+     Line 1 is a three-column grid: the pooled code on the left, the piece
+     count and the weight right-aligned so they stay in register down the
+     card. Line 2 carries the full product name in a smaller, muted layer
+     and — only when that part actually rejected something — its light
+     Pcs / KG sub-metric. */
+  .rp-iw-head, .rp-iw-main { display: grid; grid-template-columns: 1fr 78px 84px;
+                             gap: 6px; font-variant-numeric: tabular-nums; }
+  .rp-iw-head { font-size: 8px; font-weight: 700; color: #64748b; letter-spacing: .03em;
+                margin-top: 8px; padding: 6px 0 4px;
+                border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+  .rp-iw-head span + span, .rp-iw-main span + span { text-align: right; }
+  .rp-iw-main { font-size: 11px; line-height: 1.35; }
+  /* min-width:0 lets a long code ellipsize instead of widening its column
+     and shoving the two numerals off the right edge. */
+  .rp-iw-code { min-width: 0; color: #334155; font-weight: 600;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rp-iw-pcs { font-weight: 700; color: #0f172a; }
+  .rp-iw-kg { color: #0f172a; }
+  .rp-iw-row { padding-bottom: 4px; margin-bottom: 4px;
+               border-bottom: 1px dotted #e2e8f0; }
+  .rp-iw-row:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
+  .rp-iw-sub { display: flex; justify-content: space-between; gap: 8px; margin-top: 1px; }
+  .rp-iw-name { font-size: 9.5px; line-height: 1.3; color: #64748b; overflow-wrap: anywhere; }
+  .rp-iw-scrap { flex: 0 0 auto; font-size: 9.5px; line-height: 1.3; color: #94a3b8;
+                 white-space: nowrap; }
+  @media print {
+    body { margin: 0; padding: 0; }
+    .rp-dept { break-inside: avoid; page-break-inside: avoid; }
+    .rp-table thead { display: table-header-group; }
+  }
+</style>
+</head>
+<body>
+  <header class="rp-header">
+    <div class="rp-title">Daily Production Report</div>
+    <div class="rp-division">Division: Rims Division</div>
+    <div class="rp-meta">
+      <div class="rp-meta-left">
+        <span>Shift: SHIFT-A</span>
+        <span>7 entries · 3 departments</span>
+      </div>
+      <div class="rp-meta-stamp">
+        <span>Date: 2026-10-02</span>
+        <span>Generated: 10 Oct 2026, 07:10</span>
+      </div>
+    </div>
+  </header>
+  <section class="rp-dept">
+    <div class="rp-dept-head">
+      <span>DEPARTMENT — Straightener</span>
+      <span>2 machines · 2 entries</span>
+    </div>
+    <table class="rp-table"><colgroup><col style="width:4%"><col style="width:9%"><col style="width:5%"><col style="width:5%"><col style="width:6%"><col style="width:20%"><col style="width:6%"><col style="width:6%"><col style="width:8%"><col style="width:11%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th class="a-center" style="width:4%"><span class="rp-clamp2">Sr. #</span></th><th class="a-left" style="width:9%"><span class="rp-clamp2">Shift</span></th><th class="a-left" style="width:5%"><span class="rp-clamp2">Machine</span></th><th class="a-right" style="width:5%"><span class="rp-clamp2">OT (H)</span></th><th class="a-left" style="width:6%"><span class="rp-clamp2">Operator</span></th><th class="a-left" style="width:20%"><span class="rp-clamp2">Item / Product</span></th><th class="a-right" style="width:6%"><span class="rp-clamp2">Target</span></th><th class="a-right" style="width:6%"><span class="rp-clamp2">Actual</span></th><th class="a-right" style="width:8%"><span class="rp-clamp2">Achievement %</span></th><th class="a-right c-tight" style="width:11%"><span class="rp-clamp2">WEIGHT (KG)</span></th><th class="a-left" style="width:10%"><span class="rp-clamp2">Breakdown Reason / Status</span></th><th class="a-right" style="width:10%"><span class="rp-clamp2">REJECTION / SCRAP</span></th></tr></thead><tbody><tr><td class="a-center">1</td><td class="a-left"><span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span></td><td class="a-left">ST-01</td><td class="a-right">—</td><td class="a-left"><span class="rp-clamp2">OP-1</span></td><td class="a-left"><span class="rp-item-name">Straightener Wire 4mm</span><span class="rp-item-code">WIP-ST-01</span></td><td class="a-right">1,000</td><td class="a-right strong">1,000</td><td class="a-right strong tone-up">100.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">50</span></td><td class="a-left"><span class="rp-clamp2">—</span></td><td class="a-right"><span class="rp-rj-top">0.2</span><span class="rp-rj-bottom">0.40%</span></td></tr><tr><td class="a-center">2</td><td class="a-left"><span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span></td><td class="a-left">ST-02</td><td class="a-right">—</td><td class="a-left"><span class="rp-clamp2">OP-1</span></td><td class="a-left"><span class="rp-item-name">Straightener Wire 6mm Heavy Gauge</span><span class="rp-item-code">WIP-ST-02</span></td><td class="a-right">800</td><td class="a-right strong">940</td><td class="a-right strong tone-up">117.5% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">0.11</span><span class="rp-wt-bottom">103.4</span></td><td class="a-left"><span class="rp-clamp2">—</span></td><td class="a-right"><span class="rp-rj-top">0.11</span><span class="rp-rj-bottom">0.11%</span></td></tr><tr class="rp-subtotal"><td class="a-left" colspan="5">DAY SHIFT TOTAL — Straightener</td><td class="a-left"></td><td class="a-right">1,800</td><td class="a-right">1,940</td><td class="a-right tone-up">107.8% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">—</span><span class="rp-wt-bottom">153.4</span></td><td class="a-left"></td><td class="a-right"><span class="rp-rj-top">0.31</span><span class="rp-rj-bottom">0.20%</span></td></tr><tr class="rp-total"><td class="a-left" colspan="5">DEPARTMENT GRAND TOTAL — Straightener</td><td class="a-left"></td><td class="a-right">1,800</td><td class="a-right">1,940</td><td class="a-right tone-up">107.8% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">—</span><span class="rp-wt-bottom">153.4</span></td><td class="a-left"></td><td class="a-right"><span class="rp-rj-top">0.31</span><span class="rp-rj-bottom">0.20%</span></td></tr></tbody></table>
+  </section>
+  <section class="rp-dept">
+    <div class="rp-dept-head">
+      <span>DEPARTMENT — Swagging</span>
+      <span>2 machines · 2 entries</span>
+    </div>
+    <table class="rp-table"><colgroup><col style="width:4%"><col style="width:9%"><col style="width:5%"><col style="width:5%"><col style="width:6%"><col style="width:20%"><col style="width:6%"><col style="width:6%"><col style="width:8%"><col style="width:11%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th class="a-center" style="width:4%"><span class="rp-clamp2">Sr. #</span></th><th class="a-left" style="width:9%"><span class="rp-clamp2">Shift</span></th><th class="a-left" style="width:5%"><span class="rp-clamp2">Machine</span></th><th class="a-right" style="width:5%"><span class="rp-clamp2">OT (H)</span></th><th class="a-left" style="width:6%"><span class="rp-clamp2">Operator</span></th><th class="a-left" style="width:20%"><span class="rp-clamp2">Item / Product</span></th><th class="a-right" style="width:6%"><span class="rp-clamp2">Target</span></th><th class="a-right" style="width:6%"><span class="rp-clamp2">Actual</span></th><th class="a-right" style="width:8%"><span class="rp-clamp2">Achievement %</span></th><th class="a-right c-tight" style="width:11%"><span class="rp-clamp2">WEIGHT (KG)</span></th><th class="a-left" style="width:10%"><span class="rp-clamp2">Breakdown Reason / Status</span></th><th class="a-right" style="width:10%"><span class="rp-clamp2">REJECTION / SCRAP</span></th></tr></thead><tbody><tr><td class="a-center">3</td><td class="a-left"><span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span></td><td class="a-left">SW-01</td><td class="a-right">—</td><td class="a-left"><span class="rp-clamp2">OP-1</span></td><td class="a-left"><span class="rp-item-name">Swaging Die 8mm</span><span class="rp-item-code">WIP-SW-03</span></td><td class="a-right">600</td><td class="a-right strong">600</td><td class="a-right strong tone-up">100.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">30</span></td><td class="a-left"><span class="rp-clamp2">—</span></td><td class="a-right"><span class="rp-rj-top">0</span><span class="rp-rj-bottom">0.00%</span></td></tr><tr><td class="a-center">4</td><td class="a-left"><span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span></td><td class="a-left">SW-02</td><td class="a-right">—</td><td class="a-left"><span class="rp-clamp2">OP-1</span></td><td class="a-left"><span class="rp-item-name">Swaging Collar Ring</span><span class="rp-item-code">WIP-SW-07</span></td><td class="a-right">400</td><td class="a-right strong">460</td><td class="a-right strong tone-up">115.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">0.02</span><span class="rp-wt-bottom">9.2</span></td><td class="a-left"><span class="rp-clamp2">—</span></td><td class="a-right"><span class="rp-rj-top">0</span><span class="rp-rj-bottom">0.00%</span></td></tr><tr class="rp-subtotal"><td class="a-left" colspan="5">DAY SHIFT TOTAL — Swagging</td><td class="a-left"></td><td class="a-right">1,000</td><td class="a-right">1,060</td><td class="a-right tone-up">106.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">—</span><span class="rp-wt-bottom">39.2</span></td><td class="a-left"></td><td class="a-right"><span class="rp-rj-top">0</span><span class="rp-rj-bottom">0.00%</span></td></tr><tr class="rp-total"><td class="a-left" colspan="5">DEPARTMENT GRAND TOTAL — Swagging</td><td class="a-left"></td><td class="a-right">1,000</td><td class="a-right">1,060</td><td class="a-right tone-up">106.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">—</span><span class="rp-wt-bottom">39.2</span></td><td class="a-left"></td><td class="a-right"><span class="rp-rj-top">0</span><span class="rp-rj-bottom">0.00%</span></td></tr></tbody></table>
+  </section>
+  <section class="rp-dept">
+    <div class="rp-dept-head">
+      <span>DEPARTMENT — Spoke</span>
+      <span>3 machines · 3 entries</span>
+    </div>
+    <table class="rp-table"><colgroup><col style="width:4%"><col style="width:9%"><col style="width:5%"><col style="width:5%"><col style="width:6%"><col style="width:20%"><col style="width:6%"><col style="width:6%"><col style="width:8%"><col style="width:11%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th class="a-center" style="width:4%"><span class="rp-clamp2">Sr. #</span></th><th class="a-left" style="width:9%"><span class="rp-clamp2">Shift</span></th><th class="a-left" style="width:5%"><span class="rp-clamp2">Machine</span></th><th class="a-right" style="width:5%"><span class="rp-clamp2">OT (H)</span></th><th class="a-left" style="width:6%"><span class="rp-clamp2">Operator</span></th><th class="a-left" style="width:20%"><span class="rp-clamp2">Item / Product</span></th><th class="a-right" style="width:6%"><span class="rp-clamp2">Target</span></th><th class="a-right" style="width:6%"><span class="rp-clamp2">Actual</span></th><th class="a-right" style="width:8%"><span class="rp-clamp2">Achievement %</span></th><th class="a-right c-tight" style="width:11%"><span class="rp-clamp2">WEIGHT (KG)</span></th><th class="a-left" style="width:10%"><span class="rp-clamp2">Breakdown Reason / Status</span></th><th class="a-right" style="width:10%"><span class="rp-clamp2">REJECTION / SCRAP</span></th></tr></thead><tbody><tr><td class="a-center">5</td><td class="a-left"><span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span></td><td class="a-left">SPK-01</td><td class="a-right">—</td><td class="a-left"><span class="rp-clamp2">OP-1</span></td><td class="a-left"><span class="rp-item-name">Spoke 40T</span><span class="rp-item-code">WIP-SP-07</span></td><td class="a-right">1,000</td><td class="a-right strong">1,120</td><td class="a-right strong tone-up">112.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">56</span></td><td class="a-left"><span class="rp-clamp2">—</span></td><td class="a-right"><span class="rp-rj-top">0.25</span><span class="rp-rj-bottom">0.44%</span></td></tr><tr><td class="a-center">6</td><td class="a-left"><span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span></td><td class="a-left">SPK-02</td><td class="a-right">—</td><td class="a-left"><span class="rp-clamp2">OP-1</span></td><td class="a-left"><span class="rp-item-name">Spoke 36T Continental</span><span class="rp-item-code">WIP-SP-11</span></td><td class="a-right">500</td><td class="a-right strong">500</td><td class="a-right strong tone-up">100.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">25</span></td><td class="a-left"><span class="rp-clamp2">—</span></td><td class="a-right"><span class="rp-rj-top">0</span><span class="rp-rj-bottom">0.00%</span></td></tr><tr><td class="a-center">7</td><td class="a-left"><span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span></td><td class="a-left">SPK-03</td><td class="a-right">—</td><td class="a-left"><span class="rp-clamp2">OP-1</span></td><td class="a-left"><span class="rp-item-name">Spoke Nipple Brass</span><span class="rp-item-code">WIP-SP-19</span></td><td class="a-right">200</td><td class="a-right strong">240</td><td class="a-right strong tone-up">120.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">0.01</span><span class="rp-wt-bottom">2.4</span></td><td class="a-left"><span class="rp-clamp2">—</span></td><td class="a-right"><span class="rp-rj-top">0</span><span class="rp-rj-bottom">0.00%</span></td></tr><tr class="rp-subtotal"><td class="a-left" colspan="5">DAY SHIFT TOTAL — Spoke</td><td class="a-left"></td><td class="a-right">1,700</td><td class="a-right">1,860</td><td class="a-right tone-up">109.4% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">—</span><span class="rp-wt-bottom">83.4</span></td><td class="a-left"></td><td class="a-right"><span class="rp-rj-top">0.25</span><span class="rp-rj-bottom">0.30%</span></td></tr><tr class="rp-total"><td class="a-left" colspan="5">DEPARTMENT GRAND TOTAL — Spoke</td><td class="a-left"></td><td class="a-right">1,700</td><td class="a-right">1,860</td><td class="a-right tone-up">109.4% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">—</span><span class="rp-wt-bottom">83.4</span></td><td class="a-left"></td><td class="a-right"><span class="rp-rj-top">0.25</span><span class="rp-rj-bottom">0.30%</span></td></tr></tbody></table>
+  </section>
+  <section class="rp-dept">
+    <table class="rp-table"><colgroup><col style="width:4%"><col style="width:9%"><col style="width:5%"><col style="width:5%"><col style="width:6%"><col style="width:20%"><col style="width:6%"><col style="width:6%"><col style="width:8%"><col style="width:11%"><col style="width:10%"><col style="width:10%"></colgroup><tbody><tr class="rp-total"><td class="a-left" colspan="5">GRAND TOTAL — 3 departments</td><td class="a-left"></td><td class="a-right">4,500</td><td class="a-right">4,860</td><td class="a-right tone-up">108.0% ▲</td><td class="a-right c-tight"><span class="rp-wt-top">—</span><span class="rp-wt-bottom">276</span></td><td class="a-left"></td><td class="a-right"><span class="rp-rj-top">0.56</span><span class="rp-rj-bottom">0.20%</span></td></tr></tbody></table>
+  </section>
+  <section class="rp-exec">
+    <h2 class="rp-exec-title">EXECUTIVE DEPARTMENT SUMMARY</h2>
+    <div class="rp-kpi-grid">
+      <div class="rp-kpi-card">
+        <div class="rp-kpi-name">STRAIGHTENER</div>
+        <div class="rp-kpi-row"><span>Target:</span><b>1,800</b></div>
+        <div class="rp-kpi-row"><span>Actual:</span><b>1,940</b></div>
+        <div class="rp-kpi-row rp-kpi-ach"><span>Achievement %:</span><b class="tone-up">107.8% ▲</b></div>
+        <div class="rp-kpi-row"><span>Total Rejection:</span><b>0.31 KG</b></div>
+        <div class="rp-kpi-row"><span>Scrap Percentage:</span><b>0.2017%</b></div>
+        <div class="rp-iw-head"><span>ITEM</span><span>PRODUCTION (Pcs)</span><span>WEIGHT (KG)</span></div>
+        <div class="rp-iw-row">
+          <div class="rp-iw-main">
+            <span class="rp-iw-code">WIP-ST-02</span>
+            <span class="rp-iw-pcs">940</span>
+            <span class="rp-iw-kg">103.4</span>
+          </div>
+          <div class="rp-iw-sub"><span class="rp-iw-name">Straightener Wire 6mm Heavy Gauge</span><span class="rp-iw-scrap">Scrap 1 Pcs / 0.11 KG</span></div>
+        </div>
+        <div class="rp-iw-row">
+          <div class="rp-iw-main">
+            <span class="rp-iw-code">WIP-ST-01</span>
+            <span class="rp-iw-pcs">1,000</span>
+            <span class="rp-iw-kg">50</span>
+          </div>
+          <div class="rp-iw-sub"><span class="rp-iw-name">Straightener Wire 4mm</span><span class="rp-iw-scrap">Scrap 4 Pcs / 0.2 KG</span></div>
+        </div>
+      </div>
+      <div class="rp-kpi-card">
+        <div class="rp-kpi-name">SWAGGING</div>
+        <div class="rp-kpi-row"><span>Target:</span><b>1,000</b></div>
+        <div class="rp-kpi-row"><span>Actual:</span><b>1,060</b></div>
+        <div class="rp-kpi-row rp-kpi-ach"><span>Achievement %:</span><b class="tone-up">106.0% ▲</b></div>
+        <div class="rp-kpi-row"><span>Total Rejection:</span><b>0 KG</b></div>
+        <div class="rp-kpi-row"><span>Scrap Percentage:</span><b>0.0000%</b></div>
+        <div class="rp-iw-head"><span>ITEM</span><span>PRODUCTION (Pcs)</span><span>WEIGHT (KG)</span></div>
+        <div class="rp-iw-row">
+          <div class="rp-iw-main">
+            <span class="rp-iw-code">WIP-SW-03</span>
+            <span class="rp-iw-pcs">600</span>
+            <span class="rp-iw-kg">30</span>
+          </div>
+          <div class="rp-iw-sub"><span class="rp-iw-name">Swaging Die 8mm</span></div>
+        </div>
+        <div class="rp-iw-row">
+          <div class="rp-iw-main">
+            <span class="rp-iw-code">WIP-SW-07</span>
+            <span class="rp-iw-pcs">460</span>
+            <span class="rp-iw-kg">9.2</span>
+          </div>
+          <div class="rp-iw-sub"><span class="rp-iw-name">Swaging Collar Ring</span></div>
+        </div>
+      </div>
+      <div class="rp-kpi-card">
+        <div class="rp-kpi-name">SPOKE</div>
+        <div class="rp-kpi-row"><span>Target:</span><b>1,700</b></div>
+        <div class="rp-kpi-row"><span>Actual:</span><b>1,860</b></div>
+        <div class="rp-kpi-row rp-kpi-ach"><span>Achievement %:</span><b class="tone-up">109.4% ▲</b></div>
+        <div class="rp-kpi-row"><span>Total Rejection:</span><b>0.25 KG</b></div>
+        <div class="rp-kpi-row"><span>Scrap Percentage:</span><b>0.2989%</b></div>
+        <div class="rp-iw-head"><span>ITEM</span><span>PRODUCTION (Pcs)</span><span>WEIGHT (KG)</span></div>
+        <div class="rp-iw-row">
+          <div class="rp-iw-main">
+            <span class="rp-iw-code">WIP-SP-07</span>
+            <span class="rp-iw-pcs">1,120</span>
+            <span class="rp-iw-kg">56</span>
+          </div>
+          <div class="rp-iw-sub"><span class="rp-iw-name">Spoke 40T</span><span class="rp-iw-scrap">Scrap 5 Pcs / 0.25 KG</span></div>
+        </div>
+        <div class="rp-iw-row">
+          <div class="rp-iw-main">
+            <span class="rp-iw-code">WIP-SP-11</span>
+            <span class="rp-iw-pcs">500</span>
+            <span class="rp-iw-kg">25</span>
+          </div>
+          <div class="rp-iw-sub"><span class="rp-iw-name">Spoke 36T Continental</span></div>
+        </div>
+        <div class="rp-iw-row">
+          <div class="rp-iw-main">
+            <span class="rp-iw-code">WIP-SP-19</span>
+            <span class="rp-iw-pcs">240</span>
+            <span class="rp-iw-kg">2.4</span>
+          </div>
+          <div class="rp-iw-sub"><span class="rp-iw-name">Spoke Nipple Brass</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <script>window.onload = function () { window.print(); };</script>
+</body>
+</html>

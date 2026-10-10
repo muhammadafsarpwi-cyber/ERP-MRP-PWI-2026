@@ -320,3 +320,53 @@ html, body {
   color: #34d399 !important;
 }
 
+/* ── Unified Green Runner Loading for ALL Ant Design Tables & Spinners ── */
+.ant-spin-dot-item {
+  background-color: #10b981 !important;
+}
+
+.ant-table-wrapper .ant-spin-nested-loading > div > .ant-spin .ant-spin-dot-item {
+  background-color: #10b981 !important;
+}
+
+.ant-table-wrapper .ant-spin-nested-loading > div > .ant-spin .ant-spin-text {
+  color: #059669 !important;
+  font-weight: 700 !important;
+}
+
+/* Running green beam along top of any loading table across the ERP */
+.ant-table-wrapper .ant-spin-nested-loading > div > .ant-spin::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -40%;
+  width: 40%;
+  height: 4.5px;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, #10b981 35%, #34d399 70%, #059669 100%);
+  box-shadow: 0 0 10px #10b981, 0 0 4px #34d399;
+  border-radius: 4px;
+  animation: erp-green-runner 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  z-index: 100;
+}
+
+@keyframes erp-green-runner {
+  0% {
+    left: -40%;
+    width: 35%;
+  }
+  50% {
+    left: 30%;
+    width: 48%;
+  }
+  100% {
+    left: 100%;
+    width: 35%;
+  }
+}
+
+@keyframes erp-beam-shine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+

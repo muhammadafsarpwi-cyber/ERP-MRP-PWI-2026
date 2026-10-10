@@ -1,50 +1,69 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLoadingStore } from '../../store/loadingStore';
 
-const SHOW_DELAY_MS = 120;
-const MIN_DISPLAY_MS = 320;
+const SHOW_DELAY_MS = 60;
+const HOLD_COMPLETE_MS = 450;
+
+type BarStatus = 'idle' | 'running' | 'completed';
 
 /**
- * Global top loading bar. Renders a thin 3px animated gradient bar anchored to
- * the bottom edge of the sticky app header. It tracks the global loading store
- * counter and only becomes visible after a short debounce, holding its minimum
- * display time so extremely fast requests never cause a flicker.
+ * Global Top Green Runner Loading Bar.
+ * Renders across the sticky app header throughout the entire ERP system.
+ * While loading: vivid emerald-green beam sprints continuously across the screen.
+ * Once completed: locks solidly at 100% full width, stops motion completely, then fades cleanly.
  */
 const GradientLoadingBar: React.FC = () => {
   const counter = useLoadingStore((s) => s.counter);
   const active = counter > 0;
-  const [visible, setVisible] = useState(false);
-  const showTimer = useRef<number | null>(null);
-  const hideTimer = useRef<number | null>(null);
+  const [status, setStatus] = useState<BarStatus>('idle');
+  const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (active) {
-      if (hideTimer.current) {
-        window.clearTimeout(hideTimer.current);
-        hideTimer.current = null;
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
-      if (!visible) {
-        showTimer.current = window.setTimeout(() => setVisible(true), SHOW_DELAY_MS);
+      timerRef.current = window.setTimeout(() => {
+        setStatus('running');
+      }, SHOW_DELAY_MS);
+    } else {
+      if (status === 'running') {
+        // Transition from running -> completed (stops at 100% full green line) -> idle
+        setStatus('completed');
+        if (timerRef.current) {
+          window.clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        timerRef.current = window.setTimeout(() => {
+          setStatus('idle');
+        }, HOLD_COMPLETE_MS);
+      } else if (status !== 'completed') {
+        if (timerRef.current) {
+          window.clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        setStatus('idle');
       }
-    } else if (visible) {
-      if (showTimer.current) {
-        window.clearTimeout(showTimer.current);
-        showTimer.current = null;
-      }
-      hideTimer.current = window.setTimeout(() => setVisible(false), MIN_DISPLAY_MS);
     }
-  }, [active, visible]);
+  }, [active, status]);
 
   useEffect(
     () => () => {
-      if (showTimer.current) window.clearTimeout(showTimer.current);
-      if (hideTimer.current) window.clearTimeout(hideTimer.current);
+      if (timerRef.current) window.clearTimeout(timerRef.current);
     },
     [],
   );
 
+  if (status === 'idle') return null;
+
   return (
-    <div className={`erp-gradient-loading-bar${visible ? ' is-visible' : ''}`} aria-hidden="true" />
+    <div
+      className={`erp-gradient-loading-bar erp-loading-bar--${status}`}
+      aria-hidden="true"
+    >
+      <div className={`erp-loading-runner erp-loading-runner--${status}`} />
+    </div>
   );
 };
 

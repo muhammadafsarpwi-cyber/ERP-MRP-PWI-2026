@@ -3,44 +3,72 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 3px;
+  height: 4.5px;
   z-index: 102;
   pointer-events: none;
   overflow: hidden;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.erp-gradient-loading-bar.is-visible {
+  background: rgba(226, 232, 240, 0.7);
   opacity: 1;
+  transition: opacity 0.25s ease;
 }
 
-.erp-gradient-loading-bar::before {
+[data-theme='dark'] .erp-gradient-loading-bar {
+  background: rgba(30, 41, 59, 0.7);
+}
+
+.erp-loading-runner {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+}
+
+/* ── While Running / Loading: Green Beam sprints continuously across ── */
+.erp-loading-runner--running {
+  left: -40%;
+  width: 40%;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, #10b981 35%, #34d399 70%, #059669 100%);
+  box-shadow: 0 0 12px #10b981, 0 0 5px #34d399;
+  animation: erp-green-runner 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.erp-loading-runner--running::after {
   content: '';
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(
-    90deg,
-    var(--theme-accent, #1677ff) 0%,
-    #00d4ff 20%,
-    #52c41a 40%,
-    #fadb14 55%,
-    #ff8c2e 70%,
-    #f5222d 85%,
-    var(--theme-accent, #1677ff) 100%
-  );
-  background-size: 300% 100%;
-  animation: erp-loading-slide 1.1s linear infinite;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+  animation: erp-beam-shine 0.75s infinite linear;
 }
 
-@keyframes erp-loading-slide {
+/* ── When Completed: STOPS, locks full 100% width, solid green line ── */
+.erp-loading-runner--completed {
+  left: 0;
+  width: 100%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: none !important;
+  transition: width 0.2s ease;
+}
+
+@keyframes erp-green-runner {
   0% {
-    background-position: 0% 0%;
+    left: -40%;
+    width: 35%;
+  }
+  50% {
+    left: 30%;
+    width: 48%;
   }
   100% {
-    background-position: 300% 0%;
+    left: 100%;
+    width: 35%;
   }
+}
+
+@keyframes erp-beam-shine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
