@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager, DeepPartial } from 'typeorm';
+import { Repository, EntityManager, DeepPartial, In } from 'typeorm';
 import {
   ProductionEntry,
   ProductionEntryItem,
@@ -21,6 +21,7 @@ import {
   MachineTargetService,
   calculateProratedTarget,
 } from '../../machine-target/services/machine-target.service';
+import { MachineTarget } from '../../machine-target/entities/machine-target.entity';
 import { ProductionRoutingService } from '../../production-routing/services/production-routing.service';
 import { populateAuditNames } from '../../organization/helpers/audit-names';
 import {
@@ -124,6 +125,58 @@ const OVERTIME_SUM_SQL =
   "WHEN pe.remarks ~* 'OT:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*h' " +
   "THEN COALESCE((regexp_match(pe.remarks, 'OT:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*h', 'i'))[1]::numeric, 0) " +
   "ELSE 0 END";
+
+/* ── TARGET GRID — the SQL twin of the frontend target engine ─────────────
+   `displayRunningHours` (frontend/.../downtimeHours.ts → effectiveRunning):
+
+       planned > 0 → clamp(planned + max(0, OT) − downtime, 0, planned + max(0, OT))
+       planned = 0 → the persisted running_hours column (legacy fallback)
+
+   Aliases required: `pe` = production_entries, `sh` = shifts.
+   MUST stay equivalent to that helper or the KPI totals and the grid's
+   TARGET column would disagree on the same rows. */
+const DISPLAY_RUN_HOURS_SQL =
+  (() => {
+    const avail = `(COALESCE(sh.planned_hours, 0) + GREATEST(${OVERTIME_SUM_SQL}, 0))`;
+    return (
+      `CASE WHEN COALESCE(sh.planned_hours, 0) > 0 ` +
+      `THEN GREATEST(0, LEAST(${avail}, ${avail} - COALESCE(pe.downtime_hours, 0))) ` +
+      `ELSE COALESCE(pe.running_hours, 0) END`
+    );
+  })();
+
+/* THE TARGET THE GRID RENDERS — the locked Target Master rate, read straight
+   off the linked machine_targets row and scaled over the real run hours:
+
+       rate > 0 and hours > 0 → rate × hours        (4,320 × 7 = 30,240)
+       otherwise              → the entry's own stored plan figure
+                                (no run hours to scale over, or no linked
+                                master because it is a manual entry)
+
+   The zero-hour case matters: a machine down for the whole shift has
+   stored = 0, so its target is 0 and Achievement reads `—` — it must NOT be
+   inflated to the full master standard, which would invent a 34,560 target
+   for a line that never turned.
+
+   It deliberately never touches actual floor output, and never divides the
+   stored snapshot by an assumed 8 hours — that snapshot is taken at SAVE time
+   and goes stale the moment the hour matrix is edited, which is why only 179
+   of 211 master-linked rows still satisfy stored ÷ running = master rate.
+   Aliases required: `pe`, `sh`, and `mt` = machine_targets. */
+const PRORATED_TARGET_SQL =
+  // `ROUND(rate, 4)` mirrors `hydrateMasterTargetRates`, which ships the rate
+  // already rounded to 4 decimals, so the KPI total and the grid's TARGET
+  // column agree to the last digit instead of drifting by a few milli-units
+  // across two hundred rows.
+  (() => {
+    const rate = `ROUND((mt.target_quantity / NULLIF(mt.standard_hours, 0))::numeric, 4)`;
+    const hours = DISPLAY_RUN_HOURS_SQL;
+    return (
+      `CASE WHEN ${rate} > 0 AND (${hours}) > 0 ` +
+      `THEN ROUND(${rate} * (${hours}), 4) ` +
+      `ELSE COALESCE(pe.target_quantity, 0) END`
+    );
+  })();
 
 /* ── Report weight model (authoritative UOM-aware conversions) ────────────
    The production report's Scrap is stored/displayed in KG and the Actual
@@ -326,6 +379,12 @@ export class ProductionEntryService {
     // Build overall summary query matching all organization/date/search filters before pagination & chevron filtering
     const summaryQb = this.entryRepo.createQueryBuilder('pe')
       .leftJoin('pe.item', 'item')
+      // Target Master + shift plan: the summary has to total the SAME
+      // corrected target the grid's TARGET column renders (locked planned
+      // hourly rate × real run hours), or the Achievement KPI and the
+      // Achievement column would disagree about identical rows.
+      .leftJoin(MachineTarget, 'mt', 'mt.id = pe.machineTargetId')
+      .leftJoin(Shift, 'sh', 'sh.id = pe.shiftId')
       .where('pe.companyId = :companyId', { companyId })
       .andWhere('pe.isActive = true');
 
@@ -351,7 +410,11 @@ export class ProductionEntryService {
     const summaryRow = await summaryQb
       .select([
         'COUNT(pe.id)::int AS "totalEntries"',
-        'COALESCE(SUM(pe.target_quantity), 0)::float AS "totalTarget"',
+        'COALESCE(SUM(pe.target_quantity), 0)::float AS "totalTargetRaw"',
+        // Corrected total: Σ (locked Target Master rate × real run hours).
+        // Kept separate from totalTargetRaw so nothing else silently changes
+        // meaning; the KPI cards below read this one.
+        `COALESCE(SUM(${PRORATED_TARGET_SQL}), 0)::float AS "totalTarget"`,
         'COALESCE(SUM(pe.actual_quantity), 0)::float AS "totalActual"',
         'COALESCE(SUM(pe.scrap_quantity), 0)::float AS "totalScrap"',
         'COALESCE(SUM(pe.process_scrap_kg), 0)::float AS "totalProcessScrap"',
@@ -419,7 +482,68 @@ export class ProductionEntryService {
 
     const [data, total] = await qb.getManyAndCount();
     await populateAuditNames(this.entryRepo.manager.connection, data);
+    await this.hydrateMasterTargetRates(data);
     return { data, total, page, limit, summary };
+  }
+
+  /**
+   * TARGET GRID — ship the LOCKED planned hourly rate with every entry.
+   *
+   * Reads it straight from the row's own `machine_targets` snapshot record
+   * (`target_quantity ÷ standard_hours`, e.g. SPK-01 = 34,560 ÷ 8 = 4,320/h)
+   * so the browser never has to invent one. A single batched query per page —
+   * no N+1, and the rate travels with the row the entry already points at,
+   * so a later master revision cannot retroactively rewrite history.
+   *
+   * Deliberately NOT derived from `production_entries.target_quantity`: that
+   * snapshot was prorated at SAVE time and silently goes stale when the hour
+   * matrix is edited afterwards (only 179 of 211 master-linked rows still
+   * satisfy `stored ÷ running = master rate` — SPK-01 / Tanveer Hussain holds
+   * 12,960, i.e. 4,320 × 3 saved hours, on a row that now displays 7).
+   *
+   * Entries with no machine-linked target (manual entries) keep `null`; the
+   * frontend falls back to their stored plan figure rather than guessing.
+   */
+  private async hydrateMasterTargetRates(entries: ProductionEntry[]): Promise<void> {
+    if (!entries?.length) return;
+    const ids = [...new Set(entries.map((e) => e.machineTargetId).filter((v): v is string => !!v))];
+    if (!ids.length) {
+      for (const e of entries) {
+        e.targetPerHour = null;
+        e.targetStandardHours = null;
+        e.targetStandardQuantity = null;
+      }
+      return;
+    }
+
+    let targets: MachineTarget[] = [];
+    try {
+      targets = await this.entryRepo.manager
+        .getRepository(MachineTarget)
+        .find({ where: { id: In(ids) } });
+    } catch {
+      // The Target Master table is optional in some deployments; degrade to
+      // "no rate" rather than failing the whole list over a display field.
+      targets = [];
+    }
+
+    const byId = new Map(targets.map((t) => [t.id as string, t]));
+    for (const e of entries) {
+      const t = e.machineTargetId ? byId.get(e.machineTargetId) : undefined;
+      if (!t) {
+        e.targetPerHour = null;
+        e.targetStandardHours = null;
+        e.targetStandardQuantity = null;
+        continue;
+      }
+      const qty = Number(t.targetQuantity);
+      const std = Number(t.standardHours);
+      e.targetPerHour = Number.isFinite(qty) && Number.isFinite(std) && std > 0
+        ? Number((qty / std).toFixed(4))
+        : null;
+      e.targetStandardHours = Number.isFinite(std) && std > 0 ? std : null;
+      e.targetStandardQuantity = Number.isFinite(qty) && qty > 0 ? qty : null;
+    }
   }
 
   async findOne(id: string, companyId: string, allowedDivisionIds?: string[]): Promise<ProductionEntry> {
@@ -476,6 +600,8 @@ export class ProductionEntryService {
         (entry as any).route = null;
       }
     }
+    // Same locked Target Master rate the grid ships — see hydrateMasterTargetRates.
+    await this.hydrateMasterTargetRates([entry]);
     return entry;
   }
 

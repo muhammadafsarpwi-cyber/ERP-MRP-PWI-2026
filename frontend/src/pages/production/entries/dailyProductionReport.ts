@@ -193,6 +193,14 @@ export interface ReportRowSource {
   } | null;
   uom?: { code?: string } | null;
   targetQuantity?: number | string;
+  /** LOCKED planned hourly rate hydrated from this row's Target Master
+   *  record (`machine_targets.target_quantity ÷ standard_hours`). Present on
+   *  every machine-linked entry; absent on manual entries. */
+  targetPerHour?: number | string | null;
+  /** The Target Master row's own standard-hours basis (8, 12, 14 …). */
+  targetStandardHours?: number | string | null;
+  /** The Target Master row's own standard quantity. */
+  targetStandardQuantity?: number | string | null;
   actualQuantity?: number | string;
   achievementPercentage?: number | string | null;
   scrapQuantity?: number | string;
@@ -607,81 +615,140 @@ export function runtimeText(
 /* ------------------------------------------------------------------ *
  * PRO-RATA TARGET — the TARGET cell's math
  *
- * THE LOCKED MASTER PLAN FACTOR — read it, never re-derive it from output.
+ * THE PLANNED HOURLY RATE IS A STORED ASSET, NOT A CALCULATION.
  *
- * The entry's stored `target_quantity` is NOT the raw 8-hour master number:
- * the server writes it already scaled to the run (production-entry.service
- * → calculateProratedTarget):
+ * The Target Master table (machine_targets) stores the absolute, locked
+ * planned rate for every machine/shift row:
  *
- *     stored = Master Standard Target × Working Hours ÷ Master Standard Hours
+ *     machine_targets.target_quantity ÷ machine_targets.standard_hours
+ *         34,560 PCS ÷ 8 h = 4,320 PCS/h      (SPK-01 … SPK-05)
  *
- * A live audit of production_entries proved it: `stored ÷ running_hours`
- * collapses to ONE stable factor per machine (33 distinct values over 305
- * rows — SPK-01/02/03/05 all read 4,320), while `stored ÷ 8` produced 117
- * different "baselines" for the same machines. That is the corruption this
- * block repairs: dividing the ALREADY pro-rated figure by an assumed 8-hour
- * shift a second time scaled every target by `runningHours / 8`, so a 12h
- * row was inflated 1.5× and a 3h row crushed to 0.375× — identical machines
- * printed chaotic, unrelated targets.
+ * The production entry keeps the FK that points at that exact row
+ * (production_entries.machine_target_id), and the server now ships the rate
+ * with every row as `targetPerHour`. It is READ, never re-derived — not from
+ * actual floor output, not from an assumed 8-hour basis, not by dividing a
+ * running-hours figure blindly.
  *
- * So the baseline is recovered the way the master itself is written —
- * plan figure ÷ the hours it was planned for — and then multiplied back
- * over the row's real running hours. NEVER divide actual production output
- * by hours to invent a rate; output is the result, not the plan:
+ * WHY THE ENTRY'S OWN `target_quantity` CANNOT BE THE SOURCE:
+ * it is a snapshot written as
  *
- *     Master Plan factor /h = Stored Plan Figure ÷ Actual Running Hours
- *                          = Master Standard Target ÷ Master Standard Hours
- *                                  (60,480 ÷ 14 = 4,320, as 34,560 ÷ 8)
- *     Dynamic Operational Target = Master Plan factor × Actual Running Hours
- *                                  (4,320 × 14 = 60,480 — the plan for that run)
+ *     stored = master quantity × working hours ÷ standard hours
  *
- * Applied ONCE here so the grid, the printed page, the PDF and the CSV can
- * never disagree. `achievement` is then recomputed against the DYNAMIC
- * target, so the percentage is honest and proportional to the hours the
- * machine was actually on the floor.
+ * taken at SAVE time, so it silently goes stale the moment the hour matrix
+ * is edited afterwards. A live audit proved it — only 179 of 211 master-
+ * linked rows still satisfy `stored ÷ running hours = master rate`, e.g.
+ * Tanveer Hussain / SPK-01 / 07-Oct: stored 12,960 (= 4,320 × 3, hours at
+ * save) while the grid displays a 7-hour run. Re-deriving a rate from that
+ * stale figure invents 1,851 /h for a machine whose master says 4,320 /h.
+ *
+ * THE ONE CORRECT FORMULA, applied ONCE here so the grid, the printed page,
+ * the PDF and the CSV can never disagree:
+ *
+ *     Per Hour Target          = machine_targets rate (READ, e.g. 4,320 /h)
+ *     Dynamic Operational Target = rate × Actual Machine Running Hours
+ *                                  (4,320 × 7 = 30,240 PCS)
+ *
+ * NEVER divide actual production output by hours — output is the result,
+ * not the plan. `achievement` is then recomputed against that DYNAMIC
+ * target, so the percentage can no longer be inflated by a stale denominator.
  * ------------------------------------------------------------------ */
 
 /** The stored master targets are mapped against this standard shift. */
 export const STANDARD_SHIFT_HOURS = 8;
 
 export interface ProRataTarget {
-  /** The Master Plan figure read on the standard-shift basis (8h × factor). */
+  /** The Master's own standard figure (`quantity ÷ hours × standard hours`). */
   standard: number;
-  /** `Master Standard Target ÷ Master Standard Hours` — the locked
-   *  per-machine baseline, e.g. 4,320. Never output ÷ hours. */
+  /** THE LOCKED PLANNED HOURLY RATE, read straight from the Target Master
+   *  row — e.g. 4,320. Never output ÷ hours, never `stored ÷ 8`. */
   perHour: number;
   /** Actual machine running hours the target was scaled to; 0 = none. */
   hours: number;
-  /** `Master Plan factor × Actual Running Hours` — what screen and paper show. */
+  /** `Planned Hourly Rate × Actual Running Hours` — what screen and paper show. */
   target: number;
   /** False when no run hours were available, so `target` is the plan figure. */
   proRated: boolean;
 }
 
 /**
- * Scale the locked master plan figure to the hours the machine really ran.
+ * The locked planned-hourly-rate fields the server hydrates onto every entry
+ * straight from its Machine Target Master row (see `hydrateMasterTargetRates`
+ * in the backend). `null`/absent means the entry has NO machine-linked target
+ * (a manual entry), in which case `proRataTarget` keeps the legacy basis
+ * rather than inventing a rate that does not exist anywhere in the data.
+ */
+export interface MasterTargetRate {
+  /** `machine_targets.target_quantity ÷ machine_targets.standard_hours`. */
+  perHour: number;
+  /** The master row's own standard-hours basis (8, 12, 14 …), if known. */
+  standardHours?: number | null;
+  /** The master row's own standard quantity over `standardHours`. */
+  standardQuantity?: number | null;
+}
+
+/**
+ * Read the locked master rate off a grid/report row, or `null` when the row
+ * carries no machine-linked target. Purely a reader — it performs no target
+ * arithmetic of its own beyond a `Number()` cast of what the DB supplied.
+ */
+export function masterRateOf(
+  row: {
+    targetPerHour?: number | string | null;
+    targetStandardHours?: number | string | null;
+    targetStandardQuantity?: number | string | null;
+  } | null
+  | undefined,
+): MasterTargetRate | null {
+  const perHour = Math.max(0, toNum(row?.targetPerHour));
+  if (!(perHour > 0)) return null;
+  return {
+    perHour,
+    standardHours: toNum(row?.targetStandardHours) || null,
+    standardQuantity: toNum(row?.targetStandardQuantity) || null,
+  };
+}
+
+/**
+ * `Per Hour Target × Actual Running Hours`, anchored on the locked master rate.
  *
- * The input is the STORED entry target, which the server has already
- * pro-rated (see the block above), so the per-hour baseline is recovered as
- * `stored ÷ runningHours` — algebraically identical to
- * `Master Standard Target ÷ Master Standard Hours` and immune to the
- * second division that scrambled the live grid. Because every row of a
- * given machine divides back to the same factor, identical machines now
- * print one identical `/h` baseline.
+ * Three cases, in strict priority order — and they are the ONLY three:
  *
- * A row with NO usable run hours (no shift plan, no stored running hours)
- * cannot be pro-rated — doing so would silently zero its target and turn a
- * perfectly good achievement into `—`. In that case the stored plan figure
- * stands unchanged, read on the standard 8-hour basis, and `proRated` is
- * false, which is exactly how every row without hour data behaved before
- * this feature existed.
+ *  1. Master rate present + run hours present →
+ *         target = rate × hours   (4,320 × 7 = 30,240)
+ *     This is the normal path and the whole point of this function.
+ *  2. Master rate present + NO run hours →
+ *         the entry's stored plan figure stands. Nothing can be pro-rated
+ *     against zero hours without silently zeroing a perfectly good target
+ *     (or dividing by it), and `proRated` is false so line 1 admits it
+ *     (`4,320 /h (Standard 8h basis)`), exactly as it always did.
+ *  3. No master rate at all (manual entry) →
+ *     the entry's stored plan figure stands unchanged on the standard shift
+ *     basis, exactly as rows without hour data behaved before this feature.
  */
 export function proRataTarget(
   standardTarget: number | string | null | undefined,
   runningHours: number | string | null | undefined,
+  master?: MasterTargetRate | null,
 ): ProRataTarget {
   const stored = Math.max(0, toNum(standardTarget));
   const hours = round2(Math.max(0, toNum(runningHours)));
+
+  // ── 1 & 2 — the locked rate, read from the Target Master row ──────────
+  const rate = master ? Math.max(0, round4(master.perHour)) : 0;
+  if (rate > 0) {
+    const masterHours = Math.max(0, toNum(master!.standardHours));
+    const masterQty = Math.max(0, toNum(master!.standardQuantity));
+    // The master's own standard figure: its stored quantity when it knows
+    // it, otherwise the rate expressed over its standard hours.
+    const standard = round4(masterQty > 0 ? masterQty : rate * (masterHours > 0 ? masterHours : STANDARD_SHIFT_HOURS));
+    if (hours > 0) return { standard, perHour: rate, hours, target: round4(rate * hours), proRated: true };
+    // No hours to scale over: the entry's stored plan figure stands (it is
+    // what the row was saved with), while `standard` still carries the
+    // master's real basis so line 1 reports the master's own hour count.
+    return { standard, perHour: rate, hours: 0, target: stored, proRated: false };
+  }
+
+  // ── 3 — no machine-linked target: keep the legacy basis ───────────────
   if (!(stored > 0) || !(hours > 0)) {
     // Nothing to scale against: the stored figure IS the plan figure, read
     // on the standard shift basis rather than dropped.
@@ -693,7 +760,6 @@ export function proRataTarget(
       proRated: false,
     };
   }
-  // Recover the Master Plan factor, then scale it over the real runtime.
   const perHour = round4(stored / hours);
   return {
     standard: round4(perHour * STANDARD_SHIFT_HOURS),
@@ -705,16 +771,18 @@ export function proRataTarget(
 }
 
 /**
- * Line 1 (the muted top tier) of the TARGET cell — the hourly baseline
- * followed by the runtime it was scaled over: `1,620 /h (For 7 hrs Run)`.
+ * Line 1 (the muted top tier) of the TARGET cell — the locked hourly rate
+ * followed by the runtime it was scaled over: `4,320 /h (For 7 hrs Run)`.
  * A row without run hours says so instead of claiming a run that never
- * happened: `1,620 /h (Standard 8h basis)`.
+ * happened: `4,320 /h (Standard 8h basis)` — the basis shown is whichever
+ * standard the row actually carries (8, 12, 14 …), derived from
+ * `standard ÷ perHour` so it can never disagree with line 2.
  */
 export function targetTopText(t: ProRataTarget): string {
   const perHour = formatNumber(t.perHour, 2);
-  return t.proRated
-    ? `${perHour} /h (For ${formatNumber(t.hours, 2)} hrs Run)`
-    : `${perHour} /h (Standard ${STANDARD_SHIFT_HOURS}h basis)`;
+  if (t.proRated) return `${perHour} /h (For ${formatNumber(t.hours, 2)} hrs Run)`;
+  const basis = t.perHour > 0 ? t.standard / t.perHour : STANDARD_SHIFT_HOURS;
+  return `${perHour} /h (Standard ${formatNumber(basis, 0)}h basis)`;
 }
 
 /** Line 2 (the bold bottom tier) of the TARGET cell — the Dynamic Operational
@@ -882,11 +950,13 @@ export function buildDailyProductionReport(
     const available = planned > 0 ? round2(planned + Math.max(0, ot)) : 0;
 
     /* --- PRO-RATA TARGET + the achievement that rides on it -----
-     * `target` is the DYNAMIC operational target (per-hour × real running
-     * hours), never the raw 8-hour master number. Achievement is therefore
-     * ALWAYS recomputed here: a stale `achievementPercentage` the backend
-     * derived from the static target would silently undo the whole repair. */
-    const prorata = proRataTarget(row.targetQuantity, running);
+     * `target` is the DYNAMIC operational target: the LOCKED planned hourly
+     * rate read from this row's Target Master record × the real running
+     * hours (4,320 × 7 = 30,240) — never the raw master number and never a
+     * rate re-derived from floor output. Achievement is therefore ALWAYS
+     * recomputed here: a stale `achievementPercentage` the backend derived
+     * from a stale snapshot target would silently undo the whole repair. */
+    const prorata = proRataTarget(row.targetQuantity, running, masterRateOf(row));
     const achievement = prorata.target > 0 ? round2((actual / prorata.target) * 100) : null;
 
     const line: ReportLine = {

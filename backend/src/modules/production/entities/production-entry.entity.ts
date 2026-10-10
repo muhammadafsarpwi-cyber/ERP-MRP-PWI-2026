@@ -145,6 +145,18 @@ export class ProductionEntry extends BaseEntity {
   @Column({ name: 'calculated_target', type: 'decimal', precision: 19, scale: 4, nullable: true })
   calculatedTarget: number | null;
 
+  /* ── TRANSIENT FIELDS — hydrated by the service, never persisted ─────────
+     The LOCKED planned hourly rate read straight from this entry's own
+     machine_targets row (target_quantity ÷ standard_hours, e.g. 4,320/h).
+     The grid and the printed report multiply it by the row's real running
+     hours; it is READ from the Target Master and never re-derived from floor
+     output, from an assumed 8-hour basis, or by blindly dividing the stale
+     snapshot `targetQuantity` above. Null when the entry has no
+     machine-linked target. */
+  targetPerHour?: number | null;
+  targetStandardHours?: number | null;
+  targetStandardQuantity?: number | null;
+
   @Column({ name: 'actual_quantity', type: 'decimal', precision: 19, scale: 4, default: 0 })
   actualQuantity: number;
 

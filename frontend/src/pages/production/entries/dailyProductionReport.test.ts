@@ -13,6 +13,7 @@ import {
   executiveKpis,
   executiveSummaryHtml,
   grandTotalLabel,
+  masterRateOf,
   pdfLineRow,
   pdfSummaryRow,
   PDF_MAIN_TEXT,
@@ -1268,5 +1269,105 @@ describe('Daily Production Report — pro-rata TARGET', () => {
     expect(totalCell.content).toBe('11,340');
     expect(totalCell.styles.fontSize).toBeUndefined();
     expect(totalCell.styles.fontStyle).toBe('bold');
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * LOCKED TARGET MASTER RATE — hydrated from the DB row, never re-derived
+ *
+ * The exact production row this feature exists for: SPK-01 / 07-Oct /
+ * Tanveer Hussain. `machine_targets` holds 34,560 over 8h = 4,320 /h;
+ * the entry's own `target_quantity` snapshot still holds 12,960
+ * (= 4,320 × the 3 hours in force when it was SAVED) while the grid
+ * displays a 7-hour run. Nothing on the row itself can recover 4,320 —
+ * it has to be READ off the master.
+ * ------------------------------------------------------------------ */
+describe('Daily Production Report — locked Target Master rate', () => {
+  const SPK01 = { perHour: 4320, standardHours: 8, standardQuantity: 34560 };
+
+  it('READS the master rate and scales it over the real running hours', () => {
+    const p = proRataTarget(12960, 7, SPK01);
+    expect(p.perHour).toBe(4320); // 34,560 ÷ 8 — hydrated, not calculated
+    expect(p.target).toBe(30240); // 4,320 × 7 — NOT the stale 12,960
+    expect(p.standard).toBe(34560); // the master's own standard figure
+    expect(p.hours).toBe(7);
+    expect(p.proRated).toBe(true);
+    expect(targetTopText(p)).toBe('4,320 /h (For 7 hrs Run)');
+    expect(targetBottomText(p, 'PCS')).toBe('30,240 PCS');
+  });
+
+  it('never invents a rate from the stale snapshot or from floor output', () => {
+    // Both forbidden derivations for this row: `stored ÷ hours` = 1,851.43
+    // and `actual output ÷ hours` = 3,000. The hydrated rate is neither.
+    const p = proRataTarget(12960, 7, SPK01);
+    expect(p.perHour).toBe(4320);
+    expect(p.perHour).not.toBe(1851.43);
+    expect(p.perHour).not.toBe(3000);
+  });
+
+  it('gives identical machines ONE locked baseline for every run length', () => {
+    // 3h, 7h and 14h rows all report 4,320 /h despite carrying three
+    // different stale snapshots — the whole point of reading the master.
+    expect(proRataTarget(12960, 3, SPK01).perHour).toBe(4320);
+    expect(proRataTarget(12960, 7, SPK01).perHour).toBe(4320);
+    expect(proRataTarget(60480, 14, SPK01).perHour).toBe(4320);
+    expect(proRataTarget(12960, 3, SPK01).target).toBe(12960);
+    expect(proRataTarget(60480, 14, SPK01).target).toBe(60480);
+  });
+
+  it('keeps the stored figure when a master-linked row has no run hours', () => {
+    // A machine down the WHOLE shift (planned 8, downtime 8) has
+    // stored = 0 → target 0 → Achievement `—`. It must NOT be inflated to
+    // the 34,560 master standard, or the grid would invent a target for a
+    // line that never turned. The rate itself is still a true fact.
+    const zero = proRataTarget(0, 0, SPK01);
+    expect(zero.target).toBe(0);
+    expect(zero.perHour).toBe(4320);
+    expect(zero.hours).toBe(0);
+    expect(zero.proRated).toBe(false);
+    expect(targetTopText(zero)).toBe('4,320 /h (Standard 8h basis)');
+    expect(proRataTarget(12960, 0, SPK01).target).toBe(12960);
+  });
+
+  it('exposes the hydrated rate and keeps the manual-entry fallback', () => {
+    expect(masterRateOf(null)).toBeNull();
+    expect(masterRateOf(undefined)).toBeNull();
+    expect(masterRateOf({ targetPerHour: null })).toBeNull();
+    expect(masterRateOf({ targetPerHour: '0' })).toBeNull();
+    expect(masterRateOf({ targetPerHour: '4320', targetStandardHours: 8, targetStandardQuantity: 34560 }))
+      .toEqual({ perHour: 4320, standardHours: 8, standardQuantity: 34560 });
+    // A manual entry with no machine-linked target keeps the legacy basis.
+    expect(proRataTarget(11340, 7, masterRateOf({})).target).toBe(11340);
+  });
+
+  it('drives the printed cell, Σ Target and Achievement off that one rate', () => {
+    const m = buildDailyProductionReport(
+      [makeRow({
+        targetQuantity: 12960,
+        targetPerHour: 4320,
+        targetStandardHours: 8,
+        targetStandardQuantity: 34560,
+        actualQuantity: 21000,
+        shift: { name: 'SHIFT-A', shiftCode: 'A', plannedHours: 8 },
+        overtimeHours: 4,
+        downtimeHours: 5,
+      })],
+      opts(),
+    );
+    const l = m.sections[0].lines[0];
+    expect(l.targetPerHour).toBe(4320);
+    expect(l.targetHours).toBe(7); // 8 planned + 4 OT − 5 downtime
+    expect(l.target).toBe(30240); // 4,320 × 7
+    expect(l.standardTarget).toBe(34560);
+    // 21,000 against the stale 12,960 read 162.04%; against the corrected
+    // denominator it reads the honest 69.44%.
+    expect(l.achievement).toBe(69.44);
+    expect(reportCellText(l, 'target')).toBe('4,320 /h (For 7 hrs Run)');
+    expect(reportCellSubText(l, 'target')).toBe('30,240 PCS');
+    expect(reportTwoLineHtml(l, 'target')).toBe(
+      '<span class="rp-tg-top">4,320 /h (For 7 hrs Run)</span><span class="rp-tg-bottom">30,240 PCS</span>',
+    );
+    expect(m.grand.target).toBe(30240);
+    expect(m.grand.achievement).toBe(69.44);
   });
 });

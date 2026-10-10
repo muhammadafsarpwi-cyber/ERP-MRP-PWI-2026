@@ -76,6 +76,7 @@ import {
   buildPrintHtml,
   executiveKpis,
   grandTotalLabel,
+  masterRateOf,
   pdfLineRow,
   pdfSummaryRow,
   proRataTarget,
@@ -323,6 +324,15 @@ export interface ProductionEntryRow {
   uom?: { id: string; code: string; symbol: string; name?: string };
   targetQuantity: number | string;
   calculatedTarget?: number | string;
+  /** LOCKED planned hourly rate hydrated from this entry's Target Master row
+   *  (`machine_targets.target_quantity ÷ standard_hours`, e.g. 4320). Read
+   *  from the database, never re-derived in the browser. Absent on manual
+   *  entries with no machine-linked target. */
+  targetPerHour?: number | string | null;
+  /** The Target Master row's own standard-hours basis (8, 12, 14 …). */
+  targetStandardHours?: number | string | null;
+  /** The Target Master row's own standard quantity. */
+  targetStandardQuantity?: number | string | null;
   actualQuantity: number | string;
   achievementPercentage: number | string;
   efficiencyPercentage: number | string;
@@ -800,7 +810,7 @@ const EntryList: React.FC = () => {
       };
     }
     const target = displayedRows.reduce(
-      (s, r) => s + proRataTarget(r.targetQuantity, displayRunningHours(r)).target,
+      (s, r) => s + proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r)).target,
       0,
     );
     const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
@@ -829,7 +839,7 @@ const EntryList: React.FC = () => {
       };
     }
     const target = displayedRows.reduce(
-      (s, r) => s + proRataTarget(r.targetQuantity, displayRunningHours(r)).target,
+      (s, r) => s + proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r)).target,
       0,
     );
     const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
@@ -1691,13 +1701,15 @@ const EntryList: React.FC = () => {
       dataIndex: 'targetQuantity',
       render: (_t, r) => {
         const uom = r.uom?.code || '';
-        // LOCKED MASTER PLAN FACTOR × the hours the machine was really on the
-        // floor (Planned + OT − Downtime). `proRataTarget` recovers the plan
-        // factor from the stored figure (Master Standard Target ÷ Master
-        // Standard Hours) and never divides production output by hours, and
-        // it is applied ONCE here so the grid, the printed report and the PDF
-        // can never show two different targets for the same entry.
-        const prorata = proRataTarget(r.targetQuantity, displayRunningHours(r));
+        // THE LOCKED PLANNED HOURLY RATE, read straight from this entry's
+        // Target Master row (server-hydrated `targetPerHour`, e.g. 4,320 /h),
+        // multiplied by the hours the machine was really on the floor
+        // (Planned + OT − Downtime). Nothing is re-derived here from floor
+        // output, from an assumed 8-hour basis, or by blindly dividing the
+        // stored snapshot — and it is applied ONCE so the grid, the printed
+        // report and the PDF can never show two different targets for the
+        // same entry.
+        const prorata = proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r));
         return (
           <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
             {/* 🎯 target marker — the header carries the same glyph, so the
@@ -1755,15 +1767,20 @@ const EntryList: React.FC = () => {
       width: 115,
       ellipsis: true,
       render: (_t, r) => {
-        const target = proRataTarget(r.targetQuantity, displayRunningHours(r)).target;
+        // THE ABSOLUTE DENOMINATOR. Achievement and variance are BOTH measured
+        // against the corrected dynamic operational target — the LOCKED master
+        // planned hourly rate from this row's Target Master record × the hours
+        // the machine really ran (4,320 × 7 = 30,240) — never the stored
+        // snapshot and never the raw master number. The stale snapshot is what
+        // inflated the tracking: 21,000 actual against the stale 12,960 read
+        // 162.04%, where 30,240 reads 69.44%.
+        // With no denominator there is no percentage to show, so the stored
+        // `achievementPercentage` is deliberately NOT consulted — it was itself
+        // computed against that same stale figure.
+        const target = proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r)).target;
         const actual = toNum(r.actualQuantity);
         const uom = r.uom?.code || '';
-        // Achievement / variance are BOTH measured against the DYNAMIC
-        // operational target (per-hour × real running hours), never the raw
-        // 8-hour master number — otherwise a 7-hour shift reports 87.5%
-        // against a target it was never supposed to reach.
-        const derived = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
-        const ach = derived ?? toNum(r.achievementPercentage);
+        const ach = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
         const diff = actual - target;
 
         let varianceNode: React.ReactNode = null;
