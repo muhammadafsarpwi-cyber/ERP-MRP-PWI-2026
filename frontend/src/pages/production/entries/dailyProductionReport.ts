@@ -57,7 +57,7 @@ import { entryOvertimeHours } from './overtimeHours';
  *                 columns free up the space Item / Product needs to keep a
  *                 product name on ONE line.
  *   TWO-LINE    · HARD MAXIMUM — no printed or PDF row is taller than two
- *                 lines. FOUR columns are stacked, and all four are nowrap +
+ *                 lines. FIVE columns are stacked, and all five are nowrap +
  *                 ellipsized in the print CSS and by autoTable in the PDF,
  *                 so a long value can never wrap onto a 3rd line:
  *                 · Item / Product: line 1 = product name (bold, dark),
@@ -65,12 +65,35 @@ import { entryOvertimeHours } from './overtimeHours';
  *                   `Name (CODE)` form;
  *                 · Shift: line 1 = shift name, line 2 = the shift timing
  *                   (`06:00 - 14:00`), `-` when the timing is unknown;
+ *                 · TARGET: line 1 = the hourly baseline plus the runtime it
+ *                   was scaled over (`1,620 /h (For 7 hrs Run)`, small and
+ *                   muted), line 2 = the Dynamic Operational Target with its
+ *                   UOM (`11,340 PCS`, bold) — see TARGET below;
  *                 · WEIGHT (KG): line 1 = Per Unit Weight (small, muted),
  *                   line 2 = Actual KG (bold, prominent) — the two former
  *                   columns fused into one;
  *                 · REJECTION / SCRAP: line 1 = Rejection KG (flat count),
  *                   line 2 = Rejection % — likewise fused.
  *                 Operator / breakdown reason are clamped to 2 lines.
+ *   TARGET       · PRO-RATA. The stored master target is an 8-hour standard,
+ *                 so a machine that really ran 7 hours must not be credited
+ *                 with a full shift:
+ *                     Per Hour Target = Stored Standard Target / 8
+ *                     Dynamic Target   = Per Hour Target × Actual Running
+ *                                         Hours   (12,960 / 8 × 7 = 11,340)
+ *                 `line.target` IS that dynamic value, so Σ Target, the
+ *                 weighted Achievement % and every KPI reconcile against it.
+ *                 Actual Running Hours is the SAME figure the grid and the
+ *                 runtime cell resolve (`Planned + Overtime − Downtime`,
+ *                 falling back to the stored column). A row with no usable
+ *                 run hours keeps its stored standard unchanged — pro-rating
+ *                 it would zero the target — and says so on line 1
+ *                 (`… (Standard 8h basis)`). Achievement is always
+ *                 recomputed here against the dynamic denominator, never
+ *                 echoed from a stale `achievementPercentage`.
+ *                 The CSV keeps TARGET as a bare number (so Excel can still
+ *                 SUM it) — only the arithmetic, not the context line,
+ *                 travels to the spreadsheet.
  *   PER UNIT WT · the bare number (`0.00967`): the trailing ` KG/PCS` suffix
  *                 would wrap the narrow column, and the UOM travels in its
  *                 own trailing column anyway.
@@ -88,7 +111,10 @@ import { entryOvertimeHours } from './overtimeHours';
  *                 TOTAL produces `0.00%` (100% rejected of a zero-good run
  *                 correctly reads `100.00%`).
  *   ACHIEVEMENT · >= 70% → green ▲ next to the percentage; < 70% → red ▼.
- *                 The 70% threshold drives ONLY the arrow colour.
+ *                 The 70% threshold drives ONLY the arrow colour. The
+ *                 denominator is ALWAYS the Dynamic Operational Target
+ *                 (TARGET above), row by row, so the percentage tracks the
+ *                 hours the machine was actually on the floor.
  *   RUNTIME     · the status cell NEVER shows a static word ("COMPLETED").
  *                 It is always the live runtime summary —
  *                 `11.5 hrs Running (95.8%) / 0.5 hrs Breakdown`, or
@@ -229,14 +255,21 @@ export interface ReportColumn {
  *   · Excel  → `csvLineCell` joins the pair with a newline in one cell.
  *
  * Note the reversed emphasis: Item/Shift lead with the BOLD line and trail
- * with the muted one, while WEIGHT leads muted (the small per-unit figure)
- * and trails bold/prominent (Actual KG — the number people read).
+ * with the muted one, while WEIGHT and TARGET lead muted (the small context
+ * figure) and trail bold/prominent (Actual KG / the Dynamic Operational
+ * Target — the numbers people read).
+ *
+ * TARGET deliberately breaks the "Excel joins the pair with a newline" rule
+ * above: its cell stays a BARE NUMBER in the CSV so a spreadsheet can still
+ * SUM / AVERAGE it. The per-hour + runtime context lives on print and PDF
+ * only; the arithmetic (`line.target`) is pro-rated on every surface.
  * ------------------------------------------------------------------ */
-export type StackedCellKey = 'item' | 'shift' | 'weight' | 'rejectionScrap';
+export type StackedCellKey = 'item' | 'shift' | 'target' | 'weight' | 'rejectionScrap';
 
 const STACKED_CELLS: Record<StackedCellKey, { main: string; sub: string }> = {
   item: { main: 'rp-item-name', sub: 'rp-item-code' },
   shift: { main: 'rp-shift-name', sub: 'rp-shift-time' },
+  target: { main: 'rp-tg-top', sub: 'rp-tg-bottom' },
   weight: { main: 'rp-wt-top', sub: 'rp-wt-bottom' },
   rejectionScrap: { main: 'rp-rj-top', sub: 'rp-rj-bottom' },
 };
@@ -249,13 +282,16 @@ export function isStackedColumn(key: ReportColumnKey): key is StackedCellKey {
 
 /**
  * `c-tight` — the class that sheds the default horizontal cell padding.
- * Only WEIGHT (KG) carries it: it is the narrowest numeric column in the
+ * WEIGHT (KG) carries it because it is the narrowest numeric column in the
  * table (two short stacked figures), so the 4px of breathing room the wide
- * text columns need is pure dead space there. Applied to the header, the
- * data rows and the total rows alike.
+ * text columns need is pure dead space there. TARGET carries it for the
+ * opposite reason: its top line is the longest single line in the table
+ * (`1,620 /h (For 7 hrs Run)`) and every one of its 4 pixels has to be
+ * available to keep that context line on ONE physical line.
+ * Applied to the header, the data rows and the total rows alike.
  */
 export function tightColumnClass(key: ReportColumnKey): string {
-  return key === 'weight' ? 'c-tight' : '';
+  return key === 'weight' || key === 'target' ? 'c-tight' : '';
 }
 
 /** Phase 7 column order — Shift and Machine lead, OT audits the extra hours
@@ -265,9 +301,13 @@ export function tightColumnClass(key: ReportColumnKey): string {
  *  COMPACT 2-LINE RHYTHM — the width budget guarantees that no cell ever
  *  needs a third line (print CSS keeps every cell at ≤ 2 physical lines):
  *    · Machine 5 and OT 5 are the narrowest cells (short codes / `2.5h`);
- *    · Operator gives up 1% (7 → 6) and Item / Product 2% (22 → 20) to fund
- *      the new OT column, which is enough for `125-300*17 Inner Straight`
- *      to stay on ONE line above its Item/WIP code;
+ *    · Operator gives up 1% (7 → 6) and Item / Product 5% (22 → 15) to fund
+ *      OT and the widened TARGET stack — 15% is the width the multi-day
+ *      export already ships at, so a product name still sits on ONE line
+ *      above its Item/WIP code;
+ *    · TARGET widened 6 → 11: it is now a TWO-line cell (`1,620 /h (For
+ *      7 hrs Run)` over `11,340 PCS`) and the context line is the longest
+ *      single line in the table, so it needs the room plus `c-tight`;
  *    · WEIGHT (KG) keeps the 5 + 6 the two fused columns used to own (11),
  *      REJECTION / SCRAP the 6 + 6 (12 → trimmed to 10, since one header
  *      now covers both words) — those savings also fund OT;
@@ -281,8 +321,8 @@ const BASE_COLUMNS: ReportColumn[] = [
   { key: 'machine', label: 'Machine', align: 'left', width: 5 },
   { key: 'ot', label: 'OT (H)', align: 'right', width: 5 },
   { key: 'operator', label: 'Operator', align: 'left', width: 6 },
-  { key: 'item', label: 'Item / Product', align: 'left', width: 20 },
-  { key: 'target', label: 'Target', align: 'right', width: 6 },
+  { key: 'item', label: 'Item / Product', align: 'left', width: 15 },
+  { key: 'target', label: 'Target', align: 'right', width: 11 },
   { key: 'actual', label: 'Actual', align: 'right', width: 6 },
   { key: 'achievement', label: 'Achievement %', align: 'right', width: 8 },
   { key: 'weight', label: 'WEIGHT (KG)', align: 'right', width: 11 },
@@ -292,14 +332,20 @@ const BASE_COLUMNS: ReportColumn[] = [
 
 const DATE_COLUMN: ReportColumn = { key: 'date', label: 'Date', align: 'center', width: 6 };
 
-/** Columns available only when the export spans several days (item gives up
- *  5% and the operator 1% so the set still totals 100%). */
+/** Columns available only when the export spans several days. The Date column
+ *  costs 6%, taken from Item (3), Operator (1), Status (1) and
+ *  REJECTION / SCRAP (1) so the set still totals 100 — Item keeps 12% rather
+ *  than 15% so a product name still reads past its ellipsis. */
 function buildColumns(showDate: boolean): ReportColumn[] {
   if (!showDate) return BASE_COLUMNS.map((c) => ({ ...c }));
+  const narrower: Partial<Record<ReportColumnKey, number>> = {
+    item: 12,
+    operator: 5,
+    status: 9,
+    rejectionScrap: 9,
+  };
   return [
-    ...BASE_COLUMNS.map((c) =>
-      c.key === 'item' ? { ...c, width: 15 } : c.key === 'operator' ? { ...c, width: 5 } : { ...c },
-    ),
+    ...BASE_COLUMNS.map((c) => (narrower[c.key] != null ? { ...c, width: narrower[c.key]! } : { ...c })),
     { ...DATE_COLUMN },
   ];
 }
@@ -324,6 +370,20 @@ export interface ReportLine {
   item: string;
   /** Line 2 of the Item / Product cell — the Item/WIP code (light gray). */
   itemCode: string;
+  /** The STORED master target — the 8-hour standard this row's baseline was
+   *  derived from. Kept for audit; `target` is the value actually reported. */
+  standardTarget: number;
+  /** `Per Hour Target = Stored Standard Target / Stored Standard Hours (8h)`
+   *  — line 1 of the TARGET cell, `1,620 /h`. */
+  targetPerHour: number;
+  /** Actual machine running hours the target was scaled to
+   *  (`Planned + Overtime − Downtime`). 0 = no run hours logged, in which
+   *  case `target` stays at `standardTarget`. */
+  targetHours: number;
+  /** The DYNAMIC OPERATIONAL TARGET: `targetPerHour × targetHours`, or the
+   *  untouched 8-hour standard when the row carries no run hours. This is
+   *  what every surface prints AND what achievement is divided by, so Σ
+   *  target, Σ actual and Achievement % always reconcile. */
   target: number;
   actual: number;
   perUnitWeight: string;
@@ -542,6 +602,95 @@ export function runtimeText(
   return reason ? `${body} - ${reason}` : body;
 }
 
+/* ------------------------------------------------------------------ *
+ * PRO-RATA TARGET — the TARGET cell's math
+ *
+ * The master targets are stored against a STANDARD 8-hour shift, so a row
+ * that actually ran 7 hours used to be credited with a full-shift target:
+ * 12,960 PCS shown (and divided by) regardless of the floor hours. The
+ * repair is one division and one multiplication, applied ONCE here so the
+ * grid, the printed page, the PDF and the CSV can never disagree:
+ *
+ *     Per Hour Target        = Stored Standard Target / 8   (12,960 / 8 = 1,620)
+ *     Dynamic Operational Target = Per Hour Target × Actual Running Hours
+ *                                                          (1,620 × 7 = 11,340)
+ *
+ * `achievement` is then recomputed against the DYNAMIC target, so the
+ * percentage is honest and proportional to the hours the machine was
+ * actually on the floor.
+ * ------------------------------------------------------------------ */
+
+/** The stored master targets are mapped against this standard shift. */
+export const STANDARD_SHIFT_HOURS = 8;
+
+export interface ProRataTarget {
+  /** The untouched stored master target (the 8-hour standard). */
+  standard: number;
+  /** `Stored Standard Target / Stored Standard Hours (8h)` — e.g. 1,620. */
+  perHour: number;
+  /** Actual machine running hours the target was scaled to; 0 = none. */
+  hours: number;
+  /** `Per Hour Target × Actual Running Hours` — what screen and paper show. */
+  target: number;
+  /** False when no run hours were available, so `target` is the standard. */
+  proRated: boolean;
+}
+
+/**
+ * Scale a stored 8-hour master target to the hours the machine really ran.
+ *
+ * A row with NO usable run hours (no shift plan, no stored running hours)
+ * cannot be pro-rated — doing so would silently zero its target and turn a
+ * perfectly good achievement into `—`. In that case the stored standard
+ * stands unchanged and `proRated` is false, which is exactly how every row
+ * without hour data behaved before this feature existed.
+ */
+export function proRataTarget(
+  standardTarget: number | string | null | undefined,
+  runningHours: number | string | null | undefined,
+): ProRataTarget {
+  const standard = Math.max(0, toNum(standardTarget));
+  const perHour = round4(standard / STANDARD_SHIFT_HOURS);
+  const hours = round2(Math.max(0, toNum(runningHours)));
+  if (!(standard > 0) || !(hours > 0)) {
+    return { standard, perHour, hours: 0, target: standard, proRated: false };
+  }
+  return { standard, perHour, hours, target: round4(perHour * hours), proRated: true };
+}
+
+/**
+ * Line 1 (the muted top tier) of the TARGET cell — the hourly baseline
+ * followed by the runtime it was scaled over: `1,620 /h (For 7 hrs Run)`.
+ * A row without run hours says so instead of claiming a run that never
+ * happened: `1,620 /h (Standard 8h basis)`.
+ */
+export function targetTopText(t: ProRataTarget): string {
+  const perHour = formatNumber(t.perHour, 2);
+  return t.proRated
+    ? `${perHour} /h (For ${formatNumber(t.hours, 2)} hrs Run)`
+    : `${perHour} /h (Standard ${STANDARD_SHIFT_HOURS}h basis)`;
+}
+
+/** Line 2 (the bold bottom tier) of the TARGET cell — the Dynamic Operational
+ *  Target with its UOM: `11,340 PCS`. */
+export function targetBottomText(t: ProRataTarget, uom?: string | null): string {
+  const value = formatNumber(t.target, 2);
+  const unit = blank(uom);
+  return unit ? `${value} ${unit}` : value;
+}
+
+/** The pro-rata figures behind one report line's TARGET cell, rebuilt from the
+ *  line itself so the printer, the PDF and the grid all read the same source. */
+export function lineProRata(line: ReportLine): ProRataTarget {
+  return {
+    standard: line.standardTarget,
+    perHour: line.targetPerHour,
+    hours: line.targetHours,
+    target: line.target,
+    proRated: line.targetHours > 0,
+  };
+}
+
 /** Rejection % — `Rejection KG / (Actual KG + Rejection KG) × 100`, 2 decimals.
  *  The denominator is the TOTAL produced (good + rejected), which is exactly
  *  what `aggregateProductionTotals` uses for the on-screen scrap KPI, so the
@@ -666,7 +815,6 @@ export function buildDailyProductionReport(
     const departmentName = blank(row.department?.name) || blank(row.department?.departmentCode) || 'Unassigned Department';
     const machine = blank(row.machine?.machineCode) || blank(row.machineNo) || '—';
     const uom = blank(row.uom?.code);
-    const target = toNum(row.targetQuantity);
     const actual = toNum(row.actualQuantity);
     const actualKg = calcActualKg(uom, actual, row.item?.weightPerPiece, row.item?.weightPerMeter);
     const rejection = toNum(row.scrapQuantity);
@@ -675,10 +823,6 @@ export function buildDailyProductionReport(
     const itemName = blank(row.item?.name);
     const actualKgRounded = actualKg == null ? null : round4(actualKg);
     const rejectionKgRounded = rejectionKg == null ? null : round4(rejectionKg);
-    const achievement =
-      row.achievementPercentage === null || row.achievementPercentage === undefined || row.achievementPercentage === ''
-        ? target > 0 ? round2((actual / target) * 100) : null
-        : round2(toNum(row.achievementPercentage));
 
     /* --- OT (H) + the live runtime summary -------------------- */
     const ot = entryOvertimeHours(row);
@@ -691,6 +835,14 @@ export function buildDailyProductionReport(
     const downShown = effectiveDowntime(storedRunning, downtime, planned, ot);
     const available = planned > 0 ? round2(planned + Math.max(0, ot)) : 0;
 
+    /* --- PRO-RATA TARGET + the achievement that rides on it -----
+     * `target` is the DYNAMIC operational target (per-hour × real running
+     * hours), never the raw 8-hour master number. Achievement is therefore
+     * ALWAYS recomputed here: a stale `achievementPercentage` the backend
+     * derived from the static target would silently undo the whole repair. */
+    const prorata = proRataTarget(row.targetQuantity, running);
+    const achievement = prorata.target > 0 ? round2((actual / prorata.target) * 100) : null;
+
     const line: ReportLine = {
       sr: 0,
       machine,
@@ -699,7 +851,10 @@ export function buildDailyProductionReport(
        * bundled as `Name (CODE)`). A code equal to the name is dropped. */
       item: itemName || itemCode || '—',
       itemCode: itemCode && itemCode !== (itemName || itemCode) ? itemCode : '',
-      target,
+      standardTarget: prorata.standard,
+      targetPerHour: prorata.perHour,
+      targetHours: prorata.hours,
+      target: prorata.target,
       actual,
       perUnitWeight: perUnitWeightValue(uom, row.item?.weightPerPiece, row.item?.weightPerMeter) || uom || '—',
       actualKg: actualKgRounded,
@@ -858,7 +1013,9 @@ export function reportCellText(line: ReportLine, key: ReportColumnKey, mode: Rep
     case 'machine': return line.machine;
     case 'operator': return line.operator;
     case 'item': return line.item;
-    case 'target': return formatNumber(line.target, 2);
+    /* Line 1 of TARGET — the hourly baseline plus the runtime it was scaled
+     * over (`1,620 /h (For 7 hrs Run)`), NOT the raw stored number. */
+    case 'target': return targetTopText(lineProRata(line));
     case 'actual': return formatNumber(line.actual, 2);
     /* Line 1 of WEIGHT (KG) — the small, muted per-unit figure. */
     case 'weight': return line.perUnitWeight;
@@ -886,6 +1043,8 @@ export function reportCellText(line: ReportLine, key: ReportColumnKey, mode: Rep
 export function reportCellSubText(line: ReportLine, key: ReportColumnKey): string {
   if (key === 'item') return line.itemCode;
   if (key === 'shift') return line.shiftTime;
+  /* Line 2 of TARGET — the bold Dynamic Operational Target + its UOM. */
+  if (key === 'target') return targetBottomText(lineProRata(line), line.uom);
   if (key === 'weight') return line.actualKg == null ? '—' : formatNumber(line.actualKg, 2);
   if (key === 'rejectionScrap') return rejectionPctLabel(line.rejectionPct);
   return '';
@@ -964,16 +1123,26 @@ export const PDF_MUTED_TEXT: [number, number, number] = [100, 116, 139]; /* #647
  *  `subGap` is a nudge in points applied to line 2's baseline. autoTable v5
  *  exposes no per-cell line spacing (its line height comes straight from
  *  `doc.getLineHeightFactor()`), so tightening the gap between the two
- *  stacked REJECTION / SCRAP figures has to happen on this side. */
+ *  stacked REJECTION / SCRAP figures has to happen on this side.
+ *
+ *  `mainSize` shrinks the WHOLE cell (line 1 is drawn by autoTable, line 2 by
+ *  `drawSubLine` at the cell's own size) — TARGET needs it because its top
+ *  line is a full sentence, `1,620 /h (For 7 hrs Run)`, and the column is
+ *  only 11% wide. 6.5pt is the PDF twin of the print CSS's 8.5px, and the
+ *  value underneath turns BOLD for contrast, exactly like the print cell.
+ *  It is applied only when the cell actually HAS a second line, so total
+ *  rows (a bare Σ Target) stay at the table's normal 9pt. */
 const STACKED_PDF: Record<StackedCellKey, {
   mainColor: [number, number, number];
   mainBold: boolean;
   subColor: [number, number, number];
   subBold: boolean;
   subGap: number;
+  mainSize?: number;
 }> = {
   item: { mainColor: PDF_MAIN_TEXT, mainBold: true, subColor: PDF_SUB_TEXT, subBold: false, subGap: 0 },
   shift: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false, subGap: 0 },
+  target: { mainColor: PDF_MUTED_TEXT, mainBold: false, subColor: PDF_MAIN_TEXT, subBold: true, subGap: 0, mainSize: 6.5 },
   weight: { mainColor: PDF_MUTED_TEXT, mainBold: false, subColor: PDF_MAIN_TEXT, subBold: true, subGap: 0 },
   rejectionScrap: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false, subGap: -1.5 },
 };
@@ -983,7 +1152,9 @@ const STACKED_PDF: Record<StackedCellKey, {
  *  (`drawSubLine`) to paint, which is the only way jsPDF can give one cell
  *  two different colours, weights and spacing. `subBold` switches line 2 to
  *  the bold font — WEIGHT (KG) needs it for Actual KG — and `subGap` pulls
- *  line 2 up (REJECTION / SCRAP runs the tightest rhythm in the table). */
+ *  line 2 up (REJECTION / SCRAP runs the tightest rhythm in the table).
+ *  `mainSize` resizes BOTH lines of a data row only: a total row's TARGET is
+ *  a single bare Σ figure and must stay at the table's normal size. */
 function pdfStackedCell(
   key: StackedCellKey,
   main: string,
@@ -992,8 +1163,9 @@ function pdfStackedCell(
   baseStyles: Record<string, unknown> = {},
 ): any {
   const style = STACKED_PDF[key];
+  const hasSub = Boolean(sub);
   return {
-    content: sub ? `${main}\n\u00A0` : main,
+    content: hasSub ? `${main}\n\u00A0` : main,
     sub,
     subColor: style.subColor,
     subBold: style.subBold,
@@ -1003,6 +1175,7 @@ function pdfStackedCell(
       halign: align,
       textColor: style.mainColor,
       ...(style.mainBold ? { fontStyle: 'bold' as const } : {}),
+      ...(style.mainSize != null && hasSub ? { fontSize: style.mainSize } : {}),
     },
   };
 }
@@ -1010,9 +1183,10 @@ function pdfStackedCell(
 /** One PDF data row: plain strings, except the achievement cell which carries
  *  the ▲/▼ colour (the arrow itself is drawn in `didDrawCell` as a vector
  *  triangle — jsPDF cannot embed those glyphs in its WinAnsi fonts) and the
- *  FOUR fused cells (Item / Shift / WEIGHT / REJECTION-SCRAP) which are two
- *  lines each: autoTable draws line 1 and leaves a non-breaking space on
- *  line 2, keeping the row tall enough for `sub` to be painted over it. */
+ *  FIVE fused cells (Item / Shift / TARGET / WEIGHT / REJECTION-SCRAP)
+ *  which are two lines each: autoTable draws line 1 and leaves a
+ *  non-breaking space on line 2, keeping the row tall enough for `sub` to be
+ *  painted over it. */
 export function pdfLineRow(columns: ReportColumn[], line: ReportLine): any[] {
   const tone = achievementTone(line.achievement);
   return columns.map((c) => {
@@ -1051,12 +1225,18 @@ export function pdfSummaryRow(
   return [
     { content: label, colSpan: span, styles: { ...totalStyle, halign: 'left' as const } },
     ...model.columns.slice(span).map((c) => {
-      if (isStackedColumn(c.key)) {
-        return pdfStackedCell(c.key, reportTotalText(totals, c.key, 'pdf'), reportTotalSubText(totals, c.key), c.align, totalStyle);
+      const main = reportTotalText(totals, c.key, 'pdf');
+      const sub = reportTotalSubText(totals, c.key);
+      // A fused column whose TOTAL row carries only ONE line (TARGET's Σ of
+      // the pro-rated targets) is a plain numeric total like Σ Actual: it must
+      // not borrow line 1's muted colour or the shrunken cell size. Columns
+      // with a real pair (WEIGHT, REJECTION) keep both of their lines.
+      if (isStackedColumn(c.key) && main && sub) {
+        return pdfStackedCell(c.key, main, sub, c.align, totalStyle);
       }
       const styles: any = { ...totalStyle, halign: c.align };
       if (c.key === 'achievement' && tone) styles.textColor = TONE_COLOR[tone];
-      return { content: reportTotalText(totals, c.key, 'pdf'), styles };
+      return { content: main, styles };
     }),
   ];
 }
@@ -1128,24 +1308,35 @@ const PRINT_CSS = `
   .rp-shift-time { display: block; font-weight: 400; color: #94a3b8; }
   .rp-wt-top { display: block; font-weight: 400; color: #64748b; }
   .rp-wt-bottom { display: block; font-weight: 700; color: #0f172a; }
+  .rp-tg-top { display: block; font-weight: 400; color: #64748b; }
+  .rp-tg-bottom { display: block; font-weight: 700; color: #0f172a; }
   .rp-rj-top { display: block; font-weight: 400; color: #0f172a; }
   .rp-rj-bottom { display: block; font-weight: 400; color: #64748b; }
   /* ---- 2-LINE MAXIMUM -------------------------------------------------
-     Each of those eight lines is ONE physical line: nowrap + ellipsis, so
+     Each of those ten lines is ONE physical line: nowrap + ellipsis, so
      "General Shift" / "06:00 - 14:00", the product name and the fused
      WEIGHT / REJECTION values can never push a row onto a 3rd or 4th line.
      Shift sits at 10px / 9px to fit its 9%; the two fused columns sit at
      11px / 10px so the bold line always outweighs the muted one. */
   .rp-item-name, .rp-item-code, .rp-shift-name, .rp-shift-time,
+  .rp-tg-top, .rp-tg-bottom,
   .rp-wt-top, .rp-wt-bottom, .rp-rj-top, .rp-rj-bottom {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rp-item-name { font-size: 11px; line-height: 1.2; }
   .rp-item-code { font-size: 10px; line-height: 1.2; }
   .rp-shift-name { font-size: 10px; line-height: 1.2; }
   .rp-shift-time { font-size: 9px; line-height: 1.2; }
+  /* TARGET is the only fused cell whose line 1 is a SENTENCE —
+     "1,620 /h (For 7 hrs Run)" — so it runs at 8.5px across an 11% column
+     (the widest of the numeric cells, plus c-tight padding) to stay on ONE
+     physical line. Line 2 is the Dynamic Operational Target and keeps the
+     table's full 11px in bold: the eye lands there first, the per-hour
+     baseline and the runtime are the context underneath. */
+  .rp-tg-top { font-size: 8.5px; line-height: 1.2; }
+  .rp-tg-bottom { font-size: 11px; line-height: 1.2; }
   .rp-wt-top { font-size: 10px; line-height: 1.2; }
   .rp-wt-bottom { font-size: 11px; line-height: 1.2; }
-  /* REJECTION / SCRAP runs the tightest rhythm of the four fused cells: its
+  /* REJECTION / SCRAP runs the tightest rhythm of the fused cells: its
      two values are short numerals (no descenders), so the leading drops from
      1.2 to 1.1 and the top line pulls 2px up onto the bottom one — roughly a
      fifth less dead space between the KG figure and its percentage. */
@@ -1240,8 +1431,8 @@ function lineRowHtml(model: DailyProductionReport, line: ReportLine): string {
       ].filter(Boolean).join(' ');
       let text: string;
       if (isStackedColumn(c.key)) {
-        // Item / Shift / WEIGHT (KG) / REJECTION (SCRAP) — two real lines,
-        // each nowrap + ellipsized by the CSS above.
+        // Item / Shift / TARGET / WEIGHT (KG) / REJECTION (SCRAP) — two real
+        // lines, each nowrap + ellipsized by the CSS above.
         text = reportTwoLineHtml(line, c.key);
       } else {
         const value = escapeHtml(reportCellText(line, c.key));
@@ -1279,13 +1470,18 @@ function totalRowHtml(
       // KG still sits under the `—` of WEIGHT (KG) and the pooled Rejection %
       // under Σ Rejection KG. Item / Shift have no total value at all, so
       // they stay a plain empty cell rather than emitting stray spans.
+      // TARGET's total is ONE bare figure (Σ of the pro-rated targets), so it
+      // must NOT borrow line 1's muted 8.5px class — it falls through to the
+      // ordinary cell and reads exactly like Σ Actual.
       if (isStackedColumn(c.key)) {
         const classes = STACKED_CELLS[c.key];
         const main = reportTotalText(totals, c.key);
         const sub = reportTotalSubText(totals, c.key);
+        if (main && sub) {
+          return `<td class="${cellCls}"><span class="${classes.main}">${escapeHtml(main)}</span><span class="${classes.sub}">${escapeHtml(sub)}</span></td>`;
+        }
         if (!main && !sub) return `<td class="${cellCls}"></td>`;
-        const second = sub ? `<span class="${classes.sub}">${escapeHtml(sub)}</span>` : '';
-        return `<td class="${cellCls}"><span class="${classes.main}">${escapeHtml(main)}</span>${second}</td>`;
+        return `<td class="${cellCls}">${escapeHtml(main)}</td>`;
       }
       return `<td class="${cellCls}">${escapeHtml(reportTotalText(totals, c.key))}</td>`;
     })
@@ -1593,7 +1789,11 @@ function csvLineCell(line: ReportLine, key: ReportColumnKey): string {
     case 'machine': return csvQuote(line.machine);
     case 'operator': return csvQuote(line.operator);
     case 'item': return csvQuote(line.itemCode ? `${line.item}\n${line.itemCode}` : line.item);
-    case 'target': return csvNum(line.target);
+    case 'target':
+      // Deliberately NOT `csvStacked` — the pro-rated value stays a bare
+      // Excel number so SUM / AVERAGE still work. The per-hour baseline and
+      // the runtime context live on the print and PDF cells instead.
+      return csvNum(line.target);
     case 'actual': return csvNum(line.actual);
     case 'ot': return csvNum(line.ot);
     /* WEIGHT (KG) — per-unit weight on line 1, Actual KG on line 2. */

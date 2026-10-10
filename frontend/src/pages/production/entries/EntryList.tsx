@@ -78,7 +78,10 @@ import {
   grandTotalLabel,
   pdfLineRow,
   pdfSummaryRow,
+  proRataTarget,
   sectionBlocks,
+  targetBottomText,
+  targetTopText,
   EXECUTIVE_TITLE,
   PDF_MAIN_TEXT,
   PDF_SUB_TEXT,
@@ -797,7 +800,10 @@ const EntryList: React.FC = () => {
         ach: `${formatNumber(serverSummary.efficiency, 2)}%`,
       };
     }
-    const target = displayedRows.reduce((s, r) => s + toNum(r.targetQuantity), 0);
+    const target = displayedRows.reduce(
+      (s, r) => s + proRataTarget(r.targetQuantity, displayRunningHours(r)).target,
+      0,
+    );
     const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
     const scrap = displayedRows.reduce((s, r) => s + toNum(r.scrapQuantity), 0);
     const overtime = sumOvertime(displayedRows);
@@ -823,7 +829,10 @@ const EntryList: React.FC = () => {
         ach: serverSummary.efficiency,
       };
     }
-    const target = displayedRows.reduce((s, r) => s + toNum(r.targetQuantity), 0);
+    const target = displayedRows.reduce(
+      (s, r) => s + proRataTarget(r.targetQuantity, displayRunningHours(r)).target,
+      0,
+    );
     const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
     const scrap = displayedRows.reduce((s, r) => s + toNum(r.scrapQuantity), 0);
     return {
@@ -1042,10 +1051,13 @@ const EntryList: React.FC = () => {
           cellWidth: (contentWidth * c.width) / 100,
           halign: c.align,
         };
-        // WEIGHT (KG) — the print CSS drops this column's horizontal padding
-        // too (.rp-table .c-tight); the PDF mirrors it so both surfaces shed
-        // the same dead space.
-        if (c.key === 'weight') base.cellPadding = { top: 3, right: 1, bottom: 3, left: 1 };
+        // WEIGHT (KG) and TARGET — the print CSS drops these columns'
+        // horizontal padding too (.rp-table .c-tight); the PDF mirrors it so
+        // both surfaces shed the same dead space. TARGET needs it because its
+        // line 1 is a full sentence squeezed into an 11% column.
+        if (c.key === 'weight' || c.key === 'target') {
+          base.cellPadding = { top: 3, right: 1, bottom: 3, left: 1 };
+        }
         columnStyles[String(i)] =
           c.key === 'item' || c.key === 'shift'
             ? { ...base, overflow: 'ellipsize' }
@@ -1117,7 +1129,7 @@ const EntryList: React.FC = () => {
 
       // PHASE 7 — autoTable styles apply to the whole CELL, so a cell whose
       // two lines must look different cannot be styled per line. The four
-      // FUSED cells (Item / Shift / WEIGHT (KG) / REJECTION-SCRAP) are
+      // FUSED cells (Item / Shift / TARGET / WEIGHT (KG) / REJECTION-SCRAP) are
       // therefore emitted as `<line 1>\n<nbsp>`: autoTable draws line 1 and
       // the trailing non-breaking space keeps line 2 reserved, which is
       // painted here with its own colour — and, when the cell asks for it,
@@ -1671,17 +1683,28 @@ const EntryList: React.FC = () => {
         </span>
       ),
       align: 'right',
-      width: 95,
+      // PRO-RATA STACK — line 1 is a sentence ("1,620 /h (For 7 hrs Run)"),
+      // so this cell needs ~130px where the bare number needed 95.
+      width: 140,
       ellipsis: true,
       sorter: true,
       dataIndex: 'targetQuantity',
       render: (_t, r) => {
         const uom = r.uom?.code || '';
+        // The stored master target is an 8-HOUR STANDARD. Scale it to the
+        // hours the machine was really on the floor (Planned + OT − Downtime)
+        // exactly as the printed report and the PDF do, so screen and paper
+        // can never show two different targets for the same entry.
+        const prorata = proRataTarget(r.targetQuantity, displayRunningHours(r));
         return (
-          <span style={{ whiteSpace: 'nowrap', color: 'var(--theme-text-secondary, #475569)' }}>
-            {formatNumber(r.targetQuantity, 2)}{' '}
-            {uom && <span style={{ fontSize: 11, opacity: 0.85 }}>{uom}</span>}
-          </span>
+          <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
+              {targetTopText(prorata)}
+            </div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
+              {targetBottomText(prorata, uom)}
+            </div>
+          </div>
         );
       },
     },
@@ -1718,10 +1741,15 @@ const EntryList: React.FC = () => {
       width: 115,
       ellipsis: true,
       render: (_t, r) => {
-        const ach = toNum(r.achievementPercentage);
-        const target = toNum(r.targetQuantity);
+        const target = proRataTarget(r.targetQuantity, displayRunningHours(r)).target;
         const actual = toNum(r.actualQuantity);
         const uom = r.uom?.code || '';
+        // Achievement / variance are BOTH measured against the DYNAMIC
+        // operational target (per-hour × real running hours), never the raw
+        // 8-hour master number — otherwise a 7-hour shift reports 87.5%
+        // against a target it was never supposed to reach.
+        const derived = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
+        const ach = derived ?? toNum(r.achievementPercentage);
         const diff = actual - target;
 
         let varianceNode: React.ReactNode = null;

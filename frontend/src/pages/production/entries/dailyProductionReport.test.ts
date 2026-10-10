@@ -18,6 +18,7 @@ import {
   PDF_MAIN_TEXT,
   PDF_MUTED_TEXT,
   PDF_SUB_TEXT,
+  proRataTarget,
   rejectionPct4Label,
   reportCellSubText,
   reportCellText,
@@ -27,6 +28,9 @@ import {
   reportTotalText,
   sectionBlocks,
   sectionItemTotals,
+  STANDARD_SHIFT_HOURS,
+  targetBottomText,
+  targetTopText,
   tightColumnClass,
   TONE_COLOR,
   type DailyProductionReport,
@@ -216,17 +220,35 @@ describe('Daily Production Report — Phase 7 cell cleanup', () => {
 describe('Daily Production Report — compact 2-line layout', () => {
   const width = (key: string) => model().columns.find((c) => c.key === key)!.width;
 
-  it('funds the new OT (H) column from Operator + Item and still totals 100', () => {
-    expect(width('item')).toBe(20); // 22 → 20; a product name still fits one line
+  it('funds the widened pro-rata TARGET stack from Item and still totals 100', () => {
+    expect(width('item')).toBe(15); // 20 → 15; a product name still fits one line
     expect(width('shift')).toBe(9); // name on line 1, timing on line 2
     expect(width('machine')).toBe(5);
     expect(width('ot')).toBe(5); // the injected column
-    expect(width('operator')).toBe(6); // gave up 1% to OT
+    expect(width('operator')).toBe(6);
+    // TARGET is now a TWO-line cell whose line 1 is a full sentence, so it
+    // doubled from 6 to 11 — the widest numeric column in the table.
+    expect(width('target')).toBe(11);
     // The two fused columns keep the space their halves used to own.
     expect(width('weight')).toBe(11); // 5 (per unit) + 6 (actual KG)
     expect(width('rejectionScrap')).toBe(10);
     // and the budget still adds up to exactly 100
     expect(model().columns.reduce((s, c) => s + c.width, 0)).toBe(100);
+  });
+
+  it('keeps the multi-day DATE variant on the same 100-point budget', () => {
+    const multi = buildDailyProductionReport(
+      [rows[0], makeRow({ entryDate: '2026-10-03' })],
+      opts({ dateFrom: null, dateTo: null }),
+    );
+    const w = (key: string) => multi.columns.find((c) => c.key === key)!.width;
+    expect(w('date')).toBe(6);
+    expect(w('target')).toBe(11); // TARGET never narrows — its line 1 is fixed
+    expect(w('item')).toBe(12); // 15 → 12: Item 3, Operator 1, Status 1 and
+    expect(w('operator')).toBe(5); // REJECTION 1 together fund the date column
+    expect(w('status')).toBe(9);
+    expect(w('rejectionScrap')).toBe(9);
+    expect(multi.columns.reduce((s, c) => s + c.width, 0)).toBe(100);
   });
 
   it('prints the bare per-unit weight — no KG/PCS suffix on any surface', () => {
@@ -238,9 +260,9 @@ describe('Daily Production Report — compact 2-line layout', () => {
 
   it('caps every printed cell at 2 lines (nowrap two-line cells + clamp)', () => {
     const html = buildPrintHtml(model());
-    // line 1 / line 2 of the FOUR fused cells can never wrap …
+    // line 1 / line 2 of the FIVE fused cells can never wrap …
     expect(html).toContain(
-      '.rp-item-name, .rp-item-code, .rp-shift-name, .rp-shift-time,\n  .rp-wt-top, .rp-wt-bottom, .rp-rj-top, .rp-rj-bottom {',
+      '.rp-item-name, .rp-item-code, .rp-shift-name, .rp-shift-time,\n  .rp-tg-top, .rp-tg-bottom,\n  .rp-wt-top, .rp-wt-bottom, .rp-rj-top, .rp-rj-bottom {',
     );
     expect(html).toContain('white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }');
     // … long free text (operator, runtime reason) is hard-clamped to 2 …
@@ -646,12 +668,17 @@ describe('Daily Production Report — print layout', () => {
     expect(html).not.toContain('>COMPLETED<');
   });
 
-  it('prints Item, Shift, WEIGHT (KG) and REJECTION / SCRAP as stacked pairs', () => {
+  it('prints Item, Shift, TARGET, WEIGHT (KG) and REJECTION / SCRAP as stacked pairs', () => {
     expect(html).toContain('<span class="rp-item-name">Spoke 40T</span><span class="rp-item-code">SP-40</span>');
     expect(html).toContain('<span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span>');
     expect(html).toContain('.rp-item-name { display: block; font-weight: 700;');
     expect(html).toContain('.rp-item-code { display: block; font-weight: 400; color: #94a3b8; }');
     expect(html).toContain('.rp-shift-time { display: block; font-weight: 400; color: #94a3b8; }');
+    // TARGET — the hourly baseline + runtime muted on top, the pro-rated
+    // Dynamic Operational Target in bold underneath.
+    expect(html).toContain('<span class="rp-tg-top">250 /h (Standard 8h basis)</span><span class="rp-tg-bottom">2,000 PCS</span>');
+    expect(html).toContain('.rp-tg-top { display: block; font-weight: 400; color: #64748b; }');
+    expect(html).toContain('.rp-tg-bottom { display: block; font-weight: 700; color: #0f172a; }');
     // WEIGHT (KG) — per unit on top, the bold Actual KG underneath.
     expect(html).toContain('<span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">100</span>');
     // REJECTION / SCRAP — flat KG on top, the fixed % underneath.
@@ -665,15 +692,18 @@ describe('Daily Production Report — print layout', () => {
     expect(html).toContain('0.00%');
   });
 
-  it('sheds dead space in WEIGHT (KG) and tightens the REJECTION / SCRAP leading', () => {
-    // ONLY the weight column is tightened — verified straight off the header,
+  it('sheds dead space in WEIGHT (KG) and TARGET and tightens the REJECTION leading', () => {
+    // ONLY those two columns are tightened — verified straight off the headers,
     // where the class sits beside its width and its label.
+    expect(html).toContain(
+      '<th class="a-right c-tight" style="width:11%"><span class="rp-clamp2">Target</span></th>',
+    );
     expect(html).toContain(
       '<th class="a-right c-tight" style="width:11%"><span class="rp-clamp2">WEIGHT (KG)</span></th>',
     );
     expect(html).toContain('.rp-table .c-tight { padding-left: 1px; padding-right: 1px; }');
     const keys = model().columns.map((c) => c.key);
-    expect(keys.filter((k) => tightColumnClass(k) === 'c-tight')).toEqual(['weight']);
+    expect(keys.filter((k) => tightColumnClass(k) === 'c-tight')).toEqual(['target', 'weight']);
     expect(html).not.toContain('a-left c-tight');
     expect(html).not.toContain('a-center c-tight');
     // The fused cell's two lines sit closer together than every other fused
@@ -682,6 +712,10 @@ describe('Daily Production Report — print layout', () => {
     expect(html).toContain('.rp-rj-bottom { font-size: 10px; line-height: 1.1; }');
     expect(html).toContain('.rp-wt-top { font-size: 10px; line-height: 1.2; }');
     expect(html).toContain('.rp-wt-bottom { font-size: 11px; line-height: 1.2; }');
+    // TARGET's line 1 is a sentence, so it is the only stack that drops BELOW
+    // the 9px floor; its value still gets the table's full 11px in bold.
+    expect(html).toContain('.rp-tg-top { font-size: 8.5px; line-height: 1.2; }');
+    expect(html).toContain('.rp-tg-bottom { font-size: 11px; line-height: 1.2; }');
   });
 
   it('has print-safe CSS: 11px data, boxed borders, repeating header, no section splitting', () => {
@@ -731,7 +765,7 @@ describe('Daily Production Report — PDF rows', () => {
     expect(row[m.columns.findIndex((c) => c.key === 'status')]).toBe('—');
   });
 
-  it('emits the four fused cells as two-line cells for didDrawCell', () => {
+  it('emits the five fused cells as two-line cells for didDrawCell', () => {
     const low = spoke.lines.find((l) => l.machine === 'SPK-02')!;
     const row = pdfLineRow(m.columns, low);
     const shift = row[1];
@@ -1113,5 +1147,106 @@ describe('Daily Production Report — Executive KPI summary', () => {
     expect(emptyHtml).not.toContain('<section class="rp-exec">');
     expect(emptyHtml).not.toContain('<div class="rp-kpi-grid">');
     expect(emptyHtml).not.toContain('<div class="rp-kpi-card">');
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * PRO-RATA TARGET — the TARGET cell's math + its two stacked lines
+ * ------------------------------------------------------------------ */
+describe('Daily Production Report — pro-rata TARGET', () => {
+  const line = (machine: string) =>
+    model().sections.flatMap((s) => s.lines).find((l) => l.machine === machine)!;
+
+  it('scales the stored 8-hour standard by the hours the machine really ran', () => {
+    expect(STANDARD_SHIFT_HOURS).toBe(8);
+    // The screenshot's case: 12,960 stored against an 8h shift, 7h actually run.
+    const p = proRataTarget(12960, 7);
+    expect(p.perHour).toBe(1620);
+    expect(p.target).toBe(11340); // 1,620 × 7 — not the full-shift 12,960
+    expect(p.proRated).toBe(true);
+    expect(targetTopText(p)).toBe('1,620 /h (For 7 hrs Run)');
+    expect(targetBottomText(p, 'PCS')).toBe('11,340 PCS');
+  });
+
+  it('keeps the stored standard when the row has no run hours at all', () => {
+    // Pro-rating against 0 hours would ZERO the target and erase achievement.
+    const p = proRataTarget(12960, 0);
+    expect(p.target).toBe(12960);
+    expect(p.hours).toBe(0);
+    expect(p.proRated).toBe(false);
+    expect(targetTopText(p)).toBe('1,620 /h (Standard 8h basis)');
+    expect(targetBottomText(p, 'PCS')).toBe('12,960 PCS');
+    expect(proRataTarget(0, 7).target).toBe(0);
+    expect(proRataTarget(null as any, undefined).target).toBe(0);
+  });
+
+  it('drives the printed cell, the totals and Achievement % off that one number', () => {
+    const m = buildDailyProductionReport(
+      [makeRow({ targetQuantity: 12960, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      opts(),
+    );
+    const l = m.sections[0].lines[0];
+    expect(l.target).toBe(11340);
+    expect(l.standardTarget).toBe(12960);
+    expect(l.targetPerHour).toBe(1620);
+    expect(l.targetHours).toBe(7);
+    // Achievement is RECOMPUTED against the dynamic target — 11,340 / 11,340
+    // = 100%, even though the stored figure was derived from 12,960.
+    expect(l.achievement).toBe(100);
+    expect(reportCellText(l, 'target')).toBe('1,620 /h (For 7 hrs Run)');
+    expect(reportCellSubText(l, 'target')).toBe('11,340 PCS');
+    expect(reportTwoLineHtml(l, 'target')).toBe(
+      '<span class="rp-tg-top">1,620 /h (For 7 hrs Run)</span><span class="rp-tg-bottom">11,340 PCS</span>',
+    );
+    expect(m.grand.target).toBe(11340);
+    expect(m.grand.achievement).toBe(100);
+    // Σ Target in a total row is ONE bare figure — it must not borrow line 1's
+    // muted 8.5px class, or the grand total would print smaller than Σ Actual.
+    expect(reportTotalText(m.grand, 'target')).toBe('11,340');
+    expect(reportTotalSubText(m.grand, 'target')).toBe('');
+    const html = buildPrintHtml(m);
+    expect(html).toContain('<td class="a-right c-tight">11,340</td>');
+    expect(html).not.toContain('<span class="rp-tg-top">11,340</span>');
+  });
+
+  it('ignores a stale stored achievement percentage', () => {
+    const m = buildDailyProductionReport(
+      [makeRow({ targetQuantity: 12960, actualQuantity: 11340, achievementPercentage: 87.5, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      opts(),
+    );
+    expect(m.sections[0].lines[0].achievement).toBe(100);
+  });
+
+  it('keeps TARGET numeric in the CSV so a spreadsheet can still SUM it', () => {
+    const m = buildDailyProductionReport(
+      [makeRow({ targetQuantity: 12960, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      opts(),
+    );
+    const csv = buildDailyProductionCsv(m).replace(/^\uFEFF/, '').split('\r\n');
+    const headerIdx = csv.findIndex((l) => l.startsWith('Sr. #'));
+    const deptIdx = csv.findIndex((l, i) => i > headerIdx && l.startsWith('DEPARTMENT — '));
+    const cells = csv[deptIdx + 1].split(',');
+    expect(cells[6]).toBe('11340'); // the pro-rated number, still a bare Excel number
+    expect(cells[5]).not.toContain('/h'); // only the ARITHMETIC travels to Excel
+  });
+
+  it('shrinks only the PDF data cell — totals stay at the normal table size', () => {
+    const m = buildDailyProductionReport(
+      [makeRow({ targetQuantity: 12960, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      opts(),
+    );
+    const l = m.sections[0].lines[0];
+    const targetIdx = m.columns.findIndex((c) => c.key === 'target');
+    const dataCell = pdfLineRow(m.columns, l)[targetIdx] as any;
+    expect(dataCell.styles.fontSize).toBe(6.5);
+    expect(dataCell.sub).toBe('11,340 PCS');
+    expect(dataCell.subBold).toBe(true);
+    // pdfSummaryRow = [merged label, ...columns.slice(span)] — Σ Target keeps
+    // the table's own 9pt and its bold total styling.
+    const summary = pdfSummaryRow(m, m.grand, 'GRAND TOTAL', 'grand');
+    const totalCell = summary[1 + targetIdx - reportLabelSpan(m.columns)] as any;
+    expect(totalCell.content).toBe('11,340');
+    expect(totalCell.styles.fontSize).toBeUndefined();
+    expect(totalCell.styles.fontStyle).toBe('bold');
   });
 });
