@@ -2,7 +2,6 @@ import {
   ACHIEVEMENT_THRESHOLD,
   DEPARTMENT_ORDER,
   EXECUTIVE_TITLE,
-  ITEMWISE_TITLE,
   TONE_GLYPH,
   achievementTone,
   buildDailyProductionReport,
@@ -14,12 +13,12 @@ import {
   executiveKpis,
   executiveSummaryHtml,
   grandTotalLabel,
-  itemWiseTotals,
   pdfLineRow,
   pdfSummaryRow,
   PDF_MAIN_TEXT,
   PDF_MUTED_TEXT,
   PDF_SUB_TEXT,
+  rejectionPct4Label,
   reportCellSubText,
   reportCellText,
   reportLabelSpan,
@@ -27,9 +26,11 @@ import {
   reportTwoLineHtml,
   reportTotalText,
   sectionBlocks,
+  sectionItemTotals,
   tightColumnClass,
   TONE_COLOR,
   type DailyProductionReport,
+  type ItemTotal,
   type ReportOptions,
   type ReportRowSource,
 } from './dailyProductionReport';
@@ -954,9 +955,11 @@ describe('Daily Production Report — Executive KPI summary', () => {
   });
 
   it('renders the responsive card grid with the green/red highlight row', () => {
-    expect(html.match(/class="rp-kpi-card"/g)).toHaveLength(7); // 6 departments + ITEM-WISE
+    // One card per department — the item summary is NESTED inside each of
+    // them, so there is no extra card any more.
+    expect(html.match(/class="rp-kpi-card"/g)).toHaveLength(6);
     expect(html).toContain('grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))');
-    // Short department cards must not stretch to match the tall item card.
+    // A card with a long item list must not stretch the card beside it.
     expect(html).toContain('gap: 12px; align-items: start; }');
     expect(html).toContain('border: 1px solid #cbd5e1');
     expect(html).toContain('background: #f8fafc');
@@ -969,48 +972,94 @@ describe('Daily Production Report — Executive KPI summary', () => {
   });
 
   it('stacks Total Rejection + Scrap Percentage straight under Achievement %', () => {
-    // The department's own pooled figures, not the grand total's.
-    expect(cards[0]).toMatchObject({ rejectionKg: '0.25 KG', rejectionPct: '0.11%' });
-    expect(cards[1]).toMatchObject({ rejectionKg: '0 KG', rejectionPct: '0.00%' });
-    expect(cards[2]).toMatchObject({ rejectionKg: '1.5 KG', rejectionPct: '0.67%' });
-    // Both come from the REJECTION / SCRAP total cell, so a card can never
-    // disagree with the table above it (no second source of truth).
+    // The department's own pooled figures, not the grand total's — and the
+    // percentage is printed at FOUR decimals, because two digits round a
+    // low-weight wire's scrap to a flat `0.00%` that reads as "nothing".
+    expect(cards[0]).toMatchObject({ rejectionKg: '0.25 KG', rejectionPct: '0.1135%' });
+    expect(cards[1]).toMatchObject({ rejectionKg: '0 KG', rejectionPct: '0.0000%' });
+    expect(cards[2]).toMatchObject({ rejectionKg: '1.5 KG', rejectionPct: '0.6696%' });
+    // The KG still comes from the REJECTION / SCRAP total cell, so a card can
+    // never disagree with the table above it (no second source of truth).
     const straightener = model().sections[0].totals;
     expect(cards[0].rejectionKg).toBe(`${reportTotalText(straightener, 'rejectionScrap')} KG`);
-    expect(cards[0].rejectionPct).toBe(reportTotalSubText(straightener, 'rejectionScrap'));
+    expect(cards[0].rejectionPct).toBe(rejectionPct4Label(straightener.rejectionKg, straightener.actualKg));
+    // Scope guard: the BODY table keeps its two digits so the narrow
+    // REJECTION / SCRAP column can never wrap onto a second line — and the
+    // card recomputes from the RAW kilogrammes rather than padding that
+    // already-rounded figure (`0.11` → `0.1100%` would be worthless).
+    expect(reportTotalSubText(straightener, 'rejectionScrap')).toBe('0.11%');
+    expect(cards[0].rejectionPct).toBe('0.1135%');
 
     // Printed order inside the card: Target → Actual → Achievement → Rejection.
     const achAt = html.indexOf('<span>Achievement %:</span><b class="tone-up">110.0% ▲</b>');
     const rejAt = html.indexOf('<span>Total Rejection:</span><b>0.25 KG</b>');
-    const pctAt = html.indexOf('<span>Scrap Percentage:</span><b>0.11%</b>');
+    const pctAt = html.indexOf('<span>Scrap Percentage:</span><b>0.1135%</b>');
     expect(achAt).toBeGreaterThan(-1);
     expect(rejAt).toBeGreaterThan(achAt);
     expect(pctAt).toBeGreaterThan(rejAt);
     expect(html).toContain('<div class="rp-kpi-row"><span>Total Rejection:</span><b>1.5 KG</b></div>');
-    expect(html).toContain('<div class="rp-kpi-row"><span>Scrap Percentage:</span><b>0.67%</b></div>');
+    expect(html).toContain('<div class="rp-kpi-row"><span>Scrap Percentage:</span><b>0.6696%</b></div>');
   });
 
-  it('adds the ITEM-WISE TOTALS card, pooling every machine that ran a part', () => {
-    // On the whole base fixture every row is SP-40, so 10 machine rows and
-    // 6 departments collapse into exactly ONE item line.
-    expect(itemWiseTotals(model())).toHaveLength(1);
-    expect(html).toContain(`<div class="rp-kpi-name">${ITEMWISE_TITLE}</div>`);
-    expect(html).toContain(
-      '<div class="rp-iw-head"><span>ITEM</span><span>ACTUAL KG</span><span>SCRAP KG</span></div>',
+  it('nests each part inside the department card it was booked to', () => {
+    // Three departments, one distinctly-coded part each — the item list has
+    // to follow the SECTION the row was recorded against, never a sniffed
+    // code prefix, so `WIP-ST*` / `WIP-SW*` / `WIP-SP*` each land home.
+    const src: ReportRowSource[] = [
+      makeRow({
+        department: { name: 'Straightener', departmentCode: 'ST' },
+        machineNo: 'ST-01',
+        item: { name: 'Straightener Wire 4mm', itemCode: 'WIP-ST-01', weightPerPiece: 0.05 },
+        targetQuantity: 1000,
+        actualQuantity: 1000,
+        scrapQuantity: 4,
+      }),
+      makeRow({
+        department: { name: 'Swagging', departmentCode: 'SW' },
+        machineNo: 'SW-01',
+        item: { name: 'Swaging Die 8mm', itemCode: 'WIP-SW-03', weightPerPiece: 0.05 },
+        targetQuantity: 600,
+        actualQuantity: 600,
+        scrapQuantity: 0,
+      }),
+      makeRow({
+        machineNo: 'SPK-01',
+        item: { name: 'Spoke 40T', itemCode: 'WIP-SP-07', weightPerPiece: 0.05 },
+        targetQuantity: 800,
+        actualQuantity: 800,
+        scrapQuantity: 0,
+      }),
+    ];
+    const nestedReport = buildDailyProductionReport(src, opts());
+    const nestedHtml = buildPrintHtml(nestedReport);
+    const nested = executiveKpis(nestedReport);
+    const itemsOf = (name: string): ItemTotal[] =>
+      nested.find((c) => c.name === name)?.items ?? [];
+    expect(itemsOf('STRAIGHTENER').map((i) => i.code)).toEqual(['WIP-ST-01']);
+    expect(itemsOf('SWAGGING').map((i) => i.code)).toEqual(['WIP-SW-03']);
+    expect(itemsOf('SPOKE').map((i) => i.code)).toEqual(['WIP-SP-07']);
+
+    // Each list is rendered as the FOOTER of its OWN card: the straightener's
+    // header must sit after its Scrap Percentage and before the next card.
+    const strPct = nestedHtml.indexOf('<span>Scrap Percentage:</span>');
+    const strHead = nestedHtml.indexOf('<div class="rp-iw-head">');
+    expect(strHead).toBeGreaterThan(strPct);
+    expect(strHead).toBeLessThan(nestedHtml.indexOf('<span class="rp-iw-name">Swaging Die 8mm</span>'));
+    // Code over full item name, then the two aligned metric columns.
+    expect(nestedHtml).toContain('<span class="rp-iw-code">WIP-ST-01</span>');
+    expect(nestedHtml).toContain('<span class="rp-iw-name">Straightener Wire 4mm</span>');
+    expect(nestedHtml).toContain(
+      '<div class="rp-iw-head"><span>ITEM</span><span>PRODUCTION (Pcs)</span><span>WEIGHT (KG)</span></div>',
     );
-    expect(html).toContain(
-      '<div class="rp-iw-row"><span class="rp-iw-code">SP-40</span><span class="rp-iw-act">642.5</span><span class="rp-iw-scrap">1.75</span></div>',
-    );
-    // The card rides in the same grid as the department cards.
-    const cardAt = html.indexOf(`<div class="rp-kpi-name">${ITEMWISE_TITLE}</div>`);
-    expect(cardAt).toBeGreaterThan(html.indexOf('<div class="rp-kpi-grid">'));
-    // …and the module never survives an empty report.
-    const empty: DailyProductionReport = { ...model(), sections: [] };
-    expect(itemWiseTotals(empty)).toEqual([]);
-    expect(buildPrintHtml(empty)).not.toContain(ITEMWISE_TITLE);
+    // Scrap sub-metric only where the part actually rejected something.
+    expect(nestedHtml).toContain('Scrap 4 Pcs / 0.2 KG');
+    expect(nestedHtml).not.toContain('Scrap 0 Pcs');
+    // The standalone consolidation card is GONE — 6 cards, never 7.
+    expect(nestedHtml.match(/class="rp-kpi-card"/g)).toHaveLength(3);
+    expect(nestedHtml).not.toContain('ITEM-WISE TOTALS');
   });
 
-  it('sums an item across machines AND sorts by Σ Actual KG descending', () => {
+  it('pools pieces AND weight per part inside one department, heaviest first', () => {
     const src: ReportRowSource[] = [
       // The same part on two machines in one shift — must be ONE line.
       makeRow({ machineNo: 'SPK-01', targetQuantity: 1000, actualQuantity: 1000, scrapQuantity: 4 }),
@@ -1024,11 +1073,28 @@ describe('Daily Production Report — Executive KPI summary', () => {
         scrapQuantity: 0,
       }),
     ];
-    const items = itemWiseTotals(buildDailyProductionReport(src, opts()));
+    const report = buildDailyProductionReport(src, opts());
+    expect(report.sections).toHaveLength(1); // one department → one card
+    const items = sectionItemTotals(report.sections[0]);
     expect(items.map((i) => i.code)).toEqual(['SP-40', 'SP-36']);
-    expect(items[0]).toMatchObject({ actualKg: '75', scrapKg: '0.5' }); // (1000+500)*.05, (4+6)*.05
-    expect(items[1]).toMatchObject({ actualKg: '10', scrapKg: '0' });
+    expect(items[0]).toMatchObject({
+      name: 'Spoke 40T',
+      actualPcs: '1,500',
+      actualKg: '75', // (1000+500)*.05
+      scrapPcs: '10',
+      scrapKg: '0.5', // (4+6)*.05
+      hasScrap: true,
+    });
+    expect(items[1]).toMatchObject({
+      actualPcs: '200',
+      actualKg: '10',
+      scrapPcs: '0',
+      scrapKg: '0',
+      hasScrap: false,
+    });
     expect(items[0].actualKgValue).toBeGreaterThan(items[1].actualKgValue);
+    // An empty department simply has no footer rows.
+    expect(sectionItemTotals({ ...report.sections[0], lines: [], shiftGroups: [] })).toEqual([]);
   });
 
   it('keeps the PDF value free of the glyphs jsPDF cannot embed', () => {

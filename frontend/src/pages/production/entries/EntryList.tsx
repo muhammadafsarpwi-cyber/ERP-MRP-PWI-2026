@@ -76,12 +76,10 @@ import {
   buildPrintHtml,
   executiveKpis,
   grandTotalLabel,
-  itemWiseTotals,
   pdfLineRow,
   pdfSummaryRow,
   sectionBlocks,
   EXECUTIVE_TITLE,
-  ITEMWISE_TITLE,
   PDF_MAIN_TEXT,
   PDF_SUB_TEXT,
   TONE_COLOR,
@@ -1245,31 +1243,34 @@ const EntryList: React.FC = () => {
       }
 
       // ── EXECUTIVE DEPARTMENT SUMMARY — always the LAST page ───────────
-      // One boxed KPI card per department (3 per row), drawn with vector
+      // One boxed card per department (3 per row), drawn with vector
       // rectangles so the PDF matches the print card exactly: 1px #cbd5e1
       // border over a subtle #f8fafc fill, then Target / Actual, the
       // highlighted Achievement % with its Phase 7 tone — green ▲ / red ▼,
-      // drawn as vector triangles because jsPDF embeds WinAnsi fonts — and
-      // finally the two NEW rows: Total Rejection (KG) and Scrap Percentage.
+      // drawn as vector triangles because jsPDF embeds WinAnsi fonts — the
+      // two scrap rows, and finally THAT department's own nested item list
+      // (there is no separate consolidation card any more).
       const execCards = executiveKpis(model);
-      /** Bottom edge of the last card row drawn — the ITEM-WISE card that
-       *  follows the grid picks up from here. */
-      let execGridBottom = 0;
       if (execCards.length > 0) {
         const cols = 3;
         const gap = 14;
         const cardW = (contentWidth - gap * (cols - 1)) / cols;
-        const cardH = 122;
         const rowGap = 14;
         const pad = 10;
         const titleY = 100;
         const gridTop = titleY + 22;
-        // How many card rows fit below the title without touching the footer.
-        const rowsPerPage = Math.max(
-          1,
-          Math.floor((pageHeight - marginBottom - gridTop + rowGap) / (cardH + rowGap)),
-        );
-        const perPage = cols * rowsPerPage;
+        // The KPI block is a fixed height; the nested footer then adds a
+        // rule + column header (30pt) and 26pt per pooled part.
+        const KPI_H = 122;
+        const FOOT_HEAD = 30;
+        const ITEM_ROW = 26;
+        // The three-column metric grid of the print card, in points:
+        // pooled code | production pieces | completed weight.
+        const PCS_COL = 66;
+        const KG_COL = 70;
+        const COL_GAP = 6;
+        const cardHeight = (card: ExecutiveKpi) =>
+          card.items.length ? KPI_H + FOOT_HEAD + card.items.length * ITEM_ROW : KPI_H;
 
         const drawTitle = () => {
           doc.setFont('helvetica', 'bold');
@@ -1280,12 +1281,13 @@ const EntryList: React.FC = () => {
         };
 
         const drawCard = (card: ExecutiveKpi, x: number, y: number) => {
+          const h = cardHeight(card);
           // Box: border + light background + inner padding (.rp-kpi-card).
           doc.setFillColor(248, 250, 252);
-          doc.rect(x, y, cardW, cardH, 'F');
+          doc.rect(x, y, cardW, h, 'F');
           doc.setDrawColor(203, 213, 225);
           doc.setLineWidth(0.8);
-          doc.rect(x, y, cardW, cardH, 'S');
+          doc.rect(x, y, cardW, h, 'S');
 
           // Row 1 — department name, bold, over its own rule.
           doc.setFont('helvetica', 'bold');
@@ -1347,94 +1349,88 @@ const EntryList: React.FC = () => {
           doc.setTextColor(15, 23, 42);
           doc.text(card.rejectionKg, valueRight, rejKgY, { align: 'right' });
           doc.text(card.rejectionPct, valueRight, scrapPctY, { align: 'right' });
+
+          if (card.items.length === 0) return;
+
+          // ── NESTED ITEM FOOTER — this department's own pooled parts ─────
+          // Mirrors .rp-iw-head / .rp-iw-main / .rp-iw-sub: a rule, a tiny
+          // column header, then one two-line row per part — the pooled code,
+          // piece count and weight on line 1, the full product name and the
+          // light scrap sub-metric on line 2. Grouping already happened
+          // upstream: `sectionItemTotals` only ever sees this section's lines.
+          const kgRight = x + cardW - pad;
+          const pcsRight = kgRight - KG_COL - COL_GAP;
+          const labelX = x + pad;
+          const labelW = Math.max(pcsRight - COL_GAP - PCS_COL - labelX, 24);
+          const rowW = kgRight - labelX;
+
+          doc.setDrawColor(203, 213, 225);
+          doc.setLineWidth(0.5);
+          doc.line(labelX, y + KPI_H, kgRight, y + KPI_H);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7);
+          doc.setTextColor(100, 116, 139);
+          doc.text('ITEM', labelX, y + KPI_H + 13);
+          doc.text('PRODUCTION (Pcs)', pcsRight, y + KPI_H + 13, { align: 'right' });
+          doc.text('WEIGHT (KG)', kgRight, y + KPI_H + 13, { align: 'right' });
+          doc.setLineWidth(0.4);
+          doc.line(labelX, y + KPI_H + 17, kgRight, y + KPI_H + 17);
+
+          card.items.forEach((it, i) => {
+            const line1 = y + KPI_H + 32 + i * ITEM_ROW;
+            const line2 = line1 + 11;
+            // Line 1 — pooled code, piece count, weight. The code is trimmed
+            // rather than wrapped so every row stays exactly two lines tall.
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(8.5);
+            doc.setTextColor(51, 65, 85);
+            doc.text(fitText(it.code, labelW), labelX, line1);
+            doc.setTextColor(15, 23, 42);
+            doc.text(it.actualPcs, pcsRight, line1, { align: 'right' });
+            doc.setFont('helvetica', 'normal');
+            doc.text(it.actualKg, kgRight, line1, { align: 'right' });
+            // Line 2 — the full product name, muted; the light scrap
+            // sub-metric rides on the right ONLY when there is one to show.
+            // Font size first, so both the fit budget and the trim itself
+            // measure at the SAME size the text is finally drawn at.
+            const scrap = it.hasScrap ? `Scrap ${it.scrapPcs} Pcs / ${it.scrapKg} KG` : '';
+            doc.setFontSize(7.5);
+            const scrapW = scrap ? doc.getTextWidth(scrap) : 0;
+            doc.setTextColor(100, 116, 139);
+            doc.text(fitText(it.name, Math.max(rowW - scrapW - 8, 16)), labelX, line2);
+            if (scrap) {
+              doc.setTextColor(148, 163, 184);
+              doc.text(scrap, kgRight, line2, { align: 'right' });
+            }
+            // Dotted separator between parts — the last row keeps none.
+            if (i < card.items.length - 1) {
+              doc.setDrawColor(226, 232, 240);
+              doc.setLineWidth(0.3);
+              doc.setLineDashPattern([1, 2], 0);
+              doc.line(labelX, line2 + 5, kgRight, line2 + 5);
+              doc.setLineDashPattern([], 0);
+            }
+          });
         };
 
-        // Every chunk of cards gets a fresh page: the summary always starts
-        // on (and, if long, continues onto) a page of its own.
-        for (let start = 0; start < execCards.length; start += perPage) {
+        // Cards are packed GREEDILY: a row of up to three goes onto the page
+        // only while the TALLEST card in it still fits, because the nested
+        // item footer gives every department a different height. A card that
+        // cannot fit even on an empty sheet is drawn anyway rather than
+        // looping on it forever.
+        let placed = 0;
+        while (placed < execCards.length) {
           doc.addPage();
           drawHeader();
           drawTitle();
-          const chunk = execCards.slice(start, start + perPage);
-          chunk.forEach((card, i) => {
-            const row = Math.floor(i / cols);
-            const col = i % cols;
-            drawCard(card, marginLeft + col * (cardW + gap), gridTop + row * (cardH + rowGap));
-          });
-          execGridBottom = gridTop + Math.ceil(chunk.length / cols) * (cardH + rowGap);
-        }
-
-        // ── ITEM-WISE TOTALS — the cross-department consolidation card ────
-        // Continues the executive page right where the department grid ended,
-        // and rolls onto a fresh sheet (header included) when the list of
-        // parts outgrows the remaining space.
-        const items = itemWiseTotals(model);
-        if (items.length > 0) {
-          const rowH = 15;
-          const boxW = contentWidth;
-          /** One card box, top-aligned at `y0`: the ITEMWISE_TITLE banner, the
-           *  ITEM / ACTUAL KG / SCRAP KG column header, then as many pooled
-           *  part rows as the chunk carries. Returns the box's bottom edge. */
-          const drawItemCard = (chunkRows: typeof items, y0: number): number => {
-            const boxH = 44 + chunkRows.length * rowH;
-            doc.setFillColor(248, 250, 252);
-            doc.rect(marginLeft, y0, boxW, boxH, 'F');
-            doc.setDrawColor(203, 213, 225);
-            doc.setLineWidth(0.8);
-            doc.rect(marginLeft, y0, boxW, boxH, 'S');
-            const codeX = marginLeft + 10;
-            const actX = marginLeft + boxW - 96;
-            const scrapX = marginLeft + boxW - 10;
-            // Module title — repeated on every continuation page so a part
-            // list that spans sheets never loses its caption.
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(10);
-            doc.setTextColor(15, 23, 42);
-            doc.text(ITEMWISE_TITLE, codeX, y0 + 13);
-            doc.setFontSize(8);
-            doc.setTextColor(100, 116, 139);
-            doc.text('ITEM', codeX, y0 + 28);
-            doc.text('ACTUAL KG', actX, y0 + 28, { align: 'right' });
-            doc.text('SCRAP KG', scrapX, y0 + 28, { align: 'right' });
-            doc.setDrawColor(203, 213, 225);
-            doc.setLineWidth(0.4);
-            doc.line(codeX, y0 + 32, scrapX, y0 + 32);
-            chunkRows.forEach((it, i) => {
-              const rowY = y0 + 45 + i * rowH;
-              doc.setFont('helvetica', 'normal');
-              doc.setFontSize(9);
-              doc.setTextColor(71, 85, 105);
-              // The code is trimmed rather than wrapped: the card must never
-              // grow taller than one line per part.
-              doc.text(fitText(it.code, boxW - 20 - 96 - 14), codeX, rowY);
-              doc.setFont('helvetica', 'bold');
-              doc.setTextColor(15, 23, 42);
-              doc.text(it.actualKg, actX, rowY, { align: 'right' });
-              doc.setFont('helvetica', 'normal');
-              doc.setTextColor(100, 116, 139);
-              doc.text(it.scrapKg, scrapX, rowY, { align: 'right' });
-            });
-            return y0 + boxH;
-          };
-
-          let cursor = execGridBottom;
-          let idx = 0;
-          while (idx < items.length) {
-            // 44 = the fixed chrome of a card (title + column header + rule +
-            // trailing gap) above its rows. A page that cannot even hold the
-            // chrome plus one row starts a fresh sheet first.
-            if (pageHeight - marginBottom - cursor - 44 < rowH) {
-              doc.addPage();
-              drawHeader();
-              cursor = marginTop;
-            }
-            const take = Math.min(
-              items.length - idx,
-              Math.max(1, Math.floor((pageHeight - marginBottom - cursor - 44) / rowH)),
-            );
-            cursor = drawItemCard(items.slice(idx, idx + take), cursor);
-            idx += take;
-            if (idx < items.length) cursor += 14; // breathing room before the continuation
+          let y = gridTop;
+          while (placed < execCards.length) {
+            const rowCards = execCards.slice(placed, placed + cols);
+            const rowH = Math.max(...rowCards.map(cardHeight));
+            if (y > gridTop && y + rowH > pageHeight - marginBottom) break;
+            rowCards.forEach((card, k) => drawCard(card, marginLeft + k * (cardW + gap), y));
+            y += rowH + rowGap;
+            placed += rowCards.length;
           }
         }
       }

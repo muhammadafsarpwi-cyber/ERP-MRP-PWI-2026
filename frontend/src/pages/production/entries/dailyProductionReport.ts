@@ -103,16 +103,26 @@ import { entryOvertimeHours } from './overtimeHours';
  *                 when there is none, rather than inventing a 100%.
  *   EXEC SUMMARY· always the standalone LAST page. One boxed card per
  *                 department — Target, Actual, the highlighted Achievement
- *                 % — and now TWO further rows underneath it:
+ *                 %, and TWO further rows underneath it:
  *                   · Total Rejection:  the cumulative scrap, in KG;
- *                   · Scrap Percentage: that department's own pooled rate.
- *                 Both reuse the REJECTION / SCRAP cell renderers, so a card
- *                 can never disagree with the table above it.
- *   ITEM-WISE   · a further card, ITEM-WISE TOTALS, sits alongside the
- *                 department cards and pools the WHOLE report by ITEM CODE.
- *                 A part that ran on four machines in one shift is ONE line
- *                 there — `ITEM | ACTUAL KG | SCRAP KG` — sorted by Σ Actual
- *                 KG descending with an alphabetical tie-break.
+ *                   · Scrap Percentage: that department's own pooled rate at
+ *                     FOUR decimals (`0.0025%`) — see `rejectionPct4Label`,
+ *                     because two digits round a low-weight wire's scrap to
+ *                     a flat `0.00%` that reads as "nothing was rejected".
+ *                 The KG still reuses the REJECTION / SCRAP cell renderer,
+ *                 so a card can never disagree with the table above it.
+ *   NESTED ITEMS · there is NO standalone item card. Each department's parts
+ *                 are pooled BY ITEM CODE into the FOOTER of that SAME
+ *                 department's card, giving a vertical hierarchy of
+ *                 `department → its items`: `WIP-ST*` lands under
+ *                 STRAIGHTENER, `WIP-SW*` under SWAGING, `WIP-SP*` under
+ *                 SPOKE — because grouping follows the section the line was
+ *                 booked into, never a sniffed code prefix. Every row carries
+ *                 the code over the full product name, then the piece count
+ *                 and the completed weight as two aligned right-hand columns,
+ *                 plus a light `Scrap (Pcs / KG)` sub-metric only when that
+ *                 item actually rejected something. Sorted by Σ Actual KG
+ *                 descending with an alphabetical tie-break.
  *   DENSITY     · WEIGHT (KG) sheds the default horizontal cell padding (see
  *                 `tightColumnClass`) because it is the narrowest numeric
  *                 column in the table, and REJECTION / SCRAP runs a tighter
@@ -550,6 +560,32 @@ function rejectionPercent(rejectionKg: number | null | undefined, actualKg: numb
 /** `0.15%` — always exactly 2 decimals, so an empty weight reads `0.00%`. */
 export function rejectionPctLabel(pct: number | null | undefined): string {
   return `${toNum(pct).toFixed(2)}%`;
+}
+
+/**
+ * `0.1135%` — the pooled rejection rate at EXACTLY FOUR decimal places,
+ * computed straight from the kilogrammes:
+ * `Rejection KG / (Actual KG + Rejection KG) × 100`.
+ *
+ * This is deliberately NOT `rejectionPctLabel(rejectionPercent(...))`.
+ * `rejectionPercent` runs `round2` before returning, so re-formatting its
+ * result could only ever pad zeros — `0.11%` would become `0.1100%`, and the
+ * low-weight wire fractions this exists for (`0.0025%`, `0.0310%`) would
+ * still be flat `0.0000%`. The denominator is the TOTAL produced (good +
+ * rejected), the same one `aggregateProductionTotals` uses on screen, so card
+ * and KPI still agree — only the precision differs. A zero / unknown total
+ * yields `0.0000%`; the body table keeps `rejectionPctLabel`'s two digits so
+ * its narrow 10% column never wraps onto a second line.
+ */
+export function rejectionPct4Label(
+  rejectionKg: number | null | undefined,
+  actualKg: number | null | undefined,
+): string {
+  const actual = Number(toNum(actualKg));
+  const rejected = Number(toNum(rejectionKg));
+  const total = actual + rejected;
+  if (!(total > 0)) return '0.0000%';
+  return `${((rejected / total) * 100).toFixed(4)}%`;
 }
 
 /** Bare per-unit weight (`0.00967`) — `perUnitWeightLabel`'s trailing
@@ -1130,8 +1166,8 @@ const PRINT_CSS = `
                    letter-spacing: .06em; color: #0f172a; margin: 0 0 14px;
                    break-after: avoid; page-break-after: avoid; }
   /* align-items:start keeps a short department card from stretching to match
-     a tall one — the ITEM-WISE card below can hold many more rows than a
-     department card ever will. */
+     a tall one — a card whose nested item list is long stays its own height
+     instead of padding out the cards in its row. */
   .rp-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
                  gap: 12px; align-items: start; }
   .rp-kpi-card { border: 1px solid #cbd5e1; background: #f8fafc; padding: 10px 12px;
@@ -1145,22 +1181,33 @@ const PRINT_CSS = `
   /* Row 4 — the highlighted achievement line (green ▲ / red ▼). */
   .rp-kpi-ach { margin-top: 6px; padding-top: 5px; border-top: 1px dashed #cbd5e1;
                 font-size: 12.5px; }
-  /* ---- the pooled-by-item card (KEEP THIS COMMENT FREE OF THE PRINTED
-     HEADING — the stylesheet ships with EVERY report, empty ones included) --
-     Three aligned columns (code / Actual KG / Scrap KG). The code is
-     ellipsized rather than wrapped so a long part name can never make the
-     row taller than a single line; the two numerals are right-aligned and
-     tabular so the columns stay in register down the card. */
-  .rp-iw-head { display: grid; grid-template-columns: 1fr 70px 70px; gap: 8px;
-                font-size: 9.5px; font-weight: 700; color: #64748b; letter-spacing: .04em;
-                padding-bottom: 3px; margin-bottom: 2px;
-                border-bottom: 1px solid #cbd5e1; }
-  .rp-iw-row { display: grid; grid-template-columns: 1fr 70px 70px; gap: 8px;
-               font-size: 11px; line-height: 1.45; font-variant-numeric: tabular-nums; }
-  .rp-iw-head span + span, .rp-iw-row span + span { text-align: right; }
-  .rp-iw-code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #475569; }
-  .rp-iw-act { font-weight: 700; color: #0f172a; }
-  .rp-iw-scrap { color: #64748b; }
+  /* ---- nested item footer (KEEP THIS COMMENT FREE OF ANY PRINTED STRING
+     — the stylesheet ships with EVERY report, empty ones included).
+     Line 1 is a three-column grid: the pooled code on the left, the piece
+     count and the weight right-aligned so they stay in register down the
+     card. Line 2 carries the full product name in a smaller, muted layer
+     and — only when that part actually rejected something — its light
+     Pcs / KG sub-metric. */
+  .rp-iw-head, .rp-iw-main { display: grid; grid-template-columns: 1fr 78px 84px;
+                             gap: 6px; font-variant-numeric: tabular-nums; }
+  .rp-iw-head { font-size: 8px; font-weight: 700; color: #64748b; letter-spacing: .03em;
+                margin-top: 8px; padding: 6px 0 4px;
+                border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+  .rp-iw-head span + span, .rp-iw-main span + span { text-align: right; }
+  .rp-iw-main { font-size: 11px; line-height: 1.35; }
+  /* min-width:0 lets a long code ellipsize instead of widening its column
+     and shoving the two numerals off the right edge. */
+  .rp-iw-code { min-width: 0; color: #334155; font-weight: 600;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rp-iw-pcs { font-weight: 700; color: #0f172a; }
+  .rp-iw-kg { color: #0f172a; }
+  .rp-iw-row { padding-bottom: 4px; margin-bottom: 4px;
+               border-bottom: 1px dotted #e2e8f0; }
+  .rp-iw-row:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
+  .rp-iw-sub { display: flex; justify-content: space-between; gap: 8px; margin-top: 1px; }
+  .rp-iw-name { font-size: 9.5px; line-height: 1.3; color: #64748b; overflow-wrap: anywhere; }
+  .rp-iw-scrap { flex: 0 0 auto; font-size: 9.5px; line-height: 1.3; color: #94a3b8;
+                 white-space: nowrap; }
   @media print {
     body { margin: 0; padding: 0; }
     .rp-dept { break-inside: avoid; page-break-inside: avoid; }
@@ -1279,9 +1326,14 @@ export interface ExecutiveKpi {
    *  from the Σ Rejection KG the REJECTION / SCRAP total cell prints, so the
    *  card and the table can never show two different figures. */
   rejectionKg: string;
-  /** `0.27%` — this department's OWN pooled rejection rate
-   *  (Σ Rejection KG / (Σ Actual KG + Σ Rejection KG)). */
+  /** `0.1135%` — this department's OWN pooled rejection rate
+   *  (Σ Rejection KG / (Σ Actual KG + Σ Rejection KG)) at FOUR decimal
+   *  places: see `rejectionPct4Label`. Two digits round a low-weight wire's
+   *  scrap to a flat `0.00%`, which reads as "nothing was rejected". */
   rejectionPct: string;
+  /** The department's OWN item rows, pooled by item code — this is what
+   *  renders as the card's nested footer (there is no standalone card). */
+  items: ItemTotal[];
 }
 
 /** One KPI card per department, in report order (one per section). */
@@ -1297,108 +1349,154 @@ export function executiveKpis(model: DailyProductionReport): ExecutiveKpi[] {
       achievementText: reportTotalText(totals, 'achievement', 'pdf'),
       tone: achievementTone(achievementValue),
       achievementValue,
-      // The two NEW rows under Achievement % — both reuse the table's own
-      // cell renderers so the card, the print page and the PDF agree.
+      // The two rows under Achievement % — the KG reuses the table's own
+      // cell renderer so card and table agree; the percentage is deliberately
+      // re-formatted at four decimals for the card only.
       rejectionKg: `${reportTotalText(totals, 'rejectionScrap')} KG`,
-      rejectionPct: reportTotalSubText(totals, 'rejectionScrap'),
+      rejectionPct: rejectionPct4Label(totals.rejectionKg, totals.actualKg),
+      // The nested item footer — pooled from THIS section's lines only.
+      items: sectionItemTotals(section),
     } as ExecutiveKpi;
   });
 }
 
 /* ------------------------------------------------------------------ *
- * ITEM-WISE TOTALS — the cross-department consolidation card.
+ * NESTED ITEM TOTALS — each department's OWN item footer.
  *
- * A part that ran on FOUR machines in the same shift appears FOUR times in
- * the body table (once per machine, in its own department). This card pools
- * those rows back together by ITEM CODE so a manager sees ONE line per part:
+ * There is no standalone item card: every department's parts are pooled
+ * INSIDE that department's card, as a footer block under the KPI rows, so
+ * the Executive Summary reads as a vertical hierarchy —
  *
- *   ITEM CODE | ACTUAL KG | SCRAP KG
- *   SP-40     |   1,600   |    10
+ *   STRAIGHTENER
+ *     Target / Actual / Achievement % / Total Rejection / Scrap Percentage
+ *     ────────────────────────────────────────────────────────────────────
+ *     ITEM         PRODUCTION (Pcs)  WEIGHT (KG)
+ *     WIP-ST-01    1,000             50
+ *       Straightener Wire 4mm        Scrap 4 Pcs / 0.2 KG
  *
- * Sorted by Σ Actual KG descending (the heaviest contributors lead), ties
- * broken alphabetically so the card is stable between exports.
+ * Grouping is by SECTION, not by code prefix: a line only ever reaches a
+ * section's card if it was recorded against that department, which is exactly
+ * what makes `WIP-ST*` land in STRAIGHTENER, `WIP-SW*` in SWAGING and
+ * `WIP-SP*` in SPOKE. Sniffing the prefix would break the moment a part whose
+ * code follows some other scheme were booked into one of those departments.
+ *
+ * Inside a card the rows are sorted by Σ Actual KG descending (the heaviest
+ * contributors lead), ties broken alphabetically so the order is stable
+ * between exports.
  * ------------------------------------------------------------------ */
 
-/** Heading of the ITEM-WISE card. */
-export const ITEMWISE_TITLE = 'ITEM-WISE TOTALS';
-
-/** One pooled row of that card. */
+/** One pooled row of a department card's nested item footer. */
 export interface ItemTotal {
-  /** The aggregation key — the Item / WIP code (`SP-40`), falling back to
-   *  the product name for rows that carry no code. */
+  /** The aggregation key — the Item / WIP code (`WIP-ST-01`), falling back
+   *  to the product name for rows that carry no code. */
   code: string;
-  /** `1,600` — Σ Actual KG over EVERY entry for this item, all machines and
-   *  all departments combined. Formatted exactly like the table's own totals. */
+  /** `Straightener Wire 4mm` — the full, human-readable product name printed
+   *  under the code in a smaller, muted layer. */
+  name: string;
+  /** `1,000` — Σ completed PIECES for this item inside THIS department. */
+  actualPcs: string;
+  /** `50` — Σ completed weight in KG over those same entries. */
   actualKg: string;
-  /** `10` — Σ Rejection KG over those same entries. */
+  /** `4` — Σ rejected pieces (the first half of the scrap sub-metric). */
+  scrapPcs: string;
+  /** `0.2` — Σ rejected weight in KG (the second half). */
   scrapKg: string;
+  /** True when EITHER scrap figure is non-zero — gates the `Scrap (Pcs / KG)`
+   *  sub-metric, so a clean item stays a tidy two-line row. */
+  hasScrap: boolean;
   /** Unrounded Σ Actual KG — the sort key. */
   actualKgValue: number;
 }
 
-/** Pool every line of the report by item code (see the block comment above). */
-export function itemWiseTotals(model: DailyProductionReport): ItemTotal[] {
-  const byCode = new Map<string, { actualKg: number; scrapKg: number }>();
-  for (const section of model.sections) {
-    for (const group of section.shiftGroups) {
-      for (const line of group.lines) {
-        const code = line.itemCode || line.item;
-        if (!code) continue;
-        const agg = byCode.get(code) ?? { actualKg: 0, scrapKg: 0 };
-        agg.actualKg += line.actualKg ?? 0;
-        agg.scrapKg += line.rejectionKg ?? 0;
-        byCode.set(code, agg);
-      }
-    }
+/**
+ * Pool ONE department's lines by item code — see the block comment above for
+ * why this is scoped to a section instead of the whole report.
+ */
+export function sectionItemTotals(section: ReportSection): ItemTotal[] {
+  const byCode = new Map<
+    string,
+    { name: string; actualPcs: number; actualKg: number; scrapPcs: number; scrapKg: number }
+  >();
+  for (const line of section.lines) {
+    const code = line.itemCode || line.item;
+    if (!code) continue;
+    const agg = byCode.get(code) ?? {
+      name: line.item,
+      actualPcs: 0,
+      actualKg: 0,
+      scrapPcs: 0,
+      scrapKg: 0,
+    };
+    agg.actualPcs += line.actual ?? 0;
+    agg.actualKg += line.actualKg ?? 0;
+    agg.scrapPcs += line.rejection ?? 0;
+    agg.scrapKg += line.rejectionKg ?? 0;
+    if (!agg.name) agg.name = line.item;
+    byCode.set(code, agg);
   }
   return [...byCode.entries()]
     .map(([code, agg]) => ({
       code,
+      name: agg.name,
+      actualPcs: formatNumber(agg.actualPcs, 2),
       actualKg: formatNumber(agg.actualKg, 2),
+      scrapPcs: formatNumber(agg.scrapPcs, 2),
       scrapKg: formatNumber(agg.scrapKg, 2),
+      hasScrap: agg.scrapPcs !== 0 || agg.scrapKg !== 0,
       actualKgValue: agg.actualKg,
     }))
     .sort((a, b) => b.actualKgValue - a.actualKgValue || a.code.localeCompare(b.code));
 }
 
-/** The ITEM-WISE card — a normal card in the same grid as the department
- *  cards, so it always sits alongside them. */
-function itemWiseCardHtml(items: ItemTotal[]): string {
+/**
+ * The nested footer of ONE card: a compact column header over that
+ * department's pooled item rows. Returns `''` when the department produced
+ * nothing, so a card never prints an empty rule.
+ */
+function itemFooterHtml(items: ItemTotal[]): string {
+  if (items.length === 0) return '';
   const rows = items
-    .map(
-      (it) =>
-        `        <div class="rp-iw-row"><span class="rp-iw-code">${escapeHtml(it.code)}</span><span class="rp-iw-act">${escapeHtml(it.actualKg)}</span><span class="rp-iw-scrap">${escapeHtml(it.scrapKg)}</span></div>`,
-    )
+    .map((it) => {
+      const scrap = it.hasScrap
+        ? `<span class="rp-iw-scrap">Scrap ${escapeHtml(it.scrapPcs)} Pcs / ${escapeHtml(it.scrapKg)} KG</span>`
+        : '';
+      return `        <div class="rp-iw-row">
+          <div class="rp-iw-main">
+            <span class="rp-iw-code">${escapeHtml(it.code)}</span>
+            <span class="rp-iw-pcs">${escapeHtml(it.actualPcs)}</span>
+            <span class="rp-iw-kg">${escapeHtml(it.actualKg)}</span>
+          </div>
+          <div class="rp-iw-sub"><span class="rp-iw-name">${escapeHtml(it.name)}</span>${scrap}</div>
+        </div>`;
+    })
     .join('\n');
-  return `      <div class="rp-kpi-card">
-        <div class="rp-kpi-name">${ITEMWISE_TITLE}</div>
-        <div class="rp-iw-head"><span>ITEM</span><span>ACTUAL KG</span><span>SCRAP KG</span></div>
-${rows}
-      </div>`;
+  return `
+        <div class="rp-iw-head"><span>ITEM</span><span>PRODUCTION (Pcs)</span><span>WEIGHT (KG)</span></div>
+${rows}`;
 }
 
-/** The last-page block: centred heading over a responsive grid of cards —
- *  one per department PLUS the ITEM-WISE TOTALS consolidation card. Empty
- *  when the report has no department, so nothing is ever printed for an
- *  empty export. */
+/** The last-page block: centred heading over a grid of department cards.
+ *  Each card carries its own KPI rows AND, beneath them, that department's
+ *  pooled item rows — there is no separate card any more, so the summary is a
+ *  vertical stack of `department → its items`. Empty when the report has no
+ *  department, so nothing is ever printed for an empty export. */
 export function executiveSummaryHtml(model: DailyProductionReport): string {
   const cards = executiveKpis(model);
   if (cards.length === 0) return '';
-  const items = itemWiseTotals(model);
-  const grid = [
-    ...cards.map((card) => {
+  const grid = cards
+    .map((card) => {
       const toneClass = card.tone ? ` class="tone-${card.tone}"` : '';
+      const footer = itemFooterHtml(card.items);
       return `      <div class="rp-kpi-card">
         <div class="rp-kpi-name">${escapeHtml(card.name)}</div>
         <div class="rp-kpi-row"><span>Target:</span><b>${escapeHtml(card.target)}</b></div>
         <div class="rp-kpi-row"><span>Actual:</span><b>${escapeHtml(card.actual)}</b></div>
         <div class="rp-kpi-row rp-kpi-ach"><span>Achievement %:</span><b${toneClass}>${escapeHtml(card.achievement)}</b></div>
         <div class="rp-kpi-row"><span>Total Rejection:</span><b>${escapeHtml(card.rejectionKg)}</b></div>
-        <div class="rp-kpi-row"><span>Scrap Percentage:</span><b>${escapeHtml(card.rejectionPct)}</b></div>
+        <div class="rp-kpi-row"><span>Scrap Percentage:</span><b>${escapeHtml(card.rejectionPct)}</b></div>${footer}
       </div>`;
-    }),
-    ...(items.length ? [itemWiseCardHtml(items)] : []),
-  ].join('\n');
+    })
+    .join('\n');
   return `  <section class="rp-exec">
     <h2 class="rp-exec-title">${EXECUTIVE_TITLE}</h2>
     <div class="rp-kpi-grid">
