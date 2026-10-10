@@ -491,8 +491,7 @@ const GRID_COLUMN_LABELS: string[] = [
   'Target',
   'Production',
   'Achievement',
-  'Per Unit Weight',
-  'Actual KG',
+  'WEIGHT (KG)',
   'Scrap (KG)',
   'Run / Down',
   'OT (h)',
@@ -1683,23 +1682,38 @@ const EntryList: React.FC = () => {
         </span>
       ),
       align: 'right',
-      // PRO-RATA STACK — line 1 is a sentence ("1,620 /h (For 7 hrs Run)"),
-      // so this cell needs ~130px where the bare number needed 95.
-      width: 140,
+      // PRO-RATA STACK — line 1 is a sentence ("4,320 /h (For 14 hrs Run)")
+      // plus the 🎯 marker, so this cell needs ~145px where the bare number
+      // needed 95.
+      width: 158,
       ellipsis: true,
       sorter: true,
       dataIndex: 'targetQuantity',
       render: (_t, r) => {
         const uom = r.uom?.code || '';
-        // The stored master target is an 8-HOUR STANDARD. Scale it to the
-        // hours the machine was really on the floor (Planned + OT − Downtime)
-        // exactly as the printed report and the PDF do, so screen and paper
+        // LOCKED MASTER PLAN FACTOR × the hours the machine was really on the
+        // floor (Planned + OT − Downtime). `proRataTarget` recovers the plan
+        // factor from the stored figure (Master Standard Target ÷ Master
+        // Standard Hours) and never divides production output by hours, and
+        // it is applied ONCE here so the grid, the printed report and the PDF
         // can never show two different targets for the same entry.
         const prorata = proRataTarget(r.targetQuantity, displayRunningHours(r));
         return (
           <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-            <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
-              {targetTopText(prorata)}
+            {/* 🎯 target marker — the header carries the same glyph, so the
+                icon identifies the column from either end of the cell. */}
+            <div
+              style={{
+                fontSize: 10,
+                color: 'var(--theme-text-muted, #94a3b8)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                justifyContent: 'flex-end',
+              }}
+            >
+              <AimOutlined style={{ fontSize: 10, color: 'var(--theme-primary, #2563eb)' }} />
+              <span>{targetTopText(prorata)}</span>
             </div>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
               {targetBottomText(prorata, uom)}
@@ -1791,43 +1805,44 @@ const EntryList: React.FC = () => {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Per Unit Weight</span>
+          <span>WEIGHT (KG)</span>
         </span>
       ),
       align: 'right',
-      width: 120,
-      ellipsis: true,
-      responsive: ['lg'],
-      render: (_t, r) => (
-        <span
-          style={{
-            whiteSpace: 'nowrap',
-            fontVariantNumeric: 'tabular-nums',
-            fontSize: 12,
-            color: 'var(--theme-text-secondary, #475569)',
-          }}
-        >
-          {perUnitWeightValue(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter) || '—'}
-        </span>
-      ),
-    },
-    {
-      title: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Actual KG</span>
-        </span>
-      ),
-      align: 'right',
-      width: 100,
+      // FUSED high-density column — mirrors the printed report's WEIGHT (KG)
+      // cell exactly: line 1 the (small, muted) Per Unit Weight, line 2 the
+      // Actual KG in strong bold. Replaces the two independent columns so the
+      // grid stops spending 220px on what is really one measurement.
+      width: 130,
       ellipsis: true,
       responsive: ['lg'],
       render: (_t, r) => {
+        const perUnit = perUnitWeightValue(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter);
         const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
         return (
-          <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-            {kg == null ? '—' : `${formatNumber(kg, 2)} KG`}
-          </span>
+          <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+            {/* line 1 — Per Unit Weight: the small, muted context figure */}
+            <div
+              style={{
+                fontSize: 10.5,
+                color: 'var(--theme-text-muted, #64748b)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {perUnit || '—'}
+            </div>
+            {/* line 2 — Actual KG: the number people read */}
+            <div
+              style={{
+                fontSize: 12.5,
+                fontWeight: 700,
+                color: 'var(--theme-text, #0f172a)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {kg == null ? '—' : `${formatNumber(kg, 2)} KG`}
+            </div>
+          </div>
         );
       },
     },
@@ -1839,36 +1854,74 @@ const EntryList: React.FC = () => {
         </span>
       ),
       align: 'right',
-      width: 95,
+      // THREE-TIER stack (KG → Pcs → live rate): needs the room for the
+      // longest middle line without clipping.
+      width: 112,
       ellipsis: true,
       responsive: ['lg'],
       render: (_t, r) => {
         const scrap = toNum(r.scrapQuantity);
         const uom = r.uom?.code || '';
-        // Rejection % — Rejection KG / (Actual KG + Rejection KG) × 100. The
-        // denominator is the TOTAL produced (good + rejected), the SAME
-        // formula `rejectionPercent` uses in ./dailyProductionReport.ts and
-        // `aggregateProductionTotals` uses for the scrap KPI, so the grid,
-        // the printed page, the PDF and Excel can never disagree. Every
-        // operand is hard-cast with Number(), so a decimal string from the pg
-        // driver can never be mistaken for 0 (that is what made live rows
-        // print 0.00% while scrap existed). Zero total produced → 0.00%.
+        const weightPerPiece = r.item?.weightPerPiece;
+        // ── THREE-TIER SCRAP BLOCK ──────────────────────────────────────
+        // Line 1 — the stored Rejection / Scrap weight, in KG.
+        // Line 2 — the SAME scrap converted to rejected pieces:
+        //          `Scrap KG ÷ Per Piece Weight`.
+        // Line 3 — the true live Rejection Rate:
+        //          `(Scrap KG ÷ (Actual KG + Scrap KG)) × 100`, printed in
+        //          intense crimson. The denominator is the TOTAL produced
+        //          (good + rejected), the SAME formula `rejectionPercent`
+        //          uses in ./dailyProductionReport.ts and
+        //          `aggregateProductionTotals` uses for the scrap KPI, so the
+        //          grid, the printed page, the PDF and Excel can never
+        //          disagree. Every operand is hard-cast with Number(), so a
+        //          decimal string from the pg driver can never be mistaken
+        //          for 0 (that is what made live rows print 0.00% while
+        //          scrap existed). Zero total produced → 0.00%.
         const actualKg = calcActualKg(uom, toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
         const scrapKg = calcActualKg(uom, scrap, r.item?.weightPerPiece, r.item?.weightPerMeter);
         const producedKg = Number(actualKg || 0) + Number(scrapKg || 0);
         const rejPct = producedKg > 0 ? (Number(scrapKg || 0) / producedKg) * 100 : 0;
+        const hasScrap = scrap > 0;
+        // KG is the authority; fall back to the raw figure only when the UOM
+        // has no weight conversion at all (unknown UOM).
+        const scrapKgShown = scrapKg == null ? scrap : scrapKg;
+        const scrapPcs =
+          hasScrap && scrapKg != null && weightPerPiece != null && weightPerPiece > 0
+            ? scrapKg / weightPerPiece
+            : null;
         return (
-          <div style={{ textAlign: 'right', lineHeight: 1.25, whiteSpace: 'nowrap' }}>
-            <span
+          <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+            {/* line 1 — stored rejection / scrap weight */}
+            <div
               style={{
-                color: scrap > 0 ? 'var(--theme-danger, #e11d48)' : 'var(--theme-text-muted, #94a3b8)',
-                fontWeight: scrap > 0 ? 500 : 400,
+                fontSize: 12,
+                fontWeight: 600,
+                color: hasScrap ? 'var(--theme-danger, #e11d48)' : 'var(--theme-text-muted, #94a3b8)',
+                fontVariantNumeric: 'tabular-nums',
               }}
             >
-              {formatNumber(scrap, 2)} KG
-            </span>
-            {/* line 2 — light gray, directly under the KG value (report style) */}
-            <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+              {`${formatNumber(scrapKgShown, 2)} KG`}
+            </div>
+            {/* line 2 — the same scrap as rejected pieces */}
+            <div
+              style={{
+                fontSize: 10.5,
+                color: 'var(--theme-text-muted, #94a3b8)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {scrapPcs == null ? '—' : `${formatNumber(scrapPcs, 0)} Pcs`}
+            </div>
+            {/* line 3 — the true live rejection rate, always crimson */}
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#ff4d4f',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
               {`${rejPct.toFixed(2)}%`}
             </div>
           </div>
@@ -2663,6 +2716,7 @@ const EntryList: React.FC = () => {
                       loading={false}
                       scroll={{ x: tableScrollX }}
                       dense
+                      className="entry-grid-compact"
                       containerClassName="erp-table-striped"
                   pagination={{
                     current: page,

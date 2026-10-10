@@ -218,15 +218,18 @@ describe('Daily Production Entry — EntryList Component', () => {
       expect(screen.getByText('Production Records')).toBeInTheDocument();
       expect(screen.getByText('Department-Wise Report')).toBeInTheDocument();
 
-      // Item-weight columns are present on the Production Records grid.
+      // The former 'Per Unit Weight' + 'Actual KG' columns are now ONE fused
+      // WEIGHT (KG) column (line 1 = per-unit weight, line 2 = Actual KG),
+      // mirroring the printed report's column of the same name.
       // Note: 'Scrap (KG)' has responsive:['lg'] and may not render in jsdom,
       // so we verify scrap tracking via the KPI card test-id instead.
       const headers = (await screen.findAllByRole('columnheader')).map((h) => h.textContent ?? '');
-      expect(headers.some((h) => h.includes('Per Unit Weight'))).toBe(true);
-      expect(headers.some((h) => h.includes('Actual KG'))).toBe(true);
+      expect(headers.some((h) => h.includes('WEIGHT (KG)'))).toBe(true);
+      expect(headers.some((h) => h.includes('Per Unit Weight'))).toBe(false);
+      expect(headers.some((h) => h.includes('Actual KG'))).toBe(false);
 
       // The SCRAP / REJECTION KPI card is always rendered (not responsive-gated)
-      expect(document.querySelector('[data-testid="kpi-scrap-rejection"]')).toBeTruthy();
+      expect(screen.getByTestId('kpi-scrap-rejection')).toBeInTheDocument();
     });
   });
 });

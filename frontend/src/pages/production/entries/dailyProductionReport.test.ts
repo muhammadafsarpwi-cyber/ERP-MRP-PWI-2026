@@ -1157,15 +1157,34 @@ describe('Daily Production Report — pro-rata TARGET', () => {
   const line = (machine: string) =>
     model().sections.flatMap((s) => s.lines).find((l) => l.machine === machine)!;
 
-  it('scales the stored 8-hour standard by the hours the machine really ran', () => {
+  it('scales the stored plan figure by the hours the machine really ran', () => {
     expect(STANDARD_SHIFT_HOURS).toBe(8);
-    // The screenshot's case: 12,960 stored against an 8h shift, 7h actually run.
-    const p = proRataTarget(12960, 7);
+    // The live-grid case: the server stores the plan figure ALREADY scaled to
+    // the run — an 8h master of 12,960 (1,620 /h) stored as 11,340 for a 7h
+    // run. The engine recovers the locked per-hour factor from it (11,340 / 7
+    // = 1,620 = 12,960 / 8) instead of dividing by 8 a SECOND time, which
+    // would have printed 1,417.50 /h and a target of 9,922.50.
+    const p = proRataTarget(11340, 7);
     expect(p.perHour).toBe(1620);
-    expect(p.target).toBe(11340); // 1,620 × 7 — not the full-shift 12,960
+    expect(p.standard).toBe(12960); // recovered on the 8h basis for audit
+    expect(p.target).toBe(11340); // 1,620 × 7 — the plan for that 7-hour run
     expect(p.proRated).toBe(true);
     expect(targetTopText(p)).toBe('1,620 /h (For 7 hrs Run)');
     expect(targetBottomText(p, 'PCS')).toBe('11,340 PCS');
+  });
+
+  it('reads ONE identical per-hour baseline for identical machines', () => {
+    // The corruption this fixes: the same SPK master printed three different
+    // "hourly rates" because each row re-divided its own stored figure by 8.
+    // Every run length now collapses back to the same locked master factor.
+    const short = proRataTarget(12960, 3); // 3h @ 4,320/h
+    const long = proRataTarget(60480, 14); // 14h @ 4,320/h
+    expect(short.perHour).toBe(4320);
+    expect(long.perHour).toBe(4320);
+    expect(short.standard).toBe(34560);
+    expect(long.standard).toBe(34560);
+    expect(short.target).toBe(12960);
+    expect(long.target).toBe(60480);
   });
 
   it('keeps the stored standard when the row has no run hours at all', () => {
@@ -1182,7 +1201,7 @@ describe('Daily Production Report — pro-rata TARGET', () => {
 
   it('drives the printed cell, the totals and Achievement % off that one number', () => {
     const m = buildDailyProductionReport(
-      [makeRow({ targetQuantity: 12960, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      [makeRow({ targetQuantity: 11340, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
       opts(),
     );
     const l = m.sections[0].lines[0];
@@ -1191,7 +1210,8 @@ describe('Daily Production Report — pro-rata TARGET', () => {
     expect(l.targetPerHour).toBe(1620);
     expect(l.targetHours).toBe(7);
     // Achievement is RECOMPUTED against the dynamic target — 11,340 / 11,340
-    // = 100%, even though the stored figure was derived from 12,960.
+    // = 100%, never against the 8-hour master figure (12,960) this run was
+    // never scheduled to reach.
     expect(l.achievement).toBe(100);
     expect(reportCellText(l, 'target')).toBe('1,620 /h (For 7 hrs Run)');
     expect(reportCellSubText(l, 'target')).toBe('11,340 PCS');
@@ -1211,7 +1231,7 @@ describe('Daily Production Report — pro-rata TARGET', () => {
 
   it('ignores a stale stored achievement percentage', () => {
     const m = buildDailyProductionReport(
-      [makeRow({ targetQuantity: 12960, actualQuantity: 11340, achievementPercentage: 87.5, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      [makeRow({ targetQuantity: 11340, actualQuantity: 11340, achievementPercentage: 87.5, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
       opts(),
     );
     expect(m.sections[0].lines[0].achievement).toBe(100);
@@ -1219,7 +1239,7 @@ describe('Daily Production Report — pro-rata TARGET', () => {
 
   it('keeps TARGET numeric in the CSV so a spreadsheet can still SUM it', () => {
     const m = buildDailyProductionReport(
-      [makeRow({ targetQuantity: 12960, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      [makeRow({ targetQuantity: 11340, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
       opts(),
     );
     const csv = buildDailyProductionCsv(m).replace(/^\uFEFF/, '').split('\r\n');
@@ -1232,7 +1252,7 @@ describe('Daily Production Report — pro-rata TARGET', () => {
 
   it('shrinks only the PDF data cell — totals stay at the normal table size', () => {
     const m = buildDailyProductionReport(
-      [makeRow({ targetQuantity: 12960, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      [makeRow({ targetQuantity: 11340, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
       opts(),
     );
     const l = m.sections[0].lines[0];
