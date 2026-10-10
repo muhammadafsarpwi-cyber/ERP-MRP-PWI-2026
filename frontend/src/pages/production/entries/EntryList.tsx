@@ -76,10 +76,12 @@ import {
   buildPrintHtml,
   executiveKpis,
   grandTotalLabel,
+  itemWiseTotals,
   pdfLineRow,
   pdfSummaryRow,
   sectionBlocks,
   EXECUTIVE_TITLE,
+  ITEMWISE_TITLE,
   PDF_MAIN_TEXT,
   PDF_SUB_TEXT,
   TONE_COLOR,
@@ -1001,6 +1003,10 @@ const EntryList: React.FC = () => {
         cellWidth: number;
         halign: 'left' | 'center' | 'right';
         overflow: 'ellipsize' | ((text: string | string[], space: number) => string[]);
+        /** Only WEIGHT (KG) overrides the global 3pt padding — it is the
+         *  narrowest numeric column in the table, so it sheds the horizontal
+         *  dead space the wider text columns genuinely need. */
+        cellPadding?: { top?: number; right?: number; bottom?: number; left?: number };
       };
 
       /** Truncate `text` so it fits `space` at the CURRENT font, with an
@@ -1034,7 +1040,14 @@ const EntryList: React.FC = () => {
 
       const columnStyles: Record<string, PdfColumnStyle> = {};
       model.columns.forEach((c, i) => {
-        const base = { cellWidth: (contentWidth * c.width) / 100, halign: c.align };
+        const base: Omit<PdfColumnStyle, 'overflow'> = {
+          cellWidth: (contentWidth * c.width) / 100,
+          halign: c.align,
+        };
+        // WEIGHT (KG) — the print CSS drops this column's horizontal padding
+        // too (.rp-table .c-tight); the PDF mirrors it so both surfaces shed
+        // the same dead space.
+        if (c.key === 'weight') base.cellPadding = { top: 3, right: 1, bottom: 3, left: 1 };
         columnStyles[String(i)] =
           c.key === 'item' || c.key === 'shift'
             ? { ...base, overflow: 'ellipsize' }
@@ -1042,7 +1055,9 @@ const EntryList: React.FC = () => {
       });
 
       // Redrawn on every page (via didDrawPage) so the division/date header
-      // never breaks away from the table it describes.
+      // never breaks away from the table it describes. The production date +
+      // generation stamp are pinned to the FAR RIGHT of that line on EVERY
+      // sheet — they are never part of the left-hand run.
       const drawHeader = () => {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(16);
@@ -1051,14 +1066,26 @@ const EntryList: React.FC = () => {
         doc.setFontSize(11);
         doc.setTextColor(29, 78, 216);
         doc.text(model.divisionLabel, marginLeft, 45);
+
+        // FAR RIGHT first: the stamp must always fit, so the left run yields
+        // the shift before the entry counts if the two would collide.
+        const stamp = [model.dateLabel, model.generatedLabel].filter(Boolean).join('   ·   ');
+        const stampW = stamp ? doc.getTextWidth(stamp) : 0;
+        let bits = [model.shiftLabel, model.metaLine].filter(Boolean) as string[];
+        if (stamp) {
+          const leftW = () => doc.getTextWidth(bits.join('   ·   '));
+          while (bits.length > 1 && leftW() + 14 + stampW > contentWidth) bits = bits.slice(1);
+        }
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
         doc.setTextColor(71, 85, 105);
-        doc.text(
-          [model.dateLabel, model.shiftLabel, model.metaLine, model.generatedLabel].filter(Boolean).join('   ·   '),
-          marginLeft,
-          60,
-        );
+        if (bits.length) doc.text(bits.join('   ·   '), marginLeft, 60);
+        if (stamp) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(stamp, pageWidth - marginRight, 60, { align: 'right' });
+        }
+
         doc.setDrawColor(15, 23, 42);
         doc.setLineWidth(0.8);
         doc.line(marginLeft, 70, pageWidth - marginRight, 70);
@@ -1125,14 +1152,29 @@ const EntryList: React.FC = () => {
         baseline += (lineCount - 1) * lineHeight;
 
         const color = raw.subColor || PDF_SUB_TEXT;
-        doc.setFont('helvetica', 'normal');
+        // WEIGHT (KG) trails its Actual KG in BOLD, so line 2 must be able to
+        // switch weight; every other fused cell stays normal. (Without this
+        // the two lines of a fused cell are always identically weighted.)
+        doc.setFont('helvetica', raw.subBold ? 'bold' : 'normal');
         doc.setFontSize(fontSize);
         doc.setTextColor(color[0], color[1], color[2]);
+        // REJECTION / SCRAP runs the tightest rhythm in the table: its cell
+        // carries a negative `subGap`, which lifts line 2 toward line 1.
+        if (typeof raw.subGap === 'number' && raw.subGap !== 0) baseline += raw.subGap;
         // Never let the sub-line spill into the neighbouring column: it is
         // drawn as plain text (no autoTable wrapping), so it is clipped to the
-        // cell's inner width first.
-        const pad = typeof styles.cellPadding === 'number' ? styles.cellPadding : 3;
-        const space = Math.max((data.cell.width || 0) - pad * 2, 4);
+        // cell's inner width first. `cellPadding` resolves to a NUMBER for
+        // most columns but to a per-side object for WEIGHT (KG), which shaves
+        // its horizontal padding — so the inner width is derived from
+        // whichever shape the column actually resolved to.
+        const pad = styles.cellPadding;
+        const innerPad =
+          typeof pad === 'number'
+            ? pad * 2
+            : pad && typeof pad === 'object'
+              ? Number((pad as { left?: number }).left ?? 3) + Number((pad as { right?: number }).right ?? 3)
+              : 6;
+        const space = Math.max((data.cell.width || 0) - innerPad, 4);
         doc.text(fitText(sub, space), pos.x, baseline);
       };
 
@@ -1205,15 +1247,19 @@ const EntryList: React.FC = () => {
       // ── EXECUTIVE DEPARTMENT SUMMARY — always the LAST page ───────────
       // One boxed KPI card per department (3 per row), drawn with vector
       // rectangles so the PDF matches the print card exactly: 1px #cbd5e1
-      // border over a subtle #f8fafc fill, then Target / Actual and the
+      // border over a subtle #f8fafc fill, then Target / Actual, the
       // highlighted Achievement % with its Phase 7 tone — green ▲ / red ▼,
-      // drawn as vector triangles because jsPDF embeds WinAnsi fonts.
+      // drawn as vector triangles because jsPDF embeds WinAnsi fonts — and
+      // finally the two NEW rows: Total Rejection (KG) and Scrap Percentage.
       const execCards = executiveKpis(model);
+      /** Bottom edge of the last card row drawn — the ITEM-WISE card that
+       *  follows the grid picks up from here. */
+      let execGridBottom = 0;
       if (execCards.length > 0) {
         const cols = 3;
         const gap = 14;
         const cardW = (contentWidth - gap * (cols - 1)) / cols;
-        const cardH = 92;
+        const cardH = 122;
         const rowGap = 14;
         const pad = 10;
         const titleY = 100;
@@ -1287,6 +1333,20 @@ const EntryList: React.FC = () => {
             if (card.tone === 'up') doc.triangle(cx - s, cy + s, cx + s, cy + s, cx, cy - s, 'F');
             else doc.triangle(cx - s, cy - s, cx + s, cy - s, cx, cy + s, 'F');
           }
+
+          // Rows 5 / 6 — the NEW scrap rows, stacked straight under
+          // Achievement % exactly as the print card stacks them.
+          const rejKgY = y + 96;
+          const scrapPctY = y + 110;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text('Total Rejection:', x + pad, rejKgY);
+          doc.text('Scrap Percentage:', x + pad, scrapPctY);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(card.rejectionKg, valueRight, rejKgY, { align: 'right' });
+          doc.text(card.rejectionPct, valueRight, scrapPctY, { align: 'right' });
         };
 
         // Every chunk of cards gets a fresh page: the summary always starts
@@ -1295,11 +1355,87 @@ const EntryList: React.FC = () => {
           doc.addPage();
           drawHeader();
           drawTitle();
-          execCards.slice(start, start + perPage).forEach((card, i) => {
+          const chunk = execCards.slice(start, start + perPage);
+          chunk.forEach((card, i) => {
             const row = Math.floor(i / cols);
             const col = i % cols;
             drawCard(card, marginLeft + col * (cardW + gap), gridTop + row * (cardH + rowGap));
           });
+          execGridBottom = gridTop + Math.ceil(chunk.length / cols) * (cardH + rowGap);
+        }
+
+        // ── ITEM-WISE TOTALS — the cross-department consolidation card ────
+        // Continues the executive page right where the department grid ended,
+        // and rolls onto a fresh sheet (header included) when the list of
+        // parts outgrows the remaining space.
+        const items = itemWiseTotals(model);
+        if (items.length > 0) {
+          const rowH = 15;
+          const boxW = contentWidth;
+          /** One card box, top-aligned at `y0`: the ITEMWISE_TITLE banner, the
+           *  ITEM / ACTUAL KG / SCRAP KG column header, then as many pooled
+           *  part rows as the chunk carries. Returns the box's bottom edge. */
+          const drawItemCard = (chunkRows: typeof items, y0: number): number => {
+            const boxH = 44 + chunkRows.length * rowH;
+            doc.setFillColor(248, 250, 252);
+            doc.rect(marginLeft, y0, boxW, boxH, 'F');
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.8);
+            doc.rect(marginLeft, y0, boxW, boxH, 'S');
+            const codeX = marginLeft + 10;
+            const actX = marginLeft + boxW - 96;
+            const scrapX = marginLeft + boxW - 10;
+            // Module title — repeated on every continuation page so a part
+            // list that spans sheets never loses its caption.
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.setTextColor(15, 23, 42);
+            doc.text(ITEMWISE_TITLE, codeX, y0 + 13);
+            doc.setFontSize(8);
+            doc.setTextColor(100, 116, 139);
+            doc.text('ITEM', codeX, y0 + 28);
+            doc.text('ACTUAL KG', actX, y0 + 28, { align: 'right' });
+            doc.text('SCRAP KG', scrapX, y0 + 28, { align: 'right' });
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.4);
+            doc.line(codeX, y0 + 32, scrapX, y0 + 32);
+            chunkRows.forEach((it, i) => {
+              const rowY = y0 + 45 + i * rowH;
+              doc.setFont('helvetica', 'normal');
+              doc.setFontSize(9);
+              doc.setTextColor(71, 85, 105);
+              // The code is trimmed rather than wrapped: the card must never
+              // grow taller than one line per part.
+              doc.text(fitText(it.code, boxW - 20 - 96 - 14), codeX, rowY);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(15, 23, 42);
+              doc.text(it.actualKg, actX, rowY, { align: 'right' });
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(100, 116, 139);
+              doc.text(it.scrapKg, scrapX, rowY, { align: 'right' });
+            });
+            return y0 + boxH;
+          };
+
+          let cursor = execGridBottom;
+          let idx = 0;
+          while (idx < items.length) {
+            // 44 = the fixed chrome of a card (title + column header + rule +
+            // trailing gap) above its rows. A page that cannot even hold the
+            // chrome plus one row starts a fresh sheet first.
+            if (pageHeight - marginBottom - cursor - 44 < rowH) {
+              doc.addPage();
+              drawHeader();
+              cursor = marginTop;
+            }
+            const take = Math.min(
+              items.length - idx,
+              Math.max(1, Math.floor((pageHeight - marginBottom - cursor - 44) / rowH)),
+            );
+            cursor = drawItemCard(items.slice(idx, idx + take), cursor);
+            idx += take;
+            if (idx < items.length) cursor += 14; // breathing room before the continuation
+          }
         }
       }
 

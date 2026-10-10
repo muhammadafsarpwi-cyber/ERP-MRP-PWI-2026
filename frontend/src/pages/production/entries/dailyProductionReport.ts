@@ -19,9 +19,15 @@ import { entryOvertimeHours } from './overtimeHours';
  *   HEADER      · Division: <selected division>          (filter, else the one
  *                 division present in the rows, else "All Divisions")
  *               · Daily Production Report                (title)
- *               · Date: <the date selected in the filter> — e.g. `Date:
- *                 2026-10-02`. Falls back to the rows' single date, else
- *                 `Date: All dates`. Never a hardcoded "today".
+ *               · the LEFT run carries only the shift and the entry counts.
+ *                 The production date (`Date: 2026-10-02`, falling back to
+ *                 the rows' single date, else `Date: All dates` — never a
+ *                 hardcoded "today") and the generation stamp sit on the FAR
+ *                 RIGHT of the same line, right-aligned to the margin. The
+ *                 PDF repeats that header, stamp included, on every sheet.
+ *                 Nothing in the left run may push the stamp off the right
+ *                 edge, so the meta line drops the shift first when space
+ *                 runs short.
  *   DEPARTMENTS · fixed production sequence instead of A→Z:
  *                 1 Straightener → 2 Swagging → 3 Spoke → 4 Plating →
  *                 5 Packing (present only when entries exist). Any other
@@ -95,6 +101,23 @@ import { entryOvertimeHours } from './overtimeHours';
  *                 no hour data at all (no shift plan, nothing stored, no
  *                 downtime) prints the operator's remark on its own, or `—`
  *                 when there is none, rather than inventing a 100%.
+ *   EXEC SUMMARY· always the standalone LAST page. One boxed card per
+ *                 department — Target, Actual, the highlighted Achievement
+ *                 % — and now TWO further rows underneath it:
+ *                   · Total Rejection:  the cumulative scrap, in KG;
+ *                   · Scrap Percentage: that department's own pooled rate.
+ *                 Both reuse the REJECTION / SCRAP cell renderers, so a card
+ *                 can never disagree with the table above it.
+ *   ITEM-WISE   · a further card, ITEM-WISE TOTALS, sits alongside the
+ *                 department cards and pools the WHOLE report by ITEM CODE.
+ *                 A part that ran on four machines in one shift is ONE line
+ *                 there — `ITEM | ACTUAL KG | SCRAP KG` — sorted by Σ Actual
+ *                 KG descending with an alphabetical tie-break.
+ *   DENSITY     · WEIGHT (KG) sheds the default horizontal cell padding (see
+ *                 `tightColumnClass`) because it is the narrowest numeric
+ *                 column in the table, and REJECTION / SCRAP runs a tighter
+ *                 leading than the other fused cells. Both changes are
+ *                 print + PDF; the on-screen grid keeps its own spacing.
  *
  * GLYPH MODE   · 'display' (print HTML + Excel) keeps the ▲/▼ glyphs;
  *               · 'pdf'     drops them to ASCII, because jsPDF writes UTF-16
@@ -212,6 +235,17 @@ export const STACKED_KEYS = Object.keys(STACKED_CELLS) as StackedCellKey[];
 
 export function isStackedColumn(key: ReportColumnKey): key is StackedCellKey {
   return Object.prototype.hasOwnProperty.call(STACKED_CELLS, key);
+}
+
+/**
+ * `c-tight` — the class that sheds the default horizontal cell padding.
+ * Only WEIGHT (KG) carries it: it is the narrowest numeric column in the
+ * table (two short stacked figures), so the 4px of breathing room the wide
+ * text columns need is pure dead space there. Applied to the header, the
+ * data rows and the total rows alike.
+ */
+export function tightColumnClass(key: ReportColumnKey): string {
+  return key === 'weight' ? 'c-tight' : '';
 }
 
 /** Phase 7 column order — Shift and Machine lead, OT audits the extra hours
@@ -885,28 +919,35 @@ export const PDF_MAIN_TEXT: [number, number, number] = [15, 23, 42];     /* #0f1
 export const PDF_SUB_TEXT: [number, number, number] = [148, 163, 184];   /* #94a3b8 */
 export const PDF_MUTED_TEXT: [number, number, number] = [100, 116, 139]; /* #64748b */
 
-/** Per-line colour + weight for every fused column — the PDF twin of the
- *  print CSS classes in STACKED_CELLS. WEIGHT (KG) is the one column that
- *  leads muted/light (the small per-unit figure) and trails bold + dark
- *  (Actual KG, the value people actually read); the other three lead dark
- *  and trail light gray. */
+/** Per-line colour, weight AND spacing for every fused column — the PDF
+ *  twin of the print CSS classes in STACKED_CELLS. WEIGHT (KG) is the one
+ *  column that leads muted/light (the small per-unit figure) and trails
+ *  bold + dark (Actual KG, the value people actually read); the other three
+ *  lead dark and trail light gray.
+ *
+ *  `subGap` is a nudge in points applied to line 2's baseline. autoTable v5
+ *  exposes no per-cell line spacing (its line height comes straight from
+ *  `doc.getLineHeightFactor()`), so tightening the gap between the two
+ *  stacked REJECTION / SCRAP figures has to happen on this side. */
 const STACKED_PDF: Record<StackedCellKey, {
   mainColor: [number, number, number];
   mainBold: boolean;
   subColor: [number, number, number];
   subBold: boolean;
+  subGap: number;
 }> = {
-  item: { mainColor: PDF_MAIN_TEXT, mainBold: true, subColor: PDF_SUB_TEXT, subBold: false },
-  shift: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false },
-  weight: { mainColor: PDF_MUTED_TEXT, mainBold: false, subColor: PDF_MAIN_TEXT, subBold: true },
-  rejectionScrap: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false },
+  item: { mainColor: PDF_MAIN_TEXT, mainBold: true, subColor: PDF_SUB_TEXT, subBold: false, subGap: 0 },
+  shift: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false, subGap: 0 },
+  weight: { mainColor: PDF_MUTED_TEXT, mainBold: false, subColor: PDF_MAIN_TEXT, subBold: true, subGap: 0 },
+  rejectionScrap: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false, subGap: -1.5 },
 };
 
 /** AutoTable object for a fused cell: line 1 is drawn by autoTable itself
  *  (styled by `styles`) and line 2 is left for EntryList's `didDrawCell`
  *  (`drawSubLine`) to paint, which is the only way jsPDF can give one cell
- *  two different colours and weights. `subBold` tells that handler to switch
- *  to the bold font for line 2 — WEIGHT (KG) needs it for Actual KG. */
+ *  two different colours, weights and spacing. `subBold` switches line 2 to
+ *  the bold font — WEIGHT (KG) needs it for Actual KG — and `subGap` pulls
+ *  line 2 up (REJECTION / SCRAP runs the tightest rhythm in the table). */
 function pdfStackedCell(
   key: StackedCellKey,
   main: string,
@@ -920,6 +961,7 @@ function pdfStackedCell(
     sub,
     subColor: style.subColor,
     subBold: style.subBold,
+    subGap: style.subGap,
     styles: {
       ...baseStyles,
       halign: align,
@@ -1004,7 +1046,15 @@ const PRINT_CSS = `
                break-inside: avoid; page-break-inside: avoid; }
   .rp-title { font-size: 17px; font-weight: 700; letter-spacing: .02em; margin: 0; }
   .rp-division { font-size: 13px; font-weight: 700; color: #1d4ed8; margin: 3px 0 0; }
-  .rp-meta { font-size: 11px; color: #475569; margin-top: 4px; display: flex; gap: 16px; flex-wrap: wrap; }
+  /* Meta line: shift + counts on the LEFT, and the production date +
+     generation stamp pinned to the FAR RIGHT (margin-left:auto always wins
+     over the space-between gap, so the stamp hugs the right rule even when
+     the left run is short). The date is deliberately NOT in the left run. */
+  .rp-meta { font-size: 11px; color: #475569; margin-top: 4px; display: flex; gap: 16px;
+             flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
+  .rp-meta-left { display: flex; gap: 16px; flex-wrap: wrap; }
+  .rp-meta-stamp { display: flex; gap: 14px; margin-left: auto; text-align: right;
+                   font-weight: 600; color: #0f172a; }
   .rp-meta span { white-space: nowrap; }
   .rp-dept { break-inside: avoid; page-break-inside: avoid; margin-bottom: 12px; }
   .rp-dept-head { display: flex; justify-content: space-between; gap: 12px;
@@ -1027,6 +1077,10 @@ const PRINT_CSS = `
   .rp-total td { background: #e2e8f0 !important; font-weight: 700; }
   .a-left { text-align: left; } .a-center { text-align: center; } .a-right { text-align: right; }
   .muted { color: #64748b; } .strong { font-weight: 700; }
+  /* WEIGHT (KG) is a narrow two-figure column — it sheds the horizontal dead
+     space the wider columns need, so its digits sit tight against the rule.
+     (2 classes beat the .rp-table td rule above.) */
+  .rp-table .c-tight { padding-left: 1px; padding-right: 1px; }
   /* ---- FUSED (stacked) CELLS: line 1 on top, line 2 underneath -------
      Item / Shift lead with the informative line and trail with the muted
      one. WEIGHT (KG) is inverted on purpose — the small per-unit figure sits
@@ -1055,8 +1109,12 @@ const PRINT_CSS = `
   .rp-shift-time { font-size: 9px; line-height: 1.2; }
   .rp-wt-top { font-size: 10px; line-height: 1.2; }
   .rp-wt-bottom { font-size: 11px; line-height: 1.2; }
-  .rp-rj-top { font-size: 11px; line-height: 1.2; }
-  .rp-rj-bottom { font-size: 10px; line-height: 1.2; }
+  /* REJECTION / SCRAP runs the tightest rhythm of the four fused cells: its
+     two values are short numerals (no descenders), so the leading drops from
+     1.2 to 1.1 and the top line pulls 2px up onto the bottom one — roughly a
+     fifth less dead space between the KG figure and its percentage. */
+  .rp-rj-top { font-size: 11px; line-height: 1.1; margin-bottom: -2px; }
+  .rp-rj-bottom { font-size: 10px; line-height: 1.1; }
   /* Long free text (operator, breakdown reason) may use AT MOST 2 lines. */
   .rp-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .tone-up { color: #15803d !important; font-weight: 700; }
@@ -1071,8 +1129,11 @@ const PRINT_CSS = `
   .rp-exec-title { text-align: center; font-weight: 700; font-size: 18px;
                    letter-spacing: .06em; color: #0f172a; margin: 0 0 14px;
                    break-after: avoid; page-break-after: avoid; }
+  /* align-items:start keeps a short department card from stretching to match
+     a tall one — the ITEM-WISE card below can hold many more rows than a
+     department card ever will. */
   .rp-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                 gap: 12px; }
+                 gap: 12px; align-items: start; }
   .rp-kpi-card { border: 1px solid #cbd5e1; background: #f8fafc; padding: 10px 12px;
                  break-inside: avoid; page-break-inside: avoid; }
   .rp-kpi-name { font-weight: 700; font-size: 12px; letter-spacing: .05em; color: #0f172a;
@@ -1084,6 +1145,22 @@ const PRINT_CSS = `
   /* Row 4 — the highlighted achievement line (green ▲ / red ▼). */
   .rp-kpi-ach { margin-top: 6px; padding-top: 5px; border-top: 1px dashed #cbd5e1;
                 font-size: 12.5px; }
+  /* ---- the pooled-by-item card (KEEP THIS COMMENT FREE OF THE PRINTED
+     HEADING — the stylesheet ships with EVERY report, empty ones included) --
+     Three aligned columns (code / Actual KG / Scrap KG). The code is
+     ellipsized rather than wrapped so a long part name can never make the
+     row taller than a single line; the two numerals are right-aligned and
+     tabular so the columns stay in register down the card. */
+  .rp-iw-head { display: grid; grid-template-columns: 1fr 70px 70px; gap: 8px;
+                font-size: 9.5px; font-weight: 700; color: #64748b; letter-spacing: .04em;
+                padding-bottom: 3px; margin-bottom: 2px;
+                border-bottom: 1px solid #cbd5e1; }
+  .rp-iw-row { display: grid; grid-template-columns: 1fr 70px 70px; gap: 8px;
+               font-size: 11px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+  .rp-iw-head span + span, .rp-iw-row span + span { text-align: right; }
+  .rp-iw-code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #475569; }
+  .rp-iw-act { font-weight: 700; color: #0f172a; }
+  .rp-iw-scrap { color: #64748b; }
   @media print {
     body { margin: 0; padding: 0; }
     .rp-dept { break-inside: avoid; page-break-inside: avoid; }
@@ -1095,10 +1172,10 @@ function tableHtml(model: DailyProductionReport, withHead: boolean, bodyHtml: st
   const colgroup = `<colgroup>${model.columns.map((c) => `<col style="width:${c.width}%">`).join('')}</colgroup>`;
   const head = withHead
     ? `<thead><tr>${model.columns
-        .map(
-          (c) =>
-            `<th class="a-${c.align}" style="width:${c.width}%"><span class="rp-clamp2">${escapeHtml(c.label)}</span></th>`,
-        )
+        .map((c) => {
+          const tight = tightColumnClass(c.key);
+          return `<th class="a-${c.align}${tight ? ` ${tight}` : ''}" style="width:${c.width}%"><span class="rp-clamp2">${escapeHtml(c.label)}</span></th>`;
+        })
         .join('')}</tr></thead>`
     : '';
   return `<table class="rp-table">${colgroup}${head}<tbody>${bodyHtml}</tbody></table>`;
@@ -1110,6 +1187,7 @@ function lineRowHtml(model: DailyProductionReport, line: ReportLine): string {
     .map((c) => {
       const cls = [
         `a-${c.align}`,
+        tightColumnClass(c.key),
         c.key === 'actual' || c.key === 'achievement' ? 'strong' : '',
         c.key === 'achievement' && tone ? `tone-${tone}` : '',
       ].filter(Boolean).join(' ');
@@ -1143,7 +1221,13 @@ function totalRowHtml(
   cells += model.columns
     .slice(span)
     .map((c) => {
-      const toneCls = c.key === 'achievement' && tone ? ` tone-${tone}` : '';
+      const extraCls = [
+        tightColumnClass(c.key),
+        c.key === 'achievement' && tone ? `tone-${tone}` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      const cellCls = `a-${c.align}${extraCls ? ` ${extraCls}` : ''}`;
       // The fused columns keep BOTH lines in their total row too, so Σ Actual
       // KG still sits under the `—` of WEIGHT (KG) and the pooled Rejection %
       // under Σ Rejection KG. Item / Shift have no total value at all, so
@@ -1152,13 +1236,11 @@ function totalRowHtml(
         const classes = STACKED_CELLS[c.key];
         const main = reportTotalText(totals, c.key);
         const sub = reportTotalSubText(totals, c.key);
-        if (!main && !sub) return `<td class="a-${c.align}${toneCls}"></td>`;
+        if (!main && !sub) return `<td class="${cellCls}"></td>`;
         const second = sub ? `<span class="${classes.sub}">${escapeHtml(sub)}</span>` : '';
-        return `<td class="a-${c.align}${toneCls}"><span class="${classes.main}">${escapeHtml(
-          main,
-        )}</span>${second}</td>`;
+        return `<td class="${cellCls}"><span class="${classes.main}">${escapeHtml(main)}</span>${second}</td>`;
       }
-      return `<td class="a-${c.align}${toneCls}">${escapeHtml(reportTotalText(totals, c.key))}</td>`;
+      return `<td class="${cellCls}">${escapeHtml(reportTotalText(totals, c.key))}</td>`;
     })
     .join('');
   const rowClass = kind === 'shift' ? 'rp-subtotal' : 'rp-total';
@@ -1193,6 +1275,13 @@ export interface ExecutiveKpi {
   tone: AchievementTone | null;
   /** The weighted achievement itself, for callers that need the number. */
   achievementValue: number | null;
+  /** `1.75 KG` — the department's cumulative scrap, in KG. Comes straight
+   *  from the Σ Rejection KG the REJECTION / SCRAP total cell prints, so the
+   *  card and the table can never show two different figures. */
+  rejectionKg: string;
+  /** `0.27%` — this department's OWN pooled rejection rate
+   *  (Σ Rejection KG / (Σ Actual KG + Σ Rejection KG)). */
+  rejectionPct: string;
 }
 
 /** One KPI card per department, in report order (one per section). */
@@ -1208,27 +1297,108 @@ export function executiveKpis(model: DailyProductionReport): ExecutiveKpi[] {
       achievementText: reportTotalText(totals, 'achievement', 'pdf'),
       tone: achievementTone(achievementValue),
       achievementValue,
+      // The two NEW rows under Achievement % — both reuse the table's own
+      // cell renderers so the card, the print page and the PDF agree.
+      rejectionKg: `${reportTotalText(totals, 'rejectionScrap')} KG`,
+      rejectionPct: reportTotalSubText(totals, 'rejectionScrap'),
     } as ExecutiveKpi;
   });
 }
 
-/** The last-page block: centred heading over a responsive grid of cards.
- *  Empty when the report has no department, so nothing is ever printed for
- *  an empty export. */
+/* ------------------------------------------------------------------ *
+ * ITEM-WISE TOTALS — the cross-department consolidation card.
+ *
+ * A part that ran on FOUR machines in the same shift appears FOUR times in
+ * the body table (once per machine, in its own department). This card pools
+ * those rows back together by ITEM CODE so a manager sees ONE line per part:
+ *
+ *   ITEM CODE | ACTUAL KG | SCRAP KG
+ *   SP-40     |   1,600   |    10
+ *
+ * Sorted by Σ Actual KG descending (the heaviest contributors lead), ties
+ * broken alphabetically so the card is stable between exports.
+ * ------------------------------------------------------------------ */
+
+/** Heading of the ITEM-WISE card. */
+export const ITEMWISE_TITLE = 'ITEM-WISE TOTALS';
+
+/** One pooled row of that card. */
+export interface ItemTotal {
+  /** The aggregation key — the Item / WIP code (`SP-40`), falling back to
+   *  the product name for rows that carry no code. */
+  code: string;
+  /** `1,600` — Σ Actual KG over EVERY entry for this item, all machines and
+   *  all departments combined. Formatted exactly like the table's own totals. */
+  actualKg: string;
+  /** `10` — Σ Rejection KG over those same entries. */
+  scrapKg: string;
+  /** Unrounded Σ Actual KG — the sort key. */
+  actualKgValue: number;
+}
+
+/** Pool every line of the report by item code (see the block comment above). */
+export function itemWiseTotals(model: DailyProductionReport): ItemTotal[] {
+  const byCode = new Map<string, { actualKg: number; scrapKg: number }>();
+  for (const section of model.sections) {
+    for (const group of section.shiftGroups) {
+      for (const line of group.lines) {
+        const code = line.itemCode || line.item;
+        if (!code) continue;
+        const agg = byCode.get(code) ?? { actualKg: 0, scrapKg: 0 };
+        agg.actualKg += line.actualKg ?? 0;
+        agg.scrapKg += line.rejectionKg ?? 0;
+        byCode.set(code, agg);
+      }
+    }
+  }
+  return [...byCode.entries()]
+    .map(([code, agg]) => ({
+      code,
+      actualKg: formatNumber(agg.actualKg, 2),
+      scrapKg: formatNumber(agg.scrapKg, 2),
+      actualKgValue: agg.actualKg,
+    }))
+    .sort((a, b) => b.actualKgValue - a.actualKgValue || a.code.localeCompare(b.code));
+}
+
+/** The ITEM-WISE card — a normal card in the same grid as the department
+ *  cards, so it always sits alongside them. */
+function itemWiseCardHtml(items: ItemTotal[]): string {
+  const rows = items
+    .map(
+      (it) =>
+        `        <div class="rp-iw-row"><span class="rp-iw-code">${escapeHtml(it.code)}</span><span class="rp-iw-act">${escapeHtml(it.actualKg)}</span><span class="rp-iw-scrap">${escapeHtml(it.scrapKg)}</span></div>`,
+    )
+    .join('\n');
+  return `      <div class="rp-kpi-card">
+        <div class="rp-kpi-name">${ITEMWISE_TITLE}</div>
+        <div class="rp-iw-head"><span>ITEM</span><span>ACTUAL KG</span><span>SCRAP KG</span></div>
+${rows}
+      </div>`;
+}
+
+/** The last-page block: centred heading over a responsive grid of cards —
+ *  one per department PLUS the ITEM-WISE TOTALS consolidation card. Empty
+ *  when the report has no department, so nothing is ever printed for an
+ *  empty export. */
 export function executiveSummaryHtml(model: DailyProductionReport): string {
   const cards = executiveKpis(model);
   if (cards.length === 0) return '';
-  const grid = cards
-    .map((card) => {
+  const items = itemWiseTotals(model);
+  const grid = [
+    ...cards.map((card) => {
       const toneClass = card.tone ? ` class="tone-${card.tone}"` : '';
       return `      <div class="rp-kpi-card">
         <div class="rp-kpi-name">${escapeHtml(card.name)}</div>
         <div class="rp-kpi-row"><span>Target:</span><b>${escapeHtml(card.target)}</b></div>
         <div class="rp-kpi-row"><span>Actual:</span><b>${escapeHtml(card.actual)}</b></div>
         <div class="rp-kpi-row rp-kpi-ach"><span>Achievement %:</span><b${toneClass}>${escapeHtml(card.achievement)}</b></div>
+        <div class="rp-kpi-row"><span>Total Rejection:</span><b>${escapeHtml(card.rejectionKg)}</b></div>
+        <div class="rp-kpi-row"><span>Scrap Percentage:</span><b>${escapeHtml(card.rejectionPct)}</b></div>
       </div>`;
-    })
-    .join('\n');
+    }),
+    ...(items.length ? [itemWiseCardHtml(items)] : []),
+  ].join('\n');
   return `  <section class="rp-exec">
     <h2 class="rp-exec-title">${EXECUTIVE_TITLE}</h2>
     <div class="rp-kpi-grid">
@@ -1281,10 +1451,14 @@ export function buildPrintHtml(model: DailyProductionReport): string {
     <div class="rp-title">${escapeHtml(model.title)}</div>
     <div class="rp-division">${escapeHtml(model.divisionLabel)}</div>
     <div class="rp-meta">
-      <span>${escapeHtml(model.dateLabel)}</span>
-      ${model.shiftLabel ? `<span>${escapeHtml(model.shiftLabel)}</span>` : ''}
-      <span>${escapeHtml(model.metaLine)}</span>
-      <span>${escapeHtml(model.generatedLabel)}</span>
+      <div class="rp-meta-left">
+        ${model.shiftLabel ? `<span>${escapeHtml(model.shiftLabel)}</span>` : ''}
+        <span>${escapeHtml(model.metaLine)}</span>
+      </div>
+      <div class="rp-meta-stamp">
+        <span>${escapeHtml(model.dateLabel)}</span>
+        <span>${escapeHtml(model.generatedLabel)}</span>
+      </div>
     </div>
   </header>
 ${sections}

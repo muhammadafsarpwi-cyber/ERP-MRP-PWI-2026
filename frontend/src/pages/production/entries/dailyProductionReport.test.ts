@@ -2,6 +2,7 @@ import {
   ACHIEVEMENT_THRESHOLD,
   DEPARTMENT_ORDER,
   EXECUTIVE_TITLE,
+  ITEMWISE_TITLE,
   TONE_GLYPH,
   achievementTone,
   buildDailyProductionReport,
@@ -13,6 +14,7 @@ import {
   executiveKpis,
   executiveSummaryHtml,
   grandTotalLabel,
+  itemWiseTotals,
   pdfLineRow,
   pdfSummaryRow,
   PDF_MAIN_TEXT,
@@ -25,6 +27,7 @@ import {
   reportTwoLineHtml,
   reportTotalText,
   sectionBlocks,
+  tightColumnClass,
   TONE_COLOR,
   type DailyProductionReport,
   type ReportOptions,
@@ -544,6 +547,30 @@ describe('Daily Production Report — header', () => {
     );
     expect(two.divisionName).toBe('All Divisions');
   });
+
+  it('pins the production date + generation stamp to the FAR RIGHT of the header', () => {
+    const html = buildPrintHtml(model());
+    const leftAt = html.indexOf('<div class="rp-meta-left">');
+    const stampAt = html.indexOf('<div class="rp-meta-stamp">');
+    expect(leftAt).toBeGreaterThan(-1);
+    expect(stampAt).toBeGreaterThan(leftAt);
+    // The two "corner" strings live in the stamp…
+    const stampBlock = html.slice(stampAt, html.indexOf('</div>', stampAt));
+    expect(stampBlock).toContain('<span>Date: 2026-10-02</span>');
+    expect(stampBlock).toContain('<span>Generated: 02 Oct 2026, 06:00</span>');
+    // …and are absent from the left-hand run.
+    const leftBlock = html.slice(leftAt, stampAt);
+    expect(leftBlock).toContain('<span>10 entries · 6 departments</span>');
+    expect(leftBlock).not.toContain('Date:');
+    expect(leftBlock).not.toContain('Generated:');
+    // Right-anchored: space-between for the row, margin-left:auto + right
+    // alignment for the stamp itself (so it hugs the rule even when the left
+    // run is short).
+    expect(html).toContain(
+      '.rp-meta-stamp { display: flex; gap: 14px; margin-left: auto; text-align: right;',
+    );
+    expect(html).toContain('flex-wrap: wrap; justify-content: space-between; align-items: baseline;');
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -637,6 +664,25 @@ describe('Daily Production Report — print layout', () => {
     expect(html).toContain('0.00%');
   });
 
+  it('sheds dead space in WEIGHT (KG) and tightens the REJECTION / SCRAP leading', () => {
+    // ONLY the weight column is tightened — verified straight off the header,
+    // where the class sits beside its width and its label.
+    expect(html).toContain(
+      '<th class="a-right c-tight" style="width:11%"><span class="rp-clamp2">WEIGHT (KG)</span></th>',
+    );
+    expect(html).toContain('.rp-table .c-tight { padding-left: 1px; padding-right: 1px; }');
+    const keys = model().columns.map((c) => c.key);
+    expect(keys.filter((k) => tightColumnClass(k) === 'c-tight')).toEqual(['weight']);
+    expect(html).not.toContain('a-left c-tight');
+    expect(html).not.toContain('a-center c-tight');
+    // The fused cell's two lines sit closer together than every other fused
+    // cell's (the non-SCRAP ones keep the standard 1.2 leading).
+    expect(html).toContain('.rp-rj-top { font-size: 11px; line-height: 1.1; margin-bottom: -2px; }');
+    expect(html).toContain('.rp-rj-bottom { font-size: 10px; line-height: 1.1; }');
+    expect(html).toContain('.rp-wt-top { font-size: 10px; line-height: 1.2; }');
+    expect(html).toContain('.rp-wt-bottom { font-size: 11px; line-height: 1.2; }');
+  });
+
   it('has print-safe CSS: 11px data, boxed borders, repeating header, no section splitting', () => {
     expect(html).toContain('@media print');
     expect(html).toContain('font-size: 11px');
@@ -702,22 +748,28 @@ describe('Daily Production Report — PDF rows', () => {
     expect(reportCellSubText(low, 'item')).toBe('SP-40');
 
     // WEIGHT (KG) is the reversed one: muted per-unit on line 1, the Actual
-    // KG painted underneath in BOLD dark — subBold switches the font.
+    // KG painted underneath in BOLD dark — subBold switches the font, and
+    // subGap stays 0 (its leading is normal).
     expect(weight).toEqual({
       content: '0.05\n\u00A0',
       sub: '12.5',
       subColor: PDF_MAIN_TEXT,
       subBold: true,
+      subGap: 0,
       styles: { halign: 'right', textColor: PDF_MUTED_TEXT },
     });
-    // REJECTION / SCRAP — flat KG over the muted %, normal weight.
+    // REJECTION / SCRAP — flat KG over the muted %, normal weight, and the
+    // ONE fused cell that pulls line 2 up to tighten the gap between the two
+    // stacked figures (autoTable v5 has no per-cell line spacing of its own).
     expect(scrap).toEqual({
       content: '0\n\u00A0',
       sub: '0.00%',
       subColor: PDF_SUB_TEXT,
       subBold: false,
+      subGap: -1.5,
       styles: { halign: 'right', textColor: PDF_MAIN_TEXT },
     });
+    expect([item, shift, weight, scrap].map((c: any) => c.subGap)).toEqual([0, 0, 0, -1.5]);
   });
 
   it('spans the label over 5 columns and shades shift totals lighter', () => {
@@ -902,8 +954,10 @@ describe('Daily Production Report — Executive KPI summary', () => {
   });
 
   it('renders the responsive card grid with the green/red highlight row', () => {
-    expect(html.match(/class="rp-kpi-card"/g)).toHaveLength(6);
+    expect(html.match(/class="rp-kpi-card"/g)).toHaveLength(7); // 6 departments + ITEM-WISE
     expect(html).toContain('grid-template-columns: repeat(auto-fill, minmax(300px, 1fr))');
+    // Short department cards must not stretch to match the tall item card.
+    expect(html).toContain('gap: 12px; align-items: start; }');
     expect(html).toContain('border: 1px solid #cbd5e1');
     expect(html).toContain('background: #f8fafc');
     expect(html).toContain('<div class="rp-kpi-name">STRAIGHTENER</div>');
@@ -912,6 +966,69 @@ describe('Daily Production Report — Executive KPI summary', () => {
     expect(html).toContain('<span>Achievement %:</span><b class="tone-up">110.0% ▲</b>');
     expect(html).toContain('<span>Achievement %:</span><b class="tone-down">50.0% ▼</b>');
     expect(html).toContain('.rp-kpi-ach { margin-top: 6px; padding-top: 5px; border-top: 1px dashed #cbd5e1;');
+  });
+
+  it('stacks Total Rejection + Scrap Percentage straight under Achievement %', () => {
+    // The department's own pooled figures, not the grand total's.
+    expect(cards[0]).toMatchObject({ rejectionKg: '0.25 KG', rejectionPct: '0.11%' });
+    expect(cards[1]).toMatchObject({ rejectionKg: '0 KG', rejectionPct: '0.00%' });
+    expect(cards[2]).toMatchObject({ rejectionKg: '1.5 KG', rejectionPct: '0.67%' });
+    // Both come from the REJECTION / SCRAP total cell, so a card can never
+    // disagree with the table above it (no second source of truth).
+    const straightener = model().sections[0].totals;
+    expect(cards[0].rejectionKg).toBe(`${reportTotalText(straightener, 'rejectionScrap')} KG`);
+    expect(cards[0].rejectionPct).toBe(reportTotalSubText(straightener, 'rejectionScrap'));
+
+    // Printed order inside the card: Target → Actual → Achievement → Rejection.
+    const achAt = html.indexOf('<span>Achievement %:</span><b class="tone-up">110.0% ▲</b>');
+    const rejAt = html.indexOf('<span>Total Rejection:</span><b>0.25 KG</b>');
+    const pctAt = html.indexOf('<span>Scrap Percentage:</span><b>0.11%</b>');
+    expect(achAt).toBeGreaterThan(-1);
+    expect(rejAt).toBeGreaterThan(achAt);
+    expect(pctAt).toBeGreaterThan(rejAt);
+    expect(html).toContain('<div class="rp-kpi-row"><span>Total Rejection:</span><b>1.5 KG</b></div>');
+    expect(html).toContain('<div class="rp-kpi-row"><span>Scrap Percentage:</span><b>0.67%</b></div>');
+  });
+
+  it('adds the ITEM-WISE TOTALS card, pooling every machine that ran a part', () => {
+    // On the whole base fixture every row is SP-40, so 10 machine rows and
+    // 6 departments collapse into exactly ONE item line.
+    expect(itemWiseTotals(model())).toHaveLength(1);
+    expect(html).toContain(`<div class="rp-kpi-name">${ITEMWISE_TITLE}</div>`);
+    expect(html).toContain(
+      '<div class="rp-iw-head"><span>ITEM</span><span>ACTUAL KG</span><span>SCRAP KG</span></div>',
+    );
+    expect(html).toContain(
+      '<div class="rp-iw-row"><span class="rp-iw-code">SP-40</span><span class="rp-iw-act">642.5</span><span class="rp-iw-scrap">1.75</span></div>',
+    );
+    // The card rides in the same grid as the department cards.
+    const cardAt = html.indexOf(`<div class="rp-kpi-name">${ITEMWISE_TITLE}</div>`);
+    expect(cardAt).toBeGreaterThan(html.indexOf('<div class="rp-kpi-grid">'));
+    // …and the module never survives an empty report.
+    const empty: DailyProductionReport = { ...model(), sections: [] };
+    expect(itemWiseTotals(empty)).toEqual([]);
+    expect(buildPrintHtml(empty)).not.toContain(ITEMWISE_TITLE);
+  });
+
+  it('sums an item across machines AND sorts by Σ Actual KG descending', () => {
+    const src: ReportRowSource[] = [
+      // The same part on two machines in one shift — must be ONE line.
+      makeRow({ machineNo: 'SPK-01', targetQuantity: 1000, actualQuantity: 1000, scrapQuantity: 4 }),
+      makeRow({ machineNo: 'SPK-02', targetQuantity: 500, actualQuantity: 500, scrapQuantity: 6 }),
+      // A second, lighter part on a third machine — its own line, ranked 2nd.
+      makeRow({
+        machineNo: 'SPK-03',
+        item: { name: 'Spoke 36T', itemCode: 'SP-36', weightPerPiece: 0.05 },
+        targetQuantity: 200,
+        actualQuantity: 200,
+        scrapQuantity: 0,
+      }),
+    ];
+    const items = itemWiseTotals(buildDailyProductionReport(src, opts()));
+    expect(items.map((i) => i.code)).toEqual(['SP-40', 'SP-36']);
+    expect(items[0]).toMatchObject({ actualKg: '75', scrapKg: '0.5' }); // (1000+500)*.05, (4+6)*.05
+    expect(items[1]).toMatchObject({ actualKg: '10', scrapKg: '0' });
+    expect(items[0].actualKgValue).toBeGreaterThan(items[1].actualKgValue);
   });
 
   it('keeps the PDF value free of the glyphs jsPDF cannot embed', () => {
