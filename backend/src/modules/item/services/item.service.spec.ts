@@ -1737,5 +1737,54 @@ describe('ItemService', () => {
       expect(result).toHaveLength(1);
       expect(result[0].itemCode).toBe('WIP-SP-018');
     });
+
+    it('defaults to WIP and RM when departmentId is provided without itemTypes', async () => {
+      service.invalidateLookupCache();
+      repository.query.mockResolvedValue([
+        { id: 'item-1', itemCode: 'WIP-SP-018', name: '225*17 Outer Straight', itemType: 'WORK_IN_PROGRESS', departmentId: 'dept-spk-2' },
+      ]);
+
+      const result = await service.getLookupItems('dept-spk-2');
+      expect(repository.query).toHaveBeenCalledWith(
+        expect.stringContaining('i.department_id = $1 AND i.item_type = ANY($2)'),
+        expect.arrayContaining(['dept-spk-2', ['WORK_IN_PROGRESS', 'WIP', 'RAW_MATERIAL', 'RM']]),
+      );
+      expect(result).toHaveLength(1);
+    });
+
+    it('returns cached results on repeated call with same departmentId', async () => {
+      service.invalidateLookupCache();
+      repository.query.mockResolvedValueOnce([
+        { id: 'item-1', itemCode: 'WIP-SP-018', name: '225*17 Outer Straight', itemType: 'WORK_IN_PROGRESS', departmentId: 'dept-cached' },
+      ]);
+
+      const res1 = await service.getLookupItems('dept-cached');
+      const res2 = await service.getLookupItems('dept-cached');
+
+      expect(res1).toHaveLength(1);
+      expect(res2).toEqual(res1);
+      expect(repository.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('findAll defaults to WIP and RM when departmentId is passed without itemTypes', async () => {
+      const qb: any = {
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+      };
+      repository.createQueryBuilder.mockReturnValue(qb);
+
+      await service.findAll({ departmentId: 'dept-find' });
+
+      expect(qb.andWhere).toHaveBeenCalledWith('item.departmentId = :departmentId', { departmentId: 'dept-find' });
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        'item.itemType IN (:...resolvedTypes)',
+        expect.objectContaining({ resolvedTypes: expect.arrayContaining(['WORK_IN_PROGRESS', 'WIP', 'RAW_MATERIAL', 'RM']) }),
+      );
+    });
   });
 });

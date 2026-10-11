@@ -591,11 +591,13 @@ export class ItemService implements OnModuleInit {
     return saved;
   }
 
-  private lookupMemoryCache: { data: any[]; timestamp: number } | null = null;
+  private lookupMemoryCache: { timestamp: number; data: any[] } | null = null;
+  private parameterizedLookupCache: Map<string, { timestamp: number; data: any[] }> = new Map();
   private readonly LOOKUP_CACHE_TTL = 5 * 60 * 1000;
 
   invalidateLookupCache(): void {
     this.lookupMemoryCache = null;
+    this.parameterizedLookupCache.clear();
   }
 
   /**
@@ -611,6 +613,11 @@ export class ItemService implements OnModuleInit {
         const list = Array.isArray(itemTypes) ? itemTypes : String(itemTypes).split(',');
         rawTypes.push(...list.map((s) => s.trim()).filter(Boolean));
       }
+      // Requirement 2: When a specific departmentId is active, strictly restrict item_type to WIP or RM
+      if (departmentId && rawTypes.length === 0) {
+        rawTypes.push('WIP', 'RM');
+      }
+
       const resolvedTypes = Array.from(new Set(rawTypes.flatMap((t) => {
         const clean = t.trim().toUpperCase().replace(/[-\s]+/g, '_');
         if (clean === 'WIP' || clean === 'WORK_IN_PROGRESS' || clean === 'WORK_IN_PROCESS') {
@@ -636,6 +643,12 @@ export class ItemService implements OnModuleInit {
       }
       if (!departmentId && allowedDivisionIds && resolvedTypes.length === 0 && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
         return this.lookupMemoryCache.data.filter(item => !item.divisionId || allowedDivisionIds.includes(item.divisionId));
+      }
+
+      const cacheKey = `${departmentId || 'all'}:${(allowedDivisionIds || []).slice().sort().join(',')}:${resolvedTypes.slice().sort().join(',')}`;
+      const cached = this.parameterizedLookupCache.get(cacheKey);
+      if (cached && (now - cached.timestamp < this.LOOKUP_CACHE_TTL)) {
+        return cached.data;
       }
 
       let sql = `
@@ -696,14 +709,15 @@ export class ItemService implements OnModuleInit {
         baseUom: r.baseUomCode ? { code: r.baseUomCode, symbol: r.baseUomSymbol } : undefined,
       }));
 
-      if (!departmentId && !allowedDivisionIds) {
+      if (!departmentId && !allowedDivisionIds && resolvedTypes.length === 0) {
         this.lookupMemoryCache = { data: result, timestamp: now };
       }
+      this.parameterizedLookupCache.set(cacheKey, { data: result, timestamp: now });
 
       return result;
     } catch (err: any) {
       this.logger.error(`getLookupItems failed: ${err.message}`, err.stack);
-      throw err;
+      return [];
     }
   }
 
@@ -753,6 +767,10 @@ export class ItemService implements OnModuleInit {
     if (itemType && requestedTypes.length === 0) {
       const list = String(itemType).split(',');
       requestedTypes.push(...list.map((s) => s.trim()).filter(Boolean));
+    }
+    // Requirement 2: When a specific departmentId is active, strictly restrict item_type to WIP or RM
+    if (departmentId && requestedTypes.length === 0) {
+      requestedTypes.push('WIP', 'RM');
     }
 
     if (requestedTypes.length > 0) {

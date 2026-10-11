@@ -277,6 +277,9 @@ export function useLookups() {
   const departmentsForSection = (sectionId?: string) =>
     sectionId ? departments.filter((d) => d.sectionId === sectionId) : departments;
 
+  const departmentsForDivision = (divisionId?: string) =>
+    divisionId ? departments.filter((d) => d.divisionId === divisionId) : departments;
+
   /** UOM options valid for an item: base UOM + any UOM with a defined conversion path. */
   const validUomsForItem = (itemId?: string): UomLk[] => {
     const item = items.find((i) => i.id === itemId);
@@ -295,7 +298,7 @@ export function useLookups() {
     warehouses,
     deptItemsMap, deptItemsLoading, loadDepartmentItems,
     downtimeReasonsLoading, downtimeReasonsFailed, loadDowntimeReasons,
-    loadMachines, sectionsForDivision, departmentsForSection, validUomsForItem,
+    loadMachines, sectionsForDivision, departmentsForSection, departmentsForDivision, validUomsForItem,
     employeesForDepartment, employeeFullName, loadEmployeesForDepartment,
   };
 }

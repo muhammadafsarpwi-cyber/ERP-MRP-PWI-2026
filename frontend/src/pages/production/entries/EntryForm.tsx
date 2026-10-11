@@ -2031,9 +2031,119 @@ const EntryForm: React.FC<EntryFormProps> = ({
     navigate(`/production/entries/select${s ? `?${s}` : ''}`);
   };
 
-  const sectionsFiltered = lookups.sectionsForDivision(divisionId);
-  const departmentsFiltered = lookups.departmentsForSection(sectionId);
-  const machinesForDept = departmentId ? lookups.machines.filter((m) => m.departmentId === departmentId) : [];
+  const sectionsFiltered = useMemo(() => {
+    if (!divisionId) return [];
+    return lookups.sections.filter((s) => s.divisionId === divisionId);
+  }, [divisionId, lookups.sections]);
+
+  const departmentsFiltered = useMemo(() => {
+    if (!divisionId) return [];
+    return lookups.departments.filter((d) => {
+      const matchDiv = !d.divisionId || d.divisionId === divisionId;
+      const matchSec = !sectionId || d.sectionId === sectionId;
+      return matchDiv && matchSec;
+    });
+  }, [divisionId, sectionId, lookups.departments]);
+
+  const machinesForDept = useMemo(() => {
+    if (!departmentId) return [];
+    return lookups.machines.filter((m) => m.departmentId === departmentId);
+  }, [departmentId, lookups.machines]);
+
+  const divisionOptions = useMemo(() => {
+    return lookups.divisions.map((d) => ({
+      value: d.id,
+      label: `${d.name} (${d.divisionCode})`,
+    }));
+  }, [lookups.divisions]);
+
+  const sectionOptions = useMemo(() => {
+    return sectionsFiltered.map((s) => ({
+      value: s.id,
+      label: s.name,
+    }));
+  }, [sectionsFiltered]);
+
+  const departmentOptions = useMemo(() => {
+    return departmentsFiltered.map((d) => ({
+      value: d.id,
+      label: `${d.name}${d.departmentCode && d.departmentCode !== d.name ? ` (${d.departmentCode})` : ''}`,
+    }));
+  }, [departmentsFiltered]);
+
+  const shiftOptions = useMemo(() => {
+    return lookups.shifts.map((s) => ({
+      value: s.id,
+      label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''}) · planned ${s.plannedHours}h`,
+    }));
+  }, [lookups.shifts]);
+
+  const handleDivisionChange = useCallback((newDivId?: string) => {
+    // 1. Instantly reset Section, Department, Machine, and line items in Form
+    form.setFieldsValue({
+      divisionId: newDivId,
+      sectionId: undefined,
+      departmentId: undefined,
+      machineNo: undefined,
+      rawMaterialWarehouseId: undefined,
+      warehouseId: undefined,
+    });
+    // Reset line item products
+    const currentItems = form.getFieldValue('productionItems');
+    if (Array.isArray(currentItems)) {
+      form.setFieldsValue({
+        productionItems: currentItems.map((line: any) => ({
+          ...line,
+          itemId: undefined,
+          uomId: undefined,
+        })),
+        itemId: undefined,
+      });
+    }
+  }, [form]);
+
+  const handleSectionChange = useCallback((newSecId?: string) => {
+    form.setFieldsValue({
+      sectionId: newSecId,
+      departmentId: undefined,
+      machineNo: undefined,
+    });
+    const currentItems = form.getFieldValue('productionItems');
+    if (Array.isArray(currentItems)) {
+      form.setFieldsValue({
+        productionItems: currentItems.map((line: any) => ({
+          ...line,
+          itemId: undefined,
+          uomId: undefined,
+        })),
+        itemId: undefined,
+      });
+    }
+  }, [form]);
+
+  const handleDepartmentChange = useCallback((newDeptId?: string) => {
+    form.setFieldsValue({
+      departmentId: newDeptId,
+      machineNo: undefined,
+    });
+    if (newDeptId) {
+      void lookups.loadDepartmentItems(newDeptId, 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM');
+      void lookups.loadEmployeesForDepartment(newDeptId);
+      void lookups.loadMachines(newDeptId);
+    }
+    const currentItems = form.getFieldValue('productionItems');
+    if (Array.isArray(currentItems)) {
+      form.setFieldsValue({
+        productionItems: currentItems.map((line: any) => ({
+          ...line,
+          itemId: undefined,
+          uomId: undefined,
+        })),
+        itemId: undefined,
+      });
+    }
+  }, [form, lookups]);
+
   const operationsForOrder = (orderDetail?.operations || []).filter(
     (op) => !departmentId || !op.departmentId || op.departmentId === departmentId,
   );
@@ -2223,8 +2333,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
           <Form.Item name="divisionId" label="Division" rules={[{ required: true, message: 'Division is required' }]}>
             <Select
               showSearch optionFilterProp="label" placeholder="Select Division"
-              options={lookups.divisions.map((d) => ({ value: d.id, label: `${d.name} (${d.divisionCode})` }))}
-              onChange={() => { form.setFieldsValue({ sectionId: undefined, departmentId: undefined }); }}
+              options={divisionOptions}
+              onChange={handleDivisionChange}
             />
           </Form.Item>
         </Col>
@@ -2232,9 +2342,9 @@ const EntryForm: React.FC<EntryFormProps> = ({
           <Form.Item name="sectionId" label="Section" rules={[{ required: true, message: 'Section is required' }]}>
             <Select
               showSearch optionFilterProp="label" placeholder="Select Section"
-              disabled={!divisionId}
-              options={sectionsFiltered.map((s) => ({ value: s.id, label: s.name }))}
-              onChange={() => { form.setFieldsValue({ departmentId: undefined }); }}
+              disabled={!divisionId || sectionOptions.length === 0}
+              options={sectionOptions}
+              onChange={handleSectionChange}
             />
           </Form.Item>
         </Col>
@@ -2242,24 +2352,9 @@ const EntryForm: React.FC<EntryFormProps> = ({
           <Form.Item name="departmentId" label="Department" rules={[{ required: true, message: 'Department is required' }]}>
             <Select
               showSearch optionFilterProp="label" placeholder="Select Department"
-              disabled={!sectionId}
-              options={departmentsFiltered.map((d) => ({ value: d.id, label: `${d.name}${d.departmentCode && d.departmentCode !== d.name ? ` (${d.departmentCode})` : ''}` }))}
-              onChange={(newDeptId) => {
-                if (newDeptId) {
-                  void lookups.loadDepartmentItems(newDeptId, 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM');
-                  void lookups.loadEmployeesForDepartment(newDeptId);
-                  form.setFieldsValue({ machineNo: undefined });
-                  const currentItems = form.getFieldValue('productionItems');
-                  if (Array.isArray(currentItems)) {
-                    const resetLines = currentItems.map((line: any) => ({
-                      ...line,
-                      itemId: undefined,
-                      uomId: undefined,
-                    }));
-                    form.setFieldsValue({ productionItems: resetLines, itemId: undefined });
-                  }
-                }
-              }}
+              disabled={!divisionId || departmentOptions.length === 0}
+              options={departmentOptions}
+              onChange={handleDepartmentChange}
             />
           </Form.Item>
         </Col>
@@ -2274,10 +2369,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
               showSearch optionFilterProp="label" placeholder="Select Shift"
               popupMatchSelectWidth={false}
               styles={{ popup: { root: { minWidth: 380 } } }}
-              options={lookups.shifts.map((s) => ({
-                value: s.id,
-                label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''}) · planned ${s.plannedHours}h`,
-              }))}
+              options={shiftOptions}
             />
           </Form.Item>
         </Col>
@@ -2630,6 +2722,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           remove={() => remove(f.name)}
                           mode={mode}
                           effectiveDeptId={effectiveDeptId}
+                          isProductionItem={isProductionItem}
                         />
                       ))}
                       {multiItemAggregate && fields.length > 0 && (() => {
@@ -5032,7 +5125,8 @@ const ProductionItemLine: React.FC<{
   remove: () => void;
   mode?: string;
   effectiveDeptId?: string;
-}> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, machineTargetItems = [], isFullDowntime = false, remove, mode = 'create', effectiveDeptId }) => {
+  isProductionItem?: (i: any, targetDeptId?: string) => boolean;
+}> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, machineTargetItems = [], isFullDowntime = false, remove, mode = 'create', effectiveDeptId, isProductionItem }) => {
   const lineItemId = Form.useWatch(['productionItems', fieldName, 'itemId']);
   const lineActualQty = Form.useWatch(['productionItems', fieldName, 'actualQuantity']);
   const lineScrapQty = Form.useWatch(['productionItems', fieldName, 'scrapQuantity']);
@@ -5125,17 +5219,14 @@ const ProductionItemLine: React.FC<{
     if (mode === 'create' && effectiveDeptId) {
       const itemDeptId = saved.departmentId ?? (saved as any)?.department?.id;
       if (itemDeptId && itemDeptId !== effectiveDeptId) return null;
-      const type = (saved.itemType || (saved as any)?.type || '').toUpperCase().trim();
-      const code = (saved.itemCode || (saved as any)?.code || '').toUpperCase().trim();
-      const isWipOrRm = type === 'WORK_IN_PROGRESS' || type === 'WIP' || type === 'RAW_MATERIAL' || type === 'RM' || code.startsWith('WIP-') || code.startsWith('RM-');
-      if (!isWipOrRm) return null;
+      if (isProductionItem && !isProductionItem(saved, effectiveDeptId)) return null;
     }
     return {
       value: lineItemId,
       label: `${saved.name} (${saved.itemCode})`,
       title: `${saved.name} (${saved.itemCode})`,
     };
-  }, [lineItemId, lineItem, lookups.items, mode, effectiveDeptId]);
+  }, [lineItemId, lineItem, lookups.items, mode, effectiveDeptId, isProductionItem]);
 
   // Group items in dropdown: machine target items first!
   const selectOptions = useMemo(() => {
